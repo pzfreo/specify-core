@@ -125,9 +125,9 @@ and skip without them.
 
 ## Licence
 
-Copyright (C) 2026 Paul Fremantle. Licensed under the GNU Affero General Public
-License v3.0 or later: see [LICENSE](LICENSE) and [NOTICE](NOTICE). For other
-licensing terms, get in touch.
+Copyright (C) 2026 Betwixt Limited (trading as Draftwright). Licensed under the
+GNU Affero General Public License v3.0 or later: see [LICENSE](LICENSE) and
+[NOTICE](NOTICE). For other licensing terms, get in touch.
 
 Contributions are welcome. So that the project can continue to be offered
 under other terms as well, contributors will be asked to agree to a contributor
