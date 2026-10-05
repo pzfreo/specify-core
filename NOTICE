@@ -1,0 +1,16 @@
+specify-core
+Copyright (C) 2026 Paul Fremantle
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version. See LICENSE.
+
+Third-party material:
+
+- src/specify_core/fonts/futural.jhf is the Hershey "Futura Light" single-stroke
+  font in James Hurt's format, from https://github.com/kamalmostafa/hershey-fonts.
+  The Hershey Fonts were originally created by Dr. A. V. Hershey while working
+  at the U. S. National Bureau of Standards. The format of the Font data in this
+  distribution was originally created by James Hurt, Cognition, Inc., 900
+  Technology Park Drive, Billerica, MA 01821 (mit-eddie!ci-dandelion!hurt).

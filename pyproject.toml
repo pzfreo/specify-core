@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "specify-core"
+version = "0.1.0"
+description = "Interview-driven PMI authoring: recognise features, ask for missing intent, write AP242 semantic PMI"
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Paul Fremantle" }]
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "quiddity>=0.3.9",
+    # As Draftwright does: build123d 0.10 pulls cadquery-ocp, whose VTK stops at
+    # Python 3.12; 0.11 uses cadquery-ocp-novtk, with 3.13 and 3.14 wheels.
+    "build123d>=0.10,<0.11 ; python_full_version < '3.13'",
+    "build123d>=0.11,<0.12 ; python_full_version >= '3.13'",
+    # cadquery-ocp-novtk 7.9.3.1.1 is missing OCP.GccEnt (Quiddity excludes it
+    # too). A dependency rather than a uv constraint, so consumers inherit it.
+    "cadquery-ocp-novtk!=7.9.3.1.1 ; python_full_version >= '3.13'",
+]
+
+[project.scripts]
+specify-core = "specify_core.cli:main"
+# The name it was first released under, kept for hosts that still run it.
+pmi-assist = "specify_core.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.9"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/specify_core"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

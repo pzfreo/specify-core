@@ -1,0 +1,66 @@
+# Check specify-core's PMI with a tool that is not ours, beside what a CAD
+# system wrote for the same parts: FreeCAD's MBD workbench (AP242 semantic
+# import). Run by hand, or by a change to it; reports are artifacts.
+#
+# NIST's STEP File Analyzer (CAx-IF conformance) is not run here: it crashes
+# on "Connecting to IFCsvr" on GitHub's Windows Server runners, NIST's own
+# files included, and NIST does not support Windows Server. Run it on Windows
+# 10/11 against the corpus artifact: sfa-cl.exe FILE.step csv noopen
+name: PMI conformance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - tools/conformance/**
+      - .github/workflows/conformance.yml
+
+permissions:
+  contents: read
+
+env:
+  NIST_ZIP: https://github.com/usnistgov/SFA/raw/master/Release/NIST-PMI-STEP-Files.zip
+  MBD_REPO: https://github.com/ChipsWoodShop/FreeCAD-MBDWorkbench
+  MBD_SHA: 5055b13
+
+jobs:
+  corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+      - name: NIST PMI test files
+        run: |
+          curl -sSfL -o nist.zip "$NIST_ZIP"
+          python3 -c "import zipfile; zipfile.ZipFile('nist.zip').extractall('nist')"
+      - name: Write the corpus
+        run: uv run --frozen python tools/conformance/make_corpus.py nist corpus
+      - uses: actions/upload-artifact@v4
+        with:
+          name: corpus
+          path: corpus
+
+  mbd:
+    needs: corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: corpus
+          path: corpus
+      - name: FreeCAD MBD workbench import preview
+        run: |
+          git clone -q "$MBD_REPO" mbd && git -C mbd checkout -q "$MBD_SHA"
+          python3 tools/conformance/mbd_report.py mbd corpus | tee mbd-report.md
+          { echo "## FreeCAD MBD workbench"; cat mbd-report.md; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mbd-report
+          path: mbd-report.md

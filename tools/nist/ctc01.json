@@ -1,0 +1,74 @@
+{
+  "start": "nist_ctc_01_asme1_rd.stp",
+  "truth": "nist_ctc_01_asme1_ap242-e1.stp",
+  "answers": {
+    "part.material": "Aluminium 6061-T6",
+    "datum.A": [
+      3
+    ],
+    "datum.B": [
+      77
+    ],
+    "datum.C": [
+      79
+    ],
+    "datum.A.flatness": "0.2",
+    "hole.position:hole_patterns.rectangle:81.82.83.84": "none",
+    "extra.1": {
+      "faces": [
+        22,
+        23
+      ],
+      "kind": "profile",
+      "value": "1.25",
+      "datums": [
+        "A",
+        "B",
+        "C"
+      ]
+    },
+    "extra.2": {
+      "faces": [
+        61,
+        62,
+        63,
+        64,
+        65,
+        66
+      ],
+      "kind": "profile",
+      "value": "0.5",
+      "datums": [
+        "A"
+      ]
+    },
+    "extra.3": {
+      "faces": [
+        24
+      ],
+      "kind": "perpendicularity",
+      "value": "1.5",
+      "datums": [
+        "A"
+      ]
+    }
+  },
+  "notes": {
+    "Location_None@37,41": "DIMENSIONAL_LOCATION with no DIMENSIONAL_CHARACTERISTIC_REPRESENTATION: NIST gives the value only graphically",
+    "Location_None@84,88": "DIMENSIONAL_LOCATION with no DIMENSIONAL_CHARACTERISTIC_REPRESENTATION: NIST gives the value only graphically",
+    "Location_Angular@15,17": "no angle between faces can be given (#61)",
+    "Size_Diameter@89,90": "± on a size: fits only (#18)",
+    "Size_Diameter@75,76": "± on a size: fits only (#18)",
+    "Size_Diameter@52,53": "± on a size (#18); the two Ø20 holes are one set with one answer, NIST tolerances each differently (#17)",
+    "Size_Diameter@50,51": "± on a size (#18); one set, two answers (#17)",
+    "Size_Diameter@71,72": "the AP242 gives Ø35 ±0.2 as limits, 35.2 and 34.8",
+    "Size_Diameter@73,74": "the AP242 gives Ø35 ±0.2 as limits, 35.2 and 34.8",
+    "Location_None@89,90": "a DIMENSIONAL_SIZE with no DIMENSIONAL_CHARACTERISTIC_REPRESENTATION, which OCCT reads as a location",
+    "Location_None@75,76": "a DIMENSIONAL_SIZE with no DIMENSIONAL_CHARACTERISTIC_REPRESENTATION, which OCCT reads as a location",
+    "Size_Diameter@91,92": "± on a size (#18); the default is an M24 clearance hole, H11",
+    "Position@37,41": "position of a width feature (a tab between two faces): positions are asked of holes only (#62)",
+    "Position@84,88": "position of a slot's width: positions are asked of holes only (#62)",
+    "B@89,90": "proposed as the flat face 48; NIST uses the Ø35 hole",
+    "C@75,76": "proposed as the flat face 36; NIST uses the Ø35 hole"
+  }
+}

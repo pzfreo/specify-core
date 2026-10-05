@@ -1,0 +1,469 @@
+"""Write what OCCT cannot: threads, knurls and the general tolerance.
+
+OCCT's XCAF has no entity for a thread, a knurl or a general tolerance, so
+after OCCT writes the file these are appended to its Part 21 text, each twice:
+
+* **Draftwright's text route.** ``PROPERTY_DEFINITION('manufacturing
+  requirement', <kind>, #product_definition)`` with one descriptive item
+  holding a sentence, and -- for one on a face -- a shape aspect on the face
+  linked to a ``DRAUGHTING_CALLOUT`` named after the requirement, whose
+  presentation is a leader. Draftwright reads these today. The sentences
+  follow the forms its parser accepts (``pmi_lowering.py``), but state only
+  what is known: a drill point only for a drilled hole, chamfers only when
+  there are some. A sentence without them is honest and, until Draftwright
+  accepts the shorter forms, left unread there.
+* **Standard constructs.** A CAx-IF user defined attribute (UDA practice
+  v1.8) with the values as separate named items -- the names from AP242's own
+  ``thread`` and ``turned_knurl`` -- on a shape aspect of its own, as OCCT's
+  reader ignores PMI-linked ones; and the CAx-IF PMI practice's 'default
+  tolerances' property with its 'tolerance class'. No ``default_tolerance_table``
+  is written: its cells hold decimal places or limits, not a class.
+
+Each new datum also gets a datum feature symbol, linked to its
+``DATUM_FEATURE``: a viewer that shows only presentation then shows the datum
+where the symbol is. Nothing else is drawn as text; Draftwright reads none of
+the presentation.
+
+Faces are found in the written file the way Draftwright resolves them: each
+``ADVANCED_FACE`` is transferred and matched to the imported face, with
+placement stripped so parts inside an assembly resolve too. In a file OCCT has
+just written, an entity's rank is its ``#`` id; that is checked, not assumed.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from OCP.Bnd import Bnd_Box
+from OCP.BRep import BRep_Tool
+from OCP.BRepBndLib import BRepBndLib
+from OCP.STEPControl import STEPControl_Reader
+from OCP.TopAbs import TopAbs_FACE, TopAbs_VERTEX
+from OCP.TopExp import TopExp, TopExp_Explorer
+from OCP.TopLoc import TopLoc_Location
+from OCP.TopoDS import TopoDS
+from OCP.TopTools import TopTools_IndexedMapOfShape
+
+from . import lettering
+from .load import LoadedPart
+
+KINDS = {"internal": "internal thread", "external": "external thread"}
+#: The part's notes, each written as a manufacturing requirement of this kind.
+PART_NOTES = {
+    # As Draftwright reads a document default (its GRM-03 fixture): the only
+    # 'surface texture' in the file, "Ra 3.2 µm unless otherwise specified". A
+    # finish on faces is a 'surface finish', or the two would be ambiguous.
+    "surface_finish": "surface texture",
+    "coating": "surface treatment",
+    "heat_treatment": "heat treatment",
+    "edges": "edge condition",
+}
+
+Point = tuple[float, float, float]
+
+_ENTITY = re.compile(r"#(\d+)\s*=\s*(.*?);(?=\s*#\d+\s*=|\s*ENDSEC)", re.S)
+
+
+@dataclass
+class Appended:
+    """What was added, for the report and for verification."""
+
+    texts: dict[str, str]  # requirement kind -> sentence, one per requirement
+    faces: dict[str, list[int]]  # requirement label -> face indices it is on
+    count: int
+
+
+def sentence(req: dict[str, Any]) -> str:
+    """The requirement as a sentence in the form Draftwright reads."""
+    if req["kind"] == "thread" and req["side"] == "external":
+        return (
+            f"{req['designation']} x {req['pitch']:g}-{req['class']} {req['hand']}, "
+            f"full available length on nominal DIA {req['nominal']:g} region"
+        )
+    if req["kind"] == "thread":
+        head = f"{req['designation']} x {req['pitch']:g}-{req['class']} {req['hand']}"
+        if req.get("through"):
+            return (
+                f"{head}, full thread through; DIA {req['drill_diameter']:g} tapping drill through"
+            )
+        text = (
+            f"{head}, {req['full_thread']:g} mm minimum full thread; "
+            f"DIA {req['drill_diameter']:g} tapping drill x {req['drill_depth']:g} mm "
+            "full-diameter depth"
+        )
+        return text + ("; conventional 118 degree drill point" if req.get("drill_point") else "")
+    if req["kind"] == "knurl":
+        chamfer = f", full width between C{req['chamfer']:g} chamfers" if req.get("chamfer") else ""
+        return (
+            f"{req['pattern'].capitalize()} knurl, {req['pitch']:g} mm pitch{chamfer}, "
+            f"DIA {req['diameter']:g} mm maximum after knurling; cut or formed process permitted"
+        )
+    if req["kind"] == "finish":
+        return f"{req['value']} µm"
+    if req["kind"] == "surface texture":
+        return f"{req['value']} µm unless otherwise specified"
+    if req["kind"] in PART_NOTES.values():
+        return str(req["value"])
+    raise ValueError(f"no sentence for {req['kind']!r}")
+
+
+def attributes(req: dict[str, Any]) -> list[tuple[str, str | float]]:
+    """The UDA items: names from AP242's thread and turned_knurl parameters."""
+    if req["kind"] == "thread":
+        items: list[tuple[str, str | float]] = [
+            ("thread side", req["side"]),
+            ("designation", f"{req['designation']}x{req['pitch']:g}"),
+            ("nominal size", req["designation"]),
+            ("pitch", float(req["pitch"])),
+            ("fit class", req["class"]),
+            ("hand", "right" if req["hand"] == "RH" else "left"),
+        ]
+        if req["side"] == "internal":
+            items.append(("tapping drill diameter", float(req["drill_diameter"])))
+            if req.get("through"):
+                items.append(("through", "true"))
+            else:
+                items += [
+                    ("tapping drill depth", float(req["drill_depth"])),
+                    ("minimum full thread", float(req["full_thread"])),
+                ]
+        elif req.get("length") is not None:
+            items.append(("thread length", float(req["length"])))
+        return items
+    return [
+        ("pattern", req["pattern"]),
+        ("diametral pitch", float(req["pitch"])),
+        ("major diameter", float(req["diameter"])),
+    ]
+
+
+def face_entities(path: str | Path) -> dict[int, int]:
+    """Face index -> ``#id`` of its ADVANCED_FACE in ``path``.
+
+    OCCT numbers entities by rank, their order in the file; a file OCCT did not
+    write need not number them in order, so ranks are mapped to ids.
+    """
+    ids = [int(i) for i, _ in entities_of(Path(path).read_text(errors="replace"))]
+    reader = STEPControl_Reader()
+    reader.ReadFile(str(path))
+    reader.TransferRoots()
+    located = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(reader.OneShape(), TopAbs_FACE, located)
+    faces = TopTools_IndexedMapOfShape()
+    for k in range(1, located.Extent() + 1):
+        faces.Add(located.FindKey(k).Located(TopLoc_Location()))
+    model = reader.StepModel()
+    out: dict[int, int] = {}
+    for rank in range(1, model.NbEntities() + 1):
+        if model.Value(rank).DynamicType().Name() != "StepShape_AdvancedFace":
+            continue
+        before = reader.NbShapes()
+        if reader.TransferOne(rank) and reader.NbShapes() == before + 1:
+            index = faces.FindIndex(reader.Shape(reader.NbShapes()).Located(TopLoc_Location()))
+            if index > 0:
+                out[index - 1] = ids[rank - 1]
+    return out
+
+
+def entities_of(text: str) -> list[tuple[str, str]]:
+    """``(id, body)`` of each entity in a Part 21 file, in file order, each on one line."""
+    return _ENTITY.findall(re.sub(r"\s*\n\s*", " ", text))
+
+
+def append(
+    path: Path, loaded: LoadedPart, intent, existing: frozenset[str] = frozenset()
+) -> Appended:
+    """Append the requirements of ``intent`` that OCCT cannot write to ``path``, and a
+    datum feature symbol for each datum not lettered in ``existing`` (the file's own)."""
+    reqs = [r for r in intent.requirements if r["kind"] in ("thread", "knurl", "finish")]
+    general = intent.part.get("general_tolerance")
+    notes = {kind: intent.part[key] for key, kind in PART_NOTES.items() if intent.part.get(key)}
+    datums = [
+        d
+        for d in intent.datums
+        if d["letter"] not in existing and not d.get("existing") and d.get("faces")
+    ]
+    if not reqs and not general and not notes and not datums:
+        return Appended({}, {}, 0)
+
+    text = path.read_text()
+    entities = {int(i): body for i, body in entities_of(text)}
+    ids = _anchors(entities)
+    faces = face_entities(path)
+    for face in faces.values():
+        if not entities.get(face, "").startswith("ADVANCED_FACE("):
+            raise RuntimeError(f"entity #{face} is not the face OCCT's reader says it is")
+
+    out = _Part21(max(entities) + 1)
+    style = out.add(
+        "PRESENTATION_STYLE_ASSIGNMENT((#{}))".format(
+            out.add(
+                "CURVE_STYLE('',#{},POSITIVE_LENGTH_MEASURE(0.35),#{})".format(
+                    out.add("DRAUGHTING_PRE_DEFINED_CURVE_FONT('continuous')"),
+                    out.add("DRAUGHTING_PRE_DEFINED_COLOUR('black')"),
+                )
+            )
+        )
+    )
+    texts: dict[str, str] = {}
+    on_faces: dict[str, list[int]] = {}
+    links: list[tuple[int, int]] = []
+    for req in reqs:
+        kind = {"thread": KINDS.get(req.get("side", ""), ""), "knurl": "knurl"}.get(
+            req["kind"], "surface finish"
+        )
+        words = sentence(req)
+        label = f"{kind} {len(texts) + 1}"
+        texts[label] = words
+        on_faces[label] = list(req["faces"])
+        _text_route(out, ids, kind, words)
+        aspect = _aspect(out, ids, faces, kind, req["faces"])
+        name = kind.capitalize() + " requirement"
+        callout = _callout(out, "note", name, style, [list(_leader(loaded, req["faces"][0]))])
+        links.append((aspect, callout))
+        if req["kind"] != "finish":
+            _attributes(out, ids, faces, kind, req)
+    for kind, words in notes.items():
+        texts[kind] = sentence({"kind": kind, "value": words})
+        _text_route(out, ids, kind, texts[kind])
+    if general:
+        texts["general tolerances"] = general
+        _text_route(out, ids, "general tolerances", general)
+        _default_tolerances(out, ids, general)
+    # A viewer reading only presentation shows a datum where its symbol is: the
+    # symbol linked to the datum feature gives the datum a position.
+    features = _datum_features(entities)
+    symbols = _DatumSymbols(loaded.shape)
+    for d in datums:
+        if d["letter"] in features:
+            lines = symbols.draw(_tip(loaded, d["faces"][0]), d["letter"])
+            callout = _callout(out, "datum", f"Datum {d['letter']}", style, lines)
+            links.append((features[d["letter"]], callout))
+    if links:
+        model = out.add(
+            "DRAUGHTING_MODEL('',({}),#{})".format(
+                ",".join(f"#{c}" for _, c in links), ids["context"]
+            )
+        )
+        for aspect, callout in links:
+            out.add(
+                "DRAUGHTING_MODEL_ITEM_ASSOCIATION('PMI representation to presentation link',"
+                f"'',#{aspect},#{model},#{callout})"
+            )
+
+    marker = re.search(r"\nENDSEC;\s*\nEND-ISO-10303-21;\s*$", text)
+    if marker is None:
+        raise RuntimeError(f"{path} does not end as OCCT writes a Part 21 file")
+    path.write_text(text[: marker.start()] + "\n" + "\n".join(out.lines) + text[marker.start() :])
+    return Appended(texts, on_faces, len(out.lines))
+
+
+class _Part21:
+    def __init__(self, first: int) -> None:
+        self.next = first
+        self.lines: list[str] = []
+
+    def add(self, body: str) -> int:
+        self.lines.append(f"#{self.next}={body};")
+        self.next += 1
+        return self.next - 1
+
+
+def _s(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
+def _anchors(entities: dict[int, str]) -> dict[str, int]:
+    """The ids appended entities hang off: the representation holding the solid and
+    its context, its product_definition_shape and product_definition, and mm."""
+
+    def refs(i):
+        return [int(x) for x in re.findall(r"#(\d+)", entities[i])]
+
+    # The representation holding the solid: an ADVANCED_BREP_SHAPE_REPRESENTATION,
+    # or a plain SHAPE_REPRESENTATION where the file had only that (NIST CTC-05).
+    # A plain one may also list the solid beside it (NIST CTC-03).
+    solids = {i for i, b in entities.items() if b.startswith("MANIFOLD_SOLID_BREP(")}
+    breps = []
+    for kind in ("ADVANCED_BREP_SHAPE_REPRESENTATION(", "SHAPE_REPRESENTATION("):
+        breps = breps or [
+            i for i, b in entities.items() if b.startswith(kind) and solids & set(refs(i))
+        ]
+    if len(breps) != 1:
+        raise RuntimeError(f"expected one B-rep representation, found {len(breps)}")
+    brep = breps[0]
+    related = {brep} | {
+        r
+        for i, b in entities.items()
+        if "REPRESENTATION_RELATIONSHIP" in b and brep in refs(i)
+        for r in refs(i)
+    }
+    # The solid's own definition first: in a part stored as an assembly holding
+    # one solid, the assembly's shape is related to the solid's too.
+    sdrs = sorted(
+        (
+            i
+            for i, b in entities.items()
+            if b.startswith("SHAPE_DEFINITION_REPRESENTATION(") and refs(i)[1] in related
+        ),
+        key=lambda i: refs(i)[1] != brep,
+    )
+    if not sdrs:
+        raise RuntimeError("no product definition has the B-rep representation")
+    pds = refs(sdrs[0])[0]
+    mm = next(
+        (i for i, b in entities.items() if "SI_UNIT(.MILLI.,.METRE.)" in b.replace(" ", "")),
+        None,
+    )
+    return {
+        "brep": brep,
+        "context": refs(brep)[-1],
+        "pds": pds,
+        "pd": refs(pds)[-1],
+        "mm": mm,
+    }
+
+
+def _text_route(out: _Part21, ids, kind: str, words: str) -> None:
+    item = out.add(f"DESCRIPTIVE_REPRESENTATION_ITEM({_s(kind)},{_s(words)})")
+    rep = out.add(f"REPRESENTATION({_s(kind + ' requirement')},(#{item}),#{ids['context']})")
+    prop = out.add(f"PROPERTY_DEFINITION('manufacturing requirement',{_s(kind)},#{ids['pd']})")
+    out.add(f"PROPERTY_DEFINITION_REPRESENTATION(#{prop},#{rep})")
+
+
+def _aspect(out: _Part21, ids, faces, kind: str, face_ids) -> int:
+    aspect = out.add(f"SHAPE_ASPECT({_s(kind)},'',#{ids['pds']},.T.)")
+    for i in face_ids:
+        out.add(
+            f"GEOMETRIC_ITEM_SPECIFIC_USAGE({_s(kind)},'',#{aspect},#{ids['brep']},#{faces[i]})"
+        )
+    return aspect
+
+
+def _callout(out: _Part21, kind: str, name: str, style: int, lines) -> int:
+    """A callout drawn as polylines ``lines``, one tessellated curve set."""
+    points = [p for line in lines for p in line]
+    coordinates = out.add(
+        "COORDINATES_LIST('',{},({}))".format(
+            len(points), ",".join("({:.4f},{:.4f},{:.4f})".format(*p) for p in points)
+        )
+    )
+    spans, first = [], 1
+    for line in lines:
+        spans.append("(" + ",".join(str(first + k) for k in range(len(line))) + ")")
+        first += len(line)
+    curve = out.add(f"TESSELLATED_CURVE_SET('',#{coordinates},({','.join(spans)}))")
+    # Named as the CAx-IF presentation practice requires (8.1.1, 8.4): the set
+    # by its PMI type, the occurrence as its callout.
+    geometry = out.add(f"TESSELLATED_GEOMETRIC_SET({_s(kind)},(#{curve}))")
+    occurrence = out.add(f"TESSELLATED_ANNOTATION_OCCURRENCE({_s(name)},(#{style}),#{geometry})")
+    return out.add(f"DRAUGHTING_CALLOUT({_s(name)},(#{occurrence}))")
+
+
+def _attributes(out: _Part21, ids, faces, kind: str, req) -> None:
+    aspect = _aspect(out, ids, faces, kind, req["faces"])
+    items = []
+    for name, value in attributes(req):
+        if isinstance(value, float):
+            items.append(
+                out.add(
+                    f"MEASURE_REPRESENTATION_ITEM({_s(name)},LENGTH_MEASURE({value!r}),#{ids['mm']})"
+                )
+            )
+        else:
+            items.append(out.add(f"DESCRIPTIVE_REPRESENTATION_ITEM({_s(name)},{_s(value)})"))
+    prop = out.add(f"PROPERTY_DEFINITION({_s(kind)},'pmi-assist',#{aspect})")
+    general = out.add("GENERAL_PROPERTY('','user defined attribute',$)")
+    out.add(f"GENERAL_PROPERTY_ASSOCIATION('',$,#{general},#{prop})")
+    rep = out.add(
+        f"REPRESENTATION({_s(kind)},({','.join(f'#{i}' for i in items)}),#{ids['context']})"
+    )
+    out.add(f"PROPERTY_DEFINITION_REPRESENTATION(#{prop},#{rep})")
+
+
+def _default_tolerances(out: _Part21, ids, tolerance_class: str) -> None:
+    context = out.add("REPRESENTATION_CONTEXT('','default setting')")
+    item = out.add(f"DESCRIPTIVE_REPRESENTATION_ITEM('tolerance class',{_s(tolerance_class)})")
+    rep = out.add(f"REPRESENTATION('default tolerances',(#{item}),#{context})")
+    prop = out.add(f"PROPERTY_DEFINITION('default tolerances','',#{ids['pds']})")
+    out.add(f"PROPERTY_DEFINITION_REPRESENTATION(#{prop},#{rep})")
+
+
+def _leader(loaded: LoadedPart, face_id: int):
+    """A leader from a point on the face out to where its label would sit. The
+    presentation only says where; the semantics are in the text and the UDA."""
+    tip = _tip(loaded, face_id)
+    return ((tip[0] + 10, tip[1], tip[2] + 10), tip)
+
+
+def _tip(loaded: LoadedPart, face_id: int) -> Point:
+    """A point on the face for a leader to end at: one of its vertices."""
+    explorer = TopExp_Explorer(loaded.face(face_id), TopAbs_VERTEX)
+    p = BRep_Tool.Pnt_s(TopoDS.Vertex_s(explorer.Current()))
+    return (p.X(), p.Y(), p.Z())
+
+
+def _datum_features(entities: dict[int, str]) -> dict[str, int]:
+    """Datum letter -> the DATUM_FEATURE it is established by, in a file OCCT wrote."""
+    letters = {
+        i: m.group(1)
+        for i, body in entities.items()
+        if body.startswith("DATUM(") and (m := re.search(r"'([^']*)'\s*\)$", body))
+    }
+    out: dict[str, int] = {}
+    for body in entities.values():
+        if body.startswith("SHAPE_ASPECT_RELATIONSHIP("):
+            feature, datum = (int(x) for x in re.findall(r"#(\d+)", body)[-2:])
+            if datum in letters and entities.get(feature, "").startswith("DATUM_FEATURE("):
+                out.setdefault(letters[datum], feature)
+    return out
+
+
+class _DatumSymbols:
+    """Datum feature symbols -- the letter boxed, a stem to a triangle on the face --
+    standing above the part in the plane of its two longest extents, on the side
+    that plane faces, sized to the part and kept off one another."""
+
+    def __init__(self, shape) -> None:
+        box = Bnd_Box()
+        BRepBndLib.Add_s(shape, box)
+        lo, hi = box.CornerMin(), box.CornerMax()
+        self.lo, self.hi = (lo.X(), lo.Y(), lo.Z()), (hi.X(), hi.Y(), hi.Z())
+        extent = [self.hi[k] - self.lo[k] for k in range(3)]
+        self.u, self.v, self.w = sorted(range(3), key=lambda k: -extent[k])
+        # Toward the viewer: u x v, which is +w for a cyclic order.
+        cyclic = (self.u, self.v, self.w) in ((0, 1, 2), (1, 2, 0), (2, 0, 1))
+        self.depth = self.hi[self.w] if cyclic else self.lo[self.w]
+        diagonal = sum(e * e for e in extent) ** 0.5
+        self.height = min(max(diagonal / 30, 0.5), 5.0)
+        self.right = self.lo[self.u] - diagonal  # the last symbol's right edge
+
+    def _at(self, a: float, b: float) -> Point:
+        p = [0.0, 0.0, 0.0]
+        p[self.u], p[self.v], p[self.w] = a, b, self.depth
+        return (p[0], p[1], p[2])
+
+    def _off(self, tip: Point, a: float, b: float) -> Point:
+        p = list(tip)
+        p[self.u] += a
+        p[self.v] += b
+        return (p[0], p[1], p[2])
+
+    def draw(self, tip: Point, letter: str) -> list[list[Point]]:
+        size = 1.6 * self.height
+        left = max(tip[self.u] - size / 2, self.right + size / 2)
+        self.right = left + size
+        bottom = self.hi[self.v] + size
+        box = [self._at(left, bottom), self._at(left + size, bottom)]
+        box += [self._at(left + size, bottom + size), self._at(left, bottom + size), box[0]]
+        strokes, width = lettering.line(letter, self.height)
+        a, b = left + (size - width) / 2, bottom + (size - self.height) / 2
+        drawn = [[self._at(a + x, b + y) for x, y in s] for s in strokes]
+        h = self.height / 2
+        triangle = [self._off(tip, -h, 0), self._off(tip, h, 0), self._off(tip, 0, h)]
+        triangle.append(triangle[0])
+        stem = [self._at(left + size / 2, bottom), self._off(tip, 0, h)]
+        return [box, *drawn, stem, triangle]
