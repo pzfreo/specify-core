@@ -186,3 +186,11 @@ def test_a_datum_a_call_out_is_measured_from_is_used(plate_analysis):
         p for p in problems(plate_analysis, {**plain, **answers}) if "not used" in p["message"]
     ]
     assert not any(p["about"] == "datum.A" for p in unused)
+
+
+@pytest.mark.parametrize("value", ["Ra 0.8", ["finish"], None, 3])
+def test_an_added_requirement_that_is_not_an_object_is_refused(plate_analysis, value):
+    with pytest.raises(ValueError, match="extra.finish1"):
+        questions(plate_analysis, {"extra.finish1": value})
+    with pytest.raises(ValueError, match="extra.finish1"):
+        apply(plate_analysis, {**MATERIAL, "extra.finish1": value}, accept_defaults=True)

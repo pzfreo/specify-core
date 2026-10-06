@@ -260,6 +260,10 @@ def _questions(
             )
         )
     out = [q for q in out if not stated.get(q.id.removeprefix("part."))]
+    # An added requirement that is not one is refused, not silently left out.
+    for key, value in answers.items():
+        if key.startswith(extras.PREFIX) and not isinstance(value, dict):
+            raise ValueError(f"{key}: an added requirement is an object, not {value!r}")
     for key, extra in extras.given(answers):
         extras.check(key, extra, faces)
     asked_datums = _datum_questions(faces, features, answers, in_file, propose=propose)
