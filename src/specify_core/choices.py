@@ -135,7 +135,10 @@ def interpret(qid: str, text: str, options, diameter: float | None) -> str:
 
 def check(qid: str, value: Any, options, diameter: float | None) -> None:
     """Refuse an answer that is neither offered nor a spec that fits the feature."""
-    if value in options or not isinstance(value, str):
+    if not isinstance(value, str):
+        # JSON answers can be any type; a choice's are offered or typed text.
+        raise SpecError(f"{qid}: an answer is text, not {type(value).__name__} {value!r}.")
+    if value in options:
         return
     if interpret(qid, value, options, diameter) != value:
         raise SpecError(f"{value!r} is not an answer; it reads as something else.")
