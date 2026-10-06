@@ -92,3 +92,10 @@ def test_unanswered_questions_are_listed():
 def test_a_crash_inside_one_request_is_reported():
     out = reply({"id": 9, "op": "analyse", "step": "/no/such/file.step"})
     assert out["ok"] is False and out["error"]["code"] in ("failed", "invalid")
+
+
+def test_a_line_that_is_not_an_object_is_refused_and_the_child_survives(child):
+    for line in ([], None, 3, "hello"):
+        out = child(line)
+        assert out["ok"] is False and out["error"]["code"] == "invalid", out
+    assert child({"id": 9, "op": "hello"})["result"]["protocol"] == 1
