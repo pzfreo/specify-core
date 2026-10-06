@@ -12,6 +12,7 @@ it is a clearance, tapped or fitted hole, and on which datums exist).
 from __future__ import annotations
 
 import math
+import reprlib
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -263,7 +264,7 @@ def _questions(
     # An added requirement that is not one is refused, not silently left out.
     for key, value in answers.items():
         if key.startswith(extras.PREFIX) and not isinstance(value, dict):
-            raise ValueError(f"{key}: an added requirement is an object, not {value!r}")
+            raise ValueError(f"{key}: an added requirement is an object, not {reprlib.repr(value)}")
     for key, extra in extras.given(answers):
         extras.check(key, extra, faces)
     asked_datums = _datum_questions(faces, features, answers, in_file, propose=propose)

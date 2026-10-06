@@ -164,11 +164,53 @@ def test_a_failed_write_leaves_the_destination_and_the_source(plate, tmp_path, m
     assert sorted(p.name for p in tmp_path.iterdir()) == ["out.step", "part.step"]
 
 
-def test_writing_over_the_source_is_safe(plate, tmp_path):
-    import shutil
+def test_a_failed_merge_leaves_a_part_with_pmi_as_it_was(plate, tmp_path, monkeypatch):
+    """The transplant path (a part that already has PMI, not ours to resume) is
+    staged too, and its scratch file goes with the staged one."""
+    from specify_core import merge, writer
 
     source = tmp_path / "part.step"
-    shutil.copy(plate, source)
-    report = write(source, _plate_intent(source), source)
-    assert report.output == source and source.read_text().count("DATUM(") >= 1
+    write(plate, _plate_intent(plate), source)  # PMI, and no answers to resume
+    assert merge.carries_pmi(source)
+    before = source.read_bytes()
+    intent = apply(analyse(source), {"part.material": "steel"}, accept_defaults=True)
+
+    def broken(*_args, **_kwargs):
+        raise writer.VerificationError("injected")
+
+    monkeypatch.setattr(writer, "verify", broken)
+    with pytest.raises(writer.VerificationError, match="injected"):
+        write(source, intent, source)
+    assert source.read_bytes() == before
     assert [p.name for p in tmp_path.iterdir()] == ["part.step"]
+
+
+def test_the_output_keeps_its_permissions_and_its_symlink(plate, tmp_path):
+    import os
+    import stat
+
+    target = tmp_path / "real.step"
+    target.write_text("old")
+    target.chmod(0o600)
+    link = tmp_path / "link.step"
+    link.symlink_to(target)
+    report = write(plate, _plate_intent(plate), link)
+    assert report.output == link and link.is_symlink()
+    assert "DATUM(" in target.read_text()
+    assert stat.S_IMODE(os.stat(target).st_mode) == 0o600
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["link.step", "real.step"]
+
+
+def test_the_command_line_says_why_it_cannot_write(plate, tmp_path, capsys):
+    import json
+
+    from specify_core.cli import main
+
+    analysis = analyse(plate)
+    analysis["binding"]["loader_version"] -= 1
+    (tmp_path / "a.json").write_text(json.dumps(analysis))
+    (tmp_path / "answers.json").write_text(json.dumps({"part.material": "steel"}))
+    args = ["write", str(plate), str(tmp_path / "a.json"), str(tmp_path / "answers.json")]
+    code = main([*args, "-o", str(tmp_path / "out.step"), "--accept-defaults"])
+    assert code == 2 and "loader version" in capsys.readouterr().err
+    assert not (tmp_path / "out.step").exists()

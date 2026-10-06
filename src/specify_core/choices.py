@@ -13,6 +13,7 @@ spec may be anything, but it is only written if it fits the part.
 from __future__ import annotations
 
 import re
+import reprlib
 from typing import Any
 
 from . import standards
@@ -137,7 +138,8 @@ def check(qid: str, value: Any, options, diameter: float | None) -> None:
     """Refuse an answer that is neither offered nor a spec that fits the feature."""
     if not isinstance(value, str):
         # JSON answers can be any type; a choice's are offered or typed text.
-        raise SpecError(f"{qid}: an answer is text, not {type(value).__name__} {value!r}.")
+        kind = type(value).__name__
+        raise SpecError(f"{qid}: an answer is text, not {kind} {reprlib.repr(value)}.")
     if value in options:
         return
     if interpret(qid, value, options, diameter) != value:

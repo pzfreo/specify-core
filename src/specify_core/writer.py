@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -140,11 +141,16 @@ def write(
             f"not {loaded.binding.loader_version}: analyse the file again"
         )
     # Written and verified beside the destination, which is replaced only once
-    # all is well: a failed write leaves it, and the source, as they were.
-    output = final.with_name(f".{final.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.part")
+    # all is well: a failed write leaves it, and the source, as they were. A
+    # symlinked destination is written through, to its target, and an existing
+    # file keeps its permissions.
+    target = final.resolve() if final.is_symlink() else final
+    output = target.with_name(f".{target.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.part")
     try:
         report = _write_verified(loaded, intent, output, answers)
-        os.replace(output, final)
+        if target.exists():
+            shutil.copymode(target, output)
+        os.replace(output, target)
     finally:
         output.unlink(missing_ok=True)
     report.output = final
