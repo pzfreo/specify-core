@@ -126,3 +126,49 @@ def test_tolerances_without_any_dimension_keep_their_size(plate, tmp_path):
     write(loaded, _datum_and_position(loaded), out)
     (position,) = [e for e in read_existing(load(out)) if e.type == "Position"]
     assert position.value == pytest.approx(0.1)
+
+
+def _plate_intent(plate):
+    return apply(analyse(plate), {"part.material": "steel"}, accept_defaults=True)
+
+
+def test_intent_from_another_loader_version_is_refused(plate, tmp_path):
+    intent = _plate_intent(plate)
+    intent.binding = {**intent.binding, "loader_version": intent.binding["loader_version"] - 1}
+    with pytest.raises(ValueError, match="loader version"):
+        write(plate, intent, tmp_path / "out.step")
+    assert not list(tmp_path.iterdir())
+
+
+def test_a_failed_write_leaves_the_destination_and_the_source(plate, tmp_path, monkeypatch):
+    import shutil
+
+    from specify_core import writer
+
+    source = tmp_path / "part.step"
+    shutil.copy(plate, source)
+    destination = tmp_path / "out.step"
+    destination.write_text("what was there before")
+    before = source.read_bytes()
+    intent = _plate_intent(source)
+
+    def broken(*_args, **_kwargs):
+        raise writer.VerificationError("injected")
+
+    monkeypatch.setattr(writer, "verify", broken)
+    for target in (destination, source):
+        with pytest.raises(writer.VerificationError, match="injected"):
+            write(source, intent, target)
+    assert destination.read_text() == "what was there before"
+    assert source.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["out.step", "part.step"]
+
+
+def test_writing_over_the_source_is_safe(plate, tmp_path):
+    import shutil
+
+    source = tmp_path / "part.step"
+    shutil.copy(plate, source)
+    report = write(source, _plate_intent(source), source)
+    assert report.output == source and source.read_text().count("DATUM(") >= 1
+    assert [p.name for p in tmp_path.iterdir()] == ["part.step"]

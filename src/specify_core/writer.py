@@ -50,7 +50,9 @@ OCCT behaviours this module depends on, each found by measurement:
 
 from __future__ import annotations
 
+import os
 import re
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -126,11 +128,32 @@ def write(
     A file specify-core wrote itself (``resume``) is written again from its geometry,
     so its PMI is replaced. Given ``answers``, a file written from a bare part
     stores them, to be resumed; one written by ``merge`` does not."""
-    output = Path(output)
+    final = Path(output)
     if intent.binding.get("source_sha256") != loaded.binding.source_sha256:
         raise ValueError("intent was made for a different file")
     if intent.binding.get("face_count") != loaded.binding.face_count:
         raise ValueError("intent face count does not match the file")
+    # A loader change may number the faces differently for the same bytes.
+    if intent.binding.get("loader_version") != loaded.binding.loader_version:
+        raise ValueError(
+            f"intent was made by loader version {intent.binding.get('loader_version')!r}, "
+            f"not {loaded.binding.loader_version}: analyse the file again"
+        )
+    # Written and verified beside the destination, which is replaced only once
+    # all is well: a failed write leaves it, and the source, as they were.
+    output = final.with_name(f".{final.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.part")
+    try:
+        report = _write_verified(loaded, intent, output, answers)
+        os.replace(output, final)
+    finally:
+        output.unlink(missing_ok=True)
+    report.output = final
+    return report
+
+
+def _write_verified(
+    loaded: LoadedPart, intent: Intent, output: Path, answers: dict[str, Any] | None
+) -> WriteReport:
 
     resumed = resume.answers_for(loaded) is not None
     bare = not merge.carries_pmi(loaded.path)
@@ -149,7 +172,6 @@ def write(
             merge.transplant(loaded.path, scratch, output, appended.count)
         finally:
             scratch.unlink(missing_ok=True)
-        report.output = output
     verify(output, intent, loaded.binding.face_count)
     _verify_appended(output, intent, appended)
     if answers is not None and (bare or resumed):
