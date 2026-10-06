@@ -8,7 +8,9 @@ import sys
 from pathlib import Path
 
 from . import api
+from .merge import MergeError
 from .rules import IncompleteError, open_questions
+from .writer import VerificationError
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -87,7 +89,15 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.intent:
         args.intent.write_text(json.dumps(intent.to_dict(), indent=1))
-    report = api.write(args.step, intent, args.output, answers=answers)
+    try:
+        report = api.write(args.step, intent, args.output, answers=answers)
+    except ValueError as exc:
+        # An intent for another file, or another loader's face numbering.
+        print(f"cannot write: {exc}", file=sys.stderr)
+        return 2
+    except (VerificationError, MergeError) as exc:
+        print(f"write failed, {args.output} left as it was: {exc}", file=sys.stderr)
+        return 1
     print(json.dumps(report.to_dict(), indent=1, ensure_ascii=False))
     return 0
 

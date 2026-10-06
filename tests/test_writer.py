@@ -126,3 +126,91 @@ def test_tolerances_without_any_dimension_keep_their_size(plate, tmp_path):
     write(loaded, _datum_and_position(loaded), out)
     (position,) = [e for e in read_existing(load(out)) if e.type == "Position"]
     assert position.value == pytest.approx(0.1)
+
+
+def _plate_intent(plate):
+    return apply(analyse(plate), {"part.material": "steel"}, accept_defaults=True)
+
+
+def test_intent_from_another_loader_version_is_refused(plate, tmp_path):
+    intent = _plate_intent(plate)
+    intent.binding = {**intent.binding, "loader_version": intent.binding["loader_version"] - 1}
+    with pytest.raises(ValueError, match="loader version"):
+        write(plate, intent, tmp_path / "out.step")
+    assert not list(tmp_path.iterdir())
+
+
+def test_a_failed_write_leaves_the_destination_and_the_source(plate, tmp_path, monkeypatch):
+    import shutil
+
+    from specify_core import writer
+
+    source = tmp_path / "part.step"
+    shutil.copy(plate, source)
+    destination = tmp_path / "out.step"
+    destination.write_text("what was there before")
+    before = source.read_bytes()
+    intent = _plate_intent(source)
+
+    def broken(*_args, **_kwargs):
+        raise writer.VerificationError("injected")
+
+    monkeypatch.setattr(writer, "verify", broken)
+    for target in (destination, source):
+        with pytest.raises(writer.VerificationError, match="injected"):
+            write(source, intent, target)
+    assert destination.read_text() == "what was there before"
+    assert source.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["out.step", "part.step"]
+
+
+def test_a_failed_merge_leaves_a_part_with_pmi_as_it_was(plate, tmp_path, monkeypatch):
+    """The transplant path (a part that already has PMI, not ours to resume) is
+    staged too, and its scratch file goes with the staged one."""
+    from specify_core import merge, writer
+
+    source = tmp_path / "part.step"
+    write(plate, _plate_intent(plate), source)  # PMI, and no answers to resume
+    assert merge.carries_pmi(source)
+    before = source.read_bytes()
+    intent = apply(analyse(source), {"part.material": "steel"}, accept_defaults=True)
+
+    def broken(*_args, **_kwargs):
+        raise writer.VerificationError("injected")
+
+    monkeypatch.setattr(writer, "verify", broken)
+    with pytest.raises(writer.VerificationError, match="injected"):
+        write(source, intent, source)
+    assert source.read_bytes() == before
+    assert [p.name for p in tmp_path.iterdir()] == ["part.step"]
+
+
+def test_the_output_keeps_its_permissions_and_its_symlink(plate, tmp_path):
+    import os
+    import stat
+
+    target = tmp_path / "real.step"
+    target.write_text("old")
+    target.chmod(0o600)
+    link = tmp_path / "link.step"
+    link.symlink_to(target)
+    report = write(plate, _plate_intent(plate), link)
+    assert report.output == link and link.is_symlink()
+    assert "DATUM(" in target.read_text()
+    assert stat.S_IMODE(os.stat(target).st_mode) == 0o600
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["link.step", "real.step"]
+
+
+def test_the_command_line_says_why_it_cannot_write(plate, tmp_path, capsys):
+    import json
+
+    from specify_core.cli import main
+
+    analysis = analyse(plate)
+    analysis["binding"]["loader_version"] -= 1
+    (tmp_path / "a.json").write_text(json.dumps(analysis))
+    (tmp_path / "answers.json").write_text(json.dumps({"part.material": "steel"}))
+    args = ["write", str(plate), str(tmp_path / "a.json"), str(tmp_path / "answers.json")]
+    code = main([*args, "-o", str(tmp_path / "out.step"), "--accept-defaults"])
+    assert code == 2 and "loader version" in capsys.readouterr().err
+    assert not (tmp_path / "out.step").exists()

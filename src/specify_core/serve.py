@@ -124,8 +124,12 @@ def _diagonal(loaded) -> float:
     return ((hi.X() - lo.X()) ** 2 + (hi.Y() - lo.Y()) ** 2 + (hi.Z() - lo.Z()) ** 2) ** 0.5 or 1.0
 
 
-def reply(request: dict[str, Any]) -> dict[str, Any]:
+def reply(request: Any) -> dict[str, Any]:
     """A request's reply: its result, or a structured error."""
+    if not isinstance(request, dict):
+        # Valid JSON, but not a request: answered, and the child carries on.
+        message = f"a request is a JSON object, not {type(request).__name__}"
+        return {"id": None, "ok": False, "error": {"code": "invalid", "message": message}}
     out: dict[str, Any] = {"id": request.get("id")}
     try:
         out |= {"ok": True, "result": handle(request)}

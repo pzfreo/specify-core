@@ -123,3 +123,11 @@ def test_the_serve_child_interprets_what_was_typed(plate):
         }
     )
     assert bad["error"]["code"] == "invalid" and "M12" in bad["error"]["message"]
+
+
+@pytest.mark.parametrize("value", [0.1, 3, True, ["general"], {"value": "general"}, None])
+def test_a_choice_answer_that_is_not_text_is_refused(plate, value):
+    analysis = analyse(plate)
+    qid = next(q.id for q in questions(analysis, {}) if q.id.startswith("hole.position:"))
+    with pytest.raises(SpecError, match=qid):
+        questions(analysis, {qid: value})
