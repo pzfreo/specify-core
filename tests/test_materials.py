@@ -29,3 +29,14 @@ def test_printed_materials_name_their_process_and_metals_carry_uns_numbers():
     assert all(name.endswith(")") for name in printed)  # the process, in brackets
     assert "S30400" in by_name["Stainless steel 304 (1.4301)"][1]
     assert "C38500" in by_name["Brass CZ121 (CW614N)"][1]
+
+
+def test_a_long_material_name_is_written_and_verified(plate, tmp_path):
+    """OCCT puts a long name on a line of its own; the read-back must still find it."""
+    from specify_core.api import write
+
+    analysis = analyse(plate)
+    longest = max((name for name, _, _ in MATERIALS), key=len)
+    for name in ("Stainless steel 2205 duplex (1.4462)", longest):
+        intent = apply(analysis, {"part.material": name}, accept_defaults=True)
+        write(plate, intent, tmp_path / "long.step")  # raises if the material is not read back
