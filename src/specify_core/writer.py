@@ -543,7 +543,9 @@ def _verify_appended(path: Path, intent: Intent, appended: requirements.Appended
             problems.append(f"{label} is not on faces {wanted}")
     material = intent.part.get("material")
     if material and not re.search(
-        rf"DESCRIPTIVE_REPRESENTATION_ITEM\('{re.escape(p21.escape(material))}'", text
+        # OCCT puts a long name on a line of its own, after the bracket.
+        rf"DESCRIPTIVE_REPRESENTATION_ITEM\(\s*'{re.escape(p21.escape(material))}'",
+        text,
     ):
         problems.append("material not in file")
     if problems:
