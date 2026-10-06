@@ -210,7 +210,9 @@ def append(
     )
     texts: dict[str, str] = {}
     on_faces: dict[str, list[int]] = {}
-    links: list[tuple[int, int]] = []
+    # (what it is of, drawn callout, its plane, whether that is semantic PMI)
+    links: list[tuple[int, int, int, bool]] = []
+    plane_style = _plane_style(out)
     for req in reqs:
         kind = {"thread": KINDS.get(req.get("side", ""), ""), "knurl": "knurl"}.get(
             req["kind"], "surface finish"
@@ -222,8 +224,11 @@ def append(
         _text_route(out, ids, kind, words)
         aspect = _aspect(out, ids, faces, kind, req["faces"])
         name = kind.capitalize() + " requirement"
-        callout = _callout(out, "note", name, style, [list(_leader(loaded, req["faces"][0]))])
-        links.append((aspect, callout))
+        lines = [list(_leader(loaded, req["faces"][0]))]
+        callout = _callout(out, "note", name, style, lines)
+        plane = _annotation_plane(out, name, plane_style, callout, lines)
+        # A note's faces, not semantic PMI: the plain link, not the PMI one.
+        links.append((aspect, callout, plane, False))
         if req["kind"] != "finish":
             _attributes(out, ids, faces, kind, req)
     for kind, words in notes.items():
@@ -240,19 +245,23 @@ def append(
     for d in datums:
         if d["letter"] in features:
             lines = symbols.draw(_tip(loaded, d["faces"][0]), d["letter"])
-            callout = _callout(out, "datum", f"Datum {d['letter']}", style, lines)
-            links.append((features[d["letter"]], callout))
+            name = f"Datum {d['letter']}"
+            callout = _callout(out, "datum", name, style, lines)
+            plane = _annotation_plane(out, name, plane_style, callout, lines)
+            links.append((features[d["letter"]], callout, plane, True))
     if links:
+        # The model holds the annotation planes, each holding its callout
+        # (CAx-IF PMI practice, 9.1, Fig. 87).
         model = out.add(
             "DRAUGHTING_MODEL('',({}),#{})".format(
-                ",".join(f"#{c}" for _, c in links), ids["context"]
+                ",".join(f"#{p}" for _, _, p, _ in links), ids["context"]
             )
         )
-        for aspect, callout in links:
-            out.add(
-                "DRAUGHTING_MODEL_ITEM_ASSOCIATION('PMI representation to presentation link',"
-                f"'',#{aspect},#{model},#{callout})"
-            )
+        for of, callout, _, semantic in links:
+            # 'PMI representation to presentation link' is for a semantic PMI
+            # item only (7.3); what a callout is merely on gets the plain link.
+            name = "PMI representation to presentation link" if semantic else ""
+            out.add(f"DRAUGHTING_MODEL_ITEM_ASSOCIATION({_s(name)},'',#{of},#{model},#{callout})")
 
     marker = re.search(r"\nENDSEC;\s*\nEND-ISO-10303-21;\s*$", text)
     if marker is None:
@@ -341,6 +350,68 @@ def _aspect(out: _Part21, ids, faces, kind: str, face_ids) -> int:
             f"GEOMETRIC_ITEM_SPECIFIC_USAGE({_s(kind)},'',#{aspect},#{ids['brep']},#{faces[i]})"
         )
     return aspect
+
+
+def _plane_style(out: _Part21) -> int:
+    """The style an annotation plane takes, as NIST's test files give it."""
+    colour = out.add("COLOUR()")
+    shade = out.add(f"FILL_AREA_STYLE_COLOUR('',#{colour})")
+    fill = out.add(f"FILL_AREA_STYLE('',(#{shade}))")
+    return out.add(f"PRESENTATION_STYLE_ASSIGNMENT((#{fill}))")
+
+
+def _annotation_plane(out: _Part21, name: str, style: int, callout: int, lines) -> int:
+    """The plane ``lines`` are drawn in, holding ``callout``: every drawn
+    annotation must have one (CAx-IF PMI practice, 9.1)."""
+    origin, normal, along = _plane_of([p for line in lines for p in line])
+    placement = out.add(
+        "AXIS2_PLACEMENT_3D('',#{},#{},#{})".format(
+            out.add("CARTESIAN_POINT('',({:.4f},{:.4f},{:.4f}))".format(*origin)),
+            out.add("DIRECTION('',({:.6f},{:.6f},{:.6f}))".format(*normal)),
+            out.add("DIRECTION('',({:.6f},{:.6f},{:.6f}))".format(*along)),
+        )
+    )
+    plane = out.add(f"PLANE({_s(name)},#{placement})")
+    return out.add(f"ANNOTATION_PLANE({_s(name)},(#{style}),#{plane},(#{callout}))")
+
+
+def _plane_of(points) -> tuple[Point, Point, Point]:
+    """A plane through ``points``: origin, unit normal, unit direction in it.
+    Points on one line take a plane through that line."""
+    o = points[0]
+    offsets = [_sub(p, o) for p in points[1:]]
+    along = next((v for v in offsets if _size(v) > 1e-9), (1.0, 0.0, 0.0))
+    normal = max((_cross(along, v) for v in offsets), key=_size, default=(0.0, 0.0, 0.0))
+    if _size(normal) < 1e-9 * _size(along) ** 2:
+        # A single line: any plane through it -- the one whose normal is
+        # square to it and to the axis it is most nearly square to.
+        axis = min(_AXES, key=lambda a: abs(_dot(a, along)))
+        normal = _cross(along, axis)
+    return o, _unit(normal), _unit(along)
+
+
+_AXES = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+
+
+def _sub(a, b) -> Point:
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+
+def _dot(a, b) -> float:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _cross(a, b) -> Point:
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def _size(v) -> float:
+    return _dot(v, v) ** 0.5
+
+
+def _unit(v) -> Point:
+    n = _size(v)
+    return (v[0] / n, v[1] / n, v[2] / n)
 
 
 def _callout(out: _Part21, kind: str, name: str, style: int, lines) -> int:
