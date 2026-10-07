@@ -73,3 +73,21 @@ def test_mates_are_by_face_and_disagreement_suggests_nothing(stack):
     assert suggestion(agreed, (1, 2))["value"] == "h6"
     assert suggestion(agreed | {"3": {"value": "g6", "reason": "c"}}, (1, 2, 3)) is None
     assert suggestion(agreed, (1, 2, 4)) is None  # one face mates nothing
+
+
+def test_datum_a_is_the_face_where_the_part_meets_another(stack):
+    for part, other in ((COVER, "base"), (BASE, "cover")):
+        analysis = api.analyse(stack, part)
+        (a,) = [q for q in api.questions(analysis, {}) if q.id == "datum.A"]
+        faces = {f["id"]: f for f in analysis["faces"]}
+        assert all(faces[i]["contact"]["part"] == other for i in a.default)
+        assert a.attention == "check"
+        assert a.basis == f"It is where the part meets {other}: what locates it there."
+    # The cover's top meets only the pin's head: less contact than its underside.
+    cover = api.analyse(stack, COVER)
+    (a,) = [q for q in api.questions(cover, {}) if q.id == "datum.A"]
+    assert {f["id"]: f for f in cover["faces"]}[a.default[0]]["direction"][2] < 0
+
+
+def test_a_part_alone_has_no_contacts(plate):
+    assert not any("contact" in f for f in api.analyse(plate)["faces"])

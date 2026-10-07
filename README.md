@@ -46,7 +46,8 @@ specify-core write asm.step plate.json plate-a.json pin.json pin-a.json -o out.s
 In an assembly, how a part fits the others suggests its defaults: a tap drill
 under an M5 clearance hole defaults to tapped M5 (and the clearance hole to
 clearance M5), and a pin in a bore of its own size to H7 in the bore and h6 on
-the pin. Each such default says why and is marked to be checked.
+the pin. Datum A defaults to the flat face where the part meets another, the one
+in most contact. Each such default says why and is marked to be checked.
 
 Writing an assembly specify-core wrote replaces its PMI, so every part with
 answers stored in it must be written again together. An assembly that already

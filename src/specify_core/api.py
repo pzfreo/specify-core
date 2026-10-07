@@ -46,8 +46,12 @@ def analyse(step: str | Path | LoadedPart, part: int | None = None) -> dict[str,
         "features": [f.to_dict() for f in recognise(loaded)],
     }
     if loaded.part_count > 1:
-        # How the part fits the others: suggested answers (see ``mates``).
-        analysis["mates"] = mates.mates(load_all(loaded.path, gdt=False), loaded.binding.part)
+        # How the part fits the others: suggested answers, and the faces it
+        # rests on another part by (see ``mates``).
+        assembly = load_all(loaded.path, gdt=False)
+        analysis["mates"] = mates.mates(assembly, loaded.binding.part)
+        for index, contact in mates.contacts(assembly, loaded.binding.part).items():
+            analysis["faces"][int(index)]["contact"] = contact
     answers = resume.answers_for(loaded)
     if answers is not None:
         # A file specify-core wrote, opened to be changed: its PMI is the answers',

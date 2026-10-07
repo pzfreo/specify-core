@@ -447,9 +447,14 @@ def _datum_questions(
         else "The largest flat face square to A.",
         "C": "The largest flat face square to A and B.",
     }
+    resting = ""
     if propose and not in_file:
         a, b, c = _default_datums(faces, features)
         defaults = {x: d for x, d in zip("ABC", (a, b, c), strict=True) if x in propose}
+        contact = next((faces[i]["contact"] for i in a if faces[i].get("contact")), None)
+        if contact:
+            resting = f"it is where the part meets {contact['part']}: what locates it there"
+            bases["A"] = _sentence(resting)
         # A letter beyond C has no default: it is asked, empty, to be picked.
         defaults |= {x: () for x in propose if x not in "ABC"}
     out = []
@@ -472,6 +477,7 @@ def _datum_questions(
                 if letter in "ABC"
                 else "An extra datum, for features located from something other than A.",
                 basis=bases.get(letter, "") if default else "",
+                mate=resting if letter == "A" else "",
             )
         )
     return out
@@ -540,7 +546,7 @@ def _default_datums(faces: dict[int, dict], features: list[dict]):
     planes = sorted((f for f in faces.values() if f["kind"] == "plane"), key=lambda f: -f["area"])
     if not planes:
         return (), (), ()
-    a = planes[0]
+    a = _resting_face(planes) or planes[0]
     a_ids = tuple(sorted(p["id"] for p in planes if _coplanar(p, a)))
     if any(f["family"] == "turned_steps" for f in features):
         # A turned part: B is the largest cylinder on the axis A is square to.
@@ -554,12 +560,25 @@ def _default_datums(faces: dict[int, dict], features: list[dict]):
         )
         b_ids = tuple(sorted(f["id"] for f in cylinders if _coaxial(f, cylinders[0])))
         return a_ids, b_ids, ()
-    square = [p for p in planes[1:] if _perpendicular(p["direction"], a["direction"])]
+    square = [p for p in planes if _perpendicular(p["direction"], a["direction"])]
     if not square:
         return a_ids, (), ()
     b = square[0]
     third = [p for p in square[1:] if _perpendicular(p["direction"], b["direction"])]
     return a_ids, (b["id"],), ((third[0]["id"],) if third else ())
+
+
+def _resting_face(planes: list[dict]) -> dict | None:
+    """In an assembly, the plane where the part meets another -- the one in the
+    most contact (``mates.contacts``) -- or None."""
+    touching = [p for p in planes if p.get("contact")]
+    if not touching:
+        return None
+
+    def area(plane):
+        return sum(p["contact"]["area"] for p in touching if _coplanar(p, plane))
+
+    return max(touching, key=area)
 
 
 def _hole_questions(target, hole, faces, answers, frames, edges=None, mates=None) -> list[Question]:

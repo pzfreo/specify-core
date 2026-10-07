@@ -14,6 +14,10 @@ instances of one), are a mate:
 Each is a suggestion with its reason, by face index of the part analysed. A
 face whose mates disagree gets none. The rules offer a suggestion as the
 default, to be checked; nothing is decided from an assembly alone.
+
+A flat face against another part's -- the two facing each other in one plane,
+overlapping -- is a contact (``contacts``): what locates the part there, and
+so its likely primary datum.
 """
 
 from __future__ import annotations
@@ -21,11 +25,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from OCP.Bnd import Bnd_Box
 from OCP.BRepAdaptor import BRepAdaptor_Surface
+from OCP.BRepAlgoAPI import BRepAlgoAPI_Common
+from OCP.BRepBndLib import BRepBndLib
+from OCP.BRepGProp import BRepGProp
 from OCP.BRepTools import BRepTools
-from OCP.GeomAbs import GeomAbs_Cylinder
+from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
 from OCP.gp import gp_Pnt, gp_Trsf, gp_Vec
+from OCP.GProp import GProp_GProps
 from OCP.TopAbs import TopAbs_REVERSED
+from OCP.TopLoc import TopLoc_Location
 
 from . import standards
 from .load import LoadedPart
@@ -84,6 +94,79 @@ def mates(parts: list[LoadedPart], part: int) -> dict[str, dict[str, str]]:
             value, reason = min(suggestions)
             out[str(face)] = {"value": value, "reason": reason}
     return out
+
+
+def contacts(parts: list[LoadedPart], part: int) -> dict[str, dict[str, Any]]:
+    """The flat faces of the ``part``-th of ``parts`` against another part's:
+    face index -> {"part": its name, "area": how much of the two overlap}, the
+    largest where a face meets several."""
+    flats = [_planes(p) for p in parts]
+    out: dict[str, dict[str, Any]] = {}
+    for i, trsf in enumerate(parts[part].placements):
+        mine = [plane.placed(trsf) for plane in flats[part]]
+        for other, theirs in enumerate(flats):
+            for j, their_trsf in enumerate(parts[other].placements):
+                if (other, j) == (part, i):
+                    continue
+                for b in (plane.placed(their_trsf) for plane in theirs):
+                    for a in mine:
+                        area = _touching(a, b)
+                        if area and area > out.get(str(a.index), {}).get("area", 0):
+                            name = parts[other].name or f"part {other}"
+                            out[str(a.index)] = {"part": name, "area": round(area, 3)}
+    return out
+
+
+@dataclass(frozen=True)
+class _Plane:
+    index: int
+    face: Any
+    normal: tuple[float, float, float]
+    point: tuple[float, float, float]
+
+    def placed(self, trsf: gp_Trsf) -> _Plane:
+        p = gp_Pnt(*self.point).Transformed(trsf)
+        n = gp_Vec(*self.normal).Transformed(trsf)
+        face = self.face.Moved(TopLoc_Location(trsf))
+        return _Plane(self.index, face, (n.X(), n.Y(), n.Z()), (p.X(), p.Y(), p.Z()))
+
+
+def _planes(loaded: LoadedPart) -> list[_Plane]:
+    out = []
+    for index in range(loaded.binding.face_count):
+        face = loaded.face(index)
+        surface = BRepAdaptor_Surface(face)
+        if surface.GetType() != GeomAbs_Plane:
+            continue
+        axis = surface.Plane().Axis()
+        n, o = gp_Vec(axis.Direction()), axis.Location()
+        if face.Orientation() == TopAbs_REVERSED:
+            n.Reverse()
+        out.append(_Plane(index, face, (n.X(), n.Y(), n.Z()), (o.X(), o.Y(), o.Z())))
+    return out
+
+
+def _touching(a: _Plane, b: _Plane) -> float:
+    """How much of ``a`` and ``b`` overlap, facing each other in one plane; 0 if
+    they do not."""
+    if _dot(a.normal, b.normal) > -1 + 1e-6:
+        return 0.0
+    if abs(_dot(_sub(b.point, a.point), a.normal)) > REACH:
+        return 0.0
+    boxes = []
+    for plane in (a, b):
+        box = Bnd_Box()
+        BRepBndLib.Add_s(plane.face, box)
+        box.Enlarge(REACH)
+        boxes.append(box)
+    if boxes[0].IsOut(boxes[1]):
+        return 0.0
+    common = BRepAlgoAPI_Common(a.face, b.face)
+    if not common.IsDone():
+        return 0.0
+    props = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(common.Shape(), props)
+    return props.Mass() if props.Mass() > 1e-3 else 0.0
 
 
 def _cylinders(loaded: LoadedPart) -> list[_Cylinder]:
