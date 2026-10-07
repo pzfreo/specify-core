@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from . import resume, rules
+from . import mates, resume, rules
 from .existing import part_settings, read_existing
 from .features import describe_faces, recognise
 from .load import LoadedPart, load, load_all
@@ -45,6 +45,13 @@ def analyse(step: str | Path | LoadedPart, part: int | None = None) -> dict[str,
         "faces": [f.to_dict() for f in describe_faces(loaded)],
         "features": [f.to_dict() for f in recognise(loaded)],
     }
+    if loaded.part_count > 1:
+        # How the part fits the others: suggested answers, and the faces it
+        # rests on another part by (see ``mates``).
+        assembly = load_all(loaded.path, gdt=False)
+        analysis["mates"] = mates.mates(assembly, loaded.binding.part)
+        for index, contact in mates.contacts(assembly, loaded.binding.part).items():
+            analysis["faces"][int(index)]["contact"] = contact
     answers = resume.answers_for(loaded)
     if answers is not None:
         # A file specify-core wrote, opened to be changed: its PMI is the answers',

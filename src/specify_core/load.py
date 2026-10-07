@@ -85,6 +85,8 @@ class LoadedPart:
     reader: Any = None
     #: The part's name in the file, if it has one (``_part_name``).
     name: str = ""
+    #: Where each instance of the part is placed in the assembly.
+    placements: tuple[gp_Trsf, ...] = ()
 
     def face_ranks(self) -> dict[int, int]:
         """Face index -> the rank in the file of the ``ADVANCED_FACE`` it was read from."""
@@ -142,6 +144,9 @@ def load_all(path: str | Path, *, gdt: bool = True) -> list[LoadedPart]:
     doc, reader, root = _read(path, gdt)
     labels = _part_labels(path, root)
     sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    placed: list[list[gp_Trsf]] = [[] for _ in labels]
+    for label, location in _instances(root, TopLoc_Location()):
+        placed[_index(labels, label)].append(location.Transformation())
     out = []
     for index, label in enumerate(labels):
         shape = XCAFDoc_ShapeTool.GetShape_s(label)
@@ -150,7 +155,17 @@ def load_all(path: str | Path, *, gdt: bool = True) -> list[LoadedPart]:
         name = _part_name(root, label)
         out.append(
             LoadedPart(
-                path, doc, label, shape, _wrap(shape), faces, binding, len(labels), reader, name
+                path,
+                doc,
+                label,
+                shape,
+                _wrap(shape),
+                faces,
+                binding,
+                len(labels),
+                reader,
+                name,
+                tuple(placed[index]),
             )
         )
     return out
@@ -164,8 +179,7 @@ def parts(path: str | Path) -> list[dict[str, Any]]:
     labels = _part_labels(path, root)
     placed: list[list[list[list[float]]]] = [[] for _ in labels]
     for label, location in _instances(root, TopLoc_Location()):
-        index = next(i for i, known in enumerate(labels) if known.IsEqual(label))
-        placed[index].append(_matrix(location.Transformation()))
+        placed[_index(labels, label)].append(_matrix(location.Transformation()))
     out = [
         {
             "part": i,
@@ -221,6 +235,10 @@ def _instances(label: TDF_Label, location: TopLoc_Location):
     XCAFDoc_ShapeTool.GetComponents_s(label, components)
     for i in range(1, components.Length() + 1):
         yield from _instances(components.Value(i), location)
+
+
+def _index(labels: list[TDF_Label], label: TDF_Label) -> int:
+    return next(i for i, known in enumerate(labels) if known.IsEqual(label))
 
 
 def _matrix(trsf: gp_Trsf) -> list[list[float]]:
