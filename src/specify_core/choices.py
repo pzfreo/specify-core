@@ -69,7 +69,10 @@ def split(value: str) -> tuple[str, str, float | None]:
     minimum full thread: ``tapped:M5@5.5`` is ``("tapped", "M5", 5.5)``."""
     kind, _, spec = value.partition(":")
     spec, at, depth = spec.partition("@")
-    return kind, spec, float(depth) if at else None
+    try:
+        return kind, spec, float(depth) if at else None
+    except ValueError:  # not an answer; ``check`` says so
+        return kind, spec, None
 
 
 def code(value: str) -> str:
@@ -158,8 +161,9 @@ def check(
         raise SpecError(f"{qid}: an answer is text, not {kind} {reprlib.repr(value)}.")
     if value in options:
         return
-    if interpret(qid, value, options, diameter, depth) != value:
-        raise SpecError(f"{value!r} is not an answer; it reads as something else.")
+    meant = interpret(qid, value, options, diameter, depth)
+    if meant != value:
+        raise SpecError(f"{value!r} is not an answer; it reads as {meant!r}.")
 
 
 # --------------------------------------------------------------------------
@@ -169,6 +173,7 @@ _SIZE = r"M(\d+(?:\.\d+)?)(?:\s*[x×]\s*(\d+(?:\.\d+)?))?"
 _NONE_WORDS = {"general", "none", "nothing", "no", "plain", "gen"}
 #: Words that say a number is the thread's depth: "5.5 deep", "full thread 5.5".
 _DEPTH_WORDS = ("deep", "depth", "full", "usable", "long", "length", "min")
+_UNITS = {"cm", "m", "in", "inch", "inches", "thou"}
 
 
 def _hole(typed: str, d: float, depth: float | None = None) -> str:
@@ -219,18 +224,29 @@ def _hole(typed: str, d: float, depth: float | None = None) -> str:
 
 def _lengths(rest: str) -> list[float]:
     """The lengths in what was typed besides the thread size, refusing any
-    other number: a thread class other than the one written, or a unit."""
+    other number: a thread class other than the one written, a unit other than
+    mm, or a number that cannot be read."""
+    # A standard named (ISO 273) is not a length; a code led by a letter (H11) is a word.
+    tokens = re.findall(r"[\w.@-]+", re.sub(r"\biso\s*\d+(?:-\d+)?", " ", rest))
     out = []
-    # A unit may stand apart (5 mm); letters joined to a number (6H) are its own.
-    found = re.findall(r"(\d+(?:\.\d+)?)(?:\s*(mm|cm|m|in|inch|inches|thou)\b|([a-z]+))?", rest)
-    for number, unit, joined in found:
-        if joined and re.fullmatch(r"\d[a-z]", number + joined):
-            if (number + joined).upper() != standards.INTERNAL_THREAD_CLASS:
+    for i, token in enumerate(t.lstrip("@") for t in tokens):
+        if not re.match(r"-?\.?\d", token):
+            continue
+        if re.fullmatch(r"-?\d[a-z]", token):  # a thread class: M5-6H
+            if token.lstrip("-").upper() != standards.INTERNAL_THREAD_CLASS:
                 raise SpecError(f"Only the {standards.INTERNAL_THREAD_CLASS} class is written.")
-        elif (unit or joined) in ("", "mm"):
-            out.append(float(number))
-        else:
-            raise SpecError(f"Lengths are in mm; {number} {unit or joined} is not read.")
+            continue
+        number = re.fullmatch(r"(-?(?:\d+(?:\.\d*)?|\.\d+))([a-z]*)", token)
+        if number is None:
+            raise SpecError(f"{token} is not read.")
+        joined = number.group(2)
+        unit = joined or (tokens[i + 1] if i + 1 < len(tokens) else "")
+        if unit in _UNITS:
+            raise SpecError(f"Lengths are in mm; {number.group(1)} {unit} is not read.")
+        tail = joined.removeprefix("mm")
+        if tail and not tail.startswith(_DEPTH_WORDS):
+            raise SpecError(f"{token} is not read.")
+        out.append(float(number.group(1)))
     return out
 
 
@@ -242,7 +258,7 @@ def _thread_depth(rest: str, words, bolt: str, depth: float | None) -> float | N
     example = f"e.g. {bolt} tapped, 5 mm full thread"
     if len(lengths) > 1:
         raise SpecError(f"Give one thread depth, {example}.")
-    if "@" not in rest and not any(w.startswith(_DEPTH_WORDS) for w in words):
+    if "@" not in rest and not any(w.removeprefix("mm").startswith(_DEPTH_WORDS) for w in words):
         raise SpecError(
             f"{_fmt(lengths[0])} mm is not read: only a thread depth can be added, {example}."
         )
@@ -250,11 +266,13 @@ def _thread_depth(rest: str, words, bolt: str, depth: float | None) -> float | N
     if depth is None:
         raise SpecError(
             "A thread depth is only set on a blind hole of known depth; "
-            "a through hole is threaded through."
+            "this hole is through or its depth is not known."
         )
+    if full <= 0:
+        raise SpecError("A thread depth is more than 0 mm.")
     pitch = standards.PITCH[bolt]
     most = depth - 3 * pitch
-    if not 0 < full <= most + 1e-9:
+    if full > most + 1e-9:
         raise SpecError(
             f"{_fmt(full)} mm of full thread does not fit this {_fmt(depth)} mm deep hole: "
             f"an {bolt} tap's lead and the drill point take 3 pitches ({_fmt(3 * pitch)} mm), "

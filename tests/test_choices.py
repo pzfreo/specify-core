@@ -3,7 +3,7 @@
 import pytest
 
 from specify_core.api import analyse, apply, questions
-from specify_core.choices import SpecError, callout, code, describe, interpret
+from specify_core.choices import SpecError, callout, check, code, describe, interpret
 from specify_core.serve import reply
 
 HOLE = "hole.function:x"
@@ -86,6 +86,9 @@ def test_specs_that_do_not_fit_the_part_are_refused(qid, text, d, reason):
         ("M2 x 0.4, usable thread depth 2.3 mm", "tapped:M2@2.3"),
         ("M2 tapped, 2 deep", "tapped:M2@2"),
         ("M2x0.4-6H 1.5mm min full thread", "tapped:M2@1.5"),
+        ("M2 tapped .5 deep", "tapped:M2@0.5"),
+        ("M2 tapped 2deep", "tapped:M2@2"),
+        ("M2 tapped 2mmdeep", "tapped:M2@2"),
         ("M2-6H", "tapped:M2"),
         ("tapped:M2@2.3", "tapped:M2@2.3"),
     ],
@@ -99,7 +102,9 @@ def test_a_tapped_hole_keeps_a_typed_thread_depth(text, value):
     [
         # Issue 7: 3.15 mm of a 3.5 mm hole was read as plain M2, the depth lost.
         ("M2 x 0.4, usable thread depth 3.15 mm", 3.5, "at most 2.3 mm"),
-        ("M2 tapped, 2 deep", None, "blind hole of known depth"),
+        ("M2 tapped, 2 deep", None, "through or its depth is not known"),
+        ("M2 tapped -2 deep", 3.5, "more than 0 mm"),
+        ("M2 tapped 1e1 deep", 3.5, "1e1 is not read"),
         ("M2 3.15", 3.5, "3.15 mm is not read"),
         ("M2 tapped 2 deep 3 long", 3.5, "one thread depth"),
         ("M2 2 in deep", 3.5, "Lengths are in mm"),
@@ -109,8 +114,20 @@ def test_a_tapped_hole_keeps_a_typed_thread_depth(text, value):
 def test_a_number_that_cannot_be_kept_is_refused_not_dropped(text, depth, reason):
     with pytest.raises(SpecError, match=reason):
         interpret(HOLE, text, (), 1.6, depth)
+
+
+def test_a_clearance_hole_takes_no_depth_but_may_name_its_fit_and_standard():
     with pytest.raises(SpecError, match="Only a tapped hole takes a depth"):
         interpret(HOLE, "M6 clearance, 10 deep", (), 6.6, 10.0)
+    assert interpret(HOLE, "M6 clearance H11", (), 6.6) == "clearance:M6"
+    assert interpret(HOLE, "M6 clearance ISO 273", (), 6.6) == "clearance:M6"
+
+
+def test_a_stored_depth_written_otherwise_is_refused_with_what_it_reads_as():
+    with pytest.raises(SpecError, match="reads as 'tapped:M2@2.3'"):
+        check(HOLE, "tapped:M2@2.30", (), 1.6, 3.5)
+    with pytest.raises(SpecError, match="reads as 'tapped:M2'"):
+        check(HOLE, "tapped:M2@x", (), 1.6, 3.5)
 
 
 def test_a_thread_depth_is_named_in_the_code_and_callout():
