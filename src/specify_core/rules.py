@@ -71,6 +71,8 @@ class Question:
     choices: tuple[dict[str, Any], ...] = ()
     #: The feature's diameter, against which a typed spec is checked.
     diameter: float | None = None
+    #: For a blind hole: its drill depth, against which a typed thread depth is checked.
+    depth: float | None = None
     #: Why the default is what it is, in a sentence: shown as a choice made for
     #: the person, to keep or change.
     basis: str = ""
@@ -342,7 +344,7 @@ def _questions(
     # A typed answer is refused here, where it is given, not when the file is written.
     for q in out:
         if q.kind == "choice" and q.id in answers:
-            choices.check(q.id, answers[q.id], q.options, q.diameter)
+            choices.check(q.id, answers[q.id], q.options, q.diameter, q.depth)
     return [_reviewed(q, faces) for q in out]
 
 
@@ -583,6 +585,9 @@ def _hole_questions(target, hole, faces, answers, frames, edges=None) -> list[Qu
             parts=parts,
             choices=tuple(choices.describe(qid, options, diameter)),
             diameter=diameter,
+            depth=None
+            if hole["record"].get("bottom") == "through"
+            else hole["record"].get("depth"),
             basis=_function_basis(default, diameter, bolts, tapped),
         )
     ]
@@ -741,7 +746,7 @@ def _function_basis(default: str, diameter: float, bolts, tapped) -> str:
 
 def _position_basis(function: str, diameter: float, tol: float) -> str:
     """How a hole's default position tolerance was worked out."""
-    kind, _, size = str(function).partition(":")
+    kind, size, _ = choices.split(str(function))
     t = _fmt(tol)
     if kind == "fit":
         return f"⌀{t}: a fitted hole is located closely."
@@ -760,7 +765,7 @@ def _position_basis(function: str, diameter: float, tol: float) -> str:
 
 
 def _default_position(function: str, diameter: float) -> float:
-    kind, _, size = function.partition(":")
+    kind, size, _ = choices.split(function)
     if kind == "fit":
         return 0.05
     if kind == "tapped":
@@ -965,7 +970,7 @@ class IncompleteError(ValueError):
 def _hole_requirements(value: str, bores, feature, hole) -> list[dict[str, Any]]:
     if value == GENERAL:
         return []
-    kind, _, spec = value.partition(":")
+    kind, spec, full = choices.split(value)
     d = float(hole["record"]["diameter"])
     base = {"feature": feature["id"], "faces": list(bores)}
     if kind == "fit":
@@ -990,7 +995,7 @@ def _hole_requirements(value: str, bores, feature, hole) -> list[dict[str, Any]]
                 "drill_depth": depth,
                 "full_thread": depth
                 if through or depth is None
-                else standards.full_thread(depth, spec),
+                else full or standards.full_thread(depth, spec),
             }
         ]
     # Clearance: the hole as drawn is the nominal; H11 bounds it.

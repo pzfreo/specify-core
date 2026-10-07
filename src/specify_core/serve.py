@@ -65,7 +65,7 @@ def handle(request: dict[str, Any]) -> dict[str, Any]:
         q = next((q for q in qs if q.id == request["question"]), None)
         if q is None or q.kind != "choice":
             raise ValueError(f"no choice question {request['question']!r}")
-        value = choices.interpret(q.id, str(request["text"]), q.options, q.diameter)
+        value = choices.interpret(q.id, str(request["text"]), q.options, q.diameter, q.depth)
         out = {"value": value, "code": choices.code(value)}
         if q.diameter is not None and q.id.startswith(("hole.function:", "diameter.fit:")):
             out["callout"] = choices.callout(value, q.diameter, q.id.startswith("hole."))
