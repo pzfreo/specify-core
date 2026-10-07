@@ -83,11 +83,8 @@ class LoadedPart:
     part_count: int = 1
     #: The reader, kept for what each face was read from (``face_ranks``).
     reader: Any = None
-
-    @property
-    def name(self) -> str:
-        """The part's name in the file, if it has one."""
-        return _name(self.label)
+    #: The part's name in the file, if it has one (``_part_name``).
+    name: str = ""
 
     def face_ranks(self) -> dict[int, int]:
         """Face index -> the rank in the file of the ``ADVANCED_FACE`` it was read from."""
@@ -150,8 +147,11 @@ def load_all(path: str | Path, *, gdt: bool = True) -> list[LoadedPart]:
         shape = XCAFDoc_ShapeTool.GetShape_s(label)
         faces = _faces(label)
         binding = Binding(sha, faces.Extent(), part=index)
+        name = _part_name(root, label)
         out.append(
-            LoadedPart(path, doc, label, shape, _wrap(shape), faces, binding, len(labels), reader)
+            LoadedPart(
+                path, doc, label, shape, _wrap(shape), faces, binding, len(labels), reader, name
+            )
         )
     return out
 
@@ -169,7 +169,7 @@ def parts(path: str | Path) -> list[dict[str, Any]]:
     out = [
         {
             "part": i,
-            "name": _name(label),
+            "name": _part_name(root, label),
             "faces": _faces(label).Extent(),
             "instances": len(placed[i]),
             "placements": placed[i],
@@ -234,6 +234,38 @@ def _name(label: TDF_Label) -> str:
     if label.FindAttribute(TDataStd_Name.GetID_s(), attribute):
         return attribute.Get().ToExtString()
     return ""
+
+
+def _part_name(root: TDF_Label, label: TDF_Label) -> str:
+    """A part's name: that of an assembly holding it alone -- an exporter may wrap
+    a named part around a solid it calls SOLID -- or else its own."""
+    for assembly in _assemblies(root):
+        components = TDF_LabelSequence()
+        XCAFDoc_ShapeTool.GetComponents_s(assembly, components)
+        if components.Length() == 1 and _referred(components.Value(1)).IsEqual(label):
+            if _name(assembly):
+                return _name(assembly)
+    return _name(label)
+
+
+def _assemblies(label: TDF_Label):
+    """Each assembly at or under ``label``, following references."""
+    label = _referred(label)
+    if XCAFDoc_ShapeTool.IsAssembly_s(label):
+        yield label
+        components = TDF_LabelSequence()
+        XCAFDoc_ShapeTool.GetComponents_s(label, components)
+        for i in range(1, components.Length() + 1):
+            yield from _assemblies(components.Value(i))
+
+
+def _referred(label: TDF_Label) -> TDF_Label:
+    """What ``label`` places, if it is a reference; else itself."""
+    if not XCAFDoc_ShapeTool.IsReference_s(label):
+        return label
+    referred = TDF_Label()
+    XCAFDoc_ShapeTool.GetReferredShape_s(label, referred)
+    return referred
 
 
 def _simple_shapes(label: TDF_Label) -> list[TDF_Label]:
