@@ -143,8 +143,12 @@ def face_entities(path: str | Path, part: int = 0) -> dict[int, int]:
     OCCT numbers entities by rank, their order in the file; a file OCCT did not
     write need not number them in order, so ranks are mapped to ids.
     """
-    ids = [int(i) for i, _ in entities_of(Path(path).read_text(errors="replace"))]
-    loaded = load(path, part=part, gdt=False)
+    return face_entities_of(load(path, part=part, gdt=False))
+
+
+def face_entities_of(loaded: LoadedPart) -> dict[int, int]:
+    """``face_entities`` of a part already loaded from the file."""
+    ids = [int(i) for i, _ in entities_of(loaded.path.read_text(errors="replace"))]
     return {index: ids[rank - 1] for index, rank in loaded.face_ranks().items()}
 
 
@@ -154,10 +158,15 @@ def entities_of(text: str) -> list[tuple[str, str]]:
 
 
 def append(
-    path: Path, loaded: LoadedPart, intent, existing: frozenset[str] = frozenset()
+    path: Path,
+    loaded: LoadedPart,
+    intent,
+    existing: frozenset[str] = frozenset(),
+    faces: dict[int, int] | None = None,
 ) -> Appended:
     """Append the requirements of ``intent`` that OCCT cannot write to ``path``, and a
-    datum feature symbol for each datum not lettered in ``existing`` (the file's own)."""
+    datum feature symbol for each datum not lettered in ``existing`` (the file's own).
+    ``faces`` is ``face_entities`` of the part in ``path``, if already known."""
     reqs = [r for r in intent.requirements if r["kind"] in ("thread", "knurl", "finish")]
     general = intent.part.get("general_tolerance")
     notes = {kind: intent.part[key] for key, kind in PART_NOTES.items() if intent.part.get(key)}
@@ -171,7 +180,8 @@ def append(
 
     text = path.read_text()
     entities = {int(i): body for i, body in entities_of(text)}
-    faces = face_entities(path, loaded.binding.part)
+    if faces is None:
+        faces = face_entities(path, loaded.binding.part)
     ids = _anchors(entities, faces.values())
     for face in faces.values():
         if not entities.get(face, "").startswith("ADVANCED_FACE("):

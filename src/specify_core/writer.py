@@ -197,6 +197,11 @@ def _write_verified(jobs: list[Job], output: Path) -> WriteReport:
     path, assembly = first.path, first.part_count > 1
     bare = not merge.carries_pmi(path)
     if assembly:
+        # Stored answers are how a later write knows the PMI is specify-core's.
+        if any(answers is None for _, _, answers in jobs):
+            raise ValueError("a part of an assembly is written with the answers it came from")
+        # One document holding every part, so all are written at once.
+        everything = load_all(path, gdt=False)
         stored = resume.stored(path)
         resumed = bool(stored)
         if not bare and not resumed:
@@ -204,14 +209,20 @@ def _write_verified(jobs: list[Job], output: Path) -> WriteReport:
                 "this assembly already has PMI not written by specify-core; "
                 "adding to it is not supported yet"
             )
+        stale = sorted(
+            k for k in stored if k >= len(everything) or resume.answers_for(everything[k]) is None
+        )
+        if stale:
+            raise ValueError(
+                f"the answers stored for part(s) {', '.join(map(str, stale))} are not for "
+                "this assembly's parts: it has changed since specify-core wrote it"
+            )
         unwritten = sorted(set(stored) - {loaded.binding.part for loaded, _, _ in jobs})
         if unwritten:
             raise ValueError(
                 f"part(s) {', '.join(map(str, unwritten))} have answers stored in this file; "
                 "write them again with these, or their PMI would be lost"
             )
-        # One document holding every part, so all are written at once.
-        everything = load_all(path, gdt=False)
         geometry = [everything[loaded.binding.part] for loaded, _, _ in jobs]
     else:
         resumed = resume.answers_for(first) is not None
@@ -229,11 +240,15 @@ def _write_verified(jobs: list[Job], output: Path) -> WriteReport:
             merge.transplant(path, scratch, output, appended[0].count)
         finally:
             scratch.unlink(missing_ok=True)
+    # Read back once; each part's faces keep their ids as more is appended.
+    back = load_all(output)
     for (loaded, intent, answers), done in zip(jobs, appended, strict=True):
-        verify(output, intent, loaded.binding.face_count, loaded.binding.part)
-        _verify_appended(output, intent, done, loaded.binding.part)
+        part = back[loaded.binding.part]
+        faces = requirements.face_entities_of(part)
+        verify(output, intent, loaded.binding.face_count, back=part, faces=faces)
+        _verify_appended(output, intent, done, faces=faces, scoped=assembly)
         if answers is not None and (bare or resumed):
-            resume.embed(output, loaded, answers)
+            resume.embed(output, loaded, answers, faces)
     return report
 
 
@@ -278,9 +293,11 @@ def _write(
     _part_datums(output)
     # OCCT cannot mark a dimension basic; it is marked before anything is appended.
     locations.mark_basic(output)
-    appended = [
-        requirements.append(output, loaded, intent, frozenset(existing)) for loaded, intent in pairs
-    ]
+    written = load_all(output, gdt=False)
+    appended = []
+    for loaded, intent in pairs:
+        faces = requirements.face_entities_of(written[loaded.binding.part])
+        appended.append(requirements.append(output, loaded, intent, frozenset(existing), faces))
     # OCCT and the text appended write raw UTF-8 where the file's edition asks
     # for escapes; this file is new, so all of it is escaped.
     p21.escape_file(output)
@@ -421,7 +438,10 @@ def _part_datums(path: Path) -> None:
     """Give each part's datums their letters back (``_datum_name``)."""
     text = path.read_text()
     marked = re.compile(rf"(DATUM\([^;]*?'[^']*){re.escape(_PART_MARK)}\d+'")
-    path.write_text(marked.sub(r"\1'", text))
+    text = marked.sub(r"\1'", text)
+    if _PART_MARK in text:
+        raise RuntimeError("OCCT wrote a datum's name somewhere other than its DATUM")
+    path.write_text(text)
 
 
 def _drop_runout_zones(path: Path) -> int:
@@ -554,12 +574,22 @@ def _write_failures(writer: STEPCAFControl_Writer) -> str:
     return "; ".join(sorted(found)) or "no reason given"
 
 
-def verify(path: Path, intent: Intent, face_count: int, part: int = 0) -> None:
-    """Read ``path`` back and check every requirement and datum reached its ``part``-th part."""
+def verify(
+    path: Path,
+    intent: Intent,
+    face_count: int,
+    part: int = 0,
+    back: LoadedPart | None = None,
+    faces: dict[int, int] | None = None,
+) -> None:
+    """Read ``path`` back and check every requirement and datum reached its
+    ``part``-th part; ``back`` is that part read back, and ``faces`` its
+    ``face_entities``, if already known."""
     text = path.read_text(errors="replace")
     if "AP242" not in text[:2000]:
         raise VerificationError("file was not written as AP242")
-    back = load(path, part=part)
+    if back is None:
+        back = load(path, part=part)
     if back.binding.face_count != face_count:
         raise VerificationError("face count changed on write")
     found = [e.to_dict() for e in read_existing(back)]
@@ -570,7 +600,14 @@ def verify(path: Path, intent: Intent, face_count: int, part: int = 0) -> None:
             for e in found
         ):
             problems.append(f"datum {datum['letter']} missing or on the wrong faces")
-    limits = _file_limits(text)
+    if back.part_count > 1:
+        # Limits like another part's are not this part's.
+        faces = faces or requirements.face_entities_of(back)
+        entities = {int(i): body for i, body in requirements.entities_of(text)}
+        pds = requirements._anchors(entities, faces.values())["pds"]
+        limits = _file_limits(text, _part_tolerance_values(entities, pds))
+    else:
+        limits = _file_limits(text)
     for req in intent.requirements:
         faces = sorted(int(i) for i in req.get("faces", ()))
         if req["kind"] == "size":
@@ -628,26 +665,83 @@ _MEASURE = re.compile(
 _TOLERANCE_VALUE = re.compile(r"TOLERANCE_VALUE\(\s*#(\d+)\s*,\s*#(\d+)\s*\)")
 
 
-def _file_limits(text: str) -> list[tuple[float, float]]:
-    """(lower, upper) of every TOLERANCE_VALUE in the file, as STEP states them."""
+def _file_limits(text: str, only: set[int] | None = None) -> list[tuple[float, float]]:
+    """(lower, upper) of every TOLERANCE_VALUE in the file -- or of those whose ids
+    are in ``only`` -- as STEP states them."""
     measures = {m.group(1): float(m.group(2)) for m in _MEASURE.finditer(text)}
+    values = re.compile(r"#(\d+)\s*=\s*" + _TOLERANCE_VALUE.pattern)
     return [
-        (measures[m.group(1)], measures[m.group(2)])
-        for m in _TOLERANCE_VALUE.finditer(text)
-        if m.group(1) in measures and m.group(2) in measures
+        (measures[m.group(2)], measures[m.group(3)])
+        for m in values.finditer(text)
+        if (only is None or int(m.group(1)) in only)
+        and m.group(2) in measures
+        and m.group(3) in measures
     ]
 
 
+def _refs(body: str) -> list[int]:
+    return [int(x) for x in re.findall(r"#(\d+)", body)]
+
+
+def _part_tolerance_values(entities: dict[int, str], pds: int) -> set[int]:
+    """The TOLERANCE_VALUEs of the dimensions on the part whose
+    product_definition_shape is ``pds``."""
+    aspects = {
+        i
+        for i, b in entities.items()
+        if b.startswith(("SHAPE_ASPECT(", "COMPOSITE_SHAPE_ASPECT(")) and pds in _refs(b)
+    }
+    dimensions = {
+        i
+        for i, b in entities.items()
+        if b.startswith(("DIMENSIONAL_SIZE(", "DIMENSIONAL_LOCATION(")) and aspects & set(_refs(b))
+    }
+    return {
+        _refs(b)[0]
+        for b in entities.values()
+        if b.startswith("PLUS_MINUS_TOLERANCE(") and dimensions & set(_refs(b))
+    }
+
+
+def _part_items(entities: dict[int, str], pd: int) -> str:
+    """The representation items of the properties of the part whose
+    product_definition is ``pd`` -- its requirements' words and its material."""
+    props = {
+        i
+        for i, b in entities.items()
+        if b.startswith("PROPERTY_DEFINITION(") and _refs(b)[-1:] == [pd]
+    }
+    reps = {
+        _refs(b)[1]
+        for b in entities.values()
+        if b.startswith("PROPERTY_DEFINITION_REPRESENTATION(") and _refs(b)[0] in props
+    }
+    items = {r for rep in reps for r in _refs(entities.get(rep, ""))}
+    return " ".join(entities[i] for i in sorted(items) if i in entities)
+
+
 def _verify_appended(
-    path: Path, intent: Intent, appended: requirements.Appended, part: int = 0
+    path: Path,
+    intent: Intent,
+    appended: requirements.Appended,
+    part: int = 0,
+    faces: dict[int, int] | None = None,
+    scoped: bool = False,
 ) -> None:
-    """Every appended requirement is in the file, on its part's faces; the material too."""
+    """Every appended requirement is in the file, on its part's faces; the material
+    too. ``scoped``, the words and material must be the part's own, as in an
+    assembly another part's could stand in for them."""
     text = re.sub(r"\s*\n\s*", " ", path.read_text(errors="replace"))
+    if faces is None:
+        faces = requirements.face_entities(path, part)
+    own = text
+    if scoped:
+        entities = {int(i): body for i, body in requirements.entities_of(text)}
+        own = _part_items(entities, requirements._anchors(entities, faces.values())["pd"])
     problems = []
     for label, words in appended.texts.items():
-        if f"'{p21.escape(words.replace(chr(39), chr(39) * 2))}'" not in text:
+        if f"'{p21.escape(words.replace(chr(39), chr(39) * 2))}'" not in own:
             problems.append(f"{label} text not in file")
-    faces = requirements.face_entities(path, part)
     by_id = {face: index for index, face in faces.items()}
     for label, wanted in appended.faces.items():
         kind = label.rsplit(" ", 1)[0]
@@ -663,7 +757,7 @@ def _verify_appended(
     if material and not re.search(
         # OCCT puts a long name on a line of its own, after the bracket.
         rf"DESCRIPTIVE_REPRESENTATION_ITEM\(\s*'{re.escape(p21.escape(material))}'",
-        text,
+        own,
     ):
         problems.append("material not in file")
     if problems:

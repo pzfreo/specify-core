@@ -100,7 +100,16 @@ def main(argv: list[str] | None = None) -> int:
                     qs = open_questions(qs, answers)
                 print(json.dumps([q.to_dict() for q in qs], indent=1, ensure_ascii=False))
                 return 0
-            intent = api.apply(analysis, answers, accept_defaults=args.accept_defaults)
+            try:
+                intent = api.apply(analysis, answers, accept_defaults=args.accept_defaults)
+            except ValueError as exc:
+                if len(pairs) == 1:
+                    raise
+                # Which part of the assembly the answers are for.
+                part = analysis.get("binding", {}).get("part", 0)
+                if isinstance(exc, IncompleteError):
+                    raise IncompleteError(exc.missing, part) from None
+                raise ValueError(f"part {part}: {exc}") from None
             written.append((intent, answers))
     except IncompleteError as exc:
         print(f"incomplete: {exc}", file=sys.stderr)

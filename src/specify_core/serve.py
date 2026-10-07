@@ -60,10 +60,16 @@ def handle(request: dict[str, Any]) -> dict[str, Any]:
         return {"analysis": api.analyse(loaded), "mesh": api.mesh(loaded)}
     if op == "write" and "parts" in request:
         defaults = bool(request.get("accept_defaults"))
-        written = [
-            (api.apply(p["analysis"], p.get("answers", {}), accept_defaults=defaults), p)
-            for p in request["parts"]
-        ]
+        written = []
+        for p in request["parts"]:
+            part = p["analysis"].get("binding", {}).get("part", 0)
+            try:
+                intent = api.apply(p["analysis"], p.get("answers", {}), accept_defaults=defaults)
+            except IncompleteError as exc:
+                raise IncompleteError(exc.missing, part) from None
+            except ValueError as exc:
+                raise ValueError(f"part {part}: {exc}") from None
+            written.append((intent, p))
         report = api.write_parts(
             Path(request["step"]),
             [(intent, p.get("answers", {})) for intent, p in written],
@@ -124,7 +130,8 @@ def _label_anchors(step: Path, analysis: dict[str, Any], intent: dict[str, Any])
             for k in [k for k in _ANCHORS if k[0] == gone]:
                 del _ANCHORS[k]
     _PARTS.move_to_end(key)
-    if loaded.binding.to_dict() != analysis.get("binding"):
+    # An analysis made before parts were told apart is of part 0.
+    if loaded.binding.to_dict() != {"part": 0, **analysis.get("binding", {})}:
         return {}
     groups = [d["faces"] for d in intent["datums"]] + [r["faces"] for r in intent["requirements"]]
     groups += [e.get("faces", []) for e in analysis.get("existing", [])]
@@ -156,7 +163,8 @@ def reply(request: Any) -> dict[str, Any]:
     try:
         out |= {"ok": True, "result": handle(request)}
     except IncompleteError as exc:
-        out |= {"ok": False, "error": _error("incomplete", exc, missing=exc.missing)}
+        part = {"part": exc.part} if exc.part is not None else {}
+        out |= {"ok": False, "error": _error("incomplete", exc, missing=exc.missing, **part)}
     except (ValueError, KeyError) as exc:
         # An answer specify-core refuses, or a malformed request.
         out |= {"ok": False, "error": _error("invalid", exc)}

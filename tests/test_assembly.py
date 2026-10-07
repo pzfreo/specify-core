@@ -1,5 +1,6 @@
 """An assembly of several parts, specified a part at a time and written together."""
 
+import base64
 import json
 import re
 
@@ -11,6 +12,7 @@ from specify_core.existing import read_existing
 from specify_core.load import load
 from specify_core.requirements import _anchors, entities_of, face_entities
 from specify_core.serve import reply
+from specify_core.writer import _file_limits, _part_items, _part_tolerance_values
 
 PLATE, PIN = 0, 1
 ANSWERS = {PLATE: {"part.material": "steel"}, PIN: {"part.material": "brass"}}
@@ -82,8 +84,11 @@ def test_each_part_resumes_its_own_answers(written):
 def test_writing_one_part_again_alone_is_refused(written, tmp_path):
     *_, out = written
     pin = api.analyse(out, PIN)
+    intent = api.apply(pin, ANSWERS[PIN], accept_defaults=True)
     with pytest.raises(ValueError, match=r"part\(s\) 0 have answers stored"):
-        api.write(out, api.apply(pin, ANSWERS[PIN], accept_defaults=True), tmp_path / "x.step")
+        api.write(out, intent, tmp_path / "x.step", answers=ANSWERS[PIN])
+    with pytest.raises(ValueError, match="with the answers it came from"):
+        api.write(out, intent, tmp_path / "x.step")
 
 
 def test_written_again_through_the_service_its_pmi_is_replaced(written, tmp_path):
@@ -116,7 +121,66 @@ def test_an_assembly_with_pmi_of_its_own_is_refused(written, tmp_path):
     foreign.write_text(out.read_text().replace("'pmi-assist answers'", "'other'"))
     pin = api.analyse(foreign, PIN)
     with pytest.raises(ValueError, match="already has PMI not written by specify-core"):
-        api.write(foreign, api.apply(pin, ANSWERS[PIN], accept_defaults=True), tmp_path / "x.step")
+        api.write(
+            foreign,
+            api.apply(pin, ANSWERS[PIN], accept_defaults=True),
+            tmp_path / "x.step",
+            answers=ANSWERS[PIN],
+        )
+
+
+def test_answers_stored_for_a_part_the_file_no_longer_has_are_refused(written, tmp_path):
+    *_, out = written
+
+    def moved(found):
+        payload = json.loads(base64.b64decode(found.group(1)))
+        if payload["part"] == PIN:
+            payload["part"] = 5
+        return f"'pmi-assist answers','{base64.b64encode(json.dumps(payload).encode()).decode()}'"
+
+    flat = re.sub(r"\s*\n\s*", "", out.read_text())
+    changed = tmp_path / "changed.step"
+    changed.write_text(re.sub(r"'pmi-assist answers','([A-Za-z0-9+/=]+)'", moved, flat))
+    parts = [(api.analyse(changed, k), ANSWERS[k]) for k in (PLATE, PIN)]
+    intents = [(api.apply(a, q, accept_defaults=True), q) for a, q in parts]
+    with pytest.raises(ValueError, match=r"answers stored for part\(s\) 5 are not for"):
+        api.write_parts(changed, intents, tmp_path / "x.step")
+
+
+def test_each_part_is_verified_against_its_own_pmi(written):
+    *_, out = written
+    text = re.sub(r"\s*\n\s*", " ", out.read_text())
+    entities = {int(i): body for i, body in entities_of(text)}
+    plate, pin = (_anchors(entities, face_entities(out, k).values()) for k in (PLATE, PIN))
+    # The plate's clearance holes have limits; the pin has none of its own.
+    assert _file_limits(text, _part_tolerance_values(entities, plate["pds"]))
+    assert _file_limits(text, _part_tolerance_values(entities, pin["pds"])) == []
+    assert "'brass'" in _part_items(entities, pin["pd"])
+    assert "'steel'" not in _part_items(entities, pin["pd"])
+
+
+def test_an_unanswered_part_is_named(assembly, tmp_path):
+    parts = [{"analysis": api.analyse(assembly, k), "answers": {}} for k in (PLATE, PIN)]
+    parts[PLATE]["answers"] = ANSWERS[PLATE]
+    result = reply(
+        {
+            "id": 1,
+            "op": "write",
+            "step": str(assembly),
+            "output": str(tmp_path / "x.step"),
+            "accept_defaults": True,
+            "parts": parts,
+        }
+    )
+    assert result["error"]["code"] == "incomplete" and result["error"]["part"] == PIN
+    assert result["error"]["message"].startswith("part 1: ")
+
+
+def test_an_analysis_from_before_parts_still_previews_with_anchors(pin):
+    analysis = api.analyse(pin)
+    analysis["binding"].pop("part")
+    request = {"op": "preview", "analysis": analysis, "answers": {}, "step": str(pin)}
+    assert reply({"id": 1, **request})["result"]["intent"]["anchors"]
 
 
 def test_the_command_line_writes_a_pair_for_each_part(assembly, tmp_path, capsys):

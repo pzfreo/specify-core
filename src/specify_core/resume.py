@@ -45,8 +45,11 @@ def fingerprint(loaded: LoadedPart) -> str:
     return hashlib.sha256(json.dumps(faces).encode()).hexdigest()
 
 
-def embed(path: Path, loaded: LoadedPart, answers: dict[str, Any]) -> None:
-    """Store ``answers`` in the file at ``path``, written from ``loaded``."""
+def embed(
+    path: Path, loaded: LoadedPart, answers: dict[str, Any], faces: dict[int, int] | None = None
+) -> None:
+    """Store ``answers`` in the file at ``path``, written from ``loaded``; ``faces`` is
+    ``face_entities`` of the part in ``path``, if already known."""
     payload = {
         "schema": SCHEMA,
         "answers": answers,
@@ -57,7 +60,9 @@ def embed(path: Path, loaded: LoadedPart, answers: dict[str, Any]) -> None:
     encoded = base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode()
     text = path.read_text()
     entities = {int(i): body for i, body in entities_of(text)}
-    ids = _anchors(entities, face_entities(path, loaded.binding.part).values())
+    if faces is None:
+        faces = face_entities(path, loaded.binding.part)
+    ids = _anchors(entities, faces.values())
     out = _Part21(max(entities) + 1)
     item = out.add(f"DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist answers','{encoded}')")
     rep = out.add(f"REPRESENTATION('pmi-assist answers',(#{item}),#{ids['context']})")

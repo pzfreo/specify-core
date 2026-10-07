@@ -32,7 +32,7 @@ from OCP.XCAFDoc import (
 from . import p21
 from .load import LoadedPart
 from .magnitudes import tolerance_magnitudes
-from .requirements import PART_NOTES, entities_of, face_entities
+from .requirements import PART_NOTES, entities_of, face_entities, face_entities_of
 
 
 @dataclass(frozen=True)
@@ -108,20 +108,21 @@ def read_existing(loaded: LoadedPart) -> list[ExistingPmi]:
     labels = TDF_LabelSequence()
     tool.GetDatumLabels(labels)
     resolved: dict[str, tuple[int, ...]] | None = None
+    faces = face_entities_of(loaded)
     seen = set()
     for label in _each(labels):
         letter = _datum_letter(label)
         first, _ = _refs(tool, shape_tool, loaded, label)
         if not first:
             if resolved is None:
-                resolved = datum_faces(loaded.path, loaded.binding.part)
+                resolved = datum_faces(loaded.path, faces=faces)
             first = resolved.get(letter, ())
         if _elsewhere(loaded, first):
             continue
         if (letter, first) not in seen:
             seen.add((letter, first))
             out.append(ExistingPmi("datum", letter, first))
-    return out + notes(loaded.path, loaded.binding.part)
+    return out + notes(loaded.path, faces=faces)
 
 
 def _elsewhere(loaded: LoadedPart, *faces: tuple[int, ...]) -> bool:
@@ -173,9 +174,10 @@ def part_settings(loaded: LoadedPart) -> dict[str, str]:
 _DEFAULT_FINISH = re.compile(r"(.*?) µm unless otherwise (?:specified|stated)")
 
 
-def notes(path: Path, part: int = 0) -> list[ExistingPmi]:
-    """Threads and knurls the file states as ``requirements.append`` writes them."""
-    faces = {face: i for i, face in face_entities(path, part).items()}
+def notes(path: Path, part: int = 0, faces: dict[int, int] | None = None) -> list[ExistingPmi]:
+    """Threads and knurls the file states as ``requirements.append`` writes them, on
+    its ``part``-th part (whose ``face_entities`` are ``faces``, if known)."""
+    faces = {face: i for i, face in (faces or face_entities(path, part)).items()}
     found: dict[str, set[int]] = {}
     for kind, face in _NOTE.findall(path.read_text(errors="replace")):
         if int(face) in faces:
@@ -191,9 +193,11 @@ _NOTE = re.compile(
 _USAGES = ("GEOMETRIC_ITEM_SPECIFIC_USAGE(", "ITEM_IDENTIFIED_REPRESENTATION_USAGE(")
 
 
-def datum_faces(path: Path, part: int = 0) -> dict[str, tuple[int, ...]]:
+def datum_faces(
+    path: Path, part: int = 0, faces: dict[int, int] | None = None
+) -> dict[str, tuple[int, ...]]:
     """Each datum letter in the STEP file at ``path`` to the faces of its feature
-    on its ``part``-th part."""
+    on its ``part``-th part (whose ``face_entities`` are ``faces``, if known)."""
     entities = {int(i): body for i, body in entities_of(path.read_text(errors="replace"))}
     letters = {
         i: m.group(1)
@@ -202,7 +206,7 @@ def datum_faces(path: Path, part: int = 0) -> dict[str, tuple[int, ...]]:
     }
     if not letters:
         return {}
-    index = {face: i for i, face in face_entities(path, part).items()}
+    index = {face: i for i, face in (faces or face_entities(path, part)).items()}
     usages: dict[int, set[int]] = {}
     parts: dict[int, list[int]] = {}
     features: dict[str, list[int]] = {}

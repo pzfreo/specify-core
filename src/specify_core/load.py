@@ -212,9 +212,7 @@ def _instances(label: TDF_Label, location: TopLoc_Location):
     """Each placed part under ``label``: its label and its location in the assembly."""
     if XCAFDoc_ShapeTool.IsReference_s(label):
         location = location * XCAFDoc_ShapeTool.GetLocation_s(label)
-        referred = TDF_Label()
-        XCAFDoc_ShapeTool.GetReferredShape_s(label, referred)
-        label = referred
+    label = _referred(label)
     if not XCAFDoc_ShapeTool.IsAssembly_s(label):
         if _faces(label).Extent():
             yield label, location
@@ -270,10 +268,7 @@ def _referred(label: TDF_Label) -> TDF_Label:
 
 def _simple_shapes(label: TDF_Label) -> list[TDF_Label]:
     """The distinct non-assembly shapes under ``label``, following references."""
-    if XCAFDoc_ShapeTool.IsReference_s(label):
-        referred = TDF_Label()
-        XCAFDoc_ShapeTool.GetReferredShape_s(label, referred)
-        label = referred
+    label = _referred(label)
     if not XCAFDoc_ShapeTool.IsAssembly_s(label):
         return [label]
     components = TDF_LabelSequence()
