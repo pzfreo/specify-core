@@ -33,6 +33,20 @@ specify-core write part.step analysis.json a.json -o out.step --accept-defaults 
 question has an answer (or a default, with `--accept-defaults`), then writes AP242
 into the original document and verifies it by reading it back.
 
+An assembly is specified a part at a time. `specify-core parts asm.step` lists its
+distinct parts (a part placed twice is one part, with two placements); `analyse`
+and `mesh` take `--part N`; and `write` takes an analysis and answers for each
+part, writing them all into the assembly at once, each part's PMI on its own
+product definition:
+
+```bash
+specify-core write asm.step plate.json plate-a.json pin.json pin-a.json -o out.step
+```
+
+Writing an assembly specify-core wrote replaces its PMI, so every part with
+answers stored in it must be written again together. An assembly that already
+has PMI from elsewhere is refused for now.
+
 v1 covers: material, general tolerance (ISO 2768), datums A/B/C (default: three
 mutually square planes, A taking every coplanar face, or plane + main cylinder on
 turned parts), hole function (clearance / tapped / ISO 286 fit, defaults from ISO

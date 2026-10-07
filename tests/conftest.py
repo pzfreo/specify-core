@@ -81,3 +81,30 @@ def pin(tmp_path_factory) -> Path:
     path = tmp_path_factory.mktemp("parts") / "pin.step"
     export_step(bp.part, str(path))
     return path
+
+
+@pytest.fixture(scope="session")
+def assembly(tmp_path_factory) -> Path:
+    """Two parts: a plate with M6 clearance holes and an M5 tap drill, and a pin
+    with a blind M5 tap drill placed twice -- one part, two instances."""
+    from build123d import Align, Location
+
+    with BuildPart() as plate:
+        Box(100, 60, 10)
+        with GridLocations(30, 30, 3, 2):
+            Cylinder(3.3, 10, mode=Mode.SUBTRACT)
+        with Locations((45, 0, 0)):
+            Cylinder(2.1, 10, mode=Mode.SUBTRACT)
+    with BuildPart() as pin:
+        Cylinder(3, 12, align=(Align.CENTER, Align.CENTER, Align.MIN))
+        with Locations((0, 0, 12)):
+            Cylinder(5, 20, align=(Align.CENTER, Align.CENTER, Align.MIN))
+        with Locations((0, 0, 32)):
+            Cylinder(2.1, 8, align=(Align.CENTER, Align.CENTER, Align.MAX), mode=Mode.SUBTRACT)
+    plate.part.label = "plate"
+    pin.part.label = "pin"
+    left = pin.part.moved(Location((-30, 0, 5)))
+    right = pin.part.moved(Location((30, 0, 5)))
+    path = tmp_path_factory.mktemp("parts") / "assembly.step"
+    export_step(Compound(children=[plate.part, left, right], label="assembly"), str(path))
+    return path

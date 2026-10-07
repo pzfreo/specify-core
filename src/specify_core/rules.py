@@ -962,9 +962,12 @@ def _turned_requirement(value: str, d: float, fid: str, cylinders, features) -> 
 
 
 class IncompleteError(ValueError):
-    def __init__(self, missing: list[str]) -> None:
-        super().__init__(f"{len(missing)} question(s) unanswered: {', '.join(missing)}")
+    def __init__(self, missing: list[str], part: int | None = None) -> None:
+        # In an assembly, which part's questions they are.
+        of = f"part {part}: " if part is not None else ""
+        super().__init__(f"{of}{len(missing)} question(s) unanswered: {', '.join(missing)}")
         self.missing = missing
+        self.part = part
 
 
 def _hole_requirements(value: str, bores, feature, hole) -> list[dict[str, Any]]:

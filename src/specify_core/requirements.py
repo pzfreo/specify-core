@@ -24,10 +24,10 @@ Each new datum also gets a datum feature symbol, linked to its
 where the symbol is. Nothing else is drawn as text; Draftwright reads none of
 the presentation.
 
-Faces are found in the written file the way Draftwright resolves them: each
-``ADVANCED_FACE`` is transferred and matched to the imported face, with
-placement stripped so parts inside an assembly resolve too. In a file OCCT has
-just written, an entity's rank is its ``#`` id; that is checked, not assumed.
+Faces are found in the written file by reading it again: the reader says
+which ``ADVANCED_FACE`` each of the part's faces came from, so in an assembly
+only that part's faces are found. In a file OCCT has just written, an entity's
+rank is its ``#`` id; that is checked, not assumed.
 """
 
 from __future__ import annotations
@@ -40,15 +40,12 @@ from typing import Any
 from OCP.Bnd import Bnd_Box
 from OCP.BRep import BRep_Tool
 from OCP.BRepBndLib import BRepBndLib
-from OCP.STEPControl import STEPControl_Reader
-from OCP.TopAbs import TopAbs_FACE, TopAbs_VERTEX
-from OCP.TopExp import TopExp, TopExp_Explorer
-from OCP.TopLoc import TopLoc_Location
+from OCP.TopAbs import TopAbs_VERTEX
+from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS
-from OCP.TopTools import TopTools_IndexedMapOfShape
 
 from . import lettering
-from .load import LoadedPart
+from .load import LoadedPart, load
 
 KINDS = {"internal": "internal thread", "external": "external thread"}
 #: The part's notes, each written as a manufacturing requirement of this kind.
@@ -140,32 +137,19 @@ def attributes(req: dict[str, Any]) -> list[tuple[str, str | float]]:
     ]
 
 
-def face_entities(path: str | Path) -> dict[int, int]:
-    """Face index -> ``#id`` of its ADVANCED_FACE in ``path``.
+def face_entities(path: str | Path, part: int = 0) -> dict[int, int]:
+    """Face index -> ``#id`` of its ADVANCED_FACE in ``path``, for its ``part``-th part.
 
     OCCT numbers entities by rank, their order in the file; a file OCCT did not
     write need not number them in order, so ranks are mapped to ids.
     """
-    ids = [int(i) for i, _ in entities_of(Path(path).read_text(errors="replace"))]
-    reader = STEPControl_Reader()
-    reader.ReadFile(str(path))
-    reader.TransferRoots()
-    located = TopTools_IndexedMapOfShape()
-    TopExp.MapShapes_s(reader.OneShape(), TopAbs_FACE, located)
-    faces = TopTools_IndexedMapOfShape()
-    for k in range(1, located.Extent() + 1):
-        faces.Add(located.FindKey(k).Located(TopLoc_Location()))
-    model = reader.StepModel()
-    out: dict[int, int] = {}
-    for rank in range(1, model.NbEntities() + 1):
-        if model.Value(rank).DynamicType().Name() != "StepShape_AdvancedFace":
-            continue
-        before = reader.NbShapes()
-        if reader.TransferOne(rank) and reader.NbShapes() == before + 1:
-            index = faces.FindIndex(reader.Shape(reader.NbShapes()).Located(TopLoc_Location()))
-            if index > 0:
-                out[index - 1] = ids[rank - 1]
-    return out
+    return face_entities_of(load(path, part=part, gdt=False))
+
+
+def face_entities_of(loaded: LoadedPart) -> dict[int, int]:
+    """``face_entities`` of a part already loaded from the file."""
+    ids = [int(i) for i, _ in entities_of(loaded.path.read_text(errors="replace"))]
+    return {index: ids[rank - 1] for index, rank in loaded.face_ranks().items()}
 
 
 def entities_of(text: str) -> list[tuple[str, str]]:
@@ -174,10 +158,15 @@ def entities_of(text: str) -> list[tuple[str, str]]:
 
 
 def append(
-    path: Path, loaded: LoadedPart, intent, existing: frozenset[str] = frozenset()
+    path: Path,
+    loaded: LoadedPart,
+    intent,
+    existing: frozenset[str] = frozenset(),
+    faces: dict[int, int] | None = None,
 ) -> Appended:
     """Append the requirements of ``intent`` that OCCT cannot write to ``path``, and a
-    datum feature symbol for each datum not lettered in ``existing`` (the file's own)."""
+    datum feature symbol for each datum not lettered in ``existing`` (the file's own).
+    ``faces`` is ``face_entities`` of the part in ``path``, if already known."""
     reqs = [r for r in intent.requirements if r["kind"] in ("thread", "knurl", "finish")]
     general = intent.part.get("general_tolerance")
     notes = {kind: intent.part[key] for key, kind in PART_NOTES.items() if intent.part.get(key)}
@@ -191,8 +180,9 @@ def append(
 
     text = path.read_text()
     entities = {int(i): body for i, body in entities_of(text)}
-    ids = _anchors(entities)
-    faces = face_entities(path)
+    if faces is None:
+        faces = face_entities(path, loaded.binding.part)
+    ids = _anchors(entities, faces.values())
     for face in faces.values():
         if not entities.get(face, "").startswith("ADVANCED_FACE("):
             raise RuntimeError(f"entity #{face} is not the face OCCT's reader says it is")
@@ -240,7 +230,7 @@ def append(
         _default_tolerances(out, ids, general)
     # A viewer reading only presentation shows a datum where its symbol is: the
     # symbol linked to the datum feature gives the datum a position.
-    features = _datum_features(entities)
+    features = _datum_features(entities, ids["pds"])
     symbols = _DatumSymbols(loaded.shape)
     for d in datums:
         if d["letter"] in features:
@@ -285,9 +275,11 @@ def _s(text: str) -> str:
     return "'" + text.replace("'", "''") + "'"
 
 
-def _anchors(entities: dict[int, str]) -> dict[str, int]:
+def _anchors(entities: dict[int, str], faces=None) -> dict[str, int]:
     """The ids appended entities hang off: the representation holding the solid and
-    its context, its product_definition_shape and product_definition, and mm."""
+    its context, its product_definition_shape and product_definition, and mm.
+    Given the ids of a part's ``faces``, the solid is the one they bound: in an
+    assembly, that part's."""
 
     def refs(i):
         return [int(x) for x in re.findall(r"#(\d+)", entities[i])]
@@ -296,6 +288,14 @@ def _anchors(entities: dict[int, str]) -> dict[str, int]:
     # or a plain SHAPE_REPRESENTATION where the file had only that (NIST CTC-05).
     # A plain one may also list the solid beside it (NIST CTC-03).
     solids = {i for i, b in entities.items() if b.startswith("MANIFOLD_SOLID_BREP(")}
+    if faces is not None:
+        faces = set(faces)
+        shells = {
+            i
+            for i, b in entities.items()
+            if b.startswith(("CLOSED_SHELL(", "OPEN_SHELL(")) and faces & set(refs(i))
+        }
+        solids = {i for i in solids if shells & set(refs(i))}
     breps = []
     for kind in ("ADVANCED_BREP_SHAPE_REPRESENTATION(", "SHAPE_REPRESENTATION("):
         breps = breps or [
@@ -477,8 +477,9 @@ def _tip(loaded: LoadedPart, face_id: int) -> Point:
     return (p.X(), p.Y(), p.Z())
 
 
-def _datum_features(entities: dict[int, str]) -> dict[str, int]:
-    """Datum letter -> the DATUM_FEATURE it is established by, in a file OCCT wrote."""
+def _datum_features(entities: dict[int, str], pds: int) -> dict[str, int]:
+    """Datum letter -> the DATUM_FEATURE it is established by, in a file OCCT wrote,
+    of the part whose product_definition_shape is ``pds``."""
     letters = {
         i: m.group(1)
         for i, body in entities.items()
@@ -488,7 +489,12 @@ def _datum_features(entities: dict[int, str]) -> dict[str, int]:
     for body in entities.values():
         if body.startswith("SHAPE_ASPECT_RELATIONSHIP("):
             feature, datum = (int(x) for x in re.findall(r"#(\d+)", body)[-2:])
-            if datum in letters and entities.get(feature, "").startswith("DATUM_FEATURE("):
+            body = entities.get(feature, "")
+            if (
+                datum in letters
+                and body.startswith("DATUM_FEATURE(")
+                and pds in (int(x) for x in re.findall(r"#(\d+)", body))
+            ):
                 out.setdefault(letters[datum], feature)
     return out
 

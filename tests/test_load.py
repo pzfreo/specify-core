@@ -57,11 +57,14 @@ def test_nist_ctc_03_loads_through_its_assembly(ctc03):
     assert load(ctc03).binding.face_count == 139
 
 
-def test_a_file_with_two_parts_is_refused(tmp_path):
+def test_a_file_with_two_parts_must_say_which(tmp_path):
     from build123d import Box, Compound, Location, export_step
 
     a, b = Box(1, 1, 1), Box(1, 1, 1).moved(Location((5, 0, 0)))
     path = tmp_path / "two.step"
     export_step(Compound(children=[a, b]), str(path))
-    with pytest.raises(ValueError, match="expected one part"):
+    with pytest.raises(ValueError, match="an assembly of 2 parts; choose one"):
         load(path)
+    assert load(path, part=1).binding.part == 1
+    with pytest.raises(ValueError, match="there is no part 2"):
+        load(path, part=2)

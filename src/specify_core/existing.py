@@ -7,6 +7,9 @@ OCCT's reader leaves a datum without faces when its feature names them as a
 set (NIST CTC-01's datums B and C, each a hole's two half-cylinders); those are
 read from the STEP text instead. It also builds one datum per tolerance that
 cites it; each letter is reported once per set of faces.
+
+In an assembly, only the loaded part's PMI is read: what references none of its
+faces belongs to another part.
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ from OCP.XCAFDoc import (
 from . import p21
 from .load import LoadedPart
 from .magnitudes import tolerance_magnitudes
-from .requirements import PART_NOTES, entities_of, face_entities
+from .requirements import PART_NOTES, entities_of, face_entities, face_entities_of
 
 
 @dataclass(frozen=True)
@@ -64,6 +67,8 @@ def read_existing(loaded: LoadedPart) -> list[ExistingPmi]:
     for label in _each(labels):
         obj = XCAFDoc_Dimension.Set_s(label).GetObject()
         first, second = _refs(tool, shape_tool, loaded, label)
+        if _elsewhere(loaded, first, second):
+            continue
         kind = _name(obj.GetType(), "XCAFDimTolObjects_DimensionType_")
         if kind == "CommonLabel":
             # Presentation with no value -- a callout such as the ones written
@@ -92,6 +97,8 @@ def read_existing(loaded: LoadedPart) -> list[ExistingPmi]:
             name = obj.GetSemanticName()
             value = magnitudes.get(name.ToCString() if name else "", value)
         first, _ = _refs(tool, shape_tool, loaded, label)
+        if _elsewhere(loaded, first):
+            continue
         datums = TDF_LabelSequence()
         tool.GetDatumOfTolerLabels_s(label, datums)
         letters = tuple(_datum_letter(d) for d in _each(datums))
@@ -101,18 +108,27 @@ def read_existing(loaded: LoadedPart) -> list[ExistingPmi]:
     labels = TDF_LabelSequence()
     tool.GetDatumLabels(labels)
     resolved: dict[str, tuple[int, ...]] | None = None
+    faces = face_entities_of(loaded)
     seen = set()
     for label in _each(labels):
         letter = _datum_letter(label)
         first, _ = _refs(tool, shape_tool, loaded, label)
         if not first:
             if resolved is None:
-                resolved = datum_faces(loaded.path)
+                resolved = datum_faces(loaded.path, faces=faces)
             first = resolved.get(letter, ())
+        if _elsewhere(loaded, first):
+            continue
         if (letter, first) not in seen:
             seen.add((letter, first))
             out.append(ExistingPmi("datum", letter, first))
-    return out + notes(loaded.path)
+    return out + notes(loaded.path, faces=faces)
+
+
+def _elsewhere(loaded: LoadedPart, *faces: tuple[int, ...]) -> bool:
+    """Whether PMI referencing these faces -- none of this part's -- is another
+    part's, in an assembly."""
+    return loaded.part_count > 1 and not any(faces)
 
 
 _TOLERANCE_CLASS = re.compile(
@@ -122,7 +138,10 @@ _TOLERANCE_CLASS = re.compile(
 
 def part_settings(loaded: LoadedPart) -> dict[str, str]:
     """The material and general tolerance the file states, as the writer writes them.
-    Read from the text: OCCT's material reader takes any named representation."""
+    Read from the text: OCCT's material reader takes any named representation.
+    None for a part of an assembly: the text does not say whose they are."""
+    if loaded.part_count > 1:
+        return {}
     text = loaded.path.read_text(errors="replace")
     entities = {int(i): body for i, body in entities_of(text)}
     out = {}
@@ -155,9 +174,10 @@ def part_settings(loaded: LoadedPart) -> dict[str, str]:
 _DEFAULT_FINISH = re.compile(r"(.*?) µm unless otherwise (?:specified|stated)")
 
 
-def notes(path: Path) -> list[ExistingPmi]:
-    """Threads and knurls the file states as ``requirements.append`` writes them."""
-    faces = {face: i for i, face in face_entities(path).items()}
+def notes(path: Path, part: int = 0, faces: dict[int, int] | None = None) -> list[ExistingPmi]:
+    """Threads and knurls the file states as ``requirements.append`` writes them, on
+    its ``part``-th part (whose ``face_entities`` are ``faces``, if known)."""
+    faces = {face: i for i, face in (faces or face_entities(path, part)).items()}
     found: dict[str, set[int]] = {}
     for kind, face in _NOTE.findall(path.read_text(errors="replace")):
         if int(face) in faces:
@@ -173,8 +193,11 @@ _NOTE = re.compile(
 _USAGES = ("GEOMETRIC_ITEM_SPECIFIC_USAGE(", "ITEM_IDENTIFIED_REPRESENTATION_USAGE(")
 
 
-def datum_faces(path: Path) -> dict[str, tuple[int, ...]]:
-    """Each datum letter in the STEP file at ``path`` to the faces of its feature."""
+def datum_faces(
+    path: Path, part: int = 0, faces: dict[int, int] | None = None
+) -> dict[str, tuple[int, ...]]:
+    """Each datum letter in the STEP file at ``path`` to the faces of its feature
+    on its ``part``-th part (whose ``face_entities`` are ``faces``, if known)."""
     entities = {int(i): body for i, body in entities_of(path.read_text(errors="replace"))}
     letters = {
         i: m.group(1)
@@ -183,7 +206,7 @@ def datum_faces(path: Path) -> dict[str, tuple[int, ...]]:
     }
     if not letters:
         return {}
-    index = {face: i for i, face in face_entities(path).items()}
+    index = {face: i for i, face in (faces or face_entities(path, part)).items()}
     usages: dict[int, set[int]] = {}
     parts: dict[int, list[int]] = {}
     features: dict[str, list[int]] = {}
