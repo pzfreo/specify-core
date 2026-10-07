@@ -1,8 +1,10 @@
 """Write intent into the loaded XCAF document as AP242 semantic PMI, and verify it.
 
 A bare part's intent is added to the document the file was loaded into, so
-names and colours are kept. A part that already has PMI is written without it
-and the new PMI transplanted into the original file (``merge``). Nothing
+names and colours are kept. In an assembly, each part's intent is added to
+its own part, all in one document and one write; the other parts are kept. A
+part that already has PMI is written without it and the new PMI transplanted
+into the original file (``merge``). Nothing
 graphical is written through OCCT; a drawing is made from the semantics. Each
 requirement appended has a leader, and each new datum a datum feature symbol
 (``requirements``), for viewers that show only presentation.
@@ -46,6 +48,9 @@ OCCT behaviours this module depends on, each found by measurement:
 * Angles are radians. (No angular PMI is written in v1.)
 * The reader imports a datum only when some tolerance references it, although
   the writer writes it either way.
+* The writer keeps one datum per name in the document: in an assembly, a second
+  part's datum A would become the first part's. Each part's datums after the
+  first are named for their part and renamed in the text (``_part_datums``).
 """
 
 from __future__ import annotations
@@ -73,7 +78,7 @@ from OCP.XCAFDoc import (
 
 from . import locations, merge, p21, requirements, resume
 from .existing import read_existing
-from .load import LoadedPart, init_step, load
+from .load import LoadedPart, init_step, load, load_all
 from .rules import Intent
 
 _GEOM_TYPES = {
@@ -117,6 +122,10 @@ class VerificationError(RuntimeError):
     pass
 
 
+#: A part to write: the part, its intent, and the answers it came from (or None).
+Job = tuple[LoadedPart, Intent, "dict[str, Any] | None"]
+
+
 def write(
     loaded: LoadedPart,
     intent: Intent,
@@ -129,17 +138,24 @@ def write(
     A file specify-core wrote itself (``resume``) is written again from its geometry,
     so its PMI is replaced. Given ``answers``, a file written from a bare part
     stores them, to be resumed; one written by ``merge`` does not."""
+    return write_parts([(loaded, intent, answers)], output)
+
+
+def write_parts(jobs: list[Job], output: str | Path) -> WriteReport:
+    """Write each part of one file with its intent added, as ``write`` does one.
+
+    An assembly is written from its geometry, every part at once: a bare one, or
+    one specify-core wrote (whose parts with answers stored must all be written
+    again). One that already has PMI of its own is refused."""
     final = Path(output)
-    if intent.binding.get("source_sha256") != loaded.binding.source_sha256:
-        raise ValueError("intent was made for a different file")
-    if intent.binding.get("face_count") != loaded.binding.face_count:
-        raise ValueError("intent face count does not match the file")
-    # A loader change may number the faces differently for the same bytes.
-    if intent.binding.get("loader_version") != loaded.binding.loader_version:
-        raise ValueError(
-            f"intent was made by loader version {intent.binding.get('loader_version')!r}, "
-            f"not {loaded.binding.loader_version}: analyse the file again"
-        )
+    if not jobs:
+        raise ValueError("nothing to write")
+    if len({loaded.path for loaded, _, _ in jobs}) != 1:
+        raise ValueError("the parts written together must be of one file")
+    if len({loaded.binding.part for loaded, _, _ in jobs}) != len(jobs):
+        raise ValueError("a part is written once")
+    for loaded, intent, _ in jobs:
+        _check_binding(loaded, intent)
     # Written and verified beside the destination, which is replaced only once
     # all is well: a failed write leaves it, and the source, as they were. A
     # symlinked destination is written through, to its target, and an existing
@@ -147,7 +163,7 @@ def write(
     target = final.resolve() if final.is_symlink() else final
     output = target.with_name(f".{target.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.part")
     try:
-        report = _write_verified(loaded, intent, output, answers)
+        report = _write_verified(jobs, output)
         if target.exists():
             shutil.copymode(target, output)
         os.replace(output, target)
@@ -157,41 +173,128 @@ def write(
     return report
 
 
-def _write_verified(
-    loaded: LoadedPart, intent: Intent, output: Path, answers: dict[str, Any] | None
-) -> WriteReport:
+def _check_binding(loaded: LoadedPart, intent: Intent) -> None:
+    if intent.binding.get("source_sha256") != loaded.binding.source_sha256:
+        raise ValueError("intent was made for a different file")
+    # An analysis made before parts were told apart is of a file of one part.
+    if intent.binding.get("part", 0) != loaded.binding.part:
+        raise ValueError(
+            f"intent was made for part {intent.binding.get('part', 0)}, "
+            f"not part {loaded.binding.part}"
+        )
+    if intent.binding.get("face_count") != loaded.binding.face_count:
+        raise ValueError("intent face count does not match the file")
+    # A loader change may number the faces differently for the same bytes.
+    if intent.binding.get("loader_version") != loaded.binding.loader_version:
+        raise ValueError(
+            f"intent was made by loader version {intent.binding.get('loader_version')!r}, "
+            f"not {loaded.binding.loader_version}: analyse the file again"
+        )
 
-    resumed = resume.answers_for(loaded) is not None
-    bare = not merge.carries_pmi(loaded.path)
-    if bare or resumed:
-        geometry = loaded if bare else load(loaded.path, gdt=False)
-        if geometry.binding != loaded.binding:
-            raise RuntimeError("the part loaded without its PMI has different faces")
-        report, appended = _write(geometry, intent, output, set())
+
+def _write_verified(jobs: list[Job], output: Path) -> WriteReport:
+    first = jobs[0][0]
+    path, assembly = first.path, first.part_count > 1
+    bare = not merge.carries_pmi(path)
+    if assembly:
+        stored = resume.stored(path)
+        resumed = bool(stored)
+        if not bare and not resumed:
+            raise ValueError(
+                "this assembly already has PMI not written by specify-core; "
+                "adding to it is not supported yet"
+            )
+        unwritten = sorted(set(stored) - {loaded.binding.part for loaded, _, _ in jobs})
+        if unwritten:
+            raise ValueError(
+                f"part(s) {', '.join(map(str, unwritten))} have answers stored in this file; "
+                "write them again with these, or their PMI would be lost"
+            )
+        # One document holding every part, so all are written at once.
+        everything = load_all(path, gdt=False)
+        geometry = [everything[loaded.binding.part] for loaded, _, _ in jobs]
     else:
-        geometry = load(loaded.path, gdt=False)
-        if geometry.binding != loaded.binding:
+        resumed = resume.answers_for(first) is not None
+        geometry = [first if bare else load(path, gdt=False)]
+    for (loaded, _, _), part in zip(jobs, geometry, strict=True):
+        if part.binding != loaded.binding:
             raise RuntimeError("the part loaded without its PMI has different faces")
+    pairs = [(part, intent) for part, (_, intent, _) in zip(geometry, jobs, strict=True)]
+    if bare or resumed:
+        report, appended = _write(pairs, output, set())
+    else:
         scratch = output.with_name(output.name + ".scratch")
         try:
-            report, appended = _write(geometry, intent, scratch, merge.datum_letters(loaded.path))
-            merge.transplant(loaded.path, scratch, output, appended.count)
+            report, appended = _write(pairs, scratch, merge.datum_letters(path))
+            merge.transplant(path, scratch, output, appended[0].count)
         finally:
             scratch.unlink(missing_ok=True)
-    verify(output, intent, loaded.binding.face_count)
-    _verify_appended(output, intent, appended)
-    if answers is not None and (bare or resumed):
-        resume.embed(output, loaded, answers)
+    for (loaded, intent, answers), done in zip(jobs, appended, strict=True):
+        verify(output, intent, loaded.binding.face_count, loaded.binding.part)
+        _verify_appended(output, intent, done, loaded.binding.part)
+        if answers is not None and (bare or resumed):
+            resume.embed(output, loaded, answers)
     return report
 
 
 def _write(
-    loaded: LoadedPart, intent: Intent, output: Path, existing: set[str]
-) -> tuple[WriteReport, requirements.Appended]:
-    """Add ``intent`` to ``loaded``'s document and write it to ``output``. Datums
-    lettered in ``existing`` are the file's: written only where a tolerance cites
-    them, for ``merge`` to replace with the file's own."""
+    pairs: list[tuple[LoadedPart, Intent]], output: Path, existing: set[str]
+) -> tuple[WriteReport, list[requirements.Appended]]:
+    """Add each intent to its part, all of one document, and write it to ``output``.
+    Datums lettered in ``existing`` are the file's: written only where a tolerance
+    cites them, for ``merge`` to replace with the file's own."""
     report = WriteReport(output)
+    doc = pairs[0][0].doc
+    dimtol = XCAFDoc_DocumentTool.DimTolTool_s(doc.Main())
+    dimensions = TDF_LabelSequence()
+    dimtol.GetDimensionLabels(dimensions)
+    # Location dimensions are dimensions too: a part with only tapped holes has
+    # no size dimension but has its positions' basic dimensions.
+    has_dimension = dimensions.Length() > 0 or any(
+        r["kind"] in ("size", "location") for _, intent in pairs for r in intent.requirements
+    )
+    tolerance_scale = 1.0 if has_dimension else 0.001
+    for loaded, intent in pairs:
+        part = WriteReport(output)
+        _add(loaded, intent, part, existing, tolerance_scale)
+        # In an assembly, each line says which part it is of.
+        name = f"{loaded.name or f'part {loaded.binding.part}'}: " if len(pairs) > 1 else ""
+        report.written += [name + line for line in part.written]
+        report.warnings += [name + line for line in part.warnings]
+
+    init_step()
+    Interface_Static.SetCVal_s("write.step.schema", "AP242DIS")
+    writer = STEPCAFControl_Writer()
+    writer.SetDimTolMode(True)
+    writer.SetNameMode(True)
+    writer.SetColorMode(True)
+    if not writer.Transfer(doc):
+        raise RuntimeError("OCCT could not transfer the part for writing")
+    if writer.Write(str(output)) != IFSelect_RetDone:
+        raise RuntimeError(f"OCCT could not write the STEP ({_write_failures(writer)})")
+    _drop_runout_zones(output)
+    _type_limits(output)
+    _simple_tolerances(output)
+    _part_datums(output)
+    # OCCT cannot mark a dimension basic; it is marked before anything is appended.
+    locations.mark_basic(output)
+    appended = [
+        requirements.append(output, loaded, intent, frozenset(existing)) for loaded, intent in pairs
+    ]
+    # OCCT and the text appended write raw UTF-8 where the file's edition asks
+    # for escapes; this file is new, so all of it is escaped.
+    p21.escape_file(output)
+    return report, appended
+
+
+def _add(
+    loaded: LoadedPart,
+    intent: Intent,
+    report: WriteReport,
+    existing: set[str],
+    tolerance_scale: float,
+) -> None:
+    """Add ``intent`` to ``loaded``'s part of its document."""
     shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(loaded.doc.Main())
     dimtol = XCAFDoc_DocumentTool.DimTolTool_s(loaded.doc.Main())
 
@@ -207,21 +310,12 @@ def _write(
             seq.Append(found)
         return seq
 
-    dimensions = TDF_LabelSequence()
-    dimtol.GetDimensionLabels(dimensions)
-    # Location dimensions are dimensions too: a part with only tapped holes has
-    # no size dimension but has its positions' basic dimensions.
-    has_dimension = dimensions.Length() > 0 or any(
-        r["kind"] in ("size", "location") for r in intent.requirements
-    )
-    tolerance_scale = 1.0 if has_dimension else 0.001
-
     faces_of = {d["letter"]: d["faces"] for d in intent.datums}
 
     def datum(letter: str, position: int) -> TDF_Label:
         label = dimtol.AddDatum()
         obj = X.XCAFDimTolObjects_DatumObject()
-        obj.SetName(TCollection_HAsciiString(letter))
+        obj.SetName(TCollection_HAsciiString(_datum_name(letter, loaded.binding.part)))
         obj.SetPosition(position)
         XCAFDoc_Datum.Set_s(label).SetObject(obj)
         dimtol.SetDatum(labels(faces_of[letter]), label)
@@ -314,26 +408,20 @@ def _write(
         if intent.part.get(key):
             report.written.append(f"{key.replace('_', ' ')} {intent.part[key]}")
 
-    init_step()
-    Interface_Static.SetCVal_s("write.step.schema", "AP242DIS")
-    writer = STEPCAFControl_Writer()
-    writer.SetDimTolMode(True)
-    writer.SetNameMode(True)
-    writer.SetColorMode(True)
-    if not writer.Transfer(loaded.doc):
-        raise RuntimeError("OCCT could not transfer the part for writing")
-    if writer.Write(str(output)) != IFSelect_RetDone:
-        raise RuntimeError(f"OCCT could not write the STEP ({_write_failures(writer)})")
-    _drop_runout_zones(output)
-    _type_limits(output)
-    _simple_tolerances(output)
-    # OCCT cannot mark a dimension basic; it is marked before anything is appended.
-    locations.mark_basic(output)
-    appended = requirements.append(output, loaded, intent, frozenset(existing))
-    # OCCT and the text appended write raw UTF-8 where the file's edition asks
-    # for escapes; this file is new, so all of it is escaped.
-    p21.escape_file(output)
-    return report, appended
+
+_PART_MARK = "~part"
+
+
+def _datum_name(letter: str, part: int) -> str:
+    """The name a datum is written under: a part's own after the first."""
+    return letter if part == 0 else f"{letter}{_PART_MARK}{part}"
+
+
+def _part_datums(path: Path) -> None:
+    """Give each part's datums their letters back (``_datum_name``)."""
+    text = path.read_text()
+    marked = re.compile(rf"(DATUM\([^;]*?'[^']*){re.escape(_PART_MARK)}\d+'")
+    path.write_text(marked.sub(r"\1'", text))
 
 
 def _drop_runout_zones(path: Path) -> int:
@@ -466,12 +554,12 @@ def _write_failures(writer: STEPCAFControl_Writer) -> str:
     return "; ".join(sorted(found)) or "no reason given"
 
 
-def verify(path: Path, intent: Intent, face_count: int) -> None:
-    """Read ``path`` back and check every requirement and datum reached it."""
+def verify(path: Path, intent: Intent, face_count: int, part: int = 0) -> None:
+    """Read ``path`` back and check every requirement and datum reached its ``part``-th part."""
     text = path.read_text(errors="replace")
     if "AP242" not in text[:2000]:
         raise VerificationError("file was not written as AP242")
-    back = load(path)
+    back = load(path, part=part)
     if back.binding.face_count != face_count:
         raise VerificationError("face count changed on write")
     found = [e.to_dict() for e in read_existing(back)]
@@ -550,14 +638,16 @@ def _file_limits(text: str) -> list[tuple[float, float]]:
     ]
 
 
-def _verify_appended(path: Path, intent: Intent, appended: requirements.Appended) -> None:
-    """Every appended requirement is in the file, on its faces; the material too."""
+def _verify_appended(
+    path: Path, intent: Intent, appended: requirements.Appended, part: int = 0
+) -> None:
+    """Every appended requirement is in the file, on its part's faces; the material too."""
     text = re.sub(r"\s*\n\s*", " ", path.read_text(errors="replace"))
     problems = []
     for label, words in appended.texts.items():
         if f"'{p21.escape(words.replace(chr(39), chr(39) * 2))}'" not in text:
             problems.append(f"{label} text not in file")
-    faces = requirements.face_entities(path)
+    faces = requirements.face_entities(path, part)
     by_id = {face: index for index, face in faces.items()}
     for label, wanted in appended.faces.items():
         kind = label.rsplit(" ", 1)[0]

@@ -13,6 +13,9 @@ are the original's in order), and the stored fingerprint of the faces is
 checked before any answer is trusted. A file whose PMI came partly from
 elsewhere (written by ``merge``) stores nothing: its own PMI cannot be told
 apart from what specify-core added, so it is read as before.
+
+In an assembly each part's answers are stored on that part, saying which part
+they are for; a part with none stored has not been written.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ from typing import Any
 
 from .features import describe_faces
 from .load import LoadedPart
-from .requirements import _anchors, _Part21, entities_of
+from .requirements import _anchors, _Part21, entities_of, face_entities
 
 SCHEMA = 1
 # The stored property's name stays as first written, so files saved before the
@@ -47,13 +50,14 @@ def embed(path: Path, loaded: LoadedPart, answers: dict[str, Any]) -> None:
     payload = {
         "schema": SCHEMA,
         "answers": answers,
+        "part": loaded.binding.part,
         "face_count": loaded.binding.face_count,
         "faces": fingerprint(loaded),
     }
     encoded = base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode()
     text = path.read_text()
     entities = {int(i): body for i, body in entities_of(text)}
-    ids = _anchors(entities)
+    ids = _anchors(entities, face_entities(path, loaded.binding.part).values())
     out = _Part21(max(entities) + 1)
     item = out.add(f"DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist answers','{encoded}')")
     rep = out.add(f"REPRESENTATION('pmi-assist answers',(#{item}),#{ids['context']})")
@@ -65,26 +69,34 @@ def embed(path: Path, loaded: LoadedPart, answers: dict[str, Any]) -> None:
     path.write_text(text[: marker.start()] + "\n" + "\n".join(out.lines) + text[marker.start() :])
 
 
-def saved(path: Path) -> dict[str, Any] | None:
-    """The answers stored in the file at ``path``, or None."""
-    found = _SAVED.search(re.sub(r"\s*\n\s*", "", path.read_text(errors="replace")))
-    if found is None:
-        return None
-    try:
-        payload = json.loads(base64.b64decode(found.group(1), validate=True))
-    except (ValueError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
-        return None
-    if not isinstance(payload.get("answers"), dict):
-        return None
-    return payload
+def saved(path: Path, part: int = 0) -> dict[str, Any] | None:
+    """The answers stored in the file at ``path`` for its ``part``-th part, or None."""
+    return stored(path).get(part)
+
+
+def stored(path: Path) -> dict[int, dict[str, Any]]:
+    """Every part's stored answers in the file at ``path``, by part. Answers saved
+    before parts were told apart are part 0's."""
+    out: dict[int, dict[str, Any]] = {}
+    for found in _SAVED.finditer(re.sub(r"\s*\n\s*", "", path.read_text(errors="replace"))):
+        try:
+            payload = json.loads(base64.b64decode(found.group(1), validate=True))
+        except (ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
+            continue
+        if not isinstance(payload.get("answers"), dict):
+            continue
+        part = payload.get("part", 0)
+        if isinstance(part, int):
+            out.setdefault(part, payload)
+    return out
 
 
 def answers_for(loaded: LoadedPart) -> dict[str, Any] | None:
-    """The stored answers, if the file holds them and its faces are the ones they
-    were given for; None otherwise."""
-    payload = saved(loaded.path)
+    """The stored answers, if the file holds them for this part and its faces are
+    the ones they were given for; None otherwise."""
+    payload = saved(loaded.path, loaded.binding.part)
     if payload is None:
         return None
     if payload.get("face_count") != loaded.binding.face_count:

@@ -8,6 +8,9 @@ a crashed or restarted child loses nothing.
 
     {"id": 1, "op": "analyse", "step": "/path/part.step"}
     -> {"id": 1, "ok": true, "result": {"analysis": {...}, "mesh": {...}}}
+    {"id": 6, "op": "parts", "step": "/path/assembly.step"}
+    -> {"id": 6, "ok": true, "result": {"parts": [{"part": 0, "name": ..., ...}, ...]}}
+       and "analyse" of an assembly says which: {..., "part": 1}
     {"id": 2, "op": "questions", "analysis": {...}, "answers": {...}}
     {"id": 3, "op": "preview", "analysis": {...}, "answers": {...}, "step": "/path/part.step"}
     -> the intent, with "anchors" for its labels when the step is given
@@ -18,6 +21,9 @@ a crashed or restarted child loses nothing.
     -> the report; the answers are stored in the file, which "analyse" of it
        then returns as "resume": {"answers": ...} (see ``resume``)
     -> {"id": 4, "ok": false, "error": {"code": "incomplete", "message": ..., "missing": [...]}}
+    {"id": 7, "op": "write", "step": ..., "output": ..., "accept_defaults": true,
+     "parts": [{"analysis": ..., "answers": ...}, ...]}
+    -> several parts of an assembly, written together
 
 OCCT prints progress to stdout from C++, which would corrupt the replies, so
 the process moves file descriptor 1 onto stderr and writes replies to a private
@@ -47,9 +53,23 @@ def handle(request: dict[str, Any]) -> dict[str, Any]:
     op = request.get("op")
     if op == "hello":
         return {"protocol": PROTOCOL}
+    if op == "parts":
+        return {"parts": api.parts(Path(request["step"]))}
     if op == "analyse":
-        loaded = load(Path(request["step"]))
+        loaded = load(Path(request["step"]), part=request.get("part"))
         return {"analysis": api.analyse(loaded), "mesh": api.mesh(loaded)}
+    if op == "write" and "parts" in request:
+        defaults = bool(request.get("accept_defaults"))
+        written = [
+            (api.apply(p["analysis"], p.get("answers", {}), accept_defaults=defaults), p)
+            for p in request["parts"]
+        ]
+        report = api.write_parts(
+            Path(request["step"]),
+            [(intent, p.get("answers", {})) for intent, p in written],
+            Path(request["output"]),
+        )
+        return {"report": report.to_dict(), "intents": [i.to_dict() for i, _ in written]}
     analysis = request["analysis"]
     answers = request.get("answers", {})
     if op == "questions":
@@ -93,25 +113,27 @@ _KEEP = 2
 
 
 def _label_anchors(step: Path, analysis: dict[str, Any], intent: dict[str, Any]) -> dict[str, Any]:
-    loaded = _PARTS.get(str(step))
+    part = int(analysis.get("binding", {}).get("part", 0))
+    key = f"{step}#{part}"
+    loaded = _PARTS.get(key)
     if loaded is None:
-        loaded = load(step)
-        _PARTS[str(step)] = loaded
+        loaded = load(step, part=part)
+        _PARTS[key] = loaded
         while len(_PARTS) > _KEEP:
             gone, _ = _PARTS.popitem(last=False)
             for k in [k for k in _ANCHORS if k[0] == gone]:
                 del _ANCHORS[k]
-    _PARTS.move_to_end(str(step))
+    _PARTS.move_to_end(key)
     if loaded.binding.to_dict() != analysis.get("binding"):
         return {}
     groups = [d["faces"] for d in intent["datums"]] + [r["faces"] for r in intent["requirements"]]
     groups += [e.get("faces", []) for e in analysis.get("existing", [])]
     wanted = {anchors.key(g): g for g in groups if g}
-    missing = [g for k, g in wanted.items() if (str(step), k) not in _ANCHORS]
+    missing = [g for k, g in wanted.items() if (key, k) not in _ANCHORS]
     if missing:
         for k, found in anchors.anchors(loaded, missing, _diagonal(loaded)).items():
-            _ANCHORS[(str(step), k)] = found
-    return {k: _ANCHORS[(str(step), k)] for k in wanted if (str(step), k) in _ANCHORS}
+            _ANCHORS[(key, k)] = found
+    return {k: _ANCHORS[(key, k)] for k in wanted if (key, k) in _ANCHORS}
 
 
 def _diagonal(loaded) -> float:

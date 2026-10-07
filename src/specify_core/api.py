@@ -1,4 +1,9 @@
-"""The four steps: analyse, questions, apply, write -- and a mesh for picking faces."""
+"""The four steps: analyse, questions, apply, write -- and a mesh for picking faces.
+
+A file of several parts is specified a part at a time: ``parts`` lists them,
+``analyse`` and ``mesh`` take the one to work on, and ``write_parts`` writes
+any number of them into the assembly together.
+"""
 
 from __future__ import annotations
 
@@ -8,22 +13,32 @@ from typing import Any
 from . import resume, rules
 from .existing import part_settings, read_existing
 from .features import describe_faces, recognise
-from .load import LoadedPart, load
+from .load import LoadedPart, load, load_all
+from .load import parts as _parts
 from .mesh import mesh as _mesh
 from .rules import Intent, Question
 from .writer import WriteReport
 from .writer import write as _write
+from .writer import write_parts as _write_parts
 
 ANALYSIS_SCHEMA = 1
 
 
-def analyse(step: str | Path | LoadedPart) -> dict[str, Any]:
-    """Features, faces and existing PMI of ``step``, as a JSON-safe snapshot.
+def parts(step: str | Path) -> list[dict[str, Any]]:
+    """The distinct parts of ``step``: name, face count, instances and their
+    placements, and whether specify-core has written the part (answers stored)."""
+    stored = resume.stored(Path(step))
+    return [p | {"written": p["part"] in stored} for p in _parts(step)]
+
+
+def analyse(step: str | Path | LoadedPart, part: int | None = None) -> dict[str, Any]:
+    """Features, faces and existing PMI of ``step`` -- of its ``part``-th part, in
+    an assembly -- as a JSON-safe snapshot.
 
     The snapshot is what gets stored: it is never re-derived for the same file,
     so its feature ids do not need to survive a Quiddity upgrade.
     """
-    loaded = step if isinstance(step, LoadedPart) else load(step)
+    loaded = step if isinstance(step, LoadedPart) else load(step, part=part)
     analysis = {
         "schema": ANALYSIS_SCHEMA,
         "binding": loaded.binding.to_dict(),
@@ -70,13 +85,32 @@ def write(
     *,
     answers: dict[str, Any] | None = None,
 ) -> WriteReport:
-    """Write ``intent`` into ``step``. Given the ``answers`` it came from, they are
-    stored in the file too, so that opening it again resumes them (``resume``)."""
-    loaded = step if isinstance(step, LoadedPart) else load(step)
+    """Write ``intent`` into ``step``, on the part it was made for. Given the
+    ``answers`` it came from, they are stored in the file too, so that opening it
+    again resumes them (``resume``)."""
+    loaded = step if isinstance(step, LoadedPart) else load(step, part=_part(intent))
     return _write(loaded, intent, output, answers=answers)
 
 
-def mesh(step: str | Path | LoadedPart) -> dict[str, Any]:
-    """Triangles of ``step`` ranged by the face indices its analysis uses."""
-    loaded = step if isinstance(step, LoadedPart) else load(step)
+def write_parts(
+    step: str | Path, intents: list[tuple[Intent, dict[str, Any] | None]], output: str | Path
+) -> WriteReport:
+    """Write several parts of the assembly ``step`` together: each intent on the
+    part it was made for, with the answers it came from (or None)."""
+    loaded = load_all(step)
+    for intent, _ in intents:
+        if not 0 <= _part(intent) < len(loaded):
+            raise ValueError(f"{step} has no part {_part(intent)}")
+    return _write_parts([(loaded[_part(i)], i, a) for i, a in intents], output)
+
+
+def _part(intent: Intent) -> int:
+    # An analysis made before parts were told apart is of a file of one part.
+    return int(intent.binding.get("part", 0))
+
+
+def mesh(step: str | Path | LoadedPart, part: int | None = None) -> dict[str, Any]:
+    """Triangles of ``step`` (its ``part``-th part) ranged by the face indices its
+    analysis uses, in the part's own frame."""
+    loaded = step if isinstance(step, LoadedPart) else load(step, part=part)
     return _mesh(loaded)
