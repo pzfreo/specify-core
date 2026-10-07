@@ -7,7 +7,9 @@ name (M6, H7). ``describe`` gives every option its purpose, a plain label, its
 code and its callout, so a person can choose by either. ``interpret`` reads
 what someone typed ("h6", "M2", "clearance M6", "0.15") against the feature's
 geometry and returns the answer it means, or refuses with the reason: a typed
-spec may be anything, but it is only written if it fits the part.
+spec may be anything, but it is only written if it fits the part. Nothing typed
+is dropped: a tapped hole may be given its full-thread depth ("M5 tapped, 5.5
+deep", kept as ``tapped:M5@5.5``), and any other number is refused, not ignored.
 """
 
 from __future__ import annotations
@@ -62,9 +64,20 @@ def describe(qid: str, options, diameter: float | None) -> list[dict[str, Any]]:
     return out
 
 
+def split(value: str) -> tuple[str, str, float | None]:
+    """An answer's purpose, its spec and, for a tapped hole given one, the
+    minimum full thread: ``tapped:M5@5.5`` is ``("tapped", "M5", 5.5)``."""
+    kind, _, spec = value.partition(":")
+    spec, at, depth = spec.partition("@")
+    try:
+        return kind, spec, float(depth) if at else None
+    except ValueError:  # not an answer; ``check`` says so
+        return kind, spec, None
+
+
 def code(value: str) -> str:
     """An answer as an engineer would name it: ``H7``, ``M6 clearance``, ``M5 tapped``."""
-    kind, _, spec = value.partition(":")
+    kind, spec, depth = split(value)
     if value == GENERAL:
         return "general tolerance"
     if kind == "fit":
@@ -72,7 +85,7 @@ def code(value: str) -> str:
     if kind == "clearance":
         return f"{spec} clearance" if spec else "clearance"
     if kind == "tapped":
-        return f"{spec} tapped"
+        return f"{spec} tapped" + (f", {_fmt(depth)} mm full thread" if depth else "")
     if kind == "thread":
         return f"{spec} thread"
     if kind == "knurl":
@@ -82,12 +95,13 @@ def code(value: str) -> str:
 
 def callout(value: str, d: float, hole: bool) -> str:
     """What the answer puts on the drawing for a feature of diameter ``d``."""
-    kind, _, spec = value.partition(":")
+    kind, spec, depth = split(value)
     if value == GENERAL:
         return f"⌀{_fmt(d)}, general tolerance"
     if kind == "tapped":
         pitch = standards.PITCH[spec]
-        return f"{spec}×{pitch:g}-{standards.INTERNAL_THREAD_CLASS}, ⌀{_fmt(d)} tap drill"
+        full = f", {_fmt(depth)} mm min full thread" if depth else ""
+        return f"{spec}×{pitch:g}-{standards.INTERNAL_THREAD_CLASS}{full}, ⌀{_fmt(d)} tap drill"
     if kind == "thread":
         pitch = standards.PITCH[spec]
         return f"{spec}×{pitch:g}-{standards.EXTERNAL_THREAD_CLASS}"
@@ -100,9 +114,12 @@ def callout(value: str, d: float, hole: bool) -> str:
     return f"⌀{_fmt(d)} {fit} ({limits}){tail}"
 
 
-def interpret(qid: str, text: str, options, diameter: float | None) -> str:
+def interpret(
+    qid: str, text: str, options, diameter: float | None, depth: float | None = None
+) -> str:
     """The answer ``text`` means for question ``qid``; ``options`` are those
-    offered and ``diameter`` the feature's, if it has one."""
+    offered, ``diameter`` the feature's, if it has one, and ``depth`` a blind
+    hole's drill depth, against which a thread depth is checked."""
     typed = " ".join(text.strip().split())
     if not typed:
         raise SpecError("Type a spec, e.g. H7 or M6.")
@@ -112,7 +129,7 @@ def interpret(qid: str, text: str, options, diameter: float | None) -> str:
         if fold(typed) in (fold(option), fold(code(option))):
             return option
     if qid.startswith("hole.function:") and diameter is not None:
-        return _hole(typed, diameter)
+        return _hole(typed, diameter, depth)
     if qid.startswith("diameter.fit:") and diameter is not None:
         return _turned(typed, diameter)
     if qid.startswith(("hole.position:", "diameter.runout:")) or qid.endswith(
@@ -134,7 +151,9 @@ def interpret(qid: str, text: str, options, diameter: float | None) -> str:
     raise SpecError(f"Choose one of: {', '.join(options)}.")
 
 
-def check(qid: str, value: Any, options, diameter: float | None) -> None:
+def check(
+    qid: str, value: Any, options, diameter: float | None, depth: float | None = None
+) -> None:
     """Refuse an answer that is neither offered nor a spec that fits the feature."""
     if not isinstance(value, str):
         # JSON answers can be any type; a choice's are offered or typed text.
@@ -142,8 +161,9 @@ def check(qid: str, value: Any, options, diameter: float | None) -> None:
         raise SpecError(f"{qid}: an answer is text, not {kind} {reprlib.repr(value)}.")
     if value in options:
         return
-    if interpret(qid, value, options, diameter) != value:
-        raise SpecError(f"{value!r} is not an answer; it reads as something else.")
+    meant = interpret(qid, value, options, diameter, depth)
+    if meant != value:
+        raise SpecError(f"{value!r} is not an answer; it reads as {meant!r}.")
 
 
 # --------------------------------------------------------------------------
@@ -151,16 +171,20 @@ def check(qid: str, value: Any, options, diameter: float | None) -> None:
 
 _SIZE = r"M(\d+(?:\.\d+)?)(?:\s*[x×]\s*(\d+(?:\.\d+)?))?"
 _NONE_WORDS = {"general", "none", "nothing", "no", "plain", "gen"}
+#: Words that say a number is the thread's depth: "5.5 deep", "full thread 5.5".
+_DEPTH_WORDS = ("deep", "depth", "full", "usable", "long", "length", "min")
+_UNITS = {"cm", "m", "in", "inch", "inches", "thou"}
 
 
-def _hole(typed: str, d: float) -> str:
+def _hole(typed: str, d: float, depth: float | None = None) -> str:
     low = typed.lower()
     if low in _NONE_WORDS:
         return GENERAL
     fit = re.fullmatch(r"(?:fit\s*:?\s*)?(js|h)(\d{1,2})", low)
     if fit:
         return f"fit:{_fit(fit.group(1).upper(), fit.group(2), d, hole=True)}"
-    words = re.sub(_SIZE, " ", typed, count=1, flags=re.I).lower().split()
+    rest = re.sub(_SIZE, " ", typed, count=1, flags=re.I).lower()
+    words = re.findall(r"[a-z]+", rest)
     size = re.search(_SIZE, typed, flags=re.I)
     if not size:
         if re.fullmatch(r"(?:fit\s*:?\s*)?[a-z]{1,2}\d{1,2}", low):
@@ -181,7 +205,12 @@ def _hole(typed: str, d: float) -> str:
     if tapped or (not clearance and fits_tap):
         if not fits_tap:
             raise SpecError(f"An {bolt} tap needs a ⌀{_fmt(drill)} drill; this hole is ⌀{_fmt(d)}.")
-        return f"tapped:{bolt}"
+        full = _thread_depth(rest, words, bolt, depth)
+        return f"tapped:{bolt}" + (f"@{_fmt(full)}" if full is not None else "")
+    if _lengths(rest):
+        raise SpecError(
+            f"Only a tapped hole takes a depth here; {code(f'clearance:{bolt}')} has none."
+        )
     if not fits_bolt:
         if d <= standards.bolt_diameter(bolt):
             raise SpecError(f"An {bolt} bolt will not pass a ⌀{_fmt(d)} hole.")
@@ -191,6 +220,65 @@ def _hole(typed: str, d: float) -> str:
             f"{_fmt(standards.CLEARANCE_COARSE[bolt])})."
         )
     return f"clearance:{bolt}"
+
+
+def _lengths(rest: str) -> list[float]:
+    """The lengths in what was typed besides the thread size, refusing any
+    other number: a thread class other than the one written, a unit other than
+    mm, or a number that cannot be read."""
+    # A standard named (ISO 273) is not a length; a code led by a letter (H11) is a word.
+    tokens = re.findall(r"[\w.@-]+", re.sub(r"\biso\s*\d+(?:-\d+)?", " ", rest))
+    out = []
+    for i, token in enumerate(t.lstrip("@") for t in tokens):
+        if not re.match(r"-?\.?\d", token):
+            continue
+        if re.fullmatch(r"-?\d[a-z]", token):  # a thread class: M5-6H
+            if token.lstrip("-").upper() != standards.INTERNAL_THREAD_CLASS:
+                raise SpecError(f"Only the {standards.INTERNAL_THREAD_CLASS} class is written.")
+            continue
+        number = re.fullmatch(r"(-?(?:\d+(?:\.\d*)?|\.\d+))([a-z]*)", token)
+        if number is None:
+            raise SpecError(f"{token} is not read.")
+        joined = number.group(2)
+        unit = joined or (tokens[i + 1] if i + 1 < len(tokens) else "")
+        if unit in _UNITS:
+            raise SpecError(f"Lengths are in mm; {number.group(1)} {unit} is not read.")
+        tail = joined.removeprefix("mm")
+        if tail and not tail.startswith(_DEPTH_WORDS):
+            raise SpecError(f"{token} is not read.")
+        out.append(float(number.group(1)))
+    return out
+
+
+def _thread_depth(rest: str, words, bolt: str, depth: float | None) -> float | None:
+    """The minimum full thread asked for, if one was, checked against the hole."""
+    lengths = _lengths(rest)
+    if not lengths:
+        return None
+    example = f"e.g. {bolt} tapped, 5 mm full thread"
+    if len(lengths) > 1:
+        raise SpecError(f"Give one thread depth, {example}.")
+    if "@" not in rest and not any(w.removeprefix("mm").startswith(_DEPTH_WORDS) for w in words):
+        raise SpecError(
+            f"{_fmt(lengths[0])} mm is not read: only a thread depth can be added, {example}."
+        )
+    full = lengths[0]
+    if depth is None:
+        raise SpecError(
+            "A thread depth is only set on a blind hole of known depth; "
+            "this hole is through or its depth is not known."
+        )
+    if full <= 0:
+        raise SpecError("A thread depth is more than 0 mm.")
+    pitch = standards.PITCH[bolt]
+    most = depth - 3 * pitch
+    if full > most + 1e-9:
+        raise SpecError(
+            f"{_fmt(full)} mm of full thread does not fit this {_fmt(depth)} mm deep hole: "
+            f"an {bolt} tap's lead and the drill point take 3 pitches ({_fmt(3 * pitch)} mm), "
+            f"so at most {_fmt(most)} mm."
+        )
+    return full
 
 
 def _turned(typed: str, d: float) -> str:
