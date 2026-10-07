@@ -108,3 +108,33 @@ def assembly(tmp_path_factory) -> Path:
     path = tmp_path_factory.mktemp("parts") / "assembly.step"
     export_step(Compound(children=[plate.part, left, right], label="assembly"), str(path))
     return path
+
+
+@pytest.fixture(scope="session")
+def stack(tmp_path_factory) -> Path:
+    """A cover screwed to a base and pinned: the base has four M5 tap drills and
+    an Ø8 bore, the cover four M5 clearance holes over them and an Ø8 hole, and
+    a headed pin, Ø8 through both, has its Ø10 head on the cover."""
+    from build123d import Align, Location
+
+    with BuildPart() as base:
+        Box(60, 40, 10)
+        with GridLocations(40, 20, 2, 2):
+            Cylinder(2.1, 10, mode=Mode.SUBTRACT)
+        Cylinder(4, 10, mode=Mode.SUBTRACT)
+    with BuildPart() as cover:
+        Box(60, 40, 6)
+        with GridLocations(40, 20, 2, 2):
+            Cylinder(2.75, 6, mode=Mode.SUBTRACT)
+        Cylinder(4, 6, mode=Mode.SUBTRACT)
+    with BuildPart() as pin:
+        Cylinder(4, 16, align=(Align.CENTER, Align.CENTER, Align.MIN))
+        with Locations((0, 0, 16)):
+            Cylinder(5, 3, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    base.part.label = "base"
+    cover.part.label = "cover"
+    pin.part.label = "pin"
+    parts = [base.part, cover.part.moved(Location((0, 0, 8))), pin.part.moved(Location((0, 0, -5)))]
+    path = tmp_path_factory.mktemp("parts") / "stack.step"
+    export_step(Compound(children=parts, label="stack"), str(path))
+    return path

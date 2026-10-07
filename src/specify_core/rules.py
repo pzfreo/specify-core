@@ -17,6 +17,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from . import choices, extras, general, locations, materials, standards
+from .mates import suggestion
 
 RULES_VERSION = 1
 
@@ -76,6 +77,8 @@ class Question:
     #: Why the default is what it is, in a sentence: shown as a choice made for
     #: the person, to keep or change.
     basis: str = ""
+    #: When the default comes from how the part fits another in its assembly: why.
+    mate: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         out = {
@@ -331,10 +334,14 @@ def _questions(
                 ),
             }
         edges = None if by_position else list(_default_datums(faces, features)[1:])
-        out.extend(_hole_questions(target, hole, faces, answers, located_frames, edges))
+        out.extend(
+            _hole_questions(
+                target, hole, faces, answers, located_frames, edges, analysis.get("mates")
+            )
+        )
     axial, axis_faces = _runout_frame(datums, faces, features)
     for group in _same(turned, lambda f: round(float(f["record"]["diameter"]), 6)):
-        out.append(_turned_question(group, faces))
+        out.append(_turned_question(group, faces, analysis.get("mates")))
         # Not the diameter that is the axis itself: it would run out from itself.
         if axial and not any(set(f["faces"]) & axis_faces for f in group):
             out.append(_runout_question(group, faces, axial))
@@ -352,6 +359,10 @@ def _reviewed(q: Question, faces: dict[int, dict]) -> Question:
     """``q`` with its attention level; the policy for all questions is here."""
     if q.default is None:
         return replace(q, attention="required")
+    if q.mate:
+        # Taken from the part it fits in its assembly: likely, but the fit or
+        # thread is still the person's to confirm.
+        return replace(q, attention="check", reason=q.mate)
     if q.id.startswith("hole.function:hole_patterns") and q.default == GENERAL:
         # A single odd hole is usually just a hole. A group of identical ones is
         # usually for fasteners, and left general it gets no position tolerance.
@@ -551,7 +562,7 @@ def _default_datums(faces: dict[int, dict], features: list[dict]):
     return a_ids, (b["id"],), ((third[0]["id"],) if third else ())
 
 
-def _hole_questions(target, hole, faces, answers, frames, edges=None) -> list[Question]:
+def _hole_questions(target, hole, faces, answers, frames, edges=None, mates=None) -> list[Question]:
     diameter = float(hole["record"]["diameter"])
     bores = _bores(target["faces"], diameter, faces)
     count = len(target.get("members", ())) or 1
@@ -571,6 +582,10 @@ def _hole_questions(target, hole, faces, answers, frames, edges=None) -> list[Qu
         options.append("clearance")
     options.extend(f"fit:{fit}" for fit in standards.HOLE_FITS)
     default = options[1] if bolts or tapped else GENERAL
+    basis = _function_basis(default, diameter, bolts, tapped)
+    mated = suggestion(mates, bores)
+    if mated and mated["value"] in options:
+        default, basis = mated["value"], _sentence(mated["reason"])
     qid = f"hole.function:{target['id']}"
     out = [
         Question(
@@ -588,7 +603,8 @@ def _hole_questions(target, hole, faces, answers, frames, edges=None) -> list[Qu
             depth=None
             if hole["record"].get("bottom") == "through"
             else hole["record"].get("depth"),
-            basis=_function_basis(default, diameter, bolts, tapped),
+            basis=basis,
+            mate=mated["reason"] if mated and default == mated["value"] else "",
         )
     ]
     function = answers.get(qid, default)
@@ -650,7 +666,7 @@ def _hole_questions(target, hole, faces, answers, frames, edges=None) -> list[Qu
     return out
 
 
-def _turned_question(group: list[dict], faces) -> Question:
+def _turned_question(group: list[dict], faces, mates=None) -> Question:
     """One question for turned diameters of one size; each keeps its own fit."""
     feature = group[0]
     d = float(feature["record"]["diameter"])
@@ -666,12 +682,15 @@ def _turned_question(group: list[dict], faces) -> Question:
         *((f"thread:{thread}",) if thread else ()),
         *(f"knurl:{pattern}" for pattern in standards.KNURL_PATTERNS),
     )
+    on = tuple(i for f in group for i in cylinders(f))
+    mated = suggestion(mates, on)
+    mated = mated if mated and mated["value"] in options else None
     return Question(
         f"diameter.fit:{feature['id']}",
         "choice",
         f"Is the turned {times}Ø{_fmt(d)} diameter a fit, a thread or knurled?",
-        tuple(i for f in group for i in cylinders(f)),
-        GENERAL,
+        on,
+        mated["value"] if mated else GENERAL,
         options,
         "Functional diameters need a fit (bearing, seal, press fit); a diameter at a "
         "metric size may be threaded; a grip may be knurled. The rest are covered by "
@@ -680,6 +699,8 @@ def _turned_question(group: list[dict], faces) -> Question:
         parts=tuple((f["id"], cylinders(f)) for f in group) if len(group) > 1 else (),
         choices=tuple(choices.describe(f"diameter.fit:{feature['id']}", options, d)),
         diameter=d,
+        basis=_sentence(mated["reason"]) if mated else "",
+        mate=mated["reason"] if mated else "",
     )
 
 
@@ -730,6 +751,10 @@ def _runout_question(group: list[dict], faces, frame: str) -> Question:
         frame,
         parts=tuple((f["id"], cylinders(f)) for f in group) if len(group) > 1 else (),
     )
+
+
+def _sentence(words: str) -> str:
+    return f"{words[0].upper()}{words[1:]}."
 
 
 def _function_basis(default: str, diameter: float, bolts, tapped) -> str:
