@@ -339,7 +339,10 @@ assembly as a `Part` in its own frame; U2 constituent faces and pattern members 
 U3 a standard form for notes and surface finish in `pmi::write`; U4 face triangulation; U5
 overlap area of two coplanar faces; U6 a point proved on a face's trimmed domain; U7 the
 read-back verification of `quiddity pmi write` as a library function; U8 thread semantics for
-pitch and 'number of threads'.
+pitch and 'number of threads'; U9 part names over the assembly structure and one read; U10
+specify-core's own notes on faces as anchored items; U11 `face_moments` on every face to 1e-6;
+U12 the ten feature families quiddity-rust does not recognise; U13 simple parameter-space loops
+at degenerate corners.
 
 ## Stages
 
@@ -373,12 +376,46 @@ its stage; module stubs exist in `src/` so no stream edits `lib.rs`):
   need the corpus and skip without `SPECIFY_CORPUS`.
 - *Part model.* `part.rs` (`load`, `load_all`, `parts`, `Binding` at `loader_version` 2) on
   haecceity. Face numbering equals Python's on every synthetic part, corpus file and NIST file
-  checked. Differences recorded: NIST files with surface models beside the solid are one part,
+  checked, except corpus `inventory_refusal/13975`, whose shell OpenCascade reorders (found in
+  stage 2; Q10, Q13). Differences recorded: NIST files with surface models beside the solid are one part,
   not XCAF's several (Q7); product names where OpenCascade says `SOLID`; a file with several root
   shapes is read where Python refuses; U9 (names and one read).
 - *Tables.* `standards.rs`, `materials.rs`, `choices.rs` and `pyfmt.rs` (Python's `repr`, `:g`
   and rounding, checked over every power of two and its neighbours), against Python-generated
   fixtures. Fits above 500 mm are refused as Python does (Q8).
 
-Next: stage 2. The dependency is still pinned to `a16d7af` on `ap242`; `prototype/rust-port`
+**Stage 2 delivered** (merged to `main`):
+
+- *Features and existing PMI.* `features.rs` (faces with area and centroid from haecceity's
+  `face_moments`, features from quiddity-rust's recognisers in Python's evidence shape) and
+  `existing.rs` (existing PMI read once per file through `Reading`; a tolerance citing a datum
+  the reader does not hold is refused). Compared on 120 corpus and NIST parts, none refused as
+  degraded: `features.json` 8652 differences (5464 rust-wrong, mostly U12's 2740 missing-family
+  features and U2's missing constituent faces; 1871 undetermined; 1135 rust-correct; 170
+  equivalent; 12 not-applicable), each face value judged against OpenCascade's adaptive
+  integral; `existing.json` 230 (208 rust-correct, 22 not-applicable). The generators and the
+  judge are in `tools/known_differences/`. Gusset patterns are not listed, as in Python.
+- *Rules.* `rules/` (questions, open questions, defaults, apply, preview, intent), `extras.rs`,
+  `general.rs`, `locations.rs` (without `mark_basic`) and `problems.rs`, as pure functions of the
+  analysis and answers JSON. Byte-identical to Python on every captured case and scenario (994
+  artifacts; `rules.json` is empty); 13 of specify-core's test files ported. Malformed input
+  Python crashes on is refused as invalid (Q9).
+- *Mates.* `mates.rs` (mates and contacts, with `contacts_with_refusals` for pairs that cannot be
+  measured); contact areas by polygon overlap with `i_overlay` (U5 stand-in), exact to Python's
+  3 decimals on the synthetic stack. 7 differences on 18 multi-part parts: 6 not-applicable
+  (Q7), 1 rust-correct.
+- *Mesh and anchors.* `triangulate.rs` (constrained Delaunay in parameter space with `spade`, the
+  U4 stand-in; folded triangles it drops are counted), `mesh.rs`, `sightlines.rs` and
+  `anchors.rs`. The mesh sweep guards face numbering against the oracle analysis. `mesh.json`
+  1008 differences (516 equivalent, 414 rust-correct, 37 undetermined, 27 not-applicable, 14
+  rust-wrong: faces refused pending U13 and five faces with sub-micron inward triangles);
+  `anchors.json` 261 (131 equivalent, 123 rust-correct, 6 not-applicable, 1 undetermined). The
+  Rust mesh has about 1.8 times Python's triangles (Q12).
+
+Not yet done in stage 2: the rules smoke test on Rust analyses of the synthetic parts (to be run
+once the API composes analysis and rules, stage 4); the write and read-back halves of the ported
+rules tests (stage 3); the CLI and serve tests (stage 4). New maintainer questions Q9-Q13; new
+upstream needs U10-U13.
+
+Next: stage 3. The dependency is still pinned to `a16d7af` on `ap242`; `prototype/rust-port`
 does not contain it yet.
