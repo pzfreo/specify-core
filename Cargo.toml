@@ -12,11 +12,12 @@ path = "src/main.rs"
 
 [dependencies]
 # quiddity-rust: feature recognition (quiddity) and the geometry kernel with STEP import and
-# AP242 semantic PMI (haecceity). On branch ap242 until it is merged into prototype/rust-port
-# (that is, until prototype/rust-port contains a16d7af); then both switch to prototype/rust-port.
-# Cargo.lock pins the commit. See docs/design.md, "Dependency plan".
-quiddity = { git = "https://github.com/pzfreo/quiddity-rust", branch = "ap242" }
-haecceity = { git = "https://github.com/pzfreo/quiddity-rust", branch = "ap242" }
+# AP242 semantic PMI (haecceity). Pinned to rev a16d7af (head of branch ap242) until
+# prototype/rust-port contains it; then both switch to branch prototype/rust-port. A rev, not
+# the branch, because ap242 may move or be deleted once merged. See docs/design.md,
+# "Dependency plan".
+quiddity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "a16d7af80e15b48be7c7e5a54f19afe59c9030eb" }
+haecceity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "a16d7af80e15b48be7c7e5a54f19afe59c9030eb" }
 base64 = "0.22.1"
 # specify-core reads typed specs and added requirements with regular expressions (choices, extras).
 regex = "1.11.1"

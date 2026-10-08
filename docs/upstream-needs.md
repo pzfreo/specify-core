@@ -25,6 +25,16 @@ the definition is not found exactly once or a placement is not invertible.
 **Met when** haecceity offers e.g. `read_part(bytes, &PartDefinition) -> Part` (or the
 `PartDefinition` carries it), faces in the definition's order, its face sources kept.
 
+**Also lost by the stand-in.** `Part::new` sets `unresolved_faces`, `unresolved_edges`,
+`face_sources` and `edge_sources` empty, and `Part::with_sources` / `Part::with_unresolved` are
+`pub(super)`, so a crate outside haecceity cannot restore them on a rebuilt `Part`. `solid_is_valid`
+(`brep.rs`) reads `unresolved_faces`, and many quiddity recognisers filter on it, so a rebuilt
+part with an unresolved surface would claim valid solids. Meanwhile `LoadedPart` carries the
+re-indexed unresolved lists and `read_step`'s own `Part` is used whenever its faces already match
+the definition; a rebuilt part with unresolved faces or edges is reported degraded and not
+recognised. **Also needed:** a public way to build a `Part` keeping its sources and unresolved
+lists (e.g. `pub` `with_sources` / `with_unresolved`), or `read_part` above, which makes it moot.
+
 ## U2. Constituent faces and pattern members from quiddity
 
 **Missing.** Python quiddity's evidence view gives a feature's *constituent* faces (the faces

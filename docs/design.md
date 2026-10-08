@@ -86,14 +86,25 @@ and answers are always used with the analysis they were given against.
 
 ## Dependency plan
 
-- `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity-rust`, **branch
-  `ap242`** (Cargo.lock: a16d7af). `prototype/rust-port` does not yet contain a16d7af (checked
-  with `git merge-base --is-ancestor a16d7af origin/prototype/rust-port`), and only `ap242` has
-  `read_part_definitions`, `p21`, `pmi`, `express`, `removal` and face provenance. When
-  `prototype/rust-port` contains a16d7af, both dependencies switch to it in one commit (`cargo
-  update -p quiddity -p haecceity`), and the stream that does so runs the whole suite and the
-  oracle comparisons: `prototype/rust-port` also has the framed recognition (`recognise_placed`)
-  and the recognition document, which change records (question Q2).
+- `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity-rust`, **pinned
+  to `rev = "a16d7af80e15b48be7c7e5a54f19afe59c9030eb"`**, the head of branch `ap242`.
+  `prototype/rust-port` does not yet contain a16d7af (checked with `git merge-base
+  --is-ancestor a16d7af origin/prototype/rust-port`), and only `ap242` has
+  `read_part_definitions`, `p21`, `pmi`, `express`, `removal` and face provenance. The pin is a
+  rev, not `branch = "ap242"`, because another run is merging `ap242` now and the branch may
+  move or be deleted; a rev keeps fresh clones and CI resolving the same commit. When
+  `prototype/rust-port` contains a16d7af, both dependencies switch to `branch =
+  "prototype/rust-port"` in one commit (`cargo update -p quiddity -p haecceity`), and the
+  stream that does so runs the whole suite and the oracle comparisons: `prototype/rust-port`
+  also has the framed recognition (`recognise_placed`) and the recognition document, which
+  change records (question Q2).
+- **Cargo.toml and Cargo.lock across parallel streams.** A stream that adds a crate adds its
+  line in alphabetical order within its table (`[dependencies]` or `[dev-dependencies]`) and
+  regenerates the lock with `cargo update -p <crate>` only (never a bare `cargo update`, which
+  would move other pins). The integrator resolves a Cargo.lock conflict by taking either side
+  and rerunning `cargo update -p <crate>` for each crate the merged streams added (or `cargo
+  check`, which adds missing entries without moving existing ones), never by editing the lock
+  by hand.
 - `serde`, `serde_json` (`preserve_order`, so objects keep Python's key order; `float_roundtrip`),
   `sha2` (the binding's `source_sha256`), `base64` (stored answers), `regex` (typed specs and
   added requirements, as Python reads them). Dev: `flate2` (gzipped
@@ -107,7 +118,7 @@ and answers are always used with the analysis they were given against.
 
 | Python (`specify_core/`) | Rust (`src/`) | Notes |
 |---|---|---|
-| `load.py` | `part.rs` | `LoadedPart { path, bytes, binding, part (haecceity `Part`, the part's own solid in its own frame, faces in specify-core's numbering), definition (`PartDefinition`), part_count, name, placements }`; `load`, `load_all`, `parts`. A part of an assembly is extracted from `read_step` by face source and placed back by the inverse of its first placement (stand-in for U1). `Binding` with `loader_version` 2. |
+| `load.py` | `part.rs` | `LoadedPart { path, bytes, binding, part (haecceity `Part`, the part's own solid in its own frame, faces in specify-core's numbering), definition (`PartDefinition`), part_count, name, placements }`; `load`, `load_all`, `parts`. A part of an assembly is extracted from `read_step` by face source and placed back by the inverse of its first placement (stand-in for U1); `read_step`'s own `Part` is used directly whenever its faces already equal the definition's. A rebuilt `Part` loses haecceity's unresolved face and edge lists (`Part::new` empties them and `with_unresolved` is `pub(super)`), so `LoadedPart` carries them re-indexed (`unresolved_faces`, `unresolved_edges`), and `describe_faces`, `recognise`, `mesh` and `anchors` consult them: a part with any is reported degraded and recognition refuses on it rather than run on a falsely valid solid. `LoadedPart` is not `Clone` (`haecceity::Part` is only `Debug`); APIs take it by reference. `Binding` with `loader_version` 2. |
 | `features.py` | `features.rs` | `Face` records (`describe_faces`) from `Surface` and `face_moments`; `recognise` from quiddity: holes, patterns (members matched to hole records by equality, as quiddity's fingerprints do), every other family, and specify-core's own hole sets. |
 | `existing.py` | `existing.rs` | `read_existing` maps `PartPmi` to specify-core's `existing` records (kind, OCCT type name, faces, faces2, value, upper, lower, datums: the names are a JSON format, kept); `part_settings` from material, general tolerance class and notes; `notes` from threads, knurls, finish. No text scans. |
 | `magnitudes.py`, `p21.py`, `merge.py`, `lettering.py` | none | OpenCascade workarounds; haecceity does it right (above). |
@@ -122,7 +133,7 @@ and answers are always used with the analysis they were given against.
 | `problems.py` | `problems.rs` | |
 | `mates.py` | `mates.rs` | Cylinders and planes per instance, `mates`, `contacts`, `suggestion`. Overlap area of facing planes by a local polygon intersection of the faces' boundaries (stand-in for U5). |
 | `mesh.py` | `mesh.rs`, `triangulate.rs` | Mesh format `pmi-assist-mesh` v2 kept. Triangulation is a local stand-in (U4): each face triangulated in its parameter space from its boundary loops and refined to the deflection; a face it cannot do is listed in `missing`, as the format allows. Edges from the edges' samples, seams left out. |
-| `anchors.py`, `sightlines.py` | `anchors.rs`, `sightlines.rs` | Anchor point: `face_centre` checked to lie on the trimmed face (stand-in for quiddity's `inspect_face`, U6); sightlines by `Classifier`. |
+| `anchors.py`, `sightlines.py` | `anchors.rs`, `sightlines.rs` | Anchor point: `face_centre` checked to lie on the trimmed face (stand-in for quiddity's `inspect_face`, U6); sightlines by `Classifier`. The reach (0.12 of the diagonal) uses the exact bbox diagonal, where Python's `serve._diagonal` uses OCCT's loose `BRepBndLib` box: anchor points differ systematically by that ratio, recorded once as a `rust-correct` pattern. |
 | `writer.py`, `requirements.py` | `writer.rs` | Intent → one `PartPmi` per part → `pmi::write` (Add for a bare part or one with foreign PMI, Replace for a file specify-core wrote) → atomic replace of the output → read back and compare. Report format kept. |
 | `resume.py` | `resume.rs`, `pyjson.rs` | Stored answers as a CAx-IF user defined attribute on the part (`AttributeSet` 'pmi-assist answers'); Python-written files are read too. The fingerprint hashes Python's exact `json.dumps` text (`pyjson.rs`). |
 | `api.py` | `api.rs` | |
@@ -205,8 +216,17 @@ input part (each part of an assembly):
   specs, ± locating, runouts, fits, threads, knurls, mates) with their questions, intents,
   problems and refusals (the error kind and message);
 - `interpret` cases from `test_choices.py` (typed text → value or refusal);
-- the written STEP read back by Python (its `analyse` of the output: existing PMI, part settings,
-  resume answers) and the write report; not the STEP bytes, which are not a parity target;
+- the write report and the written STEP read back by Python. **The read-back calls Python's
+  functions directly, not `api.analyse`**: for a file with stored answers it can resume,
+  `api.analyse` returns `existing: []` and `part: {}` (`api.py`, the `answers_for` branch), and
+  Python stores answers on every write of a bare part, so every synthetic part's read-back
+  would be empty. The capture records, for every written part, `readback.json` = `{existing:
+  [e.to_dict() for e in read_existing(load(out, part=k))], part: part_settings(that loaded
+  part), resume: resume.answers_for(that loaded part)}` (a call that raises gives `{error,
+  message}` in place of its value). The same artifact shape comes from `capture.py readback`
+  (stage 4's cross-engine check). For synthetic parts and NIST files only, the written STEP is
+  committed gzipped as `written.step.gz` (stages 3 and 4 resume and read Python-written files);
+  its bytes are not a parity target;
 - mesh summary: face count, triangles per face, `missing`, bbox, per-face mesh area, edge count
   (not the triangles: meshes are checked by properties, not parity);
 - anchors for preview groups; a `serve` transcript of one session per synthetic part.
@@ -216,7 +236,16 @@ Inputs: the synthetic parts of specify-core's `tests/conftest.py` and of individ
 (public-domain US government works, gzipped and committed as haecceity does); the quiddity corpus
 (`QUIDDITY_CORPUS`, default `/Users/paul/repos/quiddity/tests/corpus`, never searched for
 elsewhere), not committed: its outputs are committed, its inputs are not. A `readback` mode runs
-Python's `analyse` on a STEP the Rust port wrote, for the cross-engine check.
+the same direct read-back (above) on a STEP the Rust port wrote, for the cross-engine check.
+
+**Gzipped corpus files.** Six corpus inputs are gzipped (`cadgenbench_inputs/cgb{202,217,242,
+243}.step.gz`, `inventory_refusal/{13975,14052}.step.gz`); neither engine reads gzip, and
+haecceity's `corpus_upgrade.json` pins the `cadgenbench_inputs` ones as upgradable, so keeping
+them as refusals would lose real cases. Decision: both engines see the decompressed file. The
+capture tool decompresses to a temporary `.step` and runs Python on it; `meta.json` records the
+sha256 of both the `.gz` and the decompressed bytes (the binding's `source_sha256` is the
+decompressed one); the Rust harness's `case.input()` decompresses to a temporary file and
+returns its path. The CLI itself still refuses gzip, as specify-core does.
 
 ### Comparison harness and known differences
 
@@ -233,7 +262,20 @@ collect differences as `{case, path, python, rust}`. Each difference must match 
 ```
 
 An unmatched difference fails the test, and so does an entry that matches nothing (stale). A
-`rust-wrong` entry is a bug kept visible, not a pass. Tests whose input is a corpus file skip when
+`rust-wrong` entry is a bug kept visible, not a pass. `check_known(area, diffs)` is the
+asserting form, used once per area by the area's own sweep. The harness also has a
+non-asserting `explained(areas, diffs) -> Vec<Difference>` returning only the differences no
+entry of the named areas' files matches, with no stale check and no tally: a sweep that crosses
+areas filters through earlier areas' files with it, because running their `check_known` there
+would report every entry not met in that sweep as stale.
+
+**Feature ids cascade.** Feature ids differ between engines by design (defining versus
+constituent faces, U2), and question ids, answer keys, intent requirements and report lines
+embed them. So comparisons with Python are made where the inputs are Python's (Python's
+analysis and answers into the Rust rules, writer, CLI and serve); Rust-produced analyses are
+checked by composition (the CLI equals the library) and by smoke tests (the rules run on them
+without panic or refusal), not entry by entry against Python. The cascade is recorded once as a
+documented rule in the `cli` area, not per difference. Tests whose input is a corpus file skip when
 `QUIDDITY_CORPUS` does not have it; tests on committed fixtures always run, in CI too.
 
 Python's unit tests are ported where they test behaviour (named after the Python test, citing
@@ -241,6 +283,40 @@ it), not where they test an OpenCascade workaround (`test_p21.py`, `test_magnitu
 `test_conformance.py`'s text fixes, `test_merge.py`'s transplant: their intent is re-expressed
 against haecceity, e.g. "the original file is kept byte for byte" for `Mode::Add`). No test is
 weakened: a Python assertion that does not hold in Rust becomes a known difference with a verdict.
+
+Each of specify-core's 32 test files appears once below (the stage porting it in brackets).
+
+Ported: `test_load.py` [1 part; its reading parts 2 features], `test_standards.py`,
+`test_materials.py`, `test_choices.py` [1 tables], `test_features.py` [2 features],
+`test_rules.py`, `test_datums.py`, `test_general.py`, `test_locations.py` (minus `mark_basic`),
+`test_locating_problems_extras.py`, `test_attention.py`, `test_basis.py`, `test_call_out.py`,
+`test_same_as.py`, `test_profile_runout.py` [2 rules], `test_threads.py` [2 rules; writing 3],
+`test_mmc_finish_notes.py` [2 rules; reading 2 features; writing 3], `test_preview.py` [2 rules;
+anchors 4],
+`test_mates.py` [2 mates], `test_mesh.py`, `test_anchors.py` [2 mesh-anchors; preview and serve
+parts 4], `test_writer.py`, `test_requirements.py` (semantic content), `test_resume.py`,
+`test_merge.py` (re-expressed for `Mode::Add`), `test_drawn.py` (datum symbols),
+`test_conformance.py` (re-expressed, below) [3 writer], `test_assembly.py` [1 parts listing;
+2 mates; 3 writes; 4 API and CLI], `test_serve.py` [4].
+
+Not ported: `test_p21.py` (escapes: haecceity writes them), `test_magnitudes.py` (OCCT magnitude
+text scans), `test_nist_coverage.py` (tests `tools/nist/coverage.py`, tooling: revisit with
+that tool, see "later").
+
+`test_conformance.py`: kept are "every written file passes the schema check" (haecceity
+validates every written instance; the test asserts the write report and a clean express check)
+and "what was asked is what is read back". Dropped: its assertions on OpenCascade text fixes
+(runout zones dropped, type limits, simple tolerances, part datums, the metre scale) and on the
+text routes for notes, threads and knurls, which this port does not write (each a
+`not-applicable` entry in `writer.json` naming the assertion), and its use of
+`tools/conformance`'s generated corpus (that tool is in "later").
+
+**JSON text.** Documents are compared parsed, not as text. Two text-level differences are
+expected and recorded by the CLI stream up front: Python writes the analysis file with
+`json.dumps(indent=1)` and `ensure_ascii` on, escaping µ, × and ⌀, where `serde_json` writes
+UTF-8 (`equivalent`: same parsed value); Python can write `NaN`/`Infinity` tokens where a value
+escapes `features._plain`, and `serde_json` writes `null` (`rust-correct`: RFC 8259 has no such
+tokens and a JavaScript client's `JSON.parse` rejects them).
 
 ## Out of scope for now
 
@@ -267,13 +343,17 @@ pitch and 'number of threads'.
 
 ## Stages
 
-The work is planned as four stages of parallel streams (each stream owns disjoint files within
+The work is planned as five stages of parallel streams (each stream owns disjoint files within
 its stage; module stubs exist in `src/` so no stream edits `lib.rs`):
 
 1. Oracle capture tool, fixtures and comparison harness; the part model on haecceity; the
    standards, materials and choices tables.
 2. Features and existing PMI; rules (with extras, general, locations, problems); mates; mesh and
-   anchors.
-3. Writer and resume through haecceity's AP242.
-4. API, command line and serve; the cross-engine check and the consolidation of known
-   differences and docs.
+   anchors. The features stream also runs the rules on Rust analyses of the synthetic parts (a
+   smoke test: no panic or refusal), so a record-shape mismatch shows before the CLI exists.
+3. Writer and resume through haecceity's AP242 (`write_parts` over references, so the API can
+   compose it from `load_all` and detect a part named twice).
+4. API, command line and serve; the cross-engine check (Python reading Rust-written files).
+5. Consolidation, after both stage 4 streams: `docs/known-differences.md` rendered from every
+   area file with a test that it is current, this section turned into a Status section, the
+   README's usage verified against the built binary.
