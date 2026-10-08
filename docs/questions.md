@@ -57,3 +57,17 @@ the whole part (checked with Python: `describe('hole.function:x', ['general', 'f
 Should fits not be offered above 500 mm (the general tolerance only), or should ISO 286 be
 extended to 3150 mm? *Meanwhile:* Python's behaviour is kept: `choices::describe` returns the
 same message as an error, which its caller reports (no part question list is made up).
+
+**Q9. A sightline sample the classifier cannot decide (mesh stream).** haecceity's `Classifier`
+can answer `Unknown` (every probe ray ambiguous), which OpenCascade's classifier never does.
+specify-core's rule is IN blocks a leader and ON or OUT do not. *Meanwhile:* `Unknown` blocks
+too, so a leader is only reported clear when every sample is shown free. Should an undecided
+sample count as free instead?
+
+**Q10. Mesh density (mesh stream).** The Rust mesh meets the same deflections (0.001 of the
+diagonal, 0.3 rad) but has about 1.8 times Python's triangles over the oracle cases (1.30 M
+against 0.70 M; cylinders and planes about the same, spheres, tori and freeform faces 2 to 4
+times), because it refines until no triangle leans from the surface by more than the angular
+deflection, which BRepMesh does not check. The largest corpus part (cgb202, 2157 faces) meshes
+to 11 MB of JSON. *Meanwhile:* kept as is. Is that size acceptable for Draftwright Specify, or
+should the Rust engine relax its lean check to approach Python's size?

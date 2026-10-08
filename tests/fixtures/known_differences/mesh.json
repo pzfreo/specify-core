@@ -1,0 +1,170 @@
+[
+  {
+    "case": "*",
+    "path": "areas_rust_nearer_exact*",
+    "pattern": "a face's mesh area differs from Python's by over 1% and is nearer haecceity's exact area than Python's is",
+    "verdict": "rust-correct",
+    "evidence": "tests/mesh.rs classify_area: the Rust mesh area is compared with Part::face_moments (boundary quadrature of |Su x Sv|) and is closer to it than Python's BRepMesh area; e.g. cgb202 face 35 (freeform) exact 42.483, Rust 42.455, Python 42.031. BRepMesh's coarser interior on curved faces undershoots the area."
+  },
+  {
+    "case": "corpus/*",
+    "path": "areas_within_boundary_deflection*",
+    "pattern": "a face's mesh area differs from Python's by over 1%, within the face's boundary length times the deflection of the exact area",
+    "verdict": "equivalent",
+    "evidence": "Both meshes approximate the boundary by chords within the chordal deflection (0.001 of the diagonal), so a mesh area may differ from the exact one by up to boundary length x deflection; classify_area checks |Rust - exact| (Python's mesh area where face_moments has none) is within that bound. Slender faces exceed 1% this way: cgb202 face 1760 (plane, a 0.5 mm wide wedge, deflection 0.63 mm) exact 3.32, Rust 4.29, Python 3.45."
+  },
+  {
+    "case": "*",
+    "path": "check.moments_area_within_boundary_deflection*",
+    "pattern": "a face's mesh area is over 1% from haecceity's exact area, within the boundary length times the deflection",
+    "verdict": "equivalent",
+    "evidence": "As areas_within_boundary_deflection, against Part::face_moments: the boundary is thinned to the chordal deflection (and the parameter chord's image held within it, triangulate::thin), so the area may differ by up to boundary length x deflection; small faces bounded by arcs (pin face 5, an annulus round a 2.1 mm hole: exact 13.854, Rust 13.664, Python 13.803) and slender faces exceed 1% by it. Faces beyond the bound stay check.moments_area and would fail."
+  },
+  {
+    "case": "*",
+    "path": "bbox_python_looser*",
+    "pattern": "Python's box is larger than the exact box",
+    "verdict": "rust-correct",
+    "evidence": "Python's bbox is BRepBndLib.Add(shape, box, useTriangulation=False), which bounds B-spline curves and surfaces by their control points and pads by tolerance; Rust's is haecceity's Part::bounds (face boundaries plus interior extremes on the exact geometry). classify_bbox only takes a corner where Rust's box lies inside Python's; e.g. threaded_connector_109 x from -65.47 (a 65.47 mm radius flange) against Python's -73.02, nist_ctc_05_asme1_ap242 low z 0.0 (the part sits on z = 0) against -0.0021."
+  },
+  {
+    "case": "*nist_ctc_0*#0",
+    "path": "*face_count",
+    "pattern": "a product with surface models beside its solid is one part with all its faces (question Q7)",
+    "verdict": "not-applicable",
+    "evidence": "docs/questions.md Q7: OpenCascade's XCAF makes a part of each shape representation (solid, then each SHELL_BASED_SURFACE_MODEL), haecceity one part per product definition, the solid's faces first then the surface faces; tests/part.rs pins the solid's faces at Python's indices. The Rust part has the 1 or 2 surface faces more."
+  },
+  {
+    "case": "*nist_ctc_0*#0",
+    "path": "areas[*]",
+    "pattern": "the surface-model faces Python lists as other parts (question Q7)",
+    "verdict": "not-applicable",
+    "evidence": "The faces at and after Python's face count are the SHELL_BASED_SURFACE_MODEL faces XCAF puts in parts #1 and #2 (Q7); Python's mesh of part #0 has no such index."
+  },
+  {
+    "case": "*nist_ctc_0*#0",
+    "path": "edges.count",
+    "pattern": "edge count of a part with its surface models (question Q7)",
+    "verdict": "not-applicable",
+    "evidence": "The Rust part includes the surface-model faces' edges (Q7), which Python counts in parts #1 and #2; on the solid alone the counts differ as in the 'OpenCascade splits closed edges' entry."
+  },
+  {
+    "case": "*nist_ctc_0*#1",
+    "path": "*",
+    "pattern": "XCAF's second part of a product with surface models does not exist in Rust (question Q7)",
+    "verdict": "not-applicable",
+    "evidence": "haecceity has one part per product definition (Q7), so part 1 of these files is refused by part::load ('no part 1'); its faces are in part 0."
+  },
+  {
+    "case": "*nist_ctc_0*#2",
+    "path": "*",
+    "pattern": "XCAF's third part of a product with surface models does not exist in Rust (question Q7)",
+    "verdict": "not-applicable",
+    "evidence": "As for #1: nist_ctc_02_asme1_ap242 has two surface models, which XCAF makes parts 1 and 2; in Rust both are in part 0 (Q7)."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "edges.*",
+    "pattern": "fewer edges and 1.8% less edge length than OpenCascade",
+    "verdict": "undetermined",
+    "evidence": "Comparing edge lengths (haecceity Part.edges samples against OCCT GProp on the edges Python draws): pairs of OCCT edges sum to single Rust edges (16.8+16.8 = 33.7, 399.0+399.0 = 798.0, 402.5+555.1 = 957.6, 6.2+18.7 = 24.9: OCCT splits closed edges), but OCCT edges of 31.8 (x4), 50.8 (x4), 38.1 and 16.8 (x2), 527 mm in all, have no Rust counterpart, and haecceity's part has 331 edges with no seam. Whether haecceity loses edges on import or OCCT adds them was not settled."
+  },
+  {
+    "case": "corpus/*",
+    "path": "edges.count",
+    "pattern": "OpenCascade splits closed edges, so it draws more edge polylines",
+    "verdict": "equivalent",
+    "evidence": "Edge length totals agree within 1% where counts differ (edges.length is compared too). On nist_ctc_05_asme1_ap242 the OCCT edges Python draws pair up into haecceity's closed edges (full circles split at the seam on import by ShapeFix); nist_ftc_06_asme1_rd: OCCT 381 edges, 8 degenerate, 42 closed on a face, 331 drawn; haecceity 310 edges, none a seam, 310 drawn. The same boundaries, partitioned differently."
+  },
+  {
+    "case": "corpus/cadgenbench/threaded_connector_109",
+    "path": "check.triangulated*",
+    "pattern": "zero-area thread end faces are not triangulated",
+    "verdict": "equivalent",
+    "evidence": "The 28 faces' boundary loops collapse to fewer than three distinct points in parameter space (e.g. face 9: u from 5.0000 to 5.0001 and back along the same v run); Python's mesh gives each 2 triangles of at most 0.0002 mm2. Neither can be picked; Rust says so in `missing`."
+  },
+  {
+    "case": "corpus/cadgenbench/threaded_connector_109",
+    "path": "missing*",
+    "pattern": "zero-area thread end faces listed as missing",
+    "verdict": "equivalent",
+    "evidence": "The faces of the check.triangulated entry above, listed in the mesh's `missing` as the format provides."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb242",
+    "path": "missing[0]",
+    "pattern": "a zero-area face listed as missing",
+    "verdict": "equivalent",
+    "evidence": "Face 483 ('other' in Python's analysis, area 5.9e-10 mm2): its loop collapses to fewer than three points; Python's mesh gives it 1 triangle of area 0.0."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb242",
+    "path": "check.triangulated[483]",
+    "pattern": "a zero-area face is not triangulated",
+    "verdict": "equivalent",
+    "evidence": "As missing[0]: face 483 has area 5.9e-10 mm2 in Python's analysis and 0.0 in its mesh."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb242",
+    "path": "missing[*]",
+    "pattern": "two freeform faces whose boundary jumps across a degenerate corner are not triangulated",
+    "verdict": "rust-wrong",
+    "evidence": "Faces 715 and 726 (18.6 and 18.4 mm2 in Python's mesh): haecceity's uv_loops runs from (1.0, 0.9997) straight to (0.0, 0.0), a parameter side whose image strays far from the boundary (the jump check in triangulate refuses rather than fill the wrong region). A face Python meshes is missing here."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb242",
+    "path": "check.triangulated*",
+    "pattern": "two freeform faces whose boundary jumps across a degenerate corner are not triangulated",
+    "verdict": "rust-wrong",
+    "evidence": "As cgb242 missing[1], missing[2]: faces 715 and 726, refused with the jumping side named."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb242",
+    "path": "areas[*]",
+    "pattern": "two freeform faces whose boundary jumps across a degenerate corner have no area",
+    "verdict": "rust-wrong",
+    "evidence": "Faces 715 and 726, not triangulated (see cgb242 missing[*])."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb202",
+    "path": "*399*",
+    "pattern": "a freeform face whose boundary samples cross at a narrow neck is not triangulated",
+    "verdict": "rust-wrong",
+    "evidence": "Face 399 (23.0 mm2): haecceity's own uv_loops samples cross themselves near (0.110, 0.425) (segments 283 and 353 of 673 intersect), before any thinning, so even unthinned the boundary is not a simple polygon; triangulate refuses. Python meshes it."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb202",
+    "path": "missing[0]",
+    "pattern": "a freeform face whose boundary samples cross at a narrow neck is listed as missing",
+    "verdict": "rust-wrong",
+    "evidence": "Face 399, see cgb202 *399*."
+  },
+  {
+    "case": "corpus/inventory_refusal/14052",
+    "path": "*",
+    "pattern": "a planar face whose hole crosses its outer loop is not triangulated",
+    "verdict": "rust-correct",
+    "evidence": "Face 1: the outer loop's side v = 5.1255 from u = 0 to 20.72 crosses the circular inner loop (centre (10.8, 6.1), radius 1.65) twice in haecceity's parameter loops: the face's trim is not a valid region (the corpus keeps this file as one to refuse). Python's BRepMesh triangulates it anyway (78.8 mm2)."
+  },
+  {
+    "case": "corpus/inventory_refusal/13975",
+    "path": "check.*[1]",
+    "pattern": "a folded freeform surface: triangles disagree with its normal and refinement does not settle",
+    "verdict": "undetermined",
+    "evidence": "Face 1 is a B-spline closed in both parameters whose natural normal flips sign between neighbouring parameter points (e.g. at u 4.78 and 4.92, v 0.02 the unit normals are opposite); the mesh area is within 0.3% of the exact one, but hundreds of triangles face against the normal at their centre and refinement stops at its cap. Whether the surface is self-intersecting (as the inventory_refusal corpus suggests) was not established."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/*",
+    "path": "check.inward_triangles*",
+    "pattern": "a single sub-micron triangle at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "cgb202 face 740, cgb207 face 113, cgb242 faces 665, 840, 878: one or two triangles of about 1e-7 mm2 next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb243",
+    "path": "check.centroid_deviation[227]",
+    "pattern": "a triangle centroid 0.006% beyond the deflection from the surface",
+    "verdict": "equivalent",
+    "evidence": "Deviation 0.194098 mm against a deflection of 0.194087 mm (5.6e-5 relative). Refinement measures the surface point at the parameter centroid against the triangle; the check measures the 3-D centroid against its projection onto the surface. The two distances differ at second order."
+  }
+]

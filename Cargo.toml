@@ -26,6 +26,9 @@ serde = { version = "1.0.229", features = ["derive"] }
 # read in the same order as specify-core's.
 serde_json = { version = "1.0.151", features = ["preserve_order", "float_roundtrip"] }
 sha2 = "0.11.0"
+# Constrained Delaunay triangulation of faces in their parameter space (triangulate.rs, the
+# stand-in for haecceity face meshing, upstream need U4).
+spade = "2.15.1"
 
 [dev-dependencies]
 flate2 = "1.1.10"

@@ -1,0 +1,65 @@
+[
+  {
+    "case": "*",
+    "path": "diagonal",
+    "pattern": "the reach is scaled by the exact box's diagonal, not OpenCascade's loose box",
+    "verdict": "rust-correct",
+    "evidence": "The oracle records serve._diagonal (BRepBndLib.Add with the triangulation and tolerance padding, B-splines bounded by their poles); Rust passes mesh::diagonal, haecceity's Part::bounds on the exact geometry. The test prints the ratio per case: from 1.0000000012 (synthetic parts, padding only) to 1.6015 (corpus cgb203: Python 843.10, Rust 526.46). REACH = 0.12 of it sets how far a leader must run clear, so a clear flag or direction can differ where the reach does; anchor points do not move by it (a hole's anchor moves to its rim, a distance the reach does not set)."
+  },
+  {
+    "case": "*",
+    "path": "anchors.*.equal_area_face",
+    "pattern": "anchored on another face of the group, of the same area",
+    "verdict": "equivalent",
+    "evidence": "Both engines anchor a group on its largest face, the first of equals; for a group of identical features (a pattern's bores, cgb243's 41 such groups) the faces' areas agree to 1e-6 (haecceity's face_moments, checked by tests/anchors.rs explain), and which one OCCT's or haecceity's quadrature puts first is rounding. Differences of the leader's direction on such a group (path .out...equal_area_face) are the other face's own direction."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb242",
+    "path": "anchors.*.same_from_python_point",
+    "pattern": "the leader differs because the anchor point does",
+    "verdict": "equivalent",
+    "evidence": "tests/anchors.rs explain re-runs Rust's leader (anchors::anchor_from_point) from Python's own anchor point with Python's diagonal and gets Python's direction and clear flag: the difference is the anchor point's (Quiddity's inspect_face against the U6 stand-in), both points on the same face."
+  },
+  {
+    "case": "corpus/mfcadpp/10063",
+    "path": "anchors.23.*",
+    "pattern": "a leader along a bore's wall is clear in Rust, blocked in Python",
+    "verdict": "rust-correct",
+    "evidence": "mfcadpp 10063 anchor 23 and 10103 anchor 8 are holes (radius 1 bores along Y). From Python's own anchor point (on the bore's top line), haecceity's classifier gives ON or OUT at all 24 samples along -Y (10103: along +Y too) and IN straight up into the material, so the axis leader is clear and chosen; Python's BRepClass3d reported material along both axis directions and fell back to the normal across the bore. sightlines.py's own rule is that a leader lying in the bore's wall is readable (ON is free): the samples lie in that wall, within the bore's length."
+  },
+  {
+    "case": "corpus/mfcadpp/10103",
+    "path": "anchors.8.*",
+    "pattern": "a leader along a bore's wall is clear in Rust, blocked in Python",
+    "verdict": "rust-correct",
+    "evidence": "mfcadpp 10063 anchor 23 and 10103 anchor 8 are holes (radius 1 bores along Y). From Python's own anchor point (on the bore's top line), haecceity's classifier gives ON or OUT at all 24 samples along -Y (10103: along +Y too) and IN straight up into the material, so the axis leader is clear and chosen; Python's BRepClass3d reported material along both axis directions and fell back to the normal across the bore. sightlines.py's own rule is that a leader lying in the bore's wall is readable (ON is free): the samples lie in that wall, within the bore's length."
+  },
+  {
+    "case": "corpus/nist/nist_ftc_07_asme1_rd",
+    "path": "anchors.*.face",
+    "pattern": "Python's anchor point lies off the face's trim",
+    "verdict": "rust-correct",
+    "evidence": "Faces 185-187 are cylinders (radius 11.1125, axis along X) whose top boundary dips from v = 265.035 at u = pi to 264.648 at u = 2 pi. Python's anchor for face 185, (-141.366, -64.5795, -47.625), has parameters u = 0, v = 265.0356: on the surface but 0.39 mm beyond the trim there (haecceity's FaceDomain does not contain it, and it is far from every boundary edge). Rust's point (the face's centre, accepted only inside its domain) is on the face."
+  },
+  {
+    "case": "corpus/inventory_refusal/14052",
+    "path": "anchors.1.clear",
+    "pattern": "a leader from a face with an invalid trim is clear in Rust, blocked in Python",
+    "verdict": "undetermined",
+    "evidence": "Face 1's inner loop crosses its outer loop (see known_differences/mesh.json): the face, and so any point classification near it, is not well defined; the corpus keeps this file as one to refuse. Not investigated further."
+  },
+  {
+    "case": "*nist_ctc_0*#1",
+    "path": "*",
+    "pattern": "XCAF's second part of a product with surface models does not exist in Rust (question Q7)",
+    "verdict": "not-applicable",
+    "evidence": "haecceity has one part per product definition (docs/questions.md Q7), so part 1 of these files is refused by part::load; its faces are in part 0."
+  },
+  {
+    "case": "*nist_ctc_0*#2",
+    "path": "*",
+    "pattern": "XCAF's third part of a product with surface models does not exist in Rust (question Q7)",
+    "verdict": "not-applicable",
+    "evidence": "As for #1: nist_ctc_02_asme1_ap242's two surface models are XCAF's parts 1 and 2, and in Rust both are in part 0 (Q7)."
+  }
+]
