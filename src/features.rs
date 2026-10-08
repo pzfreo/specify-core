@@ -27,7 +27,6 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use haecceity::geom::{Surface, V3};
-use quiddity::features::gussets::GussetRibPattern;
 use quiddity::features::hole_patterns::HolePattern;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -124,8 +123,10 @@ pub fn feature_id(family: &str, faces: &[usize]) -> String {
 }
 
 /// Every face of the part, with what a datum or picking question needs (Python's
-/// `describe_faces`). A face whose surface haecceity could not resolve is `other`. Refused,
-/// naming the face, where haecceity cannot integrate a face's area (no value is made up).
+/// `describe_faces`). A face whose surface haecceity could not resolve is `other`, where
+/// haecceity can still integrate it. Refused, naming the face, where haecceity cannot integrate
+/// a face's area (no value is made up): this includes an unresolved face with no surface, as on
+/// a degraded part (tests/features.rs, `recognition_refuses_a_degraded_part`).
 pub fn describe_faces(loaded: &LoadedPart) -> Result<Vec<Face>, FeatureError> {
     let part = &loaded.part;
     let unresolved: BTreeSet<usize> = loaded.unresolved_faces.iter().copied().collect();
@@ -180,14 +181,17 @@ fn rounded(v: V3, digits: i32) -> V3 {
 /// The families whose records are made of other families' records: (family, the record field
 /// listing the members, the family the members are records of), as quiddity-rust's
 /// fingerprints derive them.
-const DERIVED: [(&str, &str, &str); 2] = [
-    ("hole_patterns", "holes", "holes"),
-    ("gusset_rib_patterns", "ribs", "gusset_ribs"),
-];
+const DERIVED: [(&str, &str, &str); 1] = [("hole_patterns", "holes", "holes")];
+
+/// Derived families that are not features: Python's evidence view lists physical families and
+/// hole patterns only, so a gusset rib pattern (derived, like a hole pattern, but never in
+/// Python's analysis) is left out to keep the analysis JSON specify-core's. Its ribs remain,
+/// each a `gusset_ribs` feature.
+const NOT_FEATURES: [&str; 1] = ["gusset_rib_patterns"];
 
 /// The part's features (Python's `recognise`): every family's records from quiddity with their
-/// defining faces, hole and gusset rib patterns with their members, and sets of identical holes
-/// no pattern claims. Refused on a degraded part ([`LoadedPart::degraded`]).
+/// defining faces, hole patterns with their members, and sets of identical holes no pattern
+/// claims. Refused on a degraded part ([`LoadedPart::degraded`]).
 pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
     if let Some(why) = loaded.degraded() {
         return Err(FeatureError::Degraded(why));
@@ -208,7 +212,7 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
     // patterns can name their members.
     let mut ids: Vec<(&str, Vec<Option<String>>)> = Vec::new();
     for (family, list) in &families {
-        if DERIVED.iter().any(|(d, _, _)| d == family) {
+        if DERIVED.iter().any(|(d, _, _)| d == family) || NOT_FEATURES.contains(&family.as_str()) {
             continue;
         }
         let list = list
@@ -253,20 +257,10 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
     }
 
     // Patterns after their members, with the kind the variant names.
-    let kinds: Vec<(&str, Vec<&str>)> = vec![
-        (
-            "hole_patterns",
-            found.hole_patterns.iter().map(hole_pattern_kind).collect(),
-        ),
-        (
-            "gusset_rib_patterns",
-            found
-                .gusset_rib_patterns
-                .iter()
-                .map(gusset_pattern_kind)
-                .collect(),
-        ),
-    ];
+    let kinds: Vec<(&str, Vec<&str>)> = vec![(
+        "hole_patterns",
+        found.hole_patterns.iter().map(hole_pattern_kind).collect(),
+    )];
     for (family, field, base) in DERIVED {
         let list = families
             .get(family)
@@ -350,15 +344,6 @@ fn hole_pattern_kind(pattern: &HolePattern) -> &'static str {
         .iter()
         .find(|(v, _)| *v == variant)
         .map_or(variant, |(_, k)| k)
-}
-
-/// The kind of a gusset rib pattern, its variant's name in snake case (Python's specify-core
-/// meets none: its quiddity names no gusset pattern members).
-fn gusset_pattern_kind(pattern: &GussetRibPattern) -> &'static str {
-    match pattern {
-        GussetRibPattern::Array { .. } => "array",
-        GussetRibPattern::MirrorPair { .. } => "mirror_pair",
-    }
 }
 
 /// Groups of identical holes that no recognised pattern claims (Python's `_hole_sets`).

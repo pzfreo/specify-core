@@ -214,13 +214,20 @@ fn differences(
     let tolerances = Tolerances::default()
         .align("existing", "key")
         .with("existing*", 1e-9, 1e-9);
-    let rust_existing = match existing::read_existing(loaded) {
+    // One reading per part: its PMI, settings and findings all come from it.
+    let reading = existing::read(loaded);
+    let rust_existing = match reading
+        .as_ref()
+        .map_err(|e| e.clone())
+        .and_then(|r| r.existing(loaded))
+    {
         Ok(found) => keyed(&serde_json::to_value(found).unwrap()),
         Err(e) => json!(e.to_string()),
     };
-    let rust_part = match existing::part_settings(loaded) {
-        Ok(settings) => Value::Object(settings),
-        Err(e) => json!(e.to_string()),
+    let rust_part = match (&reading, loaded.part_count > 1) {
+        (_, true) => Value::Object(Default::default()),
+        (Ok(r), false) => Value::Object(r.settings(loaded)),
+        (Err(e), false) => json!(e.to_string()),
     };
     let mut out = compare(
         name,
@@ -229,7 +236,7 @@ fn differences(
         &tolerances,
     );
     let mut kinds: BTreeMap<&str, (usize, String)> = BTreeMap::new();
-    for f in existing::findings(loaded).unwrap_or_default() {
+    for f in reading.as_ref().map_or(&[][..], |r| r.findings()) {
         let entry = kinds
             .entry(f.kind.as_str())
             .or_insert((0, format!("{} #{:?}: {}", f.entity, f.ids, f.detail)));

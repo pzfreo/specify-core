@@ -153,14 +153,17 @@ impl fmt::Display for ExistingError {
 impl std::error::Error for ExistingError {}
 
 /// The part's PMI as haecceity reads it, the findings that concern it (its own and those of
-/// no part), and the parsed document.
-struct Read {
+/// no part), and the parsed document: the file is parsed and read once, and
+/// [`Reading::existing`], [`Reading::settings`] and [`Reading::findings`] all answer from it
+/// (the free functions below are each one reading and one answer).
+pub struct Reading {
     doc: Document,
     pmi: PartPmi,
     findings: Vec<Finding>,
 }
 
-fn read(loaded: &LoadedPart) -> Result<Read, ExistingError> {
+/// Reads the part's PMI (see [`Reading`]).
+pub fn read(loaded: &LoadedPart) -> Result<Reading, ExistingError> {
     let bytes = loaded.bytes.as_ref();
     let doc =
         Document::parse(bytes.clone()).map_err(|e| ExistingError::Unreadable(e.to_string()))?;
@@ -180,7 +183,7 @@ fn read(loaded: &LoadedPart) -> Result<Read, ExistingError> {
         .into_iter()
         .filter(|f| f.part.is_none_or(|p| p.0 == index))
         .collect();
-    Ok(Read {
+    Ok(Reading {
         pmi: read.parts.swap_remove(index),
         findings,
         doc,
@@ -190,111 +193,7 @@ fn read(loaded: &LoadedPart) -> Result<Read, ExistingError> {
 /// The semantic PMI the file states on the part (Python's `read_existing`): dimensions, then
 /// geometric tolerances, then datums, then notes on faces, each group in haecceity's order.
 pub fn read_existing(loaded: &LoadedPart) -> Result<Vec<ExistingPmi>, ExistingError> {
-    let Read { doc, pmi, .. } = read(loaded)?;
-    let mut out = Vec::new();
-
-    for dimension in &pmi.dimensions {
-        let (r#type, first, second) = match &dimension.kind {
-            DimensionKind::Size {
-                feature,
-                kind,
-                path,
-                angle,
-            } => (
-                size_type(kind, path.is_some(), angle.is_some()),
-                faces_of(&pmi, &[*feature]),
-                Vec::new(),
-            ),
-            DimensionKind::Location {
-                from,
-                to,
-                kind,
-                path,
-                angle,
-                ..
-            } => (
-                location_type(kind, path.is_some(), angle.is_some()),
-                faces_of(&pmi, &[*from]),
-                faces_of(&pmi, &[*to]),
-            ),
-        };
-        let mut item = ExistingPmi::new("dimension", r#type, first);
-        item.faces2 = second;
-        let nominal = dimension.nominal.as_ref();
-        item.value = nominal.map(value);
-        // Deviations as stated; limits (and a fit's stated limits) as their offsets from
-        // nominal, the form the analysis carries.
-        let offsets = |upper: &PmiValue, lower: &PmiValue| match nominal {
-            Some(n) => (
-                Some(round_half_even(value(upper) - value(n), 9)),
-                Some(round_half_even(value(lower) - value(n), 9)),
-            ),
-            None => (None, None),
-        };
-        (item.upper, item.lower) = match &dimension.tolerance {
-            DimTolerance::Deviations(b) => (Some(value(b.upper())), Some(value(b.lower()))),
-            DimTolerance::Limits(b) => offsets(b.upper(), b.lower()),
-            DimTolerance::Fit {
-                limits: Some(b), ..
-            } => offsets(b.upper(), b.lower()),
-            DimTolerance::None | DimTolerance::Basic | DimTolerance::Fit { limits: None, .. } => {
-                (None, None)
-            }
-        };
-        out.push(item);
-    }
-
-    for tolerance in &pmi.tolerances {
-        let faces = match &tolerance.target {
-            ToleranceTarget::Feature(f) => faces_of(&pmi, &[*f]),
-            ToleranceTarget::Dimension(d) => match pmi.dimensions.get(d.0).map(|d| &d.kind) {
-                Some(DimensionKind::Size { feature, .. }) => faces_of(&pmi, &[*feature]),
-                Some(DimensionKind::Location { from, to, .. }) => faces_of(&pmi, &[*from, *to]),
-                None => Vec::new(),
-            },
-            ToleranceTarget::Relation {
-                relating, related, ..
-            } => faces_of(&pmi, &[*relating, *related]),
-            ToleranceTarget::WholePart => Vec::new(),
-        };
-        let mut item =
-            ExistingPmi::new("geometric_tolerance", tolerance_type(tolerance.kind), faces);
-        item.value = tolerance.magnitude.as_ref().map(value);
-        item.datums = tolerance
-            .datums
-            .iter()
-            .flat_map(|system| system.compartments())
-            .flat_map(|c| &c.references)
-            .filter_map(|r| pmi.datums.get(r.datum.0))
-            .map(|d| d.label().as_str().to_string())
-            .collect();
-        out.push(item);
-    }
-
-    let mut seen: Vec<(String, Vec<usize>)> = Vec::new();
-    for datum in &pmi.datums {
-        // The datum feature's faces, and those of the features its targets are or lie on.
-        let mut features: Vec<FeatureId> = datum.feature().into_iter().collect();
-        for target in datum.targets() {
-            if let Some(t) = pmi.datum_targets.get(target.0) {
-                if let TargetShape::Area(f) | TargetShape::Curve(f) = t.shape() {
-                    features.push(*f);
-                }
-                features.extend(t.on());
-            }
-        }
-        let key = (
-            datum.label().as_str().to_string(),
-            faces_of(&pmi, &features),
-        );
-        if !seen.contains(&key) {
-            out.push(ExistingPmi::new("datum", &key.0, key.1.clone()));
-            seen.push(key);
-        }
-    }
-
-    out.extend(notes(loaded, &doc, &pmi));
-    Ok(out)
+    read(loaded)?.existing(loaded)
 }
 
 /// What haecceity reported while reading the file that concerns this part (its findings and
@@ -302,6 +201,186 @@ pub fn read_existing(loaded: &LoadedPart) -> Result<Vec<ExistingPmi>, ExistingEr
 /// record each finding kind they meet.
 pub fn findings(loaded: &LoadedPart) -> Result<Vec<Finding>, ExistingError> {
     Ok(read(loaded)?.findings)
+}
+
+/// The material and general tolerance the file states, and the part's notes (see
+/// [`Reading::settings`]).
+pub fn part_settings(loaded: &LoadedPart) -> Result<Map<String, Value>, ExistingError> {
+    if loaded.part_count > 1 {
+        return Ok(Map::new());
+    }
+    Ok(read(loaded)?.settings(loaded))
+}
+
+impl Reading {
+    /// The semantic PMI the file states on the part, as [`read_existing`]; `loaded` is the part
+    /// this reading is of. A tolerance citing a datum the reader does not hold is refused, not
+    /// listed without it.
+    pub fn existing(&self, loaded: &LoadedPart) -> Result<Vec<ExistingPmi>, ExistingError> {
+        let Reading { doc, pmi, .. } = self;
+        let mut out = Vec::new();
+
+        for dimension in &pmi.dimensions {
+            let (r#type, first, second) = match &dimension.kind {
+                DimensionKind::Size {
+                    feature,
+                    kind,
+                    path,
+                    angle,
+                } => (
+                    size_type(kind, path.is_some(), angle.is_some()),
+                    faces_of(pmi, &[*feature]),
+                    Vec::new(),
+                ),
+                DimensionKind::Location {
+                    from,
+                    to,
+                    kind,
+                    path,
+                    angle,
+                    ..
+                } => (
+                    location_type(kind, path.is_some(), angle.is_some()),
+                    faces_of(pmi, &[*from]),
+                    faces_of(pmi, &[*to]),
+                ),
+            };
+            let mut item = ExistingPmi::new("dimension", r#type, first);
+            item.faces2 = second;
+            let nominal = dimension.nominal.as_ref();
+            item.value = nominal.map(value);
+            // Deviations as stated; limits (and a fit's stated limits) as their offsets from
+            // nominal, the form the analysis carries.
+            let offsets = |upper: &PmiValue, lower: &PmiValue| match nominal {
+                Some(n) => (
+                    Some(round_half_even(value(upper) - value(n), 9)),
+                    Some(round_half_even(value(lower) - value(n), 9)),
+                ),
+                None => (None, None),
+            };
+            (item.upper, item.lower) = match &dimension.tolerance {
+                DimTolerance::Deviations(b) => (Some(value(b.upper())), Some(value(b.lower()))),
+                DimTolerance::Limits(b) => offsets(b.upper(), b.lower()),
+                DimTolerance::Fit {
+                    limits: Some(b), ..
+                } => offsets(b.upper(), b.lower()),
+                DimTolerance::None
+                | DimTolerance::Basic
+                | DimTolerance::Fit { limits: None, .. } => (None, None),
+            };
+            out.push(item);
+        }
+
+        for tolerance in &pmi.tolerances {
+            let faces = match &tolerance.target {
+                ToleranceTarget::Feature(f) => faces_of(pmi, &[*f]),
+                ToleranceTarget::Dimension(d) => match pmi.dimensions.get(d.0).map(|d| &d.kind) {
+                    Some(DimensionKind::Size { feature, .. }) => faces_of(pmi, &[*feature]),
+                    Some(DimensionKind::Location { from, to, .. }) => faces_of(pmi, &[*from, *to]),
+                    None => Vec::new(),
+                },
+                ToleranceTarget::Relation {
+                    relating, related, ..
+                } => faces_of(pmi, &[*relating, *related]),
+                ToleranceTarget::WholePart => Vec::new(),
+            };
+            let mut item =
+                ExistingPmi::new("geometric_tolerance", tolerance_type(tolerance.kind), faces);
+            item.value = tolerance.magnitude.as_ref().map(value);
+            item.datums = tolerance
+                .datums
+                .iter()
+                .flat_map(|system| system.compartments())
+                .flat_map(|c| &c.references)
+                .map(|r| {
+                    pmi.datums
+                        .get(r.datum.0)
+                        .map(|d| d.label().as_str().to_string())
+                        .ok_or_else(|| {
+                            ExistingError::Pmi(format!(
+                                "a {} tolerance cites datum {}, which the reader does not hold",
+                                tolerance_type(tolerance.kind),
+                                r.datum.0
+                            ))
+                        })
+                })
+                .collect::<Result<_, _>>()?;
+            out.push(item);
+        }
+
+        let mut seen: Vec<(String, Vec<usize>)> = Vec::new();
+        for datum in &pmi.datums {
+            // The datum feature's faces, and those of the features its targets are or lie on.
+            let mut features: Vec<FeatureId> = datum.feature().into_iter().collect();
+            for target in datum.targets() {
+                if let Some(t) = pmi.datum_targets.get(target.0) {
+                    if let TargetShape::Area(f) | TargetShape::Curve(f) = t.shape() {
+                        features.push(*f);
+                    }
+                    features.extend(t.on());
+                }
+            }
+            let key = (datum.label().as_str().to_string(), faces_of(pmi, &features));
+            if !seen.contains(&key) {
+                out.push(ExistingPmi::new("datum", &key.0, key.1.clone()));
+                seen.push(key);
+            }
+        }
+
+        out.extend(notes(loaded, doc, pmi));
+        Ok(out)
+    }
+
+    /// The findings of this reading (see [`findings`]).
+    pub fn findings(&self) -> &[Finding] {
+        &self.findings
+    }
+
+    /// The material and general tolerance the file states, and the part's notes (surface finish
+    /// default, coating, heat treatment, edges) as specify-core writes them (Python's
+    /// `part_settings`). Empty for a part of an assembly, as Python's: its text scan cannot tell
+    /// whose they are (haecceity could; kept for compatibility with what specify-core asks).
+    pub fn settings(&self, loaded: &LoadedPart) -> Map<String, Value> {
+        let mut out = Map::new();
+        if loaded.part_count > 1 {
+            return out;
+        }
+        let pmi = &self.pmi;
+        if let Some(material) = &pmi.material {
+            out.insert("material".into(), Value::String(material.id.clone()));
+        }
+        if let Some(text) = pmi.general.iter().find_map(|g| match g {
+            GeneralTolerance::Class { text, .. } => Some(text),
+            GeneralTolerance::Table { .. } => None,
+        }) {
+            out.insert("general_tolerance".into(), Value::String(text.clone()));
+        }
+        for (key, kind) in PART_NOTES {
+            // The finish as specify-core writes it now, and as it was written before it took
+            // Draftwright's form.
+            let kinds: &[&str] = if key == "surface_finish" {
+                &[kind, "general surface texture"]
+            } else {
+                &[kind]
+            };
+            for kind in kinds {
+                for note in pmi.notes.iter().filter(|n| n.kind == *kind) {
+                    let words = if key == "surface_finish" {
+                        // Only the part's default; a finish on faces, written before it was
+                        // 'surface finish', is not.
+                        match default_finish(&note.text) {
+                            Some(words) => words.to_string(),
+                            None => continue,
+                        }
+                    } else {
+                        note.text.clone()
+                    };
+                    out.entry(key).or_insert(Value::String(words));
+                }
+            }
+        }
+        out
+    }
 }
 
 /// The notes on the part's faces (Python's `existing.notes`), one per kind with every face it
@@ -355,52 +434,6 @@ fn notes(loaded: &LoadedPart, doc: &Document, pmi: &PartPmi) -> Vec<ExistingPmi>
         .into_iter()
         .map(|(kind, faces)| ExistingPmi::new("note", &kind, faces.into_iter().collect()))
         .collect()
-}
-
-/// The material and general tolerance the file states, and the part's notes (surface finish
-/// default, coating, heat treatment, edges) as specify-core writes them (Python's
-/// `part_settings`). Empty for a part of an assembly, as Python's: its text scan cannot tell
-/// whose they are (haecceity could; kept for compatibility with what specify-core asks).
-pub fn part_settings(loaded: &LoadedPart) -> Result<Map<String, Value>, ExistingError> {
-    let mut out = Map::new();
-    if loaded.part_count > 1 {
-        return Ok(out);
-    }
-    let Read { pmi, .. } = read(loaded)?;
-    if let Some(material) = &pmi.material {
-        out.insert("material".into(), Value::String(material.id.clone()));
-    }
-    if let Some(text) = pmi.general.iter().find_map(|g| match g {
-        GeneralTolerance::Class { text, .. } => Some(text),
-        GeneralTolerance::Table { .. } => None,
-    }) {
-        out.insert("general_tolerance".into(), Value::String(text.clone()));
-    }
-    for (key, kind) in PART_NOTES {
-        // The finish as specify-core writes it now, and as it was written before it took
-        // Draftwright's form.
-        let kinds: &[&str] = if key == "surface_finish" {
-            &[kind, "general surface texture"]
-        } else {
-            &[kind]
-        };
-        for kind in kinds {
-            for note in pmi.notes.iter().filter(|n| n.kind == *kind) {
-                let words = if key == "surface_finish" {
-                    // Only the part's default; a finish on faces, written before it was
-                    // 'surface finish', is not.
-                    match default_finish(&note.text) {
-                        Some(words) => words.to_string(),
-                        None => continue,
-                    }
-                } else {
-                    note.text.clone()
-                };
-                out.entry(key).or_insert(Value::String(words));
-            }
-        }
-    }
-    Ok(out)
 }
 
 /// `X` of "X µm unless otherwise specified" (or "stated"), the part's default finish (Python's

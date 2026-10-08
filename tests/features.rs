@@ -78,8 +78,11 @@ fn features_are_json_and_ids_are_unique() {
         .chain(spool())
     {
         let (_, found) = analyse(&path);
+        // Python's `json.dumps(allow_nan=False)`: the text is strict JSON (no NaN or Infinity
+        // tokens, which serde_json would refuse to read back) and reads back to the same value.
+        let value = serde_json::to_value(&found).unwrap();
         let text = serde_json::to_string(&found).unwrap();
-        assert!(!text.contains("NaN") && !text.contains("inf"));
+        assert_eq!(serde_json::from_str::<Value>(&text).unwrap(), value);
         let mut ids: Vec<&str> = found.iter().map(|f| f.id.as_str()).collect();
         let n = ids.len();
         ids.sort_unstable();
@@ -198,11 +201,12 @@ fn recognition_refuses_a_degraded_part() {
     let pin = part::load(&path, Some(1)).unwrap();
     let why = features::recognise(&pin).unwrap_err().to_string();
     assert!(why.contains("U1") && why.contains("[5]"), "{why}");
-    // Its faces are still described; the unresolved one is `other`.
-    let faces = features::describe_faces(&pin);
-    if let Ok(faces) = faces {
-        assert_eq!(faces[5].kind, "other");
-    }
+    // Nor are its faces described: haecceity cannot integrate the unresolved face (it has no
+    // surface), and no area or centroid is made up for it; the refusal names the face.
+    assert_eq!(
+        features::describe_faces(&pin).unwrap_err(),
+        features::FeatureError::NoMoments { part: 1, face: 5 }
+    );
     assert!(features::recognise(&part::load(&path, Some(0)).unwrap()).is_ok());
 }
 
@@ -311,7 +315,9 @@ fn faces_and_features_match_the_oracle() {
 fn face_differences(case: &Case, analysis: &Value, loaded: &LoadedPart) -> Vec<Difference> {
     let tolerances = Tolerances::default()
         .with("faces[*].area", 1e-6, 0.0)
-        .with("faces[*].centroid[*]", 1e-6, 1e-6)
+        // One unit of the centroid's 6-decimal rounding, and a little for the float error of
+        // the difference: a value either side of a rounding boundary is not a difference.
+        .with("faces[*].centroid[*]", 1e-6, 1.000_001e-6)
         .with("faces[*].direction[*]", 1e-9, 1e-9)
         .with("faces[*].origin[*]", 1e-6, 1e-6)
         .with("faces[*].radius", 1e-9, 1e-9);
