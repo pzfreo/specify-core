@@ -18,6 +18,8 @@ path = "src/main.rs"
 quiddity = { git = "https://github.com/pzfreo/quiddity-rust", branch = "ap242" }
 haecceity = { git = "https://github.com/pzfreo/quiddity-rust", branch = "ap242" }
 base64 = "0.22.1"
+# specify-core reads typed specs and added requirements with regular expressions (choices, extras).
+regex = "1.11.1"
 serde = { version = "1.0.229", features = ["derive"] }
 # preserve_order: objects keep their insertion order, as Python's dicts do, so the JSON formats
 # read in the same order as specify-core's.

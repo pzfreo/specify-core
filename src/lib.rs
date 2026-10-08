@@ -17,6 +17,7 @@ pub mod mates;
 pub mod mesh;
 pub mod part;
 pub mod problems;
+pub mod pyfmt;
 pub mod pyjson;
 pub mod resume;
 pub mod rules;

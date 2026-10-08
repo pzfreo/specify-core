@@ -95,7 +95,8 @@ and answers are always used with the analysis they were given against.
   oracle comparisons: `prototype/rust-port` also has the framed recognition (`recognise_placed`)
   and the recognition document, which change records (question Q2).
 - `serde`, `serde_json` (`preserve_order`, so objects keep Python's key order; `float_roundtrip`),
-  `sha2` (the binding's `source_sha256`), `base64` (stored answers). Dev: `flate2` (gzipped
+  `sha2` (the binding's `source_sha256`), `base64` (stored answers), `regex` (typed specs and
+  added requirements, as Python reads them). Dev: `flate2` (gzipped
   fixtures). A stream that needs another crate adds one line to `Cargo.toml` and says why in its
   commit; the mates stream is expected to add a polygon-boolean crate for flat contacts
   (upstream need U5).
@@ -112,6 +113,7 @@ and answers are always used with the analysis they were given against.
 | `magnitudes.py`, `p21.py`, `merge.py`, `lettering.py` | none | OpenCascade workarounds; haecceity does it right (above). |
 | `standards.py` | `standards.rs` | ISO 286, ISO 273, tap drills, pitches, ISO 2768 classes: tables as `const` arrays in Python's order. |
 | `materials.py` | `materials.rs` | Suggestion tables, Python's order. |
+| (Python's `:g`, `_fmt`, `repr`) | `pyfmt.rs` | Number formatting shared by choices, rules, problems and the report. |
 | `choices.py` | `choices.rs` | `describe`, `split`, `code`, `callout`, `interpret`, `check`, `SpecError`. |
 | `rules.py` | `rules/` (`mod.rs` Question, Intent, questions, apply, preview, with_all_defaults, IncompleteError; `datums.rs`; `holes.rs`; `turned.rs`) | Pure functions of the analysis JSON and the answers JSON; no geometry. |
 | `extras.py` | `extras.rs` | Added requirements, checked and turned into requirements. |
