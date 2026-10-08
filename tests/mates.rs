@@ -12,7 +12,10 @@ use std::collections::BTreeMap;
 use std::f64::consts::PI;
 use std::path::{Path, PathBuf};
 
-use common::{Difference, Tolerances, cases, check_known, compare};
+use common::{
+    Difference, Tolerances, cases, check_known, check_known_with, compare, corpus_dir,
+    known_differences_file, load_known,
+};
 use haecceity::geom::Surface;
 use serde_json::{Map, Value, json};
 use specify_core::mates::{contacts, contacts_with_refusals, mates};
@@ -304,7 +307,18 @@ fn mates_and_contacts_match_the_oracle() {
     for d in &differences {
         println!("  {d:?}");
     }
-    check_known("mates", &differences);
+    if corpus_dir().is_some() {
+        check_known("mates", &differences);
+    } else {
+        // Without the corpus (as in CI) its cases are skipped, so its entries meet nothing: check
+        // against the others only, rather than call them stale.
+        let path = known_differences_file("mates");
+        let entries: Vec<_> = load_known(&path)
+            .into_iter()
+            .filter(|e| !e.case.starts_with("corpus/"))
+            .collect();
+        check_known_with(&path.display().to_string(), &entries, &differences);
+    }
 }
 
 /// Determinism across loads: loading the file again gives the same mates and contacts.
