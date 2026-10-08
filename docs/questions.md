@@ -37,3 +37,11 @@ Should it check out the corpus too, so the corpus comparisons run in CI?
 PMI it did not write (an OpenCascade limitation). haecceity's add mode can write it, keeping
 every original byte. *Meanwhile:* written by add mode, recorded as a deliberate difference.
 Confirm, or keep Python's refusal.
+
+**Q7. Diameters over 500 mm.** ISO 286 is tabulated here up to 500 mm, but specify-core still
+offers fits for a hole or turned diameter above it: `choices.describe` then calls `callout`, whose
+`fit_limits` raises `ValueError: nominal size 600.0 outside 0-500 mm`, so `questions` fails for
+the whole part (checked with Python: `describe('hole.function:x', ['general', 'fit:H7'], 600.0)`).
+Should fits not be offered above 500 mm (the general tolerance only), or should ISO 286 be
+extended to 3150 mm? *Meanwhile:* Python's behaviour is kept: `choices::describe` returns the
+same message as an error, which its caller reports (no part question list is made up).
