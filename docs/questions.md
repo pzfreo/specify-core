@@ -37,3 +37,15 @@ Should it check out the corpus too, so the corpus comparisons run in CI?
 PMI it did not write (an OpenCascade limitation). haecceity's add mode can write it, keeping
 every original byte. *Meanwhile:* written by add mode, recorded as a deliberate difference.
 Confirm, or keep Python's refusal.
+
+**Q7. A product with surface models beside its solid.** NIST CTC-02, 04 and 05 (RD/RC and the
+AP242 editions of 02 and 04) give one product a solid and one or two `SHELL_BASED_SURFACE_MODEL`s
+in separate shape representations. OpenCascade's XCAF makes a part of each, so specify-core
+lists CTC-02 AP242 as three parts (`SOLID` 635 faces, `SHELL` 1, `SHELL` 1); haecceity has one
+part per product definition, so the Rust engine lists one part of 637 faces: the solid's 635 at
+Python's indices, then the two surface faces. The binding's `face_count` differs (635 against
+637), so an analysis of these files does not cross engines, and Python's parts 1 and 2 do not
+exist in Rust. Should the Rust engine keep one part per product (PMI attaches to the product),
+split as XCAF does, or number the solid alone and leave the surface models out?
+*Meanwhile:* one part per product, faces solid first; the live comparison in `tests/part.rs`
+checks the one part's faces against Python's parts' faces in turn.
