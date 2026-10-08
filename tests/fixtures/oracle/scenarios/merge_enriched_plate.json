@@ -1,0 +1,11 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.material": "steel",
+  "hole.function:holes:9": "fit:H7",
+  "hole.function:hole_patterns.grid:6.7.8.10.11.13": "general"
+ },
+ "why": "The plate with a fitted, positioned Ø8 bore (the file test_merge.py merges into).",
+ "from": "test_merge.py::enriched",
+ "write": "without answers"
+}

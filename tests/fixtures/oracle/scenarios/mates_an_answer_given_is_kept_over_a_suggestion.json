@@ -1,0 +1,9 @@
+{
+ "case": "parts/stack#0",
+ "answers": {
+  "part.material": "steel",
+  "hole.function:holes:9": "general"
+ },
+ "why": "The base's Ø8 bore answered general over H7.",
+ "from": "test_mates.py::test_an_answer_given_is_kept_over_a_suggestion"
+}

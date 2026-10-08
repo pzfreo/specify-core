@@ -1,0 +1,49 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.material": "steel",
+  "extra.0": {
+   "faces": [
+    2
+   ],
+   "kind": "parallelism",
+   "value": "0.05",
+   "datums": [
+    "A"
+   ]
+  },
+  "extra.1": {
+   "faces": [
+    0
+   ],
+   "kind": "perpendicularity",
+   "value": "0.05",
+   "datums": [
+    "A"
+   ]
+  },
+  "extra.2": {
+   "faces": [
+    6
+   ],
+   "kind": "runout",
+   "value": "0.05",
+   "datums": [
+    "A"
+   ]
+  },
+  "extra.3": {
+   "faces": [
+    6
+   ],
+   "kind": "total_runout",
+   "value": "0.05",
+   "datums": [
+    "A"
+   ]
+  }
+ },
+ "why": "Parallelism, perpendicularity, runout and total runout to A.",
+ "from": "test_conformance.py::test_every_datum_referenced_tolerance_is_written_simply",
+ "write": "with answers"
+}

@@ -1,0 +1,8 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "datum.A": []
+ },
+ "why": "No A: holes are reported unlocated.",
+ "from": "test_locating_problems_extras.py::test_holes_with_nothing_to_locate_them_are_reported"
+}

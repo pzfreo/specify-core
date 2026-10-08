@@ -1,0 +1,18 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.locating": "± dimensions",
+  "extra.1": {
+   "faces": [
+    9
+   ],
+   "kind": "perpendicularity",
+   "value": "0.02",
+   "datums": [
+    "B"
+   ]
+  }
+ },
+ "why": "Only B is proposed.",
+ "from": "test_locating_problems_extras.py::test_only_the_datums_added_orientations_cite_are_proposed"
+}

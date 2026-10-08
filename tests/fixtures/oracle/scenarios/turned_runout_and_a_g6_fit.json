@@ -1,0 +1,11 @@
+{
+ "case": "parts/pin",
+ "answers": {
+  "part.material": "brass",
+  "diameter.runout:turned_steps:4": "0.02",
+  "diameter.fit:turned_steps:4": "g6"
+ },
+ "why": "A runout and a g6 shaft.",
+ "from": "test_conformance.py::test_limits_are_typed_lengths_and_runout_is_simple",
+ "write": "with answers"
+}

@@ -1,0 +1,10 @@
+{
+ "case": "parts/pin",
+ "answers": {
+  "part.material": "brass",
+  "diameter.fit:turned_steps:0": "knurl:straight"
+ },
+ "why": "A straight knurl, written with its answers.",
+ "from": "test_resume.py::test_a_written_file_resumes_its_answers_and_is_rewritten_not_added_to; test_drawn.py::pin_drawn",
+ "write": "with answers"
+}

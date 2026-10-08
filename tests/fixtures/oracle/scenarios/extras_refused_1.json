@@ -1,0 +1,14 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "extra.1": {
+   "faces": [
+    99999
+   ],
+   "kind": "flatness",
+   "value": "0.1"
+  }
+ },
+ "why": "Refused: does not exist.",
+ "from": "test_locating_problems_extras.py::test_an_added_requirement_that_does_not_suit_its_faces_is_refused[1]"
+}

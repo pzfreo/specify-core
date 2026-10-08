@@ -1,0 +1,14 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "extra.1": {
+   "faces": [
+    0
+   ],
+   "kind": "profile",
+   "value": "0.05"
+  }
+ },
+ "why": "A profile without a datum is accepted.",
+ "from": "test_profile_runout.py::test_a_runout_needs_a_datum_but_a_profile_does_not"
+}

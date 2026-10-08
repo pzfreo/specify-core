@@ -1,0 +1,18 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "extra.1": {
+   "faces": [
+    9
+   ],
+   "kind": "parallelism",
+   "value": "0.1",
+   "datums": [
+    "E"
+   ]
+  },
+  "part.material": "x"
+ },
+ "why": "Citing datum E, which is not given: reported, not written; E asked.",
+ "from": "test_locating_problems_extras.py::test_an_added_requirement_citing_a_missing_datum_is_reported_not_written"
+}

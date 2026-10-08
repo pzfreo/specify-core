@@ -1,0 +1,17 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "extra.1": {
+   "faces": [
+    2
+   ],
+   "reference": [
+    4
+   ],
+   "kind": "distance",
+   "value": "+3/-3"
+  }
+ },
+ "why": "Refused: too big.",
+ "from": "test_call_out.py::test_a_call_out_that_does_not_suit_its_faces_is_refused[11]"
+}

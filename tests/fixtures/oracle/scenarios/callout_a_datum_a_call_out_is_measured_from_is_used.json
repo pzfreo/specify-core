@@ -1,0 +1,23 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "hole.function:holes:9": "general",
+  "hole.function:holes:12": "general",
+  "hole.function:hole_patterns.grid:6.7.8.10.11.13": "general",
+  "datum.A": [
+   4
+  ],
+  "extra.1": {
+   "faces": [
+    2
+   ],
+   "reference": [
+    4
+   ],
+   "kind": "distance",
+   "value": "±0.1"
+  }
+ },
+ "why": "A used by a call-out is not unused.",
+ "from": "test_call_out.py::test_a_datum_a_call_out_is_measured_from_is_used"
+}

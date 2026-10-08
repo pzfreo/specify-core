@@ -1,0 +1,14 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "extra.1": {
+   "faces": [
+    0
+   ],
+   "kind": "finish",
+   "value": "rough"
+  }
+ },
+ "why": "A finish that is not a roughness is refused.",
+ "from": "test_mmc_finish_notes.py::test_a_finish_that_is_not_a_roughness_is_refused[rough]"
+}

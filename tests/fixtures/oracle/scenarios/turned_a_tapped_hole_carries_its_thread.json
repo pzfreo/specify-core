@@ -1,0 +1,8 @@
+{
+ "case": "parts/pin",
+ "answers": {
+  "part.material": "brass"
+ },
+ "why": "The blind M5 tap drill's thread and drill.",
+ "from": "test_threads.py::test_a_tapped_hole_carries_its_thread_and_drill"
+}

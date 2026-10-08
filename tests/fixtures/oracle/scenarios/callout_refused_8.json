@@ -1,0 +1,14 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "extra.1": {
+   "faces": [
+    6
+   ],
+   "kind": "size",
+   "value": "6.58/6.62"
+  }
+ },
+ "why": "Refused: deviations from 6.6.",
+ "from": "test_call_out.py::test_a_call_out_that_does_not_suit_its_faces_is_refused[8]"
+}

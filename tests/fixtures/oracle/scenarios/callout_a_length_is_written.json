@@ -1,0 +1,19 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.material": "steel",
+  "extra.1": {
+   "faces": [
+    5
+   ],
+   "reference": [
+    0
+   ],
+   "kind": "distance",
+   "value": "±0.05"
+  }
+ },
+ "why": "A called-out length leaves the general list.",
+ "from": "test_call_out.py::test_a_called_out_length_is_written_and_leaves_the_general_list",
+ "write": "with answers"
+}

@@ -1,0 +1,16 @@
+{
+ "case": "parts/pin",
+ "answers": {
+  "part.material": "brass",
+  "extra.0": {
+   "faces": [
+    1
+   ],
+   "kind": "finish",
+   "value": "Ra 0.8"
+  }
+ },
+ "why": "A finish on the pin's top face.",
+ "from": "test_requirements.py::test_a_finish_on_faces_is_not_a_second_default",
+ "write": "with answers"
+}

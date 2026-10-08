@@ -1,0 +1,20 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "datum.A": [
+   2
+  ],
+  "extra.1": {
+   "faces": [
+    2
+   ],
+   "kind": "parallelism",
+   "value": "0.05",
+   "datums": [
+    "A"
+   ]
+  }
+ },
+ "why": "Measured from itself: reported.",
+ "from": "test_locating_problems_extras.py::test_an_orientation_on_its_own_datum_is_reported"
+}

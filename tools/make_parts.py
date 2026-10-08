@@ -3,11 +3,15 @@
 specify-core's tests (tests/conftest.py) build their parts with build123d at run time. The Rust
 port cannot, so they are built once here, in specify-core's own environment, and committed under
 tests/fixtures/parts/. The STEP header carries a timestamp, so running this again changes every
-file's bytes (and so every oracle binding): re-run it only together with the oracle capture.
+file's bytes (and so every oracle binding). So a file that already exists is never written
+again: the committed parts keep their bytes, and only parts added here are written. To rebuild
+one deliberately, delete it and re-run the oracle capture for it.
 
     /Users/paul/repos/specify-core/.venv/bin/python tools/make_parts.py tests/fixtures/parts
 
-Each part is exactly the conftest fixture of the same name; keep them in step.
+The first five parts are exactly the conftest fixtures of the same name; the rest are the parts
+individual tests build inline, each named after its test (without ``test_``) and citing it.
+Keep them in step.
 """
 
 from __future__ import annotations
@@ -111,15 +115,106 @@ def stack() -> object:
     return Compound(children=parts, label="stack")
 
 
-PARTS = {"plate": plate, "wrapped": wrapped, "pin": pin, "assembly": assembly, "stack": stack}
+# Parts built inline by individual tests (grep BuildPart / export_step in specify-core/tests).
+
+
+def a_hole_along_x_is_labelled_from_its_rim() -> object:
+    """tests/test_anchors.py::test_a_hole_along_x_is_labelled_from_its_rim: a Ø6 x 20 rod along
+    X with a blind Ø1.6 x 3.8 hole in its end (the test's ``rod.step``)."""
+    with BuildPart() as bp:
+        Cylinder(3, 20, rotation=(0, 90, 0), align=(Align.CENTER, Align.CENTER, Align.MIN))
+        Cylinder(
+            0.8,
+            3.8,
+            rotation=(0, 90, 0),
+            align=(Align.CENTER, Align.CENTER, Align.MIN),
+            mode=Mode.SUBTRACT,
+        )
+    return bp.part
+
+
+def _plate_with_holes(locations: list[tuple[float, float]]) -> object:
+    """tests/test_features.py::_plate_with_holes: a 100x60x10 plate with Ø5.5 holes."""
+    with BuildPart() as bp:
+        Box(100, 60, 10)
+        with Locations(*locations):
+            Cylinder(2.75, 10, mode=Mode.SUBTRACT)
+    return bp.part
+
+
+def four_corner_holes_are_quiddity_rectangle_with_members() -> object:
+    """tests/test_features.py::test_four_corner_holes_are_quiddity_rectangle_with_members: four
+    Ø5.5 holes at (±40, ±20)."""
+    return _plate_with_holes([(x, y) for x in (-40, 40) for y in (-20, 20)])
+
+
+def identical_holes_no_pattern_claims_form_a_set() -> object:
+    """tests/test_features.py::test_identical_holes_no_pattern_claims_form_a_set: two Ø5.5 holes
+    at (-30, 10) and (25, -15)."""
+    return _plate_with_holes([(-30, 10), (25, -15)])
+
+
+def default_datum_a_takes_every_coplanar_face() -> object:
+    """tests/test_datums.py fixture ``slotted``, used by
+    test_default_datum_a_takes_every_coplanar_face: a plate whose bottom is cut in two by a slot
+    across it, with pockets that keep the top smaller than either half."""
+    with BuildPart() as bp:
+        Box(100, 60, 10)
+        with Locations((0, 0, -3.5)):
+            Box(4, 60, 3, mode=Mode.SUBTRACT)
+        with Locations((-25, 0, 4), (25, 0, 4)):
+            Box(40, 45, 2, mode=Mode.SUBTRACT)
+    return bp.part
+
+
+def a_placed_part_is_meshed_in_the_frame_the_analysis_uses() -> object:
+    """tests/test_mesh.py::test_a_placed_part_is_meshed_in_the_frame_the_analysis_uses: the
+    wrapped plate moved to (100, 200, 300) inside its assembly (the test's ``placed.step``)."""
+    with BuildPart() as bp:
+        Box(100, 60, 10)
+        Cylinder(4, 10, mode=Mode.SUBTRACT)
+    part = bp.part.moved(Location((100, 200, 300)))
+    part.label = "plate"
+    return Compound(children=[part], label="assembly")
+
+
+def a_file_with_two_parts_must_say_which() -> object:
+    """tests/test_load.py::test_a_file_with_two_parts_must_say_which: two unit boxes, unnamed,
+    5 apart (the test's ``two.step``)."""
+    a, b = Box(1, 1, 1), Box(1, 1, 1).moved(Location((5, 0, 0)))
+    return Compound(children=[a, b])
+
+
+PARTS = {
+    "plate": plate,
+    "wrapped": wrapped,
+    "pin": pin,
+    "assembly": assembly,
+    "stack": stack,
+    "a_hole_along_x_is_labelled_from_its_rim": a_hole_along_x_is_labelled_from_its_rim,
+    "four_corner_holes_are_quiddity_rectangle_with_members": (
+        four_corner_holes_are_quiddity_rectangle_with_members
+    ),
+    "identical_holes_no_pattern_claims_form_a_set": identical_holes_no_pattern_claims_form_a_set,
+    "default_datum_a_takes_every_coplanar_face": default_datum_a_takes_every_coplanar_face,
+    "a_placed_part_is_meshed_in_the_frame_the_analysis_uses": (
+        a_placed_part_is_meshed_in_the_frame_the_analysis_uses
+    ),
+    "a_file_with_two_parts_must_say_which": a_file_with_two_parts_must_say_which,
+}
 
 
 def main(out: str) -> None:
     folder = Path(out)
     folder.mkdir(parents=True, exist_ok=True)
     for name, build in PARTS.items():
-        export_step(build(), str(folder / f"{name}.step"))
-        print(folder / f"{name}.step")
+        path = folder / f"{name}.step"
+        if path.exists():
+            # Never rewritten: its bytes are bound into the committed oracle.
+            print(f"{path} exists, kept")
+            continue
+        export_step(build(), str(path))
+        print(path)
 
 
 if __name__ == "__main__":

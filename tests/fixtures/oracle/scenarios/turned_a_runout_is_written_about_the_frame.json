@@ -1,0 +1,10 @@
+{
+ "case": "parts/pin",
+ "answers": {
+  "part.material": "brass",
+  "diameter.runout:turned_steps:4": "0.02"
+ },
+ "why": "A runout on the first turned diameter.",
+ "from": "test_profile_runout.py::test_a_runout_is_written_about_the_frame_and_read_back; test_conformance.py::test_no_malformed_runout_zone_is_written",
+ "write": "with answers"
+}

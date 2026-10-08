@@ -1,0 +1,8 @@
+{
+ "case": "parts/pin",
+ "answers": {
+  "hole.function:holes:3.5": "tapped:M5@6"
+ },
+ "why": "6 mm of full thread in an 8 mm drill: at most 5.6.",
+ "from": "test_threads.py::test_a_typed_thread_depth_is_written_and_read_back"
+}

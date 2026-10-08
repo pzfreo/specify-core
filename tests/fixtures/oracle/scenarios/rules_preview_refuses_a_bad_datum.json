@@ -1,0 +1,10 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "datum.A": [
+   99999
+  ]
+ },
+ "why": "A face that does not exist is refused in preview too.",
+ "from": "test_preview.py::test_a_refused_answer_is_refused_in_preview_too"
+}

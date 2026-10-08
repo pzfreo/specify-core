@@ -1,0 +1,17 @@
+{
+ "case": "corpus/nist/nist_ctc_03_asme1_rc",
+ "answers": {
+  "datum.A": [
+   18,
+   28
+  ],
+  "datum.B": [
+   58
+  ],
+  "datum.C": [
+   60
+  ]
+ },
+ "why": "Identical datum holes keep their own questions.",
+ "from": "test_same_as.py::test_datum_holes_are_never_merged"
+}

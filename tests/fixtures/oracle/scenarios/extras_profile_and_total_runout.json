@@ -1,0 +1,36 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.material": "steel",
+  "extra.1": {
+   "faces": [
+    2
+   ],
+   "kind": "profile",
+   "value": "0.1"
+  },
+  "extra.2": {
+   "faces": [
+    2
+   ],
+   "kind": "profile",
+   "value": "0.2",
+   "datums": [
+    "A"
+   ]
+  },
+  "extra.3": {
+   "faces": [
+    9
+   ],
+   "kind": "total_runout",
+   "value": "0.03",
+   "datums": [
+    "A"
+   ]
+  }
+ },
+ "why": "Profile with and without datums, total runout.",
+ "from": "test_profile_runout.py::test_profile_and_total_runout_can_be_added_on_any_faces",
+ "write": "with answers"
+}

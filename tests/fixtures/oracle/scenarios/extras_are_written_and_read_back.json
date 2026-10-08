@@ -1,0 +1,43 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.material": "steel",
+  "extra.1": {
+   "faces": [
+    2
+   ],
+   "kind": "flatness",
+   "value": "0.05"
+  },
+  "extra.2": {
+   "faces": [
+    9
+   ],
+   "kind": "perpendicularity",
+   "value": "0.02",
+   "datums": [
+    "A"
+   ]
+  },
+  "extra.3": {
+   "faces": [
+    2
+   ],
+   "kind": "parallelism",
+   "value": "0.1",
+   "datums": [
+    "A"
+   ]
+  },
+  "extra.4": {
+   "faces": [
+    9
+   ],
+   "kind": "fit",
+   "value": "H6"
+  }
+ },
+ "why": "Flatness, perpendicularity, parallelism and a fit added.",
+ "from": "test_locating_problems_extras.py::test_added_requirements_are_written_and_read_back",
+ "write": "with answers"
+}

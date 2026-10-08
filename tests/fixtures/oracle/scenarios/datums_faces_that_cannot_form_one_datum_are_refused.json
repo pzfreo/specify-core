@@ -1,0 +1,11 @@
+{
+ "case": "corpus/nist/nist_ctc_03_asme1_rc",
+ "answers": {
+  "datum.A": [
+   18,
+   7
+  ]
+ },
+ "why": "Parallel planes are not one datum.",
+ "from": "test_datums.py::test_a_bad_datum_answer_is_a_clear_error; test_datums.py::test_the_cli_reports_a_bad_datum_answer"
+}

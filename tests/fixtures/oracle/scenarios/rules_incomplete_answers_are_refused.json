@@ -1,0 +1,6 @@
+{
+ "case": "parts/plate",
+ "answers": {},
+ "why": "No material: apply refuses, naming part.material.",
+ "from": "test_rules.py::test_incomplete_answers_are_refused"
+}

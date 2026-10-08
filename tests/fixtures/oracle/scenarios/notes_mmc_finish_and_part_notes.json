@@ -1,0 +1,20 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.material": "Aluminium 6082-T6",
+  "hole.function:holes:9": "fit:H7",
+  "part.coating": "Anodise black (MIL-A-8625 Type II)",
+  "part.heat_treatment": "Solution treat and age to T6",
+  "part.surface_finish": "Ra 1.6",
+  "extra.1": {
+   "faces": [
+    2
+   ],
+   "kind": "finish",
+   "value": "0.8"
+  }
+ },
+ "why": "Clearance positions at MMC, every part note, a face finish.",
+ "from": "test_mmc_finish_notes.py::written",
+ "write": "without answers"
+}
