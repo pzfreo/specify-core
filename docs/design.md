@@ -357,3 +357,28 @@ its stage; module stubs exist in `src/` so no stream edits `lib.rs`):
 5. Consolidation, after both stage 4 streams: `docs/known-differences.md` rendered from every
    area file with a test that it is current, this section turned into a Status section, the
    README's usage verified against the built binary.
+
+### Status
+
+**Stage 1 delivered** (merged to `main`):
+
+- *Oracle.* `tools/capture.py` (with `tools/capture/`) runs specify-core and stores compact,
+  gzipped fixtures under `tests/fixtures/oracle/`: analysis, questions, apply, preview, write,
+  read-back, mesh, anchors, parts and problems for the synthetic parts, the quiddity corpus cases
+  and the NIST AP242 files (`tests/fixtures/nist/`), plus scenarios transcribed from
+  specify-core's tests. `tests/common` and `tests/oracle_harness.rs` compare against them;
+  verdicts go to `tests/fixtures/known_differences/`. Not captured yet (see the oracle README):
+  scenarios whose input is a file Python wrote, an assembly write with different answers per part,
+  and a bare `apply` with empty answers (always refused: material has no default). 15 scenarios
+  need the corpus and skip without `SPECIFY_CORPUS`.
+- *Part model.* `part.rs` (`load`, `load_all`, `parts`, `Binding` at `loader_version` 2) on
+  haecceity. Face numbering equals Python's on every synthetic part, corpus file and NIST file
+  checked. Differences recorded: NIST files with surface models beside the solid are one part,
+  not XCAF's several (Q7); product names where OpenCascade says `SOLID`; a file with several root
+  shapes is read where Python refuses; U9 (names and one read).
+- *Tables.* `standards.rs`, `materials.rs`, `choices.rs` and `pyfmt.rs` (Python's `repr`, `:g`
+  and rounding, checked over every power of two and its neighbours), against Python-generated
+  fixtures. Fits above 500 mm are refused as Python does (Q8).
+
+Next: stage 2. The dependency is still pinned to `a16d7af` on `ap242`; `prototype/rust-port`
+does not contain it yet.
