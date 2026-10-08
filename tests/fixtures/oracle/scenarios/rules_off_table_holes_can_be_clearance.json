@@ -1,0 +1,8 @@
+{
+ "case": "corpus/cadgenbench/flanged_spool_132",
+ "answers": {
+  "hole.function:hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68": "clearance"
+ },
+ "why": "Ø8 holes as clearance for an unstated bolt.",
+ "from": "test_rules.py::test_off_table_holes_can_be_clearance_for_an_unstated_bolt"
+}

@@ -1,0 +1,16 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.material": "steel",
+  "extra.1": {
+   "faces": [
+    9
+   ],
+   "kind": "size",
+   "value": "+0.1/-0"
+  }
+ },
+ "why": "A called-out size leaves the general list.",
+ "from": "test_call_out.py::test_a_called_out_size_is_written_and_leaves_the_general_list",
+ "write": "with answers"
+}

@@ -1,0 +1,10 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "datum.B": [
+   4
+  ]
+ },
+ "why": "B parallel to A is reported.",
+ "from": "test_locating_problems_extras.py::test_an_unused_and_a_redundant_datum_are_reported"
+}

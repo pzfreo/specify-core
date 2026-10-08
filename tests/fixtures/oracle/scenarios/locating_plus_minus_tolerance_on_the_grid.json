@@ -1,0 +1,11 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.locating": "± dimensions",
+  "part.material": "steel",
+  "hole.location:hole_patterns.grid:6.7.8.10.11.13": "±0.05"
+ },
+ "why": "A ± location tolerance on the grid: 12 locations.",
+ "from": "test_locations.py::test_holes_located_by_plus_minus_can_be_given_a_tolerance",
+ "write": "with answers"
+}

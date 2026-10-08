@@ -1,0 +1,9 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.material": "steel",
+  "hole.function:holes:9": "fit:H6"
+ },
+ "why": "The Ø8 bore as H6.",
+ "from": "test_choices.py::test_a_typed_answer_reaches_the_intent_and_a_wrong_one_is_refused"
+}

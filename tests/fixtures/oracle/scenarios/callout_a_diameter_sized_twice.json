@@ -1,0 +1,21 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "extra.1": {
+   "faces": [
+    9
+   ],
+   "kind": "fit",
+   "value": "H7"
+  },
+  "extra.2": {
+   "faces": [
+    9
+   ],
+   "kind": "size",
+   "value": "±0.05"
+  }
+ },
+ "why": "Sized twice: reported.",
+ "from": "test_call_out.py::test_a_diameter_sized_twice_is_reported"
+}

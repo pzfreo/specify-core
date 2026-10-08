@@ -1,0 +1,11 @@
+{
+ "case": "parts/pin",
+ "answers": {
+  "part.material": "CW614N leaded brass",
+  "diameter.fit:turned_steps:4": "thread:M6",
+  "diameter.fit:turned_steps:0": "knurl:straight"
+ },
+ "why": "An M6 thread and a straight knurl, written.",
+ "from": "test_requirements.py::pin_written; test_conformance.py::test_callout_presentation_is_named",
+ "write": "without answers"
+}

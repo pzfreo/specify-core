@@ -1,0 +1,14 @@
+{
+ "case": "corpus/cadgenbench/flanged_spool_132",
+ "answers": {
+  "part.material": "6082-T6",
+  "hole.function:hole_patterns.bolt_circle:0.16.17.18.20.21": "fit:H7",
+  "hole.function:holes:34.55": "fit:H7",
+  "diameter.fit:turned_steps:87": "p6",
+  "diameter.fit:turned_steps:89": "g6",
+  "datum.A.flatness": "0.02"
+ },
+ "why": "Every kind of requirement v1 writes on the spool.",
+ "from": "test_writer.py::spool_written",
+ "write": "without answers"
+}

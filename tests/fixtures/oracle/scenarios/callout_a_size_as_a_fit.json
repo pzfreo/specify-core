@@ -1,0 +1,15 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.material": "steel",
+  "extra.1": {
+   "faces": [
+    9
+   ],
+   "kind": "size",
+   "value": "H7"
+  }
+ },
+ "why": "A size as H7.",
+ "from": "test_call_out.py::test_a_called_out_size_may_be_plus_minus_or_a_fit"
+}

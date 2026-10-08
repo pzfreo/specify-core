@@ -1,0 +1,15 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.material": "steel",
+  "hole.function:holes:9": "general",
+  "hole.function:holes:12": "general",
+  "hole.function:hole_patterns.grid:6.7.8.10.11.13": "general",
+  "datum.A": [
+   2
+  ]
+ },
+ "why": "A datum nothing cites, written: one warning.",
+ "from": "test_writer.py::test_unreferenced_datums_are_warned",
+ "write": "with answers"
+}

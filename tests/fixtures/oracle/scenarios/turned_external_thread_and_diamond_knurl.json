@@ -1,0 +1,10 @@
+{
+ "case": "parts/pin",
+ "answers": {
+  "part.material": "brass",
+  "diameter.fit:turned_steps:4": "thread:M6",
+  "diameter.fit:turned_steps:0": "knurl:diamond"
+ },
+ "why": "An M6 thread on Ø6 and a diamond knurl on Ø10.",
+ "from": "test_threads.py::test_external_thread_and_knurl_from_turned_answers"
+}

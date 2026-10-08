@@ -1,0 +1,8 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.material": "6082-T6"
+ },
+ "why": "The plate's intent from defaults.",
+ "from": "test_rules.py::test_intent_from_defaults"
+}

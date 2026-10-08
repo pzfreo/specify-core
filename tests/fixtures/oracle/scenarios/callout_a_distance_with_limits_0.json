@@ -1,0 +1,19 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.material": "steel",
+  "extra.1": {
+   "faces": [
+    2
+   ],
+   "reference": [
+    4
+   ],
+   "kind": "distance",
+   "value": "-0.05/-0.1"
+  }
+ },
+ "why": "A distance -0.05/-0.1, written.",
+ "from": "test_call_out.py::test_a_distance_with_any_limits_is_written_and_verified[-0.05/-0.1]",
+ "write": "with answers"
+}

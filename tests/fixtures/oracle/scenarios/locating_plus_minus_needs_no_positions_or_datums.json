@@ -1,0 +1,9 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.locating": "± dimensions",
+  "part.material": "steel"
+ },
+ "why": "Holes located by ± dimensions: no positions, no datums, no locations.",
+ "from": "test_locating_problems_extras.py::test_holes_located_by_plus_minus_need_no_positions_or_datums; test_locations.py::test_general_writes_no_location"
+}

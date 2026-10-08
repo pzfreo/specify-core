@@ -1,0 +1,9 @@
+{
+ "case": "corpus/cadgenbench/flanged_spool_132",
+ "answers": {
+  "part.material": "steel",
+  "diameter.fit:turned_steps:87": "h7"
+ },
+ "why": "Two identical turned diameters, one answer.",
+ "from": "test_same_as.py::test_identical_turned_diameters_are_one_question"
+}

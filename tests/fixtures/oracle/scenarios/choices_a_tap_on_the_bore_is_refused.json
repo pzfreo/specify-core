@@ -1,0 +1,8 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "hole.function:holes:9": "tapped:M5"
+ },
+ "why": "M5 tapped in an Ø8 hole: refused.",
+ "from": "test_choices.py::test_a_typed_answer_reaches_the_intent_and_a_wrong_one_is_refused"
+}

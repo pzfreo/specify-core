@@ -1,0 +1,10 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "hole.position:holes:12": {
+   "value": "general"
+  }
+ },
+ "why": "A choice answer that is not text.",
+ "from": "test_choices.py::test_a_choice_answer_that_is_not_text_is_refused[4]"
+}

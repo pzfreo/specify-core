@@ -1,0 +1,9 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.material": "steel",
+  "datum.C.control": "0.05"
+ },
+ "why": "A plane datum C gets perpendicularity to A|B.",
+ "from": "test_datums.py::test_a_plane_c_is_held_square_to_a_and_b"
+}

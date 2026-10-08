@@ -1,0 +1,31 @@
+{
+ "case": "corpus/nist/nist_ctc_03_asme1_rc",
+ "answers": {
+  "part.material": "6061-T6",
+  "datum.A": [
+   18,
+   28
+  ],
+  "datum.B": [
+   58
+  ],
+  "datum.C": [
+   60
+  ],
+  "datum.D": [
+   70
+  ],
+  "datum.B.control": "0.254",
+  "datum.C.control": "0.508",
+  "hole.function:hole_patterns.rectangle:58.59.60.61": "fit:H11",
+  "hole.position:hole_patterns.rectangle:58.59.60.61": "1.27",
+  "hole.function:hole_patterns.linear:72.73.74.75": "fit:H11",
+  "hole.position:hole_patterns.linear:72.73.74.75": "1.27",
+  "hole.function:holes:70": "fit:H11",
+  "hole.position:holes:70": "2.032",
+  "hole.function:holes:76": "general",
+  "hole.function:hole_patterns.rectangle:77.78.79.80": "general"
+ },
+ "why": "A hole as D keeps a position, frames A|B|C or B|C.",
+ "from": "test_datums.py::test_a_datum_hole_without_a_control_keeps_its_position"
+}

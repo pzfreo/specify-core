@@ -1,0 +1,18 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.material": "steel",
+  "extra.1": {
+   "faces": [
+    6
+   ],
+   "reference": [
+    0
+   ],
+   "kind": "distance",
+   "value": "±0.1"
+  }
+ },
+ "why": "A distance from a side to a hole's axis.",
+ "from": "test_call_out.py::test_a_distance_to_a_holes_axis_is_measured_from_a_plane_along_it"
+}

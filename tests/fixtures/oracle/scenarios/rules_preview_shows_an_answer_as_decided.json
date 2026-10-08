@@ -1,0 +1,9 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "hole.position:hole_patterns.grid:6.7.8.10.11.13": "0.2",
+  "part.material": "6082-T6"
+ },
+ "why": "An answered position is shown with default false.",
+ "from": "test_preview.py::test_an_answer_is_shown_as_decided"
+}

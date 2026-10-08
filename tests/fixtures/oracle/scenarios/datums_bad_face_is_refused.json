@@ -1,0 +1,10 @@
+{
+ "case": "corpus/nist/nist_ctc_03_asme1_rc",
+ "answers": {
+  "datum.A": [
+   99999
+  ]
+ },
+ "why": "A face that does not exist.",
+ "from": "test_datums.py::test_a_bad_datum_answer_is_a_clear_error"
+}

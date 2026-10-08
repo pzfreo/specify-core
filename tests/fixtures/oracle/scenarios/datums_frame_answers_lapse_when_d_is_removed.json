@@ -1,0 +1,30 @@
+{
+ "case": "corpus/nist/nist_ctc_03_asme1_rc",
+ "answers": {
+  "part.material": "6061-T6",
+  "datum.A": [
+   18,
+   28
+  ],
+  "datum.B": [
+   58
+  ],
+  "datum.C": [
+   60
+  ],
+  "datum.B.control": "0.254",
+  "datum.C.control": "0.508",
+  "hole.function:hole_patterns.rectangle:58.59.60.61": "fit:H11",
+  "hole.position:hole_patterns.rectangle:58.59.60.61": "1.27",
+  "hole.function:hole_patterns.linear:72.73.74.75": "fit:H11",
+  "hole.frame:hole_patterns.linear:72.73.74.75": "D|B|C",
+  "hole.position:hole_patterns.linear:72.73.74.75": "1.27",
+  "hole.function:holes:70": "fit:H11",
+  "hole.frame:holes:70": "D|B|C",
+  "hole.position:holes:70": "2.032",
+  "hole.function:holes:76": "general",
+  "hole.function:hole_patterns.rectangle:77.78.79.80": "general"
+ },
+ "why": "D removed: its frames lapse.",
+ "from": "test_datums.py::test_frame_answers_lapse_when_the_extra_datum_goes[pop]"
+}

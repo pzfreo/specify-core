@@ -1,0 +1,20 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "hole.function:holes:9": "general",
+  "hole.function:holes:12": "general",
+  "hole.function:hole_patterns.grid:6.7.8.10.11.13": "general",
+  "extra.1": {
+   "faces": [
+    9
+   ],
+   "kind": "perpendicularity",
+   "value": "0.02",
+   "datums": [
+    "A"
+   ]
+  }
+ },
+ "why": "An added perpendicularity brings datum A.",
+ "from": "test_locating_problems_extras.py::test_an_added_orientation_brings_datums_where_nothing_else_needs_them"
+}

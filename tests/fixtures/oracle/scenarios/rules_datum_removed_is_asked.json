@@ -1,0 +1,8 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "datum.C": []
+ },
+ "why": "C removed: still asked; positions from A|B.",
+ "from": "test_datums.py::test_a_datum_given_or_removed_is_always_asked"
+}

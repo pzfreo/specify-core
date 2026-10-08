@@ -1,0 +1,13 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "hole.function:holes:9": "general",
+  "hole.function:holes:12": "general",
+  "hole.function:hole_patterns.grid:6.7.8.10.11.13": "general",
+  "datum.A": [
+   2
+  ]
+ },
+ "why": "A datum given is asked (empty default) and reported unused.",
+ "from": "test_datums.py::test_a_datum_given_or_removed_is_always_asked; test_locating_problems_extras.py::test_an_unused_and_a_redundant_datum_are_reported"
+}

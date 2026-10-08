@@ -1,0 +1,11 @@
+{
+ "case": "parts/plate",
+ "answers": {
+  "part.material": "steel",
+  "hole.function:holes:9": "general",
+  "hole.function:hole_patterns.grid:6.7.8.10.11.13": "general"
+ },
+ "why": "Only the tapped hole positioned: its basic dimensions are the only dimensions.",
+ "from": "test_locations.py::test_a_part_whose_only_dimensions_are_locations_keeps_its_tolerance_values",
+ "write": "with answers"
+}
