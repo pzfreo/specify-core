@@ -147,3 +147,28 @@ counts"). haecceity's own test of specify-core intents writes `number_of_threads
 writer refuses booleans).
 
 **Met when** haecceity settles the meaning of 'number of threads' and where the pitch goes.
+
+## U9. Part names over the assembly structure, and one read for parts and geometry
+
+**Missing.** `PartDefinition.name` is the product's `name` as written (escapes unresolved), and
+haecceity exposes no assembly structure: which product definitions are assemblies and which
+components each holds. specify-core names a part after an assembly that holds it alone (an
+exporter's wrapper: `tests/fixtures/parts/wrapped.step` is "assembly", not "plate"), and
+OpenCascade names a product by its `id` when its `name` is empty (NIST FTC-08 and CTC-04 RD:
+"NIST PMI FTC 08 ASME1"). Separately, `read_part_definitions` reads the whole file and drops the
+`Part` it built, so loading a part reads the file twice (`read_part_definitions`, then
+`read_step` or `read_step_placed`).
+
+**Used by.** `part.rs` (`parts`, `load`, `load_all`: every part's name; every load's time).
+
+**Stand-in.** Names from a `haecceity::p21::Document` of the same bytes: the
+`NEXT_ASSEMBLY_USAGE_OCCURRENCE`s give each assembly's components (depth first from the roots,
+components in file order), `PRODUCT_DEFINITION` → `PRODUCT_DEFINITION_FORMATION` → `PRODUCT`
+gives the name, the id when the name is empty, escapes resolved by `p21::decode`. A component
+that XCAF makes of a product's several shape representations (NIST files, named `SOLID` by
+OpenCascade) is not an assembly here: such a part is named by its product. The file is read
+twice, plus the `p21` parse.
+
+**Met when** `PartDefinition` carries its display name (or its product's id and the assembly
+structure with names), and one call returns the `Part` with the definitions (or `read_part`
+of U1, reading once).
