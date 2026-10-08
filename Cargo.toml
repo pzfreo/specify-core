@@ -1,0 +1,8 @@
+[package]
+name = "specify-core"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+description = "Interview-driven AP242 PMI authoring for STEP parts (Rust port of specify-core)"
+
+[dependencies]
