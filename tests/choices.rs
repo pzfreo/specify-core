@@ -370,3 +370,19 @@ fn choices_equal_pythons_over_the_grid() {
             .join("\n")
     );
 }
+
+/// A knurl's spec is capitalised as Python's `str.capitalize` does it, which lower-cases the
+/// tail in the context of the whole text: a final sigma after the first letter is `ς`.
+/// Expected texts from `choices.callout` with specify-core's venv (Python 3.14).
+#[test]
+fn a_knurl_spec_is_capitalised_as_python_does() {
+    for (value, want) in [
+        ("knurl:aΣ", "Aς knurl, 1 mm pitch"),
+        ("knurl:ΣAΣ b", "Σaς b knurl, 1 mm pitch"),
+        ("knurl:İx", "İx knurl, 1 mm pitch"),
+        ("knurl:ǆΣ.", "ǅς. knurl, 1 mm pitch"),
+        ("knurl:AΣ'Σ", "Aσ'ς knurl, 1 mm pitch"),
+    ] {
+        assert_eq!(callout(value, 10.0, false).unwrap(), want, "{value}");
+    }
+}

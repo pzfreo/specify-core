@@ -648,10 +648,17 @@ fn kind(value: &str, hole: bool) -> &str {
 }
 
 /// Python's `str.capitalize`: the first character title-cased, the rest lower case.
+///
+/// The tail is lower-cased in the context of the whole text, as Python does, so a final sigma
+/// after the first letter is `ς` (`"aΣ"` gives `"Aς"`). Only Σ lower-cases by context, and
+/// never at the start, so the first character's lower case is a prefix that can be cut off.
 fn capitalize(text: &str) -> String {
-    let mut chars = text.chars();
-    match chars.next() {
-        Some(first) => titlecase(first) + &chars.as_str().to_lowercase(),
+    match text.chars().next() {
+        Some(first) => {
+            let lower = text.to_lowercase();
+            let cut = first.to_lowercase().map(char::len_utf8).sum::<usize>();
+            titlecase(first) + &lower[cut..]
+        }
         None => String::new(),
     }
 }
@@ -813,5 +820,37 @@ fn from_end(len: usize, j: usize) -> usize {
     } else {
         // len - j < 0: Python adds len once more, then clamps at 0.
         (2 * len).saturating_sub(j)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The pattern the readers compile for Python's `\s` matches exactly the characters
+    /// Python's `re` `\s` does (`tests/fixtures/pyfmt.json`, from `tests/fixtures/pyfmt.py`).
+    #[test]
+    fn space_pattern_is_pythons() {
+        let text = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/pyfmt.json"
+        ))
+        .expect("tests/fixtures/pyfmt.json");
+        let data: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
+        let mut inside = vec![false; 0x110000];
+        for range in data["re_space"].as_array().unwrap() {
+            let (a, b) = (range[0].as_u64().unwrap(), range[1].as_u64().unwrap());
+            inside[a as usize..=b as usize].fill(true);
+        }
+        let space = pattern("^{S}$");
+        let wrong: Vec<String> = (0..0x110000u32)
+            .filter_map(|c| char::from_u32(c).map(|ch| (c, ch)))
+            .filter(|&(c, ch)| space.is_match(ch.encode_utf8(&mut [0; 4])) != inside[c as usize])
+            .map(|(c, _)| format!("U+{c:04X}"))
+            .collect();
+        assert!(
+            wrong.is_empty(),
+            "SPACE differs from Python's \\s at {wrong:?}"
+        );
     }
 }

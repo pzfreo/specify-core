@@ -44,11 +44,18 @@ pub fn fmt3(x: f64) -> String {
 }
 
 /// `rules._fmt`: [`g`] for a value close to a whole number (`math.isclose(x, round(x))`), else
-/// [`fmt3`]. Python raises on inf and nan (`round` cannot make them integers); no caller passes
-/// them, and here they are written as [`g`] writes them.
+/// [`fmt3`].
+///
+/// # Panics
+///
+/// On inf and nan, where Python raises (`round` cannot make them integers), with Python's
+/// message: a dimension that is not finite is a bug upstream, not something to write.
 pub fn fmt_rules(x: f64) -> String {
-    if !x.is_finite() {
-        return g(x);
+    if x.is_nan() {
+        panic!("rules._fmt: cannot convert float NaN to integer");
+    }
+    if x.is_infinite() {
+        panic!("rules._fmt: cannot convert float infinity to integer");
     }
     let whole = x.round_ties_even();
     // math.isclose with its default rel_tol=1e-9 and abs_tol=0.
@@ -66,12 +73,7 @@ pub fn repr(x: f64) -> String {
     if let Some(text) = special(x) {
         return text.to_string();
     }
-    // Rust's `{:e}` gives the shortest number of digits that round-trips, but where two such
-    // strings exist it may not give the nearer, as Python does; the nearer is the value
-    // correctly rounded to that many digits, which round-trips too.
-    let (_, shortest, _) = scientific(&format!("{x:e}"));
-    let precision = shortest.len() - 1;
-    let (negative, digits, exp) = scientific(&format!("{x:.precision$e}"));
+    let (negative, digits, exp) = shortest_nearest(x);
     let sign = if negative { "-" } else { "" };
     if (-4..16).contains(&exp) {
         let body = if exp >= 0 {
@@ -93,9 +95,12 @@ pub fn repr(x: f64) -> String {
 /// Python's `round(x, digits)` on a float: the nearest multiple of `10**-digits`, ties to even,
 /// judged on the exact binary value (so `round(2.675, 2)` is `2.67`: 2.675 is stored as
 /// 2.67499999...). Python's limits are kept: more than 323 digits leaves `x` unchanged, fewer
-/// than -308 gives a zero of `x`'s sign; inf, nan and zeros are returned unchanged. Where
-/// Python raises `OverflowError` (a negative `digits` rounding past f64's largest value) this
-/// gives inf; no caller rounds to negative digits.
+/// than -308 gives a zero of `x`'s sign; inf, nan and zeros are returned unchanged.
+///
+/// # Panics
+///
+/// Where Python raises `OverflowError` (a negative `digits` rounding past f64's largest
+/// value), with Python's message. No caller rounds to negative digits.
 pub fn round_half_even(x: f64, digits: i32) -> f64 {
     if digits > 323 || x == 0.0 || !x.is_finite() {
         return x;
@@ -139,6 +144,10 @@ pub fn round_half_even(x: f64, digits: i32) -> f64 {
     }
     let kept = String::from_utf8(kept).expect("ASCII digits");
     let rounded: f64 = format!("{kept}e{places}").parse().expect("a number");
+    assert!(
+        rounded.is_finite(),
+        "round: rounded value too large to represent"
+    );
     rounded.copysign(x)
 }
 
@@ -332,6 +341,45 @@ fn special(x: f64) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// The digits Python's `repr` writes for finite `x`, as (negative, digits, exponent of the
+/// first digit): the fewest digits that read back as `x` and, of those, the nearest to `x`
+/// (CPython's dtoa mode 0).
+///
+/// Rust's `{:e}` gives the fewest digits but, where several such strings read back, not
+/// always the nearest. The nearest n-digit decimal is `x` correctly rounded to n digits, and
+/// usually reads back too. At an exact power of two it may not: the gap to the next float
+/// down is half the gap up, so the nearest decimal can lie just below the lower bound. Every
+/// n-digit decimal that reads back then lies above it, and the nearest of them is the next
+/// one up (one unit in the last digit; likewise down for the mirror case).
+fn shortest_nearest(x: f64) -> (bool, String, i32) {
+    let (_, shortest, _) = scientific(&format!("{x:e}"));
+    let precision = shortest.len() - 1;
+    let (negative, digits, exp) = scientific(&format!("{x:.precision$e}"));
+    let reads_back = |m: u64| {
+        // m × 10^(exp - precision), with x's sign.
+        let text = format!(
+            "{}{m}e{}",
+            if negative { "-" } else { "" },
+            exp - precision as i32
+        );
+        text.parse::<f64>().expect("a number") == x
+    };
+    // At most 17 significant digits, so the digits fit a u64.
+    let m: u64 = digits.parse().expect("digits");
+    let chosen = [m, m + 1, m.wrapping_sub(1)]
+        .into_iter()
+        .find(|&m| m != u64::MAX && reads_back(m))
+        .expect("one of the nearest decimals reads back");
+    // A carry (or borrow) can change the digit count; the exponent of the first digit follows.
+    let text = chosen.to_string();
+    let exp = exp - precision as i32 + text.len() as i32 - 1;
+    let digits = match text.trim_end_matches('0') {
+        "" => "0", // x is a zero
+        kept => kept,
+    };
+    (negative, digits.to_string(), exp)
 }
 
 /// Rust's `d.ddde<exp>` as (negative, all the digits, exponent).

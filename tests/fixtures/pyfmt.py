@@ -98,6 +98,16 @@ REPR_TEXTS = [
 ]
 reprs = [[text, repr(text)] for text in REPR_TEXTS]
 
+# repr at every binade boundary: each power of two (where the gap to the next float down is
+# half the gap up) and the floats either side, as [hex of the bits, repr].
+boundary_reprs = []
+for exponent in range(-1074, 1024):
+    bits = struct.unpack("<Q", struct.pack("<d", math.ldexp(1.0, exponent)))[0]
+    for b in (bits - 1, bits, bits + 1):
+        x = struct.unpack("<d", struct.pack("<Q", b))[0]
+        if b > 0 and math.isfinite(x):
+            boundary_reprs.append([f"{b:016x}", repr(x)])
+
 
 def ranges(predicate):
     out, start = [], None
@@ -125,7 +135,8 @@ tables = {
 }
 
 json.dump(
-    {"numbers": numbers, "round_digits": ROUND_DIGITS, "floats": floats, "reprs": reprs, **tables},
+    {"numbers": numbers, "round_digits": ROUND_DIGITS, "floats": floats, "reprs": reprs,
+     "boundary_reprs": boundary_reprs, **tables},
     sys.stdout,
     ensure_ascii=False,
     separators=(",", ":"),

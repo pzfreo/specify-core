@@ -86,6 +86,33 @@ fn numbers_are_formatted_as_python_formats_them() {
     );
 }
 
+/// At a power of two the gap to the next float down is half the gap up, so the nearest
+/// decimal with the fewest digits may not read back; Python then writes the nearest one that
+/// does (2^-44 is `5.684341886080802e-14`, not `...801e-14`).
+#[test]
+fn reprs_at_binade_boundaries_are_pythons() {
+    let data = fixture();
+    let cases = data["boundary_reprs"].as_array().unwrap();
+    assert!(cases.len() > 6000, "every power of two and its neighbours");
+    let mut wrong = Vec::new();
+    for case in cases {
+        let x = f64::from_bits(u64::from_str_radix(text(&case[0]), 16).unwrap());
+        let want = text(&case[1]);
+        for (x, want) in [(x, want.to_string()), (-x, format!("-{want}"))] {
+            let got = pyfmt::repr(x);
+            if got != want {
+                wrong.push(format!("repr = {got:?}, Python {want:?}"));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} differences:\n{}",
+        wrong.len(),
+        wrong.join("\n")
+    );
+}
+
 #[test]
 fn rounding_is_on_the_exact_binary_value_ties_to_even() {
     // 2.675 is stored as 2.67499999999999982236431605997495353221893310546875.
@@ -182,4 +209,25 @@ fn whitespace_is_squashed_and_stripped_as_python_does() {
     assert_eq!(pyfmt::strip("\u{3000} h7\u{1f}"), "h7");
     assert_eq!(pyfmt::parse_digits("٠٧"), Some(7));
     assert_eq!(pyfmt::parse_digits("7a"), None);
+}
+
+/// Where Python raises, these panic with Python's message rather than write a number.
+#[test]
+#[should_panic(expected = "rounded value too large to represent")]
+fn rounding_past_the_largest_float_panics_as_python_raises() {
+    // Python: round(sys.float_info.max, -300) is 1.79769313e+308, -307 raises.
+    assert_eq!(pyfmt::round_half_even(f64::MAX, -300), 1.79769313e308);
+    pyfmt::round_half_even(f64::MAX, -307);
+}
+
+#[test]
+#[should_panic(expected = "cannot convert float infinity to integer")]
+fn rules_fmt_of_infinity_panics_as_python_raises() {
+    pyfmt::fmt_rules(f64::INFINITY);
+}
+
+#[test]
+#[should_panic(expected = "cannot convert float NaN to integer")]
+fn rules_fmt_of_nan_panics_as_python_raises() {
+    pyfmt::fmt_rules(f64::NAN);
 }
