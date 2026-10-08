@@ -64,6 +64,9 @@ Artifacts of a part (the file's directory for a file of one part, else `<case>#<
 - `preview`: `api.preview(analysis, {})`.
 - `apply`: `api.apply(analysis, {"part.material": "steel"}, accept_defaults=True)`, including
   `general`.
+  Material has no default, so a bare `apply(analysis, {}, accept_defaults=True)` is always an
+  `IncompleteError` naming `part.material`; that empty-answers call is not captured and has no
+  oracle value of its own.
 - `mesh`: a summary of `api.mesh`: `format`, `version`, `binding`, `bbox`, `face_count`,
   `triangles` (per face), `missing`, `areas` (per face, of the triangles), `edges` (`count`,
   total `length`). Not the triangles.
@@ -93,6 +96,22 @@ failed one is left out (`write` is `{"skipped": ...}` when an analysis failed).
 tests by `tools/capture/scenarios.py`. `scenarios/<name>.result.json.gz`: `questions`, `open`,
 `problems`, `preview` and `apply` (with defaults), each a value or a failure; with `write`, also
 the write report and `readback` (as above).
+
+Corpus-backed scenarios: 15 scenarios answer a corpus case whose input is not committed (11 on
+`corpus/nist/nist_ctc_03_asme1_rc`, from specify-core's CTC-03 tests, and 4 on
+`corpus/cadgenbench/flanged_spool_132`). Without `QUIDDITY_CORPUS` (or `SPECIFY_CORPUS`) the Rust
+side cannot run them and must skip them, printing why; a skipped scenario is not coverage. Find
+them with `grep -l '"case": "corpus' scenarios/*.json`.
+
+Not captured (the scenario format answers one captured input with one answer set):
+
+- scenarios whose input is a file Python wrote: `test_merge.py`'s merged and simple chains, and
+  `test_assembly.py`'s rewrite, foreign-PMI and moved-answers cases. The writer/resume stream
+  builds these from the committed `written.step.gz` files;
+- an assembly write with different answers per part (`test_assembly.py`'s steel/brass write):
+  every case-level `write` uses `{"part.material": "steel"}` for each part;
+- tests of internals on hand-made face dicts (`test_datums.py`'s `_datum_control` and
+  `_default_datums`, `test_call_out.py`'s `general._between`): not the analysis-to-answers path.
 
 `interpret.json.gz`: a list of `{from, fn, ..., result}`: every spec specify-core's tests type at
 `choices.interpret` (and `check`, `code`, `callout`, `describe`), with Python's value or its
