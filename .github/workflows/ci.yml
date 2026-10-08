@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      # The toolchain comes from rust-toolchain.toml. quiddity-rust is a public git dependency,
+      # pinned by Cargo.lock. Quiddity's STEP corpus is not checked out: tests whose input is a
+      # corpus file skip without it (QUIDDITY_CORPUS); tests on committed fixtures always run.
+      - run: rustup toolchain install
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets --release -- -D warnings
+      - run: cargo test --release

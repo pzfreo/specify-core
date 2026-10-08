@@ -4,5 +4,25 @@ version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 description = "Interview-driven AP242 PMI authoring for STEP parts (Rust port of specify-core)"
+repository = "https://github.com/pzfreo/specify-core-rust"
+
+[[bin]]
+name = "specify-core"
+path = "src/main.rs"
 
 [dependencies]
+# quiddity-rust: feature recognition (quiddity) and the geometry kernel with STEP import and
+# AP242 semantic PMI (haecceity). On branch ap242 until it is merged into prototype/rust-port
+# (that is, until prototype/rust-port contains a16d7af); then both switch to prototype/rust-port.
+# Cargo.lock pins the commit. See docs/design.md, "Dependency plan".
+quiddity = { git = "https://github.com/pzfreo/quiddity-rust", branch = "ap242" }
+haecceity = { git = "https://github.com/pzfreo/quiddity-rust", branch = "ap242" }
+base64 = "0.22.1"
+serde = { version = "1.0.229", features = ["derive"] }
+# preserve_order: objects keep their insertion order, as Python's dicts do, so the JSON formats
+# read in the same order as specify-core's.
+serde_json = { version = "1.0.151", features = ["preserve_order", "float_roundtrip"] }
+sha2 = "0.11.0"
+
+[dev-dependencies]
+flate2 = "1.1.10"

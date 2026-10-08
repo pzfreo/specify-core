@@ -1,0 +1,139 @@
+# What specify-core-rust needs from quiddity-rust
+
+quiddity-rust (quiddity and haecceity) is owned by other runs and is not modified from here.
+Each need below says what is missing, where specify-core uses it, the stand-in this crate uses
+meanwhile (honest: it refuses or reports where it cannot be sure), and how to tell the need is
+met. Checked against quiddity-rust branch `ap242` at a16d7af and `prototype/rust-port` at
+ef87a63 (2026-10-08).
+
+## U1. A part of an assembly as a `Part` in its own frame
+
+**Missing.** `haecceity::step::read_part_definitions` gives each distinct part's face `#N`s in
+specify-core's numbering and its placements, and `read_step` gives one `Part` of every placed
+instance. Nothing gives the `Part` of one distinct part, in its own coordinates, with its faces
+in `PartDefinition.faces` order: what specify-core's `load(path, part=i)` gives (the solid's own
+frame, the frame the analysis, mesh, anchors and mates use).
+
+**Used by.** `part.rs` (`load`, `load_all`), and so features, mesh, anchors, mates for every
+assembly and every part stored as an assembly holding one solid (all NIST files).
+
+**Stand-in.** `read_step_placed(bytes, inverse of the part's first placement)`, then the faces
+whose `face_source` is in that placement's instances, reordered to `PartDefinition.faces` and
+rebuilt with `Part::new` (edges and loops re-indexed). Refused, naming the part, if any face of
+the definition is not found exactly once or a placement is not invertible.
+
+**Met when** haecceity offers e.g. `read_part(bytes, &PartDefinition) -> Part` (or the
+`PartDefinition` carries it), faces in the definition's order, its face sources kept.
+
+## U2. Constituent faces and pattern members from quiddity
+
+**Missing.** Python quiddity's evidence view gives a feature's *constituent* faces (the faces
+that physically belong to it: a hole's bore and floor) and a pattern's member features.
+`quiddity::Features.defining` gives *defining* faces only (`pin.step`: Python `holes:3.5`, Rust
+`[3]`), and `HolePattern` holds copies of its member `HoleRecord`s, not their indices. Python's
+cross-family reconciliation (which drops `bosses` on turned parts and adds `step_levels`) is not
+ported either (`features/mod.rs`: "the Python aggregate's cross-family reconciliation is not
+ported").
+
+**Used by.** `features.rs` (feature faces and ids, hole sets), `general.rs` (a hole's floors and
+counterbores are excluded from the part's plane levels: with defining faces only, a blind hole's
+floor becomes a plane level and gains a general dimension), `rules` (`_bores` filters to the
+bore anyway, so hole questions are unaffected).
+
+**Stand-in.** Defining faces; pattern members matched to hole records by equality (the first
+not yet taken), as quiddity's own `fingerprint::derived_faces` does. The extra plane levels are
+known differences with verdicts.
+
+**Met when** quiddity exposes per record its constituent faces (or its `Occurrence.context`
+split into belonging and consulted) and per pattern its member indices.
+
+## U3. Notes and surface finish in `pmi::write`
+
+**Missing.** `pmi::write` refuses notes (`docs/step-ap242.md` decision 5: standard forms only,
+none chosen yet). specify-core writes a part's surface-finish default, coating, heat treatment
+and edge note, and a finish on faces.
+
+**Used by.** `writer.rs`. The part-note questions have defaults, so almost every intent has
+them.
+
+**Stand-in.** Not written; each is listed in the write report's `not_written` (the field Python
+has for intent with no place in the file), never dropped silently. See questions.md Q3.
+
+**Met when** `PartPmi.notes` (and a surface texture on faces) are written in a standard form and
+read back.
+
+## U4. Face triangulation
+
+**Missing.** haecceity has point clouds on faces (`Part::face_cloud`) but no triangulation.
+specify-core's `mesh` (and `serve`'s `analyse`, which returns the mesh) needs triangles per face,
+wound outward, at a chordal deflection of 0.001 of the part's diagonal and 0.3 rad.
+
+**Used by.** `mesh.rs`.
+
+**Stand-in.** `triangulate.rs`: each face triangulated in its parameter space from its boundary
+loops (`uv_loops`), refined until the deflections hold, mapped to 3-D on the exact surface,
+wound by the face's outward normal. A face it cannot triangulate is listed in the mesh's
+`missing` (the format's own way of saying so). Checked by properties: every triangle's centroid
+maps into the face's domain, the triangles' area is within 1% of `face_moments` area, normals
+outward.
+
+**Met when** haecceity offers `Part::triangulate(face, deflection, angular) -> (points,
+triangles)`.
+
+## U5. Overlap area of two coplanar faces
+
+**Missing.** `mates.contacts` needs the area two facing coplanar faces of different parts share
+(Python: `BRepAlgoAPI_Common` and its surface area). haecceity has no boolean of faces.
+
+**Used by.** `mates.rs` (contacts, and so datum A's default in an assembly).
+
+**Stand-in.** The two faces' boundary loops (edge samples, outer and inner) projected into their
+common plane and intersected as polygons with holes (a polygon-boolean crate); the area of the
+result. Curved boundaries are sampled at the edge samples' density, so the area is approximate
+(reported to 3 decimals as in Python; differences are known differences with verdicts).
+
+**Met when** haecceity offers the common area of two planar faces.
+
+## U6. A point proved on a face's trimmed domain
+
+**Missing.** specify-core's anchors use Python quiddity's `inspect_face(face).anchor`, a point
+proved to lie on the face's real trim. haecceity's `Part::face_centre` is build123d's
+`Face.center()` (the middle of the parameter range on a curved face), which can fall outside a
+trimmed face.
+
+**Used by.** `anchors.rs`.
+
+**Stand-in.** `face_centre`, accepted only if the face's `FaceDomain::contains` its parameters;
+otherwise the centroid of the face's largest triangle from the U4 stand-in; otherwise no anchor
+for that face (the page falls back to its own guess, as specify-core documents).
+
+**Met when** haecceity offers a point on the trimmed face with its parameters.
+
+## U7. Read-back verification as a library function
+
+**Missing.** `quiddity pmi write`'s check (add: the part's PMI before plus exactly the items
+written, a feature or datum equal to an existing one being that one; replace: exactly the items
+written; other parts and findings unchanged) is in `src/bin/quiddity.rs` (`verify`,
+`item_keys`), not in the library.
+
+**Used by.** `writer.rs`.
+
+**Stand-in.** The same comparison rebuilt here from `pmi::read` and
+`pmi::write::differences`, with the add-mode merge rule restated and tested.
+
+**Met when** quiddity or haecceity exports it.
+
+## U8. Thread pitch and 'number of threads'
+
+**Missing.** `pmi::Thread` has no pitch, and what 'number of threads' (a ratio) counts is open
+in haecceity (`docs/step-ap242.md`, stage 2: "Open: what a thread's 'number of threads'
+counts"). haecceity's own test of specify-core intents writes `number_of_threads` 1, `form`
+"M", the designation as `qualifier`, and the pitch in an attribute set.
+
+**Used by.** `writer.rs` (internal and external threads).
+
+**Stand-in.** haecceity's test mapping, exactly; the pitch, tapping drill and depths in an
+`AttributeSet` on the thread's feature; `through` as the string "true" (Python's UDA form; the
+writer refuses booleans).
+
+**Met when** haecceity settles the meaning of 'number of threads' and where the pitch goes.
