@@ -19,6 +19,9 @@ path = "src/main.rs"
 quiddity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "a16d7af80e15b48be7c7e5a54f19afe59c9030eb" }
 haecceity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "a16d7af80e15b48be7c7e5a54f19afe59c9030eb" }
 base64 = "0.22.1"
+# Overlap area of two facing flat faces (mates::contacts): haecceity has no face boolean yet
+# (upstream need U5), so the faces' boundaries are intersected as polygons with holes.
+i_overlay = "8.1.2"
 # specify-core reads typed specs and added requirements with regular expressions (choices, extras).
 regex = "1.11.1"
 serde = { version = "1.0.229", features = ["derive"] }

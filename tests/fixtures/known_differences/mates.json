@@ -1,0 +1,30 @@
+[
+  {
+    "case": "nist/nist_ctc_02_asme1_ap242#0",
+    "path": "contacts.230",
+    "pattern": "no contact with a surface model of the same product",
+    "verdict": "rust-correct",
+    "evidence": "Python's contact is with 'SHELL', a SHELL_BASED_SURFACE_MODEL that XCAF splits off the same product as the solid (question Q7); the oracle's SHELL parts #1 and #2 are single planar faces at centroid (0, 812, -140), lying on the solid's own face 230 (same centroid and plane y = 812, opposite normal). It is a surface model of the part itself, not another part, so 'it is where the part meets SHELL' would be a wrong datum A basis. Rust reads the product as one part (solid's 635 faces then the two surface faces) and finds no other part to touch."
+  },
+  {
+    "case": "nist/nist_ctc_0*_asme1_ap242#1",
+    "path": "*",
+    "pattern": "the part does not exist in Rust (surface models are not parts)",
+    "verdict": "not-applicable",
+    "evidence": "Question Q7: OpenCascade's XCAF makes a part of each SHELL_BASED_SURFACE_MODEL beside the solid; haecceity reads one part per product definition, so Rust's load_all gives one part and Python's parts 1 and 2 have no Rust counterpart (printed by the sweep: 'Rust reads 1 part(s)'). The whole part is the difference (path '*': the root, where Rust has null)."
+  },
+  {
+    "case": "nist/nist_ctc_02_asme1_ap242#2",
+    "path": "*",
+    "pattern": "the part does not exist in Rust (surface models are not parts)",
+    "verdict": "not-applicable",
+    "evidence": "Question Q7: OpenCascade's XCAF makes a part of each SHELL_BASED_SURFACE_MODEL beside the solid; haecceity reads one part per product definition, so Rust's load_all gives one part and Python's parts 1 and 2 have no Rust counterpart (printed by the sweep: 'Rust reads 1 part(s)'). The whole part is the difference (path '*': the root, where Rust has null)."
+  },
+  {
+    "case": "corpus/nist/nist_ctc_0*#1",
+    "path": "*",
+    "pattern": "the part does not exist in Rust (surface models are not parts)",
+    "verdict": "not-applicable",
+    "evidence": "Question Q7, as for the AP242 editions: the RC/RD files' solid and surface model are one product, one part in Rust; Python's part 1 (a surface model, with no mates and no contacts) has no Rust counterpart. The whole part is the difference (path '*': the root, where Rust has null)."
+  }
+]
