@@ -251,3 +251,22 @@ missing feature is a known difference.
 
 **Met when** `correspondence::recognise` returns these families with their defining (or, with
 U2, constituent) faces.
+
+## U13. Parameter-space loops that are simple polygons at degenerate corners (mesh stream)
+
+**Missing.** `Part::uv_loops` is what the U4 stand-in triangulates. On a few freeform faces it
+is not a simple polygon even before any thinning: cadgenbench `cgb202` face 399 (a narrow
+neck: samples 283 and 353 of 673 cross near (0.110, 0.425)); `cgb242` faces 715 and 726 (the
+loop runs from (1.0, 0.9997) straight to (0.0, 0.0) across a degenerate corner, a side whose
+image leaves the face). Closed B-spline surfaces are also left non-periodic, so their loops
+jump at the seam.
+
+**Used by.** `triangulate.rs` (and so `mesh.rs` and the anchors' largest-triangle fallback).
+
+**Stand-in.** Closed freeform directions are detected (the surface's two parameter sides are
+the same points) and loops unwrapped across them locally; a polygon side along a parameter line
+is sampled; a loop that still crosses itself unthinned, or a side that jumps, refuses the face,
+which the mesh lists in `missing` (known differences `mesh.json`, verdict rust-wrong).
+
+**Met when** `uv_loops` gives simple, continuous loops on these faces (routing degenerate
+corners along their parameter lines, as poles are), or U4 is met.
