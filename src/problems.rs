@@ -1,2 +1,305 @@
-//! What is incomplete or does nothing in the intent so far (port of `problems.py`).
-//! Not yet ported: see docs/design.md, stage 2.
+//! What is incomplete or does nothing in the intent so far, for a person to put right: shown
+//! as the answers are given, each with the faces and question it is about (port of
+//! `problems.py`).
+//!
+//! ```text
+//! unlocated   a hole meant for a fastener or a fit with nothing to locate it
+//! unused      a datum no tolerance is measured from
+//! redundant   a datum that fixes nothing an earlier one does not
+//! orphaned    an added requirement citing a datum that is gone
+//! circular    an added orientation on the faces of the datum it cites
+//! sized twice two sizes on one diameter, both of which would be written
+//! ```
+
+use std::collections::HashSet;
+use std::sync::LazyLock;
+
+use regex::Regex;
+use serde_json::{Map, Value};
+
+use crate::choices::{GENERAL, code};
+use crate::extras;
+use crate::pyfmt::{g, signed_g};
+use crate::rules::datums::{classify, coaxial, parallel};
+use crate::rules::{self, Ctx, DatumKind, Error, LOCATING, Result, object, str_of, truthy};
+
+/// The problems with `answers` (defaults standing in for the rest) on `analysis`, each
+/// `{severity, message, faces, about}`.
+pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Value>> {
+    let ctx = Ctx::new(analysis)?;
+    // Python asks for the settled answers' questions and the preview separately; both come
+    // from one settling of the same answers.
+    let (intent, merged, qs) = rules::preview_in(&ctx, answers)?;
+    let faces = &ctx.faces;
+    let asked: HashSet<&str> = qs.iter().map(|q| q.id.as_str()).collect();
+    let mut out = Vec::new();
+
+    let by_position = !matches!(
+        rules::answer(&merged, &qs, "part.locating"),
+        Some(Value::String(s)) if s == LOCATING[1]
+    );
+    let mut datum_faces: HashSet<i64> = HashSet::new();
+    for d in &intent.datums {
+        datum_faces.extend(face_ids(d.get("faces")));
+    }
+    for q in &qs {
+        if !q.id.starts_with("hole.function:") || !by_position {
+            continue;
+        }
+        let value = merged
+            .get(&q.id)
+            .or(q.default.as_ref())
+            .cloned()
+            .unwrap_or(Value::Null);
+        let feature = q.id.split_once(':').map_or("", |(_, f)| f);
+        if matches!(&value, Value::String(s) if s == GENERAL)
+            || asked.contains(format!("hole.position:{feature}").as_str())
+        {
+            continue;
+        }
+        if q.faces
+            .iter()
+            .any(|i| ctx.positioned.contains(i) || datum_faces.contains(i))
+        {
+            continue; // the file locates it, or it is a datum
+        }
+        let what = what(&q.prompt);
+        let many = what.contains('×');
+        out.push(problem(
+            "warning",
+            format!(
+                "The {what} {} for {} but nothing locates {}: there is no datum A to measure a \
+                 position from.",
+                if many { "are" } else { "is" },
+                code(&str_of(&value)),
+                if many { "them" } else { "it" }
+            ),
+            Value::from(q.faces.clone()),
+            &q.id,
+        ));
+    }
+
+    let mut used: HashSet<String> = HashSet::new();
+    for r in &intent.requirements {
+        if let Some(Value::Array(letters)) = r.get("datums") {
+            used.extend(letters.iter().map(str_of));
+        }
+    }
+    // A distance measured from a datum's faces (one called out, say) uses it too.
+    for d in &intent.datums {
+        let mine: HashSet<i64> = face_ids(d.get("faces")).into_iter().collect();
+        let measured = intent.requirements.iter().any(|r| {
+            r.get("kind").and_then(Value::as_str) == Some("location")
+                && r.get("reference").is_some_and(truthy)
+                && face_ids(r.get("reference"))
+                    .iter()
+                    .all(|i| mine.contains(i))
+        });
+        if measured {
+            used.insert(letter(d));
+        }
+    }
+    for d in &intent.datums {
+        if !d.get("existing").is_some_and(truthy) && !used.contains(&letter(d)) {
+            out.push(problem(
+                "info",
+                format!(
+                    "Datum {} is not used: no tolerance is measured from it.",
+                    letter(d)
+                ),
+                d.get("faces").cloned().unwrap_or(Value::Null),
+                &format!("datum.{}", letter(d)),
+            ));
+        }
+    }
+
+    let mut sorted: Vec<&Map<String, Value>> = intent.datums.iter().collect();
+    sorted.sort_by_key(|d| letter(d));
+    let mut seen: Vec<(&Map<String, Value>, DatumKind)> = Vec::new();
+    for d in sorted {
+        let ids = face_ids(d.get("faces"));
+        let Some(kind) = classify(&ids, faces)? else {
+            continue;
+        };
+        let mine = faces.at(ids[0])?;
+        for (earlier, theirs_kind) in &seen {
+            let theirs = faces.at(face_ids(earlier.get("faces"))[0])?;
+            let same = match (kind, theirs_kind) {
+                (DatumKind::Plane, DatumKind::Plane) => {
+                    parallel(&mine.direction()?, &theirs.direction()?)
+                }
+                (DatumKind::Axis, DatumKind::Axis) => coaxial(mine, theirs)?,
+                _ => false,
+            };
+            if same {
+                let relation = if kind == DatumKind::Plane {
+                    "parallel to"
+                } else {
+                    "on the same axis as"
+                };
+                let (x, y) = (letter(d), letter(earlier));
+                out.push(problem(
+                    "warning",
+                    format!(
+                        "Datum {x} is {relation} {y}, so it fixes nothing {y} does not; choose \
+                         one square to it."
+                    ),
+                    d.get("faces").cloned().unwrap_or(Value::Null),
+                    &format!("datum.{x}"),
+                ));
+                break;
+            }
+        }
+        seen.push((d, kind));
+    }
+
+    // Two sizes on one diameter (a fit asked for and one called out, say) would both be
+    // written, and disagree.
+    let sizes: Vec<&Map<String, Value>> = intent
+        .requirements
+        .iter()
+        .filter(|r| r.get("kind").and_then(Value::as_str) == Some("size"))
+        .collect();
+    let size_faces: Vec<HashSet<i64>> = sizes
+        .iter()
+        .map(|r| face_ids(r.get("faces")).into_iter().collect())
+        .collect();
+    for (i, later) in sizes.iter().enumerate() {
+        let Some(j) = (0..i).find(|&j| !size_faces[j].is_disjoint(&size_faces[i])) else {
+            continue;
+        };
+        let earlier = sizes[j];
+        let twice = format!("{} and {}", size_text(earlier)?, size_text(later)?);
+        let nominal = later
+            .get("nominal")
+            .and_then(Value::as_f64)
+            .ok_or_else(|| Error::Invalid("a size has no 'nominal'".to_string()))?;
+        let question = |r: &Map<String, Value>| r.get("question").filter(|q| truthy(q)).map(str_of);
+        let about = question(later)
+            .or_else(|| question(earlier))
+            .unwrap_or_default();
+        out.push(problem(
+            "warning",
+            format!(
+                "⌀{} is sized twice ({twice}); remove one, or both are written.",
+                g(nominal)
+            ),
+            later.get("faces").cloned().unwrap_or(Value::Null),
+            &about,
+        ));
+    }
+
+    let letters: HashSet<String> = intent.datums.iter().map(letter).collect();
+    for (key, extra) in extras::given(answers) {
+        let kind = extra.get("kind");
+        let datumed = kind
+            .and_then(Value::as_str)
+            .is_some_and(|k| extras::DATUMED.contains(&k));
+        let cited: Vec<Value> = match extra.get("datums") {
+            Some(v) if truthy(v) => rules::iter_of(v).unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        let picked = face_ids(extra.get("faces"));
+        let kind_text = kind.map(str_of).unwrap_or_default();
+        let own: Vec<String> = cited
+            .iter()
+            .filter(|x| {
+                datumed
+                    && intent
+                        .datums
+                        .iter()
+                        .find(|d| d.get("letter") == Some(*x))
+                        .is_some_and(|d| {
+                            face_ids(d.get("faces")).iter().any(|i| picked.contains(i))
+                        })
+            })
+            .map(str_of)
+            .collect();
+        if let Some(first) = own.first() {
+            out.push(problem(
+                "warning",
+                format!(
+                    "The {kind_text} you added is on datum {first}'s own faces, so it is measured \
+                     from itself; choose other faces for {first} or for the {kind_text}."
+                ),
+                extra.get("faces").cloned().unwrap_or(Value::Null),
+                key,
+            ));
+        }
+        let missing: Vec<String> = cited
+            .iter()
+            .map(str_of)
+            .filter(|x| !letters.contains(x))
+            .collect();
+        if datumed && let Some(first) = missing.first() {
+            out.push(problem(
+                "warning",
+                format!(
+                    "The {kind_text} you added is measured from datum {}, which has no faces yet; \
+                     pick them under Datums, or it will not be written.",
+                    missing.join(", ")
+                ),
+                extra
+                    .get("faces")
+                    .cloned()
+                    .unwrap_or_else(|| Value::Array(Vec::new())),
+                &format!("datum.{first}"),
+            ));
+        }
+    }
+    Ok(out)
+}
+
+/// A datum item's letter.
+fn letter(d: &Map<String, Value>) -> String {
+    d.get("letter").map(str_of).unwrap_or_default()
+}
+
+/// The face numbers in a list of faces (anything else in it names no face).
+fn face_ids(value: Option<&Value>) -> Vec<i64> {
+    match value {
+        Some(Value::Array(items)) => items
+            .iter()
+            .filter_map(|i| {
+                i.as_i64()
+                    .or_else(|| i.as_f64().filter(|x| x.fract() == 0.0).map(|x| x as i64))
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// `_what`: what a hole question asks about (`6× Ø6.6 holes`), from its prompt.
+fn what(prompt: &str) -> String {
+    static WHAT: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^What (?:are|is) the (.+) for\?$").expect("pattern"));
+    WHAT.captures(prompt)
+        .map_or_else(|| "hole".to_string(), |caps| caps[1].to_string())
+}
+
+/// `_size_text`: a size as its fit, or its deviations.
+fn size_text(req: &Map<String, Value>) -> Result<String> {
+    if let Some(fit) = req.get("fit").filter(|f| truthy(f)) {
+        return Ok(str_of(fit));
+    }
+    let number = |key: &str| {
+        req.get(key)
+            .and_then(Value::as_f64)
+            .ok_or_else(|| Error::Invalid(format!("a size has no '{key}'")))
+    };
+    let (upper, lower) = (number("upper")?, number("lower")?);
+    Ok(if upper == -lower {
+        format!("±{}", g(upper))
+    } else {
+        format!("{}/{}", signed_g(upper), signed_g(lower))
+    })
+}
+
+fn problem(severity: &str, message: String, faces: Value, about: &str) -> Value {
+    Value::Object(object([
+        ("severity", Value::from(severity)),
+        ("message", Value::from(message)),
+        ("faces", faces),
+        ("about", Value::from(about)),
+    ]))
+}

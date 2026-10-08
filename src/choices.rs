@@ -726,7 +726,7 @@ fn type_name(value: &Value) -> &'static str {
 
 /// Python's `reprlib.repr` (its defaults: 6 levels, 6 list items, 4 dict items, 30 characters
 /// of a str, 40 of an int) of a JSON value; `level` is the levels left.
-fn short_repr(value: &Value, level: usize) -> String {
+pub fn short_repr(value: &Value, level: usize) -> String {
     const MAX_LIST: usize = 6;
     const MAX_DICT: usize = 4;
     match value {
