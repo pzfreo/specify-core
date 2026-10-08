@@ -172,3 +172,16 @@ twice, plus the `p21` parse.
 **Met when** `PartDefinition` carries its display name (or its product's id and the assembly
 structure with names), and one call returns the `Part` with the definitions (or `read_part`
 of U1, reading once).
+
+## U5, as built (mates stream)
+
+The stand-in in `src/mates.rs` (`overlap`, `edge_points`) intersects the two faces' loops with
+the `i_overlay` crate (even-odd fill, outer and inner loops alike), in the first face's plane.
+Circular arcs are resampled from their exact curves to a sagitta of 1e-9 of their radius (made
+only for faces whose boxes already meet), so straight and circular boundaries give the exact
+area to Python's 3 decimals (the stack's 2254.701 and 28.274, checked against hand-computed
+areas in `tests/mates.rs`); ellipses and splines use haecceity's edge samples (2e-4 mm chord
+tolerance) and may differ in the last digit. A loop that does not close (consecutive edges or its
+ends more than 0.01 mm apart) or runs along an unresolved edge is refused: no contact for that
+pair, the reason from `mates::contacts_with_refusals`. Nothing more is needed from haecceity
+than U5 as stated above.
