@@ -127,7 +127,14 @@
   },
   {
     "case": "corpus/cadgenbench_inputs/cgb202",
-    "path": "*399*",
+    "path": "check.triangulated[399]",
+    "pattern": "a freeform face whose boundary samples cross at a narrow neck is not triangulated",
+    "verdict": "rust-wrong",
+    "evidence": "Face 399 (23.0 mm2): haecceity's own uv_loops samples cross themselves near (0.110, 0.425) (segments 283 and 353 of 673 intersect), before any thinning, so even unthinned the boundary is not a simple polygon; triangulate refuses. Python meshes it."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb202",
+    "path": "areas[399]",
     "pattern": "a freeform face whose boundary samples cross at a narrow neck is not triangulated",
     "verdict": "rust-wrong",
     "evidence": "Face 399 (23.0 mm2): haecceity's own uv_loops samples cross themselves near (0.110, 0.425) (segments 283 and 353 of 673 intersect), before any thinning, so even unthinned the boundary is not a simple polygon; triangulate refuses. Python meshes it."
@@ -141,7 +148,21 @@
   },
   {
     "case": "corpus/inventory_refusal/14052",
-    "path": "*",
+    "path": "check.triangulated[1]",
+    "pattern": "a planar face whose hole crosses its outer loop is not triangulated",
+    "verdict": "rust-correct",
+    "evidence": "Face 1: the outer loop's side v = 5.1255 from u = 0 to 20.72 crosses the circular inner loop (centre (10.8, 6.1), radius 1.65) twice in haecceity's parameter loops: the face's trim is not a valid region (the corpus keeps this file as one to refuse). Python's BRepMesh triangulates it anyway (78.8 mm2)."
+  },
+  {
+    "case": "corpus/inventory_refusal/14052",
+    "path": "missing[0]",
+    "pattern": "a planar face whose hole crosses its outer loop is not triangulated",
+    "verdict": "rust-correct",
+    "evidence": "Face 1: the outer loop's side v = 5.1255 from u = 0 to 20.72 crosses the circular inner loop (centre (10.8, 6.1), radius 1.65) twice in haecceity's parameter loops: the face's trim is not a valid region (the corpus keeps this file as one to refuse). Python's BRepMesh triangulates it anyway (78.8 mm2)."
+  },
+  {
+    "case": "corpus/inventory_refusal/14052",
+    "path": "areas[1]",
     "pattern": "a planar face whose hole crosses its outer loop is not triangulated",
     "verdict": "rust-correct",
     "evidence": "Face 1: the outer loop's side v = 5.1255 from u = 0 to 20.72 crosses the circular inner loop (centre (10.8, 6.1), radius 1.65) twice in haecceity's parameter loops: the face's trim is not a valid region (the corpus keeps this file as one to refuse). Python's BRepMesh triangulates it anyway (78.8 mm2)."
@@ -151,11 +172,60 @@
     "path": "check.*[1]",
     "pattern": "a folded freeform surface: triangles disagree with its normal and refinement does not settle",
     "verdict": "undetermined",
-    "evidence": "Face 1 is a B-spline closed in both parameters whose natural normal flips sign between neighbouring parameter points (e.g. at u 4.78 and 4.92, v 0.02 the unit normals are opposite); the mesh area is within 0.3% of the exact one, but hundreds of triangles face against the normal at their centre and refinement stops at its cap. Whether the surface is self-intersecting (as the inventory_refusal corpus suggests) was not established."
+    "evidence": "Rust face 1 (the file's second shell face, #145, B_SPLINE_SURFACE_WITH_KNOTS #84; Python's face 15, see check.numbering) is a B-spline closed in both parameters whose natural normal flips sign between neighbouring parameter points (e.g. at u 4.78 and 4.92, v 0.02 the unit normals are opposite); the mesh area is within 0.3% of the exact one, but hundreds of triangles face against the normal at their centre and refinement stops at its cap. Whether the surface is self-intersecting (as the inventory_refusal corpus suggests) was not established."
   },
   {
-    "case": "corpus/cadgenbench_inputs/*",
-    "path": "check.inward_triangles*",
+    "case": "corpus/inventory_refusal/13975",
+    "path": "check.numbering[*]",
+    "pattern": "faces 1-16 are numbered differently from Python's",
+    "verdict": "undetermined",
+    "evidence": "tests/mesh.rs renumbered_faces: each Rust face's exact area and centroid (face_moments) equal another index's in the oracle analysis to 1e-9, e.g. Rust face 2 area 343.0785, centre (7.6135, 23.3636, 42.2933) is Python's face 1; Rust 6 = Python 2, 12 = 6, 1 = 15, 3 = 16, 14 = 3. Rust follows the file's CLOSED_SHELL #16 face list (#17, #145 the B-spline, #216 ...); OpenCascade's plain STEPControl_Reader + TopExp::MapShapes (checked with specify-core's venv) gives Python's order, so its transfer reorders this shell's faces (this file is in the corpus as one to refuse). Face numbering is the part model's (src/part.rs), and it breaks docs/design.md's 'numbering equals Python's' and Q1 for this file; which order is right for a cross-engine analysis is docs/questions.md Q11."
+  },
+  {
+    "case": "corpus/inventory_refusal/13975",
+    "path": "areas[*]",
+    "pattern": "per-face mesh areas differ because faces 1-16 are numbered differently from Python's",
+    "verdict": "undetermined",
+    "evidence": "Each Rust face's mesh area matches Python's mesh area of the face at the index check.numbering[*] maps it to (Rust 2: 343.0947, Python 1: 343.0911; Rust 6 and Python 2 both 472.8888; Rust 14 and Python 3 both 553.0246). Not classified against the exact area (that would be circular); the numbering is the open question (Q11)."
+  },
+  {
+    "case": "corpus/*",
+    "path": "check.folded_dropped_sub_deflection*",
+    "pattern": "triangles folded against the surface at degenerate corners are left out, leaving gaps under a deflection square",
+    "verdict": "equivalent",
+    "evidence": "triangulate.rs finish leaves out slivers and specks whose normal opposes the surface (next to a degenerate side or corner a parameter barely moves the point, and the triangle's plane is set by rounding) and counts them (FaceMesh::folded_dropped). Over the oracle cases: 122 faces on 8 corpus/NIST files, 6032 triangles (5405 on threaded_connector_109's thread ends), at most 2.4% of a deflection square per face in all (cgb207 face 0: one triangle of 0.00081 mm2, deflection 0.186 mm). Kept, each would be an inward-facing triangle; left out, the gap is below what the mesh's chordal deflection resolves. A face whose dropped area exceeds a deflection square is check.folded_dropped and has no entry."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb202",
+    "path": "check.inward_triangles[740]",
+    "pattern": "a single sub-micron triangle at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "cgb202 face 740, cgb207 face 113, cgb242 faces 665, 840, 878: one or two triangles of about 1e-7 mm2 next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb207",
+    "path": "check.inward_triangles[113]",
+    "pattern": "a single sub-micron triangle at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "cgb202 face 740, cgb207 face 113, cgb242 faces 665, 840, 878: one or two triangles of about 1e-7 mm2 next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb242",
+    "path": "check.inward_triangles[665]",
+    "pattern": "a single sub-micron triangle at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "cgb202 face 740, cgb207 face 113, cgb242 faces 665, 840, 878: one or two triangles of about 1e-7 mm2 next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb242",
+    "path": "check.inward_triangles[840]",
+    "pattern": "a single sub-micron triangle at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "cgb202 face 740, cgb207 face 113, cgb242 faces 665, 840, 878: one or two triangles of about 1e-7 mm2 next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb242",
+    "path": "check.inward_triangles[878]",
     "pattern": "a single sub-micron triangle at a degenerate corner of a freeform face faces inward",
     "verdict": "rust-wrong",
     "evidence": "cgb202 face 740, cgb207 face 113, cgb242 faces 665, 840, 878: one or two triangles of about 1e-7 mm2 next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre."

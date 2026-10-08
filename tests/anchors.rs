@@ -115,13 +115,20 @@ fn an_empty_group_and_a_repeated_one_are_skipped() {
     assert_eq!(found.keys().collect::<Vec<_>>(), vec!["1,3"]);
 }
 
-/// An unresolved face gets no anchor; a part whose solid is not trusted (rebuilt with unresolved
+/// An unresolved face gets no anchor, nor does a group whose largest face it is (a smaller face
+/// is not anchored in its place); a part whose solid is not trusted (rebuilt with unresolved
 /// faces, `LoadedPart::degraded`) has no clear leader.
 #[test]
 fn untrusted_geometry_gives_no_anchor_or_no_clear_leader() {
     let mut loaded = part::load(&fixture("pin.step"), None).unwrap();
+    let area = |f: usize| loaded.part.face_moments(f).unwrap().area;
+    let (big, small) = if area(1) > area(0) { (1, 0) } else { (0, 1) };
+    loaded.unresolved_faces.push(big);
+    assert!(anchors(&loaded, &[vec![big]], 40.0).is_empty());
+    assert!(anchors(&loaded, &[vec![small, big]], 40.0).is_empty());
+    assert_eq!(anchors(&loaded, &[vec![small]], 40.0).len(), 1);
+    loaded.unresolved_faces.clear();
     loaded.unresolved_faces.push(1);
-    assert!(anchors(&loaded, &[vec![1]], 40.0).is_empty());
     loaded.rebuilt = true;
     assert!(loaded.degraded().is_some());
     let found = anchors(&loaded, &[vec![0], vec![3]], 40.0);
@@ -306,7 +313,8 @@ fn area(loaded: &LoadedPart, face: usize) -> Option<f64> {
 /// Classifies one anchor difference by its cause, appending to its path:
 ///
 /// - `.equal_area_face`: the two engines anchored on different faces of the group whose areas
-///   are equal to 1e-6 (identical features; which counts as largest is rounding);
+///   are equal to 1e-6 (identical features; which counts as largest is rounding); for a clear
+///   flag or direction, only where Rust's leader from Python's face and point is Python's;
 /// - `.same_from_python_point`: Rust's leader from Python's anchor point (and with Python's
 ///   diagonal) is Python's, so the difference is the anchor point's (upstream need U6);
 /// - `.opposite_axis`: both leaders are clear and point opposite ways (a hole open at both
@@ -330,38 +338,37 @@ fn explain(
         return;
     }
     let face = |v: &Value| v["face"].as_u64().map(|f| f as usize);
-    let suffix = match (face(p), face(r)) {
-        (Some(pf), Some(rf))
-            if pf != rf
-                && matches!((area(loaded, pf), area(loaded, rf)),
-                    (Some(a), Some(b)) if (a - b).abs() <= 1e-6 * a.max(b)) =>
-        {
-            Some("equal_area_face")
-        }
-        (Some(pf), _) => {
-            let again =
-                anchor_from_point(loaded, pf, point(&python_anchors[k]["at"]), python_diagonal);
-            let same = again.is_some_and(|a| {
-                a["clear"] == p["clear"]
-                    && (0..3).all(|i| {
-                        (a["out"][i].as_f64().unwrap() - p["out"][i].as_f64().unwrap()).abs()
-                            <= 1e-6
-                    })
-            });
-            let opposite = p["clear"] == true
-                && r["clear"] == true
-                && (0..3).all(|i| {
-                    (p["out"][i].as_f64().unwrap() + r["out"][i].as_f64().unwrap()).abs() <= 1e-6
-                });
-            if same {
-                Some("same_from_python_point")
-            } else if opposite {
-                Some("opposite_axis")
-            } else {
-                None
-            }
-        }
-        _ => None,
+    let Some(pf) = face(p) else {
+        return;
+    };
+    // Rust's leader from Python's own point on Python's face, with Python's diagonal.
+    let again = anchor_from_point(loaded, pf, point(&python_anchors[k]["at"]), python_diagonal);
+    let same = again.is_some_and(|a| {
+        a["clear"] == p["clear"]
+            && (0..3).all(|i| {
+                (a["out"][i].as_f64().unwrap() - p["out"][i].as_f64().unwrap()).abs() <= 1e-6
+            })
+    });
+    let equal_faces = face(r).is_some_and(|rf| {
+        rf != pf
+            && matches!((area(loaded, pf), area(loaded, rf)),
+                (Some(a), Some(b)) if (a - b).abs() <= 1e-6 * a.max(b))
+    });
+    let opposite = p["clear"] == true
+        && r["clear"] == true
+        && (0..3)
+            .all(|i| (p["out"][i].as_f64().unwrap() + r["out"][i].as_f64().unwrap()).abs() <= 1e-6);
+    // Another face of equal area explains the face, and the leader only if Rust's leader from
+    // Python's face is Python's: identical bores in a pattern can differ in obstruction, so a
+    // clear flag or direction is not excused by the face choice alone.
+    let suffix = if equal_faces && (difference.path.ends_with(".face") || same) {
+        Some("equal_area_face")
+    } else if same {
+        Some("same_from_python_point")
+    } else if opposite {
+        Some("opposite_axis")
+    } else {
+        None
     };
     if let Some(suffix) = suffix {
         difference.path = format!("{}.{suffix}", difference.path);

@@ -71,3 +71,16 @@ times), because it refines until no triangle leans from the surface by more than
 deflection, which BRepMesh does not check. The largest corpus part (cgb202, 2157 faces) meshes
 to 11 MB of JSON. *Meanwhile:* kept as is. Is that size acceptable for Draftwright Specify, or
 should the Rust engine relax its lean check to approach Python's size?
+
+**Q11. Face numbering where OpenCascade reorders a shell (mesh stream).** On corpus
+`inventory_refusal/13975` (one `CLOSED_SHELL` of 17 faces), Rust numbers the faces in the
+shell's own list order; OpenCascade's STEP transfer (plain `STEPControl_Reader` +
+`TopExp::MapShapes`, checked with specify-core's venv) gives a different order, so faces 1-16 are
+a permutation of Python's (Rust 2 = Python 1, 6 = 2, 1 = 15, ...; equal exact areas and centroids
+to 1e-9; tests/mesh.rs `renumbered_faces`, known_differences/mesh.json). An analysis of this file
+cannot cross engines, contrary to Q1's premise; the part stream's corpus check did not include
+this file. Should the part model reproduce OpenCascade's order here (which needs knowing why
+its transfer reorders this shell, a file the corpus keeps as one to refuse), or should such files
+be detected and marked so a cross-engine analysis is refused? *Meanwhile:* the file order is kept,
+and the mesh sweep checks every case's numbering against the oracle analysis, so any other file
+where the orders differ fails the sweep until it has an entry.

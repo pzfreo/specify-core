@@ -356,11 +356,63 @@ fn perimeter(loaded: &LoadedPart, face: usize) -> f64 {
         .sum()
 }
 
+/// The faces whose index does not name the face Python's analysis gives it (each a
+/// `check.numbering` difference). Classifying an area difference against haecceity's exact area
+/// of Rust's own face is circular when the two engines number that face differently: a
+/// renumbered face would always look "nearer exact". So every index is first checked against the
+/// oracle analysis, as tests/part.rs `numbering_mismatches` does: Rust's exact centroid
+/// (`face_moments`) is a mismatch when it is more than 1e-4 of the diagonal from Python's
+/// centroid at that index and another of Python's faces matches better, nearer by centroid and
+/// by area both. Not the areas or a fixed distance alone: on small freeform faces haecceity's and OpenCascade's integrals of the same
+/// face differ by a few percent (cgb203 faces 11-50: 0.3536 against 0.3580 mm2, centroids 0.005
+/// mm apart; cgb243 face 237, 193.6 against 210.4 mm2 and 0.4 mm, where both meshes agree with
+/// haecceity's area), which is a question for the exact areas, not the numbering. Faces haecceity cannot
+/// integrate, and indices past Python's face count (question Q7), go unchecked.
+fn renumbered_faces(loaded: &LoadedPart, analysis: &Value) -> Vec<(usize, Value, Value)> {
+    let part = &loaded.part;
+    let diagonal = mesh::diagonal(loaded);
+    let python: Vec<(usize, f64, V3)> = analysis["faces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| {
+            let c = numbers(&f["centroid"]);
+            (
+                f["id"].as_u64().unwrap() as usize,
+                f["area"].as_f64().unwrap(),
+                [c[0], c[1], c[2]],
+            )
+        })
+        .collect();
+    let mut out = Vec::new();
+    for &(id, area, centroid) in &python {
+        if id >= part.faces.len() {
+            continue;
+        }
+        let Some(m) = part.face_moments(id) else {
+            continue;
+        };
+        let own = geom::dist(m.centroid, centroid);
+        let better = python.iter().any(|&(j, a, c)| {
+            j != id && geom::dist(m.centroid, c) < own && (a - m.area).abs() < (area - m.area).abs()
+        });
+        if own > 1e-4 * diagonal && better {
+            out.push((
+                id,
+                json!({"area": area, "centroid": centroid}),
+                json!({"area": m.area, "centroid": m.centroid}),
+            ));
+        }
+    }
+    out
+}
+
 /// A per-face area difference from Python's mesh, classified by the exact area: Rust's mesh
 /// nearer the exact area than Python's (`areas_rust_nearer_exact`), within the boundary's
 /// deflection of it (`areas_within_boundary_deflection`; of Python's mesh area where haecceity
-/// has no exact area), or neither (`areas`, unexplained).
-fn classify_area(loaded: &LoadedPart, difference: &mut Difference) {
+/// has no exact area), or neither (`areas`, unexplained). A face in `renumbered` (see
+/// `renumbered_faces`) is not classified: its exact area is another face's.
+fn classify_area(loaded: &LoadedPart, renumbered: &[usize], difference: &mut Difference) {
     let Some(face) = difference
         .path
         .strip_prefix("areas[")
@@ -369,6 +421,9 @@ fn classify_area(loaded: &LoadedPart, difference: &mut Difference) {
     else {
         return;
     };
+    if renumbered.contains(&face) {
+        return;
+    }
     let (Some(python), Some(rust)) = (
         difference.python.as_ref().and_then(Value::as_f64),
         difference.rust.as_ref().and_then(Value::as_f64),
@@ -445,6 +500,22 @@ fn face_checks(
                 format!("check.converged[{face}]"),
                 json!(true),
                 json!(false),
+            );
+        }
+        // Triangles the triangulation left out as folded against the surface leave a gap in
+        // the face; each face with any is reported (count and area), not passed silently. A gap
+        // of less than one deflection square in all is below what the mesh resolves anyway
+        // (`folded_dropped_sub_deflection`); a larger one is `folded_dropped`.
+        if fm.folded_dropped.0 > 0 {
+            let kind = if fm.folded_dropped.1 <= deflection * deflection {
+                "folded_dropped_sub_deflection"
+            } else {
+                "folded_dropped"
+            };
+            differ(
+                format!("check.{kind}[{face}]"),
+                json!([0, 0.0]),
+                json!([fm.folded_dropped.0, fm.folded_dropped.1]),
             );
         }
         if let Some(exact) = part.face_moments(face).map(|m| m.area) {
@@ -544,8 +615,21 @@ fn mesh_matches_the_oracle() {
         let mut python = python;
         assert!(!is_error(&python), "{}: Python failed: {python}", case.name);
         python.as_object_mut().unwrap().remove("triangles");
+        let renumbered = match case.artifact("analysis") {
+            Some(analysis) if !is_error(&analysis) => renumbered_faces(&loaded, &analysis),
+            _ => Vec::new(),
+        };
+        let renumbered_ids: Vec<usize> = renumbered.iter().map(|r| r.0).collect();
+        for (face, python, rust) in renumbered {
+            differences.push(Difference {
+                case: case.name.clone(),
+                path: format!("check.numbering[{face}]"),
+                python: Some(python),
+                rust: Some(rust),
+            });
+        }
         for mut difference in compare(&case.name, &python, &summary(&rust), &tolerances) {
-            classify_area(&loaded, &mut difference);
+            classify_area(&loaded, &renumbered_ids, &mut difference);
             classify_bbox(&mut difference);
             differences.push(difference);
         }

@@ -150,6 +150,10 @@ pub struct FaceMesh {
     /// Whether refinement met the deflections everywhere; false when [`MAX_VERTICES`] or
     /// [`MAX_ROUNDS`] stopped it first.
     pub converged: bool,
+    /// Triangles left out because they faced against the surface (a sliver or speck folded at a
+    /// degenerate side or corner, see `finish`), and their total area: kept count of so the gap
+    /// they leave is reported, not hidden.
+    pub folded_dropped: (usize, f64),
 }
 
 impl FaceMesh {
@@ -1142,6 +1146,7 @@ impl<'a> Mesher<'a> {
         // where a parameter barely moves the point, the triangle's plane is set by rounding and
         // curvature, not by the surface it stands for.
         let thin = 1e-6 * deflection;
+        let mut folded_dropped = (0, 0.0);
         for face in self.cdt.inner_faces() {
             if !inside[face.fix().index()] {
                 continue;
@@ -1159,9 +1164,10 @@ impl<'a> Mesher<'a> {
                     .all(|&m| geom::dot(doubled, m) < 0.0);
             let sliver = geom::norm(doubled) <= 1e-3 * longest * longest;
             let speck = geom::norm(doubled) <= 2.0 * (1e-3 * deflection).powi(2);
-            if geom::norm(doubled) <= thin * longest
-                || parameter_sliver(&na, &nb, &nc)
-                || (sliver && folded)
+            if geom::norm(doubled) <= thin * longest || parameter_sliver(&na, &nb, &nc) {
+                continue;
+            }
+            if (sliver && folded)
                 || (speck && {
                     // A speck at a degenerate corner can have one corner's normal anything: it
                     // is judged by the surface's normal at its middle.
@@ -1174,6 +1180,8 @@ impl<'a> Mesher<'a> {
                         .is_some_and(|m| geom::dot(doubled, m) < 0.0)
                 })
             {
+                folded_dropped.0 += 1;
+                folded_dropped.1 += 0.5 * geom::norm(doubled);
                 continue;
             }
             let mut tri = corners.map(|v| {
@@ -1196,6 +1204,7 @@ impl<'a> Mesher<'a> {
             uv,
             triangles,
             converged: true,
+            folded_dropped,
         }
     }
 }

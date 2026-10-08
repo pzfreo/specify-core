@@ -20,7 +20,10 @@
 //!   the ratio of the two diagonals.
 //! - Trust. A part rebuilt by the U1 stand-in with unresolved faces or edges
 //!   ([`LoadedPart::degraded`]) has no trustworthy solid to classify against, so none of its
-//!   anchors is reported clear. A face whose surface did not resolve gets no anchor.
+//!   anchors is reported clear. A face whose surface did not resolve gets no anchor, and nor does
+//!   a group whose largest face is such a face, or has a face whose area haecceity cannot
+//!   measure (Python's areas are OpenCascade's, always known): the largest face is then not
+//!   known, and a smaller one is not anchored in its place.
 
 use haecceity::geom::{Surface, V3};
 use serde_json::{Map, Value, json};
@@ -71,23 +74,25 @@ fn anchor(
     trusted: bool,
 ) -> Option<Value> {
     let part = &loaded.part;
-    let resolved = |i: &usize| {
-        *i < loaded.binding.face_count
-            && !loaded.unresolved_faces.contains(i)
-            && !part.unresolved_faces().contains(i)
-    };
-    // The largest face, the first of equals (Python's `max`).
+    let unresolved =
+        |i: usize| loaded.unresolved_faces.contains(&i) || part.unresolved_faces().contains(&i);
+    // The largest face, the first of equals (Python's `max`), over every face of the group in
+    // range, as Python's: an unresolved face is not passed over for a smaller one. If it is the
+    // largest, or a face's area cannot be measured (so the largest is not known), the group
+    // gets no anchor rather than one on a face Python would not have chosen.
     let mut face = None;
     let mut largest = f64::NEG_INFINITY;
-    for &i in faces.iter().filter(|i| resolved(i)) {
+    for &i in faces.iter().filter(|&&i| i < loaded.binding.face_count) {
         let area = part
             .face_moments(i)
             .map(|m| m.area)
-            .or_else(|| part.face_mass(i).map(|m| m[0]))
-            .unwrap_or(0.0);
+            .or_else(|| part.face_mass(i).map(|m| m[0]))?;
         if face.is_none() || area > largest {
             (face, largest) = (Some(i), area);
         }
+    }
+    if face.is_some_and(unresolved) {
+        return None;
     }
     let face = face?;
     let (at, uv) = point_on(loaded, face)?;
