@@ -57,3 +57,14 @@ the whole part (checked with Python: `describe('hole.function:x', ['general', 'f
 Should fits not be offered above 500 mm (the general tolerance only), or should ISO 286 be
 extended to 3150 mm? *Meanwhile:* Python's behaviour is kept: `choices::describe` returns the
 same message as an error, which its caller reports (no part question list is made up).
+
+**Q9. Face numbering that differs from OpenCascade's (bears on Q1).** On corpus
+`inventory_refusal/13975.step` the two engines number the same 17 faces in different orders: Rust
+in the `CLOSED_SHELL`'s order (#17, #145, #216, ...), Python in the order OpenCascade's reader gives
+(#17, #216, #752, #1166, ...; why its shell differs from the file's order was not established); every face agrees entity for entity. Every other part the
+features sweep compares (119) numbers alike: its remaining face differences are integration
+noise (U11) or Q7's extra faces. An analysis of such a file made by one engine and written by the other
+would put PMI on the wrong faces, and nothing in the binding detects it (same `source_sha256`,
+`face_count`, `loader_version`). Should the binding carry something that detects this (e.g. a
+hash of the face entity ids in order), or is Q1's answer enough? *Meanwhile:* recorded as an
+`undetermined` known difference (`features.json`); no change to the binding.

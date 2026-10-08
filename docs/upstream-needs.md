@@ -172,3 +172,48 @@ twice, plus the `p21` parse.
 **Met when** `PartDefinition` carries its display name (or its product's id and the assembly
 structure with names), and one call returns the `Part` with the definitions (or `read_part`
 of U1, reading once).
+
+## U10. specify-core's notes on faces, as anchored items
+
+**Missing.** specify-core (Python) writes a thread, knurl or surface finish on faces by its own
+text route: a part-level `PROPERTY_DEFINITION('manufacturing requirement', <kind>, ...)` (which
+`pmi::read` reads as a `Note` with no owner) and a `SHAPE_ASPECT(<kind>)` whose
+`GEOMETRIC_ITEM_SPECIFIC_USAGE`s, named `<kind>` ('internal thread', 'external thread', 'knurl',
+'surface finish', 'surface texture'), name the faces. Nothing semantic refers to that aspect (only
+a presentation link and, for threads and knurls, a user defined attribute), so `pmi::read`
+reports no note on those faces.
+
+**Used by.** `existing.rs` (`read_existing`'s notes): the rules treat a face with a thread or knurl
+note as covered and do not ask for its size.
+
+**Stand-in.** The `GEOMETRIC_ITEM_SPECIFIC_USAGE`s of those names are read from the
+`haecceity::p21::Document` (name and identified item), each face mapped through
+`PartDefinition::face_index`, exactly as Python's `existing.notes` reads its own text; threads
+and knurls `pmi::read` holds semantically (`Thread`, `Knurl`) are added. Checked against
+Python's read-back of every file it wrote (`tests/existing.rs`) and a live write of the plate
+with a face finish.
+
+**Met when** `pmi::read` reports these notes with their faces (for instance a `Note` on the
+aspect's feature), or specify-core-rust no longer needs to read Python-written files.
+
+## U11. `Part::face_moments` on every face, to 1e-6
+
+**Missing.** `describe_faces` gives each face's area and centroid from `Part::face_moments`.
+(a) It returns `None` for corpus `cadgenbench_inputs/cgb217.step` face 29 (`#2586`, a B-spline
+surface; OpenCascade: area 49.9176), so `describe_faces` refuses that part rather than invent a
+value; it is the only part of the oracle's 120 compared (every captured corpus file and the NIST
+files) affected. (b) Its accuracy: against OpenCascade's adaptive integration
+(`BRepGProp.SurfaceProperties` with eps 1e-9), on 1320 area or centroid values (B-spline, torus,
+cylinder and sphere faces of cgb202, cgb203, cgb207, cgb242, cgb243, threaded_connector_109 and
+NIST CTC/FTC files) haecceity is off by 1e-6 to 1e-3 relative where OpenCascade's default
+integral is within 1e-6; on 863 others haecceity is within and OpenCascade not; on 1226 neither
+is (`tests/fixtures/known_differences/features.json`, each value with both numbers).
+
+**Used by.** `features.rs` (`describe_faces`: the analysis's faces, which rules use to pick datum
+faces and top faces), and so every analysis.
+
+**Stand-in.** None for (a): the part's faces are refused, naming the face. (b) is reported value
+by value in the known differences; no correction is applied.
+
+**Met when** `face_moments` gives every face of the corpus a value within 1e-6 relative of an
+adaptive reference.

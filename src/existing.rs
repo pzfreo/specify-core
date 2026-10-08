@@ -1,2 +1,637 @@
 //! Semantic PMI already in the file, keyed by face index (port of `existing.py`).
-//! Not yet ported: see docs/design.md, stage 2.
+//!
+//! The interview must never ask for something the file already states, so each dimension,
+//! geometric tolerance and datum is resolved to the faces it references. The PMI is
+//! haecceity's ([`haecceity::pmi::read`]): it reads each part's PMI semantically, anchored to
+//! the part's own face numbering, so PMI of other parts and of the assembly is never this
+//! part's, and no text scan is needed for what OpenCascade loses.
+//!
+//! What differs from Python, by design:
+//!
+//! - **Values in millimetres, as stated.** Python reports a dimension as OpenCascade gives it,
+//!   in the file's own unit (an inch NIST file's nominal stays in inches); here lengths are
+//!   millimetres, the unit specify-core works in, and angles degrees (as Python reads them).
+//!   Deviations keep their stated sign (Python's reader loses the lower deviation's sign and
+//!   garbles limits below nominal).
+//! - **One datum per letter and set of faces**, including datums no tolerance references
+//!   (OpenCascade's reader builds datums only through the tolerances that cite them).
+//! - **No OpenCascade artefacts.** Presentation read as a dimension (`DimensionPresentation`,
+//!   specify-core's own thread callouts) is not reported; it states no size.
+//!
+//! The type names are OpenCascade's (`XCAFDimTolObjects_DimensionType` and
+//! `XCAFDimTolObjects_GeomToleranceType` without their prefixes), because they are part of the
+//! analysis JSON specify-core's rules read (`Size_*`, `Location*`, `Position`, ...).
+//!
+//! Notes: threads and knurls haecceity reads semantically (`thread`, `turned_knurl`), and the
+//! notes specify-core (Python) writes by its own text route, which haecceity does not report as
+//! anchored items (a `SHAPE_ASPECT` named for its kind and its `GEOMETRIC_ITEM_SPECIFIC_USAGE`s,
+//! linked to nothing semantic): those are read from the Part 21 document as Python reads them
+//! (upstream need U10, a documented stand-in).
+
+use std::collections::BTreeSet;
+use std::fmt;
+
+use haecceity::p21::{Attribute, Document, RawEntity};
+use haecceity::pmi::{
+    self, Anchor, AngleUnit, DimTolerance, DimensionKind, Feature, FeatureId, Finding,
+    GeneralTolerance, LengthUnit, LocationKind, PartPmi, Quantity, SizeKind, TargetShape,
+    ToleranceKind, ToleranceTarget, Value as PmiValue,
+};
+use haecceity::step;
+use serde::ser::{Serialize, SerializeMap, Serializer};
+use serde_json::{Map, Value};
+
+use crate::part::LoadedPart;
+use crate::pyfmt::round_half_even;
+
+/// The notes specify-core writes on faces by its text route, by the name of their
+/// `GEOMETRIC_ITEM_SPECIFIC_USAGE` (Python's `existing._NOTE`).
+pub const NOTE_KINDS: [&str; 5] = [
+    "internal thread",
+    "external thread",
+    "knurl",
+    "surface finish",
+    "surface texture",
+];
+
+/// The part's notes, each a 'manufacturing requirement' of this kind (Python's
+/// `requirements.PART_NOTES`), by the key `part_settings` reports it under.
+pub const PART_NOTES: [(&str, &str); 4] = [
+    ("surface_finish", "surface texture"),
+    ("coating", "surface treatment"),
+    ("heat_treatment", "heat treatment"),
+    ("edges", "edge condition"),
+];
+
+/// One item of PMI the file states (Python's `ExistingPmi`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExistingPmi {
+    /// `dimension`, `geometric_tolerance`, `datum` or `note`.
+    pub kind: String,
+    /// OpenCascade's type name without its prefix (`Size_Diameter`, `Position`), the datum's
+    /// letter, or the note's kind.
+    pub r#type: String,
+    /// The faces it is on, ascending.
+    pub faces: Vec<usize>,
+    /// The second reference set of a location dimension.
+    pub faces2: Vec<usize>,
+    /// Nominal (mm or degrees) of a dimension, magnitude (mm) of a tolerance.
+    pub value: Option<f64>,
+    /// Signed deviations from nominal, mm (degrees for an angle).
+    pub upper: Option<f64>,
+    pub lower: Option<f64>,
+    /// The datum letters a tolerance cites, primary first.
+    pub datums: Vec<String>,
+}
+
+impl ExistingPmi {
+    fn new(kind: &str, r#type: &str, faces: Vec<usize>) -> ExistingPmi {
+        ExistingPmi {
+            kind: kind.into(),
+            r#type: r#type.into(),
+            faces,
+            faces2: Vec::new(),
+            value: None,
+            upper: None,
+            lower: None,
+            datums: Vec::new(),
+        }
+    }
+}
+
+/// As `ExistingPmi.to_dict`: empty and absent fields are left out, but `faces` is always there
+/// (a datum the file attaches to no face still has faces: none), appended last when empty as
+/// Python's `setdefault` does.
+impl Serialize for ExistingPmi {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("kind", &self.kind)?;
+        map.serialize_entry("type", &self.r#type)?;
+        if !self.faces.is_empty() {
+            map.serialize_entry("faces", &self.faces)?;
+        }
+        if !self.faces2.is_empty() {
+            map.serialize_entry("faces2", &self.faces2)?;
+        }
+        for (key, value) in [
+            ("value", self.value),
+            ("upper", self.upper),
+            ("lower", self.lower),
+        ] {
+            if let Some(value) = value {
+                map.serialize_entry(key, &value)?;
+            }
+        }
+        if !self.datums.is_empty() {
+            map.serialize_entry("datums", &self.datums)?;
+        }
+        if self.faces.is_empty() {
+            map.serialize_entry("faces", &self.faces)?;
+        }
+        map.end()
+    }
+}
+
+/// Why a file's PMI could not be read.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ExistingError {
+    /// The file does not parse as Part 21, or its parts cannot be listed.
+    Unreadable(String),
+    /// haecceity's PMI reader refused the file.
+    Pmi(String),
+}
+
+impl fmt::Display for ExistingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ExistingError::Unreadable(why) => write!(f, "cannot read the file's PMI: {why}"),
+            ExistingError::Pmi(why) => write!(f, "cannot read the file's PMI: {why}"),
+        }
+    }
+}
+
+impl std::error::Error for ExistingError {}
+
+/// The part's PMI as haecceity reads it, the findings that concern it (its own and those of
+/// no part), and the parsed document.
+struct Read {
+    doc: Document,
+    pmi: PartPmi,
+    findings: Vec<Finding>,
+}
+
+fn read(loaded: &LoadedPart) -> Result<Read, ExistingError> {
+    let bytes = loaded.bytes.as_ref();
+    let doc =
+        Document::parse(bytes.clone()).map_err(|e| ExistingError::Unreadable(e.to_string()))?;
+    // The reader takes every part of the file, in the order `binding.part` indexes.
+    let parts =
+        step::read_part_definitions(bytes).map_err(|e| ExistingError::Unreadable(e.to_string()))?;
+    let mut read = pmi::read(&doc, &parts).map_err(|e| ExistingError::Pmi(e.to_string()))?;
+    let index = loaded.binding.part;
+    if index >= read.parts.len() {
+        return Err(ExistingError::Pmi(format!(
+            "the reader has {} parts; there is no part {index}",
+            read.parts.len()
+        )));
+    }
+    let findings = read
+        .findings
+        .into_iter()
+        .filter(|f| f.part.is_none_or(|p| p.0 == index))
+        .collect();
+    Ok(Read {
+        pmi: read.parts.swap_remove(index),
+        findings,
+        doc,
+    })
+}
+
+/// The semantic PMI the file states on the part (Python's `read_existing`): dimensions, then
+/// geometric tolerances, then datums, then notes on faces, each group in haecceity's order.
+pub fn read_existing(loaded: &LoadedPart) -> Result<Vec<ExistingPmi>, ExistingError> {
+    let Read { doc, pmi, .. } = read(loaded)?;
+    let mut out = Vec::new();
+
+    for dimension in &pmi.dimensions {
+        let (r#type, first, second) = match &dimension.kind {
+            DimensionKind::Size {
+                feature,
+                kind,
+                path,
+                angle,
+            } => (
+                size_type(kind, path.is_some(), angle.is_some()),
+                faces_of(&pmi, &[*feature]),
+                Vec::new(),
+            ),
+            DimensionKind::Location {
+                from,
+                to,
+                kind,
+                path,
+                angle,
+                ..
+            } => (
+                location_type(kind, path.is_some(), angle.is_some()),
+                faces_of(&pmi, &[*from]),
+                faces_of(&pmi, &[*to]),
+            ),
+        };
+        let mut item = ExistingPmi::new("dimension", r#type, first);
+        item.faces2 = second;
+        let nominal = dimension.nominal.as_ref();
+        item.value = nominal.map(value);
+        // Deviations as stated; limits (and a fit's stated limits) as their offsets from
+        // nominal, the form the analysis carries.
+        let offsets = |upper: &PmiValue, lower: &PmiValue| match nominal {
+            Some(n) => (
+                Some(round_half_even(value(upper) - value(n), 9)),
+                Some(round_half_even(value(lower) - value(n), 9)),
+            ),
+            None => (None, None),
+        };
+        (item.upper, item.lower) = match &dimension.tolerance {
+            DimTolerance::Deviations(b) => (Some(value(b.upper())), Some(value(b.lower()))),
+            DimTolerance::Limits(b) => offsets(b.upper(), b.lower()),
+            DimTolerance::Fit {
+                limits: Some(b), ..
+            } => offsets(b.upper(), b.lower()),
+            DimTolerance::None | DimTolerance::Basic | DimTolerance::Fit { limits: None, .. } => {
+                (None, None)
+            }
+        };
+        out.push(item);
+    }
+
+    for tolerance in &pmi.tolerances {
+        let faces = match &tolerance.target {
+            ToleranceTarget::Feature(f) => faces_of(&pmi, &[*f]),
+            ToleranceTarget::Dimension(d) => match pmi.dimensions.get(d.0).map(|d| &d.kind) {
+                Some(DimensionKind::Size { feature, .. }) => faces_of(&pmi, &[*feature]),
+                Some(DimensionKind::Location { from, to, .. }) => faces_of(&pmi, &[*from, *to]),
+                None => Vec::new(),
+            },
+            ToleranceTarget::Relation {
+                relating, related, ..
+            } => faces_of(&pmi, &[*relating, *related]),
+            ToleranceTarget::WholePart => Vec::new(),
+        };
+        let mut item =
+            ExistingPmi::new("geometric_tolerance", tolerance_type(tolerance.kind), faces);
+        item.value = tolerance.magnitude.as_ref().map(value);
+        item.datums = tolerance
+            .datums
+            .iter()
+            .flat_map(|system| system.compartments())
+            .flat_map(|c| &c.references)
+            .filter_map(|r| pmi.datums.get(r.datum.0))
+            .map(|d| d.label().as_str().to_string())
+            .collect();
+        out.push(item);
+    }
+
+    let mut seen: Vec<(String, Vec<usize>)> = Vec::new();
+    for datum in &pmi.datums {
+        // The datum feature's faces, and those of the features its targets are or lie on.
+        let mut features: Vec<FeatureId> = datum.feature().into_iter().collect();
+        for target in datum.targets() {
+            if let Some(t) = pmi.datum_targets.get(target.0) {
+                if let TargetShape::Area(f) | TargetShape::Curve(f) = t.shape() {
+                    features.push(*f);
+                }
+                features.extend(t.on());
+            }
+        }
+        let key = (
+            datum.label().as_str().to_string(),
+            faces_of(&pmi, &features),
+        );
+        if !seen.contains(&key) {
+            out.push(ExistingPmi::new("datum", &key.0, key.1.clone()));
+            seen.push(key);
+        }
+    }
+
+    out.extend(notes(loaded, &doc, &pmi));
+    Ok(out)
+}
+
+/// What haecceity reported while reading the file that concerns this part (its findings and
+/// those of no part): Python's OpenCascade reader reports nothing of the kind, so the sweeps
+/// record each finding kind they meet.
+pub fn findings(loaded: &LoadedPart) -> Result<Vec<Finding>, ExistingError> {
+    Ok(read(loaded)?.findings)
+}
+
+/// The notes on the part's faces (Python's `existing.notes`), one per kind with every face it
+/// is on: specify-core's text route read from the document (in file order), then the threads
+/// and knurls haecceity reads semantically.
+fn notes(loaded: &LoadedPart, doc: &Document, pmi: &PartPmi) -> Vec<ExistingPmi> {
+    let mut found: Vec<(String, BTreeSet<usize>)> = Vec::new();
+    let mut add = |kind: &str, faces: &[usize]| {
+        if faces.is_empty() {
+            return;
+        }
+        match found.iter_mut().find(|(k, _)| k == kind) {
+            Some((_, set)) => set.extend(faces),
+            None => found.push((kind.to_string(), faces.iter().copied().collect())),
+        }
+    };
+    let graph = doc.graph();
+    for entity in graph.entities.values() {
+        let RawEntity::Simple {
+            name, attributes, ..
+        } = entity
+        else {
+            continue;
+        };
+        if name != "GEOMETRIC_ITEM_SPECIFIC_USAGE" {
+            continue;
+        }
+        let (Some(Attribute::String(kind)), Some(Attribute::EntityRef(face))) =
+            (attributes.first(), attributes.get(4))
+        else {
+            continue;
+        };
+        let kind = haecceity::p21::decode(kind).unwrap_or_else(|_| kind.clone());
+        if NOTE_KINDS.contains(&kind.as_str())
+            && let Some(index) = loaded.definition.face_index(*face)
+        {
+            add(&kind, &[index]);
+        }
+    }
+    for thread in &pmi.threads {
+        let kind = match thread.side {
+            pmi::ThreadSide::Internal => "internal thread",
+            pmi::ThreadSide::External => "external thread",
+        };
+        add(kind, &faces_of(pmi, &[thread.feature]));
+    }
+    for knurl in &pmi.knurls {
+        add("knurl", &faces_of(pmi, &[knurl.feature]));
+    }
+    found
+        .into_iter()
+        .map(|(kind, faces)| ExistingPmi::new("note", &kind, faces.into_iter().collect()))
+        .collect()
+}
+
+/// The material and general tolerance the file states, and the part's notes (surface finish
+/// default, coating, heat treatment, edges) as specify-core writes them (Python's
+/// `part_settings`). Empty for a part of an assembly, as Python's: its text scan cannot tell
+/// whose they are (haecceity could; kept for compatibility with what specify-core asks).
+pub fn part_settings(loaded: &LoadedPart) -> Result<Map<String, Value>, ExistingError> {
+    let mut out = Map::new();
+    if loaded.part_count > 1 {
+        return Ok(out);
+    }
+    let Read { pmi, .. } = read(loaded)?;
+    if let Some(material) = &pmi.material {
+        out.insert("material".into(), Value::String(material.id.clone()));
+    }
+    if let Some(text) = pmi.general.iter().find_map(|g| match g {
+        GeneralTolerance::Class { text, .. } => Some(text),
+        GeneralTolerance::Table { .. } => None,
+    }) {
+        out.insert("general_tolerance".into(), Value::String(text.clone()));
+    }
+    for (key, kind) in PART_NOTES {
+        // The finish as specify-core writes it now, and as it was written before it took
+        // Draftwright's form.
+        let kinds: &[&str] = if key == "surface_finish" {
+            &[kind, "general surface texture"]
+        } else {
+            &[kind]
+        };
+        for kind in kinds {
+            for note in pmi.notes.iter().filter(|n| n.kind == *kind) {
+                let words = if key == "surface_finish" {
+                    // Only the part's default; a finish on faces, written before it was
+                    // 'surface finish', is not.
+                    match default_finish(&note.text) {
+                        Some(words) => words.to_string(),
+                        None => continue,
+                    }
+                } else {
+                    note.text.clone()
+                };
+                out.entry(key).or_insert(Value::String(words));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// `X` of "X µm unless otherwise specified" (or "stated"), the part's default finish (Python's
+/// `_DEFAULT_FINISH.fullmatch`: the whole text must end so, so `X` is all before the ending).
+fn default_finish(text: &str) -> Option<&str> {
+    [
+        " µm unless otherwise specified",
+        " µm unless otherwise stated",
+    ]
+    .iter()
+    .find_map(|tail| text.strip_suffix(tail))
+}
+
+/// The faces of `features`, following groups and derived features to what they are made of
+/// (as Python's `datum_faces` follows shape aspect relationships), ascending.
+fn faces_of(pmi: &PartPmi, features: &[FeatureId]) -> Vec<usize> {
+    fn walk(pmi: &PartPmi, f: FeatureId, seen: &mut BTreeSet<usize>, out: &mut BTreeSet<usize>) {
+        if !seen.insert(f.0) {
+            return;
+        }
+        match pmi.features.get(f.0) {
+            Some(Feature::Items(items)) => out.extend(items.iter().filter_map(|a| match a {
+                Anchor::Face(face) => Some(face.0),
+                Anchor::Edge(_) | Anchor::Geometry(_) => None,
+            })),
+            Some(Feature::Group { members, .. }) => {
+                for m in members {
+                    walk(pmi, *m, seen, out);
+                }
+            }
+            Some(Feature::Derived { from, .. }) => {
+                for m in from {
+                    walk(pmi, *m, seen, out);
+                }
+            }
+            None => {}
+        }
+    }
+    let (mut seen, mut out) = (BTreeSet::new(), BTreeSet::new());
+    for f in features {
+        walk(pmi, *f, &mut seen, &mut out);
+    }
+    out.into_iter().collect()
+}
+
+/// A value in millimetres or degrees. A value stated in that unit is its decimal as written;
+/// anything else is converted.
+fn value(v: &PmiValue) -> f64 {
+    match &v.quantity {
+        Quantity::Length(l) if l.unit == LengthUnit::Millimetre => l.value.to_f64(),
+        Quantity::Length(l) => l.mm(),
+        Quantity::Angle(a) if a.unit == AngleUnit::Degree => a.value.to_f64(),
+        Quantity::Angle(a) => a.rad().to_degrees(),
+    }
+}
+
+/// OpenCascade's names for the size kinds (`STEPCAFControl_GDTProperty::GetDimType`).
+const SIZE_TYPES: [(SizeKind, &str); 14] = [
+    (SizeKind::CurveLength, "Size_CurveLength"),
+    (SizeKind::Diameter, "Size_Diameter"),
+    (SizeKind::SphericalDiameter, "Size_SphericalDiameter"),
+    (SizeKind::Radius, "Size_Radius"),
+    (SizeKind::SphericalRadius, "Size_SphericalRadius"),
+    (
+        SizeKind::ToroidalMinorDiameter,
+        "Size_ToroidalMinorDiameter",
+    ),
+    (
+        SizeKind::ToroidalMajorDiameter,
+        "Size_ToroidalMajorDiameter",
+    ),
+    (SizeKind::ToroidalMinorRadius, "Size_ToroidalMinorRadius"),
+    (SizeKind::ToroidalMajorRadius, "Size_ToroidalMajorRadius"),
+    (
+        SizeKind::ToroidalHighMajorDiameter,
+        "Size_ToroidalHighMajorDiameter",
+    ),
+    (
+        SizeKind::ToroidalLowMajorDiameter,
+        "Size_ToroidalLowMajorDiameter",
+    ),
+    (
+        SizeKind::ToroidalHighMajorRadius,
+        "Size_ToroidalHighMajorRadius",
+    ),
+    (
+        SizeKind::ToroidalLowMajorRadius,
+        "Size_ToroidalLowMajorRadius",
+    ),
+    (SizeKind::Thickness, "Size_Thickness"),
+];
+
+/// OpenCascade's names for the location kinds. Its table has no 'linear distance centre',
+/// 'inner' or 'outer' (PMI practice Table 2's one-sided forms): those, like any name outside
+/// its table, are `Location_None`, its default type.
+const LOCATION_TYPES: [(LocationKind, &str); 10] = [
+    (LocationKind::CurvedDistance, "Location_CurvedDistance"),
+    (LocationKind::LinearDistance, "Location_LinearDistance"),
+    (
+        LocationKind::LinearDistanceCentreOuter,
+        "Location_LinearDistance_FromCenterToOuter",
+    ),
+    (
+        LocationKind::LinearDistanceCentreInner,
+        "Location_LinearDistance_FromCenterToInner",
+    ),
+    (
+        LocationKind::LinearDistanceOuterCentre,
+        "Location_LinearDistance_FromOuterToCenter",
+    ),
+    (
+        LocationKind::LinearDistanceOuterOuter,
+        "Location_LinearDistance_FromOuterToOuter",
+    ),
+    (
+        LocationKind::LinearDistanceOuterInner,
+        "Location_LinearDistance_FromOuterToInner",
+    ),
+    (
+        LocationKind::LinearDistanceInnerCentre,
+        "Location_LinearDistance_FromInnerToCenter",
+    ),
+    (
+        LocationKind::LinearDistanceInnerOuter,
+        "Location_LinearDistance_FromInnerToOuter",
+    ),
+    (
+        LocationKind::LinearDistanceInnerInner,
+        "Location_LinearDistance_FromInnerToInner",
+    ),
+];
+
+/// The type name OpenCascade gives a dimensional (or angular) size: angular first, then the
+/// name's kind, then a size with a path; otherwise its default, `Location_None`.
+fn size_type(kind: &SizeKind, path: bool, angular: bool) -> &'static str {
+    if angular {
+        return "Size_Angular";
+    }
+    SIZE_TYPES
+        .iter()
+        .find(|(k, _)| k == kind)
+        .map(|(_, name)| *name)
+        .unwrap_or(if path {
+            "Size_WithPath"
+        } else {
+            "Location_None"
+        })
+}
+
+/// The type name OpenCascade gives a dimensional (or angular) location, as [`size_type`].
+fn location_type(kind: &LocationKind, path: bool, angular: bool) -> &'static str {
+    if angular {
+        return "Location_Angular";
+    }
+    LOCATION_TYPES
+        .iter()
+        .find(|(k, _)| k == kind)
+        .map(|(_, name)| *name)
+        .unwrap_or(if path {
+            "Location_WithPath"
+        } else {
+            "Location_None"
+        })
+}
+
+/// OpenCascade's name for a tolerance kind (`XCAFDimTolObjects_GeomToleranceType`).
+pub fn tolerance_type(kind: ToleranceKind) -> &'static str {
+    use ToleranceKind as K;
+    match kind {
+        K::Angularity => "Angularity",
+        K::CircularRunout => "CircularRunout",
+        K::Coaxiality => "Coaxiality",
+        K::Concentricity => "Concentricity",
+        K::Cylindricity => "Cylindricity",
+        K::Flatness => "Flatness",
+        K::LineProfile => "ProfileOfLine",
+        K::Parallelism => "Parallelism",
+        K::Perpendicularity => "Perpendicularity",
+        K::Position => "Position",
+        K::Roundness => "CircularityOrRoundness",
+        K::Straightness => "Straightness",
+        K::SurfaceProfile => "ProfileOfSurface",
+        K::Symmetry => "Symmetry",
+        K::TotalRunout => "TotalRunout",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn faces_are_always_present_and_last_when_empty() {
+        let mut d = ExistingPmi::new("dimension", "Size_Diameter", Vec::new());
+        d.value = Some(8.0);
+        assert_eq!(
+            serde_json::to_string(&d).unwrap(),
+            r#"{"kind":"dimension","type":"Size_Diameter","value":8.0,"faces":[]}"#
+        );
+        let datum = ExistingPmi::new("datum", "A", vec![3]);
+        assert_eq!(
+            serde_json::to_string(&datum).unwrap(),
+            r#"{"kind":"datum","type":"A","faces":[3]}"#
+        );
+    }
+
+    #[test]
+    fn a_default_finish_is_read_back_to_its_value() {
+        assert_eq!(
+            default_finish("Ra 1.6 µm unless otherwise specified"),
+            Some("Ra 1.6")
+        );
+        assert_eq!(
+            default_finish("Ra 3.2 µm unless otherwise stated"),
+            Some("Ra 3.2")
+        );
+        assert_eq!(default_finish("Ra 0.8 µm"), None);
+    }
+
+    #[test]
+    fn every_tolerance_kind_has_an_opencascade_name() {
+        for (_, kind) in ToleranceKind::ALL {
+            assert!(!tolerance_type(kind).is_empty());
+        }
+        assert_eq!(
+            size_type(&SizeKind::Other("x".into()), false, false),
+            "Location_None"
+        );
+        assert_eq!(
+            location_type(&LocationKind::LinearDistanceCentre, false, false),
+            "Location_None"
+        );
+    }
+}
