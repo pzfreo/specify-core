@@ -1,0 +1,233 @@
+//! Turned diameters: a fit, a thread or a knurl, and how true each runs about the part's axis.
+
+use serde_json::{Map, Value};
+
+use super::datums::classify;
+use super::holes::{mated_reason, mated_value};
+use super::mates::suggestion;
+use super::py::{self, fmt, object, sentence};
+use super::records::{Ctx, DatumKind, Datums, Feature};
+use super::{Error, GENERAL, NONE, Question, Result, invalid};
+use crate::choices;
+use crate::standards::{self, KNURL_PATTERNS, PITCH, SHAFT_FITS};
+
+/// Runout zones offered for a turned diameter, beside none.
+pub const RUNOUTS: [&str; 4] = ["0.01", "0.02", "0.05", "0.1"];
+
+/// A turned step's cylinder faces, or all its faces where it has none.
+fn cylinders(feature: &Feature<'_>, ctx: &Ctx<'_>) -> Result<Vec<i64>> {
+    let faces = feature.faces()?;
+    let mut out = Vec::new();
+    for &i in faces {
+        if ctx.faces.at(i)?.is_cylinder() {
+            out.push(i);
+        }
+    }
+    Ok(if out.is_empty() { faces.to_vec() } else { out })
+}
+
+/// Each feature of a group with its cylinders, when the group is more than one.
+fn parts(group: &[&Feature<'_>], ctx: &Ctx<'_>) -> Result<Vec<(String, Vec<i64>)>> {
+    if group.len() < 2 {
+        return Ok(Vec::new());
+    }
+    group
+        .iter()
+        .map(|f| Ok((f.id.to_string(), cylinders(f, ctx)?)))
+        .collect()
+}
+
+/// `_turned_question`: one question for the turned diameters of one size; each keeps its own
+/// fit.
+pub(crate) fn turned_question(group: &[&Feature<'_>], ctx: &Ctx<'_>) -> Result<Question> {
+    let feature = group[0];
+    let d = feature.number("diameter")?;
+    let times = if group.len() > 1 {
+        format!("{}× ", group.len())
+    } else {
+        String::new()
+    };
+    let mut options = vec![GENERAL.to_string()];
+    options.extend(SHAFT_FITS.iter().map(|f| f.to_string()));
+    if let Some(thread) = standards::thread_size(d) {
+        options.push(format!("thread:{thread}"));
+    }
+    options.extend(KNURL_PATTERNS.iter().map(|p| format!("knurl:{p}")));
+    let mut on = Vec::new();
+    for f in group {
+        on.extend(cylinders(f, ctx)?);
+    }
+    let mut default = Value::from(GENERAL);
+    let (mut basis, mut mate) = (String::new(), String::new());
+    if let Some(mated) = suggestion(ctx.mates, &on)? {
+        let value = mated_value(mated)?;
+        if let Value::String(v) = value
+            && options.contains(v)
+        {
+            let reason = mated_reason(mated)?;
+            default = value.clone();
+            basis = sentence(reason);
+            mate = reason.to_string();
+        }
+    }
+    let qid = format!("diameter.fit:{}", feature.id);
+    let described = choices::describe(&qid, &options, Some(d)).map_err(Error::Invalid)?;
+    Ok(Question {
+        default: Some(default),
+        options,
+        why: "Functional diameters need a fit (bearing, seal, press fit); a diameter at a \
+              metric size may be threaded; a grip may be knurled. The rest are covered by the \
+              general tolerance."
+            .to_string(),
+        feature: Some(feature.id.to_string()),
+        parts: parts(group, ctx)?,
+        choices: described,
+        diameter: Some(d),
+        basis,
+        mate,
+        ..Question::new(
+            qid,
+            "choice",
+            format!(
+                "Is the turned {times}Ø{} diameter a fit, a thread or knurled?",
+                fmt(d)
+            ),
+            on,
+        )
+    })
+}
+
+/// `_runout_frame`: the frame a turned diameter's runout is measured from (the datums up to
+/// and including the part's axis: those given, else those that would be proposed, a face then
+/// the axis) and the axis datum's faces. None for a part with no datum axis.
+pub(crate) fn runout_frame(ctx: &Ctx<'_>, datums: &Datums) -> Result<Option<(String, Vec<i64>)>> {
+    if !datums.is_empty() {
+        let letters = datums.letters();
+        let Some(at) = datums.iter().position(|(_, d)| d.kind == DatumKind::Axis) else {
+            return Ok(None);
+        };
+        let frame = letters[..=at]
+            .iter()
+            .map(char::to_string)
+            .collect::<Vec<_>>()
+            .join("|");
+        return Ok(Some((frame, datums.0[at].1.faces.clone())));
+    }
+    let (a, b, _) = ctx.default_datums()?;
+    if !a.is_empty()
+        && !b.is_empty()
+        && classify(a, &ctx.faces)? == Some(DatumKind::Plane)
+        && classify(b, &ctx.faces)? == Some(DatumKind::Axis)
+    {
+        return Ok(Some(("A|B".to_string(), b.clone())));
+    }
+    Ok(None)
+}
+
+/// `_runout_question`: how true a turned diameter runs about the part's axis; none by default.
+pub(crate) fn runout_question(
+    group: &[&Feature<'_>],
+    ctx: &Ctx<'_>,
+    frame: &str,
+) -> Result<Question> {
+    let feature = group[0];
+    let d = feature.number("diameter")?;
+    let times = if group.len() > 1 {
+        format!("{}× ", group.len())
+    } else {
+        String::new()
+    };
+    let mut on = Vec::new();
+    for f in group {
+        on.extend(cylinders(f, ctx)?);
+    }
+    let mut options = vec![NONE.to_string()];
+    options.extend(RUNOUTS.iter().map(|r| r.to_string()));
+    Ok(Question {
+        default: Some(Value::from(NONE)),
+        options,
+        why: "How far the diameter may wobble as the part turns on its axis: for bearing seats, \
+              seals and anything that spins."
+            .to_string(),
+        feature: Some(feature.id.to_string()),
+        frame: Some(frame.to_string()),
+        parts: parts(group, ctx)?,
+        ..Question::new(
+            format!("diameter.runout:{}", feature.id),
+            "choice",
+            format!(
+                "Runout of the turned {times}Ø{} relative to {frame}?",
+                fmt(d)
+            ),
+            on,
+        )
+    })
+}
+
+/// `_turned_requirement`: a turned diameter's answer as a fit's size, an external thread or a
+/// knurl.
+pub(crate) fn turned_requirement(
+    value: &Value,
+    d: f64,
+    fid: &str,
+    cylinders: &[i64],
+    ctx: &Ctx<'_>,
+) -> Result<Map<String, Value>> {
+    let Value::String(value) = value else {
+        return invalid(format!(
+            "diameter.fit:{fid}: an answer is text, not {}",
+            py::repr(value)
+        ));
+    };
+    let (kind, spec) = value.split_once(':').unwrap_or((value.as_str(), ""));
+    let base = |kind: &str| {
+        object([
+            ("kind", Value::from(kind)),
+            ("feature", Value::from(fid)),
+            ("faces", Value::from(cylinders.to_vec())),
+        ])
+    };
+    if kind == "thread" {
+        let feature = ctx.feature(fid)?;
+        let length = match feature.get("hi")? {
+            None => Value::Null,
+            Some(hi) => {
+                let lo = feature.get("lo")?.unwrap_or(&Value::Null);
+                py::sub(hi, lo).map_err(|e| Error::Invalid(format!("feature {fid}: {e}")))?
+            }
+        };
+        let pitch = standards::lookup(&PITCH, spec)
+            .ok_or_else(|| Error::Invalid(crate::pyfmt::repr_str(spec)))?;
+        let mut req = base("thread");
+        for (key, v) in [
+            ("side", Value::from("external")),
+            ("designation", Value::from(spec)),
+            ("pitch", Value::from(pitch)),
+            (
+                "spec",
+                Value::from(format!("{spec}x{}", crate::pyfmt::g(pitch))),
+            ),
+            ("class", Value::from(standards::EXTERNAL_THREAD_CLASS)),
+            ("hand", Value::from("RH")),
+            ("length", length),
+            ("nominal", Value::from(d)),
+        ] {
+            req.insert(key.into(), v);
+        }
+        return Ok(req);
+    }
+    if kind == "knurl" {
+        let mut req = base("knurl");
+        req.insert("pattern".into(), Value::from(spec));
+        req.insert("pitch".into(), Value::from(standards::KNURL_PITCH));
+        req.insert("diameter".into(), Value::from(d));
+        return Ok(req);
+    }
+    let (upper, lower) = standards::fit_limits(value, d).map_err(Error::Invalid)?;
+    let mut req = base("size");
+    req.insert("nominal".into(), Value::from(d));
+    req.insert("fit".into(), Value::from(value.as_str()));
+    req.insert("upper".into(), Value::from(upper));
+    req.insert("lower".into(), Value::from(lower));
+    Ok(req)
+}

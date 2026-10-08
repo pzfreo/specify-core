@@ -57,3 +57,13 @@ the whole part (checked with Python: `describe('hole.function:x', ['general', 'f
 Should fits not be offered above 500 mm (the general tolerance only), or should ISO 286 be
 extended to 3150 mm? *Meanwhile:* Python's behaviour is kept: `choices::describe` returns the
 same message as an error, which its caller reports (no part question list is made up).
+
+**Q9 (rules stream). Malformed input Python crashes on.** A few answers or analysis records make
+specify-core's rules raise something other than `ValueError`: an `AttributeError` or `TypeError`,
+which serve reports as `failed` with a trace (a hole's purpose answered with a non-string while a
+position is asked: Python calls `.partition` on it before `choices.check` runs; a datum answer that
+is a bare number), or a `KeyError`, which serve reports as `invalid` with only the key as message
+(a tapped size that is not tabulated, `'M7'`; a record missing a key the rules read). None occurs
+in the oracle. *Meanwhile:* the Rust rules refuse each as `Error::Invalid` (serve's `invalid`)
+with a message naming the answer or record; for a hole's purpose, the message `choices.check`
+gives once it gets that far. Confirm, or should such input keep failing as `failed`?
