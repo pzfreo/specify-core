@@ -1,4 +1,5 @@
-//! Standards knowledge: ISO 286 fits and metric bolt sizes (port of `standards.py`).
+//! Standards knowledge: ISO 286 fits, metric bolt sizes and knurls (port of `standards.py`; the
+//! knurl table, `knurl_parameters`, is this port's own: questions Q4, Q15).
 //!
 //! Only what the rules use. Values are ISO 286-1/-2 tabulated values in micrometres for nominal
 //! sizes up to 3150 mm; each size range is "over the lower bound, up to and including the upper".
@@ -143,6 +144,126 @@ pub const EXTERNAL_THREAD_CLASS: &str = "6g";
 /// Knurl patterns as AP242's turned_knurl names them, and a common pitch, mm.
 pub const KNURL_PATTERNS: [&str; 2] = ["straight", "diamond"];
 pub const KNURL_PITCH: f64 = 1.0;
+
+/// The knurling standard a knurl's `turned_knurl` parameters are derived from (questions Q4,
+/// Q15).
+///
+/// DIN 82 (knurls) defines the knurl types, a 90° profile angle and the pitch series; the knurl's
+/// nominal diameter d1 on the drawing is the outside diameter of the finished knurl. The text
+/// checked is IS 3403:1981 *Dimensions for knurls*, which states DIN 82's types (RAA straight;
+/// RBL/RBR one helix at 30°; RGE/RGV left- and right-hand helices crossed, 30° each way),
+/// §3.1 profile angle 90°, §3.2 pitch P 0.5, 0.6, 0.8, 1.0, 1.2, 1.6 mm, §3.3 the nominal
+/// diameter and §3.4 the initial diameter d2 = d1 − 0.5 P (RAA, RBL, RBR), d1 − 0.67 P (RGE).
+/// The root radius is the knurling wheel's crest radius: IS 6776:1980 *Knurling wheels* (wheels
+/// for knurls to IS 3403) §4.3, 0.1 mm for P up to and including 1.0 mm, 0.15 mm above. Neither
+/// the DIN 82 text itself nor ISO 13444 (the indication of knurls) was available to check.
+///
+/// **Assumed, as no table gives it:** the tooth depth, taken as P/2, the depth of the sharp 90°
+/// profile of pitch P (§3.1). It agrees with §3.4: a formed straight knurl grows by 0.5 P on
+/// the diameter, the profile's depth P/2 pressed half in and raised half out. The rounding of
+/// crest and root (§4.3) would make it shallower by 2 r (√2 − 1), 0.08 mm at 1 mm pitch; like
+/// §3.4's factors, P/2 does not count it.
+pub const KNURL_STANDARD: &str = "DIN 82";
+
+/// DIN 82's pitches, mm (IS 3403:1981 §3.2).
+pub const KNURL_PITCHES: [f64; 6] = [0.5, 0.6, 0.8, 1.0, 1.2, 1.6];
+
+/// The helix angle of each of a diamond knurl's two crossed helices, degrees (DIN 82 type RGE;
+/// IS 6776:1980 type GE, 30° each way). It states no hand: it is cut both ways.
+pub const KNURL_HELIX_ANGLE: f64 = 30.0;
+
+/// A knurl's `turned_knurl` parameters beside its pattern, pitch and diameter, derived from
+/// [`KNURL_STANDARD`], each with where it comes from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct KnurlParameters {
+    pub teeth: u32,
+    pub tooth_depth: f64,
+    pub root_fillet: f64,
+    /// A diamond knurl's only.
+    pub helix_angle: Option<f64>,
+    /// `(intent key, source)` for each value above, in that order.
+    pub sources: Vec<(&'static str, String)>,
+}
+
+/// The parameters of a `pattern` knurl of `pitch` on a diameter `diameter` (the finished knurl's
+/// outside diameter, DIN 82's d1), or why they cannot be derived: the number of teeth is
+/// π·d/P rounded to a whole number, the pitch kept at its nominal (tool) value and the diameter
+/// as designed; the tooth depth P/2 and the root fillet the wheel's crest radius (see
+/// [`KNURL_STANDARD`]); a diamond knurl's helix angle 30° and no hand, a straight knurl's
+/// neither.
+pub fn knurl_parameters(
+    pattern: &str,
+    pitch: f64,
+    diameter: f64,
+) -> Result<KnurlParameters, String> {
+    let diamond = match pattern {
+        "straight" => false,
+        "diamond" => true,
+        other => {
+            return Err(format!(
+                "{} is not a knurl pattern {KNURL_STANDARD} gives (straight or diamond)",
+                pyfmt::repr_str(other)
+            ));
+        }
+    };
+    if !KNURL_PITCHES.contains(&pitch) {
+        let series: Vec<String> = KNURL_PITCHES.iter().map(|p| pyfmt::g(*p)).collect();
+        return Err(format!(
+            "a pitch of {} mm is not one of {KNURL_STANDARD}'s ({} mm)",
+            pyfmt::g(pitch),
+            series.join(", ")
+        ));
+    }
+    let teeth = (std::f64::consts::PI * diameter / pitch).round();
+    if !diameter.is_finite() || teeth < 1.0 || teeth > f64::from(u32::MAX) {
+        return Err(format!(
+            "a diameter of {} mm gives no whole number of teeth",
+            pyfmt::g(diameter)
+        ));
+    }
+    let teeth = teeth as u32;
+    let tooth_depth = pitch / 2.0;
+    let root_fillet = if pitch <= 1.0 { 0.1 } else { 0.15 };
+    let (d, p) = (pyfmt::g(diameter), pyfmt::g(pitch));
+    let mut sources = vec![
+        (
+            "teeth",
+            format!(
+                "π × {d} / {p} rounded: the diameter as designed and {KNURL_STANDARD}'s pitch \
+                 {p} mm, kept at the tool's"
+            ),
+        ),
+        (
+            "tooth_depth",
+            format!(
+                "P/2, the depth of {KNURL_STANDARD}'s 90° profile at pitch {p} mm (no table gives \
+                 it; crest and root rounding not counted)"
+            ),
+        ),
+        (
+            "root_fillet",
+            format!(
+                "the knurling wheel's crest radius for a pitch {} 1 mm (IS 6776:1980 §4.3, wheels \
+                 for {KNURL_STANDARD} knurls)",
+                if pitch <= 1.0 { "up to" } else { "over" }
+            ),
+        ),
+    ];
+    let helix_angle = diamond.then_some(KNURL_HELIX_ANGLE);
+    if diamond {
+        sources.push((
+            "helix_angle",
+            format!("{KNURL_STANDARD} type RGE: two helices crossed at 30° each way, so no hand"),
+        ));
+    }
+    Ok(KnurlParameters {
+        teeth,
+        tooth_depth,
+        root_fillet,
+        helix_angle,
+        sources,
+    })
+}
 
 /// A table of values by metric thread size, in Python's dict order.
 pub type SizeTable = [(&'static str, f64); 13];

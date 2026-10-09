@@ -145,4 +145,88 @@ fn external_thread_and_knurl_from_turned_answers() {
     assert_eq!(knurl["pattern"], "diamond");
     assert_eq!(knurl["pitch"].as_f64(), Some(1.0));
     assert_eq!(knurl["diameter"].as_f64(), Some(10.0));
+    // Beyond Python: turned_knurl's parameters from DIN 82, each with its source (Q4, Q15).
+    assert_eq!(knurl["teeth"], json!(31)); // π × 10 / 1 = 31.4
+    assert_eq!(knurl["tooth_depth"].as_f64(), Some(0.5));
+    assert_eq!(knurl["root_fillet"].as_f64(), Some(0.1));
+    assert_eq!(knurl["helix_angle"].as_f64(), Some(30.0));
+    assert!(knurl.get("hand").is_none() && knurl.get("helix_hand").is_none());
+    assert_eq!(knurl["standard"], "DIN 82");
+    let derived: Vec<&String> = knurl["derived"].as_object().unwrap().keys().collect();
+    assert_eq!(
+        derived,
+        ["teeth", "tooth_depth", "root_fillet", "helix_angle"]
+    );
+}
+
+/// A straight knurl states the number of teeth, tooth depth and root fillet, and neither a
+/// helix angle nor a hand (questions Q4, Q15).
+#[test]
+fn a_straight_knurl_states_its_standard_parameters() {
+    let pin = pin();
+    let ten = feature(&pin, "turned_steps", 10.0);
+    let given = answers(json!({
+        "part.material": "brass",
+        format!("diameter.fit:{ten}"): "knurl:straight",
+    }));
+    let intent = apply_with_defaults(&pin, &given, true).unwrap();
+    let knurl = &requirements_of(&intent, "knurl")[0];
+    let keys: Vec<&String> = knurl.keys().collect();
+    assert_eq!(
+        keys,
+        [
+            "kind",
+            "feature",
+            "faces",
+            "pattern",
+            "pitch",
+            "diameter",
+            "teeth",
+            "tooth_depth",
+            "root_fillet",
+            "standard",
+            "derived",
+            "question"
+        ]
+    );
+    assert_eq!(knurl["teeth"], json!(31));
+    assert!(
+        knurl["derived"]["teeth"]
+            .as_str()
+            .unwrap()
+            .starts_with("π × 10 / 1 rounded")
+    );
+}
+
+/// The knurling table: DIN 82's pitches (IS 3403:1981 §3.2), teeth rounded with the pitch kept,
+/// depth P/2 of the 90° profile, the wheel's crest radius as the root fillet (IS 6776:1980
+/// §4.3), 30° for a diamond; refused off the table.
+#[test]
+fn knurl_parameters_follow_the_standard() {
+    let k = standards::knurl_parameters("straight", 0.8, 20.0).unwrap();
+    assert_eq!(k.teeth, 79); // 78.54
+    assert_eq!(
+        (k.tooth_depth, k.root_fillet, k.helix_angle),
+        (0.4, 0.1, None)
+    );
+    let k = standards::knurl_parameters("diamond", 1.6, 25.0).unwrap();
+    assert_eq!(k.teeth, 49); // 49.09
+    assert_eq!(
+        (k.tooth_depth, k.root_fillet, k.helix_angle),
+        (0.8, 0.15, Some(30.0))
+    );
+    let k = standards::knurl_parameters("straight", 1.0, 10.0).unwrap();
+    assert_eq!(k.root_fillet, 0.1); // up to and including 1.0 mm
+    let k = standards::knurl_parameters("straight", 1.2, 10.0).unwrap();
+    assert_eq!(k.root_fillet, 0.15);
+    assert_eq!(
+        standards::knurl_parameters("straight", 0.7, 10.0).unwrap_err(),
+        "a pitch of 0.7 mm is not one of DIN 82's (0.5, 0.6, 0.8, 1, 1.2, 1.6 mm)"
+    );
+    assert!(
+        standards::knurl_parameters("diagonal", 1.0, 10.0)
+            .unwrap_err()
+            .contains("straight or diamond")
+    );
+    assert!(standards::knurl_parameters("straight", 1.0, 0.0).is_err());
 }

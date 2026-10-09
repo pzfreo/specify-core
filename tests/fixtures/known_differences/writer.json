@@ -1,24 +1,10 @@
 [
  {
-  "case": "*",
-  "path": "write.written[*knurl on *]",
-  "pattern": "a knurl Python writes and the Rust writer cannot",
-  "verdict": "undetermined",
-  "evidence": "AP242's turned_knurl WR2 needs six to nine parameters (major and nominal diameter, diametral pitch and three or more of number of teeth, tooth depth, root fillet, helix angle, hand: haecceity pmi/write.rs refuses 'a knurl with 3 parameters (turned_knurl WR2: 6 to 9)', seen on parts/pin); the intent states diameter and pitch only, so no knurl can be written without guessing. Python writes its text route and a UDA. Listed in not_written; questions Q4 and Q15."
- },
- {
-  "case": "*",
-  "path": "write.not_written[*knurl on *]",
-  "pattern": "a knurl listed as not written, with its reason",
-  "verdict": "undetermined",
-  "evidence": "AP242's turned_knurl WR2 needs six to nine parameters (major and nominal diameter, diametral pitch and three or more of number of teeth, tooth depth, root fillet, helix angle, hand: haecceity pmi/write.rs refuses 'a knurl with 3 parameters (turned_knurl WR2: 6 to 9)', seen on parts/pin); the intent states diameter and pitch only, so no knurl can be written without guessing. Python writes its text route and a UDA. Listed in not_written; questions Q4 and Q15."
- },
- {
-  "case": "*",
-  "path": "existing[key=note|knurl|*]",
-  "pattern": "a knurl note Python reads back from its own text route",
-  "verdict": "undetermined",
-  "evidence": "AP242's turned_knurl WR2 needs six to nine parameters (major and nominal diameter, diametral pitch and three or more of number of teeth, tooth depth, root fillet, helix angle, hand: haecceity pmi/write.rs refuses 'a knurl with 3 parameters (turned_knurl WR2: 6 to 9)', seen on parts/pin); the intent states diameter and pitch only, so no knurl can be written without guessing. Python writes its text route and a UDA. Listed in not_written; questions Q4 and Q15."
+  "case": "scenarios/turned_*knurl*",
+  "path": "write.warnings[*knurl on *: the intent states no *]",
+  "pattern": "a knurl from Python's intent, its turned_knurl parameters filled in from DIN 82",
+  "verdict": "rust-correct",
+  "evidence": "The maintainer's decision Q4/Q15 (docs/questions.md): a knurl is written as AP242's turned_knurl, which needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9); Python's intent states pattern, pitch and diameter only, so the Rust writer derives the rest from the knurling standard (src/standards.rs knurl_parameters: teeth round(pi d/P), depth P/2 of DIN 82's 90 degree profile, root fillet the knurling wheel's crest radius, IS 3403:1981 and IS 6776:1980 4.3) and says so in a warning, as decided. The knurl itself is written as Python's line ('straight knurl on turned_steps:0') and reads back in both engines' terms as a knurl note on the same faces; verified by read-back (tests/writer.rs, knurls). Python writes no turned_knurl, only its text route and a UDA."
  },
  {
   "case": "*",

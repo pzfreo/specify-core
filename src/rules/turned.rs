@@ -164,6 +164,25 @@ pub(crate) fn runout_question(
     })
 }
 
+/// A knurl's derived `turned_knurl` parameters as intent: `teeth`, `tooth_depth`,
+/// `root_fillet`, a diamond's `helix_angle`, then `standard` and `derived` (each derived key
+/// with its source). The writer fills an intent without them the same way.
+fn knurl_fields(req: &mut Map<String, Value>, k: &standards::KnurlParameters) {
+    req.insert("teeth".into(), Value::from(k.teeth));
+    req.insert("tooth_depth".into(), Value::from(k.tooth_depth));
+    req.insert("root_fillet".into(), Value::from(k.root_fillet));
+    if let Some(a) = k.helix_angle {
+        req.insert("helix_angle".into(), Value::from(a));
+    }
+    req.insert("standard".into(), Value::from(standards::KNURL_STANDARD));
+    let derived: Map<String, Value> = k
+        .sources
+        .iter()
+        .map(|(key, why)| ((*key).to_string(), Value::from(why.as_str())))
+        .collect();
+    req.insert("derived".into(), Value::Object(derived));
+}
+
 /// `_turned_requirement`: a turned diameter's answer as a fit's size, an external thread or a
 /// knurl.
 pub(crate) fn turned_requirement(
@@ -221,6 +240,13 @@ pub(crate) fn turned_requirement(
         req.insert("pattern".into(), Value::from(spec));
         req.insert("pitch".into(), Value::from(standards::KNURL_PITCH));
         req.insert("diameter".into(), Value::from(d));
+        // AP242's turned_knurl needs more than these (WR2), so the rest is derived from the
+        // knurling standard and stated with its source, visible and editable (questions Q4,
+        // Q15; a difference from Python, whose knurl has these three). A pattern the standard
+        // does not give states nothing more, and the writer lists it as not written.
+        if let Ok(k) = standards::knurl_parameters(spec, standards::KNURL_PITCH, d) {
+            knurl_fields(&mut req, &k);
+        }
         return Ok(req);
     }
     let (upper, lower) = standards::fit_limits(value, d).map_err(Error::Invalid)?;

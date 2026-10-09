@@ -5,8 +5,8 @@
 //! features (coplanar faces, or a hole's cylinders for an axis datum), sizes (an ISO 286 fit as
 //! the fit, `±` and limits as deviations), locations (basic, or deviations) from the reference
 //! faces to the feature, geometric tolerances with their zone, modifier and datum system,
-//! material, the general tolerance as a class, and threads (with their manufacturing data as a
-//! user defined attribute set, upstream need U8). Every part is written in one
+//! material, the general tolerance as a class, threads (with their manufacturing data as a
+//! user defined attribute set, upstream need U8) and knurls. Every part is written in one
 //! `haecceity::pmi::write` edit of the file, which validates every instance it makes against
 //! the AP242 schema before anything is returned.
 //!
@@ -23,10 +23,12 @@
 //! **What is not written.** haecceity writes notes only in a standard form, and none exists
 //! yet (upstream need U3, question Q3): a surface finish on faces and the part's notes
 //! (surface-finish default, coating, heat treatment, edges) are listed in the report's
-//! `not_written`, each saying why, never dropped silently. So is every knurl: AP242's
-//! `turned_knurl` needs parameters the intent does not state (questions Q4, Q15). So is a
-//! requirement that names no faces (`the size on holes:16`), having nothing in the file to be
-//! written on; the rest of the intent is written (question Q17).
+//! `not_written`, each saying why, never dropped silently. So is a requirement that names no
+//! faces (`the size on holes:16`), having nothing in the file to be written on; the rest of the
+//! intent is written (question Q17). A knurl is written as AP242's `turned_knurl`, the
+//! parameters it needs beyond the intent's diameter and pitch derived from the knurling
+//! standard where the intent does not state them, and the warnings say so (questions Q4, Q15;
+//! `knurl`); one whose pattern or pitch the standard does not give is listed in `not_written`.
 //!
 //! **haecceity's gaps** (upstream need U14): a replace of a part with a thread haecceity wrote
 //! is refused by its removal plan, and the thread's runout aspect reads back unconsumed; both
@@ -882,6 +884,7 @@ fn faceless(kind: &str, req: &Map<String, Json>) -> Option<String> {
         "location" if none("faces") => Some(format!("the location of {name}")),
         "location" if none("reference") => Some(format!("the reference of the location of {name}")),
         "thread" if none("faces") => Some(format!("the thread on {name}")),
+        "knurl" if none("faces") => Some(format!("the knurl on {name}")),
         other if tolerance_kind(other).is_some() && none("faces") => {
             Some(format!("the {other} tolerance on {name}"))
         }
@@ -1138,21 +1141,27 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
                 ));
             }
             "knurl" => {
-                // AP242's turned_knurl states six to nine parameters (WR2): its major and
-                // nominal diameters and diametral pitch, and at least three of the number of
-                // teeth, tooth depth, root fillet, helix angle and hand (a diamond or diagonal
-                // knurl needs the helix angle, WR9). The intent has the diameter and pitch only,
-                // and none of the rest can be derived without guessing.
                 let pattern = text(req, "pattern")?;
-                number(req, "diameter")?;
-                number(req, "pitch")?;
-                lines.not_written.push(format!(
-                    "{pattern} knurl on {}: AP242's turned_knurl needs at least three of the \
-                     number of teeth, tooth depth, root fillet, helix angle and hand beside the \
-                     diameter and pitch (turned_knurl WR2), and the intent states none \
-                     (question Q4)",
-                    feature_name()
-                ));
+                match knurl(req, pattern, &feature_name())? {
+                    Err(why) => lines.not_written.push(format!(
+                        "{pattern} knurl on {}: {why}, so AP242's turned_knurl cannot be \
+                         completed (it needs at least three of the number of teeth, tooth \
+                         depth, root fillet, helix angle and hand, WR2); state them in the \
+                         intent (questions Q4, Q15)",
+                        feature_name()
+                    )),
+                    Ok((mut k, filled)) => {
+                        k.feature = f.of(
+                            req.get("faces"),
+                            &format!("the knurl on {}", feature_name()),
+                        )?;
+                        p.knurls.push(k);
+                        lines.warnings.extend(filled);
+                        lines
+                            .written
+                            .push(format!("{pattern} knurl on {}", feature_name()));
+                    }
+                }
             }
             "finish" => {
                 lines.not_written.push(format!(
@@ -1381,4 +1390,125 @@ fn thread(
             items,
         },
     ))
+}
+
+/// A knurl of the intent as haecceity's `Knurl` (its feature left for the caller to set), with a
+/// warning for each value filled in, or why it cannot be written. AP242's `turned_knurl`
+/// states six to nine parameters (WR2): the major and nominal diameters, the diametral pitch,
+/// and at least three of the number of teeth, tooth depth, root fillet, helix angle and hand;
+/// a diamond knurl needs the helix angle (WR9), a diagonal one the hand too (WR10). The
+/// intent's diameter is the finished knurl's (DIN 82's nominal diameter d1), so it is both the
+/// major and the nominal diameter; its pitch is the diametral pitch. The rest is the intent's
+/// where it states them (editable), else derived from the knurling standard as the rules derive
+/// them (`standards::knurl_parameters`), for an intent made without them (Python's, or one
+/// stored before; questions Q4, Q15), and the report's warnings say so. A diamond knurl states
+/// no hand: it is two crossed helices.
+fn knurl(
+    req: &Map<String, Json>,
+    pattern: &str,
+    name: &str,
+) -> Result<Result<(pmi::Knurl, Vec<String>), String>, WriteError> {
+    let diamond = match pattern {
+        "straight" => false,
+        "diamond" => true,
+        other => {
+            return Ok(Err(format!(
+                "the pattern {} is not straight or diamond",
+                pyfmt::repr_str(other)
+            )));
+        }
+    };
+    let (pitch, diameter) = (number(req, "pitch")?, number(req, "diameter")?);
+    let stated = |key: &str| req.get(key).filter(|v| !v.is_null());
+    let mut teeth = match stated("teeth") {
+        None => None,
+        Some(v) => Some(
+            v.as_u64()
+                .and_then(|t| u32::try_from(t).ok())
+                .filter(|t| *t > 0)
+                .ok_or_else(|| {
+                    WriteError::Invalid(format!(
+                        "the knurl on {name}: teeth {} is not a whole number of teeth",
+                        py_str(v)
+                    ))
+                })?,
+        ),
+    };
+    let optional = |key: &str| match stated(key) {
+        None => Ok(None),
+        Some(_) => number(req, key).map(Some),
+    };
+    let mut tooth_depth = optional("tooth_depth")?;
+    let mut root_fillet = optional("root_fillet")?;
+    let mut helix_angle = optional("helix_angle")?;
+    let mut missing = Vec::new();
+    for (absent, what) in [
+        (teeth.is_none(), "number of teeth"),
+        (tooth_depth.is_none(), "tooth depth"),
+        (root_fillet.is_none(), "root fillet"),
+        (diamond && helix_angle.is_none(), "helix angle"),
+    ] {
+        if absent {
+            missing.push(what);
+        }
+    }
+    let mut warnings = Vec::new();
+    if !missing.is_empty() {
+        let k = match crate::standards::knurl_parameters(pattern, pitch, diameter) {
+            Ok(k) => k,
+            Err(why) => return Ok(Err(why)),
+        };
+        let mut filled = Vec::new();
+        if teeth.is_none() {
+            teeth = Some(k.teeth);
+            filled.push(format!("{} teeth", k.teeth));
+        }
+        if tooth_depth.is_none() {
+            tooth_depth = Some(k.tooth_depth);
+            filled.push(format!("tooth depth {}", pyfmt::g(k.tooth_depth)));
+        }
+        if root_fillet.is_none() {
+            root_fillet = Some(k.root_fillet);
+            filled.push(format!("root fillet {}", pyfmt::g(k.root_fillet)));
+        }
+        if diamond && helix_angle.is_none() {
+            helix_angle = k.helix_angle;
+            filled.push(format!(
+                "helix angle {}° and no hand",
+                pyfmt::g(crate::standards::KNURL_HELIX_ANGLE)
+            ));
+        }
+        warnings.push(format!(
+            "{pattern} knurl on {name}: the intent states no {}; written with {} from {} \
+             (questions Q4, Q15)",
+            missing.join(", "),
+            filled.join(", "),
+            crate::standards::KNURL_STANDARD
+        ));
+    }
+    let optional_length = |x: Option<f64>| x.map(length).transpose();
+    let k = pmi::Knurl {
+        feature: FeatureId(0),
+        pattern: if diamond {
+            pmi::KnurlPattern::Diamond
+        } else {
+            pmi::KnurlPattern::Straight
+        },
+        major_diameter: length(diameter)?,
+        nominal_diameter: length(diameter)?,
+        diametral_pitch: length(pitch)?,
+        number_of_teeth: teeth.map(pmi::Count),
+        tooth_depth: optional_length(tooth_depth)?,
+        root_fillet: optional_length(root_fillet)?,
+        helix_angle: helix_angle
+            .map(|a| {
+                Ok::<_, WriteError>(pmi::Angle {
+                    value: decimal(a)?,
+                    unit: pmi::AngleUnit::Degree,
+                })
+            })
+            .transpose()?,
+        helix_hand: None,
+    };
+    Ok(Ok((k, warnings)))
 }
