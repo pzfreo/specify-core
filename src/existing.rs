@@ -379,6 +379,28 @@ impl Reading {
                 }
             }
         }
+        // The same notes in the standard forms the Rust writer writes (question Q3): the
+        // default finish as a surface texture on the part, the rest as 'semantic text' on it,
+        // its item named by the note's kind.
+        for t in pmi.surface_textures.iter().filter(|t| t.on.is_none()) {
+            if let Some(words) = finish_words(t) {
+                out.entry("surface_finish").or_insert(Value::String(words));
+            }
+        }
+        for a in &pmi.attributes {
+            if a.on.is_some() || a.name != crate::writer::SEMANTIC_TEXT {
+                continue;
+            }
+            for (item, v) in &a.items {
+                let key = PART_NOTES
+                    .iter()
+                    .find(|(key, kind)| *key != "surface_finish" && kind == item)
+                    .map(|(key, _)| *key);
+                if let (Some(key), pmi::AttributeValue::Text(words)) = (key, v) {
+                    out.entry(key).or_insert(Value::String(words.clone()));
+                }
+            }
+        }
         out
     }
 }
@@ -430,10 +452,31 @@ fn notes(loaded: &LoadedPart, doc: &Document, pmi: &PartPmi) -> Vec<ExistingPmi>
     for knurl in &pmi.knurls {
         add("knurl", &faces_of(pmi, &[knurl.feature]));
     }
+    // A finish on faces as the Rust writer writes it: a surface texture on them (question Q3).
+    for t in &pmi.surface_textures {
+        if let Some(f) = t.on {
+            add("surface finish", &faces_of(pmi, &[f]));
+        }
+    }
     found
         .into_iter()
         .map(|(kind, faces)| ExistingPmi::new("note", &kind, faces.into_iter().collect()))
         .collect()
+}
+
+/// A surface texture of one roughness in micrometres as specify-core states a finish
+/// (`Ra 3.2`); `None` for any other.
+fn finish_words(t: &pmi::SurfaceTexture) -> Option<String> {
+    let [p] = t.parameters.as_slice() else {
+        return None;
+    };
+    (p.value.unit == LengthUnit::Micrometre).then(|| {
+        format!(
+            "{} {}",
+            p.characteristic,
+            crate::pyfmt::g(p.value.value.to_f64())
+        )
+    })
 }
 
 /// `X` of "X µm unless otherwise specified" (or "stated"), the part's default finish (Python's

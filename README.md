@@ -24,12 +24,14 @@ decisions waiting for the maintainer in [docs/questions.md](docs/questions.md).
 
 As of stage 5 (consolidation, 2026-10-09) all five planned stages are on `main`. The full suite
 (312 tests, with the quiddity corpus) passes. quiddity and haecceity follow quiddity-rust's
-branch `prototype/rust-port` (Cargo.lock pins 5798c59; question Q2).
+branch `prototype/rust-port` (Cargo.lock pins 10884b8, which has the maintainer's haecceity
+writer decisions of 2026-10-09 and haecceity's U10 and U14; question Q2).
 
-The two engines' STEP files are not yet interchangeable: OpenCascade (and so specify-core's
-Python) cannot open a Rust-written file with datums (Q16), and answers stored by one engine
-resume in the other only once both write stored-answer schema 2 (Q14: done in the Rust engine,
-specify-core's side pending). Draftwright Specify can drive either engine through the same command
+OpenCascade (and so specify-core's Python) opens every Rust-written file and reads its datums,
+sizes and tolerances, on one face or several (Q16, Q20; `tests/cross_engine.rs`); it reads a fit
+without its limits, no thread and no surface finish, as specify-core's reader asks only for its
+own forms of those. Answers stored by one engine resume in the other only once both write
+stored-answer schema 2 (Q14: done in the Rust engine, specify-core's side pending). Draftwright Specify can drive either engine through the same command
 line and JSON formats, one engine per part.
 
 ## Build
@@ -89,10 +91,10 @@ echo '{"id": 1, "op": "analyse", "step": "part.step"}' | specify-core serve
 
 Each of these is recorded with its reason (docs/known-differences.md, docs/questions.md):
 
-- **Part notes and surface finish are not written** (the surface-finish default, coating, heat
-  treatment, edge note, and a finish on faces): haecceity has no standard AP242 form for notes
-  yet. Each is listed in the report's `not_written` with that reason and the write succeeds
-  (Q3, upstream need U3).
+- **Part notes and surface finish are written in AP242's standard forms**, not Python's text
+  route: a finish (the default or on faces) as an ISO 10303-1110 surface texture, the coating,
+  heat treatment and edge note as the PMI practice's 'semantic text' (Q3). specify-core reads
+  the notes back but not the finish.
 - **Knurls are not written**, diamond or straight: AP242's `turned_knurl` needs parameters the
   intent does not state (a helix angle for a diamond knurl; at least three of teeth, tooth
   depth, root fillet, helix angle and hand for any knurl). Listed in `not_written` (Q4, Q15).

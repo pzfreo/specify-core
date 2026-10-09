@@ -6,9 +6,9 @@
 //! the fit, `±` and limits as deviations), locations (basic, or deviations) from the reference
 //! faces to the feature, geometric tolerances with their zone, modifier and datum system,
 //! material, the general tolerance as a class, threads (with their manufacturing data as a
-//! user defined attribute set, upstream need U8) and knurls. Every part is written in one
-//! `haecceity::pmi::write` edit of the file, which validates every instance it makes against
-//! the AP242 schema before anything is returned.
+//! user defined attribute set, upstream need U8), knurls, surface finish and the part's notes.
+//! Every part is written in one `haecceity::pmi::write` edit of the file, which validates every
+//! instance it makes against the AP242 schema before anything is returned.
 //!
 //! **Modes.** A part with no PMI, or one specify-core wrote (answers stored that match its
 //! faces, [`resume`]), is written by `Mode::Replace`: afterwards its PMI is exactly the
@@ -20,19 +20,22 @@
 //! elsewhere, which Python refuses because of OpenCascade, is written by `Mode::Add` (question
 //! Q6, a deliberate difference).
 //!
-//! **What is not written.** haecceity writes notes only in a standard form, and none exists
-//! yet (upstream need U3, question Q3): a surface finish on faces and the part's notes
-//! (surface-finish default, coating, heat treatment, edges) are listed in the report's
-//! `not_written`, each saying why, never dropped silently. So is a requirement that names no
-//! faces (`the size on holes:16`), having nothing in the file to be written on; the rest of the
-//! intent is written (question Q17). A knurl is written as AP242's `turned_knurl`, the
-//! parameters it needs beyond the intent's diameter and pitch derived from the knurling
-//! standard where the intent does not state them, and the warnings say so (questions Q4, Q15;
-//! `knurl`); one whose pattern or pitch the standard does not give is listed in `not_written`.
+//! **Notes and finish** (question Q3, decided 2026-10-09). A surface finish (`Ra 3.2`, on faces
+//! or the part's default) is a surface texture in ISO 10303-1110's form, 'any process allowed'
+//! (ISO 1302's basic symbol, which an unqualified `Ra 3.2` means); the part's other notes
+//! (coating, heat treatment, edges) are the PMI practice's 'semantic text' on the part (§7.4),
+//! each named by its kind in Python's text route ('surface treatment', 'heat treatment', 'edge
+//! condition'), which specify-core reads.
 //!
-//! **haecceity's gaps** (upstream need U14): a replace of a part with a thread haecceity wrote
-//! is refused by its removal plan, and the thread's runout aspect reads back unconsumed; both
-//! are worked round here, narrowly and checked (`clear`, `runout_gap`).
+//! **Knurls** are written as AP242's `turned_knurl`, the parameters it needs beyond the intent's
+//! diameter and pitch derived from the knurling standard where the intent does not state them,
+//! and the warnings say so (questions Q4, Q15; `knurl`).
+//!
+//! **What is not written** is listed in the report's `not_written`, each saying why, never
+//! dropped silently: a finish that is not `Ra <micrometres>`, and a knurl whose pattern or pitch
+//! the standard does not give. So is a requirement that names no faces (`the size on
+//! holes:16`), having nothing in the file to be written on; the rest of the intent is written
+//! (question Q17).
 //!
 //! **What is not ported**, because it only works round OpenCascade: the text fixes
 //! (`_drop_runout_zones`, `_type_limits`, `_simple_tolerances`, `_part_datums`), the metre
@@ -59,7 +62,9 @@ use haecceity::pmi::{
     Material, NoteOwner, PartId, PartPmi, PmiRead, Ratio, SizeKind, Thread, ThreadSide,
     ToleranceGrade, ToleranceKind, ToleranceModifier, ToleranceTarget, Value, Zone, ZoneForm,
 };
-use haecceity::pmi::{AttributeSet, AttributeValue};
+use haecceity::pmi::{
+    AttributeSet, AttributeValue, MaterialRemoval, SurfaceTexture, SurfaceTextureParameter,
+};
 use haecceity::step::{PartDefinition, read_part_definitions};
 use serde::Serialize;
 use serde_json::{Map, Value as Json, json};
@@ -439,22 +444,8 @@ fn write_verified(jobs: &[Job<'_>], staged: &Path) -> Result<WriteReport, WriteE
         pmi::write::WriteError::Invalid { .. } => WriteError::Invalid(e.to_string()),
         other => WriteError::Failed(format!("haecceity could not write the PMI: {other}")),
     };
-    // The document the PMI is written into: the file's, or (upstream need U14's stand-in for
-    // a replace haecceity's removal plan refuses) the file with the part's PMI removed first.
-    let cleared: Option<(Document, Vec<PartDefinition>)>;
-    let (doc, defs, mut edit) = match pmi::write(&source.doc, &source.defs, &items, mode, policy) {
-        Ok((edit, _)) => (&source.doc, source.defs.as_slice(), edit),
-        Err(pmi::write::WriteError::Removal(r))
-            if mode == Mode::Replace && feature_shapes_only(&r, &source.defs) =>
-        {
-            let parts: Vec<usize> = planned.iter().map(|p| p.loaded.binding.part).collect();
-            cleared = Some(clear(&source, &parts, &r)?);
-            let (d, p) = cleared.as_ref().expect("just set");
-            let (edit, _) = pmi::write(d, p, &items, mode, policy).map_err(refused)?;
-            (d, p.as_slice(), edit)
-        }
-        Err(e) => return Err(refused(e)),
-    };
+    let (doc, defs) = (&source.doc, source.defs.as_slice());
+    let (mut edit, _) = pmi::write(doc, defs, &items, mode, policy).map_err(refused)?;
     if mode == Mode::Replace {
         // Python's own form of stored answers is not PMI haecceity reads (it reports it as not
         // modelled and keeps it), so a replace takes it out here: the answers stored now are
@@ -476,7 +467,7 @@ fn write_verified(jobs: &[Job<'_>], staged: &Path) -> Result<WriteReport, WriteE
     if back != written.bytes {
         return Err(VerificationError("the file on disk is not what was written".into()).into());
     }
-    verify(&source, doc, &items, mode, &back)?;
+    verify(&source, &items, mode, &back)?;
     let stored = resume::stored(&back);
     for p in &planned {
         let k = p.loaded.binding.part;
@@ -513,93 +504,6 @@ fn write_verified(jobs: &[Job<'_>], staged: &Path) -> Result<WriteReport, WriteE
         report.warnings.extend(with(p.lines.warnings));
     }
     Ok(report)
-}
-
-/// Whether a replace was refused only because haecceity's removal plan will not remove the
-/// `product_definition_shape` of a thread's feature definition, which its reader lists among
-/// the part's PMI (upstream need U14): every refused seed is such a shape (none is a part's own
-/// shape) and nothing else blocks.
-fn feature_shapes_only(r: &haecceity::removal::RemovalRefusal, defs: &[PartDefinition]) -> bool {
-    !r.infrastructure.is_empty()
-        && r.infrastructure.iter().all(|(id, entity)| {
-            entity == "product_definition_shape" && !defs.iter().any(|d| d.shape == *id)
-        })
-        && r.missing.is_empty()
-        && r.blockers.is_empty()
-        && r.emptied.is_empty()
-        && r.anchored.is_empty()
-}
-
-/// The stand-in for upstream need U14: the file with `parts`' PMI removed, as haecceity's
-/// replace would remove it, so that the replace that follows has nothing to remove. The feature
-/// definitions' `product_definition_shape`s the removal plan refuses as shared infrastructure
-/// (`r.infrastructure`) are first restated as the `property_definition` they are a subtype of,
-/// in a scratch copy only, so the plan can take them with the PMI they belong to; they are
-/// removed, so nothing of the restatement reaches the file. Then the plan runs as haecceity's
-/// writer runs it (presentation the removal empties goes with it). Anything else that blocks
-/// refuses the write, naming it.
-fn clear(
-    source: &Source,
-    parts: &[usize],
-    r: &haecceity::removal::RemovalRefusal,
-) -> Result<(Document, Vec<PartDefinition>), WriteError> {
-    use haecceity::removal;
-    let failed = |e: String| WriteError::Failed(format!("cannot clear the part's PMI: {e}"));
-    let mut restate = p21::Edit::new();
-    for (id, _) in &r.infrastructure {
-        let Some(RawEntity::Simple { attributes, .. }) = source.doc.get(*id) else {
-            return Err(failed(format!("#{id} is not a simple instance")));
-        };
-        restate.replace(*id, p21::simple("PROPERTY_DEFINITION", attributes.clone()));
-    }
-    let scratch = source
-        .doc
-        .apply(&restate)
-        .and_then(|w| Document::parse(w.bytes))
-        .map_err(|e| failed(e.to_string()))?;
-    let mut seeds: BTreeSet<u64> = BTreeSet::new();
-    for &k in parts {
-        let prov = &source.read.provenance.parts[k];
-        let geometry: BTreeSet<u64> = prov.geometry.iter().flatten().copied().collect();
-        seeds.extend(prov.all().into_iter().filter(|id| !geometry.contains(id)));
-    }
-    let plan = loop {
-        match removal::plan(&scratch, &seeds, PresentationPolicy::RemovePresentation) {
-            Ok(plan) => break plan,
-            // As haecceity's writer: a presentation model the removal would empty goes too.
-            Err(e)
-                if !e.emptied.is_empty()
-                    && e.blockers.is_empty()
-                    && e.missing.is_empty()
-                    && e.infrastructure.is_empty()
-                    && e.anchored.is_empty()
-                    && e.emptied.iter().all(|x| !seeds.contains(&x.id)) =>
-            {
-                seeds.extend(e.emptied.iter().map(|x| x.id));
-            }
-            // A thread's bare 'thread runout' aspect, which the reader does not consume (the
-            // other half of U14), goes with its thread.
-            Err(e)
-                if !e.blockers.is_empty()
-                    && e.blockers.iter().all(|b| is_runout_aspect(&scratch, b.id))
-                    && e.missing.is_empty()
-                    && e.infrastructure.is_empty()
-                    && e.anchored.is_empty() =>
-            {
-                seeds.extend(e.blockers.iter().map(|b| b.id));
-            }
-            Err(e) => return Err(WriteError::Refused(e.to_string())),
-        }
-    };
-    let mut edit = p21::Edit::new();
-    plan.into_edit(&mut edit);
-    let bytes = scratch
-        .apply(&edit)
-        .map_err(|e| failed(e.to_string()))?
-        .bytes;
-    let defs = read_part_definitions(&bytes).map_err(|e| failed(e.to_string()))?;
-    let doc = Document::parse(bytes).map_err(|e| failed(e.to_string()))?;
-    Ok((doc, defs))
 }
 
 /// The instances of Python's form of stored answers on `part` (`PROPERTY_DEFINITION('pmi-assist
@@ -656,12 +560,9 @@ fn python_answers(doc: &Document, part: &PartDefinition) -> Vec<u64> {
 /// part written by replace reads back as exactly what was written, and nothing the reader
 /// consumed for it survives; a part written by add reads back as its PMI before plus exactly
 /// the items written (a feature or datum equal to one it had being that one); every other part
-/// reads back as before; and no finding is new. `base` is the document the edit was applied to:
-/// the source's, or the source with the part's PMI cleared (U14's stand-in), whose largest id
-/// is where the instances added are numbered from.
+/// reads back as before; and no finding is new.
 fn verify(
     source: &Source,
-    base: &Document,
     written: &[(PartId, PartPmi)],
     mode: Mode,
     back: &[u8],
@@ -732,9 +633,7 @@ fn verify(
                 );
                 let prov = &before.provenance.parts[i];
                 let geometry: BTreeSet<u64> = prov.geometry.iter().flatten().copied().collect();
-                // An instance survives when the edit's base still had it (a cleared part's
-                // removed ids are not there, and what the edit added may reuse them) and the
-                // file written still has it, unchanged.
+                // An instance survives when the file written still has it, unchanged.
                 fn text(doc: &Document, id: u64) -> Option<&[u8]> {
                     doc.span(id).map(|s| &doc.bytes()[s])
                 }
@@ -742,7 +641,6 @@ fn verify(
                     let original = text(&source.doc, id);
                     if !geometry.contains(&id)
                         && original.is_some()
-                        && text(base, id) == original
                         && text(&after_doc, id) == original
                     {
                         problems.push(format!(
@@ -754,7 +652,7 @@ fn verify(
         }
     }
     for f in &after.findings {
-        if !before.findings.contains(f) && !runout_gap(f, &after_doc, base.max_id()) {
+        if !before.findings.contains(f) {
             problems.push(format!(
                 "a finding the input did not have: {} {:?} {}: {}",
                 f.kind.as_str(),
@@ -769,31 +667,6 @@ fn verify(
     } else {
         Err(fail(problems.join("; ")))
     }
-}
-
-/// Whether `finding` is haecceity's known reader gap on a thread just written (upstream need
-/// U14): `thread` WR16 requires a 'thread runout' shape aspect even when no runout is stated,
-/// the writer always writes it, and the reader consumes it only with a usage, so it reports
-/// the bare aspect as unconsumed. Only an added instance (above the base's largest id) that
-/// is exactly that aspect qualifies; haecceity's own tests make the same exception.
-fn runout_gap(finding: &pmi::Finding, doc: &Document, base_max: u64) -> bool {
-    let [id] = finding.ids.as_slice() else {
-        return false;
-    };
-    finding.kind == pmi::FindingKind::Unconsumed
-        && finding.entity == "shape_aspect"
-        && *id > base_max
-        && is_runout_aspect(doc, *id)
-}
-
-/// Whether `id` is a `SHAPE_ASPECT` described 'thread runout' (thread WR16's aspect).
-fn is_runout_aspect(doc: &Document, id: u64) -> bool {
-    matches!(
-        doc.get(id),
-        Some(RawEntity::Simple { name, attributes, .. })
-            if name == "SHAPE_ASPECT"
-                && matches!(attributes.get(1), Some(Attribute::String(d)) if d == "thread runout")
-    )
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -855,6 +728,23 @@ fn truthy(v: Option<&Json>) -> bool {
 /// A list of face ids as Python prints a list (`[2, 5]`).
 fn face_list(v: Option<&Json>) -> String {
     v.map_or_else(|| "[]".into(), pyjson::dumps)
+}
+
+/// The user defined attribute that carries a note in words (PMI practice §7.4).
+pub const SEMANTIC_TEXT: &str = "semantic text";
+
+/// A finish as specify-core states it (`Ra 3.2`, micrometres: `extras` and the rules' choices)
+/// as a surface texture parameter; `None` for anything else.
+fn texture(value: &str) -> Option<SurfaceTextureParameter> {
+    let number = value.strip_prefix("Ra ")?;
+    let ra = pyfmt::parse_float(number).filter(|ra| ra.is_finite() && *ra > 0.0)?;
+    Some(SurfaceTextureParameter {
+        characteristic: "Ra".into(),
+        value: Length {
+            value: decimal(ra).ok()?,
+            unit: LengthUnit::Micrometre,
+        },
+    })
 }
 
 /// The features of the part being built: one per distinct face set (haecceity writes features
@@ -1164,12 +1054,29 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
                 }
             }
             "finish" => {
-                lines.not_written.push(format!(
-                    "surface finish {} on faces {}: haecceity writes no surface texture on faces \
-                     yet, having no standard form for it (upstream need U3, question Q3)",
-                    py_str(req.get("value").unwrap_or(&Json::Null)),
-                    face_list(req.get("faces"))
-                ));
+                let value = py_str(req.get("value").unwrap_or(&Json::Null));
+                let faces = face_list(req.get("faces"));
+                match texture(&value) {
+                    Some(parameter) if face_ids(req.get("faces")).is_some() => {
+                        let on = f.of(req.get("faces"), &format!("the surface finish {value}"))?;
+                        p.surface_textures.push(SurfaceTexture {
+                            on: Some(on),
+                            material_removal: MaterialRemoval::AnyProcessAllowed,
+                            parameters: vec![parameter],
+                        });
+                        lines
+                            .written
+                            .push(format!("surface finish {value} on faces {faces}"));
+                    }
+                    Some(_) => lines.not_written.push(format!(
+                        "surface finish {value} on faces {faces} names no faces, so nothing in \
+                         the file can carry it (question Q17)"
+                    )),
+                    None => lines.not_written.push(format!(
+                        "surface finish {value} on faces {faces}: not a roughness as \
+                         'Ra <micrometres>', the only surface texture parameter written"
+                    )),
+                }
             }
             other => {
                 let Some(tolerance_kind) = tolerance_kind(other) else {
@@ -1286,15 +1193,42 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
             lines.written.push(format!("general tolerance {text}"));
         }
     }
+    // The part's notes in standard forms (question Q3, decided 2026-10-09): its default finish
+    // as a surface texture on the part (ISO 10303-1110), the rest as the PMI practice's
+    // 'semantic text' on the part (§7.4), one attribute set per note. Its one item is named by
+    // the kind Python's text route gives the note ('surface treatment', 'heat treatment',
+    // 'edge condition'), so specify-core's `part_settings`, which scans for an item of that
+    // name, reads it too.
     for key in crate::rules::NOTES {
-        if let Some(value) = intent.part.get(key).filter(|v| truthy(Some(v))) {
-            lines.not_written.push(format!(
-                "{} {}: haecceity writes no notes yet, having no standard form for them \
-                 (upstream need U3, question Q3)",
-                key.replace('_', " "),
-                py_str(value)
-            ));
+        let Some(value) = intent.part.get(key).filter(|v| truthy(Some(v))) else {
+            continue;
+        };
+        let (name, words) = (key.replace('_', " "), py_str(value));
+        if key == "surface_finish" {
+            let Some(parameter) = texture(&words) else {
+                lines.not_written.push(format!(
+                    "{name} {words}: not a roughness as 'Ra <micrometres>', the only surface \
+                     texture parameter written"
+                ));
+                continue;
+            };
+            p.surface_textures.push(SurfaceTexture {
+                on: None,
+                material_removal: MaterialRemoval::AnyProcessAllowed,
+                parameters: vec![parameter],
+            });
+        } else {
+            let kind = crate::existing::PART_NOTES
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map_or(name.as_str(), |(_, kind)| kind);
+            p.attributes.push(AttributeSet {
+                name: SEMANTIC_TEXT.into(),
+                on: None,
+                items: vec![(kind.to_string(), AttributeValue::Text(words.clone()))],
+            });
         }
+        lines.written.push(format!("{name} {words}"));
     }
     p.features = features;
     Ok((p, lines))

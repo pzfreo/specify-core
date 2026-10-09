@@ -13,15 +13,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 1 | 1 | 2 | 8 |
 | [cli](#cli) | 10 | 0 | 3 | 0 | 4 | 17 |
-| [cross_engine](#cross_engine) | 5 | 0 | 0 | 2 | 1 | 8 |
+| [cross_engine](#cross_engine) | 4 | 0 | 0 | 1 | 1 | 6 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
-| [features](#features) | 879 | 1576 | 63 | 1480 | 11 | 4009 |
+| [features](#features) | 879 | 1418 | 63 | 1386 | 11 | 3757 |
 | [iso286](#iso286) | 3 | 0 | 0 | 0 | 0 | 3 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 12 | 9 | 4 | 5 | 35 |
-| [rules](#rules) | 10 | 0 | 0 | 2 | 0 | 12 |
-| [writer](#writer) | 15 | 0 | 0 | 0 | 24 | 39 |
-| **all** | 958 | 1588 | 76 | 1489 | 57 | 4168 |
+| [rules](#rules) | 4 | 0 | 0 | 2 | 0 | 6 |
+| [writer](#writer) | 14 | 0 | 0 | 3 | 14 | 31 |
+| **all** | 950 | 1430 | 76 | 1397 | 47 | 3900 |
 
 ## anchors
 
@@ -131,19 +131,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cross_engine
 
-### cross_engine: rust-correct (5 entries)
+### cross_engine: rust-correct (4 entries)
 
-- **a size or tolerance on a feature of several faces (set_representation_item) is not read by OpenCascade** (`*` at `python_readback*existing[key=*|[*,*]|*]`)
+- **the part's default finish, written as a surface texture, is not read by specify-core (Python)** (`*` at `python_readback.part.surface_finish`)
 
-  Each missing item is on a feature of several faces (a hole pattern's or a hole set's cylinders: NIST CTC-03's Ø4.7625 H11 and its position 0.76 MMC on the 8 faces of hole_patterns.rectangle, the plate's and assembly's Ø6.6 hole set, the four corner holes, the identical holes, the stack's tapped set), which haecceity writes as one SHAPE_ASPECT with an ITEM_IDENTIFIED_REPRESENTATION_USAGE whose identified_item is a SET_REPRESENTATION_ITEM of the faces (e.g. CTC-03 rust.step #6002): the PMI practice's §6.5.1 form, allowed by AP242's item_identified_representation_usage_select (list_representation_item, representation_item, set_representation_item). OpenCascade's reader does not resolve such a usage to faces and drops the size and the tolerance on it (haecceity's own tools/check_pmi_occt.py reports the same, docs/step-ap242.md). The same sizes and tolerances on a single face read (the plate's position on its tapped hole, the stack's Ø8 bore).
+  The Rust writer writes the part's default finish (Ra 3.2 on every accept-defaults intent) as ISO 10303-1110's surface texture on the part's product_definition_shape (property_definition 'surface texture', material removal 'any process allowed', its parameter a surface_texture_representation of 'measuring method' 'Ra' and 'characteristic value' 3.2 µm; question Q3, decided 2026-10-09; haecceity checks surface_texture_representation WR1-WR5 and general_property_association WR1-WR2 on its writes, quiddity-rust c228f95), and reads it back as the part's surface_finish (src/existing.rs). specify-core's part_settings finds the default finish only in its own text route, a DESCRIPTIVE_REPRESENTATION_ITEM('surface texture','Ra 3.2 µm unless otherwise specified') (existing.py), and OpenCascade's XCAF has no surface texture model, so Python reads none, on every Rust-written part of a single-part file (assemblies report no settings in either engine). The form is AP242's standard one, the text route is not (haecceity decision 5); the gap is Python's reader.
 
-- **a datum is read by OpenCascade only through a tolerance it reads** (`*` at `python_readback_without_symbols.existing[key=datum|*]`)
+- **a fit written as its ISO 286 class reads with no limits in specify-core (Python)** (`*` at `python_readback.existing[key=dimension|Size_*].*er`)
 
-  four_corner_holes and identical_holes: datums A, B and C are written as on the plate (one `datum` per letter with its `datum_feature` on the faces, practice §6.5), and the plate's datums do read (its position on face 12 cites them). specify-core reads datums from XCAF's datum labels (existing.py, GetDatumLabels), which OpenCascade's reader makes from the datum systems of the tolerances it reads; on these two parts the only tolerance citing A\|B\|C is the position on the hole set, a feature of several faces it does not read (the set_representation_item entry), so it never reaches the datums. Not a defect of the written datums.
-
-- **a fit written as its ISO 286 class reads with no limits in specify-core (Python)** (`*` at `python_readback_without_symbols.existing[key=dimension|Size_*].*er`)
-
-  The stack's Ø8 H7 bores ([9] of parts 0 and 1, +0.015/0) and Ø8 h6 pin ([3] of part 2, 0/-0.009) read back in Python with their nominal value and no upper or lower deviation. The Rust writer writes a fit as plus_minus_tolerance -> limits_and_fits('H','hole','7','') (PMI practice §5.2.5), after checking the intent's limits are the class's (src/writer.rs); haecceity's reader reads the class. specify-core's read_existing takes limits only from IsDimWithPlusMinusTolerance (existing.py) and never asks XCAF for the class of tolerance, so the fit's meaning is lost on the Python side. Python's own files carry the fit as bare limits, which is what OCCT's writer forced (docs/design.md, 'What is written').
+  Every fit the Rust writer writes reads back in Python with its nominal value and no upper or lower deviation: the stack's Ø8 H7 bores ([9] of parts 0 and 1, +0.015/0) and Ø8 h6 pin ([3] of part 2, 0/-0.009), and the H11 clearance hole sets on several faces (the plate's and the assembly's Ø6.6, +0.09/0; NIST CTC-03's Ø4.7625 on the 8 faces of hole_patterns.rectangle, the four corner holes, the identical holes and the stack's part 1, +0.075/0), which OpenCascade now reads on all their faces (haecceity writes one geometric_item_specific_usage per face since quiddity-rust c228f95, question Q20 (2)). The Rust writer writes a fit as plus_minus_tolerance -> limits_and_fits('H','hole','7','') (PMI practice §5.2.5), after checking the intent's limits are the class's (src/writer.rs); haecceity's reader reads the class. specify-core's read_existing takes limits only from IsDimWithPlusMinusTolerance (existing.py) and never asks XCAF for the class of tolerance, so the fit's meaning is lost on the Python side. Python's own files carry the fit as bare limits, which is what OCCT's writer forced (docs/design.md, 'What is written').
 
 - **Python (schema 1 only) passes over the Rust writer's schema 2 answers; their fingerprint is the one its own faces give** (`*` at `*resume[python did not resume: the stored payload is schema 2, which this specify-core does not read; Python's faces give its fingerprint]`)
 
@@ -153,11 +149,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   On every part of the 11 Python-written synthetic files (tests/fixtures/oracle/parts/\*\*/written.step.gz) resume::stored reads Python's payload (schema 1), equal to what Python's own resume.saved finds (python_written_evidence.json.gz), with the same face count; the stored fingerprint is Python's schema 1 hash of the faces it lists, and those faces equal the Rust engine's by value, differing only in signs of zero (faces_gap), which schema 1's text keeps. Q14 (decided 2026-10-09) keeps schema 1 read exactly as before: resumed only when its own fingerprint matches, so the Rust engine is right not to resume these. The fix is schema 2, which both engines write: the schema 2 fingerprint Python computes from its own faces in these files equals the Rust engine's on all 15 parts (tests/cross_engine.rs schema_two_fingerprints_are_the_same_in_both_engines), so files specify-core writes once it writes schema 2 resume here. Everything else these files hold (existing PMI, part settings) reads in Rust exactly as Python reads it.
 
-### cross_engine: undetermined (2 entries)
-
-- **OpenCascade 7.9 crashes opening a Rust-written file with datum feature symbols** (`parts/*` at `python_readback[specify-core's process died with SIGSEGV in load.load_all]`)
-
-  Every Rust-written synthetic file with a datum (7 of the 11: plate, pin, stack, assembly, a_hole_along_x, four_corner_holes, identical_holes) kills specify-core's process with SIGSEGV in load.load_all (STEPCAFControl_Reader), captured in a child process by tools/capture/crossengine.py; the 4 without datums (a_file_with_two_parts, a_placed_part, default_datum_a, wrapped) and both NIST files, written in add mode on their own datums with no symbols added, load. The cause is the one MECHANICAL_DESIGN_AND_DRAUGHTING_RELATIONSHIP('','',#shape representation,#'datum feature symbols' DRAUGHTING_MODEL) haecceity writes for its datum symbols (docs/upstream-needs.md U15): with it removed every file loads (python_readback_without_symbols.json.gz, the capture's probe), and with rep_1 and rep_2 swapped the plate still crashes (checked by hand). The form is schema-valid as far as checked: the relationship's rep_1/rep_2 select (mechanical_design_and_draughting_relationship_select) admits shape_representation, the shared context satisfies its supertype, and haecceity's instance validation passes; its WR1-WR3 are not evaluated by haecceity (express_rules.rs does not list them) and were not checked here. All six NIST CAx-IF files (tests/fixtures/nist) use this relationship only between two DRAUGHTING_MODELs (saved views), never with a shape representation. A reader crashing is OpenCascade's defect whatever the form; whether the form is the PMI practice's is not established, and leaving it out is question Q16. Until then no file the Rust engine writes with a datum opens in specify-core (Python) or any OpenCascade 7.9 tool.
+### cross_engine: undetermined (1 entry)
 
 - **a thread written as AP242's thread feature is not read by specify-core (Python)** (`*` at `python_readback*existing[key=note|internal thread|*]`)
 
@@ -283,7 +275,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (3 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb217` at `features[id=*].record.profile.body_bounds[*]`: Every difference is 1e-7: OpenCascade's Bnd_Box adds its gap to the solid's box; haecceity's bounds are the exact extent (e.g. string_post: radius 3.75, Python 3.7500001). Here 10 value(s), largest difference 1e-07.
 
-### features: rust-wrong (1576 entries)
+### features: rust-wrong (1418 entries)
 
 - **Python at the adaptive integral, Rust off (U11)** (1407 entries, 16 case globs)
 
@@ -332,10 +324,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **an angled step's adjoining plane is constituent, not defining** (`*` at `features[id=angled_steps:*].faces+plane`)
 
   Records equal; Python's faces add a plane. quiddity-rust gives defining faces only (Features::defining); Python quiddity's evidence view gives constituent faces (upstream need U2).
-
-- **a blend chain Python supersedes by its fillets** (158 entries, 22 case globs)
-
-  Every face of this blend is a face of Python's fillets; Python quiddity's reconciliation drops such a chain (_reconcile.reconcile_blend_candidates, ReasonCode.BLEND_SUPERSEDED_BY_FILLET) and quiddity-rust does not reconcile (U2), so Rust lists the same rounds twice.
 
 ### features: equivalent (63 entries)
 
@@ -391,7 +379,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/cadgenbench/threaded_connector_109` at `features[id=*].record.*location[*]`: Locations come from the hole's edges as each kernel reads them; a difference below 1e-6 mm is below the analysis's own rounding of face centroids and of no manufacturing consequence. Here 1 value(s), largest difference 6e-07.
 
-### features: undetermined (1480 entries)
+### features: undetermined (1386 entries)
 
 - **face numbering differs from OpenCascade's** (`corpus/inventory_refusal/13975` at `faces[*`)
 
@@ -469,13 +457,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   estimated_volume, grid_pitch and body_key come from a voxel probe over each kernel's classifier; not checked against an independent reference. Here 4 value(s), largest difference 4.3e-08.
 
-- **bosses reported by Rust only** (45 entries, 13 case globs)
+- **fillets reported by Rust only** (2 entries, 1 case glob)
 
-  The evidence is stated per entry (3 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=bosses:70]`: Python's cross-family reconciliation gives these faces to turned_steps and drops this bosses record; quiddity-rust does not reconcile (U2).
-
-- **fillets reported by Rust only** (26 entries, 20 case globs)
-
-  The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `features[id=fillets:1627]`: Python reports nothing on these faces.
+  Python reports nothing on these faces.
 
 - **thin_wall_bodies reported by Python only** (3 entries, 3 case globs)
 
@@ -501,17 +485,17 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb217` at `features[id=interior_voids:26.41]`: Python's interior_voids feature(s) interior_voids:25.26.28.40.41.53 share faces with it but differ in record or faces (the two quiddities compose it differently).
 
-- **plates reported by Rust only** (4 entries, 4 case globs)
+- **plates reported by Rust only** (2 entries, 2 case globs)
 
-  The evidence is stated per entry (4 distinct; all in `features.json`). The first, for `corpus/gramel/GRM-03_thumbwheel_drive_screw` at `features[id=plates:0.7.11]`: Python's cross-family reconciliation gives these faces to risers and drops this plates record; quiddity-rust does not reconcile (U2).
+  The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/gramel/GRM-03_thumbwheel_drive_screw` at `features[id=plates:0.7.11]`: Python's cross-family reconciliation gives these faces to risers and drops this plates record; quiddity-rust does not reconcile (U2).
 
 - **pockets: Rust only** (58 entries, 58 case globs)
 
   The evidence is stated per entry (6 distinct; all in `features.json`). The first, for `corpus/inventory_refusal/13975` at `features[id=pockets:*]`: quiddity-rust's pockets family; Python quiddity 0.3.9 recognises it but its evidence view leaves the recess source families out (evidence.py, _registry.RECESS_SOURCE_FAMILIES) and reports their section_recesses aggregate instead (not ported); Python gives these faces to no feature.
 
-- **prismatic_pockets: Rust only** (46 entries, 46 case globs)
+- **prismatic_pockets: Rust only** (39 entries, 39 case globs)
 
-  The evidence is stated per entry (4 distinct; all in `features.json`). The first, for `corpus/inventory_refusal/14052` at `features[id=prismatic_pockets:*]`: quiddity-rust's prismatic_pockets family; Python quiddity 0.3.9 recognises it but its evidence view leaves the recess source families out (evidence.py, _registry.RECESS_SOURCE_FAMILIES) and reports their section_recesses aggregate instead (not ported); Python gives these faces to section_recesses.
+  The evidence is stated per entry (3 distinct; all in `features.json`). The first, for `corpus/inventory_refusal/14052` at `features[id=prismatic_pockets:*]`: quiddity-rust's prismatic_pockets family; Python quiddity 0.3.9 recognises it but its evidence view leaves the recess source families out (evidence.py, _registry.RECESS_SOURCE_FAMILIES) and reports their section_recesses aggregate instead (not ported); Python gives these faces to section_recesses.
 
 - **channels: Rust only** (11 entries, 11 case globs)
 
@@ -520,14 +504,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **section_passages: Rust only** (42 entries, 42 case globs)
 
   The evidence is stated per entry (6 distinct; all in `features.json`). The first, for `corpus/mfcadpp/1000` at `features[id=section_passages:*]`: quiddity-rust's section_passages family; Python quiddity 0.3.9 recognises it but its evidence view leaves the recess source families out (evidence.py, _registry.RECESS_SOURCE_FAMILIES, as passages) and reports their section_recesses aggregate instead (not ported); Python gives these faces to section_recesses.
-
-- **slots reported by Rust only** (3 entries, 3 case globs)
-
-  The evidence is stated per entry (3 distinct; all in `features.json`). The first, for `corpus/mfcadpp/1000` at `features[id=slots:5.12.39.43]`: Python's cross-family reconciliation gives these faces to section_recesses and drops this slots record; quiddity-rust does not reconcile (U2).
-
-- **chamfers reported by Rust only** (13 entries, 12 case globs)
-
-  The evidence is stated per entry (3 distinct; all in `features.json`). The first, for `corpus/mfcadpp/10000` at `features[id=chamfers:4]`: Python's cross-family reconciliation gives these faces to angled_steps, risers and drops this chamfers record; quiddity-rust does not reconcile (U2).
 
 - **edge_open_prismatic_recesses: Rust only** (6 entries, 6 case globs)
 
@@ -695,35 +671,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## rules
 
-### rules: rust-correct (10 entries)
+### rules: rust-correct (4 entries)
 
 - **a fit above 500 mm: Python fails the part's rules, Rust answers (Q8)** (4 entries, 2 case globs)
 
   Python's rules fail the whole part with fit_limits' 'nominal size 558.8 outside 0-500 mm': the part has a Ø558.8 (22 in) diameter, which is offered fits, and describing them for the question list raises (docs/questions.md Q8 records the same failure at 600 mm). The maintainer's decision Q8 extends ISO 286 to 3150 mm in both engines; the Rust rules tabulate it (ISO 286-1:2010 Tables 1-3, checked in tests/standards.rs), so Rust answers where Python fails. When specify-core's extension (branch iso286-3150) is captured, the oracle compares the answers and this entry goes stale.
-
-- **a knurl's teeth derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].teeth`)
-
-  The maintainer's decision Q4/Q15 (docs/questions.md): AP242's turned_knurl needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9), so the Rust rules derive them from the knurling standard and state each in the intent with its source, visible and editable ('standard': 'DIN 82', 'derived': key to source). Values: teeth round(pi x 10 / 1) = 31, the pitch kept at the tool's 1 mm; tooth depth P/2 = 0.5, the depth of DIN 82's 90 degree profile (IS 3403:1981 3.1; assumed, no table gives it); root fillet 0.1, the knurling wheel's crest radius up to 1 mm pitch (IS 6776:1980 4.3); a diamond's helix angle 30 degrees and no hand (DIN 82 type RGE). Checked in tests/threads.rs. Python's knurl states pattern, pitch and diameter only.
-
-- **a knurl's tooth depth derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].tooth_depth`)
-
-  The maintainer's decision Q4/Q15 (docs/questions.md): AP242's turned_knurl needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9), so the Rust rules derive them from the knurling standard and state each in the intent with its source, visible and editable ('standard': 'DIN 82', 'derived': key to source). Values: teeth round(pi x 10 / 1) = 31, the pitch kept at the tool's 1 mm; tooth depth P/2 = 0.5, the depth of DIN 82's 90 degree profile (IS 3403:1981 3.1; assumed, no table gives it); root fillet 0.1, the knurling wheel's crest radius up to 1 mm pitch (IS 6776:1980 4.3); a diamond's helix angle 30 degrees and no hand (DIN 82 type RGE). Checked in tests/threads.rs. Python's knurl states pattern, pitch and diameter only.
-
-- **a knurl's root fillet derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].root_fillet`)
-
-  The maintainer's decision Q4/Q15 (docs/questions.md): AP242's turned_knurl needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9), so the Rust rules derive them from the knurling standard and state each in the intent with its source, visible and editable ('standard': 'DIN 82', 'derived': key to source). Values: teeth round(pi x 10 / 1) = 31, the pitch kept at the tool's 1 mm; tooth depth P/2 = 0.5, the depth of DIN 82's 90 degree profile (IS 3403:1981 3.1; assumed, no table gives it); root fillet 0.1, the knurling wheel's crest radius up to 1 mm pitch (IS 6776:1980 4.3); a diamond's helix angle 30 degrees and no hand (DIN 82 type RGE). Checked in tests/threads.rs. Python's knurl states pattern, pitch and diameter only.
-
-- **a knurl's helix angle derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].helix_angle`)
-
-  The maintainer's decision Q4/Q15 (docs/questions.md): AP242's turned_knurl needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9), so the Rust rules derive them from the knurling standard and state each in the intent with its source, visible and editable ('standard': 'DIN 82', 'derived': key to source). Values: teeth round(pi x 10 / 1) = 31, the pitch kept at the tool's 1 mm; tooth depth P/2 = 0.5, the depth of DIN 82's 90 degree profile (IS 3403:1981 3.1; assumed, no table gives it); root fillet 0.1, the knurling wheel's crest radius up to 1 mm pitch (IS 6776:1980 4.3); a diamond's helix angle 30 degrees and no hand (DIN 82 type RGE). Checked in tests/threads.rs. Python's knurl states pattern, pitch and diameter only.
-
-- **a knurl's standard derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].standard`)
-
-  The maintainer's decision Q4/Q15 (docs/questions.md): AP242's turned_knurl needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9), so the Rust rules derive them from the knurling standard and state each in the intent with its source, visible and editable ('standard': 'DIN 82', 'derived': key to source). Values: teeth round(pi x 10 / 1) = 31, the pitch kept at the tool's 1 mm; tooth depth P/2 = 0.5, the depth of DIN 82's 90 degree profile (IS 3403:1981 3.1; assumed, no table gives it); root fillet 0.1, the knurling wheel's crest radius up to 1 mm pitch (IS 6776:1980 4.3); a diamond's helix angle 30 degrees and no hand (DIN 82 type RGE). Checked in tests/threads.rs. Python's knurl states pattern, pitch and diameter only.
-
-- **a knurl's derived derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].derived`)
-
-  The maintainer's decision Q4/Q15 (docs/questions.md): AP242's turned_knurl needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9), so the Rust rules derive them from the knurling standard and state each in the intent with its source, visible and editable ('standard': 'DIN 82', 'derived': key to source). Values: teeth round(pi x 10 / 1) = 31, the pitch kept at the tool's 1 mm; tooth depth P/2 = 0.5, the depth of DIN 82's 90 degree profile (IS 3403:1981 3.1; assumed, no table gives it); root fillet 0.1, the knurling wheel's crest radius up to 1 mm pitch (IS 6776:1980 4.3); a diamond's helix angle 30 degrees and no hand (DIN 82 type RGE). Checked in tests/threads.rs. Python's knurl states pattern, pitch and diameter only.
 
 ### rules: undetermined (2 entries)
 
@@ -733,11 +685,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## writer
 
-### writer: rust-correct (15 entries)
-
-- **a knurl from Python's intent, its turned_knurl parameters filled in from DIN 82** (`scenarios/turned_*knurl*` at `write.warnings[*knurl on *: the intent states no *]`)
-
-  The maintainer's decision Q4/Q15 (docs/questions.md): a knurl is written as AP242's turned_knurl, which needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9); Python's intent states pattern, pitch and diameter only, so the Rust writer derives the rest from the knurling standard (src/standards.rs knurl_parameters: teeth round(pi d/P), depth P/2 of DIN 82's 90 degree profile, root fillet the knurling wheel's crest radius, IS 3403:1981 and IS 6776:1980 4.3) and says so in a warning, as decided. The knurl itself is written as Python's line ('straight knurl on turned_steps:0') and reads back in both engines' terms as a knurl note on the same faces; verified by read-back (tests/writer.rs, knurls). Python writes no turned_knurl, only its text route and a UDA.
+### writer: rust-correct (14 entries)
 
 - **a g6 diameter Python's reader garbles, and reads with no deviations** (2 entries, 2 case globs)
 
@@ -779,47 +727,21 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The payload is read (tests/resume.rs pythons_stored_answers_are_read) and its face count matches, but Python's fingerprint hashes OpenCascade's centroids, whose zero components carry other signs than haecceity's (plate: Python [-50.0, -0.0, -0.0], Rust [-50.0, -0.0, 0.0]; equal numbers, tests/resume.rs a_python_fingerprint_differs_only_in_signs_of_zero). The Rust engine cannot verify the faces, so it does not resume (the file is analysed with its PMI as its own). Q14 (decided 2026-10-09) keeps schema 1 read exactly as before, so this is the specified outcome; schema 2, which both engines write, fingerprints zeros unsigned, and the two engines' schema 2 fingerprints of these files are equal (tests/cross_engine.rs schema_two_fingerprints_are_the_same_in_both_engines).
 
-### writer: not-applicable (24 entries)
+### writer: undetermined (3 entries)
 
-- **a finish (the part's default or on faces) Python writes by its text route** (`*` at `write.written[*surface finish *]`)
+- **a knurl Python writes and the Rust writer cannot** (`*` at `write.written[*knurl on *]`)
 
-  haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3.
+  AP242's turned_knurl WR2 needs six to nine parameters (major and nominal diameter, diametral pitch and three or more of number of teeth, tooth depth, root fillet, helix angle, hand: haecceity pmi/write.rs refuses 'a knurl with 3 parameters (turned_knurl WR2: 6 to 9)', seen on parts/pin); the intent states diameter and pitch only, so no knurl can be written without guessing. Python writes its text route and a UDA. Listed in not_written; questions Q4 and Q15.
 
-- **the edge note Python writes by its text route** (`*` at `write.written[*edges *]`)
+- **a knurl listed as not written, with its reason** (`*` at `write.not_written[*knurl on *]`)
 
-  haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3.
+  AP242's turned_knurl WR2 needs six to nine parameters (major and nominal diameter, diametral pitch and three or more of number of teeth, tooth depth, root fillet, helix angle, hand: haecceity pmi/write.rs refuses 'a knurl with 3 parameters (turned_knurl WR2: 6 to 9)', seen on parts/pin); the intent states diameter and pitch only, so no knurl can be written without guessing. Python writes its text route and a UDA. Listed in not_written; questions Q4 and Q15.
 
-- **the coating note Python writes by its text route** (`*` at `write.written[*coating *]`)
+- **a knurl note Python reads back from its own text route** (`*` at `existing[key=note|knurl|*]`)
 
-  haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3.
+  AP242's turned_knurl WR2 needs six to nine parameters (major and nominal diameter, diametral pitch and three or more of number of teeth, tooth depth, root fillet, helix angle, hand: haecceity pmi/write.rs refuses 'a knurl with 3 parameters (turned_knurl WR2: 6 to 9)', seen on parts/pin); the intent states diameter and pitch only, so no knurl can be written without guessing. Python writes its text route and a UDA. Listed in not_written; questions Q4 and Q15.
 
-- **the heat treatment note Python writes by its text route** (`*` at `write.written[*heat treatment *]`)
-
-  haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3.
-
-- **a note or face finish listed as not written, with its reason** (`*` at `write.not_written[*haecceity writes no *]`)
-
-  haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3.
-
-- **the finish default, not written, is not read back** (`*` at `part.surface_finish`)
-
-  haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3.
-
-- **the edge note, not written, is not read back** (`*` at `part.edges`)
-
-  haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3.
-
-- **the coating note, not written, is not read back** (`*` at `part.coating`)
-
-  haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3.
-
-- **the heat treatment note, not written, is not read back** (`*` at `part.heat_treatment`)
-
-  haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3.
-
-- **a face finish, not written, is not read back** (`*` at `existing[key=note|surface finish|*]`)
-
-  haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3.
+### writer: not-applicable (14 entries)
 
 - **Python's three parts of one product are one part here** (`nist/nist_ctc_02_asme1_ap242` at `write.message[*]`)
 
@@ -848,8 +770,6 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
 
 ### cross_engine: undetermined
 
-- **OpenCascade 7.9 crashes opening a Rust-written file with datum feature symbols** (1 entry)
-  - `parts/*`: `python_readback[specify-core's process died with SIGSEGV in load.load_all]`
 - **a thread written as AP242's thread feature is not read by specify-core (Python)** (1 entry)
   - `*`: `python_readback*existing[key=note|internal thread|*]`
 
@@ -894,29 +814,6 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `*`: `features[id=bosses:*].faces+plane`
 - **an angled step's adjoining plane is constituent, not defining** (1 entry)
   - `*`: `features[id=angled_steps:*].faces+plane`
-- **a blend chain Python supersedes by its fillets** (158 entries)
-  - `corpus/cadgenbench/flanged_spool_132`: `features[id=blends:86]`, `features[id=blends:91]`
-  - `corpus/cadgenbench/threaded_connector_109`: `features[id=blends:161]`
-  - `corpus/cadgenbench_inputs/cgb202`: `features[id=blends:1252]`, `features[id=blends:1254]`, `features[id=blends:1256]`, `features[id=blends:1258]`, `features[id=blends:1346]`, `features[id=blends:1450]`, `features[id=blends:1466]`, `features[id=blends:1630]`, `features[id=blends:29]`, `features[id=blends:662]`
-  - `corpus/cadgenbench_inputs/cgb207`: `features[id=blends:86]`, `features[id=blends:88]`
-  - `corpus/cadgenbench_inputs/cgb217`: `features[id=blends:138]`, `features[id=blends:139]`, `features[id=blends:191]`, `features[id=blends:196]`, `features[id=blends:219]`, `features[id=blends:224]`, `features[id=blends:247]`, `features[id=blends:252]`, `features[id=blends:296]`, `features[id=blends:301]`
-  - `corpus/cadgenbench_inputs/cgb242`: `features[id=blends:119.382]`, `features[id=blends:153.384]`, `features[id=blends:274]`, `features[id=blends:275]`, `features[id=blends:459]`, `features[id=blends:468]`, `features[id=blends:678]`, `features[id=blends:793]`, `features[id=blends:812]`, `features[id=blends:825]`, `features[id=blends:837]`, `features[id=blends:853]`
-  - `corpus/cadgenbench_inputs/cgb245`: `features[id=blends:115]`, `features[id=blends:123]`, `features[id=blends:135]`, `features[id=blends:144]`, `features[id=blends:153]`, `features[id=blends:170]`, `features[id=blends:171]`, `features[id=blends:176]`, `features[id=blends:177]`, `features[id=blends:178]`, `features[id=blends:179]`, `features[id=blends:180]`, `features[id=blends:182]`, `features[id=blends:183]`, `features[id=blends:186]`, `features[id=blends:194]`, `features[id=blends:206]`, `features[id=blends:215]`, `features[id=blends:224]`, `features[id=blends:241]`, `features[id=blends:242]`, `features[id=blends:243]`, `features[id=blends:244]`, `features[id=blends:249]`, `features[id=blends:250]`, `features[id=blends:251]`, `features[id=blends:253]`, `features[id=blends:254]`, `features[id=blends:266]`, `features[id=blends:283]`, `features[id=blends:318]`, `features[id=blends:326]`, `features[id=blends:333]`, `features[id=blends:334]`, `features[id=blends:345]`, `features[id=blends:353]`, `features[id=blends:360]`, `features[id=blends:361]`, `features[id=blends:368]`, `features[id=blends:387]`, `features[id=blends:75]`, `features[id=blends:83]`
-  - `corpus/mfcadpp_holdout/20273`: `features[id=blends:2]`
-  - `corpus/nist/nist_ctc_01_asme1_rd`: `features[id=blends:122]`, `features[id=blends:21]`, `features[id=blends:23]`, `features[id=blends:27]`, `features[id=blends:45]`, `features[id=blends:47]`, `features[id=blends:49]`, `features[id=blends:51]`
-  - `corpus/nist/nist_ctc_02_asme1_rc#0`: `features[id=blends:223]`, `features[id=blends:373]`, `features[id=blends:452]`, `features[id=blends:454]`, `features[id=blends:635]`
-  - `corpus/nist/nist_ctc_03_asme1_rc`: `features[id=blends:103]`, `features[id=blends:104]`, `features[id=blends:123]`, `features[id=blends:15]`, `features[id=blends:17]`, `features[id=blends:21]`, `features[id=blends:23]`, `features[id=blends:24]`, `features[id=blends:25]`, `features[id=blends:29]`, `features[id=blends:31]`, `features[id=blends:38]`, `features[id=blends:39]`, `features[id=blends:93]`, `features[id=blends:94]`
-  - `corpus/nist/nist_ctc_04_asme1_rd#0`: `features[id=blends:235]`, `features[id=blends:236]`, `features[id=blends:241]`, `features[id=blends:243]`, `features[id=blends:516]`
-  - `corpus/nist/nist_ctc_05_asme1_rd#0`: `features[id=blends:151]`
-  - `corpus/nist/nist_ftc_06_asme1_rd`: `features[id=blends:103]`, `features[id=blends:137]`, `features[id=blends:77]`, `features[id=blends:78]`, `features[id=blends:79]`, `features[id=blends:92]`, `features[id=blends:93]`
-  - `corpus/nist/nist_ftc_08_asme1_rc`: `features[id=blends:269]`
-  - `corpus/nist/nist_ftc_09_asme1_rd`: `features[id=blends:127]`
-  - `corpus/ttt_inputs/sm-hanger`: `features[id=blends:22]`, `features[id=blends:24]`, `features[id=blends:57]`, `features[id=blends:59]`
-  - `nist/nist_ctc_01_asme1_ap242`: `features[id=blends:21]`, `features[id=blends:23]`, `features[id=blends:27]`, `features[id=blends:3]`, `features[id=blends:45]`, `features[id=blends:5]`, `features[id=blends:7]`
-  - `nist/nist_ctc_02_asme1_ap242#0`: `features[id=blends:140]`, `features[id=blends:150]`
-  - `nist/nist_ctc_03_asme1_ap242`: `features[id=blends:114]`, `features[id=blends:119]`, `features[id=blends:23]`, `features[id=blends:4]`, `features[id=blends:5]`, `features[id=blends:56]`, `features[id=blends:57]`, `features[id=blends:58]`, `features[id=blends:59]`, `features[id=blends:63]`, `features[id=blends:66]`, `features[id=blends:67]`, `features[id=blends:69]`, `features[id=blends:79]`, `features[id=blends:8]`, `features[id=blends:81]`
-  - `nist/nist_ctc_04_asme1_ap242#0`: `features[id=blends:235]`, `features[id=blends:237]`, `features[id=blends:242]`, `features[id=blends:244]`
-  - `nist/nist_ctc_05_asme1_ap242`: `features[id=blends:121]`, `features[id=blends:133]`
 
 ### features: undetermined
 
@@ -987,41 +884,8 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `corpus/cadgenbench_inputs/cgb203`: `features[id=circular_face_patterns:*].record.fit_error`
 - **interior void estimates differ** (1 entry)
   - `corpus/mfcadpp_regressions/11512`: `features[id=interior_voids:*].record.*`
-- **bosses reported by Rust only** (45 entries)
-  - `corpus/cadgenbench/flanged_spool_132`: `features[id=bosses:70]`, `features[id=bosses:87]`, `features[id=bosses:89]`
-  - `corpus/cadgenbench/threaded_connector_109`: `features[id=bosses:163]`, `features[id=bosses:2.7.23.43.62.81.100.119]`, `features[id=bosses:214]`, `features[id=bosses:218.222.226.230.234.238.242.246.250.254.258.262]`, `features[id=bosses:271.275.279.283.287.291.295.299.303.307.311.315]`, `features[id=bosses:316]`
-  - `corpus/cadgenbench_inputs/cgb207`: `features[id=bosses:144]`, `features[id=bosses:146]`, `features[id=bosses:150]`, `features[id=bosses:151]`, `features[id=bosses:242]`, `features[id=bosses:258]`
-  - `corpus/cadgenbench_inputs/cgb217`: `features[id=bosses:310.344.345.346]`, `features[id=bosses:314]`, `features[id=bosses:321.330.332.334.336.338.340.342]`, `features[id=bosses:322]`, `features[id=bosses:358]`
-  - `corpus/cadgenbench_inputs/cgb241`: `features[id=bosses:0.51]`, `features[id=bosses:1.50]`, `features[id=bosses:2.49]`
-  - `corpus/gramel/GRM-03_thumbwheel_drive_screw`: `features[id=bosses:2]`, `features[id=bosses:3]`, `features[id=bosses:6]`, `features[id=bosses:9]`
-  - `corpus/gramel/GRM-05_depth_lock_bolt`: `features[id=bosses:0]`, `features[id=bosses:4]`, `features[id=bosses:6]`
-  - `corpus/gramel/string_post`: `features[id=bosses:0]`, `features[id=bosses:6]`, `features[id=bosses:9]`
-  - `corpus/nist/nist_ctc_05_asme1_rd#0`: `features[id=bosses:1.182]`, `features[id=bosses:10.81]`, `features[id=bosses:128.129]`
-  - `nist/nist_ctc_05_asme1_ap242`: `features[id=bosses:10]`, `features[id=bosses:6.7]`, `features[id=bosses:72]`
-  - `parts/assembly#1`: `features[id=bosses:0]`, `features[id=bosses:4]`
-  - `parts/pin`: `features[id=bosses:0]`, `features[id=bosses:4]`
-  - `parts/stack#2`: `features[id=bosses:0]`, `features[id=bosses:3]`
-- **fillets reported by Rust only** (26 entries)
+- **fillets reported by Rust only** (2 entries)
   - `corpus/cadgenbench_inputs/cgb202`: `features[id=fillets:1627]`, `features[id=fillets:698]`
-  - `corpus/mfcadpp/10000`: `features[id=fillets:10]`
-  - `corpus/mfcadpp/10063`: `features[id=fillets:11]`
-  - `corpus/mfcadpp/1007`: `features[id=fillets:23]`
-  - `corpus/mfcadpp/10156`: `features[id=fillets:5]`
-  - `corpus/mfcadpp/10212`: `features[id=fillets:14]`
-  - `corpus/mfcadpp/10224`: `features[id=fillets:13]`
-  - `corpus/mfcadpp/10252`: `features[id=fillets:10]`
-  - `corpus/mfcadpp_holdout/18016`: `features[id=fillets:5]`
-  - `corpus/mfcadpp_holdout/181`: `features[id=fillets:5]`
-  - `corpus/mfcadpp_holdout/20273`: `features[id=fillets:12]`
-  - `corpus/mfcadpp_holdout/340`: `features[id=fillets:15]`
-  - `corpus/mfcadpp_holdout/363`: `features[id=fillets:10]`
-  - `corpus/mfcadpp_holdout/388`: `features[id=fillets:2]`
-  - `corpus/mfcadpp_holdout/419`: `features[id=fillets:16]`, `features[id=fillets:25]`
-  - `corpus/mfcadpp_holdout/464`: `features[id=fillets:3]`
-  - `corpus/mfcadpp_holdout/471`: `features[id=fillets:3]`
-  - `corpus/mfcadpp_holdout/483`: `features[id=fillets:11]`, `features[id=fillets:22]`
-  - `corpus/mfcadpp_holdout/498`: `features[id=fillets:1]`, `features[id=fillets:16]`, `features[id=fillets:4]`
-  - `corpus/mfcadpp_holdout/520`: `features[id=fillets:10]`, `features[id=fillets:4]`
 - **thin_wall_bodies reported by Python only** (3 entries)
   - `corpus/cadgenbench_inputs/cgb207`: `features[id=thin_wall_bodies:114.115.116.117.118.119.120.121.122.123.124.125.126.127.128.129.130.131.132.133.134.135.136.137.138.139.140.141.142.143.144.145.146.147.148.149.150.151.152.153.155.157.158.159.160.161.162.163.164.165.166.167.168.169.170.171.172.173.179.180.181.182.183.184.185.186.187.188.189.190.191.198.199.200.208.210.212.213.214.215.216.217.218.219.220.221.224.227.233.234.235.236.237.238.239.240.241.242.246.248.249.251.252.254.255.257.258.259.260.261.262.263.264.265.267.268.269.271.272]`
   - `corpus/cadgenbench_inputs/cgb241`: `features[id=thin_wall_bodies:0.1.2.3.4.5.6.7.8.9.10.11.12.13.14.15.16.17.18.19.20.21.22.23.24.25.26.27.28.29.30.31.32.33.34.35.36.37.38.39.40.41.42.43.44.45.46.47.48.49.50.51]`
@@ -1046,11 +910,9 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
 - **interior_voids reported by Rust only** (2 entries)
   - `corpus/cadgenbench_inputs/cgb217`: `features[id=interior_voids:26.41]`
   - `corpus/cadgenbench_inputs/cgb243`: `features[id=interior_voids:31.32.33.34.126.227.528.529.530.531.532.533]`
-- **plates reported by Rust only** (4 entries)
+- **plates reported by Rust only** (2 entries)
   - `corpus/gramel/GRM-03_thumbwheel_drive_screw`: `features[id=plates:0.7.11]`
   - `corpus/inventory_refusal/14052`: `features[id=plates:5.6]`
-  - `corpus/nist/nist_ctc_03_asme1_rc`: `features[id=plates:7.8]`
-  - `nist/nist_ctc_03_asme1_ap242`: `features[id=plates:64.68]`
 - **pockets: Rust only** (58 entries)
   - `corpus/inventory_refusal/13975`: `features[id=pockets:*]`
   - `corpus/mfcadpp/1000`: `features[id=pockets:*]`
@@ -1110,7 +972,7 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `nist/nist_ctc_02_asme1_ap242#0`: `features[id=pockets:*]`
   - `nist/nist_ctc_05_asme1_ap242`: `features[id=pockets:*]`
   - `parts/default_datum_a_takes_every_coplanar_face`: `features[id=pockets:*]`
-- **prismatic_pockets: Rust only** (46 entries)
+- **prismatic_pockets: Rust only** (39 entries)
   - `corpus/inventory_refusal/14052`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp/1000`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp/10000`: `features[id=prismatic_pockets:*]`
@@ -1120,19 +982,15 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `corpus/mfcadpp/1004`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp/10046`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp/10047`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10049`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp/10063`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp/1007`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp/10098`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10103`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp/10127`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp/10138`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10146`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp/10167`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp/1017`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp/10170`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp/10190`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10212`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp/10245`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp/10278`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp_holdout/118`: `features[id=prismatic_pockets:*]`
@@ -1149,14 +1007,11 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `corpus/mfcadpp_holdout/257`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp_holdout/265`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp_holdout/274`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/275`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp_holdout/317`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/340`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp_holdout/408`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp_holdout/464`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp_holdout/483`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp_holdout/808`: `features[id=prismatic_pockets:*]`
-  - `parts/default_datum_a_takes_every_coplanar_face`: `features[id=prismatic_pockets:*]`
 - **channels: Rust only** (11 entries)
   - `corpus/mfcadpp/1000`: `features[id=channels:*]`
   - `corpus/mfcadpp/10047`: `features[id=channels:*]`
@@ -1212,23 +1067,6 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `corpus/mfcadpp_holdout/520`: `features[id=section_passages:*]`
   - `corpus/mfcadpp_holdout/808`: `features[id=section_passages:*]`
   - `corpus/mfcadpp_regressions/11512`: `features[id=section_passages:*]`
-- **slots reported by Rust only** (3 entries)
-  - `corpus/mfcadpp/1000`: `features[id=slots:5.12.39.43]`
-  - `corpus/mfcadpp/10190`: `features[id=slots:4.26]`
-  - `corpus/mfcadpp_holdout/808`: `features[id=slots:5.23]`
-- **chamfers reported by Rust only** (13 entries)
-  - `corpus/mfcadpp/10000`: `features[id=chamfers:4]`
-  - `corpus/mfcadpp/10007`: `features[id=chamfers:10]`
-  - `corpus/mfcadpp/10049`: `features[id=chamfers:7]`
-  - `corpus/mfcadpp/10101`: `features[id=chamfers:16]`
-  - `corpus/mfcadpp/10119`: `features[id=chamfers:24]`
-  - `corpus/mfcadpp/10138`: `features[id=chamfers:4]`
-  - `corpus/mfcadpp/10224`: `features[id=chamfers:21]`
-  - `corpus/mfcadpp/10245`: `features[id=chamfers:8]`
-  - `corpus/mfcadpp_holdout/181`: `features[id=chamfers:24]`
-  - `corpus/mfcadpp_holdout/408`: `features[id=chamfers:18]`
-  - `corpus/mfcadpp_holdout/483`: `features[id=chamfers:15]`, `features[id=chamfers:5]`
-  - `corpus/mfcadpp_regressions/11512`: `features[id=chamfers:32]`
 - **edge_open_prismatic_recesses: Rust only** (6 entries)
   - `corpus/mfcadpp/10020`: `features[id=edge_open_prismatic_recesses:*]`
   - `corpus/mfcadpp/10167`: `features[id=edge_open_prismatic_recesses:*]`
@@ -1277,3 +1115,12 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
 - **a fit above 500 mm: what Rust answers where Python fails has no Python output to compare with** (2 entries)
   - `corpus/nist/nist_ctc_05_asme1_rd#0/*`: `*`
   - `nist/nist_ctc_05_asme1_ap242/*`: `*`
+
+### writer: undetermined
+
+- **a knurl Python writes and the Rust writer cannot** (1 entry)
+  - `*`: `write.written[*knurl on *]`
+- **a knurl listed as not written, with its reason** (1 entry)
+  - `*`: `write.not_written[*knurl on *]`
+- **a knurl note Python reads back from its own text route** (1 entry)
+  - `*`: `existing[key=note|knurl|*]`

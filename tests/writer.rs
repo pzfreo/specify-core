@@ -176,19 +176,6 @@ fn datum_and_position(loaded: &LoadedPart) -> Intent {
     intent
 }
 
-/// The notes every accept-defaults intent has, which haecceity cannot write yet (U3, Q3).
-fn default_notes() -> Vec<String> {
-    ["surface finish Ra 3.2", "edges Break sharp edges 0.2 max"]
-        .iter()
-        .map(|n| {
-            format!(
-                "{n}: haecceity writes no notes yet, having no standard form for them (upstream \
-             need U3, question Q3)"
-            )
-        })
-        .collect()
-}
-
 // --- test_writer.py --------------------------------------------------------------------------
 
 /// `spool_written`: every kind of requirement v1 writes, including a g6 shaft fit, on corpus
@@ -237,14 +224,19 @@ fn the_spool_is_written_verified_and_read_back() {
         println!("skipped: no corpus");
         return;
     };
-    // Datums, requirements, material and general tolerance; the part's notes (surface finish
-    // and edges at their defaults) are not written but reported (U3, Q3).
+    // Datums, requirements, material, general tolerance and the part's notes (surface finish
+    // and edges at their defaults, Q3).
     assert_eq!(
         report.written.len(),
-        intent.datums.len() + intent.requirements.len() + 2
+        intent.datums.len() + intent.requirements.len() + 4
     );
     assert!(report.written.contains(&"material 6082-T6".to_string()));
-    assert_eq!(report.not_written, default_notes());
+    assert!(
+        report
+            .written
+            .contains(&"surface finish Ra 3.2".to_string())
+    );
+    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
     assert!(report.warnings.is_empty());
 
     // The limits: each fit is written as its ISO 286 class (Python wrote bare limits, as
@@ -620,10 +612,11 @@ fn threads_read_back_as_notes_not_as_sizes_of_nothing() {
     assert!(kinds.contains(&"internal thread") && kinds.contains(&"external thread"));
 }
 
-// test_requirements.py::test_a_finish_on_faces_is_not_a_second_default, re-expressed: neither
-// finish is written (U3, Q3); both are reported.
+// test_requirements.py::test_a_finish_on_faces_is_not_a_second_default: the default is the
+// part's finish (a surface texture on the part) and the one on faces is a note (a surface
+// texture on them), each written once (Q3).
 #[test]
-fn a_finish_on_faces_is_reported_not_written() {
+fn a_finish_on_faces_is_not_a_second_default() {
     let dir = temp("finish");
     let analysis = analysis("parts/pin");
     let top = top_face(&analysis);
@@ -634,23 +627,25 @@ fn a_finish_on_faces_is_reported_not_written() {
     let pin = load(&fixture("pin"), None).unwrap();
     let out = dir.join("finishes.step");
     let report = write(&pin, &apply(&analysis, given), &out, None).unwrap();
+    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
     assert!(
         report
-            .not_written
-            .iter()
-            .any(|n| n.starts_with(&format!("surface finish Ra 0.8 on faces [{top}]: ")))
+            .written
+            .contains(&format!("surface finish Ra 0.8 on faces [{top}]"))
+    );
+    let textures = &pmi_of(&out, 0).surface_textures;
+    assert_eq!(textures.len(), 2);
+    assert_eq!(textures.iter().filter(|t| t.on.is_none()).count(), 1);
+    let back = load(&out, None).unwrap();
+    assert_eq!(
+        part_settings(&back).unwrap()["surface_finish"],
+        json!("Ra 3.2")
     );
     assert!(
-        report
-            .not_written
-            .iter()
-            .any(|n| n.starts_with("surface finish Ra 3.2: "))
-    );
-    assert!(
-        !read_existing(&load(&out, None).unwrap())
+        read_existing(&back)
             .unwrap()
             .iter()
-            .any(|e| e.r#type == "surface finish")
+            .any(|e| e.kind == "note" && e.r#type == "surface finish" && e.faces == [top as usize])
     );
 }
 
@@ -719,19 +714,10 @@ fn pmi_is_added_to_a_part_that_has_some() {
     ] {
         assert!(!ids.contains(&stated), "{stated} asked again");
     }
-    // The part's notes were not written (U3, Q3), so they are offered again with coating and
-    // heat treatment (Python wrote the finish and edges, and offered only those two).
+    // What the first pass wrote is read back, its notes too (Q3); "no coating" and "no heat
+    // treatment" write nothing, so they are offered again at their defaults.
     for q in ids.iter().filter(|i| i.starts_with("part.")) {
-        assert!(
-            [
-                "part.coating",
-                "part.heat_treatment",
-                "part.surface_finish",
-                "part.edges"
-            ]
-            .contains(q),
-            "{q}"
-        );
+        assert!(["part.coating", "part.heat_treatment"].contains(q), "{q}");
     }
     assert!(!qs.iter().any(|q| q.prompt.contains("Ø8")));
     let six = qs
@@ -854,7 +840,12 @@ fn a_nist_part_keeps_all_its_pmi() {
     .unwrap();
     assert_eq!(
         report.written,
-        ["material CZ121", "general tolerance ISO 2768-m"]
+        [
+            "material CZ121",
+            "general tolerance ISO 2768-m",
+            "surface finish Ra 3.2",
+            "edges Break sharp edges 0.2 max"
+        ]
     );
     let old = read_existing(&loaded).unwrap();
     let new = read_existing(&load(&out, None).unwrap()).unwrap();
@@ -887,7 +878,7 @@ fn a_typed_thread_depth_is_written_and_read_back() {
         given.as_object(),
     )
     .unwrap();
-    assert_eq!(report.not_written, default_notes());
+    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
     let text = flat(&out);
     assert!(Regex::new(r"MEASURE_WITH_UNIT\(LENGTH_MEASURE\(5\.6\),#\d+\)REPRESENTATION_ITEM\('minimum full thread'\)").unwrap().is_match(&text));
     assert!(Regex::new(r"MEASURE_WITH_UNIT\(LENGTH_MEASURE\(8\.\),#\d+\)REPRESENTATION_ITEM\('tapping drill depth'\)").unwrap().is_match(&text));
@@ -917,11 +908,11 @@ fn notes_written(dir: &Path) -> (Intent, WriteReport, PathBuf, i64) {
 }
 
 // test_mmc_finish_notes.py::test_clearance_holes_are_positioned_at_mmc_and_fitted_ones_are_not
-// (write side), test_the_parts_notes_are_written_and_read_back and test_a_face_finish_is_
-// written_on_its_face (re-expressed: reported, not written, U3/Q3),
+// (write side), test_the_parts_notes_are_written_and_read_back, test_a_face_finish_is_written_
+// on_its_face (re-expressed: a surface texture on the face, Q3, not Python's text route) and
 // test_nothing_is_written_for_no_coating_or_heat_treatment
 #[test]
-fn mmc_positions_are_written_and_notes_are_reported() {
+fn mmc_positions_are_written_and_notes_are_read_back() {
     let dir = temp("mmc");
     let (intent, report, out, top) = notes_written(&dir);
     assert!(
@@ -941,26 +932,33 @@ fn mmc_positions_are_written_and_notes_are_reported() {
             .unwrap()
             .starts_with("Anodise black")
     );
-    for note in [
-        "surface finish Ra 1.6: ",
-        "coating Anodise black (MIL-A-8625 Type II): ",
-        "heat treatment Solution treat and age to T6: ",
-        "edges Break sharp edges 0.2 max: ",
+    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
+    for line in [
+        "surface finish Ra 1.6".to_string(),
+        "edges Break sharp edges 0.2 max".to_string(),
+        format!("surface finish Ra 0.8 on faces [{top}]"),
     ] {
-        assert!(
-            report.not_written.iter().any(|n| n.starts_with(note)),
-            "{note}"
-        );
+        assert!(report.written.contains(&line), "{line}");
     }
-    assert!(
-        report
-            .not_written
-            .iter()
-            .any(|n| n.starts_with(&format!("surface finish Ra 0.8 on faces [{top}]: ")))
-    );
+    let back = load(&out, None).unwrap();
     assert_eq!(
-        part_settings(&load(&out, None).unwrap()).unwrap(),
-        answers(json!({"material": "Aluminium 6082-T6", "general_tolerance": "ISO 2768-m"}))
+        part_settings(&back).unwrap(),
+        answers(json!({
+            "material": "Aluminium 6082-T6",
+            "general_tolerance": "ISO 2768-m",
+            "surface_finish": "Ra 1.6",
+            "coating": "Anodise black (MIL-A-8625 Type II)",
+            "heat_treatment": "Solution treat and age to T6",
+            "edges": "Break sharp edges 0.2 max",
+        }))
+    );
+    assert!(
+        read_existing(&back)
+            .unwrap()
+            .iter()
+            .any(|e| e.kind == "note"
+                && e.r#type == "surface finish"
+                && e.faces.contains(&(top as usize)))
     );
 
     let plain = apply(&analysis("parts/plate"), json!({"part.material": "steel"}));
@@ -969,7 +967,7 @@ fn mmc_positions_are_written_and_notes_are_reported() {
     write(&load(&fixture("plate"), None).unwrap(), &plain, &p, None).unwrap();
     let text = std::fs::read_to_string(&p).unwrap();
     assert!(
-        !Regex::new(r"'(surface treatment|heat treatment)'")
+        !Regex::new(r"'(surface treatment|heat treatment|coating)'")
             .unwrap()
             .is_match(&text)
     );
@@ -1243,10 +1241,15 @@ fn write_the_rest(name: &str, faceless: &[&str]) {
         .collect();
     let wanted: Vec<String> = faceless.iter().map(|w| format!("{w}{reason}")).collect();
     assert_eq!(listed, wanted.iter().collect::<Vec<_>>());
-    // Every other requirement, each datum, the material and the general tolerance is written.
+    // Every other requirement, each datum, the material, the general tolerance and the part's
+    // notes are written.
+    let notes = specify_core::rules::NOTES
+        .iter()
+        .filter(|k| intent.part.get(**k).is_some_and(|v| v.as_str() != Some("")))
+        .count();
     assert_eq!(
         report.written.len(),
-        intent.datums.len() + intent.requirements.len() - faceless.len() + 2,
+        intent.datums.len() + intent.requirements.len() - faceless.len() + 2 + notes,
         "{:?}",
         report.written
     );

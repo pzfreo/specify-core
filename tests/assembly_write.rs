@@ -107,12 +107,13 @@ fn datum_count(path: &Path) -> usize {
         .count()
 }
 
-// test_assembly.py::test_both_parts_are_written_and_verified. The parts' notes are reported,
-// not written (U3, Q3).
+// test_assembly.py::test_both_parts_are_written_and_verified: the parts' notes are written
+// too (Q3), so nothing is left unwritten.
 #[test]
 fn both_parts_are_written_and_verified() {
     let dir = temp("both");
     let (_, report, _) = written(&dir);
+    assert_eq!(report.not_written, Vec::<String>::new());
     assert!(
         report
             .written
@@ -122,13 +123,6 @@ fn both_parts_are_written_and_verified() {
         report
             .written
             .contains(&"pin: internal thread M5x0.8-6H on holes:3.5".to_string())
-    );
-    assert_eq!(report.not_written.len(), 4);
-    assert!(
-        report
-            .not_written
-            .iter()
-            .all(|n| n.starts_with("plate: ") || n.starts_with("pin: "))
     );
 }
 
