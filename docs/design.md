@@ -417,5 +417,31 @@ once the API composes analysis and rules, stage 4); the write and read-back halv
 rules tests (stage 3); the CLI and serve tests (stage 4). New maintainer questions Q9-Q13; new
 upstream needs U10-U13.
 
-Next: stage 3. The dependency is still pinned to `a16d7af` on `ap242`; `prototype/rust-port`
-does not contain it yet.
+**Stage 3 delivered** (merged to `main`):
+
+- *Writer.* `writer.rs` (`write_parts` over references, `WriteReport` with Python's `to_dict`
+  keys) writes the intent as AP242 semantic PMI through haecceity's `pmi` writer and verifies
+  every part by reading it back (`differences_as_stated`, no instance the reader consumed
+  surviving the edit, and an EXPRESS check of every output, ignoring problems the input file
+  already has). A fit is written as its ISO 286 class after checking the intent's limits equal
+  the class's. Nothing is dropped silently: what cannot be written (every knurl, Q15) is listed
+  in `not_written`. A bare or resumed part is written by Replace (as Python does; Q18), an
+  assembly part by part; a part named twice, or answers stored for a part the file no longer
+  has, are refused. Replace of a thread haecceity wrote clears the part first (U14 stand-in).
+- *Resume.* `resume.rs` and `pyjson.rs`: answers are stored where Python's pattern reads them
+  and resumed only for the faces they name.
+- *Tests.* `tests/writer.rs` (27), `tests/resume.rs`, `tests/assembly_write.rs`,
+  `tests/rust_analyses.rs` (the stage 2 smoke test: rules and writer on the Rust engine's own
+  analyses of every synthetic part, including the plate's general dimensions) and
+  `tests/write_oracle.rs`, which checks every captured write and a Python-written resume.
+  `writer.json`: 136 writes, 713 differences (632 not-applicable, 60 rust-correct, 21
+  undetermined, none rust-wrong).
+
+Open after stage 3: Rust-written files with datums crash OpenCascade 7.9, so specify-core
+(Python) cannot read them (Q16, U15); neither engine resumes the other's files (Q14); knurls
+are not written (Q15); requirements on no faces (Q17); the write modes (Q18). Until Q14 and Q16
+are settled, the two engines' STEP files are not interchangeable. The CLI test from
+`test_writer.py` and the serve parts of `test_assembly.py` are stage 4. New maintainer questions
+Q14-Q18; new upstream needs U14-U15.
+
+Next: stage 4. The dependency is pinned to `a16d7af`, which `prototype/rust-port` now contains.
