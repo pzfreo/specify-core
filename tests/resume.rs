@@ -12,7 +12,9 @@ use sha2::{Digest, Sha256};
 use specify_core::existing::{part_settings, read_existing};
 use specify_core::part::{LoadedPart, load};
 use specify_core::pyjson;
-use specify_core::resume::{self, answers_for, fingerprint, stored};
+use specify_core::resume::{
+    self, answers_for, fingerprint, fingerprint_of, fingerprint_v1, stored,
+};
 use specify_core::rules::{Intent, apply_with_defaults};
 use specify_core::writer::write;
 
@@ -317,14 +319,14 @@ fn pythons_stored_answers_are_read() {
     }
 }
 
-// Why a Python-written file does not resume here (known difference, question in
-// docs/questions.md): its payload is read and its face count matches, but its fingerprint is
-// of OpenCascade's centroids, whose zero components carry OpenCascade's signs; the Rust
-// engine's centroids round to the same numbers with other signs of zero.
+// Why a schema 1 file Python wrote does not resume here (known difference, Q14): its payload is
+// read and its face count matches, but its fingerprint is of OpenCascade's centroids, whose
+// zero components carry OpenCascade's signs; the Rust engine's centroids round to the same
+// numbers with other signs of zero.
 #[test]
 fn a_python_fingerprint_differs_only_in_signs_of_zero() {
     let loaded = load(&fixture("plate"), None).unwrap();
-    let ours = fingerprint(&loaded).unwrap();
+    let ours = fingerprint_v1(&loaded).unwrap();
     assert_ne!(ours, sha(PYTHON_PLATE));
     let python: Value = serde_json::from_str(PYTHON_PLATE).unwrap();
     let rust: Vec<Value> = specify_core::features::describe_faces(&loaded)
@@ -360,16 +362,17 @@ fn a_python_fingerprint_differs_only_in_signs_of_zero() {
     assert!(answers_for(&back).unwrap().is_none());
 }
 
-// A file Python wrote whose stored fingerprint is the Rust engine's resumes, and is rewritten
-// by replace: Python's text route, presentation and stored answers go, and the answers stored
-// are this port's only.
+// A file Python wrote whose stored (schema 1) fingerprint is the Rust engine's resumes, and is
+// rewritten by replace: Python's text route, presentation and stored answers go, and the
+// answers stored are this port's only (schema 2).
 #[test]
 fn a_python_written_file_that_resumes_is_rewritten_by_replace() {
     let dir = temp("python-written");
     let written = common::case("parts/plate").written_step().unwrap();
     let text = std::fs::read_to_string(&written).unwrap();
-    let ours = fingerprint(&load(&fixture("plate"), None).unwrap()).unwrap();
+    let ours = fingerprint_v1(&load(&fixture("plate"), None).unwrap()).unwrap();
     let mut payload = Value::Object(stored(text.as_bytes()).remove(&0).unwrap());
+    assert_eq!(payload["schema"], json!(1));
     payload["faces"] = json!(ours);
     let pattern = Regex::new(r"('pmi-assist answers',')[A-Za-z0-9+/=]*'").unwrap();
     let patched = dir.join("python.step");
@@ -411,8 +414,110 @@ fn a_python_written_file_that_resumes_is_rewritten_by_replace() {
         1
     );
     assert!(after.contains("'brass'") && !after.contains("'steel'"));
+    let back = load(&out, None).unwrap();
+    assert_eq!(stored(&back.bytes)[&0]["schema"], json!(2));
+    assert_eq!(answers_for(&back).unwrap(), given.as_object().cloned());
+}
+
+// --- schema 2 (Q14) --------------------------------------------------------------------------
+
+/// A file the writer wrote for the plate with `given` stored, and its text.
+fn written_plate(dir: &Path, given: &Value) -> (PathBuf, String) {
+    let out = dir.join("plate.step");
+    let plate = load(&fixture("plate"), None).unwrap();
+    write(
+        &plate,
+        &apply(&analysis("parts/plate"), given.clone()),
+        &out,
+        given.as_object(),
+    )
+    .unwrap();
+    let text = std::fs::read_to_string(&out).unwrap();
+    (out, text)
+}
+
+/// `text` with its stored payload replaced by `payload`.
+fn with_payload(text: &str, payload: &Value) -> String {
+    let pattern = Regex::new(r"('pmi-assist answers',')[A-Za-z0-9+/=]*'").unwrap();
+    let encoded = resume::encode(payload);
+    assert!(pattern.is_match(text));
+    let changed = pattern
+        .replace(text, format!("${{1}}{encoded}'").as_str())
+        .into_owned();
+    assert!(changed.contains(&encoded));
+    changed
+}
+
+// The writer stores schema 2, with the schema 2 fingerprint: zeros unsigned.
+#[test]
+fn the_writer_stores_schema_two() {
+    let dir = temp("schema2");
+    let given = json!({"part.material": "steel"});
+    let (out, _) = written_plate(&dir, &given);
+    let loaded = load(&out, None).unwrap();
+    let payload = stored(&loaded.bytes).remove(&0).unwrap();
+    assert_eq!(payload["schema"], json!(2));
+    assert_eq!(payload["faces"], json!(fingerprint(&loaded).unwrap()));
+    assert_ne!(payload["faces"], json!(fingerprint_v1(&loaded).unwrap()));
+    assert_eq!(answers_for(&loaded).unwrap(), given.as_object().cloned());
+}
+
+// Each schema is checked against its own fingerprint: a schema 1 payload resumes on the
+// schema 1 fingerprint and not on schema 2's, and the reverse.
+#[test]
+fn each_schema_is_checked_against_its_own_fingerprint() {
+    let dir = temp("schemas");
+    let given = json!({"part.material": "steel"});
+    let (out, text) = written_plate(&dir, &given);
+    let loaded = load(&out, None).unwrap();
+    let (v1, v2) = (
+        fingerprint_v1(&loaded).unwrap(),
+        fingerprint(&loaded).unwrap(),
+    );
+    let mut payload = Value::Object(stored(text.as_bytes()).remove(&0).unwrap());
+    for (schema, faces, resumes) in [
+        (1, &v1, true),
+        (1, &v2, false),
+        (2, &v1, false),
+        (2, &v2, true),
+    ] {
+        payload["schema"] = json!(schema);
+        payload["faces"] = json!(faces);
+        let path = dir.join(format!("s{schema}-{resumes}.step"));
+        std::fs::write(&path, with_payload(&text, &payload)).unwrap();
+        let back = load(&path, None).unwrap();
+        assert_eq!(
+            answers_for(&back).unwrap().is_some(),
+            resumes,
+            "schema {schema}, {}",
+            if faces == &v1 {
+                "schema 1 fingerprint"
+            } else {
+                "schema 2 fingerprint"
+            }
+        );
+    }
+    // A schema neither engine writes is passed over.
+    payload["schema"] = json!(3);
+    payload["faces"] = json!(v2);
+    let path = dir.join("s3.step");
+    std::fs::write(&path, with_payload(&text, &payload)).unwrap();
+    assert!(stored(&std::fs::read(&path).unwrap()).is_empty());
+}
+
+// The schema 2 fingerprint of the faces Python's engine gives the plate (OpenCascade's signs of
+// zero) is the Rust engine's: the documented canonical form (docs/design.md) makes the two
+// engines' fingerprints of the same faces equal, where schema 1's differ.
+#[test]
+fn schema_two_fingerprints_pythons_faces_as_the_rust_engines() {
+    let loaded = load(&fixture("plate"), None).unwrap();
+    let python: Value = serde_json::from_str(PYTHON_PLATE).unwrap();
+    assert_eq!(fingerprint_of(&python, 2), fingerprint(&loaded).unwrap());
+    assert_eq!(fingerprint_of(&python, 1), sha(PYTHON_PLATE));
+    assert_ne!(fingerprint_of(&python, 1), fingerprint_v1(&loaded).unwrap());
+    // The text schema 2 hashes, exactly.
     assert_eq!(
-        answers_for(&load(&out, None).unwrap()).unwrap(),
-        given.as_object().cloned()
+        fingerprint(&loaded).unwrap(),
+        sha(&PYTHON_PLATE.replace("-0.0", "0.0"))
     );
 }

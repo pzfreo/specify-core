@@ -155,6 +155,17 @@ a Python-written file is analysed with its PMI as the file's own (no resume), an
 mode. Options: (a) a schema 2 payload whose fingerprint writes zeros unsigned (`0.0`), in both
 engines (specify-core's Python changes too); (b) accept a payload on its face count alone when the
 hash does not match (weaker: answers could be resumed onto changed geometry); (c) keep as is.
+*Status (2026-10-09): done in the Rust engine (option a).* The writer stores schema 2, whose
+fingerprint writes every zero unsigned after rounding (canonical form in docs/design.md, "The
+fingerprint"); schema 1 payloads are still read and resume when their own fingerprint matches
+(`resume::fingerprint_v1`). On all 34 parts of the cross-engine check the schema 2 fingerprint
+computed in Python from Python's own faces equals the Rust engine's
+(`tests/cross_engine.rs`, `schema_two_fingerprints_are_the_same_in_both_engines`). specify-core's
+side (branch `fingerprint-v2`) did not exist when this was done, so the Python value is the
+documented form computed in the capture tool, not specify-core's own function; the captured
+specify-core reads schema 1 only and passes the Rust writer's schema 2 payloads over
+(`known_differences/cross_engine.json`). Recapture once that branch lands: the test then also
+checks specify-core's own schema 2 fingerprint.
 
 **Q15 (writer stream). Straight knurls too (extends Q4).** AP242's `turned_knurl` WR2 requires
 six to nine parameters: the major and nominal diameters, the diametral pitch and at least three

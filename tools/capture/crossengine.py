@@ -29,6 +29,7 @@ pattern finds stored and the faces it fingerprints, ``_resume_evidence``) in
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import re
 import shutil
@@ -74,7 +75,11 @@ def _resume_evidence(step: Path, k: int, stage: Callable[[str], None]) -> dict[s
     """Why ``resume.answers_for`` resumes part ``k`` or not: the payload Python's pattern finds
     stored for it (``resume.saved``), the part's face count, and the faces Python fingerprints
     (``(kind, centroid rounded to 3)`` each, as ``resume.fingerprint`` hashes them) with that
-    hash, so the Rust test can compare them with its own faces."""
+    hash, so the Rust test can compare them with its own faces. Also ``fingerprint_v2``, the
+    stored-answer schema 2 fingerprint of the same faces by the canonical form docs/design.md
+    defines (every zero written unsigned, ``0.0``, after rounding), computed here from Python's
+    own faces whichever schema this specify-core writes (``schema``), so the Rust test can check
+    the two engines' schema 2 fingerprints are equal."""
     from specify_core import resume
     from specify_core.features import describe_faces
     from specify_core.load import load
@@ -87,7 +92,16 @@ def _resume_evidence(step: Path, k: int, stage: Callable[[str], None]) -> dict[s
         "face_count": loaded.binding.face_count,
         "faces": faces,
         "fingerprint": resume.fingerprint(loaded),
+        "schema": resume.SCHEMA,
+        "fingerprint_v2": _fingerprint_v2(faces),
     }
+
+
+def _fingerprint_v2(faces: list[tuple[str, list[float]]]) -> str:
+    """Schema 2's fingerprint of ``faces`` (kind, centroid rounded to 3): sha256 of
+    ``json.dumps`` of them with every zero written unsigned (docs/design.md, "The fingerprint")."""
+    unsigned = [(kind, [0.0 if c == 0 else c for c in centroid]) for kind, centroid in faces]
+    return hashlib.sha256(json.dumps(unsigned).encode()).hexdigest()
 
 
 def _run(step: Path, which: str, scratch: Path) -> Any:

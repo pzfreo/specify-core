@@ -13,14 +13,14 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 1 | 1 | 2 | 8 |
 | [cli](#cli) | 9 | 0 | 3 | 0 | 3 | 15 |
-| [cross_engine](#cross_engine) | 3 | 0 | 0 | 4 | 1 | 8 |
+| [cross_engine](#cross_engine) | 5 | 0 | 0 | 2 | 1 | 8 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
 | [features](#features) | 879 | 1576 | 63 | 1480 | 11 | 4009 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 12 | 9 | 4 | 5 | 35 |
 | [rules](#rules) | 0 | 0 | 0 | 0 | 0 | 0 |
-| [writer](#writer) | 12 | 0 | 0 | 4 | 24 | 40 |
-| **all** | 939 | 1588 | 76 | 1493 | 56 | 4152 |
+| [writer](#writer) | 13 | 0 | 0 | 3 | 24 | 40 |
+| **all** | 942 | 1588 | 76 | 1490 | 56 | 4152 |
 
 ## anchors
 
@@ -122,7 +122,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cross_engine
 
-### cross_engine: rust-correct (3 entries)
+### cross_engine: rust-correct (5 entries)
 
 - **a size or tolerance on a feature of several faces (set_representation_item) is not read by OpenCascade** (`*` at `python_readback*existing[key=*|[*,*]|*]`)
 
@@ -136,7 +136,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The stack's Ø8 H7 bores ([9] of parts 0 and 1, +0.015/0) and Ø8 h6 pin ([3] of part 2, 0/-0.009) read back in Python with their nominal value and no upper or lower deviation. The Rust writer writes a fit as plus_minus_tolerance -> limits_and_fits('H','hole','7','') (PMI practice §5.2.5), after checking the intent's limits are the class's (src/writer.rs); haecceity's reader reads the class. specify-core's read_existing takes limits only from IsDimWithPlusMinusTolerance (existing.py) and never asks XCAF for the class of tolerance, so the fit's meaning is lost on the Python side. Python's own files carry the fit as bare limits, which is what OCCT's writer forced (docs/design.md, 'What is written').
 
-### cross_engine: undetermined (4 entries)
+- **Python (schema 1 only) passes over the Rust writer's schema 2 answers; their fingerprint is the one its own faces give** (`*` at `*resume[python did not resume: the stored payload is schema 2, which this specify-core does not read; Python's faces give its fingerprint]`)
+
+  The Rust writer stores schema 2 (Q14, decided 2026-10-09: the fingerprint writes zeros unsigned, docs/design.md 'The fingerprint'). The specify-core captured (resume.SCHEMA 1, recorded per part as evidence.schema) reads schema 1 only, so its pattern passes the payload over and answers_for gives None, on every Rust-written part it could load (the 2 parts of a_file_with_two_parts, a_placed_part, default_datum_a, wrapped) and on every part of the probes of the 7 files it crashes on (Q16). Python's side of the change is specify-core's branch fingerprint-v2, not yet published when this was captured. For each of those parts the capture computes, in Python and from Python's own faces (OpenCascade's centroids, signs of zero included), the schema 2 fingerprint by the documented canonical form (tools/capture/crossengine.py _fingerprint_v2), and it is exactly the fingerprint the Rust writer stored (checked here, and on all 34 parts of the check by tests/cross_engine.rs schema_two_fingerprints_are_the_same_in_both_engines). So once specify-core reads schema 2 with that form, these answers resume; until then this difference is Python's lag, not the Rust engine's. Before schema 2 the same parts failed on the signs of zero alone (Python -0.0, haecceity 0.0).
+
+- **the Rust engine finds Python-written schema 1 answers but refuses them on the schema 1 fingerprint: zeros' signs differ** (`*` at `python_written.resume[rust did not resume: fingerprint differs only in signs of zero]`)
+
+  On every part of the 11 Python-written synthetic files (tests/fixtures/oracle/parts/\*\*/written.step.gz) resume::stored reads Python's payload (schema 1), equal to what Python's own resume.saved finds (python_written_evidence.json.gz), with the same face count; the stored fingerprint is Python's schema 1 hash of the faces it lists, and those faces equal the Rust engine's by value, differing only in signs of zero (faces_gap), which schema 1's text keeps. Q14 (decided 2026-10-09) keeps schema 1 read exactly as before: resumed only when its own fingerprint matches, so the Rust engine is right not to resume these. The fix is schema 2, which both engines write: the schema 2 fingerprint Python computes from its own faces in these files equals the Rust engine's on all 15 parts (tests/cross_engine.rs schema_two_fingerprints_are_the_same_in_both_engines), so files specify-core writes once it writes schema 2 resume here. Everything else these files hold (existing PMI, part settings) reads in Rust exactly as Python reads it.
+
+### cross_engine: undetermined (2 entries)
 
 - **OpenCascade 7.9 crashes opening a Rust-written file with datum feature symbols** (`parts/*` at `python_readback[specify-core's process died with SIGSEGV in load.load_all]`)
 
@@ -145,14 +153,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **a thread written as AP242's thread feature is not read by specify-core (Python)** (`*` at `python_readback*existing[key=note|internal thread|*]`)
 
   The Rust writer writes each thread as AP242's `thread` (side, major diameter, form, class, hand, partial area; haecceity checks thread WR1-WR16 on every write) with its pitch and depths as a user defined attribute set (UDA practice §5-7; upstream need U8), and reads it back as the intent's thread. specify-core's existing.notes reads threads only from its own 'manufacturing requirement' text route (existing.py, notes), and OpenCascade's XCAF has no thread model, so Python reads none of them (6 threads in the probes of plate, pin, stack, assembly and a_hole_along_x). The AP242 schema form is standard, the text route is not (haecceity decision 5), but no CAx-IF practice for thread features was found to cite, and the pitch has no semantic home in haecceity yet (U8). A thread therefore does not cross from the Rust engine to the Python one.
-
-- **Python finds the Rust-written answers but refuses them on the fingerprint: zeros' signs differ** (`*` at `*resume[python did not resume: fingerprint differs only in signs of zero]`)
-
-  On every Rust-written part Python could load (the 2 parts of a_file_with_two_parts, a_placed_part, default_datum_a, wrapped; and every part of the probes) the capture's resume evidence shows Python's pattern (resume.saved) finds exactly the payload the Rust writer stored, with the same face count, and the faces Python fingerprints equal the Rust engine's in kind and rounded centroid by value; only the signs of some zero components differ (OpenCascade -0.0, haecceity 0.0: integration noise), which Python's json.dumps text and so the sha256 keep. Checked per part by tests/cross_engine.rs (faces_gap). Neither engine's zero is more correct; the payload format hashes text. Question Q14: the answers do not cross until the fingerprint writes zeros unsigned or the rule changes.
-
-- **the Rust engine finds Python-written answers but refuses them on the fingerprint: zeros' signs differ** (`*` at `python_written.resume[rust did not resume: fingerprint differs only in signs of zero]`)
-
-  On every part of the 11 Python-written synthetic files (tests/fixtures/oracle/parts/\*\*/written.step.gz) resume::stored reads Python's payload, equal to what Python's own resume.saved finds (python_written_evidence.json.gz), with the same face count; the stored fingerprint is Python's hash of the faces it lists, and those faces equal the Rust engine's by value, differing only in signs of zero (faces_gap). Everything else these files hold (existing PMI, part settings) reads in Rust exactly as Python reads it. The same cause as the other direction: question Q14.
 
 ### cross_engine: not-applicable (1 entry)
 
@@ -674,7 +674,7 @@ No entries: every comparison in this area equals Python's (`rules.json` is empty
 
 ## writer
 
-### writer: rust-correct (12 entries)
+### writer: rust-correct (13 entries)
 
 - **a g6 diameter Python's reader garbles, and reads with no deviations** (2 entries, 2 case globs)
 
@@ -712,7 +712,11 @@ No entries: every comparison in this area equals Python's (`rules.json` is empty
 
   Python stores the answers with a fingerprint of the input's faces, then re-exports the geometry through OpenCascade, whose centroids' zero components change sign; its fingerprint of the file it wrote no longer matches (checked: flanged_spool_132, stored f39f4952..., Python's fingerprint of its output c8eb6e8e..., no rounded centroid differs). The Rust writer keeps every geometry byte, so its fingerprint matches and the answers resume.
 
-### writer: undetermined (4 entries)
+- **a Python-written (schema 1) file does not resume in the Rust engine** (`parts/*` at `python_written.resume`)
+
+  The payload is read (tests/resume.rs pythons_stored_answers_are_read) and its face count matches, but Python's fingerprint hashes OpenCascade's centroids, whose zero components carry other signs than haecceity's (plate: Python [-50.0, -0.0, -0.0], Rust [-50.0, -0.0, 0.0]; equal numbers, tests/resume.rs a_python_fingerprint_differs_only_in_signs_of_zero). The Rust engine cannot verify the faces, so it does not resume (the file is analysed with its PMI as its own). Q14 (decided 2026-10-09) keeps schema 1 read exactly as before, so this is the specified outcome; schema 2, which both engines write, fingerprints zeros unsigned, and the two engines' schema 2 fingerprints of these files are equal (tests/cross_engine.rs schema_two_fingerprints_are_the_same_in_both_engines).
+
+### writer: undetermined (3 entries)
 
 - **a knurl Python writes and the Rust writer cannot** (`*` at `write.written[*knurl on *]`)
 
@@ -725,10 +729,6 @@ No entries: every comparison in this area equals Python's (`rules.json` is empty
 - **a knurl note Python reads back from its own text route** (`*` at `existing[key=note|knurl|*]`)
 
   AP242's turned_knurl WR2 needs six to nine parameters (major and nominal diameter, diametral pitch and three or more of number of teeth, tooth depth, root fillet, helix angle, hand: haecceity pmi/write.rs refuses 'a knurl with 3 parameters (turned_knurl WR2: 6 to 9)', seen on parts/pin); the intent states diameter and pitch only, so no knurl can be written without guessing. Python writes its text route and a UDA. Listed in not_written; questions Q4 and Q15.
-
-- **a Python-written file does not resume in the Rust engine** (`parts/*` at `python_written.resume`)
-
-  The payload is read (tests/resume.rs pythons_stored_answers_are_read) and its face count matches, but Python's fingerprint hashes OpenCascade's centroids, whose zero components carry other signs than haecceity's (plate: Python [-50.0, -0.0, -0.0], Rust [-50.0, -0.0, 0.0]; equal numbers, tests/resume.rs a_python_fingerprint_differs_only_in_signs_of_zero). The Rust engine cannot verify the faces, so it does not resume (the file is analysed with its PMI as its own). Question Q14.
 
 ### writer: not-applicable (24 entries)
 
@@ -803,10 +803,6 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `parts/*`: `python_readback[specify-core's process died with SIGSEGV in load.load_all]`
 - **a thread written as AP242's thread feature is not read by specify-core (Python)** (1 entry)
   - `*`: `python_readback*existing[key=note|internal thread|*]`
-- **Python finds the Rust-written answers but refuses them on the fingerprint: zeros' signs differ** (1 entry)
-  - `*`: `*resume[python did not resume: fingerprint differs only in signs of zero]`
-- **the Rust engine finds Python-written answers but refuses them on the fingerprint: zeros' signs differ** (1 entry)
-  - `*`: `python_written.resume[rust did not resume: fingerprint differs only in signs of zero]`
 
 ### features: rust-wrong
 
@@ -1235,5 +1231,3 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `*`: `write.not_written[*knurl on *]`
 - **a knurl note Python reads back from its own text route** (1 entry)
   - `*`: `existing[key=note|knurl|*]`
-- **a Python-written file does not resume in the Rust engine** (1 entry)
-  - `parts/*`: `python_written.resume`
