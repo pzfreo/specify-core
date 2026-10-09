@@ -444,4 +444,33 @@ are settled, the two engines' STEP files are not interchangeable. The CLI test f
 `test_writer.py` and the serve parts of `test_assembly.py` are stage 4. New maintainer questions
 Q14-Q18; new upstream needs U14-U15.
 
-Next: stage 4. The dependency is pinned to `a16d7af`, which `prototype/rust-port` now contains.
+**Stage 4 delivered** (merged to `main`):
+
+- *API, command line and serve.* `api.rs` composes load, analysis, rules, mesh and writer;
+  `main.rs` is specify-core's command line (`parts | analyse | mesh | questions | write |
+  serve`) with argparse's parsing, usage errors and exit codes (short options split at a
+  character, `-o=VALUE`, positionals taken in runs between options, each checked against the
+  venv's argparse); `serve.rs` is the JSON-lines service. Checked against
+  `tests/fixtures/cli_oracle.json.gz` (captured by `tests/fixtures/cli_oracle.py`) in
+  `tests/cli.rs`, `tests/api.rs` and `tests/serve.rs`, which also port `test_serve.py` and
+  `test_assembly.py`'s API and command-line tests. `cli.json`: 52 differences, every
+  one with a verdict; the feature-id cascade is not-applicable by design. Contacts that cannot
+  be measured are reported as warnings outside the analysis (Q19).
+- *Cross-engine check.* `tools/capture/crossengine.py` has specify-core (Python) read every
+  Rust-written synthetic and NIST file (`examples/write_fixtures.rs`, committed as
+  `tests/fixtures/cross_engine/`), with each read-back and resume evidence in its own child
+  process; `tests/cross_engine.rs` checks the Rust files are reproduced byte for byte, compares
+  Python's read-back with the intent, and the reverse (the Rust engine reading Python-written
+  files). `cross_engine.json`: 70 differences (25 rust-correct, 43 undetermined, 2
+  not-applicable). Python cannot load any Rust-written file with datums (Q16; probe evidence for
+  U15); without the datum-symbol relationship it reads every single-face item, but not
+  multi-face `set_representation_item` usages, fit classes or AP242 threads (Q20). Resume fails
+  both ways only on signs of zero in the fingerprint (Q14 evidence). No Rust-written file for
+  NIST CTC-02/04 (Q7).
+
+Open after stage 4: Q14, Q16 (with U15) and Q20 decide whether the engines' STEP files become
+interchangeable; Q19 (where unmeasurable contacts are reported). New maintainer questions Q19,
+Q20. The dependency is still pinned to `a16d7af`, which `prototype/rust-port` contains;
+moving it to the branch is left to stage 5.
+
+Next: stage 5 (consolidation).
