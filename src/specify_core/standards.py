@@ -1,7 +1,7 @@
 """Standards knowledge: ISO 286 fits and metric bolt sizes.
 
 Only what the v1 rules use. Values are ISO 286-1/-2 tabulated values in
-micrometres for nominal sizes up to 500 mm; each size range is "over the lower
+micrometres for nominal sizes up to 3150 mm; each size range is "over the lower
 bound, up to and including the upper".
 """
 
@@ -11,31 +11,57 @@ import bisect
 import math
 import re
 
-#: Upper bounds of the ISO 286 nominal size ranges, in mm.
-_RANGES = (3, 6, 10, 18, 30, 50, 80, 120, 180, 250, 315, 400, 500)
+#: Upper bounds of the ISO 286 nominal size ranges, in mm: ISO 286-1:2010
+#: Table 1's main ranges. Above 500 mm Tables 2 and 3 split each range in two
+#: (500-560 and 560-630, ...), but every deviation tabulated here is the same in
+#: both halves, so the main ranges suffice.
+# fmt: off
+_RANGES = (3, 6, 10, 18, 30, 50, 80, 120, 180, 250, 315, 400, 500,
+           630, 800, 1000, 1250, 1600, 2000, 2500, 3150)
+# fmt: on
 
-#: Standard tolerance grades, micrometres, per size range.
+#: Standard tolerance grades, micrometres, per size range: ISO 286-1:2010 Table 1
+#: (500 to 3150 mm cross-checked with the h6, k6, m6, g6 and f7 limits of
+#: ISO 286-2:2010 Table 17).
+# fmt: off
 _IT = {
-    5: (4, 5, 6, 8, 9, 11, 13, 15, 18, 20, 23, 25, 27),
-    6: (6, 8, 9, 11, 13, 16, 19, 22, 25, 29, 32, 36, 40),
-    7: (10, 12, 15, 18, 21, 25, 30, 35, 40, 46, 52, 57, 63),
-    8: (14, 18, 22, 27, 33, 39, 46, 54, 63, 72, 81, 89, 97),
-    9: (25, 30, 36, 43, 52, 62, 74, 87, 100, 115, 130, 140, 155),
-    10: (40, 48, 58, 70, 84, 100, 120, 140, 160, 185, 210, 230, 250),
-    11: (60, 75, 90, 110, 130, 160, 190, 220, 250, 290, 320, 360, 400),
+    5: (4, 5, 6, 8, 9, 11, 13, 15, 18, 20, 23, 25, 27,  # up to 500 mm
+        32, 36, 40, 47, 55, 65, 78, 96),  # 500 to 3150 mm
+    6: (6, 8, 9, 11, 13, 16, 19, 22, 25, 29, 32, 36, 40,  # up to 500 mm
+        44, 50, 56, 66, 78, 92, 110, 135),  # 500 to 3150 mm
+    7: (10, 12, 15, 18, 21, 25, 30, 35, 40, 46, 52, 57, 63,  # up to 500 mm
+        70, 80, 90, 105, 125, 150, 175, 210),  # 500 to 3150 mm
+    8: (14, 18, 22, 27, 33, 39, 46, 54, 63, 72, 81, 89, 97,  # up to 500 mm
+        110, 125, 140, 165, 195, 230, 280, 330),  # 500 to 3150 mm
+    9: (25, 30, 36, 43, 52, 62, 74, 87, 100, 115, 130, 140, 155,  # up to 500 mm
+        175, 200, 230, 260, 310, 370, 440, 540),  # 500 to 3150 mm
+    10: (40, 48, 58, 70, 84, 100, 120, 140, 160, 185, 210, 230, 250,  # up to 500 mm
+         280, 320, 360, 420, 500, 600, 700, 860),  # 500 to 3150 mm
+    11: (60, 75, 90, 110, 130, 160, 190, 220, 250, 290, 320, 360, 400,  # up to 500 mm
+         440, 500, 560, 660, 780, 920, 1100, 1350),  # 500 to 3150 mm
 }
+# fmt: on
 
 #: Shaft fundamental deviations, micrometres. f, g, h give the upper deviation
-#: (es); k, m, n, p give the lower (ei). k is the value for grades 4 to 7.
+#: (es): ISO 286-1:2010 Table 2; k, m, n, p give the lower (ei): Table 3. k is the
+#: value for grades 4 to 7 (above 500 mm it is 0 for every grade).
+# fmt: off
 _SHAFT = {
-    "f": (-6, -10, -13, -16, -20, -25, -30, -36, -43, -50, -56, -62, -68),
-    "g": (-2, -4, -5, -6, -7, -9, -10, -12, -14, -15, -17, -18, -20),
-    "h": (0,) * 13,
-    "k": (0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 4, 4, 5),
-    "m": (2, 4, 6, 7, 8, 9, 11, 13, 15, 17, 20, 21, 23),
-    "n": (4, 8, 10, 12, 15, 17, 20, 23, 27, 31, 34, 37, 40),
-    "p": (6, 12, 15, 18, 22, 26, 32, 37, 43, 50, 56, 62, 68),
+    "f": (-6, -10, -13, -16, -20, -25, -30, -36, -43, -50, -56, -62, -68,  # up to 500 mm
+          -76, -80, -86, -98, -110, -120, -130, -145),  # 500 to 3150 mm
+    "g": (-2, -4, -5, -6, -7, -9, -10, -12, -14, -15, -17, -18, -20,  # up to 500 mm
+          -22, -24, -26, -28, -30, -32, -34, -38),  # 500 to 3150 mm
+    "h": (0,) * 21,
+    "k": (0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 4, 4, 5,  # up to 500 mm
+          0, 0, 0, 0, 0, 0, 0, 0),  # 500 to 3150 mm
+    "m": (2, 4, 6, 7, 8, 9, 11, 13, 15, 17, 20, 21, 23,  # up to 500 mm
+          26, 30, 34, 40, 48, 58, 68, 76),  # 500 to 3150 mm
+    "n": (4, 8, 10, 12, 15, 17, 20, 23, 27, 31, 34, 37, 40,  # up to 500 mm
+          44, 50, 56, 66, 78, 92, 110, 135),  # 500 to 3150 mm
+    "p": (6, 12, 15, 18, 22, 26, 32, 37, 43, 50, 56, 62, 68,  # up to 500 mm
+          78, 88, 100, 120, 140, 170, 195, 240),  # 500 to 3150 mm
 }
+# fmt: on
 _UPPER_DEVIATION = {"f", "g", "h"}
 
 _FIT = re.compile(r"^(H|JS|js|[fghkmnp])(\d{1,2})$")
@@ -143,7 +169,7 @@ def fit_limits(fit: str, nominal: float) -> tuple[float, float]:
     if grade not in _IT:
         raise ValueError(f"unsupported grade IT{grade}")
     if not 0 < nominal <= _RANGES[-1]:
-        raise ValueError(f"nominal size {nominal} outside 0-500 mm")
+        raise ValueError(f"nominal size {nominal} outside 0-3150 mm")
     index = bisect.bisect_left(_RANGES, nominal)
     it = _IT[grade][index]
     if letter == "H":

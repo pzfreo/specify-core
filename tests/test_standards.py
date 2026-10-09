@@ -1,6 +1,15 @@
 import pytest
 
-from specify_core.standards import CLEARANCE, TAP_DRILL, fit_limits, match_size
+from specify_core.api import analyse, questions
+from specify_core.choices import describe
+from specify_core.standards import (
+    CLEARANCE,
+    HOLE_FITS,
+    SHAFT_FITS,
+    TAP_DRILL,
+    fit_limits,
+    match_size,
+)
 
 
 @pytest.mark.parametrize(
@@ -23,6 +32,75 @@ from specify_core.standards import CLEARANCE, TAP_DRILL, fit_limits, match_size
 )
 def test_fit_limits_match_iso_286(fit, nominal, upper, lower):
     assert fit_limits(fit, nominal) == pytest.approx((upper, lower))
+
+
+# Above 500 mm: limits from ISO 286-2:2010 Table 17 (shafts) and IT7 of ISO 286-1:2010
+# Table 1 (H7), one size in each range to 3150 mm, and a range edge on each side.
+@pytest.mark.parametrize(
+    ("fit", "nominal", "upper", "lower"),
+    [
+        ("g6", 600, -22, -66),
+        ("h6", 700, 0, -50),
+        ("k6", 900, 56, 0),
+        ("m6", 1100, 106, 40),
+        ("f7", 1300, -110, -235),
+        ("g6", 1800, -32, -124),
+        ("m6", 2200, 178, 68),
+        ("f7", 3000, -145, -355),
+        ("k6", 3150, 135, 0),
+        ("H7", 500, 63, 0),
+        ("H7", 500.01, 70, 0),
+        ("H7", 1250, 105, 0),
+        ("H7", 1250.01, 125, 0),
+        ("p6", 2600, 375, 240),
+        ("n6", 600, 88, 44),
+        ("js6", 1100, 33, -33),
+        ("H11", 2000, 920, 0),
+        ("h5", 2600, 0, -96),
+    ],
+)
+def test_fit_limits_match_iso_286_to_3150_mm(fit, nominal, upper, lower):
+    assert fit_limits(fit, nominal) == pytest.approx((upper / 1000, lower / 1000))
+
+
+def test_sizes_beyond_3150_mm_and_k_above_grade_7_are_refused():
+    with pytest.raises(ValueError, match="outside 0-3150 mm"):
+        fit_limits("H7", 3150.01)
+    # k above 500 mm is 0 for every grade, but grades above 7 stay refused as below.
+    with pytest.raises(ValueError):
+        fit_limits("k8", 600)
+
+
+def test_a_600_mm_diameter_is_described_with_its_limits():
+    # ISO 286-1:2010 Table 1, over 500 up to 630 mm: IT7 70, IT8 110, IT9 175, IT11 440 µm.
+    holes = {
+        c["value"]: c["callout"]
+        for c in describe(
+            "hole.function:x", ["general", "fit:H7", "fit:H8", "fit:H9", "fit:H11"], 600.0
+        )
+    }
+    assert holes["fit:H7"] == "⌀600 H7 (600.000–600.070)"
+    assert holes["fit:H8"] == "⌀600 H8 (600.000–600.110)"
+    assert holes["fit:H9"] == "⌀600 H9 (600.000–600.175)"
+    assert holes["fit:H11"] == "⌀600 H11 (600.000–600.440)"
+    shafts = describe("diameter.fit:x", [f"fit:{f}" for f in SHAFT_FITS], 600.0)
+    assert "⌀600 g6 (599.934–599.978)" in {c["callout"] for c in shafts}
+
+
+def test_a_600_mm_hole_is_offered_fits(plate):
+    analysis = analyse(plate)
+    hole = next(
+        f
+        for f in analysis["features"]
+        if f["family"] == "holes" and f["record"].get("diameter") == 8.0
+    )
+    hole["record"]["diameter"] = 600.0
+    question = next(
+        q for q in questions(analysis, {}) if q.feature == hole["id"] and "Ø600" in q.prompt
+    )
+    assert {f"fit:{fit}" for fit in HOLE_FITS} <= set(question.options)
+    callouts = {c["value"]: c["callout"] for c in question.to_dict()["choices"]}
+    assert callouts["fit:H7"] == "⌀600 H7 (600.000–600.070)"
 
 
 @pytest.mark.parametrize("fit", ["Z7", "H3", "k8"])
