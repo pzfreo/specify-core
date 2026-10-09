@@ -9,12 +9,13 @@ meshing and PMI writing from its haecceity kernel.
 part model on haecceity, the standards, materials and choices tables, features and existing
 PMI, the rules (questions, defaults, apply, preview, problems), mates, meshing and anchors, and
 the writer (AP242 semantic PMI, verified by reading back, with resume and assemblies) are
-ported as a library; the API and the command line are not yet. Rust-written files with datums
+ported as a library, composed by the API, the command line (`specify-core parts | analyse |
+mesh | questions | write | serve`, specify-core's arguments, outputs and exit codes) and the
+JSON-lines service. Rust-written files with datums
 do not yet open in OpenCascade, and neither engine resumes the other's files (Q16, Q14). Each part of specify-core is ported
 against what the Python implementation produces, with every difference recorded and given a
 verdict. The plan is in [docs/design.md](docs/design.md); what is needed from quiddity-rust in
 [docs/upstream-needs.md](docs/upstream-needs.md); open decisions in
-[docs/questions.md](docs/questions.md). Until the command line is ported, every command is
-refused.
+[docs/questions.md](docs/questions.md).
 
 AGPL-3.0-or-later; see LICENSE and NOTICE.

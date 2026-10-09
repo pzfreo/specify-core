@@ -161,3 +161,13 @@ refused when different ("the part already states material X; adding Y would give
 Python's merge transplants its new material beside the file's (merge.py, `materials`), so the
 part then states two. *Meanwhile:* refused, as add mode cannot replace the file's own item and
 two would contradict each other. Keep the refusal, or write the second one as Python does?
+
+**Q19 (CLI stream). Contacts between parts that cannot be measured.** For a part of an
+assembly the analysis gives each flat face resting on another part a `contact` (`mates.py`).
+The Rust overlap (U5 stand-in) refuses a pair whose boundary loop does not close or runs along
+an unresolved edge (`mates::contacts_with_refusals`); Python never reports such a pair. The
+analysis format has no place for the refusal, so it would be dropped silently. *Meanwhile:*
+`analyse` prints each as `warning: ...` on stderr and serve's analyse reply carries
+`"warnings": [...]` (only when there are any: an additive key, absent on every captured case).
+Should the analysis itself record them (e.g. `contact: {"refused": why}` on the face), or is a
+warning outside the analysis enough for Draftwright Specify?
