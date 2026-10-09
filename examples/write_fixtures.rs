@@ -107,9 +107,11 @@ pub fn cases() -> Vec<Written> {
 }
 
 /// The Rust writer's output for `case`: the bytes written to `output`, or why it refused.
-/// Each intent is written to the part its binding names, so a file the Rust engine splits into
-/// parts differently from OpenCascade is refused by the writer's own binding check (named),
-/// not written to the wrong part.
+/// Each intent is written to the part its binding names. An intent whose part the Rust engine's
+/// reading of the input does not have (a file it splits into parts differently from
+/// OpenCascade, question Q7) is refused here, naming the part, before `write_parts` is called,
+/// rather than written to the wrong part; so is an intent with no part in its binding on a
+/// file of several parts. The writer's own checks then apply to what is written.
 pub fn write(case: &Written, output: &Path) -> Result<Vec<u8>, String> {
     let loaded: Vec<LoadedPart> = part::load_all(&case.input).map_err(|e| e.to_string())?;
     let intents: Vec<Intent> = case
@@ -120,11 +122,21 @@ pub fn write(case: &Written, output: &Path) -> Result<Vec<u8>, String> {
         .map_err(|e| e.to_string())?;
     let mut jobs = Vec::new();
     for intent in &intents {
-        let k = intent
-            .binding
-            .get("part")
-            .and_then(Value::as_u64)
-            .unwrap_or(0) as usize;
+        // A binding with no part means the only part; on a file of several parts it is
+        // ambiguous, and refused rather than guessed.
+        let k = match intent.binding.get("part") {
+            Some(part) => part.as_u64().ok_or_else(|| {
+                format!("intent's part {part} is not a part index ({})", case.name)
+            })? as usize,
+            None if loaded.len() == 1 => 0,
+            None => {
+                return Err(format!(
+                    "intent names no part, and the Rust engine reads {} parts in {}'s input",
+                    loaded.len(),
+                    case.name
+                ));
+            }
+        };
         let Some(part) = loaded.get(k) else {
             return Err(format!(
                 "intent was made for part {k}, and the Rust engine reads {} part(s) in {}'s input",

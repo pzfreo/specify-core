@@ -3,7 +3,7 @@
 //!
 //! - (a) `rust_written_files_are_what_the_writer_writes_today`: the committed Rust-written
 //!   files (`tests/fixtures/cross_engine/<case>/rust.step.gz`, or `rust.refused.txt` for a
-//!   write the writer refuses) are still exactly what `examples/write_fixtures.rs` produces,
+//!   case the example or the writer refuses) are still exactly what `examples/write_fixtures.rs` produces,
 //!   byte for byte. A deliberate change is regenerated with that example (its doc comment says
 //!   how), together with Python's read-back of the new files.
 //! - (b) Python's read-back of each Rust-written file (`python_readback.json.gz`, captured by
@@ -20,8 +20,11 @@
 //! - (c) Each file Python wrote (`tests/fixtures/oracle/**/written.step.gz`) read and resumed
 //!   by the Rust engine, against Python's own read-back of it (`readback.json.gz`).
 //!
-//! Differences in how the two readers read a file's own PMI (NIST's) are the existing-PMI
-//! area's (`known_differences/existing.json`) and are filtered through it; the rest must each
+//! Differences in how the two readers read a file's own PMI (NIST's, in (b); and in (c) the
+//! presentation of specify-core's own callouts) are the existing-PMI area's
+//! (`known_differences/existing.json`) and are filtered through it. In (b) only the NIST files
+//! have PMI of their own, so a synthetic file is not filtered: all OpenCascade reads of it is
+//! what the Rust writer wrote. The rest must each
 //! have a verdict in `known_differences/cross_engine.json`, checked once by
 //! `the_engines_read_each_others_files`.
 
@@ -376,7 +379,8 @@ struct WrittenFile<'a> {
 impl WrittenFile<'_> {
     /// Python's read-back of the file (`readback.json`'s layout) against the intent as
     /// written, part by part, with why Python did not resume where it did not (`evidence`,
-    /// per part), filtered through the existing-PMI area. Paths are unprefixed.
+    /// per part). A NIST file's are filtered through the existing-PMI area (the file's own
+    /// PMI); a synthetic file has none, so its every difference stands. Paths are unprefixed.
     fn compare(
         &self,
         python: &Value,
@@ -432,7 +436,11 @@ impl WrittenFile<'_> {
                 *resumed.entry(outcome).or_default() += n;
             }
         }
-        explained(&["existing"], &out)
+        if self.case.starts_with("nist/") {
+            explained(&["existing"], &out)
+        } else {
+            out
+        }
     }
 }
 

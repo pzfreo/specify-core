@@ -10,7 +10,9 @@ decompressed file's sha256, so the Rust test can tell a stale capture) and with 
 specify-core.
 
 OpenCascade can die reading a file (SIGSEGV in ``STEPCAFControl_Reader``: docs/upstream-needs.md
-U15), so every read runs in a child process of its own: first the part count, then each part.
+U15), so every read runs in a child process of its own: first the part count, then each part's
+read-back, then (where wanted) each part's resume evidence, so a crash in one never takes the
+value of another with it.
 A child killed by a signal is recorded in place of the value it would have given as
 ``{"error": "crash", "message": "<signal> in <the call it was in>"}``, and the capture carries
 on. A child that exits otherwise without a result is a failure of this tool, not an oracle
@@ -44,9 +46,10 @@ CAPTURE = Path(__file__).resolve().parents[1] / "capture.py"
 
 
 def child(step: Path, which: str, out: Path) -> None:
-    """In a child process: ``which`` is ``count`` (how many parts ``load_all`` finds) or a part
-    index (that part read back). The value goes to ``out`` as JSON; before each call its name
-    is written on stderr as ``stage: <call>``, so the parent can say where a crash was."""
+    """In a child process: ``which`` is ``count`` (how many parts ``load_all`` finds), a part
+    index (that part read back) or ``evidence-<k>`` (part ``k``'s resume evidence). The value
+    goes to ``out`` as JSON; before each call its name is written on stderr as
+    ``stage: <call>``, so the parent can say where a crash was."""
     from specify_core.load import load_all
 
     from .cases import _readback_part
@@ -59,12 +62,11 @@ def child(step: Path, which: str, out: Path) -> None:
         stage("load.load_all")
         count = attempt(lambda: len(load_all(step)))
         value: Any = count if failed(count) else {"count": count}
+    elif which.startswith("evidence-"):
+        k = int(which.removeprefix("evidence-"))
+        value = attempt(lambda: _resume_evidence(step, k, stage))
     else:
-        k = int(which)
-        value = {
-            "readback": _readback_part(step, k, stage),
-            "resume_evidence": attempt(lambda: _resume_evidence(step, k, stage)),
-        }
+        value = _readback_part(step, int(which), stage)
     out.write_text(json.dumps(value))
 
 
@@ -107,8 +109,7 @@ def _run(step: Path, which: str, scratch: Path) -> Any:
         # A crash is an oracle result, recorded where the value would have been.
         name = signal.Signals(-done.returncode).name
         where = stages[-1] if stages else "start-up"
-        crash = {"error": "crash", "message": f"specify-core's process died with {name} in {where}"}
-        return crash if which == "count" else {"readback": crash, "resume_evidence": crash}
+        return {"error": "crash", "message": f"specify-core's process died with {name} in {where}"}
     raise RuntimeError(
         f"readback child for {step} part {which} exited {done.returncode}:\n{done.stderr}"
     )
@@ -116,22 +117,22 @@ def _run(step: Path, which: str, scratch: Path) -> Any:
 
 def readback(step: Path) -> Any:
     """``cases.readback(step)``, each call isolated in a child process (above)."""
-    return _readback_with_evidence(step)[0]
+    return _readback_with_evidence(step, evidence=False)[0]
 
 
-def _readback_with_evidence(step: Path) -> tuple[Any, Any]:
-    """``readback(step)``, and per part its resume evidence (``_resume_evidence``, or the
-    failure or crash in its place; the read-back's own failure for the file as a whole)."""
+def _readback_with_evidence(step: Path, evidence: bool = True) -> tuple[Any, Any]:
+    """``readback(step)``, and (when ``evidence``) per part its resume evidence
+    (``_resume_evidence``, or the failure or crash in its place, from a child of its own; the
+    read-back's own failure for the file as a whole), else None."""
     scratch = scratch_dir()
     try:
         count = _run(step, "count", scratch)
         if "error" in count:
             return count, count
-        parts = [_run(step, str(k), scratch) for k in range(count["count"])]
-        return (
-            [p.get("readback", p) for p in parts],
-            [p.get("resume_evidence", p) for p in parts],
-        )
+        parts = range(count["count"])
+        back = [_run(step, str(k), scratch) for k in parts]
+        found = [_run(step, f"evidence-{k}", scratch) for k in parts] if evidence else None
+        return back, found
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 

@@ -4,7 +4,7 @@
     "path": "rust_written[refused]",
     "pattern": "no Rust-written file: Python's intents name parts the Rust engine does not have",
     "verdict": "not-applicable",
-    "evidence": "NIST CTC-02 and CTC-04: OpenCascade's XCAF makes a part of each shape representation of one product (the solid and its surface models: 3 and 2 parts), haecceity one part per product with all its faces (question Q7; existing.json and the part stream's entries). Python's accept-defaults intents are bound to parts 1 and 2 of its numbering, which the Rust engine's reading of the file does not have, so the writer refuses (rust.refused.txt) rather than write an intent onto the wrong part; Python itself refuses the write of these files ('this assembly already has PMI not written by specify-core', write.json). Nothing to cross until Q7 is settled; an intent made by the Rust engine's own analysis of these files is the CLI stream's to write."
+    "evidence": "NIST CTC-02 and CTC-04: OpenCascade's XCAF makes a part of each shape representation of one product (the solid and its surface models: 3 and 2 parts), haecceity one part per product with all its faces (question Q7; existing.json and the part stream's entries). Python's accept-defaults intents are bound to parts 1 and 2 of its numbering, which the Rust engine's reading of the file does not have, so examples/write_fixtures.rs refuses the case before calling the writer (its part-index check; the message is rust.refused.txt) rather than write an intent onto the wrong part; Python itself refuses the write of these files ('this assembly already has PMI not written by specify-core', write.json). Nothing to cross until Q7 is settled; an intent made by the Rust engine's own analysis of these files is the CLI stream's to write."
   },
   {
     "case": "parts/*",
@@ -15,21 +15,21 @@
   },
   {
     "case": "*",
-    "path": "*existing[key=note|internal thread|*",
+    "path": "python_readback*existing[key=note|internal thread|*]",
     "pattern": "a thread written as AP242's thread feature is not read by specify-core (Python)",
     "verdict": "undetermined",
     "evidence": "The Rust writer writes each thread as AP242's `thread` (side, major diameter, form, class, hand, partial area; haecceity checks thread WR1-WR16 on every write) with its pitch and depths as a user defined attribute set (UDA practice §5-7; upstream need U8), and reads it back as the intent's thread. specify-core's existing.notes reads threads only from its own 'manufacturing requirement' text route (existing.py, notes), and OpenCascade's XCAF has no thread model, so Python reads none of them (6 threads in the probes of plate, pin, stack, assembly and a_hole_along_x). The AP242 schema form is standard, the text route is not (haecceity decision 5), but no CAx-IF practice for thread features was found to cite, and the pitch has no semantic home in haecceity yet (U8). A thread therefore does not cross from the Rust engine to the Python one."
   },
   {
     "case": "*",
-    "path": "*existing[key=*|[*,*]|*",
+    "path": "python_readback*existing[key=*|[*,*]|*]",
     "pattern": "a size or tolerance on a feature of several faces (set_representation_item) is not read by OpenCascade",
     "verdict": "rust-correct",
     "evidence": "Each missing item is on a feature of several faces (a hole pattern's or a hole set's cylinders: NIST CTC-03's Ø4.7625 H11 and its position 0.76 MMC on the 8 faces of hole_patterns.rectangle, the plate's and assembly's Ø6.6 hole set, the four corner holes, the identical holes, the stack's tapped set), which haecceity writes as one SHAPE_ASPECT with an ITEM_IDENTIFIED_REPRESENTATION_USAGE whose identified_item is a SET_REPRESENTATION_ITEM of the faces (e.g. CTC-03 rust.step #6002): the PMI practice's §6.5.1 form, allowed by AP242's item_identified_representation_usage_select (list_representation_item, representation_item, set_representation_item). OpenCascade's reader does not resolve such a usage to faces and drops the size and the tolerance on it (haecceity's own tools/check_pmi_occt.py reports the same, docs/step-ap242.md). The same sizes and tolerances on a single face read (the plate's position on its tapped hole, the stack's Ø8 bore)."
   },
   {
     "case": "*",
-    "path": "python_readback_without_symbols.existing[key=datum|*",
+    "path": "python_readback_without_symbols.existing[key=datum|*]",
     "pattern": "a datum is read by OpenCascade only through a tolerance it reads",
     "verdict": "rust-correct",
     "evidence": "four_corner_holes and identical_holes: datums A, B and C are written as on the plate (one `datum` per letter with its `datum_feature` on the faces, practice §6.5), and the plate's datums do read (its position on face 12 cites them). specify-core reads datums from XCAF's datum labels (existing.py, GetDatumLabels), which OpenCascade's reader makes from the datum systems of the tolerances it reads; on these two parts the only tolerance citing A|B|C is the position on the hole set, a feature of several faces it does not read (the set_representation_item entry), so it never reaches the datums. Not a defect of the written datums."
