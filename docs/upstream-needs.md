@@ -330,3 +330,15 @@ file is valid AP242 (every written file passes `express::validate_document` and
 
 **Met when** OpenCascade 7.9's reader loads a haecceity-written file with datum symbols (or
 haecceity relates the draughting model in a form it reads).
+
+## U15, evidence from the cross-engine check (cross-engine stream)
+
+All 7 Rust-written synthetic files with datums crash specify-core in `load.load_all`; with the
+one `MECHANICAL_DESIGN_AND_DRAUGHTING_RELATIONSHIP` naming the 'datum feature symbols'
+`DRAUGHTING_MODEL` removed, all 7 load (`tools/capture/crossengine.py`,
+`without_symbol_relationship`; `python_readback_without_symbols.json.gz`). Swapping its rep_1 and
+rep_2 still crashes (the plate, by hand). All six NIST CAx-IF files in `tests/fixtures/nist` use
+this relationship only between two `DRAUGHTING_MODEL`s (saved views), never with a shape
+representation; haecceity does not evaluate the relationship's WR1-WR3 (`express_rules.rs`).
+What would meet the need for OpenCascade-based readers: relating the symbols' draughting model
+in a form those files use, or leaving the relationship out (Q16).

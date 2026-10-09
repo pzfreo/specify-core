@@ -6,6 +6,7 @@ Run with specify-core's own environment (it imports specify_core, OCP and quiddi
     $PY tools/capture.py all tests/fixtures/oracle [--jobs N] [--only parts,nist,corpus]
     $PY tools/capture.py case INPUT tests/fixtures/oracle
     $PY tools/capture.py readback WRITTEN.step OUT_DIR
+    $PY tools/capture.py cross-engine tests/fixtures/cross_engine
     $PY tools/capture.py scenarios tests/fixtures/oracle [NAME ...]
     $PY tools/capture.py interpret tests/fixtures/oracle
     $PY tools/capture.py make-scenarios tests/fixtures/oracle
@@ -16,8 +17,11 @@ Run with specify-core's own environment (it imports specify_core, OCP and quiddi
 the scenarios and the typed-spec cases. Each input file is captured in a fresh process.
 ``case`` captures one input (it must lie in one of those three roots). ``readback`` reads a
 STEP back exactly as the oracle reads Python's written files (``readback.json.gz``: a list,
-one entry per part), for checking a file the Rust port wrote. ``make-scenarios`` rewrites the
-scenario inputs from specify-core's tests (see tools/capture/scenarios.py); ``all`` only runs
+one entry per part), for checking a file the Rust port wrote; each read runs in a child
+process, so an OpenCascade crash is recorded (``{"error": "crash"}``) rather than lost.
+``cross-engine`` does that for every Rust-written ``rust.step.gz`` of the cross-engine check
+(``python_readback.json.gz`` and ``python_meta.json.gz`` beside each; see
+tools/capture/crossengine.py). ``make-scenarios`` rewrites the scenario inputs from specify-core's tests (see tools/capture/scenarios.py); ``all`` only runs
 them. tests/fixtures/oracle/README.md describes every artifact.
 
 A Python refusal or crash is an oracle result: it is recorded as ``{error, message}`` in place
@@ -141,6 +145,13 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("readback")
     p.add_argument("step", type=Path)
     p.add_argument("out", type=Path)
+    p = sub.add_parser("cross-engine")
+    p.add_argument("root", type=Path)
+    # Internal: one isolated read of ``cross-engine`` and ``readback`` (crossengine.child).
+    p = sub.add_parser("readback-child")
+    p.add_argument("step", type=Path)
+    p.add_argument("which")
+    p.add_argument("out", type=Path)
     p = sub.add_parser("scenarios")
     p.add_argument("oracle", type=Path)
     p.add_argument("names", nargs="*")
@@ -166,12 +177,23 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1 if isinstance(summary, str) else 0
     if args.command == "readback":
-        from capture.cases import readback
+        from capture.crossengine import readback
 
         step = args.step.resolve()
         write_json_gz(
             args.out / "readback.json.gz", common.scrub(readback(step), {str(step): "{input}"})
         )
+        return 0
+    if args.command == "cross-engine":
+        from capture import crossengine
+
+        for line in crossengine.capture(args.root):
+            print(line, file=sys.stderr)
+        return 0
+    if args.command == "readback-child":
+        from capture import crossengine
+
+        crossengine.child(args.step, args.which, args.out)
         return 0
     if args.command == "scenarios":
         return 1 if _scenarios(args.oracle, args.names) else 0
