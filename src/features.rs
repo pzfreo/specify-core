@@ -184,10 +184,15 @@ fn rounded(v: V3, digits: i32) -> V3 {
 const DERIVED: [(&str, &str, &str); 1] = [("hole_patterns", "holes", "holes")];
 
 /// Derived families that are not features: Python's evidence view lists physical families and
-/// hole patterns only, so a gusset rib pattern (derived, like a hole pattern, but never in
-/// Python's analysis) is left out to keep the analysis JSON specify-core's. Its ribs remain,
-/// each a `gusset_ribs` feature.
-const NOT_FEATURES: [&str; 1] = ["gusset_rib_patterns"];
+/// hole patterns only, so a gusset rib, slot, pocket or oriented slot pattern (derived, like a
+/// hole pattern, with no defining faces of its own, but never in Python's analysis) is left out
+/// to keep the analysis JSON specify-core's. Its members remain, each a feature of its family.
+const NOT_FEATURES: [&str; 4] = [
+    "gusset_rib_patterns",
+    "slot_patterns",
+    "pocket_patterns",
+    "oriented_slot_patterns",
+];
 
 /// The part's features (Python's `recognise`): every family's records from quiddity with their
 /// defining faces, hole patterns with their members, and sets of identical holes no pattern

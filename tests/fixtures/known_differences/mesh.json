@@ -105,27 +105,6 @@
     "evidence": "As missing[0]: face 483 has area 5.9e-10 mm2 in Python's analysis and 0.0 in its mesh."
   },
   {
-    "case": "corpus/cadgenbench_inputs/cgb242",
-    "path": "missing[*]",
-    "pattern": "two freeform faces whose boundary jumps across a degenerate corner are not triangulated",
-    "verdict": "rust-wrong",
-    "evidence": "Faces 715 and 726 (18.6 and 18.4 mm2 in Python's mesh): haecceity's uv_loops runs from (1.0, 0.9997) straight to (0.0, 0.0), a parameter side whose image strays far from the boundary (the jump check in triangulate refuses rather than fill the wrong region). A face Python meshes is missing here."
-  },
-  {
-    "case": "corpus/cadgenbench_inputs/cgb242",
-    "path": "check.triangulated*",
-    "pattern": "two freeform faces whose boundary jumps across a degenerate corner are not triangulated",
-    "verdict": "rust-wrong",
-    "evidence": "As cgb242 missing[1], missing[2]: faces 715 and 726, refused with the jumping side named."
-  },
-  {
-    "case": "corpus/cadgenbench_inputs/cgb242",
-    "path": "areas[*]",
-    "pattern": "two freeform faces whose boundary jumps across a degenerate corner have no area",
-    "verdict": "rust-wrong",
-    "evidence": "Faces 715 and 726, not triangulated (see cgb242 missing[*])."
-  },
-  {
     "case": "corpus/cadgenbench_inputs/cgb202",
     "path": "check.triangulated[399]",
     "pattern": "a freeform face whose boundary samples cross at a narrow neck is not triangulated",
@@ -197,38 +176,66 @@
   },
   {
     "case": "corpus/cadgenbench_inputs/cgb202",
-    "path": "check.inward_triangles[740]",
-    "pattern": "a single sub-micron triangle at a degenerate corner of a freeform face faces inward",
+    "path": "check.inward_triangles[1078]",
+    "pattern": "a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward",
     "verdict": "rust-wrong",
-    "evidence": "cgb202 face 740, cgb207 face 113, cgb242 faces 665, 840, 878: one or two triangles of about 1e-7 mm2 next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre."
+    "evidence": "cgb202 faces 1078 and 1465, cgb207 face 114, cgb242 faces 472, 665, 711, 719 and 840: one triangle each, of 6e-8 to 7.3e-6 mm2 (cgb202 face 1078: 7.3e-6; cgb207 face 114: 6.9e-8), next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre. Since the move to quiddity-rust prototype/rust-port 5798c59 (Q2) the faces are others than at a16d7af (cgb202 740, cgb207 113, cgb242 878 then; none now), as haecceity's parameter loops changed; areas measured by re-running tests/mesh.rs's inward check on each face."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb202",
+    "path": "check.inward_triangles[1465]",
+    "pattern": "a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "cgb202 faces 1078 and 1465, cgb207 face 114, cgb242 faces 472, 665, 711, 719 and 840: one triangle each, of 6e-8 to 7.3e-6 mm2 (cgb202 face 1078: 7.3e-6; cgb207 face 114: 6.9e-8), next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre. Since the move to quiddity-rust prototype/rust-port 5798c59 (Q2) the faces are others than at a16d7af (cgb202 740, cgb207 113, cgb242 878 then; none now), as haecceity's parameter loops changed; areas measured by re-running tests/mesh.rs's inward check on each face."
   },
   {
     "case": "corpus/cadgenbench_inputs/cgb207",
-    "path": "check.inward_triangles[113]",
-    "pattern": "a single sub-micron triangle at a degenerate corner of a freeform face faces inward",
+    "path": "check.inward_triangles[114]",
+    "pattern": "a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward",
     "verdict": "rust-wrong",
-    "evidence": "cgb202 face 740, cgb207 face 113, cgb242 faces 665, 840, 878: one or two triangles of about 1e-7 mm2 next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre."
+    "evidence": "cgb202 faces 1078 and 1465, cgb207 face 114, cgb242 faces 472, 665, 711, 719 and 840: one triangle each, of 6e-8 to 7.3e-6 mm2 (cgb202 face 1078: 7.3e-6; cgb207 face 114: 6.9e-8), next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre. Since the move to quiddity-rust prototype/rust-port 5798c59 (Q2) the faces are others than at a16d7af (cgb202 740, cgb207 113, cgb242 878 then; none now), as haecceity's parameter loops changed; areas measured by re-running tests/mesh.rs's inward check on each face."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb242",
+    "path": "check.inward_triangles[472]",
+    "pattern": "a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "cgb202 faces 1078 and 1465, cgb207 face 114, cgb242 faces 472, 665, 711, 719 and 840: one triangle each, of 6e-8 to 7.3e-6 mm2 (cgb202 face 1078: 7.3e-6; cgb207 face 114: 6.9e-8), next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre. Since the move to quiddity-rust prototype/rust-port 5798c59 (Q2) the faces are others than at a16d7af (cgb202 740, cgb207 113, cgb242 878 then; none now), as haecceity's parameter loops changed; areas measured by re-running tests/mesh.rs's inward check on each face."
   },
   {
     "case": "corpus/cadgenbench_inputs/cgb242",
     "path": "check.inward_triangles[665]",
-    "pattern": "a single sub-micron triangle at a degenerate corner of a freeform face faces inward",
+    "pattern": "a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward",
     "verdict": "rust-wrong",
-    "evidence": "cgb202 face 740, cgb207 face 113, cgb242 faces 665, 840, 878: one or two triangles of about 1e-7 mm2 next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre."
+    "evidence": "cgb202 faces 1078 and 1465, cgb207 face 114, cgb242 faces 472, 665, 711, 719 and 840: one triangle each, of 6e-8 to 7.3e-6 mm2 (cgb202 face 1078: 7.3e-6; cgb207 face 114: 6.9e-8), next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre. Since the move to quiddity-rust prototype/rust-port 5798c59 (Q2) the faces are others than at a16d7af (cgb202 740, cgb207 113, cgb242 878 then; none now), as haecceity's parameter loops changed; areas measured by re-running tests/mesh.rs's inward check on each face."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb242",
+    "path": "check.inward_triangles[711]",
+    "pattern": "a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "cgb202 faces 1078 and 1465, cgb207 face 114, cgb242 faces 472, 665, 711, 719 and 840: one triangle each, of 6e-8 to 7.3e-6 mm2 (cgb202 face 1078: 7.3e-6; cgb207 face 114: 6.9e-8), next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre. Since the move to quiddity-rust prototype/rust-port 5798c59 (Q2) the faces are others than at a16d7af (cgb202 740, cgb207 113, cgb242 878 then; none now), as haecceity's parameter loops changed; areas measured by re-running tests/mesh.rs's inward check on each face."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb242",
+    "path": "check.inward_triangles[719]",
+    "pattern": "a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "cgb202 faces 1078 and 1465, cgb207 face 114, cgb242 faces 472, 665, 711, 719 and 840: one triangle each, of 6e-8 to 7.3e-6 mm2 (cgb202 face 1078: 7.3e-6; cgb207 face 114: 6.9e-8), next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre. Since the move to quiddity-rust prototype/rust-port 5798c59 (Q2) the faces are others than at a16d7af (cgb202 740, cgb207 113, cgb242 878 then; none now), as haecceity's parameter loops changed; areas measured by re-running tests/mesh.rs's inward check on each face."
   },
   {
     "case": "corpus/cadgenbench_inputs/cgb242",
     "path": "check.inward_triangles[840]",
-    "pattern": "a single sub-micron triangle at a degenerate corner of a freeform face faces inward",
+    "pattern": "a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward",
     "verdict": "rust-wrong",
-    "evidence": "cgb202 face 740, cgb207 face 113, cgb242 faces 665, 840, 878: one or two triangles of about 1e-7 mm2 next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre."
+    "evidence": "cgb202 faces 1078 and 1465, cgb207 face 114, cgb242 faces 472, 665, 711, 719 and 840: one triangle each, of 6e-8 to 7.3e-6 mm2 (cgb202 face 1078: 7.3e-6; cgb207 face 114: 6.9e-8), next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre. Since the move to quiddity-rust prototype/rust-port 5798c59 (Q2) the faces are others than at a16d7af (cgb202 740, cgb207 113, cgb242 878 then; none now), as haecceity's parameter loops changed; areas measured by re-running tests/mesh.rs's inward check on each face."
   },
   {
-    "case": "corpus/cadgenbench_inputs/cgb242",
-    "path": "check.inward_triangles[878]",
-    "pattern": "a single sub-micron triangle at a degenerate corner of a freeform face faces inward",
+    "case": "corpus/cadgenbench_inputs/cgb243",
+    "path": "check.converged[537]",
+    "pattern": "refinement of a small freeform face stops at its round cap",
     "verdict": "rust-wrong",
-    "evidence": "cgb202 face 740, cgb207 face 113, cgb242 faces 665, 840, 878: one or two triangles of about 1e-7 mm2 next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre."
+    "evidence": "Face 537 (B-spline, exact area 0.83297 mm2): since the move to prototype/rust-port 5798c59 (Q2) refinement stops at MAX_ROUNDS (40) with 4216 triangles, below MAX_VERTICES, so some deflection is not met everywhere; at a16d7af it converged. The mesh is still within the checks that pass: area 0.82809 (0.6% from exact), every triangle centroid within the chordal deflection (0.194 mm), none inward. Coarser than asked, and says so."
   },
   {
     "case": "corpus/cadgenbench_inputs/cgb243",

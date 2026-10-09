@@ -85,8 +85,6 @@ for c in ["corpus/nist/nist_ctc_02_asme1_rc", "corpus/nist/nist_ctc_04_asme1_rd"
             e(x['case'], x['path'], "a surface model's face follows the solid's in Rust's one part", "not-applicable", Q7 + " The solid's faces are at Python's indices; this trailing face is a surface model's plane.")
 e("corpus/inventory_refusal/13975", "faces[*", "face numbering differs from OpenCascade's", "undetermined",
   "A pure permutation: Rust numbers the CLOSED_SHELL's faces in file order (#17, #145, #216, ...); Python's face i is read from #17, #216, #752, #1166, ... (specify_core.requirements.face_entities_of), the order OpenCascade's reader gives (why it departs from the file's order was not established). Each face's kind, area and centroid agree entity for entity (Python's face 1 = #216 = Rust's face 2: plane, 343.078). An analysis of this file must not cross engines (question Q1); which order is 'right' is a convention.")
-e("corpus/cadgenbench_inputs/cgb217", "faces", "describe_faces refuses: face_moments gives none", "rust-wrong",
-  "Face 29 (#2586, a B-spline surface; Python: area 49.9176) has no area or centroid from haecceity's Part::face_moments, so the faces are refused rather than one invented (upstream need U11). The only part of the oracle's corpus cases affected.")
 
 # Per-face area/centroid differences, judged against OCCT's adaptive integration.
 def ok(k, v, ex):
@@ -118,16 +116,9 @@ for case, v in sorted(judge.items()):
 
 # ---- features
 NOT_PORTED = {
- "freeform_surfaces": "Python quiddity's freeform-surface inventory; quiddity-rust a16d7af has no such family (src/features/mod.rs, Features).",
- "blends": "Python quiddity's blend family; quiddity-rust a16d7af has fillets but no blends family.",
  "step_levels": "Produced by Python quiddity's cross-family reconciliation (build_recognition_result), which quiddity-rust does not port (features/mod.rs: 'the Python aggregate's cross-family reconciliation is not ported'; U2).",
- "section_recesses": "Python quiddity's section-recess family; not in quiddity-rust a16d7af's Features (another run is porting it on prototype/rust-port).",
+ "section_recesses": "Python quiddity's section-recess aggregate (evidence.py builds it from the recess source families, which it leaves out); quiddity-rust prototype/rust-port 5798c59 has the source families (pockets, channels, prismatic_pockets, section_passages, ...) in Features but not the aggregate.",
  "risers": "quiddity-rust has recognise_risers, but outside Features ('measurements with no evidence path yet', features/mod.rs), so recognise does not return them.",
- "slots": "Python quiddity's slots family; quiddity-rust a16d7af has none.",
- "polygonal_bosses": "Python quiddity's polygonal_bosses family; quiddity-rust a16d7af has none.",
- "pads": "Python quiddity's pads family; quiddity-rust a16d7af has none.",
- "sheet_metal_bodies": "Python quiddity's sheet_metal_bodies family; quiddity-rust a16d7af has none.",
- "oriented_slots": "Python quiddity's oriented_slots family; quiddity-rust a16d7af has none.",
 }
 U2 = "quiddity-rust gives defining faces only (Features::defining); Python quiddity's evidence view gives constituent faces (upstream need U2)."
 for fam, why in NOT_PORTED.items():
@@ -141,6 +132,7 @@ e("*", "features[id=holes:*].faces+plane", "a blind hole's floor is constituent,
   "Every such hole's record has bottom 'flat': Python's faces add the floor plane. " + U2)
 e("*", "features[id=hole_patterns*].faces+plane", "a pattern's blind member holes lack their floors", "rust-wrong", "As for the member holes (bottom 'flat'). " + U2)
 e("corpus/cadgenbench_inputs/cgb243", "features[id=holes:126.127.226].faces+other", "a blind hole's freeform floor is constituent, not defining", "rust-wrong", "Record bottom 'flat'; face 126 is the floor (kind other). " + U2)
+e("*", "features[id=polygonal_bosses:*].faces+plane", "a polygonal boss's end face is constituent, not defining", "rust-wrong", "Records equal; Python's extra plane is the boss's top, its normal along the record's axis (NIST CTC-01 face 104, +z, top 50; FTC-07 faces 236 and 265, -y). " + U2)
 e("*", "features[id=bosses:*].faces+plane", "a boss's end face is constituent, not defining", "rust-wrong", "Python's faces add the boss's planar end; records equal. " + U2)
 e("*", "features[id=angled_steps:*].faces+plane", "an angled step's adjoining plane is constituent, not defining", "rust-wrong", "Records equal; Python's faces add a plane. " + U2)
 e("*", "features[id=thin_wall_bodies:*].faces+*", "thin wall body: Python lists more faces", "undetermined", "Records equal to a micron; Python's evidence view lists further walls. " + U2)
@@ -151,14 +143,18 @@ measured("features[id=*].record.profile.body_bounds[*]", "turned body's bounds 1
   "Every difference is 1e-7: OpenCascade's Bnd_Box adds its gap to the solid's box; haecceity's bounds are the exact extent (e.g. string_post: radius 3.75, Python 3.7500001).",
   absolute=1.01e-7)
 for k, what in ((6, "surface area"), (7, "volume")):
+    measured(f"features[id=*body_key[{k}]", f"body {what} in the body key differs up to 3e-4 relative", "undetermined",
+      f"body_key[{k}] is the body's {what}, integrated by each kernel; cgb217's faces mostly differ from the adaptive reference in Rust and not in Python (its faces[i] entries; U11), but the whole body was not integrated independently; specify-core never reads body_key.",
+      relative=3e-4, cases=["corpus/cadgenbench_inputs/cgb217"])
+for k, what in ((6, "surface area"), (7, "volume")):
     measured(f"features[id=*body_key[{k}]", f"body {what} in the body key differs below 1e-7 relative", "equivalent",
       f"body_key[{k}] is the body's {what}, integrated by each kernel (e.g. ctc_04's area: 17519780.20 against 17519779.30); agreement to 1e-7 is within either kernel's integration error; specify-core never reads body_key.",
       relative=1e-7, within_only=True)
     measured(f"features[id=*body_key[{k}]", f"body {what} in the body key differs up to 2e-5 relative", "undetermined",
       f"body_key[{k}] is the body's {what}, integrated by each kernel; the difference follows the face integrals' (this case's faces[i].area entries judge each against the adaptive reference: e.g. string_post's face 0, Python 95.29644, Rust 95.29871, reference 95.29871), but the whole body was not integrated independently; specify-core never reads body_key.",
       relative=2e-5)
-e("corpus/cadgenbench_inputs/cgb2*", "features[id=*body_key", "body key absent on one side", "undetermined",
-  "cgb217: Rust's body_key is null (quiddity-rust cannot integrate the body: face 29 has no face_moments, U11); cgb202: Python's is null and Rust's is a key.")
+e("corpus/cadgenbench_inputs/cgb202", "features[id=*body_key", "body key absent on one side", "undetermined",
+  "cgb202: Python's body_key is null and Rust's is a key.")
 for k in ("u", "v"):
     measured(f"features[id=plates:*].record.{k}", f"plate offset {k} differs below 1.5e-7 mm", "equivalent",
       "A fitted in-plane offset (nist_ctc_01: -1.33368645 against -1.33368631).", absolute=1.5e-7)
@@ -168,6 +164,26 @@ measured("features[id=fillets:*].record.at[*]", "a fillet's reported point diffe
 measured("features[id=fillets:121].record.at[*]", "a ring fillet's reported point lies elsewhere on the ring", "equivalent",
   "Fillet 121 is a full ring of radius 33.61 and each engine reports a different point on it.",
   cases=["nist/nist_ctc_05_asme1_ap242"])
+measured("features[id=blends:*].record.path.at[*]", "a blend's reported point differs by a rounding unit", "equivalent",
+  "'at' is a point of the blend's path rounded to 3 decimals: 22.779 against 22.778 is a rounding boundary.",
+  absolute=1.001e-3, within_only=True)
+measured("features[id=blends:*].record.path.at[*]", "a blend's reported point differs by up to 0.023 mm", "undetermined",
+  "'at' is a point each quiddity picks on the blend's path (cgb241 blend 27: z -58.798 against -58.775); the radius, side and the rest of the path agree; which point is reported was not checked against a reference.",
+  absolute=0.0231)
+measured("features[id=freeform_surfaces:*].record.offset_distance", "a freeform offset distance differs below 5e-6 mm", "undetermined",
+  "The distance between a freeform face and its offset partner, sampled on each kernel's evaluation of the B-spline (cgb207: 3.00215008 against 3.00215472); not checked against an independent reference.",
+  absolute=5e-6)
+SM = "Both engines report the same sheet-metal body (same faces, flanges, bends and flat pattern structure; tests/fixtures/known_differences/features.json's generator, compared by hand on sm-hanger and NIST CTC-03 AP242 with each engine's analysis)."
+FLAT = (" Each flat face is a polygon tessellation of the unfolded face; Rust's has about half Python's vertices (sm-hanger: 37 against 69, 71 against 134; CTC-03: 528 against 1024) and the same area to 7e-5 relative (CTC-03 face 2: 80906.479 against 80911.879; sm-hanger flat face 8 (face 64): 12439.807 against 12440.182). Neither was checked against the record's tessellation_tolerance.")
+for case in ("corpus/ttt_inputs/sm-hanger", "nist/nist_ctc_03_asme1_ap242"):
+  for part in ("vertices", "triangles"):
+    e(case, f"features[id=sheet_metal_bodies:*].record.flat_pattern.flat_faces[*].{part}[*", f"a flat-pattern face is tessellated more coarsely ({part})", "undetermined", SM + FLAT)
+e("corpus/ttt_inputs/sm-hanger", "features[id=sheet_metal_bodies:*].record.flat_pattern.overlap_witnesses[*].area", "a flat-pattern overlap witness reports another triangulation's largest triangle overlap", "equivalent",
+  SM + " A witness's area is the largest overlap of one triangle of the first region with one of the second, on each engine's own triangulation (quiddity sheet_metal.py _flat_pattern_plan: max over triangle pairs; quiddity-rust features/sheet_metal.rs the same), so it depends on the triangulation, not only on the regions. Python 21.837, 21.837, 55.911, 55.911; Rust 21.134, 21.784, 64.467, 28.240. Rust's triangulation of face 64 is not mirror-symmetric, so its largest pieces against the mirror-image faces 66 and 79 (and strips 10 and 11) differ. Checked independently (each engine's flat_pattern, triangles clipped pairwise by a separate Sutherland-Hodgman clipper): each engine's reported areas equal the largest triangle-pair overlap of its own triangles, and the total overlaps of the regions agree and are symmetric in both engines: 64 with 66 and with 79, 231.293 (Python) against 231.364 (Rust), each equal to face 66's area, i.e. face 66 lies inside face 64; strips 10 and 11 with face 64, 24.4708 in both. The witnessed pairs and valid_blank agree.")
+measured("features[id=sheet_metal_bodies:*].record.flanges[*].area", "a flange's area differs below 4e-6 relative", "undetermined",
+  SM + " A flange's area is its faces' integral in each kernel (the faces entries judge those).", relative=4e-6)
+measured("features[id=sheet_metal_bodies:*].record.paired_area_fraction", "paired area fraction differs below 1e-7 relative", "equivalent",
+  SM + " A ratio of face integrals, equal to 1e-7.", relative=1e-7)
 e("nist/nist_ctc_05_asme1_ap242", "features[id=chamfers:9*].record.at[*]", "a ring chamfer's reported point lies elsewhere on the ring", "equivalent",
   "Chamfers 90 and 91 are full rings (radii 149.225 and 28.575); Python reports (-r, 0), Rust (0, r): both on the ring.")
 measured("features[id=flats:*].record.at[*]", "a flat's reported point differs by up to 0.015 mm", "undetermined",
@@ -191,7 +207,11 @@ cache = {}
 def analysis(case):
     if case not in cache: cache[case] = json.load(gzip.open(O + case + '/analysis.json.gz'))
     return cache[case]
-RUST_ONLY_FAMILIES = {"round_bottom_blind_slots", "rectangular_blind_slots", "edge_open_prismatic_recesses", "edge_open_circular_pockets", "double_d_bores", "gusset_ribs", "gusset_rib_patterns"}
+RUST_ONLY_FAMILIES = {"round_bottom_blind_slots", "rectangular_blind_slots", "edge_open_prismatic_recesses", "edge_open_circular_pockets", "double_d_bores", "gusset_ribs", "gusset_rib_patterns",
+                      "pockets", "channels", "prismatic_pockets", "section_passages"}
+# Python quiddity recognises these but its evidence view leaves them out (evidence.py skips
+# _registry.RECESS_SOURCE_FAMILIES, whose records feed section_recesses).
+RECESS_SOURCE = {"pockets", "channels", "prismatic_pockets", "section_passages", "edge_open_prismatic_recesses", "edge_open_circular_pockets", "rectangular_blind_slots", "round_bottom_blind_slots"}
 seen = set()
 for x in feats:
     m = re.fullmatch(r'features\[id=([a-z_]+)(?:\.[a-z_]+)?:([\d.]+)\]', x['path'])
@@ -205,9 +225,22 @@ for x in feats:
         if key in seen: continue
         seen.add(key)
         claim = sorted({f['family'] for f in a['features'] if faces & set(f['faces'])})
+        if fam in RECESS_SOURCE:
+            why = (f"quiddity-rust's {fam} family; Python quiddity 0.3.9 recognises it but its evidence view leaves the recess source families out "
+                   f"(evidence.py, _registry.RECESS_SOURCE_FAMILIES{', as passages' if fam == 'section_passages' else ''}) and reports their section_recesses aggregate instead (not ported)")
+        else:
+            why = f"quiddity-rust's {fam} family, which Python quiddity 0.3.9 does not report"
         e(x['case'], f"features[id={fam}:*]", f"{fam}: Rust only", "undetermined",
-          f"quiddity-rust's {fam} family, which Python quiddity 0.3.9 does not report; Python gives these faces to {', '.join(claim) or 'no feature'}.")
+          f"{why}; Python gives these faces to {', '.join(claim) or 'no feature'}.")
         continue
+    if x['python'] is None and fam == "blends":
+        fillet_faces = set().union(*(f['faces'] for f in a['features'] if f['family'] == 'fillets'))
+        if faces <= fillet_faces:
+            e(x['case'], x['path'], "a blend chain Python supersedes by its fillets", "rust-wrong",
+              "Every face of this blend is a face of Python's fillets; Python quiddity's reconciliation drops such a chain "
+              "(_reconcile.reconcile_blend_candidates, ReasonCode.BLEND_SUPERSEDED_BY_FILLET) and quiddity-rust does not reconcile (U2), "
+              "so Rust lists the same rounds twice.")
+            continue
     if x['python'] is None:
         claim = sorted({f['family'] for f in a['features'] if faces & set(f['faces']) and f['family'] != fam})
         same = [f['id'] for f in a['features'] if f['family'] == fam and faces & set(f['faces'])]

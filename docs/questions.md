@@ -43,7 +43,13 @@ engines (analyse with one, write with the other), or should the Rust engine mark
 where recognition is framed (`recognise_placed`: records found in the part's own frame and
 reported in the file's coordinates). Should specify-core-rust use the framed recognition (as
 quiddity-rust's own default now is) or the caller-space `correspondence::recognise` it uses on
-`ap242`? *Meanwhile:* caller-space, the only one on `ap242`.
+`ap242`? *Meanwhile:* caller-space, the only one on `ap242`. *Status (2026-10-09): done.* Both
+dependencies follow branch `prototype/rust-port`, Cargo.lock pinning 5798c59; the new pattern
+families (slot, pocket and oriented slot patterns) are left out of the analysis as gusset rib
+patterns are. Recognition stays caller-space (`correspondence::recognise`): the decision moved
+the dependency without choosing the framed form, and caller-space is what Python's entry points
+and the oracle use. Every oracle comparison was rerun and each changed difference rejudged
+(`features.json`, `anchors.json`; docs/upstream-needs.md U11 and U12).
 
 **Q3. Notes and surface finish.** haecceity writes no notes (its decision 5: standard forms
 only, none chosen). Part notes (surface-finish default, coating, heat treatment, edges) have

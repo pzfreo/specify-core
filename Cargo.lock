@@ -126,7 +126,7 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 [[package]]
 name = "haecceity"
 version = "0.1.0"
-source = "git+https://github.com/pzfreo/quiddity-rust?rev=a16d7af80e15b48be7c7e5a54f19afe59c9030eb#a16d7af80e15b48be7c7e5a54f19afe59c9030eb"
+source = "git+https://github.com/pzfreo/quiddity-rust?branch=prototype%2Frust-port#5798c597b1ccae8550e9b9e4602605cc4b84f474"
 dependencies = [
  "flate2",
  "step-io",
@@ -297,7 +297,7 @@ dependencies = [
 [[package]]
 name = "quiddity"
 version = "0.1.0"
-source = "git+https://github.com/pzfreo/quiddity-rust?rev=a16d7af80e15b48be7c7e5a54f19afe59c9030eb#a16d7af80e15b48be7c7e5a54f19afe59c9030eb"
+source = "git+https://github.com/pzfreo/quiddity-rust?branch=prototype%2Frust-port#5798c597b1ccae8550e9b9e4602605cc4b84f474"
 dependencies = [
  "flate2",
  "haecceity",

@@ -14,13 +14,6 @@
     "evidence": "Both engines anchor a group on its largest face, the first of equals; for a group of identical features (a pattern's bores, cgb243's 41 such groups) the faces' areas agree to 1e-6 (haecceity's face_moments, checked by tests/anchors.rs explain), and which one OCCT's or haecceity's quadrature puts first is rounding. Differences of the leader's direction on such a group (path .out...equal_area_face) are the other face's own direction."
   },
   {
-    "case": "corpus/cadgenbench_inputs/cgb242",
-    "path": "anchors.*.same_from_python_point",
-    "pattern": "the leader differs because the anchor point does",
-    "verdict": "equivalent",
-    "evidence": "tests/anchors.rs explain re-runs Rust's leader (anchors::anchor_from_point) from Python's own anchor point with Python's diagonal and gets Python's direction and clear flag: the difference is the anchor point's (Quiddity's inspect_face against the U6 stand-in), both points on the same face."
-  },
-  {
     "case": "corpus/mfcadpp/10063",
     "path": "anchors.23.*",
     "pattern": "a leader along a bore's wall is clear in Rust, blocked in Python",
