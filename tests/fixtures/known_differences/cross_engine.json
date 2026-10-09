@@ -7,11 +7,11 @@
     "evidence": "NIST CTC-02 and CTC-04: OpenCascade's XCAF makes a part of each shape representation of one product (the solid and its surface models: 3 and 2 parts), haecceity one part per product with all its faces (question Q7; existing.json and the part stream's entries). Python's accept-defaults intents are bound to parts 1 and 2 of its numbering, which the Rust engine's reading of the file does not have, so examples/write_fixtures.rs refuses the case before calling the writer (its part-index check; the message is rust.refused.txt) rather than write an intent onto the wrong part; Python itself refuses the write of these files ('this assembly already has PMI not written by specify-core', write.json). Nothing to cross until Q7 is settled; an intent made by the Rust engine's own analysis of these files is the CLI stream's to write."
   },
   {
-    "case": "parts/*",
-    "path": "python_readback[specify-core's process died with SIGSEGV in load.load_all]",
-    "pattern": "OpenCascade 7.9 crashes opening a Rust-written file with datum feature symbols",
-    "verdict": "undetermined",
-    "evidence": "Every Rust-written synthetic file with a datum (7 of the 11: plate, pin, stack, assembly, a_hole_along_x, four_corner_holes, identical_holes) kills specify-core's process with SIGSEGV in load.load_all (STEPCAFControl_Reader), captured in a child process by tools/capture/crossengine.py; the 4 without datums (a_file_with_two_parts, a_placed_part, default_datum_a, wrapped) and both NIST files, written in add mode on their own datums with no symbols added, load. The cause is the one MECHANICAL_DESIGN_AND_DRAUGHTING_RELATIONSHIP('','',#shape representation,#'datum feature symbols' DRAUGHTING_MODEL) haecceity writes for its datum symbols (docs/upstream-needs.md U15): with it removed every file loads (python_readback_without_symbols.json.gz, the capture's probe), and with rep_1 and rep_2 swapped the plate still crashes (checked by hand). The form is schema-valid as far as checked: the relationship's rep_1/rep_2 select (mechanical_design_and_draughting_relationship_select) admits shape_representation, the shared context satisfies its supertype, and haecceity's instance validation passes; its WR1-WR3 are not evaluated by haecceity (express_rules.rs does not list them) and were not checked here. All six NIST CAx-IF files (tests/fixtures/nist) use this relationship only between two DRAUGHTING_MODELs (saved views), never with a shape representation. A reader crashing is OpenCascade's defect whatever the form; whether the form is the PMI practice's is not established, and leaving it out is question Q16. Until then no file the Rust engine writes with a datum opens in specify-core (Python) or any OpenCascade 7.9 tool."
+    "case": "*",
+    "path": "python_readback.part.surface_finish",
+    "pattern": "the part's default finish, written as a surface texture, is not read by specify-core (Python)",
+    "verdict": "rust-correct",
+    "evidence": "The Rust writer writes the part's default finish (Ra 3.2 on every accept-defaults intent) as ISO 10303-1110's surface texture on the part's product_definition_shape (property_definition 'surface texture', material removal 'any process allowed', its parameter a surface_texture_representation of 'measuring method' 'Ra' and 'characteristic value' 3.2 µm; question Q3, decided 2026-10-09; haecceity checks surface_texture_representation WR1-WR5 and general_property_association WR1-WR2 on its writes, quiddity-rust c228f95), and reads it back as the part's surface_finish (src/existing.rs). specify-core's part_settings finds the default finish only in its own text route, a DESCRIPTIVE_REPRESENTATION_ITEM('surface texture','Ra 3.2 µm unless otherwise specified') (existing.py), and OpenCascade's XCAF has no surface texture model, so Python reads none, on every Rust-written part of a single-part file (assemblies report no settings in either engine). The form is AP242's standard one, the text route is not (haecceity decision 5); the gap is Python's reader."
   },
   {
     "case": "*",
@@ -22,24 +22,10 @@
   },
   {
     "case": "*",
-    "path": "python_readback*existing[key=*|[*,*]|*]",
-    "pattern": "a size or tolerance on a feature of several faces (set_representation_item) is not read by OpenCascade",
-    "verdict": "rust-correct",
-    "evidence": "Each missing item is on a feature of several faces (a hole pattern's or a hole set's cylinders: NIST CTC-03's Ø4.7625 H11 and its position 0.76 MMC on the 8 faces of hole_patterns.rectangle, the plate's and assembly's Ø6.6 hole set, the four corner holes, the identical holes, the stack's tapped set), which haecceity writes as one SHAPE_ASPECT with an ITEM_IDENTIFIED_REPRESENTATION_USAGE whose identified_item is a SET_REPRESENTATION_ITEM of the faces (e.g. CTC-03 rust.step #6002): the PMI practice's §6.5.1 form, allowed by AP242's item_identified_representation_usage_select (list_representation_item, representation_item, set_representation_item). OpenCascade's reader does not resolve such a usage to faces and drops the size and the tolerance on it (haecceity's own tools/check_pmi_occt.py reports the same, docs/step-ap242.md). The same sizes and tolerances on a single face read (the plate's position on its tapped hole, the stack's Ø8 bore)."
-  },
-  {
-    "case": "*",
-    "path": "python_readback_without_symbols.existing[key=datum|*]",
-    "pattern": "a datum is read by OpenCascade only through a tolerance it reads",
-    "verdict": "rust-correct",
-    "evidence": "four_corner_holes and identical_holes: datums A, B and C are written as on the plate (one `datum` per letter with its `datum_feature` on the faces, practice §6.5), and the plate's datums do read (its position on face 12 cites them). specify-core reads datums from XCAF's datum labels (existing.py, GetDatumLabels), which OpenCascade's reader makes from the datum systems of the tolerances it reads; on these two parts the only tolerance citing A|B|C is the position on the hole set, a feature of several faces it does not read (the set_representation_item entry), so it never reaches the datums. Not a defect of the written datums."
-  },
-  {
-    "case": "*",
-    "path": "python_readback_without_symbols.existing[key=dimension|Size_*].*er",
+    "path": "python_readback.existing[key=dimension|Size_*].*er",
     "pattern": "a fit written as its ISO 286 class reads with no limits in specify-core (Python)",
     "verdict": "rust-correct",
-    "evidence": "The stack's Ø8 H7 bores ([9] of parts 0 and 1, +0.015/0) and Ø8 h6 pin ([3] of part 2, 0/-0.009) read back in Python with their nominal value and no upper or lower deviation. The Rust writer writes a fit as plus_minus_tolerance -> limits_and_fits('H','hole','7','') (PMI practice §5.2.5), after checking the intent's limits are the class's (src/writer.rs); haecceity's reader reads the class. specify-core's read_existing takes limits only from IsDimWithPlusMinusTolerance (existing.py) and never asks XCAF for the class of tolerance, so the fit's meaning is lost on the Python side. Python's own files carry the fit as bare limits, which is what OCCT's writer forced (docs/design.md, 'What is written')."
+    "evidence": "Every fit the Rust writer writes reads back in Python with its nominal value and no upper or lower deviation: the stack's Ø8 H7 bores ([9] of parts 0 and 1, +0.015/0) and Ø8 h6 pin ([3] of part 2, 0/-0.009), and the H11 clearance hole sets on several faces (the plate's and the assembly's Ø6.6, +0.09/0; NIST CTC-03's Ø4.7625 on the 8 faces of hole_patterns.rectangle, the four corner holes, the identical holes and the stack's part 1, +0.075/0), which OpenCascade now reads on all their faces (haecceity writes one geometric_item_specific_usage per face since quiddity-rust c228f95, question Q20 (2)). The Rust writer writes a fit as plus_minus_tolerance -> limits_and_fits('H','hole','7','') (PMI practice §5.2.5), after checking the intent's limits are the class's (src/writer.rs); haecceity's reader reads the class. specify-core's read_existing takes limits only from IsDimWithPlusMinusTolerance (existing.py) and never asks XCAF for the class of tolerance, so the fit's meaning is lost on the Python side. Python's own files carry the fit as bare limits, which is what OCCT's writer forced (docs/design.md, 'What is written')."
   },
   {
     "case": "*",

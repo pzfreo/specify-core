@@ -5,7 +5,9 @@
 //!   files (`tests/fixtures/cross_engine/<case>/rust.step.gz`, or `rust.refused.txt` for a
 //!   case the example or the writer refuses) are still exactly what `examples/write_fixtures.rs` produces,
 //!   byte for byte. A deliberate change is regenerated with that example (its doc comment says
-//!   how), together with Python's read-back of the new files.
+//!   how), together with Python's read-back of the new files. The bytes are the same on every
+//!   platform: nothing written depends on a platform's maths library beyond the signs of zero
+//!   that stored-answer schema 1 hashed, which schema 2 writes unsigned (the fixtures' README).
 //! - (b) Python's read-back of each Rust-written file (`python_readback.json.gz`, captured by
 //!   `tools/capture.py cross-engine`: specify-core's `read_existing`, `part_settings` and
 //!   `resume.answers_for` per part, each in a process of its own) against the intent as

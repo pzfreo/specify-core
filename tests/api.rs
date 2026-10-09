@@ -197,14 +197,7 @@ fn an_assembly_is_written_together_and_again_through_the_service() {
         "{:?}",
         report.written
     );
-    assert!(
-        report
-            .not_written
-            .iter()
-            .all(|l| l.contains("upstream need U3")),
-        "{:?}",
-        report.not_written
-    );
+    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
     // test_each_part_resumes_its_own_answers
     let listed = api::parts(&out).unwrap();
     assert_eq!(
@@ -298,16 +291,8 @@ fn an_intent_made_before_parts_were_told_apart_still_writes() {
     intent.binding.as_object_mut().unwrap().remove("part");
     assert_eq!(api::intent_part(&intent).unwrap(), 0);
     let report = api::write_file(&pin, &intent, &dir.join("old.step"), None).unwrap();
-    // Python's not_written is empty; the Rust writer lists the part's notes it cannot write
-    // (U3) and nothing else.
-    assert!(
-        report
-            .not_written
-            .iter()
-            .all(|l| l.contains("upstream need U3")),
-        "{:?}",
-        report.not_written
-    );
+    // As in Python, nothing is left unwritten (the part's notes too, Q3).
+    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

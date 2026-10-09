@@ -58,6 +58,13 @@ known differences with verdicts.
 **Met when** quiddity exposes per record its constituent faces (or its `Occurrence.context`
 split into belonging and consulted) and per pattern its member indices.
 
+**Status (2026-10-09, pin 5d39eee): reconciliation partly met upstream.** quiddity-rust's
+`recognise()` now reconciles the aggregate (its a02b758): with no change here, 252 features
+entries went stale, every one a feature Rust reported and Python did not (158 blend chains
+Python supersedes by its fillets, 45 bosses, 24 fillets, 13 chamfers, 7 prismatic pockets, 3
+slots, 2 plates); no new difference appeared. Constituent faces and pattern members are still
+missing.
+
 ## U3. Notes and surface finish in `pmi::write`
 
 **Missing.** `pmi::write` refuses notes (`docs/step-ap242.md` decision 5: standard forms only,
@@ -72,6 +79,10 @@ has for intent with no place in the file), never dropped silently. See questions
 
 **Met when** `PartPmi.notes` (and a surface texture on faces) are written in a standard form and
 read back.
+
+**Status (2026-10-09): met** (quiddity-rust c228f95, pinned at 5d39eee): `SurfaceTexture` and
+'semantic text' attribute sets are written and read; src/writer.rs writes every finish and part
+note through them and nothing is listed in `not_written` for them.
 
 ## U4. Face triangulation
 
@@ -341,6 +352,13 @@ file is valid AP242 (every written file passes `express::validate_document` and
 
 **Met when** OpenCascade 7.9's reader loads a haecceity-written file with datum symbols (or
 haecceity relates the draughting model in a form it reads).
+
+**Status (2026-10-09): met** (quiddity-rust c228f95, pinned at 5d39eee): haecceity no longer
+writes the relationship (Q16), and specify-core loads all 11 Rust-written synthetic files and
+both NIST files of the cross-engine check, reading every datum (`known_differences/
+cross_engine.json` has no crash entry). haecceity's investigation places the crash in
+specify-core's `load.py` name lookup through OCP rather than in OpenCascade's reader
+(docs/step-ap242.md in quiddity-rust, decision 1).
 
 ## U15, evidence from the cross-engine check (cross-engine stream)
 

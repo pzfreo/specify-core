@@ -44,7 +44,8 @@ where recognition is framed (`recognise_placed`: records found in the part's own
 reported in the file's coordinates). Should specify-core-rust use the framed recognition (as
 quiddity-rust's own default now is) or the caller-space `correspondence::recognise` it uses on
 `ap242`? *Meanwhile:* caller-space, the only one on `ap242`. *Status (2026-10-09): done.* Both
-dependencies follow branch `prototype/rust-port`, Cargo.lock pinning 5798c59; the new pattern
+dependencies follow branch `prototype/rust-port`, Cargo.lock pinning 5798c59 (5d39eee since
+the haecceity writer decisions of 2026-10-09, oracle comparisons rerun); the new pattern
 families (slot, pocket and oriented slot patterns) are left out of the analysis as gusset rib
 patterns are. Recognition stays caller-space (`correspondence::recognise`): the decision moved
 the dependency without choosing the framed form, and caller-space is what Python's entry points
@@ -56,6 +57,23 @@ only, none chosen). Part notes (surface-finish default, coating, heat treatment,
 defaults, so nearly every write has some. *Meanwhile:* they are listed in the report's
 `not_written` and the write succeeds. Should such a write instead be refused until a standard
 form exists, or should the Rust engine stop asking those questions?
+*Status (2026-10-09): done.* haecceity's standard forms are in the pin (quiddity-rust c228f95,
+Cargo.lock 5d39eee) and the writer uses them: a finish (`Ra 3.2`, on faces or the part's
+default) is an ISO 10303-1110 surface texture, the coating, heat treatment and edge note are
+'semantic text' on the part (PMI practice §7.4). The report's lines are now Python's (`surface
+finish Ra 3.2`, `edges ...`, `surface finish Ra 0.8 on faces [7]`), nothing is listed in
+`not_written` for them, and the Rust engine reads them back as the part's settings and a face's
+`surface finish` note (src/existing.rs), so the write oracle's ten note entries went stale and
+were removed. Three judgement calls the maintainer can overturn: (1) the material removal
+condition, which ISO 1302 and the schema require and specify-core's finish does not state, is
+'any process allowed' (ISO 1302's basic symbol, which an unqualified `Ra 3.2` means;
+haecceity's question 4); (2) each note's 'semantic text' item is named by the kind Python's text
+route gives it ('surface treatment', 'heat treatment', 'edge condition', not the answer's key),
+so specify-core's `part_settings`, which scans for an item of that name, reads the Rust engine's
+notes too (checked: it reads the edge note of every Rust-written single-part file); (3) a finish
+that is not `Ra <micrometres>` (not produced by the rules or `extras`, which refuse one) is
+listed in `not_written` rather than guessed. specify-core does not read the surface texture
+(`known_differences/cross_engine.json`, rust-correct).
 
 **Q4. Diamond knurls.** `turned_knurl` requires a helix angle for a diamond knurl (WR9); the
 intent has pattern, pitch and diameter only. *Meanwhile:* straight knurls are written (major and
@@ -196,6 +214,10 @@ anything OpenCascade-based downstream), because of the `MECHANICAL_DESIGN_AND_DR
 RELATIONSHIP` relating haecceity's datum symbols to the part. *Meanwhile:* written as haecceity
 writes it (valid AP242). Should the writer leave out the datum symbols (or that relationship)
 until haecceity or OpenCascade is fixed, so Draftwright's OpenCascade side can open the files?
+*Status (2026-10-09): done.* haecceity no longer writes the relationship (pinned at 5d39eee).
+specify-core (OpenCascade 7.9) now loads all 11 Rust-written synthetic files and both NIST
+files of the cross-engine check, and reads every datum; the crash entry and the probe captures
+(`python_readback_without_symbols.json.gz`) are gone.
 
 **Q17 (writer stream). Requirements on no faces.** On 26 corpus parts (25 mfcadpp and cadgenbench
 cgb217) specify-core's rules (both engines, from Python's analysis) give a hole's size,
@@ -255,6 +277,12 @@ undetermined for 1 and 4). For Draftwright to move a part from the Rust engine t
 which should change: haecceity writing per-face usages (and stated limits beside a fit class,
 which its fit form allows), or specify-core's Python reader learning the §6.5.1 usage, the fit
 class and the `thread` entity? (Renumbered from Q19 at integration: the CLI stream took Q19.)
+*Status (2026-10-09): (1) and (2) done.* With haecceity's per-face usages (decision Q20 (2),
+pinned at 5d39eee) OpenCascade reads every size and tolerance on a feature of several faces, with
+the datums they cite (NIST CTC-03's 8-face H11 holes and position, the plate's, assembly's,
+corner holes', identical holes' and stack's hole sets); the `set_representation_item` entry and
+the datum entry that followed from it are gone. (3) and (4) stand: such a fit, like every fit,
+reads without its limits, and threads are not read (`known_differences/cross_engine.json`).
 
 **Q14, evidence from the cross-engine check (cross-engine stream).** Whether Python's resume
 reads the Rust-written stored answers: it finds them but does not resume them. On all 5 parts
