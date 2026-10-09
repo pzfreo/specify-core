@@ -15,12 +15,12 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [cli](#cli) | 9 | 0 | 3 | 0 | 3 | 15 |
 | [cross_engine](#cross_engine) | 3 | 0 | 0 | 4 | 1 | 8 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
-| [features](#features) | 879 | 1576 | 62 | 1478 | 11 | 4006 |
+| [features](#features) | 879 | 1576 | 63 | 1480 | 11 | 4009 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 12 | 9 | 4 | 5 | 35 |
 | [rules](#rules) | 0 | 0 | 0 | 0 | 0 | 0 |
 | [writer](#writer) | 12 | 0 | 0 | 4 | 24 | 40 |
-| **all** | 939 | 1588 | 75 | 1491 | 56 | 4149 |
+| **all** | 939 | 1588 | 76 | 1493 | 56 | 4152 |
 
 ## anchors
 
@@ -328,7 +328,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Every face of this blend is a face of Python's fillets; Python quiddity's reconciliation drops such a chain (_reconcile.reconcile_blend_candidates, ReasonCode.BLEND_SUPERSEDED_BY_FILLET) and quiddity-rust does not reconcile (U2), so Rust lists the same rounds twice.
 
-### features: equivalent (62 entries)
+### features: equivalent (63 entries)
 
 - **both at the adaptive integral** (23 entries, 8 case globs)
 
@@ -366,6 +366,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb242` at `features[id=blends:*].record.path.at[*]`: 'at' is a point of the blend's path rounded to 3 decimals: 22.779 against 22.778 is a rounding boundary. Here 2 value(s), largest difference 0.001.
 
+- **a flat-pattern overlap witness reports another triangulation's largest triangle overlap** (`corpus/ttt_inputs/sm-hanger` at `features[id=sheet_metal_bodies:*].record.flat_pattern.overlap_witnesses[*].area`)
+
+  Both engines report the same sheet-metal body (same faces, flanges, bends and flat pattern structure; tests/fixtures/known_differences/features.json's generator, compared by hand on sm-hanger and NIST CTC-03 AP242 with each engine's analysis). A witness's area is the largest overlap of one triangle of the first region with one of the second, on each engine's own triangulation (quiddity sheet_metal.py _flat_pattern_plan: max over triangle pairs; quiddity-rust features/sheet_metal.rs the same), so it depends on the triangulation, not only on the regions. Python 21.837, 21.837, 55.911, 55.911; Rust 21.134, 21.784, 64.467, 28.240. Rust's triangulation of face 64 is not mirror-symmetric, so its largest pieces against the mirror-image faces 66 and 79 (and strips 10 and 11) differ. Checked independently (each engine's flat_pattern, triangles clipped pairwise by a separate Sutherland-Hodgman clipper): each engine's reported areas equal the largest triangle-pair overlap of its own triangles, and the total overlaps of the regions agree and are symmetric in both engines: 64 with 66 and with 79, 231.293 (Python) against 231.364 (Rust), each equal to face 66's area, i.e. face 66 lies inside face 64; strips 10 and 11 with face 64, 24.4708 in both. The witnessed pairs and valid_blank agree.
+
 - **paired area fraction differs below 1e-7 relative** (`corpus/cadgenbench_inputs/cgb245` at `features[id=sheet_metal_bodies:*].record.paired_area_fraction`)
 
   Both engines report the same sheet-metal body (same faces, flanges, bends and flat pattern structure; tests/fixtures/known_differences/features.json's generator, compared by hand on sm-hanger and NIST CTC-03 AP242 with each engine's analysis). A ratio of face integrals, equal to 1e-7. Here 1 value(s), largest difference 3.74e-08.
@@ -378,7 +382,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/cadgenbench/threaded_connector_109` at `features[id=*].record.*location[*]`: Locations come from the hole's edges as each kernel reads them; a difference below 1e-6 mm is below the analysis's own rounding of face centroids and of no manufacturing consequence. Here 1 value(s), largest difference 6e-07.
 
-### features: undetermined (1478 entries)
+### features: undetermined (1480 entries)
 
 - **face numbering differs from OpenCascade's** (`corpus/inventory_refusal/13975` at `faces[*`)
 
@@ -424,13 +428,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (3 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb207` at `features[id=freeform_surfaces:*].record.offset_distance`: The distance between a freeform face and its offset partner, sampled on each kernel's evaluation of the B-spline (cgb207: 3.00215008 against 3.00215472); not checked against an independent reference. Here 10 value(s), largest difference 4.64e-06.
 
-- **a flat-pattern face is tessellated more coarsely** (`*` at `features[id=sheet_metal_bodies:*].record.flat_pattern.flat_faces[*`)
+- **a flat-pattern face is tessellated more coarsely (vertices)** (2 entries, 2 case globs)
 
-  Both engines report the same sheet-metal body (same faces, flanges, bends and flat pattern structure; tests/fixtures/known_differences/features.json's generator, compared by hand on sm-hanger and NIST CTC-03 AP242 with each engine's analysis). Each flat face is a polygon tessellation of the unfolded face; Rust's has about half Python's vertices (sm-hanger: 37 against 69, 71 against 134; CTC-03: 528 against 1024) and the same area to 7e-5 relative (CTC-03 face 2: 80906.479 against 80911.879; sm-hanger face 8: 12439.807 against 12440.182). Neither was checked against the record's tessellation_tolerance.
+  Both engines report the same sheet-metal body (same faces, flanges, bends and flat pattern structure; tests/fixtures/known_differences/features.json's generator, compared by hand on sm-hanger and NIST CTC-03 AP242 with each engine's analysis). Each flat face is a polygon tessellation of the unfolded face; Rust's has about half Python's vertices (sm-hanger: 37 against 69, 71 against 134; CTC-03: 528 against 1024) and the same area to 7e-5 relative (CTC-03 face 2: 80906.479 against 80911.879; sm-hanger flat face 8 (face 64): 12439.807 against 12440.182). Neither was checked against the record's tessellation_tolerance.
 
-- **flat-pattern overlap areas differ** (`corpus/ttt_inputs/sm-hanger` at `features[id=sheet_metal_bodies:*].record.flat_pattern.overlap_witnesses[*].area`)
+- **a flat-pattern face is tessellated more coarsely (triangles)** (2 entries, 2 case globs)
 
-  Both engines report the same sheet-metal body (same faces, flanges, bends and flat pattern structure; tests/fixtures/known_differences/features.json's generator, compared by hand on sm-hanger and NIST CTC-03 AP242 with each engine's analysis). The overlap of a bend strip and a flange face in the flat pattern, measured on each engine's tessellation (above): 21.837 against 21.134 and 21.784, 55.911 against 64.467 and 28.240. The witnesses' pairs agree; the areas follow the coarser polygons. Not checked against an exact overlap.
+  Both engines report the same sheet-metal body (same faces, flanges, bends and flat pattern structure; tests/fixtures/known_differences/features.json's generator, compared by hand on sm-hanger and NIST CTC-03 AP242 with each engine's analysis). Each flat face is a polygon tessellation of the unfolded face; Rust's has about half Python's vertices (sm-hanger: 37 against 69, 71 against 134; CTC-03: 528 against 1024) and the same area to 7e-5 relative (CTC-03 face 2: 80906.479 against 80911.879; sm-hanger flat face 8 (face 64): 12439.807 against 12440.182). Neither was checked against the record's tessellation_tolerance.
 
 - **a flange's area differs below 4e-6 relative** (`corpus/cadgenbench_inputs/cgb245` at `features[id=sheet_metal_bodies:*].record.flanges[*].area`)
 
@@ -578,7 +582,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Face 399, see cgb202 \*399\*.
 
-- **a single sub-micron triangle at a degenerate corner of a freeform face faces inward** (8 entries, 3 case globs)
+- **a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward** (8 entries, 3 case globs)
 
   cgb202 faces 1078 and 1465, cgb207 face 114, cgb242 faces 472, 665, 711, 719 and 840: one triangle each, of 6e-8 to 7.3e-6 mm2 (cgb202 face 1078: 7.3e-6; cgb207 face 114: 6.9e-8), next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre. Since the move to quiddity-rust prototype/rust-port 5798c59 (Q2) the faces are others than at a16d7af (cgb202 740, cgb207 113, cgb242 878 then; none now), as haecceity's parameter loops changed; areas measured by re-running tests/mesh.rs's inward check on each face.
 
@@ -918,10 +922,12 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `corpus/cadgenbench_inputs/cgb207`: `features[id=freeform_surfaces:*].record.offset_distance`
   - `corpus/cadgenbench_inputs/cgb241`: `features[id=freeform_surfaces:*].record.offset_distance`
   - `corpus/cadgenbench_inputs/cgb245`: `features[id=freeform_surfaces:*].record.offset_distance`
-- **a flat-pattern face is tessellated more coarsely** (1 entry)
-  - `*`: `features[id=sheet_metal_bodies:*].record.flat_pattern.flat_faces[*`
-- **flat-pattern overlap areas differ** (1 entry)
-  - `corpus/ttt_inputs/sm-hanger`: `features[id=sheet_metal_bodies:*].record.flat_pattern.overlap_witnesses[*].area`
+- **a flat-pattern face is tessellated more coarsely (vertices)** (2 entries)
+  - `corpus/ttt_inputs/sm-hanger`: `features[id=sheet_metal_bodies:*].record.flat_pattern.flat_faces[*].vertices[*`
+  - `nist/nist_ctc_03_asme1_ap242`: `features[id=sheet_metal_bodies:*].record.flat_pattern.flat_faces[*].vertices[*`
+- **a flat-pattern face is tessellated more coarsely (triangles)** (2 entries)
+  - `corpus/ttt_inputs/sm-hanger`: `features[id=sheet_metal_bodies:*].record.flat_pattern.flat_faces[*].triangles[*`
+  - `nist/nist_ctc_03_asme1_ap242`: `features[id=sheet_metal_bodies:*].record.flat_pattern.flat_faces[*].triangles[*`
 - **a flange's area differs below 4e-6 relative** (1 entry)
   - `corpus/cadgenbench_inputs/cgb245`: `features[id=sheet_metal_bodies:*].record.flanges[*].area`
 - **a flat's reported point differs by up to 0.015 mm** (1 entry)
@@ -1203,7 +1209,7 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `corpus/cadgenbench_inputs/cgb202`: `check.triangulated[399]`, `areas[399]`
 - **a freeform face whose boundary samples cross at a narrow neck is listed as missing** (1 entry)
   - `corpus/cadgenbench_inputs/cgb202`: `missing[0]`
-- **a single sub-micron triangle at a degenerate corner of a freeform face faces inward** (8 entries)
+- **a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward** (8 entries)
   - `corpus/cadgenbench_inputs/cgb202`: `check.inward_triangles[1078]`, `check.inward_triangles[1465]`
   - `corpus/cadgenbench_inputs/cgb207`: `check.inward_triangles[114]`
   - `corpus/cadgenbench_inputs/cgb242`: `check.inward_triangles[472]`, `check.inward_triangles[665]`, `check.inward_triangles[711]`, `check.inward_triangles[719]`, `check.inward_triangles[840]`

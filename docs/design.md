@@ -380,8 +380,8 @@ difference or a stale entry fails the sweep.
 | `api.rs`, `main.rs`, `serve.rs` | `tests/api.rs`, `tests/cli.rs`, `tests/serve.rs` | The binary's `analyse`, `mesh`, `questions` and `write` against the library's results (exactly) and against Python's command line and serve transcripts (`cli_oracle.json.gz`): 55 differences (24 rust-correct, 15 equivalent, 16 not-applicable); `test_serve.py` and `test_assembly.py`'s API and command-line tests ported |
 | Cross-engine (`examples/write_fixtures.rs`, `tools/capture/crossengine.py`) | `tests/cross_engine.rs` | Python reading every Rust-written synthetic and NIST file, and the Rust engine reading the 11 Python-written synthetic files: 70 differences (25 rust-correct, 43 undetermined, 2 not-applicable) |
 
-Known-difference entries by verdict (entries, not differences): 4149 in all, 939 rust-correct,
-1588 rust-wrong, 75 equivalent, 1491 undetermined, 56 not-applicable, since the move to
+Known-difference entries by verdict (entries, not differences): 4152 in all, 939 rust-correct,
+1588 rust-wrong, 76 equivalent, 1493 undetermined, 56 not-applicable, since the move to
 `prototype/rust-port` 5798c59 (3634 at stage 5, on a16d7af). The whole suite
 (`SPECIFY_CORPUS=/Users/paul/repos/quiddity/tests/corpus cargo test --release`, 302 tests)
 passed at stage 5 and again after the move to `prototype/rust-port` 5798c59. The command line was also run by hand at stage 5 on `tests/fixtures/parts/plate.step` and `assembly.step`
@@ -414,7 +414,7 @@ in [upstream-needs.md](upstream-needs.md)) and the parts each affects in the ora
 
 Listed entry by entry in [known-differences.md](known-differences.md), "Open work"; in short:
 
-- **features** (1576 rust-wrong, 1478 undetermined entries): face areas and centroids off the
+- **features** (1576 rust-wrong, 1480 undetermined entries): face areas and centroids off the
   adaptive integral (U11: 1407 rust-wrong, 1167 where neither engine is within 1e-6); the three
   missing families (U12); 158 blend chains Python supersedes by its fillets (U2's
   reconciliation); constituent faces (U2); families or features one engine reports and the
