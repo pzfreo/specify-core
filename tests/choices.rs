@@ -318,6 +318,7 @@ fn choices_equal_pythons_over_the_grid() {
     let cases = data["cases"].as_array().unwrap();
     assert!(cases.len() > 100_000);
     let mut wrong = Vec::new();
+    let mut answered_beyond_500 = 0;
     for case in cases {
         let c = case.as_array().unwrap();
         let text = |i: usize| c[i].as_str().unwrap();
@@ -353,10 +354,23 @@ fn choices_equal_pythons_over_the_grid() {
             "code" => (record(Ok::<_, String>(code(text(1)))), &c[2]),
             other => panic!("unknown case {other}"),
         };
-        if got != expected(python) {
+        // Q8: Rust tabulates ISO 286 to 3150 mm where this oracle's Python stops at 500 mm, so
+        // a fit Python refuses there Rust answers, or refuses as Python does below 500 mm (k
+        // above grade 7). Its limits are checked in tests/standards.rs.
+        let beyond_500 = python["err"]
+            .as_str()
+            .is_some_and(|m| m.contains(" outside 0-500 mm"));
+        let answered = got.get("ok").is_some()
+            || got["err"].as_str().is_some_and(|m| {
+                m.contains("(k deviations are tabulated here for grades 4 to 7 only)")
+            });
+        if beyond_500 && answered {
+            answered_beyond_500 += 1;
+        } else if got != expected(python) {
             wrong.push(format!("{case}\n   rust: {got}"));
         }
     }
+    assert!(answered_beyond_500 > 0, "the grid's 600 mm diameter");
     assert!(
         wrong.is_empty(),
         "{} of {} differ from Python, e.g.:\n{}",

@@ -3,9 +3,11 @@
 //! of diameters (`tests/fixtures/choices_oracle.json.gz`; see `tests/choices.rs` for how it is
 //! generated).
 
+mod common;
+
 use std::io::Read;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use specify_core::pyfmt;
 use specify_core::standards::{
     self, CLEARANCE, PITCH, TAP_DRILL, clearance_bolts, fit_limits, full_thread,
@@ -41,6 +43,45 @@ fn fit_limits_match_iso_286() {
             "{fit} at {nominal}: {u}, {l}"
         );
     }
+}
+
+/// Above 500 mm (Q8): limits from ISO 286-2:2010 Table 17 (shafts) and IT7 of ISO 286-1:2010
+/// Table 1 (H7), one size in each range to 3150 mm, and a range edge on each side.
+#[test]
+fn fit_limits_match_iso_286_to_3150_mm() {
+    for (fit, nominal, upper, lower) in [
+        ("g6", 600.0, -22, -66),
+        ("h6", 700.0, 0, -50),
+        ("k6", 900.0, 56, 0),
+        ("m6", 1100.0, 106, 40),
+        ("f7", 1300.0, -110, -235),
+        ("g6", 1800.0, -32, -124),
+        ("m6", 2200.0, 178, 68),
+        ("f7", 3000.0, -145, -355),
+        ("k6", 3150.0, 135, 0),
+        ("H7", 500.0, 63, 0),
+        ("H7", 500.01, 70, 0),
+        ("H7", 1250.0, 105, 0),
+        ("H7", 1250.01, 125, 0),
+        ("p6", 2600.0, 375, 240),
+        ("n6", 600.0, 88, 44),
+        ("js6", 1100.0, 33, -33),
+        ("H11", 2000.0, 920, 0),
+        ("h5", 2600.0, 0, -96),
+    ] {
+        let (u, l) = fit_limits(fit, nominal).unwrap();
+        let (upper, lower) = (f64::from(upper) / 1000.0, f64::from(lower) / 1000.0);
+        assert!(
+            approx(u, upper) && approx(l, lower),
+            "{fit} at {nominal}: {u}, {l}"
+        );
+    }
+    // k above 500 mm is 0 for every grade, but grades above 7 stay refused as below 500 mm.
+    assert!(fit_limits("k8", 600.0).is_err());
+    assert_eq!(
+        fit_limits("H7", 3150.01).unwrap_err(),
+        "nominal size 3150.01 outside 0-3150 mm"
+    );
 }
 
 // test_standards.py::test_unsupported_fits_are_refused
@@ -158,6 +199,14 @@ fn standards_equal_pythons() {
     }
     for row in data["fits"].as_array().unwrap() {
         let (fit, nominal, python) = (row[0].as_str().unwrap(), row[1].as_f64().unwrap(), &row[2]);
+        // Python's 500 mm limit (Q8: Rust tabulates to 3150 mm); those rows are compared and
+        // judged by `iso286_equals_pythons`.
+        if python["err"]
+            .as_str()
+            .is_some_and(|m| m.ends_with(" outside 0-500 mm"))
+        {
+            continue;
+        }
         match fit_limits(fit, nominal) {
             Ok((upper, lower)) => {
                 let ok = &python["ok"];
@@ -183,4 +232,74 @@ fn standards_equal_pythons() {
             "{size} {depth}"
         );
     }
+}
+
+/// Python's fit limits over `tests/fixtures/iso286_oracle.json.gz` (every class to 3150 mm at
+/// each range edge, either side of it and mid-range; see `iso286_oracle.py`): limits exactly
+/// equal, messages byte for byte. Differences are judged in `known_differences/iso286.json`.
+#[test]
+fn iso286_equals_pythons() {
+    let data = common::read_json_gz(&common::fixtures().join("iso286_oracle.json.gz"));
+    let rows = data["fits"].as_array().unwrap();
+    assert!(rows.len() > 5000, "the whole grid");
+    let mut differences = Vec::new();
+    for row in rows {
+        let (fit, nominal, python) = (row[0].as_str().unwrap(), row[1].as_f64().unwrap(), &row[2]);
+        let (rust, path) = match fit_limits(fit, nominal) {
+            Ok((upper, lower)) => (json!({"ok": [upper, lower]}), "limits"),
+            Err(message) => (json!({"err": message}), "message"),
+        };
+        let python = match python.get("err") {
+            Some(message) => json!({"err": message}),
+            None => json!({"ok": python["ok"]}),
+        };
+        if rust != python {
+            differences.push(common::Difference {
+                case: format!("{fit}@{}", pyfmt::repr(nominal)),
+                path: path.to_string(),
+                python: Some(python),
+                rust: Some(rust),
+            });
+        }
+    }
+    common::check_known("iso286", &differences);
+}
+
+/// Q8 end to end: a part with a Ø600 hole is asked about it with fits offered (Python, with ISO
+/// 286 to 500 mm only, fails the whole question list there), and each fit is described with its
+/// ISO 286 limits. The plate's captured analysis, its Ø8 hole made Ø600.
+#[test]
+fn a_600_mm_hole_is_offered_fits_with_their_limits() {
+    let mut analysis = common::case("parts/plate")
+        .artifact("analysis")
+        .expect("a captured analysis");
+    let hole = analysis["features"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|f| f["id"] == "holes:9")
+        .expect("the plate's Ø8 hole");
+    assert_eq!(hole["record"]["diameter"], json!(8.0));
+    hole["record"]["diameter"] = json!(600.0);
+    let questions = specify_core::rules::questions(&analysis, &serde_json::Map::new()).unwrap();
+    let question = questions
+        .iter()
+        .find(|q| q.feature.as_deref() == Some("holes:9") && q.prompt.contains("Ø600"))
+        .expect("a question about the Ø600 hole");
+    for fit in standards::HOLE_FITS {
+        assert!(question.options.contains(&format!("fit:{fit}")), "{fit}");
+    }
+    let callout = |code: &str| {
+        question
+            .choices
+            .iter()
+            .find(|c| c["value"] == code)
+            .unwrap_or_else(|| panic!("{code} described"))["callout"]
+            .clone()
+    };
+    // ISO 286-1:2010 Table 1, over 500 up to 630 mm: IT7 70, IT8 110, IT9 175, IT11 440 µm.
+    assert_eq!(callout("fit:H7"), json!("⌀600 H7 (600.000–600.070)"));
+    assert_eq!(callout("fit:H8"), json!("⌀600 H8 (600.000–600.110)"));
+    assert_eq!(callout("fit:H9"), json!("⌀600 H9 (600.000–600.175)"));
+    assert_eq!(callout("fit:H11"), json!("⌀600 H11 (600.000–600.440)"));
 }
