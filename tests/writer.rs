@@ -538,9 +538,8 @@ fn pin_written(dir: &Path) -> (Value, WriteReport, PathBuf) {
     (analysis, report, out)
 }
 
-// test_requirements.py::test_everything_is_written_and_verified. The straight knurl is not
-// written: AP242's turned_knurl needs parameters the intent lacks (question Q4); it is
-// reported in not_written.
+// test_requirements.py::test_everything_is_written_and_verified. The straight knurl is written
+// as AP242's turned_knurl, its parameters from DIN 82 (questions Q4, Q15).
 #[test]
 fn everything_is_written_and_verified() {
     let dir = temp("pin");
@@ -550,19 +549,14 @@ fn everything_is_written_and_verified() {
         "external thread M6x1-6g",
         "material CW614N leaded brass",
         "general tolerance ISO 2768-m",
+        "straight knurl on turned_steps:0",
     ] {
         assert!(
             report.written.iter().any(|w| w.starts_with(wanted)),
             "{wanted}"
         );
     }
-    assert!(
-        report
-            .not_written
-            .iter()
-            .any(|w| w.starts_with("straight knurl on turned_steps:0: "))
-    );
-    assert!(!report.written.iter().any(|w| w.contains("knurl")));
+    assert!(!report.not_written.iter().any(|w| w.contains("knurl")));
 }
 
 // test_requirements.py::test_the_standard_constructs, re-expressed: threads as AP242's THREAD
@@ -1308,4 +1302,225 @@ fn a_hole_on_no_faces_is_listed_and_the_rest_written() {
             "the position tolerance on holes:16",
         ],
     );
+}
+
+// --- knurls (questions Q4, Q15) ----------------------------------------------------------------
+
+/// The pin with a `pattern` knurl on Ø10, its intent and the file written.
+fn pin_knurled(dir: &Path, pattern: &str) -> (Intent, WriteReport, PathBuf) {
+    let analysis = analysis("parts/pin");
+    let given = json!({
+        "part.material": "brass",
+        format!("diameter.fit:{}", feature(&analysis, "turned_steps", 10.0)): format!("knurl:{pattern}"),
+    });
+    let intent = apply(&analysis, given.clone());
+    let out = dir.join(format!("{pattern}.step"));
+    let pin = load(&fixture("pin"), None).unwrap();
+    let report = write(&pin, &intent, &out, given.as_object()).unwrap();
+    (intent, report, out)
+}
+
+/// The knurl read back from the file, with its parameters as plain numbers.
+fn knurl_back(out: &Path) -> (pmi::KnurlPattern, Vec<f64>, Option<u32>, Option<f64>, bool) {
+    let read = pmi_of(out, 0);
+    assert_eq!(read.knurls.len(), 1, "{:?}", read.knurls);
+    let k = &read.knurls[0];
+    let mm = |l: &pmi::Length| l.value.to_string().parse::<f64>().unwrap();
+    let lengths = [
+        Some(&k.major_diameter),
+        Some(&k.nominal_diameter),
+        Some(&k.diametral_pitch),
+        k.tooth_depth.as_ref(),
+        k.root_fillet.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(mm)
+    .collect();
+    let angle = k.helix_angle.as_ref().map(|a| a.rad().to_degrees());
+    (
+        k.pattern,
+        lengths,
+        k.number_of_teeth.map(|c| c.0),
+        angle,
+        k.helix_hand.is_some(),
+    )
+}
+
+/// A straight knurl is written through turned_knurl with its diameter, pitch and DIN 82's
+/// number of teeth, tooth depth and root fillet (six parameters, WR2), no helix angle or hand,
+/// and reads back as written; its faces read back as a knurl note; its answers resume.
+#[test]
+fn a_straight_knurl_is_written_through_turned_knurl() {
+    let dir = temp("knurl-straight");
+    let (_, report, out) = pin_knurled(&dir, "straight");
+    assert!(
+        report
+            .written
+            .contains(&"straight knurl on turned_steps:0".to_string())
+    );
+    assert!(
+        !report.warnings.iter().any(|w| w.contains("knurl")),
+        "{:?}",
+        report.warnings
+    );
+    let (pattern, lengths, teeth, angle, hand) = knurl_back(&out);
+    assert_eq!(pattern, pmi::KnurlPattern::Straight);
+    assert_eq!(lengths, [10.0, 10.0, 1.0, 0.5, 0.1]);
+    assert_eq!((teeth, angle, hand), (Some(31), None, false));
+    assert!(flat(&out).contains("TURNED_KNURL('','straight')"));
+    let existing = read_existing(&load(&out, None).unwrap()).unwrap();
+    assert!(
+        existing
+            .iter()
+            .any(|e| e.kind == "note" && e.r#type == "knurl")
+    );
+    // Written again from its stored answers (a replace of a part with a knurl).
+    let back = load(&out, None).unwrap();
+    let given = answers_for(&back).unwrap().expect("answers stored");
+    let again = dir.join("again.step");
+    let report = write(
+        &back,
+        &apply(
+            &reanalysed(&analysis("parts/pin"), &back),
+            Value::Object(given.clone()),
+        ),
+        &again,
+        Some(&given),
+    )
+    .unwrap();
+    assert!(
+        report
+            .written
+            .contains(&"straight knurl on turned_steps:0".to_string())
+    );
+    assert_eq!(knurl_back(&again).2, Some(31));
+}
+
+/// A diamond knurl states a 30° helix angle and no hand: two crossed helices (WR9; hand is
+/// optional), seven parameters.
+#[test]
+fn a_diamond_knurl_states_a_helix_angle_and_no_hand() {
+    let dir = temp("knurl-diamond");
+    let (_, report, out) = pin_knurled(&dir, "diamond");
+    assert!(
+        report
+            .written
+            .contains(&"diamond knurl on turned_steps:0".to_string())
+    );
+    let (pattern, lengths, teeth, angle, hand) = knurl_back(&out);
+    assert_eq!(pattern, pmi::KnurlPattern::Diamond);
+    assert_eq!(lengths, [10.0, 10.0, 1.0, 0.5, 0.1]);
+    assert_eq!(teeth, Some(31));
+    assert!((angle.unwrap() - 30.0).abs() < 1e-9, "{angle:?}");
+    assert!(!hand);
+}
+
+/// An intent without the derived parameters (Python's, or one stored before) is filled in from
+/// DIN 82 on write, and a warning says so; values the intent states are written as stated.
+#[test]
+fn a_knurl_without_its_parameters_is_filled_in_on_write() {
+    let dir = temp("knurl-fill");
+    let analysis = analysis("parts/pin");
+    let ten = feature(&analysis, "turned_steps", 10.0);
+    let mut intent = apply(
+        &analysis,
+        json!({"part.material": "brass", format!("diameter.fit:{ten}"): "knurl:diamond"}),
+    );
+    let at = intent
+        .requirements
+        .iter()
+        .position(|r| r["kind"] == "knurl")
+        .unwrap();
+    for key in [
+        "teeth",
+        "tooth_depth",
+        "root_fillet",
+        "helix_angle",
+        "standard",
+        "derived",
+    ] {
+        intent.requirements[at].remove(key);
+    }
+    let pin = load(&fixture("pin"), None).unwrap();
+    let out = dir.join("filled.step");
+    let report = write(&pin, &intent, &out, None).unwrap();
+    assert_eq!(
+        report
+            .warnings
+            .iter()
+            .filter(|w| w.contains("knurl"))
+            .collect::<Vec<_>>(),
+        [&format!(
+            "diamond knurl on {ten}: the intent states no number of teeth, tooth depth, root \
+             fillet, helix angle; written with 31 teeth, tooth depth 0.5, root fillet 0.1, helix \
+             angle 30° and no hand from DIN 82 (questions Q4, Q15)"
+        )]
+    );
+    assert_eq!(knurl_back(&out).2, Some(31));
+    // Stated values are the intent's: written as stated, only the rest filled in.
+    intent.requirements[at].insert("teeth".into(), json!(32));
+    intent.requirements[at].insert("tooth_depth".into(), json!(0.42));
+    let out = dir.join("stated.step");
+    let report = write(&pin, &intent, &out, None).unwrap();
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.contains("states no root fillet, helix angle;")),
+        "{:?}",
+        report.warnings
+    );
+    let (_, lengths, teeth, _, _) = knurl_back(&out);
+    assert_eq!((teeth, lengths[3]), (Some(32), 0.42));
+}
+
+/// A knurl the standard does not give (a pitch off DIN 82's series, a pattern other than
+/// straight or diamond) and whose intent does not state the parameters is listed in
+/// `not_written`, saying why; the rest is written. A bad stated value is refused.
+#[test]
+fn a_knurl_off_the_standard_is_listed_not_guessed() {
+    let dir = temp("knurl-off");
+    let analysis = analysis("parts/pin");
+    let ten = feature(&analysis, "turned_steps", 10.0);
+    let base = apply(
+        &analysis,
+        json!({"part.material": "brass", format!("diameter.fit:{ten}"): "knurl:straight"}),
+    );
+    let at = base
+        .requirements
+        .iter()
+        .position(|r| r["kind"] == "knurl")
+        .unwrap();
+    let pin = load(&fixture("pin"), None).unwrap();
+    let mut intent = base.clone();
+    intent.requirements[at].remove("teeth");
+    intent.requirements[at].insert("pitch".into(), json!(0.7));
+    let report = write(&pin, &intent, &dir.join("pitch.step"), None).unwrap();
+    assert_eq!(
+        report
+            .not_written
+            .iter()
+            .filter(|w| w.contains("knurl"))
+            .collect::<Vec<_>>(),
+        [&format!(
+            "straight knurl on {ten}: a pitch of 0.7 mm is not one of DIN 82's (0.5, 0.6, 0.8, \
+             1, 1.2, 1.6 mm), so AP242's turned_knurl cannot be completed (it needs at least \
+             three of the number of teeth, tooth depth, root fillet, helix angle and hand, WR2); \
+             state them in the intent (questions Q4, Q15)"
+        )]
+    );
+    assert!(report.written.iter().any(|w| w == "material brass"));
+    let mut intent = base.clone();
+    intent.requirements[at].insert("pattern".into(), json!("wavy"));
+    let report = write(&pin, &intent, &dir.join("wavy.step"), None).unwrap();
+    assert!(report.not_written.iter().any(|w| w.starts_with(&format!(
+        "wavy knurl on {ten}: the pattern 'wavy' is not straight or diamond"
+    ))));
+    let mut intent = base;
+    intent.requirements[at].insert("teeth".into(), json!(31.5));
+    assert!(matches!(
+        write(&pin, &intent, &dir.join("bad.step"), None),
+        Err(WriteError::Invalid(m)) if m.contains("teeth 31.5 is not a whole number")
+    ));
 }

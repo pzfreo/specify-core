@@ -11,7 +11,12 @@ The maintainer answered these; each question below keeps its text for the record
   Until they exist, keep listing them in `not_written`.
 - **Q4 and Q15:** derive a knurl's missing parameters from a knurling standard (DIN 82 /
   ISO 13444: number of teeth from diameter and pitch, tooth depth, root fillet; 30° helix for a
-  diamond knurl) and state them in the intent, so they are visible and editable.
+  diamond knurl) and state them in the intent, so they are visible and editable. Three details
+  decided on 2026-10-09: the number of teeth is π·d/P rounded to a whole number, the pitch kept
+  at its nominal (tool) value and the diameter as designed; a diamond knurl states a 30° helix
+  angle and no hand (two crossed helices; hand is optional in `turned_knurl`), a straight knurl
+  neither; intents and stored answers without the new fields are filled in on write from the
+  standard, and the write report says so.
 - **Q6:** write an assembly with PMI from elsewhere in add mode, keeping every original byte;
   a deliberate improvement on Python.
 - **Q8:** extend ISO 286 to 3150 mm (ISO 286-1), in both engines.
@@ -61,6 +66,7 @@ form exists, or should the Rust engine stop asking those questions?
 intent has pattern, pitch and diameter only. *Meanwhile:* straight knurls are written (major and
 nominal diameter both the turned diameter, diametral pitch the intent's pitch); diamond knurls go
 to `not_written`. Should a standard helix angle (e.g. 30°) be assumed and stated in intent?
+*Status (2026-10-09): done; see Q15.*
 
 **Q5. CI and the corpus.** quiddity-rust's CI checks out pzfreo/quiddity's `tests/corpus` at a
 pinned revision. This repository's CI runs only committed fixtures (corpus-backed tests skip).
@@ -184,11 +190,26 @@ with three). The intent of a straight knurl has the diameter and pitch only. *Me
 knurl, straight or diamond, is in `not_written` with that reason. Should the intent gain those
 parameters (e.g. the number of teeth from the diameter and pitch, a tooth depth and root fillet
 from a knurling standard), or knurls stay unwritten until haecceity has a form for them?
-*Status (2026-10-09): decided (Q4 and Q15 above), not yet implemented.* Three details are
-waiting for the maintainer before the derivation is written: whether a diamond knurl (cut both
-ways) states a hand; whether the number of teeth round(π·d/t) keeps the intent's pitch or the
-pitch is recomputed as π·d/z; and whether the writer derives the missing values for intents
-without them (Python's oracle intents, older stored intents) or lists them in `not_written`.
+*Status (2026-10-09): done, as decided (Q4 and Q15 above, with the three details).* A knurl's
+intent states `teeth`, `tooth_depth`, `root_fillet`, a diamond's `helix_angle`, `standard`
+("DIN 82") and `derived` (each derived key with its source); the writer writes straight and
+diamond knurls through haecceity's `turned_knurl` (six and seven parameters, WR2; the diamond's
+helix angle, WR9; major and nominal diameter both the designed diameter, DIN 82's d1, the
+diametral pitch the pitch), fills in what an intent lacks with a warning, writes stated values
+as stated, and lists a knurl off the standard (a pitch not in DIN 82's series, a pattern other
+than straight or diamond) in `not_written`; verified by read-back (src/standards.rs
+`knurl_parameters`, src/rules/turned.rs, src/writer.rs `knurl`; tests/threads.rs,
+tests/writer.rs "knurls"). Sources: the DIN 82 text and ISO 13444 were not available; the
+values were checked in IS 3403:1981 (DIN 82's knurl types, 90° profile, pitches 0.5 to 1.6 mm,
+nominal diameter = finished outside diameter) and IS 6776:1980 §4.3 (knurling wheels: crest and
+root radii 0.1 mm up to 1 mm pitch, 0.15 mm above). Judgement calls the maintainer can
+overturn: (1) no table gives a tooth depth, so it is P/2, the sharp 90° profile's depth
+(consistent with IS 3403 §3.4's 0.5 P growth of a formed straight knurl; rounding would make it
+0.08 mm shallower at 1 mm pitch); (2) the root fillet is the wheel's crest radius; (3) DIN 82
+draws a helical knurl's pitch normal to its grooves, so for a diamond knurl the circumferential
+spacing is P/cos 30°, but the number of teeth uses π·d/P for both patterns as decided; (4) a
+knurl whose pitch or pattern the standard does not give is listed in `not_written` rather than
+refused.
 
 **Q16 (writer stream). Files OpenCascade cannot open (upstream need U15).** Every file the Rust
 engine writes with a datum crashes OpenCascade 7.9's STEP reader (specify-core's Python, and so

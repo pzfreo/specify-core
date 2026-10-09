@@ -19,9 +19,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [iso286](#iso286) | 3 | 0 | 0 | 0 | 0 | 3 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 12 | 9 | 4 | 5 | 35 |
-| [rules](#rules) | 4 | 0 | 0 | 2 | 0 | 6 |
-| [writer](#writer) | 14 | 0 | 0 | 3 | 24 | 41 |
-| **all** | 951 | 1588 | 76 | 1492 | 57 | 4164 |
+| [rules](#rules) | 10 | 0 | 0 | 2 | 0 | 12 |
+| [writer](#writer) | 15 | 0 | 0 | 0 | 24 | 39 |
+| **all** | 958 | 1588 | 76 | 1489 | 57 | 4168 |
 
 ## anchors
 
@@ -695,11 +695,35 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## rules
 
-### rules: rust-correct (4 entries)
+### rules: rust-correct (10 entries)
 
 - **a fit above 500 mm: Python fails the part's rules, Rust answers (Q8)** (4 entries, 2 case globs)
 
   Python's rules fail the whole part with fit_limits' 'nominal size 558.8 outside 0-500 mm': the part has a Ø558.8 (22 in) diameter, which is offered fits, and describing them for the question list raises (docs/questions.md Q8 records the same failure at 600 mm). The maintainer's decision Q8 extends ISO 286 to 3150 mm in both engines; the Rust rules tabulate it (ISO 286-1:2010 Tables 1-3, checked in tests/standards.rs), so Rust answers where Python fails. When specify-core's extension (branch iso286-3150) is captured, the oracle compares the answers and this entry goes stale.
+
+- **a knurl's teeth derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].teeth`)
+
+  The maintainer's decision Q4/Q15 (docs/questions.md): AP242's turned_knurl needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9), so the Rust rules derive them from the knurling standard and state each in the intent with its source, visible and editable ('standard': 'DIN 82', 'derived': key to source). Values: teeth round(pi x 10 / 1) = 31, the pitch kept at the tool's 1 mm; tooth depth P/2 = 0.5, the depth of DIN 82's 90 degree profile (IS 3403:1981 3.1; assumed, no table gives it); root fillet 0.1, the knurling wheel's crest radius up to 1 mm pitch (IS 6776:1980 4.3); a diamond's helix angle 30 degrees and no hand (DIN 82 type RGE). Checked in tests/threads.rs. Python's knurl states pattern, pitch and diameter only.
+
+- **a knurl's tooth depth derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].tooth_depth`)
+
+  The maintainer's decision Q4/Q15 (docs/questions.md): AP242's turned_knurl needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9), so the Rust rules derive them from the knurling standard and state each in the intent with its source, visible and editable ('standard': 'DIN 82', 'derived': key to source). Values: teeth round(pi x 10 / 1) = 31, the pitch kept at the tool's 1 mm; tooth depth P/2 = 0.5, the depth of DIN 82's 90 degree profile (IS 3403:1981 3.1; assumed, no table gives it); root fillet 0.1, the knurling wheel's crest radius up to 1 mm pitch (IS 6776:1980 4.3); a diamond's helix angle 30 degrees and no hand (DIN 82 type RGE). Checked in tests/threads.rs. Python's knurl states pattern, pitch and diameter only.
+
+- **a knurl's root fillet derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].root_fillet`)
+
+  The maintainer's decision Q4/Q15 (docs/questions.md): AP242's turned_knurl needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9), so the Rust rules derive them from the knurling standard and state each in the intent with its source, visible and editable ('standard': 'DIN 82', 'derived': key to source). Values: teeth round(pi x 10 / 1) = 31, the pitch kept at the tool's 1 mm; tooth depth P/2 = 0.5, the depth of DIN 82's 90 degree profile (IS 3403:1981 3.1; assumed, no table gives it); root fillet 0.1, the knurling wheel's crest radius up to 1 mm pitch (IS 6776:1980 4.3); a diamond's helix angle 30 degrees and no hand (DIN 82 type RGE). Checked in tests/threads.rs. Python's knurl states pattern, pitch and diameter only.
+
+- **a knurl's helix angle derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].helix_angle`)
+
+  The maintainer's decision Q4/Q15 (docs/questions.md): AP242's turned_knurl needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9), so the Rust rules derive them from the knurling standard and state each in the intent with its source, visible and editable ('standard': 'DIN 82', 'derived': key to source). Values: teeth round(pi x 10 / 1) = 31, the pitch kept at the tool's 1 mm; tooth depth P/2 = 0.5, the depth of DIN 82's 90 degree profile (IS 3403:1981 3.1; assumed, no table gives it); root fillet 0.1, the knurling wheel's crest radius up to 1 mm pitch (IS 6776:1980 4.3); a diamond's helix angle 30 degrees and no hand (DIN 82 type RGE). Checked in tests/threads.rs. Python's knurl states pattern, pitch and diameter only.
+
+- **a knurl's standard derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].standard`)
+
+  The maintainer's decision Q4/Q15 (docs/questions.md): AP242's turned_knurl needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9), so the Rust rules derive them from the knurling standard and state each in the intent with its source, visible and editable ('standard': 'DIN 82', 'derived': key to source). Values: teeth round(pi x 10 / 1) = 31, the pitch kept at the tool's 1 mm; tooth depth P/2 = 0.5, the depth of DIN 82's 90 degree profile (IS 3403:1981 3.1; assumed, no table gives it); root fillet 0.1, the knurling wheel's crest radius up to 1 mm pitch (IS 6776:1980 4.3); a diamond's helix angle 30 degrees and no hand (DIN 82 type RGE). Checked in tests/threads.rs. Python's knurl states pattern, pitch and diameter only.
+
+- **a knurl's derived derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].derived`)
+
+  The maintainer's decision Q4/Q15 (docs/questions.md): AP242's turned_knurl needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9), so the Rust rules derive them from the knurling standard and state each in the intent with its source, visible and editable ('standard': 'DIN 82', 'derived': key to source). Values: teeth round(pi x 10 / 1) = 31, the pitch kept at the tool's 1 mm; tooth depth P/2 = 0.5, the depth of DIN 82's 90 degree profile (IS 3403:1981 3.1; assumed, no table gives it); root fillet 0.1, the knurling wheel's crest radius up to 1 mm pitch (IS 6776:1980 4.3); a diamond's helix angle 30 degrees and no hand (DIN 82 type RGE). Checked in tests/threads.rs. Python's knurl states pattern, pitch and diameter only.
 
 ### rules: undetermined (2 entries)
 
@@ -709,7 +733,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## writer
 
-### writer: rust-correct (14 entries)
+### writer: rust-correct (15 entries)
+
+- **a knurl from Python's intent, its turned_knurl parameters filled in from DIN 82** (`scenarios/turned_*knurl*` at `write.warnings[*knurl on *: the intent states no *]`)
+
+  The maintainer's decision Q4/Q15 (docs/questions.md): a knurl is written as AP242's turned_knurl, which needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9); Python's intent states pattern, pitch and diameter only, so the Rust writer derives the rest from the knurling standard (src/standards.rs knurl_parameters: teeth round(pi d/P), depth P/2 of DIN 82's 90 degree profile, root fillet the knurling wheel's crest radius, IS 3403:1981 and IS 6776:1980 4.3) and says so in a warning, as decided. The knurl itself is written as Python's line ('straight knurl on turned_steps:0') and reads back in both engines' terms as a knurl note on the same faces; verified by read-back (tests/writer.rs, knurls). Python writes no turned_knurl, only its text route and a UDA.
 
 - **a g6 diameter Python's reader garbles, and reads with no deviations** (2 entries, 2 case globs)
 
@@ -750,20 +778,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **a Python-written (schema 1) file does not resume in the Rust engine** (`parts/*` at `python_written.resume`)
 
   The payload is read (tests/resume.rs pythons_stored_answers_are_read) and its face count matches, but Python's fingerprint hashes OpenCascade's centroids, whose zero components carry other signs than haecceity's (plate: Python [-50.0, -0.0, -0.0], Rust [-50.0, -0.0, 0.0]; equal numbers, tests/resume.rs a_python_fingerprint_differs_only_in_signs_of_zero). The Rust engine cannot verify the faces, so it does not resume (the file is analysed with its PMI as its own). Q14 (decided 2026-10-09) keeps schema 1 read exactly as before, so this is the specified outcome; schema 2, which both engines write, fingerprints zeros unsigned, and the two engines' schema 2 fingerprints of these files are equal (tests/cross_engine.rs schema_two_fingerprints_are_the_same_in_both_engines).
-
-### writer: undetermined (3 entries)
-
-- **a knurl Python writes and the Rust writer cannot** (`*` at `write.written[*knurl on *]`)
-
-  AP242's turned_knurl WR2 needs six to nine parameters (major and nominal diameter, diametral pitch and three or more of number of teeth, tooth depth, root fillet, helix angle, hand: haecceity pmi/write.rs refuses 'a knurl with 3 parameters (turned_knurl WR2: 6 to 9)', seen on parts/pin); the intent states diameter and pitch only, so no knurl can be written without guessing. Python writes its text route and a UDA. Listed in not_written; questions Q4 and Q15.
-
-- **a knurl listed as not written, with its reason** (`*` at `write.not_written[*knurl on *]`)
-
-  AP242's turned_knurl WR2 needs six to nine parameters (major and nominal diameter, diametral pitch and three or more of number of teeth, tooth depth, root fillet, helix angle, hand: haecceity pmi/write.rs refuses 'a knurl with 3 parameters (turned_knurl WR2: 6 to 9)', seen on parts/pin); the intent states diameter and pitch only, so no knurl can be written without guessing. Python writes its text route and a UDA. Listed in not_written; questions Q4 and Q15.
-
-- **a knurl note Python reads back from its own text route** (`*` at `existing[key=note|knurl|*]`)
-
-  AP242's turned_knurl WR2 needs six to nine parameters (major and nominal diameter, diametral pitch and three or more of number of teeth, tooth depth, root fillet, helix angle, hand: haecceity pmi/write.rs refuses 'a knurl with 3 parameters (turned_knurl WR2: 6 to 9)', seen on parts/pin); the intent states diameter and pitch only, so no knurl can be written without guessing. Python writes its text route and a UDA. Listed in not_written; questions Q4 and Q15.
 
 ### writer: not-applicable (24 entries)
 
@@ -1263,12 +1277,3 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
 - **a fit above 500 mm: what Rust answers where Python fails has no Python output to compare with** (2 entries)
   - `corpus/nist/nist_ctc_05_asme1_rd#0/*`: `*`
   - `nist/nist_ctc_05_asme1_ap242/*`: `*`
-
-### writer: undetermined
-
-- **a knurl Python writes and the Rust writer cannot** (1 entry)
-  - `*`: `write.written[*knurl on *]`
-- **a knurl listed as not written, with its reason** (1 entry)
-  - `*`: `write.not_written[*knurl on *]`
-- **a knurl note Python reads back from its own text route** (1 entry)
-  - `*`: `existing[key=note|knurl|*]`

@@ -207,7 +207,7 @@ with the hash computed in Python from Python's own faces (`tools/capture/crossen
 | Material | XCAF material tool | `Material` ('material name', decision 2) |
 | General tolerance | appended 'default tolerances' text + 'manufacturing requirement' text | `GeneralTolerance::Class` |
 | Threads | appended text route + UDA | `Thread` (side, major Ø, form, class, hand, partial area) + `AttributeSet` (pitch, tapping drill, depths, as haecceity's tests map them) |
-| Knurls | appended text route + UDA | not written, straight or diamond: `turned_knurl` needs parameters the intent lacks (WR2; a diamond's helix angle, WR9), so each is in `not_written` (Q4, Q15) |
+| Knurls | appended text route + UDA | `turned_knurl`, straight or diamond: the parameters beyond diameter and pitch (number of teeth, tooth depth, root fillet; a diamond's 30° helix angle, no hand) derived from DIN 82 and stated in the intent with their sources, filled in on write for an intent without them (Q4, Q15) |
 | Surface finish on faces, part notes (finish default, coating, heat treatment, edges) | appended text route | not written: haecceity refuses notes (decision 5, no standard form yet); each listed in `not_written` (Q3, U3) |
 | Leaders for threads, knurls, finish | appended presentation | none (presentation is out of scope except datum symbols) |
 | Stored answers | `PROPERTY_DEFINITION('pmi-assist answers')` text | `AttributeSet` 'pmi-assist answers' on the part, one string item (base64 JSON, payload as Python's) |
@@ -353,7 +353,6 @@ tokens and a JavaScript client's `JSON.parse` rejects them).
   haecceity decision 6; the semantics are written, and Draftwright draws from semantics.
 - **Notes and surface finish in the file** (U3, Q3): no standard form in haecceity yet; reported
   in `not_written`, never dropped silently.
-- **Diamond knurls** (Q4): `turned_knurl` needs a helix angle the intent does not have.
 - **PMI on assembly occurrences**: haecceity reports it as a finding; specify-core never writes it.
 - **The Draftwright round-trip tool** (`tools/draftwright_roundtrip.py`): it runs in
   Draftwright's environment and reads Python's text route, which this port does not write.
@@ -393,7 +392,8 @@ decisions were then integrated into `main` on 2026-10-09: stored answers schema 
 engine), ISO 286 to 3150 mm (Q8, Rust engine; the comparison with Python above 500 mm waits for
 specify-core's extension) and writing the rest of an intent whose items name no faces (Q17).
 On that tree fmt and clippy are clean and all 312 tests pass with `SPECIFY_CORPUS` set. The
-knurl derivation (Q4 and Q15) is not yet implemented (questions.md, Q15 status).
+knurl derivation (Q4 and Q15) was then added: straight and diamond knurls are written through
+`turned_knurl` (questions.md, Q15 status).
 
 ### Implemented and verified, per module
 
@@ -464,12 +464,12 @@ Listed entry by entry in [known-differences.md](known-differences.md), "Open wor
   (cgb202, cgb207, cgb242); refinement stopping at its round cap on cgb243 face 537; NIST CTC-05 AP242
   edges, the folded surface and the face order of `inventory_refusal/13975` (Q13), undetermined.
 - **anchors** (1 undetermined): a leader from `inventory_refusal/14052`'s invalid face.
-- **writer** (3 undetermined): knurls not written (Q4, Q15).
 - **cross_engine** (2 undetermined): OpenCascade crashes on Rust-written datums (Q16, U15);
   Python does not read AP242 threads (Q20). Resume (Q14) is rust-correct both ways: schema 1
   files fail on signs of zero as the rule says, and the captured specify-core does not yet read
   the schema 2 the Rust writer stores, whose fingerprint its own faces give.
-- **rules, existing, mates, cli**: none.
+- **rules, existing, mates, writer, cli**: none (the writer's three knurl entries went with Q4
+  and Q15).
 
 ### Open questions
 
@@ -479,8 +479,7 @@ Every question in [questions.md](questions.md) is open, each with what is done m
   face order OpenCascade changes: corpus `inventory_refusal/13975`), Q14 (resume across engines:
   done in the Rust engine as schema 2; specify-core's side pending), Q16 (Rust-written files with datums crash OpenCascade 7.9,
   U15), Q20 (what Python reads of a Rust-written file, and which side should change).
-- **What is written:** Q3 (part notes and surface finish, listed in `not_written`), Q4 and Q15
-  (knurls, none written), Q6 (an assembly with foreign PMI written by add mode), Q17
+- **What is written:** Q3 (part notes and surface finish, listed in `not_written`), Q6 (an assembly with foreign PMI written by add mode), Q17
   (requirements on no faces listed in `not_written`, the rest written), Q18 (bare parts by `Mode::Replace`; a second material in
   add mode refused).
 - **Engine behaviour:** Q2 (moved to `prototype/rust-port`; recognition kept caller-space),
@@ -492,7 +491,7 @@ Every question in [questions.md](questions.md) is open, each with what is done m
 ### What remains
 
 - **Out of scope, as above:** presentation other than datum feature symbols; notes and surface
-  finish in the file (U3, Q3); knurls (Q4, Q15); PMI on assembly occurrences; the Draftwright
+  finish in the file (U3, Q3); PMI on assembly occurrences; the Draftwright
   round-trip tool; the NIST coverage tooling and `test_nist_coverage.py`; the conformance corpus
   maker; inch-specific defaults.
 - **Waiting on quiddity-rust:** each need in [upstream-needs.md](upstream-needs.md); when one
