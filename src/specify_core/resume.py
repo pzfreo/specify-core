@@ -31,7 +31,12 @@ from .features import describe_faces
 from .load import LoadedPart
 from .requirements import _anchors, _Part21, entities_of, face_entities
 
-SCHEMA = 1
+# Schema 2's fingerprint writes every zero centroid component unsigned; schema 1's
+# kept the sign of a zero, which is integration noise: it moves when the file is
+# rewritten, and other engines (specify-core-rust) give it differently. Schema 1
+# payloads are still read, and resume when their own fingerprint matches.
+SCHEMA = 2
+SCHEMAS = (1, SCHEMA)
 # The stored property's name stays as first written, so files saved before the
 # rename still resume.
 _SAVED = re.compile(
@@ -39,9 +44,20 @@ _SAVED = re.compile(
 )
 
 
-def fingerprint(loaded: LoadedPart) -> str:
-    """The faces in order, by kind and rounded centroid: what answers refer to."""
+def fingerprint(loaded: LoadedPart, schema: int = SCHEMA) -> str:
+    """The faces in order, by kind and rounded centroid: what answers refer to, as
+    ``schema`` hashes them."""
     faces = [(f.kind, [round(c, 3) for c in f.centroid]) for f in describe_faces(loaded)]
+    return fingerprint_of(faces, schema)
+
+
+def fingerprint_of(faces: list[tuple[str, list[float]]], schema: int = SCHEMA) -> str:
+    """The sha256 of ``json.dumps`` of ``faces``, ``(kind, centroid)`` with each component
+    already rounded to 3 decimals. Schema 2 first writes every zero unsigned (``0.0``,
+    never ``-0.0``), so the same faces give the same fingerprint whatever the sign of
+    their zeros; schema 1 hashes the components as they are."""
+    if schema >= 2:
+        faces = [(kind, [0.0 if c == 0 else c for c in centroid]) for kind, centroid in faces]
     return hashlib.sha256(json.dumps(faces).encode()).hexdigest()
 
 
@@ -88,7 +104,7 @@ def stored(path: Path) -> dict[int, dict[str, Any]]:
             payload = json.loads(base64.b64decode(found.group(1), validate=True))
         except (ValueError, json.JSONDecodeError):
             continue
-        if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
+        if not isinstance(payload, dict) or payload.get("schema") not in SCHEMAS:
             continue
         if not isinstance(payload.get("answers"), dict):
             continue
@@ -106,6 +122,7 @@ def answers_for(loaded: LoadedPart) -> dict[str, Any] | None:
         return None
     if payload.get("face_count") != loaded.binding.face_count:
         return None
-    if payload.get("faces") != fingerprint(loaded):
+    schema = 1 if payload["schema"] == 1 else SCHEMA
+    if payload.get("faces") != fingerprint(loaded, schema):
         return None
     return payload["answers"]
