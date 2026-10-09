@@ -237,17 +237,47 @@ fn standards_equal_pythons() {
 /// Python's fit limits over `tests/fixtures/iso286_oracle.json.gz` (every class to 3150 mm at
 /// each range edge, either side of it and mid-range; see `iso286_oracle.py`): limits exactly
 /// equal, messages byte for byte. Differences are judged in `known_differences/iso286.json`.
+///
+/// A difference's path says what kind it is, so that an entry for one kind cannot hide
+/// another. Where Python refuses the size (beyond its last range) the path is `limits where
+/// Python refuses the size` when Rust answers at a size up to 3150 mm, `message for the grade
+/// where Python refuses the size` when Rust refuses k above grade 7 there, and `message for
+/// the size` when Rust also refuses the size, beyond 3150 mm. Every other difference, an
+/// unequal pair of limits among them, has path `limits` or `message`.
 #[test]
 fn iso286_equals_pythons() {
     let data = common::read_json_gz(&common::fixtures().join("iso286_oracle.json.gz"));
     let rows = data["fits"].as_array().unwrap();
     assert!(rows.len() > 5000, "the whole grid");
+    let size_refusal = |m: &str| m.starts_with("nominal size ") && m.contains(" outside 0-");
     let mut differences = Vec::new();
     for row in rows {
         let (fit, nominal, python) = (row[0].as_str().unwrap(), row[1].as_f64().unwrap(), &row[2]);
+        let python_refuses_size = python["err"].as_str().is_some_and(size_refusal);
+        let tabulated = nominal <= 3150.0;
         let (rust, path) = match fit_limits(fit, nominal) {
-            Ok((upper, lower)) => (json!({"ok": [upper, lower]}), "limits"),
-            Err(message) => (json!({"err": message}), "message"),
+            Ok((upper, lower)) => (
+                json!({"ok": [upper, lower]}),
+                if python_refuses_size && tabulated {
+                    "limits where Python refuses the size"
+                } else {
+                    "limits"
+                },
+            ),
+            Err(message) => {
+                let path = if !python_refuses_size {
+                    "message"
+                } else if size_refusal(&message) && !tabulated {
+                    "message for the size"
+                } else if tabulated
+                    && message == "k deviations are tabulated here for grades 4 to 7 only"
+                {
+                    "message for the grade where Python refuses the size"
+                } else {
+                    "message"
+                };
+                (json!({"err": message}), path)
+            }
         };
         let python = match python.get("err") {
             Some(message) => json!({"err": message}),

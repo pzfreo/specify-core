@@ -90,15 +90,16 @@ the whole part (checked with Python: `describe('hole.function:x', ['general', 'f
 Should fits not be offered above 500 mm (the general tolerance only), or should ISO 286 be
 extended to 3150 mm? *Meanwhile:* Python's behaviour is kept: `choices::describe` returns the
 same message as an error, which its caller reports (no part question list is made up).
-*Status (2026-10-09): done in Rust.* `standards.rs` tabulates ISO 286-1:2010 Tables 1-3 to
+*Status (2026-10-09): done in Rust; the comparison with Python above 500 mm is open.* `standards.rs` tabulates ISO 286-1:2010 Tables 1-3 to
 3150 mm (IT5-IT11; H, JS/js, f, g, h, k, m, n, p), so a Ø600 hole or turned diameter is offered
 fits and described with their limits (`tests/standards.rs`). Beyond 3150 mm the refusal names
 `0-3150 mm`; k above grade 7 stays refused at every size, as in Python. specify-core's own
 extension (branch `iso286-3150`) did not exist yet when this was done, so the comparison grid
 (`tests/fixtures/iso286_oracle.json.gz`) holds Python's 500 mm tables: every class agrees to
-500 mm, and the rows above are judged in `known_differences/iso286.json`. When the branch lands,
-regenerate the fixture from it (`iso286_oracle.py` takes the source path): any value the two
-disagree on then fails the sweep, and the entries for agreed rows go stale.
+500 mm, and the rows above are judged in `known_differences/iso286.json`, by a kind of difference
+that only Python refusing the size can produce. When the branch lands, regenerate the fixture
+from it (`iso286_oracle.py` takes the source path): any limits the two disagree on then fail
+the sweep, and the entries go stale.
 
 **Q9 (rules stream). Malformed input Python crashes on.** A few answers or analysis records make
 specify-core's rules raise something other than `ValueError`: an `AttributeError` or `TypeError`,
