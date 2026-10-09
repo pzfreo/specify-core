@@ -146,3 +146,18 @@ or "expected one B-rep representation"); the Rust writer refuses the write as in
 the item ("the size on holes:16 names no faces"). *Meanwhile:* refused, nothing written. Should
 the writer instead write the rest and list such items in `not_written`, or should the rules not
 make them?
+
+**Q18 (writer stream). Two write-mode choices that differ from docs/design.md or from Python.**
+(a) A bare part is written by `Mode::Replace`, not `Mode::Add` as design.md's "Write modes"
+says. For a part with no PMI the two give the same file; they differ only where the part
+carries Python's form of stored answers that do not resume (haecceity reads them as not
+modelled, so the part looks bare): Replace removes them and stores the new answers, Add would
+keep them beside the new ones, leaving two answer sets. Python writes a bare file from its
+geometry alone (`writer.py`: `if bare or resumed`), which also drops them, so Replace is
+Python's behaviour. *Meanwhile:* Replace (src/writer.rs, `write_verified`). Should design.md
+say so? (b) In add mode (a part with PMI from elsewhere), a material or general tolerance the
+part already states is not written again when equal (a warning says so) and the write is
+refused when different ("the part already states material X; adding Y would give it two").
+Python's merge transplants its new material beside the file's (merge.py, `materials`), so the
+part then states two. *Meanwhile:* refused, as add mode cannot replace the file's own item and
+two would contradict each other. Keep the refusal, or write the second one as Python does?

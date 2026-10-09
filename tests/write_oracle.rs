@@ -204,8 +204,62 @@ fn keyed(items: &Value) -> Value {
     Value::Array(out)
 }
 
+/// The ISO 286 limits each fit of `intent` means, by its sorted faces: the writer writes a fit
+/// as its class alone (and refuses an intent whose limits are not its class's), so a fit reads
+/// back with no limits, and the read-back is compared as the limits its class states.
+fn fits(intent: &Value) -> Vec<(Vec<u64>, f64, f64)> {
+    let mut out = Vec::new();
+    for r in intent["requirements"].as_array().into_iter().flatten() {
+        let (Some(fit), Some(nominal)) = (r["fit"].as_str(), r["nominal"].as_f64()) else {
+            continue;
+        };
+        if r["kind"] != "size" || fit.is_empty() {
+            continue;
+        }
+        let mut faces: Vec<u64> = r["faces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_u64)
+            .collect();
+        faces.sort_unstable();
+        if let Ok((upper, lower)) = specify_core::standards::fit_limits(fit, nominal) {
+            out.push((faces, upper, lower));
+        }
+    }
+    out
+}
+
+/// A Rust read-back with each size that reads back as a class alone (no limits, on the faces
+/// of one of `fits`) given the limits that class states.
+fn with_class_limits(rust: &Value, fits: &[(Vec<u64>, f64, f64)]) -> Value {
+    let mut rust = rust.clone();
+    for item in rust["existing"].as_array_mut().into_iter().flatten() {
+        if item["kind"] != "dimension"
+            || !item["type"].as_str().unwrap_or("").starts_with("Size_")
+            || !item["upper"].is_null()
+            || !item["lower"].is_null()
+        {
+            continue;
+        }
+        let mut faces: Vec<u64> = item["faces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_u64)
+            .collect();
+        faces.sort_unstable();
+        if let Some((_, upper, lower)) = fits.iter().find(|(f, _, _)| *f == faces) {
+            item["upper"] = json!(upper);
+            item["lower"] = json!(lower);
+        }
+    }
+    rust
+}
+
 /// The read-backs of one part compared: `existing` items paired by key, `part` and `resume`
-/// as values.
+/// as values. A resume Python's own read-back did not make (it could not resume the file it
+/// wrote) is told apart from one it made differently.
 fn compare_readback(name: &str, python: &Value, rust: &Value) -> Vec<Difference> {
     let tolerances = Tolerances::default()
         .align("existing", "key")
@@ -217,7 +271,13 @@ fn compare_readback(name: &str, python: &Value, rust: &Value) -> Vec<Difference>
             "resume": v["resume"],
         })
     };
-    compare(name, &view(python), &view(rust), &tolerances)
+    let mut diffs = compare(name, &view(python), &view(rust), &tolerances);
+    for d in &mut diffs {
+        if d.path == "resume" && d.python == Some(Value::Null) {
+            d.path = "resume[python did not resume]".into();
+        }
+    }
+    diffs
 }
 
 fn prefixed(diffs: Vec<Difference>, at: &str) -> Vec<Difference> {
@@ -291,9 +351,10 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
         }
         (p, Err(r)) if is_error(p) => {
             if p["message"] != r["message"] {
+                // The Rust message in the path, so that an entry names why Rust refused.
                 out.push(Difference {
                     case: c.name.clone(),
-                    path: "write.message".into(),
+                    path: format!("write.message[{}]", r["message"].as_str().unwrap_or("")),
                     python: Some(p.clone()),
                     rust: Some(r.clone()),
                 });
@@ -308,9 +369,32 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
             }),
         }),
     }
+    if result.is_ok() {
+        // test_conformance.py, as kept: every file written passes the EXPRESS check, but for
+        // what the input itself violates and the writer keeps byte for byte (NIST CTC-01 and
+        // CTC-03 state INTEGER_REPRESENTATION_ITEMs with REAL values).
+        let input = loaded
+            .iter()
+            .flatten()
+            .next()
+            .map_or_else(Vec::new, |l| violations(l.bytes.to_vec()));
+        let problems: Vec<String> = violations(std::fs::read(&output).unwrap())
+            .into_iter()
+            .filter(|v| !input.contains(v))
+            .collect();
+        if !problems.is_empty() {
+            out.push(Difference {
+                case: c.name.clone(),
+                path: "conformance".into(),
+                python: None,
+                rust: Some(json!(problems)),
+            });
+        }
+    }
     if let (Ok(_), Some(Value::Array(back))) = (&result, &c.readback) {
         for (k, python) in back.iter().enumerate() {
-            let rust = rust_readback(&output, k, back.len());
+            let fits = c.jobs.get(k).map_or_else(Vec::new, |(_, i, _)| fits(i));
+            let rust = with_class_limits(&rust_readback(&output, k, back.len()), &fits);
             let name = if back.len() > 1 {
                 format!("{}#{k}", c.name)
             } else {
@@ -320,6 +404,24 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
         }
     }
     let _ = std::fs::remove_file(&output);
+    out
+}
+
+/// The AP242 instances and EXPRESS rules haecceity finds violated in the Part 21 `bytes`.
+fn violations(bytes: Vec<u8>) -> Vec<String> {
+    let doc = match haecceity::p21::Document::parse(bytes) {
+        Ok(d) => d,
+        Err(e) => return vec![e.to_string()],
+    };
+    let mut out: Vec<String> = haecceity::express::validate_document(doc.graph())
+        .iter()
+        .map(|v| format!("{v:?}"))
+        .collect();
+    out.extend(
+        haecceity::express_rules::check_all(&doc)
+            .iter()
+            .map(|v| format!("{v:?}")),
+    );
     out
 }
 

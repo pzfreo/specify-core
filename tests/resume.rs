@@ -140,6 +140,53 @@ fn a_written_file_resumes_its_answers_and_is_rewritten_not_added_to() {
     );
 }
 
+/// A resumed file whose thread is answered away: the replace is the one haecceity's removal
+/// plan refuses for a thread (upstream need U14), so the part is cleared first, and what the
+/// rewrite adds is numbered from the cleared file's largest id, reusing removed ids. The check
+/// that nothing consumed survives must not mistake such a reused id for a survivor.
+#[test]
+fn a_resumed_files_thread_can_be_answered_away() {
+    let dir = temp("unthread");
+    let base = analysis("parts/pin");
+    let given = json!({"part.material": "brass"});
+    let first = dir.join("first.step");
+    let pin = load(&fixture("pin"), None).unwrap();
+    let report = write(
+        &pin,
+        &apply(&base, given.clone()),
+        &first,
+        given.as_object(),
+    )
+    .unwrap();
+    assert!(
+        report
+            .written
+            .iter()
+            .any(|w| w.starts_with("internal thread"))
+    );
+
+    let loaded = load(&first, None).unwrap();
+    let again = reanalysed(&base, &loaded);
+    let hole = format!("hole.function:{}", feature(&base, "holes", 4.2));
+    let mut changed = given.clone();
+    changed[hole] = json!("general");
+    let second = dir.join("second.step");
+    let report = write(
+        &loaded,
+        &apply(&again, changed.clone()),
+        &second,
+        changed.as_object(),
+    )
+    .unwrap();
+    assert!(!report.written.iter().any(|w| w.contains("thread")));
+    let text = flat(&second);
+    assert!(!text.contains("thread manufacturing"));
+    assert_eq!(
+        answers_for(&load(&second, None).unwrap()).unwrap(),
+        changed.as_object().cloned()
+    );
+}
+
 // test_resume.py::test_without_answers_nothing_is_stored
 #[test]
 fn without_answers_nothing_is_stored() {

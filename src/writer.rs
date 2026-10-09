@@ -394,7 +394,9 @@ fn write_verified(jobs: &[Job<'_>], staged: &Path) -> Result<WriteReport, WriteE
         resume::answers_for(first).map_err(failed)?.is_some()
     };
     // Python writes a bare or resumed file from its geometry alone, and adds to any other
-    // (its `merge`). Replace is the former: the part's PMI becomes exactly the intent's.
+    // (its `merge`). Replace is the former: the part's PMI becomes exactly the intent's. A bare
+    // part is Replace rather than design.md's Add so that Python-form answers that no longer
+    // resume (not PMI to haecceity) go, as from Python's rewrite; question Q18.
     let mode = if bare || resumed {
         Mode::Replace
     } else {
@@ -470,7 +472,7 @@ fn write_verified(jobs: &[Job<'_>], staged: &Path) -> Result<WriteReport, WriteE
     if back != written.bytes {
         return Err(VerificationError("the file on disk is not what was written".into()).into());
     }
-    verify(&source, &items, mode, &back)?;
+    verify(&source, doc, &items, mode, &back)?;
     let stored = resume::stored(&back);
     for p in &planned {
         let k = p.loaded.binding.part;
@@ -650,9 +652,12 @@ fn python_answers(doc: &Document, part: &PartDefinition) -> Vec<u64> {
 /// part written by replace reads back as exactly what was written, and nothing the reader
 /// consumed for it survives; a part written by add reads back as its PMI before plus exactly
 /// the items written (a feature or datum equal to one it had being that one); every other part
-/// reads back as before; and no finding is new.
+/// reads back as before; and no finding is new. `base` is the document the edit was applied to:
+/// the source's, or the source with the part's PMI cleared (U14's stand-in), whose largest id
+/// is where the instances added are numbered from.
 fn verify(
     source: &Source,
+    base: &Document,
     written: &[(PartId, PartPmi)],
     mode: Mode,
     back: &[u8],
@@ -723,15 +728,18 @@ fn verify(
                 );
                 let prov = &before.provenance.parts[i];
                 let geometry: BTreeSet<u64> = prov.geometry.iter().flatten().copied().collect();
-                // By its text, not its id alone: a replace that first cleared the part (U14's
-                // stand-in) numbers what it adds from the cleared file's largest id.
+                // An instance survives when the edit's base still had it (a cleared part's
+                // removed ids are not there, and what the edit added may reuse them) and the
+                // file written still has it, unchanged.
                 fn text(doc: &Document, id: u64) -> Option<&[u8]> {
                     doc.span(id).map(|s| &doc.bytes()[s])
                 }
                 for id in prov.all() {
+                    let original = text(&source.doc, id);
                     if !geometry.contains(&id)
-                        && text(&after_doc, id).is_some()
-                        && text(&after_doc, id) == text(&source.doc, id)
+                        && original.is_some()
+                        && text(base, id) == original
+                        && text(&after_doc, id) == original
                     {
                         problems.push(format!(
                             "part {i}: #{id}, which the reader consumed, survives"
@@ -742,7 +750,7 @@ fn verify(
         }
     }
     for f in &after.findings {
-        if !before.findings.contains(f) && !runout_gap(f, &after_doc, source.doc.max_id()) {
+        if !before.findings.contains(f) && !runout_gap(f, &after_doc, base.max_id()) {
             problems.push(format!(
                 "a finding the input did not have: {} {:?} {}: {}",
                 f.kind.as_str(),
@@ -762,15 +770,15 @@ fn verify(
 /// Whether `finding` is haecceity's known reader gap on a thread just written (upstream need
 /// U14): `thread` WR16 requires a 'thread runout' shape aspect even when no runout is stated,
 /// the writer always writes it, and the reader consumes it only with a usage, so it reports
-/// the bare aspect as unconsumed. Only an added instance (above the source's largest id) that
+/// the bare aspect as unconsumed. Only an added instance (above the base's largest id) that
 /// is exactly that aspect qualifies; haecceity's own tests make the same exception.
-fn runout_gap(finding: &pmi::Finding, doc: &Document, source_max: u64) -> bool {
+fn runout_gap(finding: &pmi::Finding, doc: &Document, base_max: u64) -> bool {
     let [id] = finding.ids.as_slice() else {
         return false;
     };
     finding.kind == pmi::FindingKind::Unconsumed
         && finding.entity == "shape_aspect"
-        && *id > source_max
+        && *id > base_max
         && is_runout_aspect(doc, *id)
 }
 
@@ -983,10 +991,28 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
                 let nominal = number(req, "nominal")?;
                 let fit = req.get("fit");
                 let tolerance = match fit {
-                    Some(Json::String(name)) if !name.is_empty() => DimTolerance::Fit {
-                        class: fit_class(name)?,
-                        limits: None,
-                    },
+                    Some(Json::String(name)) if !name.is_empty() => {
+                        // The class alone is written, so it must mean what the intent's
+                        // deviations say: an intent whose limits are not its class's is refused
+                        // rather than silently changed.
+                        let what = format!("the {name} size on {}", feature_name());
+                        let (upper, lower) = (number(req, "upper")?, number(req, "lower")?);
+                        let (u, l) = crate::standards::fit_limits(name, nominal)
+                            .map_err(|e| WriteError::Invalid(format!("{what}: {e}")))?;
+                        if (u - upper).abs() > 1e-9 || (l - lower).abs() > 1e-9 {
+                            return Err(WriteError::Invalid(format!(
+                                "{what}: its limits {} / {} are not the class's {} / {}",
+                                pyfmt::repr(upper),
+                                pyfmt::repr(lower),
+                                pyfmt::repr(u),
+                                pyfmt::repr(l)
+                            )));
+                        }
+                        DimTolerance::Fit {
+                            class: fit_class(name)?,
+                            limits: None,
+                        }
+                    }
                     _ => deviations(
                         number(req, "upper")?,
                         number(req, "lower")?,
@@ -1159,8 +1185,9 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
     }
     // The material and the general tolerance are one each per part. In add mode a part that
     // already states one keeps it: the same again is not written twice (a warning says so),
-    // another is refused, as add cannot replace it. (The rules do not ask for what a part
-    // states, but a part of an assembly reports no settings, as in Python.)
+    // another is refused, as add cannot replace it (Python adds a second; question Q18). (The
+    // rules do not ask for what a part states, but a part of an assembly reports no settings,
+    // as in Python.)
     let stated = |what: &str, old: Option<&str>, new: &str, lines: &mut Lines| match old {
         Some(old) if old == new => {
             lines.warnings.push(format!(

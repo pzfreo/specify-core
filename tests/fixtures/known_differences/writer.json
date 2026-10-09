@@ -91,32 +91,32 @@
   "evidence": "haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3."
  },
  {
-  "case": "*",
-  "path": "existing[key=dimension|Size_Diameter|*].upper",
-  "pattern": "a fit written as its class, read back without stated limits",
-  "verdict": "rust-correct",
-  "evidence": "A fit is written as the ISO 286 class (LIMITS_AND_FITS, haecceity's Fit) with no stated limits, so the read-back states no deviations; Python writes bare limits because OpenCascade writes the grade wrongly (writer.py docstring: 'SetClassOfTolerance writes the grade wrongly (IT7 is written as grade 9)'). The class determines the same limits by ISO 286 (standards.rs tables); tests/writer.rs the_spool_is_written_verified_and_read_back reads each fit back as its class, g6 and p6 included."
- },
- {
-  "case": "*",
-  "path": "existing[key=dimension|Size_Diameter|*].lower",
-  "pattern": "a fit written as its class, read back without stated limits",
-  "verdict": "rust-correct",
-  "evidence": "A fit is written as the ISO 286 class (LIMITS_AND_FITS, haecceity's Fit) with no stated limits, so the read-back states no deviations; Python writes bare limits because OpenCascade writes the grade wrongly (writer.py docstring: 'SetClassOfTolerance writes the grade wrongly (IT7 is written as grade 9)'). The class determines the same limits by ISO 286 (standards.rs tables); tests/writer.rs the_spool_is_written_verified_and_read_back reads each fit back as its class, g6 and p6 included."
- },
- {
   "case": "scenarios/turned_runout_and_a_g6_fit",
-  "path": "existing[key=dimension|Size_Diameter|[4]|#1].value",
-  "pattern": "a g6 diameter Python's reader garbles",
+  "path": "existing[key=dimension|Size_Diameter|[4]|#1]*",
+  "pattern": "a g6 diameter Python's reader garbles, and reads with no deviations",
   "verdict": "rust-correct",
-  "evidence": "The intent's nominal is 6 (the pin's Ø6 shaft, g6). Python reads back 3.006: OpenCascade's reader cannot return a tolerance whose deviations are both below nominal and garbles the value (writer.py docstring: 'Ø70 g6 reads back as 35.0145'). haecceity reads the nominal as written."
+  "evidence": "The intent's nominal is 6 (the pin's Ø6 shaft, g6). Python reads back 3.006: OpenCascade's reader cannot return a tolerance whose deviations are both below nominal and garbles the value (writer.py docstring: 'Ø70 g6 reads back as 35.0145'). haecceity reads the nominal as written. Python reads no upper or lower deviation either; the Rust reader reads the fit's class, compared as the limits the class states (ISO 286 g6: -0.004/-0.012 at 6 mm, the intent's own), which the writer checks the intent's limits against before writing."
  },
  {
   "case": "scenarios/writer_every_kind_v1_writes",
-  "path": "existing[key=dimension|Size_Diameter|[89]|#1].value",
-  "pattern": "a g6 diameter Python's reader garbles",
+  "path": "existing[key=dimension|Size_Diameter|[89]|#1]*",
+  "pattern": "a g6 diameter Python's reader garbles, and reads with no deviations",
   "verdict": "rust-correct",
-  "evidence": "The intent's nominal is 70 (the spool's Ø70 g6, turned_steps:89); Python reads back 35.0145, OpenCascade's garbling of a tolerance wholly below nominal, which writer.py's docstring cites with this very number. haecceity reads 70."
+  "evidence": "The intent's nominal is 70 (the spool's Ø70 g6, turned_steps:89); Python reads back 35.0145, OpenCascade's garbling of a tolerance wholly below nominal, which writer.py's docstring cites with this very number. haecceity reads 70. Python reads no upper or lower deviation either; the Rust reader reads the fit's class, compared as the limits the class states (ISO 286 g6: -0.010/-0.029 at 70 mm, the intent's own), which the writer checks the intent's limits against before writing."
+ },
+ {
+  "case": "scenarios/writer_every_kind_v1_writes",
+  "path": "existing[key=dimension|Size_Diameter|[70]|#1].lower",
+  "pattern": "a p6 lower deviation whose sign Python's round trip loses",
+  "verdict": "rust-correct",
+  "evidence": "The intent states p6 on the spool's Ø130 (turned_steps:70) with upper 0.068 and lower 0.043, ISO 286's p6 at 130 mm (both above nominal). Python reads back lower -0.043: OpenCascade's plus-minus form cannot hold a range wholly above nominal (writer.py's docstring on fits). The Rust writer writes the class p6, read back and compared as the class's limits +0.068/+0.043."
+ },
+ {
+  "case": "scenarios/writer_every_kind_v1_writes",
+  "path": "existing[key=dimension|Size_Diameter|[87]|#1].lower",
+  "pattern": "a p6 lower deviation whose sign Python's round trip loses",
+  "verdict": "rust-correct",
+  "evidence": "The intent states p6 on the spool's Ø130 (turned_steps:87) with upper 0.068 and lower 0.043, ISO 286's p6 at 130 mm (both above nominal). Python reads back lower -0.043: OpenCascade's plus-minus form cannot hold a range wholly above nominal (writer.py's docstring on fits). The Rust writer writes the class p6, read back and compared as the class's limits +0.068/+0.043."
  },
  {
   "case": "scenarios/callout_a_distance_with_limits_0",
@@ -141,35 +141,35 @@
  },
  {
   "case": "nist/nist_ctc_02_asme1_ap242",
-  "path": "write.message",
+  "path": "write.message[*]",
   "pattern": "Python's three parts of one product are one part here",
   "verdict": "not-applicable",
   "evidence": "Python (XCAF) lists CTC-02 as three parts and refuses the assembly for its PMI; haecceity has one part per product definition (question Q7), so Python's three intents name the one Rust part three times and the writer refuses 'a part is written once'. With Q7 settled the comparison applies; an assembly with PMI from elsewhere is written by add mode (Q6)."
  },
  {
   "case": "nist/nist_ctc_04_asme1_ap242",
-  "path": "write.message",
+  "path": "write.message[*]",
   "pattern": "Python's two parts of one product are one part here",
   "verdict": "not-applicable",
   "evidence": "As CTC-02: XCAF's two parts are one product definition in haecceity (question Q7); Python's intents name the one Rust part twice."
  },
  {
   "case": "corpus/nist/nist_ctc_02_asme1_rc",
-  "path": "write.message",
+  "path": "write.message[*]",
   "pattern": "Python's parts of one product are one part here",
   "verdict": "not-applicable",
   "evidence": "Python fails inside its text route ('expected one B-rep representation, found 0'); the Rust engine has one part per product definition (question Q7), so Python's per-XCAF-part intents name the one Rust part more than once ('a part is written once')."
  },
  {
   "case": "corpus/nist/nist_ctc_04_asme1_rd",
-  "path": "write.message",
+  "path": "write.message[*]",
   "pattern": "Python's parts of one product are one part here",
   "verdict": "not-applicable",
   "evidence": "As CTC-02 RC: Python fails in its text route; Python's per-XCAF-part intents name the one Rust part more than once (question Q7)."
  },
  {
   "case": "corpus/*",
-  "path": "write.message",
+  "path": "write.message[*names no faces]",
   "pattern": "an intent item on no faces, refused where Python fails in OpenCascade",
   "verdict": "rust-correct",
   "evidence": "On 25 mfcadpp parts and cgb217 Python's own intent has a hole's size, locations and position with faces [] (e.g. mfcadpp/1004 holes:16). Python's write then fails inside OpenCascade ('StepShape_DimensionalLocation: Null Reference', or 'expected one B-rep representation, found 0'); the Rust writer refuses the intent as invalid, naming the item ('the size on holes:16 names no faces'), and writes nothing. Question Q17 (write the rest instead?)."
@@ -197,7 +197,7 @@
  },
  {
   "case": "corpus/*",
-  "path": "resume",
+  "path": "resume[python did not resume]",
   "pattern": "answers stored by Python that Python cannot resume",
   "verdict": "rust-correct",
   "evidence": "Python stores the answers with a fingerprint of the input's faces, then re-exports the geometry through OpenCascade, whose centroids' zero components change sign; its fingerprint of the file it wrote no longer matches (checked: flanged_spool_132, stored f39f4952..., Python's fingerprint of its output c8eb6e8e..., no rounded centroid differs). The Rust writer keeps every geometry byte, so its fingerprint matches and the answers resume."

@@ -677,6 +677,31 @@ fn enriched(dir: &Path) -> PathBuf {
     out
 }
 
+/// A fit is written as its ISO 286 class alone, so an intent whose deviations are not the
+/// class's is refused rather than written with a meaning it does not state.
+#[test]
+fn a_fit_whose_limits_are_not_its_class_is_refused() {
+    let dir = temp("fit-limits");
+    let analysis = analysis("parts/plate");
+    let given =
+        json!({"part.material": "steel", question(&analysis, "hole.function", "Ø8"): "fit:H7"});
+    let mut intent = apply(&analysis, given);
+    let size = intent
+        .requirements
+        .iter_mut()
+        .find(|r| r["kind"] == "size" && r["fit"] == "H7")
+        .expect("the H7 size");
+    size.insert("upper".into(), json!(0.05));
+    let out = dir.join("out.step");
+    let plate = load(&fixture("plate"), None).unwrap();
+    let err = write(&plate, &intent, &out, None).unwrap_err();
+    assert!(
+        matches!(&err, WriteError::Invalid(m) if m.contains("H7") && m.contains("not the class's")),
+        "{err:?}"
+    );
+    assert!(!out.exists());
+}
+
 // test_merge.py::test_only_a_part_with_pmi_is_merged, test_what_the_file_states_is_not_asked_
 // again, test_the_new_pmi_cites_the_files_datums, test_the_original_file_is_kept_byte_for_byte
 #[test]

@@ -105,9 +105,17 @@ fn write_file(path: &Path, dir: &Path) -> Vec<String> {
         .zip(&intents)
         .map(|(l, i)| (l, i, answers.as_object()))
         .collect();
-    match write_parts(&jobs, &dir.join(format!("{name}.step"))) {
+    let out = dir.join(format!("{name}.step"));
+    match write_parts(&jobs, &out) {
         Ok(report) => {
             assert!(!report.written.is_empty(), "{name}: nothing written");
+            // Every file written passes the EXPRESS check (test_conformance.py, as kept).
+            let doc = haecceity::p21::Document::parse(std::fs::read(&out).unwrap()).unwrap();
+            let violations = haecceity::express::validate_document(doc.graph());
+            let rules = haecceity::express_rules::check_all(&doc);
+            if !violations.is_empty() || !rules.is_empty() {
+                problems.push(format!("{name}: {violations:?} {rules:?}"));
+            }
             println!(
                 "{name}: {} written, {} not written",
                 report.written.len(),
@@ -165,4 +173,39 @@ fn a_hole_without_its_floor_is_tapped_and_written() {
             .any(|w| w.starts_with("internal thread M5x0.8-6H on holes:"))
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The plate's general dimensions from the Rust analysis: its lengths (100 × 60 × 10) as ISO
+/// 2768 locations between plane levels, each on plane faces from plane faces, toleranced by
+/// the general tolerance.
+#[test]
+fn general_dimensions_run_over_the_plates_plane_levels() {
+    let path = common::fixtures().join("parts").join("plate.step");
+    let parts = load_all(&path).unwrap();
+    let analysis = analyse(&parts[0], &parts);
+    let i = intent(&analysis).unwrap();
+    let plane = |f: &Value| analysis["faces"][f.as_u64().unwrap() as usize]["kind"] == "plane";
+    // A length is a location of no feature: between two plane levels.
+    let lengths: Vec<_> = i
+        .general
+        .iter()
+        .filter(|g| g["kind"] == "location" && g["feature"] == "")
+        .collect();
+    let mut distances: Vec<f64> = lengths
+        .iter()
+        .map(|g| g["distance"].as_f64().unwrap())
+        .collect();
+    distances.sort_by(f64::total_cmp);
+    assert_eq!(distances, [10.0, 60.0, 100.0], "{:?}", i.general);
+    for g in lengths {
+        let faces = g["faces"].as_array().unwrap();
+        let reference = g["reference"].as_array().unwrap();
+        assert!(!faces.is_empty() && !reference.is_empty(), "{g:?}");
+        assert!(
+            faces.iter().all(plane) && reference.iter().all(plane),
+            "{g:?}"
+        );
+        assert_eq!(g["general"], json!(true));
+        assert_eq!(g["upper"].as_f64(), g["lower"].as_f64().map(|l| -l));
+    }
 }
