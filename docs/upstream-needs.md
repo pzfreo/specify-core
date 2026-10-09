@@ -58,7 +58,7 @@ known differences with verdicts.
 **Met when** quiddity exposes per record its constituent faces (or its `Occurrence.context`
 split into belonging and consulted) and per pattern its member indices.
 
-**Status (2026-10-09, pin 5d39eee): reconciliation partly met upstream.** quiddity-rust's
+**Status (2026-10-09, pin 5d39eee; unchanged at 10884b8): reconciliation partly met upstream.** quiddity-rust's
 `recognise()` now reconciles the aggregate (its a02b758): with no change here, 252 features
 entries went stale, every one a feature Rust reported and Python did not (158 blend chains
 Python supersedes by its fillets, 45 bosses, 24 fillets, 13 chamfers, 7 prismatic pockets, 3
@@ -80,7 +80,7 @@ has for intent with no place in the file), never dropped silently. See questions
 **Met when** `PartPmi.notes` (and a surface texture on faces) are written in a standard form and
 read back.
 
-**Status (2026-10-09): met** (quiddity-rust c228f95, pinned at 5d39eee): `SurfaceTexture` and
+**Status (2026-10-09): met** (quiddity-rust c228f95, pinned at 10884b8): `SurfaceTexture` and
 'semantic text' attribute sets are written and read; src/writer.rs writes every finish and part
 note through them and nothing is listed in `not_written` for them.
 
@@ -221,6 +221,12 @@ with a face finish.
 **Met when** `pmi::read` reports these notes with their faces (for instance a `Note` on the
 aspect's feature), or specify-core-rust no longer needs to read Python-written files.
 
+**Status (2026-10-09): met upstream, stand-in still in use** (quiddity-rust 86b11ba, pinned at
+10884b8): `pmi::read` puts each such note on the faces of the aspect written after it
+(`Note.on`). `existing.rs` still reads the usages itself; moving it onto `Note.on` is the
+existing-reader's change, not made by the writer stream that moved the pin (all of
+`tests/existing.rs` and `tests/cross_engine.rs` pass unchanged at 10884b8).
+
 ## U11. `Part::face_moments` on every face, to 1e-6
 
 **Missing.** `describe_faces` gives each face's area and centroid from `Part::face_moments`.
@@ -330,6 +336,14 @@ file's largest id).
 of a part with a thread haecceity wrote succeeds (the removal plan takes a feature definition's
 `product_definition_shape` that only the removed PMI uses).
 
+**Status (2026-10-09): met** (quiddity-rust 86b11ba, pinned at 10884b8): the reader consumes the
+bare runout aspect with its thread, and the removal plan takes a feature definition's own shape
+with its feature. The stand-in is gone: `writer::clear` and the runout exception in
+`writer::verify` were removed, and every rewrite of a part with a thread
+(`tests/resume.rs`, `a_resumed_files_thread_can_be_answered_away` and
+`a_written_file_resumes_its_answers_and_is_rewritten_not_added_to`) is now an ordinary replace,
+verified as any is.
+
 ## U15. Files haecceity writes with datum symbols crash OpenCascade's STEP reader (writer stream)
 
 **Found.** specify-core (Python, OpenCascade 7.9 in its venv) dies with SIGSEGV (exit 139) in
@@ -353,7 +367,7 @@ file is valid AP242 (every written file passes `express::validate_document` and
 **Met when** OpenCascade 7.9's reader loads a haecceity-written file with datum symbols (or
 haecceity relates the draughting model in a form it reads).
 
-**Status (2026-10-09): met** (quiddity-rust c228f95, pinned at 5d39eee): haecceity no longer
+**Status (2026-10-09): met** (quiddity-rust c228f95, pinned at 10884b8): haecceity no longer
 writes the relationship (Q16), and specify-core loads all 11 Rust-written synthetic files and
 both NIST files of the cross-engine check, reading every datum (`known_differences/
 cross_engine.json` has no crash entry). haecceity's investigation places the crash in

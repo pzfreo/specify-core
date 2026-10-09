@@ -142,10 +142,9 @@ fn a_written_file_resumes_its_answers_and_is_rewritten_not_added_to() {
     );
 }
 
-/// A resumed file whose thread is answered away: the replace is the one haecceity's removal
-/// plan refuses for a thread (upstream need U14), so the part is cleared first, and what the
-/// rewrite adds is numbered from the cleared file's largest id, reusing removed ids. The check
-/// that nothing consumed survives must not mistake such a reused id for a survivor.
+/// A resumed file whose thread is answered away: the replace of a thread haecceity wrote, which
+/// its removal plan refused until upstream need U14 was met (quiddity-rust 86b11ba); the
+/// writer now makes it as any replace, and nothing the reader consumed survives.
 #[test]
 fn a_resumed_files_thread_can_be_answered_away() {
     let dir = temp("unthread");
