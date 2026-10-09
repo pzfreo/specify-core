@@ -168,11 +168,18 @@
   "evidence": "As CTC-02 RC: Python fails in its text route; Python's per-XCAF-part intents name the one Rust part more than once (question Q7)."
  },
  {
-  "case": "corpus/*",
-  "path": "write.message[*names no faces]",
-  "pattern": "an intent item on no faces, refused where Python fails in OpenCascade",
+  "case": "corpus/mfcadpp*",
+  "path": "write",
+  "pattern": "an intent item on no faces listed, the rest written where Python fails in OpenCascade",
   "verdict": "rust-correct",
-  "evidence": "On 25 mfcadpp parts and cgb217 Python's own intent has a hole's size, locations and position with faces [] (e.g. mfcadpp/1004 holes:16). Python's write then fails inside OpenCascade ('StepShape_DimensionalLocation: Null Reference', or 'expected one B-rep representation, found 0'); the Rust writer refuses the intent as invalid, naming the item ('the size on holes:16 names no faces'), and writes nothing. Question Q17 (write the rest instead?)."
+  "evidence": "On 25 mfcadpp parts (mfcadpp, mfcadpp_holdout, mfcadpp_regressions) and cgb217 Python's own intent has a hole's size, locations and position with faces [] (e.g. mfcadpp/1004 holes:16; holes whose bores are not cylinders the rules keep). Python's write then fails inside OpenCascade ('StepShape_DimensionalLocation: Null Reference' on the mfcadpp parts, 'expected one B-rep representation, found 0' on cgb217). As question Q17 decides, the Rust writer writes the rest of the intent and lists each such item in not_written with the reason ('the size on holes:16 names no faces, so nothing in the file can carry it (question Q17)'); the file is verified by reading back and passes the EXPRESS check (tests/writer.rs a_hole_on_no_faces_is_listed_and_the_rest_written on mfcadpp/1004, a_pattern_on_no_faces_is_listed_and_the_rest_written on cgb217)."
+ },
+ {
+  "case": "corpus/cadgenbench_inputs/cgb217",
+  "path": "write",
+  "pattern": "an intent item on no faces listed, the rest written where Python fails in OpenCascade",
+  "verdict": "rust-correct",
+  "evidence": "On 25 mfcadpp parts (mfcadpp, mfcadpp_holdout, mfcadpp_regressions) and cgb217 Python's own intent has a hole's size, locations and position with faces [] (e.g. mfcadpp/1004 holes:16; holes whose bores are not cylinders the rules keep). Python's write then fails inside OpenCascade ('StepShape_DimensionalLocation: Null Reference' on the mfcadpp parts, 'expected one B-rep representation, found 0' on cgb217). As question Q17 decides, the Rust writer writes the rest of the intent and lists each such item in not_written with the reason ('the size on holes:16 names no faces, so nothing in the file can carry it (question Q17)'); the file is verified by reading back and passes the EXPRESS check (tests/writer.rs a_hole_on_no_faces_is_listed_and_the_rest_written on mfcadpp/1004, a_pattern_on_no_faces_is_listed_and_the_rest_written on cgb217)."
  },
  {
   "case": "corpus/inventory_refusal/13975",

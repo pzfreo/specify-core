@@ -475,7 +475,7 @@ Every question in [questions.md](questions.md) is open, each with what is done m
   U15), Q20 (what Python reads of a Rust-written file, and which side should change).
 - **What is written:** Q3 (part notes and surface finish, listed in `not_written`), Q4 and Q15
   (knurls, none written), Q6 (an assembly with foreign PMI written by add mode), Q17
-  (requirements on no faces, refused), Q18 (bare parts by `Mode::Replace`; a second material in
+  (requirements on no faces listed in `not_written`, the rest written), Q18 (bare parts by `Mode::Replace`; a second material in
   add mode refused).
 - **Engine behaviour:** Q2 (moved to `prototype/rust-port`; recognition kept caller-space),
   Q7 (a product with surface models: one part), Q8 (ISO 286 extended to 3150 mm), Q9

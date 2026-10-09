@@ -20,8 +20,8 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 12 | 9 | 4 | 5 | 35 |
 | [rules](#rules) | 4 | 0 | 0 | 2 | 0 | 6 |
-| [writer](#writer) | 13 | 0 | 0 | 3 | 24 | 40 |
-| **all** | 950 | 1588 | 76 | 1492 | 57 | 4163 |
+| [writer](#writer) | 14 | 0 | 0 | 3 | 24 | 41 |
+| **all** | 951 | 1588 | 76 | 1492 | 57 | 4164 |
 
 ## anchors
 
@@ -709,7 +709,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## writer
 
-### writer: rust-correct (13 entries)
+### writer: rust-correct (14 entries)
 
 - **a g6 diameter Python's reader garbles, and reads with no deviations** (2 entries, 2 case globs)
 
@@ -731,9 +731,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Datum A on the plate's top face is in the intent and written; OpenCascade's reader imports a datum only when a tolerance references it (writer.py docstring), which is why the warning exists. haecceity writes and reads it (tests/writer.rs unreferenced_datums_are_warned).
 
-- **an intent item on no faces, refused where Python fails in OpenCascade** (`corpus/*` at `write.message[*names no faces]`)
+- **an intent item on no faces listed, the rest written where Python fails in OpenCascade** (2 entries, 2 case globs)
 
-  On 25 mfcadpp parts and cgb217 Python's own intent has a hole's size, locations and position with faces [] (e.g. mfcadpp/1004 holes:16). Python's write then fails inside OpenCascade ('StepShape_DimensionalLocation: Null Reference', or 'expected one B-rep representation, found 0'); the Rust writer refuses the intent as invalid, naming the item ('the size on holes:16 names no faces'), and writes nothing. Question Q17 (write the rest instead?).
+  On 25 mfcadpp parts (mfcadpp, mfcadpp_holdout, mfcadpp_regressions) and cgb217 Python's own intent has a hole's size, locations and position with faces [] (e.g. mfcadpp/1004 holes:16; holes whose bores are not cylinders the rules keep). Python's write then fails inside OpenCascade ('StepShape_DimensionalLocation: Null Reference' on the mfcadpp parts, 'expected one B-rep representation, found 0' on cgb217). As question Q17 decides, the Rust writer writes the rest of the intent and lists each such item in not_written with the reason ('the size on holes:16 names no faces, so nothing in the file can carry it (question Q17)'); the file is verified by reading back and passes the EXPRESS check (tests/writer.rs a_hole_on_no_faces_is_listed_and_the_rest_written on mfcadpp/1004, a_pattern_on_no_faces_is_listed_and_the_rest_written on cgb217).
 
 - **written where Python fails in its text route** (`corpus/inventory_refusal/13975` at `write`)
 
