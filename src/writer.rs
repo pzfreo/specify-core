@@ -24,7 +24,9 @@
 //! yet (upstream need U3, question Q3): a surface finish on faces and the part's notes
 //! (surface-finish default, coating, heat treatment, edges) are listed in the report's
 //! `not_written`, each saying why, never dropped silently. So is every knurl: AP242's
-//! `turned_knurl` needs parameters the intent does not state (questions Q4, Q15).
+//! `turned_knurl` needs parameters the intent does not state (questions Q4, Q15). So is a
+//! requirement that names no faces (`the size on holes:16`), having nothing in the file to be
+//! written on; the rest of the intent is written (question Q17).
 //!
 //! **haecceity's gaps** (upstream need U14): a replace of a part with a thread haecceity wrote
 //! is refused by its removal plan, and the thread's runout aspect reads back unconsumed; both
@@ -857,14 +859,39 @@ fn face_list(v: Option<&Json>) -> String {
 /// of equal items as one instance anyway).
 struct Features<'p>(&'p mut Vec<Feature>);
 
-impl Features<'_> {
-    fn of(&mut self, faces: Option<&Json>, what: &str) -> Result<FeatureId, WriteError> {
-        let ids: Option<Vec<usize>> = faces.and_then(Json::as_array).and_then(|a| {
+/// The face ids a face list names, `None` when it names none (missing, empty or not a list of
+/// face ids).
+fn face_ids(faces: Option<&Json>) -> Option<Vec<usize>> {
+    faces
+        .and_then(Json::as_array)
+        .and_then(|a| {
             a.iter()
                 .map(|x| x.as_u64().map(|i| i as usize))
                 .collect::<Option<Vec<_>>>()
-        });
-        let Some(ids) = ids.filter(|ids| !ids.is_empty()) else {
+        })
+        .filter(|ids| !ids.is_empty())
+}
+
+/// What of a requirement names no faces (`the size on holes:16`), if anything does: such a
+/// requirement has nothing in the file to be written on (question Q17).
+fn faceless(kind: &str, req: &Map<String, Json>) -> Option<String> {
+    let name = py_str(req.get("feature").unwrap_or(&Json::Null));
+    let none = |key: &str| face_ids(req.get(key)).is_none();
+    match kind {
+        "size" if none("faces") => Some(format!("the size on {name}")),
+        "location" if none("faces") => Some(format!("the location of {name}")),
+        "location" if none("reference") => Some(format!("the reference of the location of {name}")),
+        "thread" if none("faces") => Some(format!("the thread on {name}")),
+        other if tolerance_kind(other).is_some() && none("faces") => {
+            Some(format!("the {other} tolerance on {name}"))
+        }
+        _ => None,
+    }
+}
+
+impl Features<'_> {
+    fn of(&mut self, faces: Option<&Json>, what: &str) -> Result<FeatureId, WriteError> {
+        let Some(ids) = face_ids(faces) else {
             return invalid(format!("{what} names no faces"));
         };
         let f = Feature::Items(
@@ -944,9 +971,11 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
             lines.written.push(format!("datum {letter}"));
         }
     }
+    // The datums a tolerance written cites (one on no faces is not written).
     let referenced: BTreeSet<String> = intent
         .requirements
         .iter()
+        .filter(|r| faceless(r.get("kind").and_then(Json::as_str).unwrap_or(""), r).is_none())
         .filter_map(|r| r.get("datums").and_then(Json::as_array))
         .flatten()
         .filter_map(|l| l.as_str().map(str::to_string))
@@ -985,6 +1014,14 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
     for req in &intent.requirements {
         let kind = req.get("kind").and_then(Json::as_str).unwrap_or("");
         let feature_name = || py_str(req.get("feature").unwrap_or(&Json::Null));
+        // A requirement on no faces (a hole whose bores the rules keep no cylinder for) is
+        // listed and the rest written (question Q17).
+        if let Some(what) = faceless(kind, req) {
+            lines.not_written.push(format!(
+                "{what} names no faces, so nothing in the file can carry it (question Q17)"
+            ));
+            continue;
+        }
         match kind {
             "size" => {
                 let feature = f.of(req.get("faces"), &format!("the size on {}", feature_name()))?;

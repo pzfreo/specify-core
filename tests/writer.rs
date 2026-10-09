@@ -1223,3 +1223,89 @@ fn writing_twice_gives_identical_bytes() {
     write(&plate, &intent, &b, given.as_object()).unwrap();
     assert_eq!(std::fs::read(&a).unwrap(), std::fs::read(&b).unwrap());
 }
+
+// --- requirements on no faces (question Q17) -----------------------------------------------------
+
+/// Python's own accept-defaults intent of a corpus case whose rules give a hole's requirements
+/// `faces: []` is written: each such requirement is listed in `not_written` with the reason and
+/// everything else is written, verified by reading back (Python fails inside OpenCascade on
+/// these). Skipped without the corpus.
+fn write_the_rest(name: &str, faceless: &[&str]) {
+    let case = common::case(name);
+    let Some(input) = case.input() else {
+        return;
+    };
+    let intent = Intent::from_dict(&case.artifact("apply").unwrap()).unwrap();
+    let given = case.meta["answers"].as_object().cloned();
+    let dir = temp(&name.replace('/', "_"));
+    let out = dir.join("written.step");
+    let report = write(&load(&input, None).unwrap(), &intent, &out, given.as_ref()).unwrap();
+
+    let reason = " names no faces, so nothing in the file can carry it (question Q17)";
+    let listed: Vec<&String> = report
+        .not_written
+        .iter()
+        .filter(|l| l.ends_with(reason))
+        .collect();
+    let wanted: Vec<String> = faceless.iter().map(|w| format!("{w}{reason}")).collect();
+    assert_eq!(listed, wanted.iter().collect::<Vec<_>>());
+    // Every other requirement, each datum, the material and the general tolerance is written.
+    assert_eq!(
+        report.written.len(),
+        intent.datums.len() + intent.requirements.len() - faceless.len() + 2,
+        "{:?}",
+        report.written
+    );
+    assert!(report.written.contains(&"material steel".to_string()));
+
+    // What reads back is what was written: no dimension or tolerance of the faceless items.
+    let read = pmi_of(&out, 0);
+    let on_faces = |kinds: &[&str]| {
+        intent
+            .requirements
+            .iter()
+            .filter(|r| kinds.contains(&r["kind"].as_str().unwrap_or("")))
+            .filter(|r| r["faces"].as_array().is_some_and(|f| !f.is_empty()))
+            .count()
+    };
+    assert_eq!(read.dimensions.len(), on_faces(&["size", "location"]));
+    assert_eq!(
+        read.tolerances.len(),
+        on_faces(&[
+            "position",
+            "flatness",
+            "perpendicularity",
+            "parallelism",
+            "profile",
+            "runout",
+            "total_runout"
+        ])
+    );
+    assert_eq!(read.datums.len(), intent.datums.len());
+    assert_conformant(&out);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_pattern_on_no_faces_is_listed_and_the_rest_written() {
+    write_the_rest(
+        "corpus/cadgenbench_inputs/cgb217",
+        &[
+            "the size on hole_patterns.set:105.106.107.108.109.110",
+            "the position tolerance on hole_patterns.set:105.106.107.108.109.110",
+        ],
+    );
+}
+
+#[test]
+fn a_hole_on_no_faces_is_listed_and_the_rest_written() {
+    write_the_rest(
+        "corpus/mfcadpp/1004",
+        &[
+            "the size on holes:16",
+            "the location of holes:16",
+            "the location of holes:16",
+            "the position tolerance on holes:16",
+        ],
+    );
+}

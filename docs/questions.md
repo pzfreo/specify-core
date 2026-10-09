@@ -178,7 +178,10 @@ Python's write then fails inside OpenCascade ("StepShape_DimensionalLocation: Nu
 or "expected one B-rep representation"); the Rust writer refuses the write as invalid, naming
 the item ("the size on holes:16 names no faces"). *Meanwhile:* refused, nothing written. Should
 the writer instead write the rest and list such items in `not_written`, or should the rules not
-make them?
+make them? *Status (2026-10-09): done.* The writer writes the rest of the intent and lists each
+such item in `not_written` ("the size on holes:16 names no faces, so nothing in the file can
+carry it (question Q17)"); the write is verified by reading back (src/writer.rs `faceless`;
+tests/writer.rs on mfcadpp/1004 and cgb217).
 
 **Q18 (writer stream). Two write-mode choices that differ from docs/design.md or from Python.**
 (a) A bare part is written by `Mode::Replace`, not `Mode::Add` as design.md's "Write modes"
