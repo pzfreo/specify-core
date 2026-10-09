@@ -357,7 +357,8 @@ document, this Status section and the README's usage and differences. On the mer
 `cargo fmt --all --check` and `cargo clippy --all-targets --release -- -D warnings` are clean,
 and `SPECIFY_CORPUS=... cargo test --release` passes all 302 tests. The dependencies have since
 moved from rev a16d7af to `prototype/rust-port` (5798c59, Q2), with every oracle comparison
-rerun and the changed differences rejudged.
+rerun and the changed differences rejudged; that move was integrated into `main` on 2026-10-09,
+where fmt and clippy are clean and all 302 tests pass with `SPECIFY_CORPUS` set.
 
 ### Implemented and verified, per module
 
