@@ -1,5 +1,32 @@
 # Questions for the maintainer
 
+## Decisions (2026-10-09)
+
+The maintainer answered these; each question below keeps its text for the record.
+
+- **Q2:** move the quiddity and haecceity dependency to `prototype/rust-port` (it now contains
+  a16d7af).
+- **Q3:** add standard forms for notes and surface finish to haecceity (surface texture as
+  `surface_texture_parameter`, other part notes as standard text notes; quiddity-rust work).
+  Until they exist, keep listing them in `not_written`.
+- **Q4 and Q15:** derive a knurl's missing parameters from a knurling standard (DIN 82 /
+  ISO 13444: number of teeth from diameter and pitch, tooth depth, root fillet; 30° helix for a
+  diamond knurl) and state them in the intent, so they are visible and editable.
+- **Q6:** write an assembly with PMI from elsewhere in add mode, keeping every original byte;
+  a deliberate improvement on Python.
+- **Q8:** extend ISO 286 to 3150 mm (ISO 286-1), in both engines.
+- **Q14:** fingerprint schema 2: zeros written unsigned (`0.0`), in both engines (specify-core's
+  Python changes too), so stored answers resume across engines.
+- **Q16:** haecceity stops writing the `MECHANICAL_DESIGN_AND_DRAUGHTING_RELATIONSHIP` that
+  relates datum feature symbols to the part (OpenCascade 7.9 crashes on it); a deliberate
+  departure, to revisit when OpenCascade is fixed. quiddity-rust work.
+- **Q17:** write the rest and list each item that names no faces in `not_written`, with the
+  reason.
+- **Q18 (b):** keep refusing a second, different material or general tolerance in add mode.
+- **Q20 (2):** a size or tolerance on a feature of several faces is written as one
+  `geometric_item_specific_usage` per face (§5.1), which OpenCascade reads. quiddity-rust work.
+
+
 Decisions the port does not make on its own. Each says what is being done meanwhile, so no work
 waits on it.
 
