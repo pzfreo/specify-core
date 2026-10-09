@@ -48,7 +48,7 @@ Read from `src/specify_core/*.py` at specify-core `main`:
 
 quiddity-rust is used as a library (Rust to Rust), not through its `quiddity` command line.
 
-| Need | Replacement (branch `ap242`, commit a16d7af) |
+| Need | Replacement (branch `prototype/rust-port`, commit 5798c59) |
 |---|---|
 | Load, parts, names, placements, face `#N` | `haecceity::step::read_part_definitions(&bytes) -> Vec<PartDefinition>` (`product_definition`, `shape`, `name`, `faces: Vec<u64>` in specify-core's numbering, `edges`, `placements`, `face_index(#N)`) |
 | The part's B-rep | `haecceity::read_step(&bytes) -> Part` (every placed instance; faces carry `face_source(i) -> Source { entity, instance }`) |
@@ -86,18 +86,16 @@ and answers are always used with the analysis they were given against.
 
 ## Dependency plan
 
-- `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity-rust`, **pinned
-  to `rev = "a16d7af80e15b48be7c7e5a54f19afe59c9030eb"`**, the head of branch `ap242`.
-  `prototype/rust-port` does not yet contain a16d7af (checked with `git merge-base
-  --is-ancestor a16d7af origin/prototype/rust-port`), and only `ap242` has
-  `read_part_definitions`, `p21`, `pmi`, `express`, `removal` and face provenance. The pin is a
-  rev, not `branch = "ap242"`, because another run is merging `ap242` now and the branch may
-  move or be deleted; a rev keeps fresh clones and CI resolving the same commit. When
-  `prototype/rust-port` contains a16d7af, both dependencies switch to `branch =
-  "prototype/rust-port"` in one commit (`cargo update -p quiddity -p haecceity`), and the
-  stream that does so runs the whole suite and the oracle comparisons: `prototype/rust-port`
-  also has the framed recognition (`recognise_placed`) and the recognition document, which
-  change records (question Q2).
+- `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity-rust`, **branch
+  `prototype/rust-port`**, which contains the former `ap242` head a16d7af (the stage 1-5 pin;
+  checked with `git merge-base --is-ancestor a16d7af origin/prototype/rust-port`). Cargo.lock
+  pins the commit (5798c59 since the move, question Q2), so fresh clones and CI resolve the
+  same one; moving to a newer head is `cargo update -p quiddity -p haecceity` in a commit of
+  its own, followed by the whole suite and the oracle comparisons with the area files
+  rejudged (the features sweep's per-face and per-feature entries name exact cases and
+  indices; `tools/known_differences/features.py` says how). Recognition stays caller-space
+  (`correspondence::recognise`), as Python's entry points, not the framed `recognise_placed`
+  (Q2).
 - **Cargo.toml and Cargo.lock across parallel streams.** A stream that adds a crate adds its
   line in alphabetical order within its table (`[dependencies]` or `[dev-dependencies]`) and
   regenerates the lock with `cargo update -p <crate>` only (never a bare `cargo update`, which
@@ -342,7 +340,7 @@ overlap area of two coplanar faces; U6 a point proved on a face's trimmed domain
 read-back verification of `quiddity pmi write` as a library function; U8 thread semantics for
 pitch and 'number of threads'; U9 part names over the assembly structure and one read; U10
 specify-core's own notes on faces as anchored items; U11 `face_moments` on every face to 1e-6;
-U12 the ten feature families quiddity-rust does not recognise; U13 simple parameter-space loops
+U12 the feature families quiddity-rust does not recognise (ten at a16d7af, three since the move); U13 simple parameter-space loops
 at degenerate corners.
 
 ## Status
@@ -357,8 +355,9 @@ differences are generated into [known-differences.md](known-differences.md) by
 Stage 5 was integrated into `main` on 2026-10-09. It delivered the generated known-differences
 document, this Status section and the README's usage and differences. On the merged tree
 `cargo fmt --all --check` and `cargo clippy --all-targets --release -- -D warnings` are clean,
-and `SPECIFY_CORPUS=... cargo test --release` passes all 302 tests. The dependency switch from
-rev a16d7af to `prototype/rust-port` is still to be made (see "What remains").
+and `SPECIFY_CORPUS=... cargo test --release` passes all 302 tests. The dependencies have since
+moved from rev a16d7af to `prototype/rust-port` (5798c59, Q2), with every oracle comparison
+rerun and the changed differences rejudged.
 
 ### Implemented and verified, per module
 
@@ -381,8 +380,9 @@ difference or a stale entry fails the sweep.
 | `api.rs`, `main.rs`, `serve.rs` | `tests/api.rs`, `tests/cli.rs`, `tests/serve.rs` | The binary's `analyse`, `mesh`, `questions` and `write` against the library's results (exactly) and against Python's command line and serve transcripts (`cli_oracle.json.gz`): 52 differences (24 rust-correct, 15 equivalent, 13 not-applicable); `test_serve.py` and `test_assembly.py`'s API and command-line tests ported |
 | Cross-engine (`examples/write_fixtures.rs`, `tools/capture/crossengine.py`) | `tests/cross_engine.rs` | Python reading every Rust-written synthetic and NIST file, and the Rust engine reading the 11 Python-written synthetic files: 70 differences (25 rust-correct, 43 undetermined, 2 not-applicable) |
 
-Known-difference entries by verdict (entries, not differences): 3634 in all, 923 rust-correct,
-1336 rust-wrong, 71 equivalent, 1248 undetermined, 56 not-applicable. The whole suite
+Known-difference entries by verdict (entries, not differences): 4149 in all, 939 rust-correct,
+1588 rust-wrong, 75 equivalent, 1491 undetermined, 56 not-applicable, since the move to
+`prototype/rust-port` 5798c59 (3634 at stage 5, on a16d7af). The whole suite
 (`SPECIFY_CORPUS=/Users/paul/repos/quiddity/tests/corpus cargo test --release`, 302 tests)
 passed at stage 5. The command line was also run by hand at stage 5 on `tests/fixtures/parts/plate.step` and `assembly.step`
 (every README command; exit codes as documented).
@@ -397,16 +397,16 @@ in [upstream-needs.md](upstream-needs.md)) and the parts each affects in the ora
 | U1 part of an assembly in its own frame | Faces taken from `read_step_placed` by face source, rebuilt with `Part::new`; a rebuilt part with unresolved faces or edges is reported degraded and not recognised | Rebuilt: the 5 parts of `parts/assembly` and `parts/stack` (`tests/part.rs`, `rebuilt_parts_carry_their_instances_unresolved_lists`). Degraded: none; all 100 corpus files load and none has a rebuilt or unresolved part (`corpus_parts_and_their_unresolved_faces`), and none of the 120 parts the features sweep compares is refused as degraded |
 | U2 constituent faces, pattern members | Defining faces; members matched to hole records by equality | Every analysis: feature ids differ from Python's (the cascade, `cli.json`); seven `rust-wrong` patterns in `features.json` (floors, drill points, boss ends, an angled step's plane, pattern members) |
 | U3 notes and surface finish | Not written; each listed in `not_written` | Every write with a finish default, coating, heat treatment, edge note or face finish (`writer.json`, not-applicable) |
-| U4 face triangulation | `triangulate.rs` (constrained Delaunay in parameter space, `spade`) | Every mesh; faces listed in `missing`: cgb202 face 399 and cgb242 faces 715, 726 (U13), the zero-area thread end faces of `threaded_connector_109` and cgb242 face 483, and `inventory_refusal/14052` face 1 (a hole crossing its outer loop) (`mesh.json`) |
+| U4 face triangulation | `triangulate.rs` (constrained Delaunay in parameter space, `spade`) | Every mesh; faces listed in `missing`: cgb202 face 399 (U13), the zero-area thread end faces of `threaded_connector_109` and cgb242 face 483, and `inventory_refusal/14052` face 1 (a hole crossing its outer loop) (`mesh.json`) |
 | U5 overlap area of coplanar faces | Polygon intersection of the faces' loops (`i_overlay`), arcs resampled exactly | Contacts of every assembly part: the 18 multi-part parts the mates sweep compares; equal to Python's 3 decimals on `parts/stack` |
 | U6 a point on the trimmed face | `face_centre` if inside the face's domain, else the largest triangle's centroid, else no anchor | Every anchor (708 on 124 cases); NIST FTC-07 faces 185-187, where Python's point is off the trim (`anchors.json`, rust-correct) |
 | U7 read-back verification as a library function | The comparison rebuilt from `pmi::read` and `pmi::write::differences` | Every write (136 oracle writes, `tests/write_oracle.rs`) |
 | U8 thread pitch and 'number of threads' | haecceity's own test mapping; pitch, drill and depths in an `AttributeSet` | Every written thread |
 | U9 names over the assembly structure, one read | Names from a `p21::Document` of the same bytes; the file is read twice | Every load; `parts/wrapped` named "assembly"; NIST FTC-08 and CTC-04 RD named by the product id |
 | U10 specify-core's notes on faces | Its `GEOMETRIC_ITEM_SPECIFIC_USAGE`s read from the `p21::Document` | Reading the 11 Python-written synthetic files (`tests/existing.rs`, `tests/cross_engine.rs`) |
-| U11 `face_moments` on every face | None: a face without moments refuses the part; accuracy reported value by value | corpus `cadgenbench_inputs/cgb217` refused (face 29); 1307 face values `rust-wrong`, 1097 `undetermined` (`features.json`) |
-| U12 ten families not recognised | None: absent from the analysis | One `rust-wrong` entry per family in `features.json` (2740 features at stage 2; the sweep's tallies are unchanged) |
-| U13 simple parameter-space loops | Closed freeform directions unwrapped; a loop still crossing or jumping refuses the face | cgb202 face 399, cgb242 faces 715 and 726, listed in `missing` (`mesh.json`, rust-wrong) |
+| U11 `face_moments` on every face | None: a face without moments refuses the part; accuracy reported value by value | None refused since 5798c59 (cgb217 face 29, refused at a16d7af, now has moments); 1407 face values `rust-wrong`, 1167 `undetermined` (`features.json`) |
+| U12 families not recognised | None: absent from the analysis | One `rust-wrong` entry per remaining family (`section_recesses`, `risers`, `step_levels`: 853 features) in `features.json`; 2740 features at a16d7af, ten families |
+| U13 simple parameter-space loops | Closed freeform directions unwrapped; a loop still crossing or jumping refuses the face | cgb202 face 399, listed in `missing` (`mesh.json`, rust-wrong); cgb242 faces 715 and 726 triangulate since 5798c59 |
 | U14 replace of a thread haecceity wrote | `writer::clear` removes the part's PMI in a scratch copy first; the bare 'thread runout' aspect is allowed as a new finding | Every rewrite of a resumed part with a thread (`tests/resume.rs`) |
 | U15 OpenCascade crashes on datum symbols | None: written as haecceity writes it (valid AP242) | All 7 Rust-written synthetic files with datums crash specify-core (`cross_engine.json`, undetermined; Q16) |
 
@@ -414,14 +414,17 @@ in [upstream-needs.md](upstream-needs.md)) and the parts each affects in the ora
 
 Listed entry by entry in [known-differences.md](known-differences.md), "Open work"; in short:
 
-- **features** (1325 rust-wrong, 1235 undetermined entries): face areas and centroids off the
-  adaptive integral (U11: 1307 rust-wrong, 1097 where neither engine is within 1e-6); cgb217
-  refused (U11); the ten missing families (U12); constituent faces (U2); families or features
-  one engine reports and the other does not, and small differences in feature records
-  (locations up to 1.85e-3 mm, body keys up to 2e-5 relative), undetermined; corpus
-  `inventory_refusal/13975`'s face order (Q10).
-- **mesh** (11 rust-wrong, 4 undetermined): three freeform faces not triangulated (U13); sub-micron inward
-  triangles on five faces at degenerate corners (cgb202, cgb207, cgb242); NIST CTC-05 AP242
+- **features** (1576 rust-wrong, 1478 undetermined entries): face areas and centroids off the
+  adaptive integral (U11: 1407 rust-wrong, 1167 where neither engine is within 1e-6); the three
+  missing families (U12); 158 blend chains Python supersedes by its fillets (U2's
+  reconciliation); constituent faces (U2); families or features one engine reports and the
+  other does not (among them the recess source families Python's evidence view leaves out),
+  and small differences in feature records (locations up to 1.85e-3 mm, body keys up to 2e-5
+  relative, 3e-4 on cgb217, blend points up to 0.023 mm, sheet-metal flat patterns tessellated
+  more coarsely), undetermined; corpus `inventory_refusal/13975`'s face order (Q10).
+- **mesh** (12 rust-wrong, 4 undetermined): a freeform face not triangulated (cgb202 face 399,
+  U13); single inward triangles of at most 7.3e-6 mm2 on eight faces at degenerate corners
+  (cgb202, cgb207, cgb242); refinement stopping at its round cap on cgb243 face 537; NIST CTC-05 AP242
   edges, the folded surface and the face order of `inventory_refusal/13975` (Q13), undetermined.
 - **anchors** (1 undetermined): a leader from `inventory_refusal/14052`'s invalid face.
 - **writer** (4 undetermined): knurls not written (Q4, Q15); Python-written files do not
@@ -442,7 +445,7 @@ Every question in [questions.md](questions.md) is open, each with what is done m
   (knurls, none written), Q6 (an assembly with foreign PMI written by add mode), Q17
   (requirements on no faces, refused), Q18 (bare parts by `Mode::Replace`; a second material in
   add mode refused).
-- **Engine behaviour:** Q2 (framed or caller-space recognition once on `prototype/rust-port`),
+- **Engine behaviour:** Q2 (moved to `prototype/rust-port`; recognition kept caller-space),
   Q7 (a product with surface models: one part), Q8 (fits above 500 mm, Python's error kept), Q9
   (malformed input refused as invalid), Q11 (an undecided sightline sample blocks), Q12 (mesh
   density, about 1.8 times Python's triangles), Q19 (unmeasurable contacts as warnings).
@@ -450,12 +453,6 @@ Every question in [questions.md](questions.md) is open, each with what is done m
 
 ### What remains
 
-- **The dependency pin.** `quiddity` and `haecceity` are still pinned to `rev = a16d7af`.
-  `prototype/rust-port` now contains a16d7af (checked 2026-10-09 with `git merge-base
-  --is-ancestor a16d7af origin/prototype/rust-port`, head 0c76531), so the planned switch to
-  `branch = "prototype/rust-port"` can be made; it changes recognition records (framed
-  recognition, Q2) and needs the whole suite and every oracle comparison rerun with the area
-  files updated. Not done in stage 5, whose files were the documents only.
 - **Out of scope, as above:** presentation other than datum feature symbols; notes and surface
   finish in the file (U3, Q3); knurls (Q4, Q15); PMI on assembly occurrences; the Draftwright
   round-trip tool; the NIST coverage tooling and `test_nist_coverage.py`; the conformance corpus

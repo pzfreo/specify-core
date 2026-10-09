@@ -23,8 +23,8 @@ needs from quiddity-rust are in [docs/upstream-needs.md](docs/upstream-needs.md)
 decisions waiting for the maintainer in [docs/questions.md](docs/questions.md).
 
 As of stage 5 (consolidation, 2026-10-09) all five planned stages are on `main`. The full suite
-(302 tests, with the quiddity corpus) passes. quiddity and haecceity are still pinned to rev
-a16d7af.
+(302 tests, with the quiddity corpus) passes. quiddity and haecceity follow quiddity-rust's
+branch `prototype/rust-port` (Cargo.lock pins 5798c59; question Q2).
 
 The two engines' STEP files are not yet interchangeable: OpenCascade (and so specify-core's
 Python) cannot open a Rust-written file with datums (Q16), and neither engine resumes answers
