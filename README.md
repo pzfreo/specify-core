@@ -23,7 +23,7 @@ needs from quiddity-rust are in [docs/upstream-needs.md](docs/upstream-needs.md)
 decisions waiting for the maintainer in [docs/questions.md](docs/questions.md).
 
 As of stage 5 (consolidation, 2026-10-09) all five planned stages are on `main`. The full suite
-(307 tests, with the quiddity corpus) passes. quiddity and haecceity follow quiddity-rust's
+(312 tests, with the quiddity corpus) passes. quiddity and haecceity follow quiddity-rust's
 branch `prototype/rust-port` (Cargo.lock pins 5798c59; question Q2).
 
 The two engines' STEP files are not yet interchangeable: OpenCascade (and so specify-core's

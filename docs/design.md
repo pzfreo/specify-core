@@ -388,7 +388,12 @@ document, this Status section and the README's usage and differences. On the mer
 and `SPECIFY_CORPUS=... cargo test --release` passes all 302 tests. The dependencies have since
 moved from rev a16d7af to `prototype/rust-port` (5798c59, Q2), with every oracle comparison
 rerun and the changed differences rejudged; that move was integrated into `main` on 2026-10-09,
-where fmt and clippy are clean and all 302 tests pass with `SPECIFY_CORPUS` set.
+where fmt and clippy are clean and all 302 tests pass with `SPECIFY_CORPUS` set. Three of the maintainer's
+decisions were then integrated into `main` on 2026-10-09: stored answers schema 2 (Q14, Rust
+engine), ISO 286 to 3150 mm (Q8, Rust engine; the comparison with Python above 500 mm waits for
+specify-core's extension) and writing the rest of an intent whose items name no faces (Q17).
+On that tree fmt and clippy are clean and all 312 tests pass with `SPECIFY_CORPUS` set. The
+knurl derivation (Q4 and Q15) is not yet implemented (questions.md, Q15 status).
 
 ### Implemented and verified, per module
 
@@ -411,11 +416,12 @@ difference or a stale entry fails the sweep.
 | `api.rs`, `main.rs`, `serve.rs` | `tests/api.rs`, `tests/cli.rs`, `tests/serve.rs` | The binary's `analyse`, `mesh`, `questions` and `write` against the library's results (exactly) and against Python's command line and serve transcripts (`cli_oracle.json.gz`): 55 differences (24 rust-correct, 15 equivalent, 16 not-applicable); `test_serve.py` and `test_assembly.py`'s API and command-line tests ported |
 | Cross-engine (`examples/write_fixtures.rs`, `tools/capture/crossengine.py`) | `tests/cross_engine.rs` | Python reading every Rust-written synthetic and NIST file, and the Rust engine reading the 11 Python-written synthetic files: 70 differences (25 rust-correct, 43 undetermined, 2 not-applicable) |
 
-Known-difference entries by verdict (entries, not differences): 4152 in all, 939 rust-correct,
-1588 rust-wrong, 76 equivalent, 1493 undetermined, 56 not-applicable, since the move to
-`prototype/rust-port` 5798c59 (3634 at stage 5, on a16d7af). The whole suite
-(`SPECIFY_CORPUS=/Users/paul/repos/quiddity/tests/corpus cargo test --release`, 302 tests)
-passed at stage 5 and again after the move to `prototype/rust-port` 5798c59. The command line was also run by hand at stage 5 on `tests/fixtures/parts/plate.step` and `assembly.step`
+Known-difference entries by verdict (entries, not differences): 4164 in all, 951 rust-correct,
+1588 rust-wrong, 76 equivalent, 1492 undetermined, 57 not-applicable, after the Q8, Q14 and Q17
+integration (4152 after the move to `prototype/rust-port` 5798c59; 3634 at stage 5, on a16d7af). The whole suite
+(`SPECIFY_CORPUS=/Users/paul/repos/quiddity/tests/corpus cargo test --release`, 312 tests
+since the Q8, Q14 and Q17 integration) passed at stage 5, again after the move to
+`prototype/rust-port` 5798c59, and after that integration. The command line was also run by hand at stage 5 on `tests/fixtures/parts/plate.step` and `assembly.step`
 (every README command; exit codes as documented).
 
 ### Stand-ins in use

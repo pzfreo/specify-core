@@ -184,6 +184,11 @@ with three). The intent of a straight knurl has the diameter and pitch only. *Me
 knurl, straight or diamond, is in `not_written` with that reason. Should the intent gain those
 parameters (e.g. the number of teeth from the diameter and pitch, a tooth depth and root fillet
 from a knurling standard), or knurls stay unwritten until haecceity has a form for them?
+*Status (2026-10-09): decided (Q4 and Q15 above), not yet implemented.* Three details are
+waiting for the maintainer before the derivation is written: whether a diamond knurl (cut both
+ways) states a hand; whether the number of teeth round(π·d/t) keeps the intent's pitch or the
+pitch is recomputed as π·d/z; and whether the writer derives the missing values for intents
+without them (Python's oracle intents, older stored intents) or lists them in `not_written`.
 
 **Q16 (writer stream). Files OpenCascade cannot open (upstream need U15).** Every file the Rust
 engine writes with a datum crashes OpenCascade 7.9's STEP reader (specify-core's Python, and so

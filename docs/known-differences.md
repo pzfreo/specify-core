@@ -97,9 +97,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   As for Infinity: json.dumps writes float('nan') as NaN, not JSON; Rust writes null.
 
-- **a fit above 500 mm: Python refuses it at apply, Rust applies it (Q8) and stops at the write** (`nist/nist_ctc_05_asme1_ap242` at `apply.refusal`)
+- **a fit above 500 mm: Python refuses it at apply, Rust applies it (Q8) and writes the rest of the intent (Q17)** (`nist/nist_ctc_05_asme1_ap242` at `apply.*`)
 
-  Python's apply refuses the answers with fit_limits' 'nominal size 558.8 outside 0-500 mm' (a fit on the part's Ø558.8 diameter, 22 in); the Rust engine tabulates ISO 286 to 3150 mm (the maintainer's decision Q8, docs/questions.md), applies the same answers, and so reaches the write, which stops later: Python's own intent has a size on hole_patterns.linear:84.85.86.87.88.89 with no faces, which the Rust writer refuses naming the item, as judged in writer.json ('an intent item on no faces', Question Q17). The fit itself is checked in tests/standards.rs (iso286_equals_pythons).
+  Python's apply refuses the answers with fit_limits' 'nominal size 558.8 outside 0-500 mm' (a fit on the part's Ø558.8 diameter, 22 in), exit 2; the Rust engine tabulates ISO 286 to 3150 mm (the maintainer's decision Q8, docs/questions.md), applies the same answers, and so reaches the write. Python's own intent has a size on hole_patterns.linear:84.85.86.87.88.89 with no faces; the Rust writer writes the rest and lists that item in not_written (the maintainer's decision Q17; writer.json), so the command succeeds, exit 0, with no refusal. The fit itself is checked in tests/standards.rs (iso286_equals_pythons); the content of the write has no Python output to compare with, as for CTC-05's rules outputs (rules.json, undetermined).
 
 ### cli: equivalent (3 entries)
 
