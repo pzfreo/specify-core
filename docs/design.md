@@ -354,6 +354,12 @@ differences are generated into [known-differences.md](known-differences.md) by
 `tests/known_differences_doc.rs`, which fails when the document is not the rendering of
 `tests/fixtures/known_differences/*.json`.
 
+Stage 5 was integrated into `main` on 2026-10-09. It delivered the generated known-differences
+document, this Status section and the README's usage and differences. On the merged tree
+`cargo fmt --all --check` and `cargo clippy --all-targets --release -- -D warnings` are clean,
+and `SPECIFY_CORPUS=... cargo test --release` passes all 302 tests. The dependency switch from
+rev a16d7af to `prototype/rust-port` is still to be made (see "What remains").
+
 ### Implemented and verified, per module
 
 Counts of differences are those each area's sweep prints with `SPECIFY_CORPUS` set (corpus
