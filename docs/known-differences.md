@@ -12,15 +12,16 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | Area | rust-correct | rust-wrong | equivalent | undetermined | not-applicable | Total |
 |---|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 1 | 1 | 2 | 8 |
-| [cli](#cli) | 9 | 0 | 3 | 0 | 3 | 15 |
+| [cli](#cli) | 10 | 0 | 3 | 0 | 4 | 17 |
 | [cross_engine](#cross_engine) | 5 | 0 | 0 | 2 | 1 | 8 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
 | [features](#features) | 879 | 1576 | 63 | 1480 | 11 | 4009 |
+| [iso286](#iso286) | 3 | 0 | 0 | 0 | 0 | 3 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 12 | 9 | 4 | 5 | 35 |
-| [rules](#rules) | 0 | 0 | 0 | 0 | 0 | 0 |
+| [rules](#rules) | 4 | 0 | 0 | 2 | 0 | 6 |
 | [writer](#writer) | 13 | 0 | 0 | 3 | 24 | 40 |
-| **all** | 942 | 1588 | 76 | 1490 | 56 | 4152 |
+| **all** | 950 | 1588 | 76 | 1492 | 57 | 4163 |
 
 ## anchors
 
@@ -62,7 +63,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (9 entries)
+### cli: rust-correct (10 entries)
 
 - **Python's write prints OpenCascade's transfer statistics on stdout before the report** (`cli/*` at `stdout_noise`)
 
@@ -96,6 +97,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   As for Infinity: json.dumps writes float('nan') as NaN, not JSON; Rust writes null.
 
+- **a fit above 500 mm: Python refuses it at apply, Rust applies it (Q8) and stops at the write** (`nist/nist_ctc_05_asme1_ap242` at `apply.refusal`)
+
+  Python's apply refuses the answers with fit_limits' 'nominal size 558.8 outside 0-500 mm' (a fit on the part's Ø558.8 diameter, 22 in); the Rust engine tabulates ISO 286 to 3150 mm (the maintainer's decision Q8, docs/questions.md), applies the same answers, and so reaches the write, which stops later: Python's own intent has a size on hole_patterns.linear:84.85.86.87.88.89 with no faces, which the Rust writer refuses naming the item, as judged in writer.json ('an intent item on no faces', Question Q17). The fit itself is checked in tests/standards.rs (iso286_equals_pythons).
+
 ### cli: equivalent (3 entries)
 
 - **mesh's triangle count is the triangulation stand-in's** (`cli/*` at `stdout.triangles`)
@@ -106,7 +111,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `cli/errors/questions-answers-not-json` at `stderr`: Both refuse '{' as 'invalid answer: ...' with exit 2 (Python's JSONDecodeError is a ValueError, caught as an invalid answer; Rust maps a parse error the same way); only the parser's wording differs: 'Expecting property name enclosed in double quotes: line 1 column 2 (char 1)' against 'EOF while parsing an object at line 1 column 1'.
 
-### cli: not-applicable (3 entries)
+### cli: not-applicable (4 entries)
 
 - **feature-id cascade (rule): the engines recognise features differently by design, so analyses are never compared feature by feature with Python's** (`cli/*` at `stdout.features*`)
 
@@ -119,6 +124,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **no pmi-assist executable** (`cli/programs` at `programs.pmi-assist`)
 
   specify-core's pyproject installs the same entry point twice, as specify-core and as pmi-assist ('the name it was first released under, kept for hosts that still run it'). The alias is an artifact of the Python package's history; a host running the Rust engine names its binary, specify-core (Cargo.toml's one [[bin]]), with the same arguments.
+
+- **a fit above 500 mm: Python refuses it at apply, Rust applies it (Q8) and stops at the write** (`corpus/nist/nist_ctc_05_asme1_rd` at `apply.refusal`)
+
+  Python's apply refuses the answers with fit_limits' 'nominal size 558.8 outside 0-500 mm' (a fit on the part's Ø558.8 diameter, 22 in); the Rust engine tabulates ISO 286 to 3150 mm (the maintainer's decision Q8, docs/questions.md), applies the same answers, and so reaches the write, which stops later: the command passes Python's three analyses of this file and Rust has one part (Question Q7: Python's parts 1 and 2 are surface models that do not exist in Rust; features.json and existing.json), so Rust refuses 'has no part 1'. The fit itself is checked in tests/standards.rs (iso286_equals_pythons, a_600_mm_hole_is_offered_fits_with_their_limits).
 
 ## cross_engine
 
@@ -542,6 +551,22 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Question Q7: OpenCascade's XCAF makes a part of each shape representation of one product (the solid and each SHELL_BASED_SURFACE_MODEL beside it); haecceity has one part per product definition, its faces the solid's then the surface models' (tests/part.rs, corpus_and_nist_faces_are_pythons_at_every_index). The solid's faces are at Python's indices; this trailing face is a surface model's plane.
 
+## iso286
+
+### iso286: rust-correct (3 entries)
+
+- **above 500 mm Rust gives the ISO 286 limits, Python refuses the size** (`*` at `limits where Python refuses the size`)
+
+  The maintainer's decision Q8 (docs/questions.md, 2026-10-09): extend ISO 286 to 3150 mm in both engines. The oracle was captured from specify-core cc341dd, whose standards.py (identical to main c1694ec) stops at 500 mm; the Python extension (branch iso286-3150 of specify-core) did not exist when this was captured. Rust's values are ISO 286-1:2010 Table 1 (IT5-IT11), Table 2 (f, g, h) and Table 3 (k, m, n, p) for 500-3150 mm, cross-checked against ISO 286-2 limits for g6, h6, k6, m6, f7 in every range (tests/standards.rs, fit_limits_match_iso_286_to_3150_mm). Every row up to 500 mm is equal. This path is given only where Python's own message is its size refusal and the size is at most 3150 mm (tests/standards.rs, iso286_equals_pythons); an unequal pair of limits is path 'limits', which no entry matches. Regenerate tests/fixtures/iso286_oracle.json.gz from that branch when it lands (see iso286_oracle.py): these entries then go stale.
+
+- **beyond the tables both refuse; Rust names 0-3150 mm, Python 0-500 mm** (`*` at `message for the size`)
+
+  Both raise the same message form, "nominal size N outside 0-L mm"; L is the largest tabulated size, 3150 in Rust after Q8 and 500 in the captured Python. The maintainer's decision Q8 (docs/questions.md, 2026-10-09): extend ISO 286 to 3150 mm in both engines. The oracle was captured from specify-core cc341dd, whose standards.py (identical to main c1694ec) stops at 500 mm; the Python extension (branch iso286-3150 of specify-core) did not exist when this was captured. Rust's values are ISO 286-1:2010 Table 1 (IT5-IT11), Table 2 (f, g, h) and Table 3 (k, m, n, p) for 500-3150 mm, cross-checked against ISO 286-2 limits for g6, h6, k6, m6, f7 in every range (tests/standards.rs, fit_limits_match_iso_286_to_3150_mm). Every row up to 500 mm is equal. This path is given only beyond 3150 mm where both refuse the size. Regenerate tests/fixtures/iso286_oracle.json.gz from that branch when it lands (see iso286_oracle.py): these entries then go stale.
+
+- **k above grade 7 between 500 and 3150 mm: Rust refuses the grade, Python the size** (`k*` at `message for the grade where Python refuses the size`)
+
+  Both refuse. Rust, with the size now tabulated, reaches the grade check Python's fit_limits makes after the size check ("k deviations are tabulated here for grades 4 to 7 only"), the message Python gives for k8 at any size up to 500 mm. The maintainer's decision Q8 (docs/questions.md, 2026-10-09): extend ISO 286 to 3150 mm in both engines. The oracle was captured from specify-core cc341dd, whose standards.py (identical to main c1694ec) stops at 500 mm; the Python extension (branch iso286-3150 of specify-core) did not exist when this was captured. Rust's values are ISO 286-1:2010 Table 1 (IT5-IT11), Table 2 (f, g, h) and Table 3 (k, m, n, p) for 500-3150 mm, cross-checked against ISO 286-2 limits for g6, h6, k6, m6, f7 in every range (tests/standards.rs, fit_limits_match_iso_286_to_3150_mm). Every row up to 500 mm is equal. This path is given only where Python refuses the size and the size is at most 3150 mm. Regenerate tests/fixtures/iso286_oracle.json.gz from that branch when it lands (see iso286_oracle.py): these entries then go stale.
+
 ## mates
 
 ### mates: rust-correct (1 entry)
@@ -670,7 +695,17 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## rules
 
-No entries: every comparison in this area equals Python's (`rules.json` is empty).
+### rules: rust-correct (4 entries)
+
+- **a fit above 500 mm: Python fails the part's rules, Rust answers (Q8)** (4 entries, 2 case globs)
+
+  Python's rules fail the whole part with fit_limits' 'nominal size 558.8 outside 0-500 mm': the part has a Ø558.8 (22 in) diameter, which is offered fits, and describing them for the question list raises (docs/questions.md Q8 records the same failure at 600 mm). The maintainer's decision Q8 extends ISO 286 to 3150 mm in both engines; the Rust rules tabulate it (ISO 286-1:2010 Tables 1-3, checked in tests/standards.rs), so Rust answers where Python fails. When specify-core's extension (branch iso286-3150) is captured, the oracle compares the answers and this entry goes stale.
+
+### rules: undetermined (2 entries)
+
+- **a fit above 500 mm: what Rust answers where Python fails has no Python output to compare with** (2 entries, 2 case globs)
+
+  Python's rules fail the whole part with fit_limits' 'nominal size 558.8 outside 0-500 mm': the part has a Ø558.8 (22 in) diameter, which is offered fits, and describing them for the question list raises (docs/questions.md Q8 records the same failure at 600 mm). The maintainer's decision Q8 extends ISO 286 to 3150 mm in both engines; the Rust rules tabulate it (ISO 286-1:2010 Tables 1-3, checked in tests/standards.rs), so Rust answers where Python fails. The content of those answers (questions, open, answers, problems, preview, apply) has not been compared with any Python output: Python has none for this part. The fits' limits are checked against ISO 286-2 in tests/standards.rs; the rest is the same rules code the oracle checks on every other part. When specify-core's extension (branch iso286-3150) is captured, the oracle compares the answers and this entry goes stale.
 
 ## writer
 
@@ -1222,6 +1257,12 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `corpus/inventory_refusal/13975`: `check.numbering[*]`
 - **per-face mesh areas differ because faces 1-16 are numbered differently from Python's** (1 entry)
   - `corpus/inventory_refusal/13975`: `areas[*]`
+
+### rules: undetermined
+
+- **a fit above 500 mm: what Rust answers where Python fails has no Python output to compare with** (2 entries)
+  - `corpus/nist/nist_ctc_05_asme1_rd#0/*`: `*`
+  - `nist/nist_ctc_05_asme1_ap242/*`: `*`
 
 ### writer: undetermined
 

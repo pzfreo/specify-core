@@ -478,7 +478,7 @@ Every question in [questions.md](questions.md) is open, each with what is done m
   (requirements on no faces, refused), Q18 (bare parts by `Mode::Replace`; a second material in
   add mode refused).
 - **Engine behaviour:** Q2 (moved to `prototype/rust-port`; recognition kept caller-space),
-  Q7 (a product with surface models: one part), Q8 (fits above 500 mm, Python's error kept), Q9
+  Q7 (a product with surface models: one part), Q8 (ISO 286 extended to 3150 mm), Q9
   (malformed input refused as invalid), Q11 (an undecided sightline sample blocks), Q12 (mesh
   density, about 1.8 times Python's triangles), Q19 (unmeasurable contacts as warnings).
 - **Repository:** Q5 (whether CI checks out the corpus).
