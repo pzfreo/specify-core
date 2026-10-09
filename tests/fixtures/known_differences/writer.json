@@ -1,0 +1,282 @@
+[
+ {
+  "case": "*",
+  "path": "write.written[*knurl on *]",
+  "pattern": "a knurl Python writes and the Rust writer cannot",
+  "verdict": "undetermined",
+  "evidence": "AP242's turned_knurl WR2 needs six to nine parameters (major and nominal diameter, diametral pitch and three or more of number of teeth, tooth depth, root fillet, helix angle, hand: haecceity pmi/write.rs refuses 'a knurl with 3 parameters (turned_knurl WR2: 6 to 9)', seen on parts/pin); the intent states diameter and pitch only, so no knurl can be written without guessing. Python writes its text route and a UDA. Listed in not_written; questions Q4 and Q15."
+ },
+ {
+  "case": "*",
+  "path": "write.not_written[*knurl on *]",
+  "pattern": "a knurl listed as not written, with its reason",
+  "verdict": "undetermined",
+  "evidence": "AP242's turned_knurl WR2 needs six to nine parameters (major and nominal diameter, diametral pitch and three or more of number of teeth, tooth depth, root fillet, helix angle, hand: haecceity pmi/write.rs refuses 'a knurl with 3 parameters (turned_knurl WR2: 6 to 9)', seen on parts/pin); the intent states diameter and pitch only, so no knurl can be written without guessing. Python writes its text route and a UDA. Listed in not_written; questions Q4 and Q15."
+ },
+ {
+  "case": "*",
+  "path": "existing[key=note|knurl|*]",
+  "pattern": "a knurl note Python reads back from its own text route",
+  "verdict": "undetermined",
+  "evidence": "AP242's turned_knurl WR2 needs six to nine parameters (major and nominal diameter, diametral pitch and three or more of number of teeth, tooth depth, root fillet, helix angle, hand: haecceity pmi/write.rs refuses 'a knurl with 3 parameters (turned_knurl WR2: 6 to 9)', seen on parts/pin); the intent states diameter and pitch only, so no knurl can be written without guessing. Python writes its text route and a UDA. Listed in not_written; questions Q4 and Q15."
+ },
+ {
+  "case": "*",
+  "path": "write.written[*surface finish *]",
+  "pattern": "a finish (the part's default or on faces) Python writes by its text route",
+  "verdict": "not-applicable",
+  "evidence": "haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3."
+ },
+ {
+  "case": "*",
+  "path": "write.written[*edges *]",
+  "pattern": "the edge note Python writes by its text route",
+  "verdict": "not-applicable",
+  "evidence": "haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3."
+ },
+ {
+  "case": "*",
+  "path": "write.written[*coating *]",
+  "pattern": "the coating note Python writes by its text route",
+  "verdict": "not-applicable",
+  "evidence": "haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3."
+ },
+ {
+  "case": "*",
+  "path": "write.written[*heat treatment *]",
+  "pattern": "the heat treatment note Python writes by its text route",
+  "verdict": "not-applicable",
+  "evidence": "haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3."
+ },
+ {
+  "case": "*",
+  "path": "write.not_written[*haecceity writes no *]",
+  "pattern": "a note or face finish listed as not written, with its reason",
+  "verdict": "not-applicable",
+  "evidence": "haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3."
+ },
+ {
+  "case": "*",
+  "path": "part.surface_finish",
+  "pattern": "the finish default, not written, is not read back",
+  "verdict": "not-applicable",
+  "evidence": "haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3."
+ },
+ {
+  "case": "*",
+  "path": "part.edges",
+  "pattern": "the edge note, not written, is not read back",
+  "verdict": "not-applicable",
+  "evidence": "haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3."
+ },
+ {
+  "case": "*",
+  "path": "part.coating",
+  "pattern": "the coating note, not written, is not read back",
+  "verdict": "not-applicable",
+  "evidence": "haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3."
+ },
+ {
+  "case": "*",
+  "path": "part.heat_treatment",
+  "pattern": "the heat treatment note, not written, is not read back",
+  "verdict": "not-applicable",
+  "evidence": "haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3."
+ },
+ {
+  "case": "*",
+  "path": "existing[key=note|surface finish|*]",
+  "pattern": "a face finish, not written, is not read back",
+  "verdict": "not-applicable",
+  "evidence": "haecceity writes no notes: its decision 5 (docs/step-ap242.md, quiddity-rust a16d7af) allows standard forms only and none exists yet for a part note or a surface texture on faces, and pmi::write refuses notes by name; Python writes them by its own 'manufacturing requirement' text route. The Rust writer lists each in the report's not_written with the reason (src/writer.rs part_pmi; tests/writer.rs mmc_positions_are_written_and_notes_are_reported). Upstream need U3, question Q3."
+ },
+ {
+  "case": "scenarios/turned_runout_and_a_g6_fit",
+  "path": "existing[key=dimension|Size_Diameter|[4]|#1]*",
+  "pattern": "a g6 diameter Python's reader garbles, and reads with no deviations",
+  "verdict": "rust-correct",
+  "evidence": "The intent's nominal is 6 (the pin's Ø6 shaft, g6). Python reads back 3.006: OpenCascade's reader cannot return a tolerance whose deviations are both below nominal and garbles the value (writer.py docstring: 'Ø70 g6 reads back as 35.0145'). haecceity reads the nominal as written. Python reads no upper or lower deviation either; the Rust reader reads the fit's class, compared as the limits the class states (ISO 286 g6: -0.004/-0.012 at 6 mm, the intent's own), which the writer checks the intent's limits against before writing."
+ },
+ {
+  "case": "scenarios/writer_every_kind_v1_writes",
+  "path": "existing[key=dimension|Size_Diameter|[89]|#1]*",
+  "pattern": "a g6 diameter Python's reader garbles, and reads with no deviations",
+  "verdict": "rust-correct",
+  "evidence": "The intent's nominal is 70 (the spool's Ø70 g6, turned_steps:89); Python reads back 35.0145, OpenCascade's garbling of a tolerance wholly below nominal, which writer.py's docstring cites with this very number. haecceity reads 70. Python reads no upper or lower deviation either; the Rust reader reads the fit's class, compared as the limits the class states (ISO 286 g6: -0.010/-0.029 at 70 mm, the intent's own), which the writer checks the intent's limits against before writing."
+ },
+ {
+  "case": "scenarios/writer_every_kind_v1_writes",
+  "path": "existing[key=dimension|Size_Diameter|[70]|#1].lower",
+  "pattern": "a p6 lower deviation whose sign Python's round trip loses",
+  "verdict": "rust-correct",
+  "evidence": "The intent states p6 on the spool's Ø130 (turned_steps:70) with upper 0.068 and lower 0.043, ISO 286's p6 at 130 mm (both above nominal). Python reads back lower -0.043: OpenCascade's plus-minus form cannot hold a range wholly above nominal (writer.py's docstring on fits). The Rust writer writes the class p6, read back and compared as the class's limits +0.068/+0.043."
+ },
+ {
+  "case": "scenarios/writer_every_kind_v1_writes",
+  "path": "existing[key=dimension|Size_Diameter|[87]|#1].lower",
+  "pattern": "a p6 lower deviation whose sign Python's round trip loses",
+  "verdict": "rust-correct",
+  "evidence": "The intent states p6 on the spool's Ø130 (turned_steps:87) with upper 0.068 and lower 0.043, ISO 286's p6 at 130 mm (both above nominal). Python reads back lower -0.043: OpenCascade's plus-minus form cannot hold a range wholly above nominal (writer.py's docstring on fits). The Rust writer writes the class p6, read back and compared as the class's limits +0.068/+0.043."
+ },
+ {
+  "case": "scenarios/callout_a_distance_with_limits_0",
+  "path": "existing[key=dimension|Location_LinearDistance|[4]|[2]#1]*",
+  "pattern": "a distance -0.05/-0.1 Python's reader garbles",
+  "verdict": "rust-correct",
+  "evidence": "The intent states distance 10, upper -0.05, lower -0.1 (scenario value '-0.05/-0.1'). Python reads back value 5.05 and no deviations: OpenCascade cannot return a tolerance wholly below nominal (writer.py docstring). haecceity reads 10 with -0.05/-0.1, as written."
+ },
+ {
+  "case": "scenarios/callout_a_distance_with_limits_1",
+  "path": "existing[key=dimension|Location_LinearDistance|[4]|[2]#1].lower",
+  "pattern": "a lower deviation Python reads with the wrong sign",
+  "verdict": "rust-correct",
+  "evidence": "The intent states +0.1/+0.05 (scenario value '+0.1/+0.05', apply: upper 0.1, lower 0.05). Python reads back lower -0.05: OpenCascade's reader loses the lower deviation's sign (writer.py: 'The writer negates the lower tolerance'). haecceity reads +0.05."
+ },
+ {
+  "case": "scenarios/rules_unreferenced_datum_is_warned",
+  "path": "existing[key=datum|A|[2]|#1]",
+  "pattern": "a datum no tolerance references, read back",
+  "verdict": "rust-correct",
+  "evidence": "Datum A on the plate's top face is in the intent and written; OpenCascade's reader imports a datum only when a tolerance references it (writer.py docstring), which is why the warning exists. haecceity writes and reads it (tests/writer.rs unreferenced_datums_are_warned)."
+ },
+ {
+  "case": "nist/nist_ctc_02_asme1_ap242",
+  "path": "write.message[*]",
+  "pattern": "Python's three parts of one product are one part here",
+  "verdict": "not-applicable",
+  "evidence": "Python (XCAF) lists CTC-02 as three parts and refuses the assembly for its PMI; haecceity has one part per product definition (question Q7), so Python's three intents name the one Rust part three times and the writer refuses 'a part is written once'. With Q7 settled the comparison applies; an assembly with PMI from elsewhere is written by add mode (Q6)."
+ },
+ {
+  "case": "nist/nist_ctc_04_asme1_ap242",
+  "path": "write.message[*]",
+  "pattern": "Python's two parts of one product are one part here",
+  "verdict": "not-applicable",
+  "evidence": "As CTC-02: XCAF's two parts are one product definition in haecceity (question Q7); Python's intents name the one Rust part twice."
+ },
+ {
+  "case": "corpus/nist/nist_ctc_02_asme1_rc",
+  "path": "write.message[*]",
+  "pattern": "Python's parts of one product are one part here",
+  "verdict": "not-applicable",
+  "evidence": "Python fails inside its text route ('expected one B-rep representation, found 0'); the Rust engine has one part per product definition (question Q7), so Python's per-XCAF-part intents name the one Rust part more than once ('a part is written once')."
+ },
+ {
+  "case": "corpus/nist/nist_ctc_04_asme1_rd",
+  "path": "write.message[*]",
+  "pattern": "Python's parts of one product are one part here",
+  "verdict": "not-applicable",
+  "evidence": "As CTC-02 RC: Python fails in its text route; Python's per-XCAF-part intents name the one Rust part more than once (question Q7)."
+ },
+ {
+  "case": "corpus/*",
+  "path": "write.message[*names no faces]",
+  "pattern": "an intent item on no faces, refused where Python fails in OpenCascade",
+  "verdict": "rust-correct",
+  "evidence": "On 25 mfcadpp parts and cgb217 Python's own intent has a hole's size, locations and position with faces [] (e.g. mfcadpp/1004 holes:16). Python's write then fails inside OpenCascade ('StepShape_DimensionalLocation: Null Reference', or 'expected one B-rep representation, found 0'); the Rust writer refuses the intent as invalid, naming the item ('the size on holes:16 names no faces'), and writes nothing. Question Q17 (write the rest instead?)."
+ },
+ {
+  "case": "corpus/inventory_refusal/13975",
+  "path": "write",
+  "pattern": "written where Python fails in its text route",
+  "verdict": "rust-correct",
+  "evidence": "Python fails appending its text route ('expected one B-rep representation, found 0': its anchor search finds no ADVANCED_BREP_SHAPE_REPRESENTATION); the intent (material, general tolerance) is written by haecceity and verified by reading back."
+ },
+ {
+  "case": "corpus/nist/*",
+  "path": "write",
+  "pattern": "an AP203 file that cannot become AP242, refused with its instances named",
+  "verdict": "rust-correct",
+  "evidence": "haecceity's decision 1: a file gaining PMI becomes AP242 only if every instance validates against AP242; NIST's AP203 RD/RC files have instances that do not (nist_ctc_01_asme1_rd: '#14 cc_design_approval ... #84 is product_definition, not an entity type of SELECT approved_item'), so the write is refused naming them (WriteError::Refused). Python re-exports the geometry through OpenCascade as AP242DIS, so its file claims a schema its instances need not satisfy."
+ },
+ {
+  "case": "scenarios/datums_nist_scheme_round_trips",
+  "path": "write",
+  "pattern": "an AP203 file that cannot become AP242, refused with its instances named",
+  "verdict": "rust-correct",
+  "evidence": "The scenario writes corpus nist_ctc_03_asme1_rc, an AP203 file whose instances do not all validate against AP242 (haecceity decision 1); refused naming them, as the corpus case."
+ },
+ {
+  "case": "corpus/*",
+  "path": "resume[python did not resume]",
+  "pattern": "answers stored by Python that Python cannot resume",
+  "verdict": "rust-correct",
+  "evidence": "Python stores the answers with a fingerprint of the input's faces, then re-exports the geometry through OpenCascade, whose centroids' zero components change sign; its fingerprint of the file it wrote no longer matches (checked: flanged_spool_132, stored f39f4952..., Python's fingerprint of its output c8eb6e8e..., no rounded centroid differs). The Rust writer keeps every geometry byte, so its fingerprint matches and the answers resume."
+ },
+ {
+  "case": "parts/*",
+  "path": "python_written.resume",
+  "pattern": "a Python-written file does not resume in the Rust engine",
+  "verdict": "undetermined",
+  "evidence": "The payload is read (tests/resume.rs pythons_stored_answers_are_read) and its face count matches, but Python's fingerprint hashes OpenCascade's centroids, whose zero components carry other signs than haecceity's (plate: Python [-50.0, -0.0, -0.0], Rust [-50.0, -0.0, 0.0]; equal numbers, tests/resume.rs a_python_fingerprint_differs_only_in_signs_of_zero). The Rust engine cannot verify the faces, so it does not resume (the file is analysed with its PMI as its own). Question Q14."
+ },
+ {
+  "case": "tests/test_requirements.py::test_sentences_are_in_the_form_draftwright_reads",
+  "path": "not ported",
+  "pattern": "an assertion on Python's text route or drawing, not ported",
+  "verdict": "not-applicable",
+  "evidence": "Python's own text route ('manufacturing requirement' sentences, leaders) or its own datum symbol lettering, which haecceity does not write (decisions 5 and 6 of docs/step-ap242.md); the semantic content each test also checks is ported in tests/writer.rs."
+ },
+ {
+  "case": "tests/test_requirements.py::test_sentences_claim_only_what_is_known",
+  "path": "not ported",
+  "pattern": "an assertion on Python's text route or drawing, not ported",
+  "verdict": "not-applicable",
+  "evidence": "Python's own text route ('manufacturing requirement' sentences, leaders) or its own datum symbol lettering, which haecceity does not write (decisions 5 and 6 of docs/step-ap242.md); the semantic content each test also checks is ported in tests/writer.rs."
+ },
+ {
+  "case": "tests/test_requirements.py::test_the_text_route_and_its_callouts",
+  "path": "not ported",
+  "pattern": "an assertion on Python's text route or drawing, not ported",
+  "verdict": "not-applicable",
+  "evidence": "Python's own text route ('manufacturing requirement' sentences, leaders) or its own datum symbol lettering, which haecceity does not write (decisions 5 and 6 of docs/step-ap242.md); the semantic content each test also checks is ported in tests/writer.rs."
+ },
+ {
+  "case": "tests/test_requirements.py::test_verification_notices_a_missing_requirement",
+  "path": "not ported",
+  "pattern": "an assertion on Python's text route or drawing, not ported",
+  "verdict": "not-applicable",
+  "evidence": "Python's own text route ('manufacturing requirement' sentences, leaders) or its own datum symbol lettering, which haecceity does not write (decisions 5 and 6 of docs/step-ap242.md); the semantic content each test also checks is ported in tests/writer.rs."
+ },
+ {
+  "case": "tests/test_requirements.py::test_the_default_finish_is_in_the_form_draftwright_draws",
+  "path": "not ported",
+  "pattern": "an assertion on Python's text route or drawing, not ported",
+  "verdict": "not-applicable",
+  "evidence": "Python's own text route ('manufacturing requirement' sentences, leaders) or its own datum symbol lettering, which haecceity does not write (decisions 5 and 6 of docs/step-ap242.md); the semantic content each test also checks is ported in tests/writer.rs."
+ },
+ {
+  "case": "tests/test_threads.py::test_a_typed_thread_depth_is_written_and_read_back",
+  "path": "not ported",
+  "pattern": "an assertion on Python's text route or drawing, not ported",
+  "verdict": "not-applicable",
+  "evidence": "Python's own text route ('manufacturing requirement' sentences, leaders) or its own datum symbol lettering, which haecceity does not write (decisions 5 and 6 of docs/step-ap242.md); the semantic content each test also checks is ported in tests/writer.rs."
+ },
+ {
+  "case": "tests/test_mmc_finish_notes.py::test_a_face_finish_is_written_on_its_face",
+  "path": "not ported",
+  "pattern": "an assertion on Python's text route or drawing, not ported",
+  "verdict": "not-applicable",
+  "evidence": "Python's own text route ('manufacturing requirement' sentences, leaders) or its own datum symbol lettering, which haecceity does not write (decisions 5 and 6 of docs/step-ap242.md); the semantic content each test also checks is ported in tests/writer.rs."
+ },
+ {
+  "case": "tests/test_conformance.py::test_callout_presentation_is_named",
+  "path": "not ported",
+  "pattern": "an assertion on Python's text route or drawing, not ported",
+  "verdict": "not-applicable",
+  "evidence": "Python's own text route ('manufacturing requirement' sentences, leaders) or its own datum symbol lettering, which haecceity does not write (decisions 5 and 6 of docs/step-ap242.md); the semantic content each test also checks is ported in tests/writer.rs."
+ },
+ {
+  "case": "tests/test_drawn.py::test_a_note_is_its_leader_and_no_words",
+  "path": "not ported",
+  "pattern": "an assertion on Python's text route or drawing, not ported",
+  "verdict": "not-applicable",
+  "evidence": "Python's own text route ('manufacturing requirement' sentences, leaders) or its own datum symbol lettering, which haecceity does not write (decisions 5 and 6 of docs/step-ap242.md); the semantic content each test also checks is ported in tests/writer.rs."
+ },
+ {
+  "case": "tests/test_drawn.py::test_letters_are_strokes_scaled_to_their_height",
+  "path": "not ported",
+  "pattern": "an assertion on Python's text route or drawing, not ported",
+  "verdict": "not-applicable",
+  "evidence": "Python's own text route ('manufacturing requirement' sentences, leaders) or its own datum symbol lettering, which haecceity does not write (decisions 5 and 6 of docs/step-ap242.md); the semantic content each test also checks is ported in tests/writer.rs."
+ }
+]

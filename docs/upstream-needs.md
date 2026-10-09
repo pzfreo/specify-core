@@ -270,3 +270,63 @@ which the mesh lists in `missing` (known differences `mesh.json`, verdict rust-w
 
 **Met when** `uv_loops` gives simple, continuous loops on these faces (routing degenerate
 corners along their parameter lines, as poles are), or U4 is met.
+
+## U14. Replace of a thread haecceity wrote, and the thread's runout aspect (writer stream)
+
+**Missing.** Two gaps in haecceity at a16d7af that meet whenever a file haecceity wrote with a
+`thread` is written again by `Mode::Replace` (every resumed specify-core file with a tapped hole
+or a turned thread):
+
+- `pmi::read` lists among the part's consumed instances the `product_definition_shape` of the
+  thread's feature definition (the 'applied shape' construct, thread WR13), and the removal plan
+  (`removal.rs`) refuses any `product_definition_shape` seed as shared infrastructure, so
+  `pmi::write(.., Mode::Replace, ..)` fails: "removal refused (RemovePresentation); seed #355
+  product_definition_shape is shared infrastructure" (pin with an internal thread, written then
+  rewritten; `tests/resume.rs`
+  `a_written_file_resumes_its_answers_and_is_rewritten_not_added_to`).
+- The bare 'thread runout' `shape_aspect` thread WR16 requires is not consumed by the reader
+  (docs/step-ap242.md, "Reader gaps the writer found"), so after a write `pmi::read` reports it
+  as an unconsumed finding, and a replace's removal plan finds it blocking (it references the
+  feature definition's shape).
+
+**Used by.** `writer.rs` (`verify`, and every replace of a part with a thread).
+
+**Stand-in.** `writer::verify` passes over a new unconsumed-`shape_aspect` finding only when it
+is an instance the edit added and is exactly a `SHAPE_ASPECT` described 'thread runout'
+(haecceity's own tests make the same exception). When a replace is refused only because of such
+feature-definition shapes (none a part's own shape, nothing else blocking), `writer::clear`
+removes the part's PMI first in a scratch copy: the refused `product_definition_shape`s are
+restated as the `property_definition` they are a subtype of (only in the copy; they are removed,
+so the restatement never reaches the file), `removal::plan` runs over the part's provenance as
+the writer runs it (presentation it would empty goes too; the bare runout aspects are added),
+and the replace is then made on the cleared copy. Anything else that blocks refuses the write,
+naming it. The output is verified as any replace is (exactly the items written; no consumed
+instance survives, compared by its text, since what is added is numbered from the cleared
+file's largest id).
+
+**Met when** the reader consumes the runout aspect with its thread, and a replace (and remove)
+of a part with a thread haecceity wrote succeeds (the removal plan takes a feature definition's
+`product_definition_shape` that only the removed PMI uses).
+
+## U15. Files haecceity writes with datum symbols crash OpenCascade's STEP reader (writer stream)
+
+**Found.** specify-core (Python, OpenCascade 7.9 in its venv) dies with SIGSEGV (exit 139) in
+`load.load` (`STEPCAFControl_Reader`, with and without GD&T mode) on any file haecceity wrote
+with a datum: the plate with only its three datums written crashes, the plate with only a
+material, a thread, a location, a size or a general tolerance does not. Bisected on the Rust
+writer's output: removing the one `MECHANICAL_DESIGN_AND_DRAUGHTING_RELATIONSHIP('','',#shape
+representation,#draughting model)` that relates the datum feature symbols' `DRAUGHTING_MODEL` to
+the part's shape representation makes the file load; removing the three
+`DRAUGHTING_MODEL_ITEM_ASSOCIATION`s instead does not. (docs/step-ap242.md reports OpenCascade
+reading the written files through `tools/check_pmi_occt.py`; specify-core's reader does not.)
+
+**Used by.** Nothing here reads with OpenCascade; it matters to stage 4's cross-engine check
+(Python reading Rust-written files) and to anything OpenCascade-based opening the output
+(Draftwright's Python side). Question Q16.
+
+**Stand-in.** None: the writer writes what haecceity writes (decision 6, the symbols) and the
+file is valid AP242 (every written file passes `express::validate_document` and
+`express_rules::check_all` in `tests/writer.rs`).
+
+**Met when** OpenCascade 7.9's reader loads a haecceity-written file with datum symbols (or
+haecceity relates the draughting model in a form it reads).

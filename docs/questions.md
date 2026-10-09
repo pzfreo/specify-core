@@ -105,3 +105,59 @@ its transfer reorders this shell, a file the corpus keeps as one to refuse), or 
 be detected and marked so a cross-engine analysis is refused? *Meanwhile:* the file order is kept,
 and the mesh sweep checks every case's numbering against the oracle analysis, so any other file
 where the orders differ fails the sweep until it has an entry.
+
+**Q14 (writer stream). Resuming across engines.** A file specify-core (Python) wrote does not
+resume in the Rust engine, nor the reverse: the stored fingerprint hashes
+`json.dumps([(kind, [round(c, 3) ...])])`, whose text keeps the sign of a zero, and a zero
+centroid component is integration noise whose sign OpenCascade and haecceity give differently
+(the plate: Python `[-50.0, -0.0, -0.0]`, Rust `[-50.0, -0.0, 0.0]`; the numbers are equal,
+`tests/resume.rs` `a_python_fingerprint_differs_only_in_signs_of_zero`). The stored item itself
+crosses: Python's `resume.stored` reads the Rust writer's payload (checked on the Rust-written
+plate with only its material written, as the plate with datums crashes OpenCascade, Q16), and
+`answers_for` then refuses it on the fingerprint (Python's `6794223e...`, stored `39a96723...`).
+Python cannot resume its own corpus outputs either, for the same reason (its rewrite moves
+OpenCascade's noise: `flanged_spool_132`, 0 centroids differ when rounded, the hashes differ).
+The Rust writer keeps the geometry's bytes, so its own files resume. *Meanwhile:* the fingerprint is Python's exactly;
+a Python-written file is analysed with its PMI as the file's own (no resume), and written by add
+mode. Options: (a) a schema 2 payload whose fingerprint writes zeros unsigned (`0.0`), in both
+engines (specify-core's Python changes too); (b) accept a payload on its face count alone when the
+hash does not match (weaker: answers could be resumed onto changed geometry); (c) keep as is.
+
+**Q15 (writer stream). Straight knurls too (extends Q4).** AP242's `turned_knurl` WR2 requires
+six to nine parameters: the major and nominal diameters, the diametral pitch and at least three
+of the number of teeth, tooth depth, root fillet, helix angle and hand (haecceity refuses a knurl
+with three). The intent of a straight knurl has the diameter and pitch only. *Meanwhile:* every
+knurl, straight or diamond, is in `not_written` with that reason. Should the intent gain those
+parameters (e.g. the number of teeth from the diameter and pitch, a tooth depth and root fillet
+from a knurling standard), or knurls stay unwritten until haecceity has a form for them?
+
+**Q16 (writer stream). Files OpenCascade cannot open (upstream need U15).** Every file the Rust
+engine writes with a datum crashes OpenCascade 7.9's STEP reader (specify-core's Python, and so
+anything OpenCascade-based downstream), because of the `MECHANICAL_DESIGN_AND_DRAUGHTING_
+RELATIONSHIP` relating haecceity's datum symbols to the part. *Meanwhile:* written as haecceity
+writes it (valid AP242). Should the writer leave out the datum symbols (or that relationship)
+until haecceity or OpenCascade is fixed, so Draftwright's OpenCascade side can open the files?
+
+**Q17 (writer stream). Requirements on no faces.** On 26 corpus parts (25 mfcadpp and cadgenbench
+cgb217) specify-core's rules (both engines, from Python's analysis) give a hole's size,
+locations and position with `faces: []` (holes whose bores are not cylinders the rules keep).
+Python's write then fails inside OpenCascade ("StepShape_DimensionalLocation: Null Reference",
+or "expected one B-rep representation"); the Rust writer refuses the write as invalid, naming
+the item ("the size on holes:16 names no faces"). *Meanwhile:* refused, nothing written. Should
+the writer instead write the rest and list such items in `not_written`, or should the rules not
+make them?
+
+**Q18 (writer stream). Two write-mode choices that differ from docs/design.md or from Python.**
+(a) A bare part is written by `Mode::Replace`, not `Mode::Add` as design.md's "Write modes"
+says. For a part with no PMI the two give the same file; they differ only where the part
+carries Python's form of stored answers that do not resume (haecceity reads them as not
+modelled, so the part looks bare): Replace removes them and stores the new answers, Add would
+keep them beside the new ones, leaving two answer sets. Python writes a bare file from its
+geometry alone (`writer.py`: `if bare or resumed`), which also drops them, so Replace is
+Python's behaviour. *Meanwhile:* Replace (src/writer.rs, `write_verified`). Should design.md
+say so? (b) In add mode (a part with PMI from elsewhere), a material or general tolerance the
+part already states is not written again when equal (a warning says so) and the write is
+refused when different ("the part already states material X; adding Y would give it two").
+Python's merge transplants its new material beside the file's (merge.py, `materials`), so the
+part then states two. *Meanwhile:* refused, as add mode cannot replace the file's own item and
+two would contradict each other. Keep the refusal, or write the second one as Python does?
