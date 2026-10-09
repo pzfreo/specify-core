@@ -18,8 +18,9 @@
 //! kept. Exit 2 with `incomplete: ...`, `invalid answer: ...` or `cannot write: ...` on stderr
 //! (in an assembly prefixed `part K: `), or with argparse's usage and error lines for bad
 //! arguments (the same texts); exit 1 with `write failed, OUT left as it was: ...` when a write
-//! does not verify. Arguments are parsed by hand, as argparse parses them, except that
-//! positionals may be split by options anywhere (argparse stops a `+` list at the first option).
+//! does not verify. Arguments are parsed by hand, as argparse parses them (including its rule
+//! that positionals are matched a run at a time between options, so `write S A B -o OUT C D`
+//! leaves `C D` unrecognised).
 //!
 //! Where Python fails with an uncaught exception (a file that cannot be read or loaded, an
 //! output that cannot be written) it exits 1 with a traceback; this exits 1 with `error:` and
@@ -232,6 +233,33 @@ enum Parsed {
     Help(&'static str),
 }
 
+/// Python's `repr` of a string, as argparse quotes a value in its messages (`'1'`, or `"it's"`
+/// when the text has a single quote and no double one).
+fn py_repr(text: &str) -> String {
+    let quote = if text.contains('\'') && !text.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut out = String::from(quote);
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c == quote => {
+                out.push('\\');
+                out.push(c);
+            }
+            c if c.is_control() => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push(quote);
+    out
+}
+
 /// Whether argparse would take `arg` for an option rather than a value (its negative-number
 /// rule: no option here looks like a number, so `-1` is a value).
 fn looks_like_option(arg: &str) -> bool {
@@ -280,29 +308,44 @@ fn parse(argv: &[String]) -> Result<Parsed, Exit> {
     let prog = format!("{PROG} {}", command.name);
     let fail = |message: String| Exit::usage(usage, &prog, &message);
     let mut args = Args::default();
-    let mut unrecognised: Vec<String> = Vec::new();
-    let mut rest = argv[1..].iter();
+    // Arguments argparse would not take, with their place in `argv` so they are reported in
+    // order; and the positionals, each with the run (between options) it was given in.
+    let mut unrecognised: Vec<(usize, String)> = Vec::new();
+    let mut given: Vec<(usize, usize, String)> = Vec::new();
+    let mut run = 0;
+    let mut rest = argv[1..].iter().enumerate();
     let mut only_positionals = false;
-    while let Some(arg) = rest.next() {
+    while let Some((at, arg)) = rest.next() {
         if only_positionals || !looks_like_option(arg) {
-            args.positionals.push(arg.clone());
+            given.push((run, at, arg.clone()));
             continue;
         }
         if arg == "--" {
             only_positionals = true;
             continue;
         }
-        // `--name=value`, `--name value`, `-o value`, `-ovalue`; a long name may be shortened
-        // to any prefix only it has, as argparse allows.
+        run += 1;
+        // `--name=value`, `--name value`, `-o value`, `-o=value`, `-ovalue`; a long name may be
+        // shortened to any prefix only it has, as argparse allows. A short option is its first
+        // two characters (not bytes: `-é` is an unknown option, not a panic).
         let (name, attached) = if arg.starts_with("--") {
             match arg.split_once('=') {
                 Some((n, v)) => (n.to_string(), Some(v.to_string())),
                 None => (arg.clone(), None),
             }
-        } else if arg.len() > 2 {
-            (arg[..2].to_string(), Some(arg[2..].to_string()))
         } else {
-            (arg.clone(), None)
+            match arg.char_indices().nth(2) {
+                Some((cut, _)) => {
+                    let (n, v) = arg.split_at(cut);
+                    // argparse splits `-o=value` at the `=` when `-o` is an option.
+                    let v = match v.strip_prefix('=') {
+                        Some(after) if command.options.iter().any(|o| o.0 == Some(n)) => after,
+                        _ => v,
+                    };
+                    (n.to_string(), Some(v.to_string()))
+                }
+                None => (arg.clone(), None),
+            }
         };
         // `-h`, or `--help` (or a prefix of it no other option has): the help, at once.
         let help = name == "-h"
@@ -331,7 +374,7 @@ fn parse(argv: &[String]) -> Result<Parsed, Exit> {
         let option = match matches.as_slice() {
             [one] => **one,
             [] => {
-                unrecognised.push(arg.clone());
+                unrecognised.push((at, arg.clone()));
                 continue;
             }
             many => {
@@ -349,14 +392,17 @@ fn parse(argv: &[String]) -> Result<Parsed, Exit> {
         };
         if !takes_value {
             if attached.is_some() {
-                return Err(fail(format!("argument {shown}: ignored explicit argument")));
+                return Err(fail(format!(
+                    "argument {shown}: ignored explicit argument {}",
+                    py_repr(&attached.unwrap_or_default())
+                )));
             }
             args.values.push((long, None));
             continue;
         }
         let value = match attached {
             Some(v) => v,
-            None => match rest.as_slice().first() {
+            None => match rest.clone().next().map(|(_, next)| next) {
                 Some(next) if !looks_like_option(next) => {
                     rest.next();
                     next.clone()
@@ -366,23 +412,33 @@ fn parse(argv: &[String]) -> Result<Parsed, Exit> {
         };
         if long == "--part" && value.trim().parse::<i64>().is_err() {
             return Err(fail(format!(
-                "argument --part: invalid int value: '{value}'"
+                "argument --part: invalid int value: {}",
+                py_repr(&value)
             )));
         }
         args.values.push((long, Some(value)));
     }
-    // Positionals: one each, the last that takes several taking the rest.
+    // Positionals, as argparse matches them: each run between options fills as many of the
+    // positionals still unfilled as it can (one each, one that takes several taking the rest of
+    // the run, so it never continues past an option); what a run has left over is unrecognised.
+    let mut wanted = command.positionals.iter().peekable();
     let mut missing: Vec<String> = Vec::new();
-    let mut given = args.positionals.len();
-    for &(name, several) in command.positionals {
-        if given == 0 {
-            missing.push(name.to_string());
-        } else if several {
-            given = 0;
-        } else {
-            given -= 1;
+    let mut given = given.into_iter().peekable();
+    while let Some(&(this_run, _, _)) = given.peek() {
+        while let Some((_, at, value)) = given.next_if(|g| g.0 == this_run) {
+            match wanted.peek() {
+                None => unrecognised.push((at, value)),
+                Some(&&(_, several)) => {
+                    args.positionals.push(value);
+                    // One that takes several is filled once its run ends.
+                    if !several || given.peek().is_none_or(|g| g.0 != this_run) {
+                        wanted.next();
+                    }
+                }
+            }
         }
     }
+    missing.extend(wanted.map(|&(name, _)| name.to_string()));
     for &(short, long, _, required) in command.options {
         if required && !args.flag(long) {
             missing.push(match short {
@@ -397,11 +453,9 @@ fn parse(argv: &[String]) -> Result<Parsed, Exit> {
             missing.join(", ")
         )));
     }
-    if given > 0 {
-        let extra = args.positionals.split_off(args.positionals.len() - given);
-        unrecognised.extend(extra);
-    }
     if !unrecognised.is_empty() {
+        unrecognised.sort();
+        let unrecognised: Vec<String> = unrecognised.into_iter().map(|(_, a)| a).collect();
         return Err(Exit::usage(
             top,
             PROG,

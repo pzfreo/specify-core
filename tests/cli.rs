@@ -1388,6 +1388,59 @@ fn exit_codes_say_what_happened() {
 /// Non-ASCII is escaped in the files (as Python's `json.dumps` writes them) and kept on stdout
 /// (Python's `ensure_ascii=False`): the plate's interpret call-out has `×` and `⌀`, and the
 /// questions' prompts and the intent's general tolerance have `±`.
+/// argparse corners no captured case covers, each with the exit code and last stderr line
+/// Python 3.14's argparse gives (checked by hand against the venv's `specify_core.cli`).
+#[test]
+fn arguments_are_parsed_as_argparse_parses_them() {
+    let dir = scratch("argparse");
+    let pin = "tests/fixtures/parts/pin.step";
+    let mesh = s(&dir.join("m.json"));
+    let cases: &[(&[&str], i32, &str)] = &[
+        // A short option is its first two characters, not bytes (an en dash, a non-ASCII letter).
+        (
+            &["analyse", pin, "-\u{2013}output", "x.json"],
+            2,
+            "specify-core analyse: error: the following arguments are required: -o/--output",
+        ),
+        (
+            &["analyse", "-\u{e9}"],
+            2,
+            "specify-core analyse: error: the following arguments are required: step, -o/--output",
+        ),
+        // A value given to a flag is quoted as Python's repr quotes it.
+        (
+            &["write", "a", "b", "c", "--accept-defaults=1", "-o", "x"],
+            2,
+            "specify-core write: error: argument --accept-defaults: ignored explicit argument '1'",
+        ),
+        // Positionals are matched a run at a time between options.
+        (
+            &["write", "S", "a", "b", "-o", "OUT", "c", "d"],
+            2,
+            "specify-core: error: unrecognized arguments: c d",
+        ),
+        (
+            &["write", "S", "a", "-o", "OUT", "b"],
+            2,
+            "specify-core: error: unrecognized arguments: b",
+        ),
+        (
+            &["write", "S", "-o", "OUT", "a", "b", "--", "c"],
+            2,
+            "specify-core: error: write takes an analysis and its answers for each part",
+        ),
+    ];
+    for (args, code, last) in cases {
+        let got = run(args);
+        assert_eq!(got.code, *code, "{args:?}: {}", got.stderr);
+        assert_eq!(got.stderr.lines().last(), Some(*last), "{args:?}");
+    }
+    // `-o=VALUE` is `-o VALUE`, as argparse splits a short option at `=`.
+    let got = run(&["mesh", pin, &format!("-o={mesh}")]);
+    assert_eq!(got.code, 0, "{}", got.stderr);
+    assert!(dir.join("m.json").is_file());
+}
+
 #[test]
 fn files_escape_non_ascii_and_stdout_keeps_it() {
     let dir = scratch("ascii");
