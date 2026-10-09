@@ -5,7 +5,8 @@
 //! answers back, and writing it again replaces its PMI rather than adding to it. The payload is
 //! Python's: `{schema, answers, part, face_count, faces}` as compact JSON, base64-encoded (a
 //! Part 21 string then needs no escapes), `faces` being a [`fingerprint`] of the part's faces
-//! that is checked before any answer is trusted.
+//! that is checked before any answer is trusted. Schema 2 is written (zeros unsigned in the
+//! fingerprint, question Q14); schema 1 is still read.
 //!
 //! **Where it is stored.** Python appends its own text: `PROPERTY_DEFINITION('pmi-assist
 //! answers','schema 1',#pd)` with a representation holding one
@@ -34,34 +35,84 @@ use crate::part::LoadedPart;
 use crate::pyfmt::round_half_even;
 use crate::pyjson;
 
-/// The payload's schema; a payload of any other is ignored, as Python ignores it.
-pub const SCHEMA: i64 = 1;
+/// The payload's schema as written: 2, whose fingerprint writes zeros unsigned
+/// ([`fingerprint`]). A payload of schema 1 (Python's, and this port's before schema 2) is
+/// still read and resumed when its own fingerprint matches; one of any other schema is ignored,
+/// as Python ignores it.
+pub const SCHEMA: i64 = 2;
+
+/// The schemas read: 1 (fingerprint with zeros' signs kept) and 2 (zeros unsigned).
+pub const SCHEMAS: [i64; 2] = [1, SCHEMA];
 
 /// The name of the stored item (and of the attribute set holding it): Python's, kept from
 /// before specify-core was renamed so that older files still resume.
 pub const NAME: &str = "pmi-assist answers";
 
-/// The faces in order, by kind and centroid rounded to 3 decimals: what answers refer to.
-/// Python's `sha256(json.dumps([(kind, [round(c, 3) for c in centroid]) ...]))`, the JSON text
-/// exactly as Python writes it (`pyjson::dumps`), so either engine's fingerprint of the same
-/// faces is the same.
+/// The faces in order, by kind and centroid rounded to 3 decimals: what answers refer to, as
+/// schema 2 hashes them ([`fingerprint_of`]). The fingerprint written.
 pub fn fingerprint(loaded: &LoadedPart) -> Result<String, FeatureError> {
-    let faces: Vec<Value> = describe_faces(loaded)?
-        .iter()
-        .map(|f| {
-            let centroid: Vec<Value> = f
-                .centroid
-                .iter()
-                .map(|&c| json!(round_half_even(c, 3)))
-                .collect();
-            json!([f.kind, centroid])
-        })
-        .collect();
-    let text = pyjson::dumps(&Value::Array(faces));
-    Ok(Sha256::digest(text.as_bytes())
+    Ok(fingerprint_of(&rounded_faces(loaded)?, SCHEMA))
+}
+
+/// Schema 1's fingerprint of the faces (Python's `resume.fingerprint` before schema 2): the
+/// one a schema 1 payload is checked against.
+pub fn fingerprint_v1(loaded: &LoadedPart) -> Result<String, FeatureError> {
+    Ok(fingerprint_of(&rounded_faces(loaded)?, 1))
+}
+
+/// The faces as `[kind, [x, y, z]]`, each centroid component rounded to 3 decimals (Python's
+/// `round(c, 3)`, half to even), in face order.
+fn rounded_faces(loaded: &LoadedPart) -> Result<Value, FeatureError> {
+    Ok(Value::Array(
+        describe_faces(loaded)?
+            .iter()
+            .map(|f| {
+                let centroid: Vec<Value> = f
+                    .centroid
+                    .iter()
+                    .map(|&c| json!(round_half_even(c, 3)))
+                    .collect();
+                json!([f.kind, centroid])
+            })
+            .collect(),
+    ))
+}
+
+/// The fingerprint, of `schema`, of `faces` given as `[kind, [x, y, z]]` with each component
+/// already rounded to 3 decimals: the lowercase hex sha256 of the UTF-8 text Python's
+/// `json.dumps(faces)` writes (`pyjson::dumps`: `", "` and `": "` separators, floats by
+/// `float.__repr__`). Schema 1 hashes the components as they are, so a zero keeps its sign
+/// (`-0.0`), which is integration noise; schema 2 first writes every zero unsigned (`0.0`), so
+/// either engine's fingerprint of the same faces is the same (docs/design.md, "The
+/// fingerprint").
+pub fn fingerprint_of(faces: &Value, schema: i64) -> String {
+    let unsigned = |v: &Value| match v.as_f64() {
+        // A float pattern compares by `==`, so -0.0 matches too.
+        Some(0.0) => json!(0.0),
+        _ => v.clone(),
+    };
+    let faces: Value = if schema >= 2 {
+        faces
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|f| {
+                let centroid: Vec<Value> = f[1]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(unsigned)
+                    .collect();
+                json!([f[0], centroid])
+            })
+            .collect()
+    } else {
+        faces.clone()
+    };
+    Sha256::digest(pyjson::dumps(&faces).as_bytes())
         .iter()
         .map(|b| format!("{b:02x}"))
-        .collect())
+        .collect()
 }
 
 /// The payload Python's `embed` stores for `answers` given for `loaded`, in its key order.
@@ -99,10 +150,10 @@ pub fn is_answers(set: &AttributeSet) -> bool {
 
 /// Every part's stored answers in the STEP text `bytes`, by part (Python's `stored`): each
 /// `DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist answers', ...)`, in file order, whose string
-/// is base64 of a JSON object of [`SCHEMA`] with an `answers` object. The first for a part is
-/// kept; answers saved before parts were told apart are part 0's. Anything else (not base64,
-/// not JSON, another schema, a part that is not an integer) is passed over, as Python passes
-/// it over. A file that does not parse as Part 21 stores nothing.
+/// is base64 of a JSON object of one of [`SCHEMAS`] with an `answers` object. The first for a
+/// part is kept; answers saved before parts were told apart are part 0's. Anything else (not
+/// base64, not JSON, another schema, a part that is not an integer) is passed over, as Python
+/// passes it over. A file that does not parse as Part 21 stores nothing.
 pub fn stored(bytes: &[u8]) -> BTreeMap<usize, Map<String, Value>> {
     let mut out = BTreeMap::new();
     let Ok(doc) = Document::parse(bytes.to_vec()) else {
@@ -152,7 +203,7 @@ fn items_in_file_order(doc: &Document) -> Vec<u64> {
 }
 
 /// A stored string's payload, if it is one: base64 (the characters Python's pattern allows,
-/// strictly decoded) of a JSON object of [`SCHEMA`] whose `answers` is an object.
+/// strictly decoded) of a JSON object of one of [`SCHEMAS`] whose `answers` is an object.
 fn decode(text: &str) -> Option<Map<String, Value>> {
     if !text
         .bytes()
@@ -164,17 +215,24 @@ fn decode(text: &str) -> Option<Map<String, Value>> {
     let Value::Object(payload) = serde_json::from_slice::<Value>(&raw).ok()? else {
         return None;
     };
-    // Python compares with ==, so 1.0 (and True) are schema 1 too.
-    let schema_one = match payload.get("schema") {
-        Some(Value::Number(n)) => n.as_f64() == Some(SCHEMA as f64),
-        Some(Value::Bool(b)) => *b,
-        _ => false,
+    (schema_of(&payload).is_some() && payload.get("answers").is_some_and(Value::is_object))
+        .then_some(payload)
+}
+
+/// Which of [`SCHEMAS`] a payload is, compared as Python's `==` compares (so `1.0`, and `true`
+/// as 1, are schema 1); `None` for any other.
+fn schema_of(payload: &Map<String, Value>) -> Option<i64> {
+    let n = match payload.get("schema") {
+        Some(Value::Number(n)) => n.as_f64()?,
+        Some(Value::Bool(b)) => f64::from(u8::from(*b)),
+        _ => return None,
     };
-    (schema_one && payload.get("answers").is_some_and(Value::is_object)).then_some(payload)
+    SCHEMAS.into_iter().find(|&s| s as f64 == n)
 }
 
 /// The stored answers for this part, if the file holds them for it and its faces are the ones
-/// they were given for (same face count, same [`fingerprint`]); `None` otherwise. An error when
+/// they were given for (same face count, same fingerprint of the payload's schema: [`fingerprint`]
+/// for 2, [`fingerprint_v1`] for 1); `None` otherwise. An error when
 /// the part's faces cannot be described, so the fingerprint cannot be checked.
 pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, FeatureError> {
     let Some(payload) = stored(&loaded.bytes).remove(&loaded.binding.part) else {
@@ -183,7 +241,10 @@ pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, Fe
     if payload.get("face_count") != Some(&json!(loaded.binding.face_count)) {
         return Ok(None);
     }
-    if payload.get("faces") != Some(&Value::String(fingerprint(loaded)?)) {
+    // A payload of either schema, checked against that schema's fingerprint.
+    let schema = schema_of(&payload).unwrap_or(SCHEMA);
+    let faces = fingerprint_of(&rounded_faces(loaded)?, schema);
+    if payload.get("faces") != Some(&Value::String(faces)) {
         return Ok(None);
     }
     Ok(payload.get("answers").and_then(Value::as_object).cloned())
@@ -205,9 +266,40 @@ mod tests {
     }
 
     #[test]
+    fn schema_two_writes_zeros_unsigned_and_schema_one_keeps_their_signs() {
+        let signed = json!([
+            ["plane", [-50.0, -0.0, 0.0]],
+            ["cylinder", [1e16, 0.5, -1.25]]
+        ]);
+        let unsigned = json!([
+            ["plane", [-50.0, 0.0, 0.0]],
+            ["cylinder", [1e16, 0.5, -1.25]]
+        ]);
+        let sha = |t: &str| -> String {
+            Sha256::digest(t.as_bytes())
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect()
+        };
+        assert_eq!(
+            fingerprint_of(&signed, 2),
+            sha(r#"[["plane", [-50.0, 0.0, 0.0]], ["cylinder", [1e+16, 0.5, -1.25]]]"#)
+        );
+        assert_eq!(fingerprint_of(&signed, 2), fingerprint_of(&unsigned, 2));
+        assert_eq!(
+            fingerprint_of(&signed, 1),
+            sha(r#"[["plane", [-50.0, -0.0, 0.0]], ["cylinder", [1e+16, 0.5, -1.25]]]"#)
+        );
+        assert_ne!(fingerprint_of(&signed, 1), fingerprint_of(&unsigned, 1));
+    }
+
+    #[test]
     fn what_is_not_a_payload_is_passed_over() {
         assert!(decode("not base64!").is_none());
-        assert!(decode(&STANDARD.encode(r#"{"schema":2,"answers":{}}"#)).is_none());
+        assert!(decode(&STANDARD.encode(r#"{"schema":3,"answers":{}}"#)).is_none());
+        assert!(decode(&STANDARD.encode(r#"{"schema":2,"answers":{}}"#)).is_some());
+        assert!(decode(&STANDARD.encode(r#"{"schema":2.0,"answers":{}}"#)).is_some());
+        assert!(decode(&STANDARD.encode(r#"{"schema":"2","answers":{}}"#)).is_none());
         assert!(decode(&STANDARD.encode(r#"{"schema":1,"answers":[]}"#)).is_none());
         assert!(decode(&STANDARD.encode(r#"[1]"#)).is_none());
         assert!(decode(&STANDARD.encode(r#"{"schema":1.0,"answers":{}}"#)).is_some());

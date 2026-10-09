@@ -19,6 +19,9 @@
 //!   reason is part of the difference's path.
 //! - (c) Each file Python wrote (`tests/fixtures/oracle/**/written.step.gz`) read and resumed
 //!   by the Rust engine, against Python's own read-back of it (`readback.json.gz`).
+//! - (d) `schema_two_fingerprints_are_the_same_in_both_engines`: on every part of those files,
+//!   the stored-answer schema 2 fingerprint computed in Python from Python's faces equals this
+//!   engine's (Q14).
 //!
 //! Differences in how the two readers read a file's own PMI (NIST's, in (b); and in (c) the
 //! presentation of specify-core's own callouts) are the existing-PMI area's
@@ -41,7 +44,7 @@ use specify_core::existing::{part_settings, read_existing};
 use specify_core::features::describe_faces;
 use specify_core::part::{LoadedPart, load};
 use specify_core::pyfmt::round_half_even;
-use specify_core::resume::{answers_for, fingerprint, stored};
+use specify_core::resume::{answers_for, fingerprint, fingerprint_v1, stored};
 use write_fixtures::common::{
     self, Difference, Tolerances, cases, check_known, compare, explained, is_error,
 };
@@ -455,18 +458,37 @@ fn python_resume_failure(step: &Path, k: usize, count: usize, evidence: Option<&
         return "the Rust engine cannot load the part".into();
     };
     let python_stored = &evidence["stored"];
-    if python_stored.is_null() {
-        return "Python's pattern finds no answers stored".into();
-    }
-    // What Python found must be what this engine stored (and reads back).
+    // What this engine stored (and reads back).
     let ours = stored(&loaded.bytes).remove(&k).map(Value::Object);
+    if python_stored.is_null() {
+        // A specify-core that reads schema 1 only passes a schema 2 payload over (Q14).
+        let Some(ours) = ours.filter(|p| p["schema"] == json!(2)) else {
+            return "Python's pattern finds no answers stored".into();
+        };
+        if evidence["schema"] != json!(1) {
+            return "Python passed over a schema 2 payload, though it writes schema 2".into();
+        }
+        if ours["faces"] != evidence["fingerprint_v2"] {
+            return "the stored payload is schema 2, which this specify-core does not read, \
+                    and Python's faces do not give its fingerprint"
+                .into();
+        }
+        return "the stored payload is schema 2, which this specify-core does not read; \
+                Python's faces give its fingerprint"
+            .into();
+    }
     if ours.as_ref() != Some(python_stored) {
         return "Python found a payload other than the one stored".into();
     }
     if python_stored["face_count"] != evidence["face_count"] {
         return "face count differs".into();
     }
-    if python_stored["faces"] != json!(fingerprint(&loaded).unwrap_or_default()) {
+    let ours_now = if python_stored["schema"] == json!(1) {
+        fingerprint_v1(&loaded)
+    } else {
+        fingerprint(&loaded)
+    };
+    if python_stored["faces"] != json!(ours_now.unwrap_or_default()) {
         return "the stored fingerprint is not this engine's".into();
     }
     faces_gap(&loaded, evidence)
@@ -495,8 +517,8 @@ fn rust_resume_failure(loaded: &LoadedPart, k: usize, evidence: Option<&Value>) 
 }
 
 /// How the faces Python fingerprints (`evidence.faces`: kind and centroid rounded to 3, in
-/// order) differ from this engine's, which `resume::fingerprint` hashes. A zero whose sign
-/// differs is equal by value but not in Python's JSON text (`-0.0`), and so in the hash.
+/// order) differ from this engine's, which `resume::fingerprint_v1` hashes. A zero whose sign
+/// differs is equal by value but not in schema 1's JSON text (`-0.0`), and so in its hash.
 fn faces_gap(loaded: &LoadedPart, evidence: &Value) -> String {
     let rust: Vec<Value> = describe_faces(loaded)
         .map(|faces| {
@@ -599,6 +621,77 @@ fn rust_reads_python(resumed: &mut BTreeMap<String, usize>) -> Vec<Difference> {
         }
     }
     prefixed(explained(&["existing"], &out), "python_written")
+}
+
+// ---------------------------------------------------------------------------------------------
+// (d) Schema 2 fingerprints across engines (Q14)
+// ---------------------------------------------------------------------------------------------
+
+/// Every part of every file in the check (each Rust-written file, or where OpenCascade crashed
+/// on it the capture's probe of it, and each file Python wrote): the schema 2 fingerprint the
+/// capture computed from Python's own faces by docs/design.md's canonical form
+/// (`fingerprint_v2`) is this engine's `resume::fingerprint` of the same part, byte for byte.
+/// Until specify-core writes schema 2 itself (`evidence.schema`), this is the form computed
+/// in Python, not specify-core's own function.
+#[test]
+fn schema_two_fingerprints_are_the_same_in_both_engines() {
+    let mut checked = 0;
+    let mut differ = Vec::new();
+    let mut check = |name: &str, step: &Path, evidence: &Value| {
+        let parts = evidence.as_array().cloned().unwrap_or_default();
+        for (k, e) in parts.iter().enumerate() {
+            if is_error(e) {
+                continue;
+            }
+            let loaded = load_part(step, k, parts.len()).expect("the Rust engine loads it");
+            let ours = fingerprint(&loaded).unwrap();
+            checked += 1;
+            if e["fingerprint_v2"] != json!(ours) {
+                differ.push(format!(
+                    "{name} part {k}: Python {} Rust {ours}",
+                    e["fingerprint_v2"]
+                ));
+            }
+            if e["schema"] == json!(2) && e["fingerprint"] != json!(ours) {
+                differ.push(format!(
+                    "{name} part {k}: specify-core's own schema 2 fingerprint {}",
+                    e["fingerprint"]
+                ));
+            }
+        }
+    };
+    for case in write_fixtures::cases() {
+        let dir = write_fixtures::case_dir(&case.name);
+        if let Some(step) = rust_written(&case.name) {
+            let meta = common::read_json_gz(&dir.join("python_meta.json.gz"));
+            let evidence = if meta["resume_evidence"].is_array() {
+                &meta["resume_evidence"]
+            } else {
+                &meta["probe_resume_evidence"]
+            };
+            check(&format!("{} (Rust-written)", case.name), &step, evidence);
+        }
+    }
+    for c in cases() {
+        let Some(written) = c.written_step().filter(|_| c.part().is_none()) else {
+            continue;
+        };
+        let evidence = common::read_json_gz(
+            &write_fixtures::case_dir(&c.name).join("python_written_evidence.json.gz"),
+        );
+        check(
+            &format!("{} (Python-written)", c.name),
+            &written,
+            &evidence["resume_evidence"],
+        );
+    }
+    println!("schema 2 fingerprints compared: {checked} parts");
+    assert!(checked > 0, "no resume evidence captured");
+    assert!(
+        differ.is_empty(),
+        "schema 2 fingerprints differ:\n  {}",
+        differ.join("\n  ")
+    );
 }
 
 #[test]

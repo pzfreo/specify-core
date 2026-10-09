@@ -205,9 +205,9 @@
  {
   "case": "parts/*",
   "path": "python_written.resume",
-  "pattern": "a Python-written file does not resume in the Rust engine",
-  "verdict": "undetermined",
-  "evidence": "The payload is read (tests/resume.rs pythons_stored_answers_are_read) and its face count matches, but Python's fingerprint hashes OpenCascade's centroids, whose zero components carry other signs than haecceity's (plate: Python [-50.0, -0.0, -0.0], Rust [-50.0, -0.0, 0.0]; equal numbers, tests/resume.rs a_python_fingerprint_differs_only_in_signs_of_zero). The Rust engine cannot verify the faces, so it does not resume (the file is analysed with its PMI as its own). Question Q14."
+  "pattern": "a Python-written (schema 1) file does not resume in the Rust engine",
+  "verdict": "rust-correct",
+  "evidence": "The payload is read (tests/resume.rs pythons_stored_answers_are_read) and its face count matches, but Python's fingerprint hashes OpenCascade's centroids, whose zero components carry other signs than haecceity's (plate: Python [-50.0, -0.0, -0.0], Rust [-50.0, -0.0, 0.0]; equal numbers, tests/resume.rs a_python_fingerprint_differs_only_in_signs_of_zero). The Rust engine cannot verify the faces, so it does not resume (the file is analysed with its PMI as its own). Q14 (decided 2026-10-09) keeps schema 1 read exactly as before, so this is the specified outcome; schema 2, which both engines write, fingerprints zeros unsigned, and the two engines' schema 2 fingerprints of these files are equal (tests/cross_engine.rs schema_two_fingerprints_are_the_same_in_both_engines)."
  },
  {
   "case": "tests/test_requirements.py::test_sentences_are_in_the_form_draftwright_reads",

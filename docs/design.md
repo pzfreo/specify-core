@@ -133,7 +133,7 @@ and answers are always used with the analysis they were given against.
 | `mesh.py` | `mesh.rs`, `triangulate.rs` | Mesh format `pmi-assist-mesh` v2 kept. Triangulation is a local stand-in (U4): each face triangulated in its parameter space from its boundary loops and refined to the deflection; a face it cannot do is listed in `missing`, as the format allows. Edges from the edges' samples, seams left out. |
 | `anchors.py`, `sightlines.py` | `anchors.rs`, `sightlines.rs` | Anchor point: `face_centre` checked to lie on the trimmed face (stand-in for quiddity's `inspect_face`, U6); sightlines by `Classifier`. The reach (0.12 of the diagonal) uses the exact bbox diagonal, where Python's `serve._diagonal` uses OCCT's loose `BRepBndLib` box: anchor points differ systematically by that ratio, recorded once as a `rust-correct` pattern. |
 | `writer.py`, `requirements.py` | `writer.rs` | Intent → one `PartPmi` per part → `pmi::write` (Add for a bare part or one with foreign PMI, Replace for a file specify-core wrote) → atomic replace of the output → read back and compare. Report format kept. |
-| `resume.py` | `resume.rs`, `pyjson.rs` | Stored answers as a CAx-IF user defined attribute on the part (`AttributeSet` 'pmi-assist answers'); Python-written files are read too. The fingerprint hashes Python's exact `json.dumps` text (`pyjson.rs`). |
+| `resume.py` | `resume.rs`, `pyjson.rs` | Stored answers as a CAx-IF user defined attribute on the part (`AttributeSet` 'pmi-assist answers'); Python-written files are read too. The fingerprint hashes Python's exact `json.dumps` text (`pyjson.rs`); schema 2 written, zeros unsigned (Q14), schema 1 read. |
 | `api.py` | `api.rs` | |
 | `cli.py` | `main.rs` | Same subcommands, arguments, exit codes (0 ok, 1 write failed, 2 refused/invalid), stdout summaries. |
 | `serve.py` | `serve.rs` | Protocol 1, same ops and error codes. Replies on stdout; nothing else writes to stdout. |
@@ -165,6 +165,36 @@ except where a hash is taken (resume fingerprint, `pyjson.rs`).
 - Errors: `IncompleteError { missing, part }`, invalid answer (`ValueError` in Python) as a typed
   `Invalid(String)`, `SpecError`, verification and write failures; the CLI and `serve` map them to
   Python's exit codes and error codes (`incomplete`, `invalid`, `failed`).
+- Stored answers: `{schema, answers, part, face_count, faces}`, compact JSON
+  (`separators=(",", ":")`), base64, in a `DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist
+  answers','<base64>')`. Schema 2 is written; schemas 1 and 2 are read (compared as Python's
+  `==` compares: `1.0` and `true` are schema 1), any other is passed over. A payload resumes
+  when its `face_count` is the part's and its `faces` is the part's fingerprint *of the
+  payload's own schema* (Q14).
+
+### The fingerprint (both engines, byte for byte)
+
+For each face in face order (`describe_faces`), the pair `[kind, [x, y, z]]`: `kind` the face's
+kind string, `x, y, z` its centroid's components each rounded to 3 decimals by Python's
+`round(c, 3)` (correctly rounded, half to even; `pyfmt::round_half_even`). Then:
+
+- **Schema 2** (written): every component that is zero after rounding is written unsigned:
+  `0.0`, never `-0.0` (Python `0.0 if r == 0 else r`; Rust `if r == 0.0 { 0.0 } else { r }`).
+  Rounding comes first, so `-0.0004` becomes `0.0`.
+- **Schema 1** (read only): the components as rounded, signs of zero kept.
+
+The list is written as Python's `json.dumps(faces)` writes it with its defaults: `[` `]`
+brackets, `", "` between items and `": "` (unused here), strings as JSON strings with
+`ensure_ascii`, each float as `float.__repr__` (shortest round-trip digits, always a `.0` or an
+exponent: `5.0`, `-0.109`, `1e+16`); Rust writes the same text with `pyjson::dumps`. The
+fingerprint is the lowercase hex SHA-256 of that text's UTF-8 bytes (Python
+`hashlib.sha256(text.encode()).hexdigest()`). Example, the plate's first two faces:
+`[["plane", [-50.0, 0.0, 0.0]], ["plane", [0.0, -30.0, 0.0]], ...]` where schema 1 had
+`[-50.0, -0.0, -0.0]` from OpenCascade and `[-50.0, -0.0, 0.0]` from haecceity.
+`resume::fingerprint_of` implements both schemas over such a list; the cross-engine check
+(`tests/cross_engine.rs`, `schema_two_fingerprints_are_the_same_in_both_engines`) compares it
+with the hash computed in Python from Python's own faces (`tools/capture/crossengine.py`,
+`_fingerprint_v2`) on every part of every file in the check.
 
 ## What is written, and how it differs
 
@@ -428,10 +458,11 @@ Listed entry by entry in [known-differences.md](known-differences.md), "Open wor
   (cgb202, cgb207, cgb242); refinement stopping at its round cap on cgb243 face 537; NIST CTC-05 AP242
   edges, the folded surface and the face order of `inventory_refusal/13975` (Q13), undetermined.
 - **anchors** (1 undetermined): a leader from `inventory_refusal/14052`'s invalid face.
-- **writer** (4 undetermined): knurls not written (Q4, Q15); Python-written files do not
-  resume (Q14).
-- **cross_engine** (4 undetermined): OpenCascade crashes on Rust-written datums (Q16, U15);
-  Python does not read AP242 threads (Q20); resume fails both ways on signs of zero (Q14).
+- **writer** (3 undetermined): knurls not written (Q4, Q15).
+- **cross_engine** (2 undetermined): OpenCascade crashes on Rust-written datums (Q16, U15);
+  Python does not read AP242 threads (Q20). Resume (Q14) is rust-correct both ways: schema 1
+  files fail on signs of zero as the rule says, and the captured specify-core does not yet read
+  the schema 2 the Rust writer stores, whose fingerprint its own faces give.
 - **rules, existing, mates, cli**: none.
 
 ### Open questions
@@ -440,7 +471,7 @@ Every question in [questions.md](questions.md) is open, each with what is done m
 
 - **Interchange between engines:** Q1 (mixing engines on one analysis), Q10 and Q13 (a file whose
   face order OpenCascade changes: corpus `inventory_refusal/13975`), Q14 (resume across engines:
-  signs of zero in the fingerprint), Q16 (Rust-written files with datums crash OpenCascade 7.9,
+  done in the Rust engine as schema 2; specify-core's side pending), Q16 (Rust-written files with datums crash OpenCascade 7.9,
   U15), Q20 (what Python reads of a Rust-written file, and which side should change).
 - **What is written:** Q3 (part notes and surface finish, listed in `not_written`), Q4 and Q15
   (knurls, none written), Q6 (an assembly with foreign PMI written by add mode), Q17
