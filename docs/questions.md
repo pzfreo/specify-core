@@ -171,3 +171,37 @@ analysis format has no place for the refusal, so it would be dropped silently. *
 `"warnings": [...]` (only when there are any: an additive key, absent on every captured case).
 Should the analysis itself record them (e.g. `contact: {"refused": why}` on the face), or is a
 warning outside the analysis enough for Draftwright Specify?
+
+**Q20 (cross-engine stream). What specify-core (Python) can read of a Rust-written file, and
+which side should change.** `tests/cross_engine.rs` reads each Rust-written synthetic and NIST
+file with Python's own read-back (`tests/fixtures/cross_engine/`, verdicts in
+`known_differences/cross_engine.json`). Findings: (1) every file with a datum crashes
+OpenCascade (Q16); with the datum symbols' one `MECHANICAL_DESIGN_AND_DRAUGHTING_RELATIONSHIP`
+removed (the capture's probe, `python_readback_without_symbols.json.gz`) all seven load and
+Python reads the material, general tolerance, every location, every size (a fit without its
+limits, 3 below) and tolerance on a single face, and the datums those tolerances cite, so
+option (a) of Q16 would make those cross; (2) a size or tolerance
+on a feature of several faces, which haecceity writes as one `item_identified_representation_usage`
+of a `set_representation_item` (PMI practice §6.5.1), is dropped by OpenCascade (the datums only
+such a tolerance cites go with it); haecceity's own form table also allows one
+`geometric_item_specific_usage` per face (§5.1), which OpenCascade reads; (3) a fit written as its
+ISO 286 class (`limits_and_fits`, §5.2.5) reads in Python with no limits, because specify-core's
+`read_existing` asks XCAF only for plus/minus limits; (4) threads (AP242 `thread` + attribute set)
+are not read at all: specify-core reads only its own text route. *Meanwhile:* the Rust writer
+writes the standard forms and the differences are recorded (rust-correct for 2 and 3,
+undetermined for 1 and 4). For Draftwright to move a part from the Rust engine to the Python one,
+which should change: haecceity writing per-face usages (and stated limits beside a fit class,
+which its fit form allows), or specify-core's Python reader learning the §6.5.1 usage, the fit
+class and the `thread` entity? (Renumbered from Q19 at integration: the CLI stream took Q19.)
+
+**Q14, evidence from the cross-engine check (cross-engine stream).** Whether Python's resume
+reads the Rust-written stored answers: it finds them but does not resume them. On all 5 parts
+Python could load (and on every part of the probes of the 7 that crash) Python's
+`resume.saved` returns exactly the payload the Rust writer stored, with the same face count,
+and `answers_for` returns None only because the fingerprint differs; the faces Python
+fingerprints equal the Rust engine's in kind and rounded centroid by value and differ only in
+signs of zero (checked per part by `tests/cross_engine.rs`, `faces_gap`). The reverse holds on
+all 15 parts of the 11 Python-written synthetic files: the Rust engine reads Python's payload and
+refuses it for the same reason, and reads everything else in them (existing PMI, part settings)
+exactly as Python does. So option (a) of Q14 (zeros written unsigned in both engines) would make
+stored answers cross in both directions on every file checked.

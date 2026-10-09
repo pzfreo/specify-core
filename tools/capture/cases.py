@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -242,20 +243,26 @@ def readback(step: Path) -> Any:
     return [_readback_part(step, k) for k in range(count)]
 
 
-def _readback_part(step: Path, k: int) -> dict[str, Any]:
+def _readback_part(
+    step: Path, k: int, stage: Callable[[str], None] = lambda _: None
+) -> dict[str, Any]:
+    """Part ``k`` of ``step`` read back. ``stage`` is told each call before it is made, so a
+    caller running this in a child process can say which call an OpenCascade crash happened in."""
     from specify_core import existing, resume
     from specify_core.load import load
 
+    stage(f"load(part={k})")
     loaded = attempt(lambda: load(step, part=k))
     if failed(loaded):
         return {"existing": loaded, "part": loaded, "resume": loaded}
-    return plain(
-        {
-            "existing": attempt(lambda: [e.to_dict() for e in existing.read_existing(loaded)]),
-            "part": attempt(lambda: existing.part_settings(loaded)),
-            "resume": attempt(lambda: resume.answers_for(loaded)),
-        }
-    )
+    out = {}
+    stage(f"existing.read_existing(part {k})")
+    out["existing"] = attempt(lambda: [e.to_dict() for e in existing.read_existing(loaded)])
+    stage(f"existing.part_settings(part {k})")
+    out["part"] = attempt(lambda: existing.part_settings(loaded))
+    stage(f"resume.answers_for(part {k})")
+    out["resume"] = attempt(lambda: resume.answers_for(loaded))
+    return plain(out)
 
 
 def mesh_summary(mesh: dict[str, Any]) -> dict[str, Any]:
