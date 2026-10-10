@@ -1223,6 +1223,8 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
                 .find(|(k, _)| *k == key)
                 .map_or(name.as_str(), |(_, kind)| kind);
             p.attributes.push(AttributeSet {
+                description: None,
+                general_property: None,
                 name: SEMANTIC_TEXT.into(),
                 on: None,
                 items: vec![(kind.to_string(), AttributeValue::Text(words.clone()))],
@@ -1319,6 +1321,8 @@ fn thread(
     Ok((
         thread,
         AttributeSet {
+            description: None,
+            general_property: None,
             name: "thread manufacturing".into(),
             on: Some(NoteOwner::Feature(feature)),
             items,
