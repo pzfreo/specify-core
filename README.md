@@ -23,7 +23,8 @@ needs from quiddity-rust are in [docs/upstream-needs.md](docs/upstream-needs.md)
 decisions waiting for the maintainer in [docs/questions.md](docs/questions.md).
 
 As of stage 5 (consolidation, 2026-10-09) all five planned stages are on `main`. The full suite
-(312 tests, with the quiddity corpus) passes. quiddity and haecceity follow quiddity-rust's
+(318 tests, with the quiddity corpus) passes, last on 2026-10-10 after the comparisons were
+recaptured against specify-core's branches `iso286-3150` and `fingerprint-v2`. quiddity and haecceity follow quiddity-rust's
 branch `prototype/rust-port` (Cargo.lock pins 10884b8, which has the maintainer's haecceity
 writer decisions of 2026-10-09 and haecceity's U10 and U14; question Q2).
 

@@ -400,7 +400,8 @@ OpenCascade opens every Rust-written file, Q16; U14's stand-in removed). On that
 clippy are clean and all 317 tests pass with `SPECIFY_CORPUS` set. On 2026-10-10 the
 comparisons were recaptured against specify-core's branches `iso286-3150` and `fingerprint-v2`
 (questions.md Q8 and Q14 status, "Recapture source"): the ISO 286 and choices grids, the NIST
-CTC-05 oracle cases and the cross-engine fixtures.
+CTC-05 oracle cases and the cross-engine fixtures. That recapture was integrated into `main` on 2026-10-10;
+on that tree fmt and clippy are clean and all 318 tests pass with `SPECIFY_CORPUS` set.
 
 ### Implemented and verified, per module
 
@@ -427,11 +428,11 @@ Known-difference entries by verdict (entries, not differences): 3898 in all, 950
 1431 rust-wrong, 77 equivalent, 1392 undetermined, 48 not-applicable, after the recapture against
 specify-core's `iso286-3150` and `fingerprint-v2` (3904 at 10884b8 with the notes and knurls
 written; 4164 after the Q8, Q14 and Q17 integration; 4152 after the move to `prototype/rust-port` 5798c59; 3634 at stage 5, on a16d7af). The whole suite
-(`SPECIFY_CORPUS=/Users/paul/repos/quiddity/tests/corpus cargo test --release`, 317 tests
-since the knurl and notes integration) passed at stage 5, again after the move to
+(`SPECIFY_CORPUS=/Users/paul/repos/quiddity/tests/corpus cargo test --release`, 318 tests
+since the recapture against specify-core's branches) passed at stage 5, again after the move to
 `prototype/rust-port` 5798c59, after the Q8, Q14 and Q17 integration, and after the knurl and
-notes integration on 2026-10-10; after the recapture against specify-core's branches all 318
-pass. The command line was also run by hand at stage 5 on `tests/fixtures/parts/plate.step` and `assembly.step`
+notes integration on 2026-10-10; and after the recapture against specify-core's branches was
+integrated on 2026-10-10. The command line was also run by hand at stage 5 on `tests/fixtures/parts/plate.step` and `assembly.step`
 (every README command; exit codes as documented).
 
 ### Stand-ins in use
@@ -446,7 +447,7 @@ in [upstream-needs.md](upstream-needs.md)) and the parts each affects in the ora
 | U3 notes and surface finish | None: met at 10884b8, written in standard forms | specify-core does not read the surface texture (`cross_engine.json`, rust-correct) |
 | U4 face triangulation | `triangulate.rs` (constrained Delaunay in parameter space, `spade`) | Every mesh; faces listed in `missing`: cgb202 face 399 (U13), the zero-area thread end faces of `threaded_connector_109` and cgb242 face 483, and `inventory_refusal/14052` face 1 (a hole crossing its outer loop) (`mesh.json`) |
 | U5 overlap area of coplanar faces | Polygon intersection of the faces' loops (`i_overlay`), arcs resampled exactly | Contacts of every assembly part: the 18 multi-part parts the mates sweep compares; equal to Python's 3 decimals on `parts/stack` |
-| U6 a point on the trimmed face | `face_centre` if inside the face's domain, else the largest triangle's centroid, else no anchor | Every anchor (708 on 124 cases); NIST FTC-07 faces 185-187, where Python's point is off the trim (`anchors.json`, rust-correct); NIST CTC-05 AP242's two cylinders labelled from another point on them (`anchors.json`, equivalent) |
+| U6 a point on the trimmed face | `face_centre` if inside the face's domain, else the largest triangle's centroid, else no anchor | Every anchor (719 on 126 cases); NIST FTC-07 faces 185-187, where Python's point is off the trim (`anchors.json`, rust-correct); NIST CTC-05 AP242's two cylinders labelled from another point on them (`anchors.json`, equivalent) |
 | U7 read-back verification as a library function | The comparison rebuilt from `pmi::read` and `pmi::write::differences` | Every write (136 oracle writes, `tests/write_oracle.rs`) |
 | U8 thread pitch and 'number of threads' | haecceity's own test mapping; pitch, drill and depths in an `AttributeSet` | Every written thread |
 | U9 names over the assembly structure, one read | Names from a `p21::Document` of the same bytes; the file is read twice | Every load; `parts/wrapped` named "assembly"; NIST FTC-08 and CTC-04 RD named by the product id |

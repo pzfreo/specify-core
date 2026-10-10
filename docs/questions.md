@@ -232,8 +232,10 @@ captured from specify-core cc341dd (branch `assembly-mates`, which adds assembly
 c1694ec), while `iso286-3150` and `fingerprint-v2` each branch from c1694ec. Capturing from either
 branch as it stands would have dropped the mates and rules changes every other oracle artifact
 records. So the recaptures of the CTC-05 cases and of the cross-engine fixtures use cc341dd with
-both branches' commits cherry-picked onto it (2cb6499, a local commit with a fixed committer
-date: `git worktree add --detach <dir> cc341dd; git cherry-pick 63e67bd d97d030`; the two touch
+both branches' commits cherry-picked onto it (2cb6499, a local commit with a fixed committer:
+`git worktree add --detach <dir> cc341dd`, then in `<dir>` `GIT_COMMITTER_NAME='Paul Fremantle'
+GIT_COMMITTER_EMAIL=pzfreo@gmail.com GIT_COMMITTER_DATE=2026-10-10T00:00:00Z git cherry-pick
+63e67bd d97d030`, which gives 2cb6499 again (checked at integration); the two touch
 disjoint files from assembly-mates and from each other), loaded by `SPECIFY_CORE=<dir>`
 (`tools/capture/common.py`); each meta records 2cb6499. The two module-level oracles
 (`iso286_oracle.json.gz`, `choices_oracle.json.gz`) load `iso286-3150`'s own tree (63e67bd):
