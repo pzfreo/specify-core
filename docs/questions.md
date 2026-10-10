@@ -362,3 +362,15 @@ all 15 parts of the 11 Python-written synthetic files: the Rust engine reads Pyt
 refuses it for the same reason, and reads everything else in them (existing PMI, part settings)
 exactly as Python does. So option (a) of Q14 (zeros written unsigned in both engines) would make
 stored answers cross in both directions on every file checked.
+
+**Q21 (thin slice S6, judgement calls, overturnable). The in-memory API's edges.**
+`part::load_bytes(name, bytes)` and `writer::write_bytes(loaded, intent, answers)` are the
+file API without the filesystem, for the editor's browser build. Three details were not settled
+by the plan and were taken conservatively: (1) single part only, as the plan says: `load_bytes`
+takes no part index and refuses a file of several parts as `load` does without one, and
+`write_bytes` refuses a part of such a file, since writing one part of an assembly needs the
+others loaded (from the path, in `write_parts`); (2) a file of one part placed more than once,
+which the editor's own adapter refused, loads as `load` loads it (the same bytes behave the same
+either way); (3) the report's `output` is the `name` given to `load_bytes`, there being no
+destination (the editor's adapter did the same). Answers stay optional, as in `write`. Say if a
+part index, or another `output`, is wanted.

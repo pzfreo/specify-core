@@ -4,6 +4,14 @@ All notable changes to specify-core-rust. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- `part::load_bytes` and `writer::write_bytes`: one part loaded from bytes and written to
+  verified AP242 bytes, with no filesystem (for the editor's browser build); byte for byte
+  the file API's output (`tests/bytes_api.rs`).
+
 ## 0.1.0-alpha.1 (2026-10-10)
 
 The first alpha: a pure-Rust port of [specify-core](https://github.com/pzfreo/specify-core),
