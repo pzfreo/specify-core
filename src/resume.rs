@@ -135,6 +135,8 @@ pub fn encode(payload: &Value) -> String {
 /// same edit as the part's PMI.
 pub fn attribute_set(payload: &Value) -> AttributeSet {
     AttributeSet {
+        description: None,
+        general_property: None,
         name: NAME.into(),
         on: None,
         items: vec![(NAME.into(), AttributeValue::Text(encode(payload)))],
