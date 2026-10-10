@@ -221,6 +221,22 @@ pub fn load(path: &Path, part: Option<usize>) -> Result<LoadedPart, LoadError> {
     file.load(index)
 }
 
+/// [`load`] of a file held in memory, for a caller with no filesystem (the editor's browser
+/// build): `bytes` are the file's, `name` stands in for its path in the [`LoadedPart`] and in
+/// errors. Single part: a file of several parts is refused as [`load`] refuses it without a
+/// part ([`LoadError::Assembly`]). The part is loaded exactly as [`load`] would load the same
+/// bytes from a file, binding and face numbering included.
+pub fn load_bytes(name: &str, bytes: Vec<u8>) -> Result<LoadedPart, LoadError> {
+    let file = File::of(Path::new(name), bytes)?;
+    if file.definitions.len() > 1 {
+        return Err(LoadError::Assembly {
+            path: file.path,
+            names: file.names,
+        });
+    }
+    file.load(0)
+}
+
 /// Every part of `path`, loaded, in [`parts`]' order (Python's `load_all`).
 pub fn load_all(path: &Path) -> Result<Vec<LoadedPart>, LoadError> {
     let file = File::read(path)?;
@@ -274,6 +290,15 @@ impl File {
             reason,
         };
         let bytes = std::fs::read(path).map_err(|e| unreadable(e.to_string()))?;
+        File::of(path, bytes)
+    }
+
+    /// The file `path` whose bytes are `bytes`.
+    fn of(path: &Path, bytes: Vec<u8>) -> Result<File, LoadError> {
+        let unreadable = |reason: String| LoadError::Unreadable {
+            path: path.to_path_buf(),
+            reason,
+        };
         // specify-core reads STEP text only; a gzipped file is refused as unreadable, not
         // decompressed behind the caller's back.
         if bytes.starts_with(&[0x1f, 0x8b]) {

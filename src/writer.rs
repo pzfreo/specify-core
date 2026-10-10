@@ -48,6 +48,10 @@
 //! then renamed over the destination: a symbolic link is written through to its target, an
 //! existing file keeps its permissions, and any failure leaves the destination and the source
 //! as they were.
+//!
+//! **In memory.** [`write_bytes`] is the same write of one part for a caller with no
+//! filesystem (the editor's browser build): the bytes are returned rather than staged, after the
+//! same verification of what was written.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -195,7 +199,16 @@ pub fn write_parts(jobs: &[Job<'_>], output: &Path) -> Result<WriteReport, Write
         )));
     };
     let staged = target.with_file_name(format!(".{name}.{}.{}.part", std::process::id(), tag()));
-    let result = write_verified(jobs, &staged).and_then(|report| {
+    let result = write_verified(jobs).and_then(|(bytes, report)| {
+        std::fs::write(&staged, &bytes)
+            .map_err(|e| WriteError::Failed(format!("{}: {e}", staged.display())))?;
+        let back = std::fs::read(&staged)
+            .map_err(|e| WriteError::Failed(format!("{}: {e}", staged.display())))?;
+        if back != bytes {
+            return Err(
+                VerificationError("the file on disk is not what was written".into()).into(),
+            );
+        }
         if let Ok(m) = std::fs::metadata(&target) {
             std::fs::set_permissions(&staged, m.permissions())
                 .map_err(|e| WriteError::Failed(format!("{}: {e}", output.display())))?;
@@ -210,6 +223,27 @@ pub fn write_parts(jobs: &[Job<'_>], output: &Path) -> Result<WriteReport, Write
     let mut report = result?;
     report.output = output.to_path_buf();
     Ok(report)
+}
+
+/// [`write`] in memory: `loaded` (from [`part::load_bytes`] or [`part::load`]) with `intent`
+/// added as AP242, verified by reading back as [`write`] verifies its file, and returned as the
+/// file's bytes with the report. The bytes are those [`write`] would put in its destination;
+/// the report's `output` is `loaded.path`, there being no destination. Single part: a part of
+/// a file of several is refused, as writing it alone needs the file's other parts.
+pub fn write_bytes(
+    loaded: &LoadedPart,
+    intent: &Intent,
+    answers: Option<&Map<String, Json>>,
+) -> Result<(Vec<u8>, WriteReport), WriteError> {
+    if loaded.part_count != 1 {
+        return invalid(format!(
+            "{} has {} parts; writing in memory takes a file of one part",
+            loaded.path.display(),
+            loaded.part_count
+        ));
+    }
+    check_binding(loaded, intent)?;
+    write_verified(&[(loaded, intent, answers)])
 }
 
 /// Eight hex digits that differ between writes, for the staged file's name (Python's
@@ -351,7 +385,9 @@ struct Lines {
     warnings: Vec<String>,
 }
 
-fn write_verified(jobs: &[Job<'_>], staged: &Path) -> Result<WriteReport, WriteError> {
+/// Writes `jobs` and verifies the result by reading it back: the file's bytes and the report
+/// (its `output` the first part's path, for the caller to replace).
+fn write_verified(jobs: &[Job<'_>]) -> Result<(Vec<u8>, WriteReport), WriteError> {
     let first = jobs[0].0;
     let bytes: &[u8] = &first.bytes;
     let source = Source::of(bytes)?;
@@ -460,13 +496,7 @@ fn write_verified(jobs: &[Job<'_>], staged: &Path) -> Result<WriteReport, WriteE
         .apply(&edit)
         .map_err(|e| WriteError::Failed(format!("haecceity could not apply the edit: {e}")))?;
 
-    std::fs::write(staged, &written.bytes)
-        .map_err(|e| WriteError::Failed(format!("{}: {e}", staged.display())))?;
-    let back = std::fs::read(staged)
-        .map_err(|e| WriteError::Failed(format!("{}: {e}", staged.display())))?;
-    if back != written.bytes {
-        return Err(VerificationError("the file on disk is not what was written".into()).into());
-    }
+    let back = written.bytes;
     verify(&source, &items, mode, &back)?;
     let stored = resume::stored(&back);
     for p in &planned {
@@ -483,7 +513,7 @@ fn write_verified(jobs: &[Job<'_>], staged: &Path) -> Result<WriteReport, WriteE
 
     // In an assembly written together, each line says which part it is of.
     let mut report = WriteReport {
-        output: staged.to_path_buf(),
+        output: first.path.clone(),
         written: Vec::new(),
         not_written: Vec::new(),
         warnings: Vec::new(),
@@ -503,7 +533,7 @@ fn write_verified(jobs: &[Job<'_>], staged: &Path) -> Result<WriteReport, WriteE
         report.not_written.extend(with(p.lines.not_written));
         report.warnings.extend(with(p.lines.warnings));
     }
-    Ok(report)
+    Ok((back, report))
 }
 
 /// The instances of Python's form of stored answers on `part` (`PROPERTY_DEFINITION('pmi-assist
