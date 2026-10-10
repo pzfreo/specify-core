@@ -1,9 +1,13 @@
 """Python's choices, standards and materials outputs over a grid, for tests/choices.rs.
 
-Run once with specify-core's venv, from the repository root:
+Run with specify-core's venv, from the repository root, naming the specify-core source tree
+to load (default the main checkout):
 
-    /Users/paul/repos/specify-core/.venv/bin/python tests/fixtures/choices_oracle.py \
-        | gzip -n -9 > tests/fixtures/choices_oracle.json.gz
+    /Users/paul/repos/specify-core/.venv/bin/python -I tests/fixtures/choices_oracle.py \
+        [/path/to/specify-core/src] | gzip -n -9 > tests/fixtures/choices_oracle.json.gz
+
+The committed file was captured from specify-core's branch iso286-3150 (63e67bd: ISO 286 to
+3150 mm, decision Q8); choices, materials and standards are otherwise as on cc341dd.
 
 The grid: every hole diameter in the TAP_DRILL and CLEARANCE tables and 20 odd diameters;
 at each, the options the rules offer a hole and a turned diameter (built here as rules.py builds
@@ -19,7 +23,8 @@ Each result is {"ok": value} or {"err": message, "type": exception name}. Determ
 import json
 import sys
 
-sys.path.insert(0, "/Users/paul/repos/specify-core/src")
+SRC = sys.argv[1] if len(sys.argv) > 1 else "/Users/paul/repos/specify-core/src"
+sys.path.insert(0, SRC)
 
 from specify_core import choices, materials, standards  # noqa: E402
 

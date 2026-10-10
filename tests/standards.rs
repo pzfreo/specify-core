@@ -199,14 +199,6 @@ fn standards_equal_pythons() {
     }
     for row in data["fits"].as_array().unwrap() {
         let (fit, nominal, python) = (row[0].as_str().unwrap(), row[1].as_f64().unwrap(), &row[2]);
-        // Python's 500 mm limit (Q8: Rust tabulates to 3150 mm); those rows are compared and
-        // judged by `iso286_equals_pythons`.
-        if python["err"]
-            .as_str()
-            .is_some_and(|m| m.ends_with(" outside 0-500 mm"))
-        {
-            continue;
-        }
         match fit_limits(fit, nominal) {
             Ok((upper, lower)) => {
                 let ok = &python["ok"];
@@ -295,9 +287,9 @@ fn iso286_equals_pythons() {
     common::check_known("iso286", &differences);
 }
 
-/// Q8 end to end: a part with a Ø600 hole is asked about it with fits offered (Python, with ISO
-/// 286 to 500 mm only, fails the whole question list there), and each fit is described with its
-/// ISO 286 limits. The plate's captured analysis, its Ø8 hole made Ø600.
+/// Q8 end to end: a part with a Ø600 hole is asked about it with fits offered (specify-core with
+/// ISO 286 to 500 mm only, as at cc341dd, failed the whole question list there), and each fit is
+/// described with its ISO 286 limits. The plate's captured analysis, its Ø8 hole made Ø600.
 #[test]
 fn a_600_mm_hole_is_offered_fits_with_their_limits() {
     let mut analysis = common::case("parts/plate")

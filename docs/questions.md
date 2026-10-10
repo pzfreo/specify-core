@@ -130,6 +130,15 @@ extension (branch `iso286-3150`) did not exist yet when this was done, so the co
 that only Python refusing the size can produce. When the branch lands, regenerate the fixture
 from it (`iso286_oracle.py` takes the source path): any limits the two disagree on then fail
 the sweep, and the entries go stale.
+*Status (2026-10-10): done in both engines and compared.* specify-core's branch `iso286-3150`
+(63e67bd) tabulates the same: `iso286_oracle.json.gz`, regenerated from it, agrees with the Rust
+tables on every class and size of the grid to 3150 mm and on every refusal beyond it, so
+`known_differences/iso286.json` is empty. `choices_oracle.json.gz` was recaptured from the same
+source (`choices_oracle.py` now takes the source path too) and equals the Rust choices at 600 mm
+with no exception left in `tests/choices.rs`. The NIST CTC-05 oracle cases (Ø558.8) were
+recaptured (see "Recapture source" below): Python now asks, applies and previews them as Rust
+does, so the rules and CLI entries for them are gone; Python's write of the AP242 file now fails
+its own verification and its write of the corpus file OCCT's writer, which the oracle records.
 
 **Q9 (rules stream). Malformed input Python crashes on.** A few answers or analysis records make
 specify-core's rules raise something other than `ValueError`: an `AttributeError` or `TypeError`,
@@ -206,6 +215,33 @@ documented form computed in the capture tool, not specify-core's own function; t
 specify-core reads schema 1 only and passes the Rust writer's schema 2 payloads over
 (`known_differences/cross_engine.json`). Recapture once that branch lands: the test then also
 checks specify-core's own schema 2 fingerprint.
+*Status (2026-10-10): done in both engines and compared.* The cross-engine fixtures were
+recaptured with specify-core's branch `fingerprint-v2` (d97d030; see "Recapture source" below).
+specify-core now reads the Rust writer's schema 2 payloads and resumes them: 15 Rust-written parts
+resume with the same answers (the other 3 store none). On all 35 parts of the check its own
+schema 2 fingerprint (`resume.fingerprint`) is checked against the Rust engine's
+(`schema_two_fingerprints_are_the_same_in_both_engines`, which now requires that evidence): equal
+on 34; on the Rust-written NIST CTC-05 part (new in the check, as Python now applies its answers,
+Q8) eight faces' rounded centroids differ because haecceity's face integrals are off there (U11,
+`cross_engine.json`, rust-wrong), so answers stored on that part would not cross until U11 is
+met. The Python-written files of the oracle are still schema 1 (written by cc341dd) and fail in
+Rust on the signs of zero, as before.
+
+**Recapture source (judgement call, 2026-10-10; the maintainer can overturn it).** The oracle was
+captured from specify-core cc341dd (branch `assembly-mates`, which adds assembly mates to main
+c1694ec), while `iso286-3150` and `fingerprint-v2` each branch from c1694ec. Capturing from either
+branch as it stands would have dropped the mates and rules changes every other oracle artifact
+records. So the recaptures of the CTC-05 cases and of the cross-engine fixtures use cc341dd with
+both branches' commits cherry-picked onto it (2cb6499, a local commit with a fixed committer
+date: `git worktree add --detach <dir> cc341dd; git cherry-pick 63e67bd d97d030`; the two touch
+disjoint files from assembly-mates and from each other), loaded by `SPECIFY_CORE=<dir>`
+(`tools/capture/common.py`); each meta records 2cb6499. The two module-level oracles
+(`iso286_oracle.json.gz`, `choices_oracle.json.gz`) load `iso286-3150`'s own tree (63e67bd):
+`standards`, `choices` and `materials` are the same there as on cc341dd. The rest of the oracle
+(cc341dd) was not recaptured: it reaches no size above 500 mm, and `fingerprint-v2` reads its
+schema 1 payloads as before. Recaptured, its written files would store schema 2, and the Rust
+engine resuming Python-written files could then be checked directly; that full recapture is
+outside this change (it rewrites every stream's oracle artifacts).
 
 **Q15 (writer stream). Straight knurls too (extends Q4).** AP242's `turned_knurl` WR2 requires
 six to nine parameters: the major and nominal diameters, the diametral pitch and at least three

@@ -30,8 +30,9 @@ writer decisions of 2026-10-09 and haecceity's U10 and U14; question Q2).
 OpenCascade (and so specify-core's Python) opens every Rust-written file and reads its datums,
 sizes and tolerances, on one face or several (Q16, Q20; `tests/cross_engine.rs`); it reads a fit
 without its limits, no thread and no surface finish, as specify-core's reader asks only for its
-own forms of those. Answers stored by one engine resume in the other only once both write
-stored-answer schema 2 (Q14: done in the Rust engine, specify-core's side pending). Draftwright Specify can drive either engine through the same command
+own forms of those. Answers the Rust engine stores (stored-answer schema 2, Q14) resume in
+specify-core from its branch `fingerprint-v2` on, which writes schema 2 too; files the older
+specify-core wrote (schema 1) do not resume in Rust. Draftwright Specify can drive either engine through the same command
 line and JSON formats, one engine per part.
 
 ## Build
