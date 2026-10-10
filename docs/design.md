@@ -390,9 +390,12 @@ where fmt and clippy are clean and all 302 tests pass with `SPECIFY_CORPUS` set.
 decisions were then integrated into `main` on 2026-10-09: stored answers schema 2 (Q14, Rust
 engine), ISO 286 to 3150 mm (Q8, Rust engine; the comparison with Python above 500 mm waits for
 specify-core's extension) and writing the rest of an intent whose items name no faces (Q17).
-On that tree fmt and clippy are clean and all 312 tests pass with `SPECIFY_CORPUS` set. The
-knurl derivation (Q4 and Q15) was then added: straight and diamond knurls are written through
-`turned_knurl` (questions.md, Q15 status).
+On that tree fmt and clippy are clean and all 312 tests pass with `SPECIFY_CORPUS` set. Two
+more were integrated on 2026-10-10: the knurl derivation (Q4 and Q15; straight and diamond
+knurls are written through `turned_knurl`, questions.md Q15 status) and haecceity's writer
+decisions with the pin moved to 10884b8 (notes and finish written in standard forms, Q3;
+OpenCascade opens every Rust-written file, Q16; U14's stand-in removed). On that tree fmt and
+clippy are clean and all 317 tests pass with `SPECIFY_CORPUS` set.
 
 ### Implemented and verified, per module
 
@@ -407,20 +410,21 @@ difference or a stale entry fails the sweep.
 | `standards.rs`, `materials.rs`, `choices.rs`, `pyfmt.rs`, `pyjson.rs` | `tests/standards.rs`, `tests/materials.rs`, `tests/choices.rs`, `tests/pyfmt.rs` | Equal to Python-generated tables and sweeps (`choices_oracle.json.gz`, `pyfmt.json`) |
 | `features.rs` | `tests/features.rs` | 120 corpus and NIST parts, none refused as degraded: 19945 differences since the move to 5798c59 (14661 undetermined, most of them the vertices and triangles of three sheet-metal flat patterns; 3900 rust-wrong, 1161 rust-correct, 211 equivalent, 12 not-applicable; 8652 on a16d7af), each face value judged against OpenCascade's adaptive integral; at 5d39eee quiddity-rust's reconciliation removed 252 of them (Rust-only features, 158 of them rust-wrong blend chains; U2) and added none; unchanged at 10884b8 |
 | `existing.rs` | `tests/existing.rs` | 120 inputs and 17 written parts: 230 differences (208 rust-correct, 22 not-applicable) |
-| `rules/`, `extras.rs`, `general.rs`, `locations.rs`, `problems.rs` | `tests/rules_oracle.rs`, `tests/rules.rs`, `tests/datums.rs`, `tests/general.rs`, `tests/locations.rs`, `tests/extras.rs`, `tests/problems.rs`, `tests/attention.rs`, `tests/basis.rs`, `tests/call_out.rs`, `tests/same_as.rs`, `tests/profile_runout.rs`, `tests/threads.rs`, `tests/mmc_finish_notes.rs`, `tests/preview.rs`, `tests/rust_analyses.rs` | Equal to Python on all 994 captured artifacts (from Python's inputs: 248 question sets, 116 file writes, 98 scenarios); `rules.json` is empty. The rules also run on the Rust engine's own analyses of every synthetic part (`tests/rust_analyses.rs`) |
+| `rules/`, `extras.rs`, `general.rs`, `locations.rs`, `problems.rs` | `tests/rules_oracle.rs`, `tests/rules.rs`, `tests/datums.rs`, `tests/general.rs`, `tests/locations.rs`, `tests/extras.rs`, `tests/problems.rs`, `tests/attention.rs`, `tests/basis.rs`, `tests/call_out.rs`, `tests/same_as.rs`, `tests/profile_runout.rs`, `tests/threads.rs`, `tests/mmc_finish_notes.rs`, `tests/preview.rs`, `tests/rust_analyses.rs` | Equal to Python on all 994 captured artifacts (from Python's inputs: 248 question sets, 116 file writes, 98 scenarios); `rules.json` holds only the knurl parameters Python's intent lacks (Q4, Q15) and the fits above 500 mm Python refuses (Q8). The rules also run on the Rust engine's own analyses of every synthetic part (`tests/rust_analyses.rs`) |
 | `mates.rs` | `tests/mates.rs` | 18 multi-part parts: 7 differences (6 not-applicable, Q7; 1 rust-correct) |
 | `mesh.rs`, `triangulate.rs` | `tests/mesh.rs` | 120 cases, 1 312 080 triangles: 1048 differences (553 equivalent, 419 rust-correct, 37 undetermined, 27 not-applicable, 12 rust-wrong); meshes judged by properties (areas, boxes, edges, missing faces), not triangle by triangle |
 | `anchors.rs`, `sightlines.rs` | `tests/anchors.rs` | 124 cases, 708 anchors: 259 differences (129 equivalent, 123 rust-correct, 6 not-applicable, 1 undetermined) |
-| `writer.rs`, `resume.rs` | `tests/writer.rs`, `tests/resume.rs`, `tests/assembly_write.rs`, `tests/write_oracle.rs` | 136 writes, from Python's intents, read back by the Rust reader: 95 differences at 10884b8 (75 rust-correct, 14 not-applicable, 6 undetermined, none rust-wrong; 713 before the Q17 integration and the notes written in standard forms, Q3); every file `tests/writer.rs` writes passes haecceity's EXPRESS schema and rule checks |
+| `writer.rs`, `resume.rs` | `tests/writer.rs`, `tests/resume.rs`, `tests/assembly_write.rs`, `tests/write_oracle.rs` | 136 writes, from Python's intents, read back by the Rust reader: 91 differences at 10884b8 with knurls written (77 rust-correct, 14 not-applicable, none undetermined or rust-wrong; 95 before the knurls, 713 before the Q17 integration and the notes written in standard forms, Q3); every file `tests/writer.rs` writes passes haecceity's EXPRESS schema and rule checks |
 | `api.rs`, `main.rs`, `serve.rs` | `tests/api.rs`, `tests/cli.rs`, `tests/serve.rs` | The binary's `analyse`, `mesh`, `questions` and `write` against the library's results (exactly) and against Python's command line and serve transcripts (`cli_oracle.json.gz`): 55 differences (24 rust-correct, 15 equivalent, 16 not-applicable); `test_serve.py` and `test_assembly.py`'s API and command-line tests ported |
 | Cross-engine (`examples/write_fixtures.rs`, `tools/capture/crossengine.py`) | `tests/cross_engine.rs` | Python reading every Rust-written synthetic and NIST file, and the Rust engine reading the 11 Python-written synthetic files: 66 differences at 10884b8 (58 rust-correct, 6 undetermined, 2 not-applicable) |
 
-Known-difference entries by verdict (entries, not differences): 3900 in all, 950 rust-correct,
-1430 rust-wrong, 76 equivalent, 1397 undetermined, 47 not-applicable, at 10884b8 with the notes
-written (4164 after the Q8, Q14 and Q17 integration; 4152 after the move to `prototype/rust-port` 5798c59; 3634 at stage 5, on a16d7af). The whole suite
-(`SPECIFY_CORPUS=/Users/paul/repos/quiddity/tests/corpus cargo test --release`, 312 tests
-since the Q8, Q14 and Q17 integration) passed at stage 5, again after the move to
-`prototype/rust-port` 5798c59, and after that integration. The command line was also run by hand at stage 5 on `tests/fixtures/parts/plate.step` and `assembly.step`
+Known-difference entries by verdict (entries, not differences): 3904 in all, 957 rust-correct,
+1430 rust-wrong, 76 equivalent, 1394 undetermined, 47 not-applicable, at 10884b8 with the notes
+and knurls written (4164 after the Q8, Q14 and Q17 integration; 4152 after the move to `prototype/rust-port` 5798c59; 3634 at stage 5, on a16d7af). The whole suite
+(`SPECIFY_CORPUS=/Users/paul/repos/quiddity/tests/corpus cargo test --release`, 317 tests
+since the knurl and notes integration) passed at stage 5, again after the move to
+`prototype/rust-port` 5798c59, after the Q8, Q14 and Q17 integration, and after the knurl and
+notes integration on 2026-10-10. The command line was also run by hand at stage 5 on `tests/fixtures/parts/plate.step` and `assembly.step`
 (every README command; exit codes as documented).
 
 ### Stand-ins in use

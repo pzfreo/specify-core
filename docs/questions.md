@@ -233,7 +233,9 @@ overturn: (1) no table gives a tooth depth, so it is P/2, the sharp 90° profile
 draws a helical knurl's pitch normal to its grooves, so for a diamond knurl the circumferential
 spacing is P/cos 30°, but the number of teeth uses π·d/P for both patterns as decided; (4) a
 knurl whose pitch or pattern the standard does not give is listed in `not_written` rather than
-refused.
+refused. Integrated into `main` on 2026-10-10 together with the pin at 10884b8 (Q3's notes and
+finish written); the writer sweep's three knurl entries are gone and its 91 differences carry
+no undetermined verdict.
 
 **Q16 (writer stream). Files OpenCascade cannot open (upstream need U15).** Every file the Rust
 engine writes with a datum crashes OpenCascade 7.9's STEP reader (specify-core's Python, and so
