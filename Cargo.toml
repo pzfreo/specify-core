@@ -1,6 +1,6 @@
 [package]
 name = "specify-core"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 description = "Interview-driven AP242 PMI authoring for STEP parts (Rust port of specify-core)"
@@ -14,8 +14,8 @@ path = "src/main.rs"
 # quiddity-rust: feature recognition (quiddity) and the geometry kernel with STEP import and
 # AP242 semantic PMI (haecceity). Both follow branch prototype/rust-port (which contains the
 # former ap242 head a16d7af); Cargo.lock pins the commit. See docs/design.md, "Dependency plan".
-quiddity = { git = "https://github.com/pzfreo/quiddity-rust", branch = "prototype/rust-port" }
-haecceity = { git = "https://github.com/pzfreo/quiddity-rust", branch = "prototype/rust-port" }
+quiddity = { git = "https://github.com/pzfreo/quiddity-rust", tag = "v0.1.0-alpha.1" }
+haecceity = { git = "https://github.com/pzfreo/quiddity-rust", tag = "v0.1.0-alpha.1" }
 base64 = "0.22.1"
 # Overlap area of two facing flat faces (mates::contacts): haecceity has no face boolean yet
 # (upstream need U5), so the faces' boundaries are intersected as polygons with holes.

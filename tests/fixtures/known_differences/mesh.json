@@ -189,13 +189,6 @@
     "evidence": "cgb202 faces 1078 and 1465, cgb207 face 114, cgb242 faces 472, 665, 711, 719 and 840: one triangle each, of 6e-8 to 7.3e-6 mm2 (cgb202 face 1078: 7.3e-6; cgb207 face 114: 6.9e-8), next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre. Since the move to quiddity-rust prototype/rust-port 5798c59 (Q2) the faces are others than at a16d7af (cgb202 740, cgb207 113, cgb242 878 then; none now), as haecceity's parameter loops changed; areas measured by re-running tests/mesh.rs's inward check on each face."
   },
   {
-    "case": "corpus/cadgenbench_inputs/cgb207",
-    "path": "check.inward_triangles[114]",
-    "pattern": "a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward",
-    "verdict": "rust-wrong",
-    "evidence": "cgb202 faces 1078 and 1465, cgb207 face 114, cgb242 faces 472, 665, 711, 719 and 840: one triangle each, of 6e-8 to 7.3e-6 mm2 (cgb202 face 1078: 7.3e-6; cgb207 face 114: 6.9e-8), next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre. Since the move to quiddity-rust prototype/rust-port 5798c59 (Q2) the faces are others than at a16d7af (cgb202 740, cgb207 113, cgb242 878 then; none now), as haecceity's parameter loops changed; areas measured by re-running tests/mesh.rs's inward check on each face."
-  },
-  {
     "case": "corpus/cadgenbench_inputs/cgb242",
     "path": "check.inward_triangles[472]",
     "pattern": "a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward",
@@ -211,21 +204,7 @@
   },
   {
     "case": "corpus/cadgenbench_inputs/cgb242",
-    "path": "check.inward_triangles[711]",
-    "pattern": "a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward",
-    "verdict": "rust-wrong",
-    "evidence": "cgb202 faces 1078 and 1465, cgb207 face 114, cgb242 faces 472, 665, 711, 719 and 840: one triangle each, of 6e-8 to 7.3e-6 mm2 (cgb202 face 1078: 7.3e-6; cgb207 face 114: 6.9e-8), next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre. Since the move to quiddity-rust prototype/rust-port 5798c59 (Q2) the faces are others than at a16d7af (cgb202 740, cgb207 113, cgb242 878 then; none now), as haecceity's parameter loops changed; areas measured by re-running tests/mesh.rs's inward check on each face."
-  },
-  {
-    "case": "corpus/cadgenbench_inputs/cgb242",
     "path": "check.inward_triangles[719]",
-    "pattern": "a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward",
-    "verdict": "rust-wrong",
-    "evidence": "cgb202 faces 1078 and 1465, cgb207 face 114, cgb242 faces 472, 665, 711, 719 and 840: one triangle each, of 6e-8 to 7.3e-6 mm2 (cgb202 face 1078: 7.3e-6; cgb207 face 114: 6.9e-8), next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre. Since the move to quiddity-rust prototype/rust-port 5798c59 (Q2) the faces are others than at a16d7af (cgb202 740, cgb207 113, cgb242 878 then; none now), as haecceity's parameter loops changed; areas measured by re-running tests/mesh.rs's inward check on each face."
-  },
-  {
-    "case": "corpus/cadgenbench_inputs/cgb242",
-    "path": "check.inward_triangles[840]",
     "pattern": "a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward",
     "verdict": "rust-wrong",
     "evidence": "cgb202 faces 1078 and 1465, cgb207 face 114, cgb242 faces 472, 665, 711, 719 and 840: one triangle each, of 6e-8 to 7.3e-6 mm2 (cgb202 face 1078: 7.3e-6; cgb207 face 114: 6.9e-8), next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre. Since the move to quiddity-rust prototype/rust-port 5798c59 (Q2) the faces are others than at a16d7af (cgb202 740, cgb207 113, cgb242 878 then; none now), as haecceity's parameter loops changed; areas measured by re-running tests/mesh.rs's inward check on each face."
@@ -243,5 +222,61 @@
     "pattern": "a triangle centroid 0.006% beyond the deflection from the surface",
     "verdict": "equivalent",
     "evidence": "Deviation 0.194098 mm against a deflection of 0.194087 mm (5.6e-5 relative). Refinement measures the surface point at the parameter centroid against the triangle; the check measures the 3-D centroid against its projection onto the surface. The two distances differ at second order."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb202",
+    "path": "check.inward_triangles[37]",
+    "pattern": "a single speck triangle of at most 7.6e-5 mm2 (about 12 µm across) at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "Since the move to quiddity-rust v0.1.0-alpha.1 (which meshes faces it refused before, q-mesh-refusals) the speck triangles of the entries above sit on other faces: cgb202 faces 37 and 1410, cgb207 faces 174 and 179, cgb242 faces 551, 722, 739 and 744, one triangle each, of 5.5e-8 to 7.6e-5 mm2 (the largest, cgb202 face 1410, about 12 µm across), measured by re-running tests/mesh.rs's inward check with each triangle's area printed. Same cause as the entries above: next to a degenerate corner a parameter barely moves the point and the triangle is wound against the surface normal at its centre; invisible at any drawing scale."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb202",
+    "path": "check.inward_triangles[1410]",
+    "pattern": "a single speck triangle of at most 7.6e-5 mm2 (about 12 µm across) at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "Since the move to quiddity-rust v0.1.0-alpha.1 (which meshes faces it refused before, q-mesh-refusals) the speck triangles of the entries above sit on other faces: cgb202 faces 37 and 1410, cgb207 faces 174 and 179, cgb242 faces 551, 722, 739 and 744, one triangle each, of 5.5e-8 to 7.6e-5 mm2 (the largest, cgb202 face 1410, about 12 µm across), measured by re-running tests/mesh.rs's inward check with each triangle's area printed. Same cause as the entries above: next to a degenerate corner a parameter barely moves the point and the triangle is wound against the surface normal at its centre; invisible at any drawing scale."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb207",
+    "path": "check.inward_triangles[174]",
+    "pattern": "a single speck triangle of at most 7.6e-5 mm2 (about 12 µm across) at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "Since the move to quiddity-rust v0.1.0-alpha.1 (which meshes faces it refused before, q-mesh-refusals) the speck triangles of the entries above sit on other faces: cgb202 faces 37 and 1410, cgb207 faces 174 and 179, cgb242 faces 551, 722, 739 and 744, one triangle each, of 5.5e-8 to 7.6e-5 mm2 (the largest, cgb202 face 1410, about 12 µm across), measured by re-running tests/mesh.rs's inward check with each triangle's area printed. Same cause as the entries above: next to a degenerate corner a parameter barely moves the point and the triangle is wound against the surface normal at its centre; invisible at any drawing scale."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb207",
+    "path": "check.inward_triangles[179]",
+    "pattern": "a single speck triangle of at most 7.6e-5 mm2 (about 12 µm across) at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "Since the move to quiddity-rust v0.1.0-alpha.1 (which meshes faces it refused before, q-mesh-refusals) the speck triangles of the entries above sit on other faces: cgb202 faces 37 and 1410, cgb207 faces 174 and 179, cgb242 faces 551, 722, 739 and 744, one triangle each, of 5.5e-8 to 7.6e-5 mm2 (the largest, cgb202 face 1410, about 12 µm across), measured by re-running tests/mesh.rs's inward check with each triangle's area printed. Same cause as the entries above: next to a degenerate corner a parameter barely moves the point and the triangle is wound against the surface normal at its centre; invisible at any drawing scale."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb242",
+    "path": "check.inward_triangles[551]",
+    "pattern": "a single speck triangle of at most 7.6e-5 mm2 (about 12 µm across) at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "Since the move to quiddity-rust v0.1.0-alpha.1 (which meshes faces it refused before, q-mesh-refusals) the speck triangles of the entries above sit on other faces: cgb202 faces 37 and 1410, cgb207 faces 174 and 179, cgb242 faces 551, 722, 739 and 744, one triangle each, of 5.5e-8 to 7.6e-5 mm2 (the largest, cgb202 face 1410, about 12 µm across), measured by re-running tests/mesh.rs's inward check with each triangle's area printed. Same cause as the entries above: next to a degenerate corner a parameter barely moves the point and the triangle is wound against the surface normal at its centre; invisible at any drawing scale."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb242",
+    "path": "check.inward_triangles[722]",
+    "pattern": "a single speck triangle of at most 7.6e-5 mm2 (about 12 µm across) at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "Since the move to quiddity-rust v0.1.0-alpha.1 (which meshes faces it refused before, q-mesh-refusals) the speck triangles of the entries above sit on other faces: cgb202 faces 37 and 1410, cgb207 faces 174 and 179, cgb242 faces 551, 722, 739 and 744, one triangle each, of 5.5e-8 to 7.6e-5 mm2 (the largest, cgb202 face 1410, about 12 µm across), measured by re-running tests/mesh.rs's inward check with each triangle's area printed. Same cause as the entries above: next to a degenerate corner a parameter barely moves the point and the triangle is wound against the surface normal at its centre; invisible at any drawing scale."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb242",
+    "path": "check.inward_triangles[739]",
+    "pattern": "a single speck triangle of at most 7.6e-5 mm2 (about 12 µm across) at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "Since the move to quiddity-rust v0.1.0-alpha.1 (which meshes faces it refused before, q-mesh-refusals) the speck triangles of the entries above sit on other faces: cgb202 faces 37 and 1410, cgb207 faces 174 and 179, cgb242 faces 551, 722, 739 and 744, one triangle each, of 5.5e-8 to 7.6e-5 mm2 (the largest, cgb202 face 1410, about 12 µm across), measured by re-running tests/mesh.rs's inward check with each triangle's area printed. Same cause as the entries above: next to a degenerate corner a parameter barely moves the point and the triangle is wound against the surface normal at its centre; invisible at any drawing scale."
+  },
+  {
+    "case": "corpus/cadgenbench_inputs/cgb242",
+    "path": "check.inward_triangles[744]",
+    "pattern": "a single speck triangle of at most 7.6e-5 mm2 (about 12 µm across) at a degenerate corner of a freeform face faces inward",
+    "verdict": "rust-wrong",
+    "evidence": "Since the move to quiddity-rust v0.1.0-alpha.1 (which meshes faces it refused before, q-mesh-refusals) the speck triangles of the entries above sit on other faces: cgb202 faces 37 and 1410, cgb207 faces 174 and 179, cgb242 faces 551, 722, 739 and 744, one triangle each, of 5.5e-8 to 7.6e-5 mm2 (the largest, cgb202 face 1410, about 12 µm across), measured by re-running tests/mesh.rs's inward check with each triangle's area printed. Same cause as the entries above: next to a degenerate corner a parameter barely moves the point and the triangle is wound against the surface normal at its centre; invisible at any drawing scale."
   }
 ]

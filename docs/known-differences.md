@@ -15,13 +15,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [cli](#cli) | 9 | 0 | 3 | 0 | 3 | 15 |
 | [cross_engine](#cross_engine) | 3 | 1 | 0 | 1 | 1 | 6 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
-| [features](#features) | 879 | 1418 | 63 | 1386 | 11 | 3757 |
+| [features](#features) | 879 | 1418 | 65 | 1391 | 11 | 3764 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
-| [mesh](#mesh) | 5 | 12 | 9 | 4 | 5 | 35 |
+| [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 40 |
 | [rules](#rules) | 6 | 0 | 0 | 0 | 0 | 6 |
 | [writer](#writer) | 16 | 0 | 0 | 0 | 15 | 31 |
-| **all** | 949 | 1431 | 77 | 1392 | 47 | 3896 |
+| **all** | 949 | 1436 | 79 | 1397 | 47 | 3908 |
 
 ## anchors
 
@@ -323,7 +323,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Records equal; Python's faces add a plane. quiddity-rust gives defining faces only (Features::defining); Python quiddity's evidence view gives constituent faces (upstream need U2).
 
-### features: equivalent (63 entries)
+### features: equivalent (65 entries)
 
 - **both at the adaptive integral** (23 entries, 8 case globs)
 
@@ -377,7 +377,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/cadgenbench/threaded_connector_109` at `features[id=*].record.*location[*]`: Locations come from the hole's edges as each kernel reads them; a difference below 1e-6 mm is below the analysis's own rounding of face centroids and of no manufacturing consequence. Here 1 value(s), largest difference 6e-07.
 
-### features: undetermined (1386 entries)
+- **a riser's top height -40.0 in Rust, -39.9999999 in Python** (2 entries, 2 case globs)
+
+  A difference of 1e-7 mm: the face's plane is at z = -40 in the STEP file; Python's value carries OpenCascade's tolerance noise, Rust's is the plane's exact height.
+
+### features: undetermined (1391 entries)
 
 - **face numbering differs from OpenCascade's** (`corpus/inventory_refusal/13975` at `faces[*`)
 
@@ -515,6 +519,14 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   quiddity-rust's rectangular_blind_slots family; Python quiddity 0.3.9 recognises it but its evidence view leaves the recess source families out (evidence.py, _registry.RECESS_SOURCE_FAMILIES) and reports their section_recesses aggregate instead (not ported); Python gives these faces to section_recesses, step_levels.
 
+- **step levels carry a body key in Rust where specify-core's quiddity gives none** (`corpus/inventory_refusal/14052` at `features[id=step_levels:*].record.body_key`)
+
+  specify-core's oracle was captured with its own venv's quiddity 0.3.9; quiddity-rust ports Python quiddity 0.4.0.dev0 call by call, and its risers and step levels joined recognise() at quiddity-rust v0.1.0-alpha.1 (q-risers-step-levels, q-land-evidence-mesh-risers). Not settled which side is right until the oracle is recaptured with quiddity 0.4. 14052 is the part where Python recovers by local degradation, which quiddity-rust does not port (quiddity-rust docs/alpha1.md (b), question 6).
+
+- **a riser of two coplanar faces in Rust where specify-core's quiddity gives one face** (4 entries, 4 case globs)
+
+  specify-core's oracle was captured with its own venv's quiddity 0.3.9; quiddity-rust ports Python quiddity 0.4.0.dev0 call by call, and its risers and step levels joined recognise() at quiddity-rust v0.1.0-alpha.1 (q-risers-step-levels, q-land-evidence-mesh-risers). Not settled which side is right until the oracle is recaptured with quiddity 0.4.
+
 ### features: not-applicable (11 entries)
 
 - **Python's surface-model part does not exist in Rust** (5 entries, 5 case globs)
@@ -559,7 +571,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   Face 1: the outer loop's side v = 5.1255 from u = 0 to 20.72 crosses the circular inner loop (centre (10.8, 6.1), radius 1.65) twice in haecceity's parameter loops: the face's trim is not a valid region (the corpus keeps this file as one to refuse). Python's BRepMesh triangulates it anyway (78.8 mm2).
 
-### mesh: rust-wrong (12 entries)
+### mesh: rust-wrong (17 entries)
 
 - **a freeform face whose boundary samples cross at a narrow neck is not triangulated** (2 entries, 1 case glob)
 
@@ -569,13 +581,17 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   Face 399, see cgb202 \*399\*.
 
-- **a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward** (8 entries, 3 case globs)
+- **a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward** (5 entries, 2 case globs)
 
   cgb202 faces 1078 and 1465, cgb207 face 114, cgb242 faces 472, 665, 711, 719 and 840: one triangle each, of 6e-8 to 7.3e-6 mm2 (cgb202 face 1078: 7.3e-6; cgb207 face 114: 6.9e-8), next to a corner where a parameter barely moves the point (cgb202 face 446 before the speck rule: corner normals differing by 70 degrees within 0.004 in u). Invisible, but wound against the surface normal at their centre. Since the move to quiddity-rust prototype/rust-port 5798c59 (Q2) the faces are others than at a16d7af (cgb202 740, cgb207 113, cgb242 878 then; none now), as haecceity's parameter loops changed; areas measured by re-running tests/mesh.rs's inward check on each face.
 
 - **refinement of a small freeform face stops at its round cap** (`corpus/cadgenbench_inputs/cgb243` at `check.converged[537]`)
 
   Face 537 (B-spline, exact area 0.83297 mm2): since the move to prototype/rust-port 5798c59 (Q2) refinement stops at MAX_ROUNDS (40) with 4216 triangles, below MAX_VERTICES, so some deflection is not met everywhere; at a16d7af it converged. The mesh is still within the checks that pass: area 0.82809 (0.6% from exact), every triangle centroid within the chordal deflection (0.194 mm), none inward. Coarser than asked, and says so.
+
+- **a single speck triangle of at most 7.6e-5 mm2 (about 12 µm across) at a degenerate corner of a freeform face faces inward** (8 entries, 3 case globs)
+
+  Since the move to quiddity-rust v0.1.0-alpha.1 (which meshes faces it refused before, q-mesh-refusals) the speck triangles of the entries above sit on other faces: cgb202 faces 37 and 1410, cgb207 faces 174 and 179, cgb242 faces 551, 722, 739 and 744, one triangle each, of 5.5e-8 to 7.6e-5 mm2 (the largest, cgb202 face 1410, about 12 µm across), measured by re-running tests/mesh.rs's inward check with each triangle's area printed. Same cause as the entries above: next to a degenerate corner a parameter barely moves the point and the triangle is wound against the surface normal at its centre; invisible at any drawing scale.
 
 ### mesh: equivalent (9 entries)
 
@@ -1084,6 +1100,13 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `corpus/mfcadpp_holdout/363`: `features[id=rectangular_blind_slots:*]`
   - `corpus/mfcadpp_holdout/464`: `features[id=rectangular_blind_slots:*]`
   - `corpus/mfcadpp_regressions/11512`: `features[id=rectangular_blind_slots:*]`
+- **step levels carry a body key in Rust where specify-core's quiddity gives none** (1 entry)
+  - `corpus/inventory_refusal/14052`: `features[id=step_levels:*].record.body_key`
+- **a riser of two coplanar faces in Rust where specify-core's quiddity gives one face** (4 entries)
+  - `corpus/mfcadpp/10049`: `features[id=risers:2].faces-plane`
+  - `corpus/mfcadpp/10060`: `features[id=risers:23].faces-plane`
+  - `corpus/mfcadpp_holdout/20273`: `features[id=risers:4].faces-plane`
+  - `corpus/mfcadpp_holdout/257`: `features[id=risers:15].faces-plane`
 
 ### mesh: rust-wrong
 
@@ -1091,12 +1114,15 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `corpus/cadgenbench_inputs/cgb202`: `check.triangulated[399]`, `areas[399]`
 - **a freeform face whose boundary samples cross at a narrow neck is listed as missing** (1 entry)
   - `corpus/cadgenbench_inputs/cgb202`: `missing[0]`
-- **a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward** (8 entries)
+- **a single triangle of at most 7.3e-6 mm2 (about 4 µm across) at a degenerate corner of a freeform face faces inward** (5 entries)
   - `corpus/cadgenbench_inputs/cgb202`: `check.inward_triangles[1078]`, `check.inward_triangles[1465]`
-  - `corpus/cadgenbench_inputs/cgb207`: `check.inward_triangles[114]`
-  - `corpus/cadgenbench_inputs/cgb242`: `check.inward_triangles[472]`, `check.inward_triangles[665]`, `check.inward_triangles[711]`, `check.inward_triangles[719]`, `check.inward_triangles[840]`
+  - `corpus/cadgenbench_inputs/cgb242`: `check.inward_triangles[472]`, `check.inward_triangles[665]`, `check.inward_triangles[719]`
 - **refinement of a small freeform face stops at its round cap** (1 entry)
   - `corpus/cadgenbench_inputs/cgb243`: `check.converged[537]`
+- **a single speck triangle of at most 7.6e-5 mm2 (about 12 µm across) at a degenerate corner of a freeform face faces inward** (8 entries)
+  - `corpus/cadgenbench_inputs/cgb202`: `check.inward_triangles[37]`, `check.inward_triangles[1410]`
+  - `corpus/cadgenbench_inputs/cgb207`: `check.inward_triangles[174]`, `check.inward_triangles[179]`
+  - `corpus/cadgenbench_inputs/cgb242`: `check.inward_triangles[551]`, `check.inward_triangles[722]`, `check.inward_triangles[739]`, `check.inward_triangles[744]`
 
 ### mesh: undetermined
 
