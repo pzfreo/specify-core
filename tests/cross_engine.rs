@@ -22,8 +22,10 @@
 //! - (c) Each file Python wrote (`tests/fixtures/oracle/**/written.step.gz`) read and resumed
 //!   by the Rust engine, against Python's own read-back of it (`readback.json.gz`).
 //! - (d) `schema_two_fingerprints_are_the_same_in_both_engines`: on every part of those files,
-//!   the stored-answer schema 2 fingerprint computed in Python from Python's faces equals this
-//!   engine's (Q14).
+//!   the stored-answer schema 2 fingerprint specify-core gives (its own, and the canonical form
+//!   computed in the capture from Python's faces) equals this engine's wherever the two
+//!   engines' faces are the same (Q14); where they are not, the difference is judged with (b)
+//!   and (c).
 //!
 //! Differences in how the two readers read a file's own PMI (NIST's, in (b); and in (c) the
 //! presentation of specify-core's own callouts) are the existing-PMI area's
@@ -511,8 +513,14 @@ fn rust_resume_failure(loaded: &LoadedPart, k: usize, evidence: Option<&Value>) 
     if ours["face_count"] != json!(loaded.binding.face_count) {
         return "face count differs".into();
     }
-    // Python resumes its own file: the stored fingerprint is the hash of the faces captured.
-    if ours["faces"] != evidence["fingerprint"] {
+    // Python resumes its own file: the stored fingerprint is specify-core's own hash, for the
+    // payload's schema, of the faces captured.
+    let python_now = if ours["schema"] == json!(1) {
+        &evidence["fingerprint_v1"]
+    } else {
+        &evidence["fingerprint"]
+    };
+    if ours["faces"] != *python_now {
         return "the stored fingerprint is not Python's".into();
     }
     faces_gap(loaded, evidence)
@@ -629,17 +637,36 @@ fn rust_reads_python(resumed: &mut BTreeMap<String, usize>) -> Vec<Difference> {
 // (d) Schema 2 fingerprints across engines (Q14)
 // ---------------------------------------------------------------------------------------------
 
-/// Every part of every file in the check (each Rust-written file, or where OpenCascade crashed
-/// on it the capture's probe of it, and each file Python wrote): the schema 2 fingerprint the
+/// The schema 2 fingerprints of every part of every file in the check (each Rust-written file,
+/// or where OpenCascade crashed on it the capture's probe of it, and each file Python wrote),
+/// against this engine's `resume::fingerprint` of the same part. Python's are the form the
 /// capture computed from Python's own faces by docs/design.md's canonical form
-/// (`fingerprint_v2`) is this engine's `resume::fingerprint` of the same part, byte for byte.
-/// Until specify-core writes schema 2 itself (`evidence.schema`), this is the form computed
-/// in Python, not specify-core's own function.
-#[test]
-fn schema_two_fingerprints_are_the_same_in_both_engines() {
-    let mut checked = 0;
-    let mut differ = Vec::new();
-    let mut check = |name: &str, step: &Path, evidence: &Value| {
+/// (`fingerprint_v2`) and, where specify-core writes schema 2 itself (`evidence.schema`),
+/// specify-core's own (`fingerprint`).
+///
+/// A fingerprint can only be equal where the two engines' faces are (kind and centroid rounded
+/// to 3, in order): an unequal pair where they are is a failure of the fingerprint
+/// (`unexplained`); one where they are not is a difference of the faces, which carries its
+/// reason in its path (`faces_gap`) and is judged in `known_differences/cross_engine.json`.
+struct SchemaTwo {
+    /// Parts compared.
+    checked: usize,
+    /// Parts whose evidence has specify-core's own schema 2 fingerprint.
+    own: usize,
+    unexplained: Vec<String>,
+    faces_differ: Vec<Difference>,
+}
+
+fn schema_two_fingerprints() -> SchemaTwo {
+    let mut out = SchemaTwo {
+        checked: 0,
+        own: 0,
+        unexplained: Vec::new(),
+        faces_differ: Vec::new(),
+    };
+    // `at`: the path prefix, "" for a Rust-written file and "python_written." for one Python
+    // wrote, as in (b) and (c).
+    let mut check = |name: &str, at: &str, step: &Path, evidence: &Value| {
         let parts = evidence.as_array().cloned().unwrap_or_default();
         for (k, e) in parts.iter().enumerate() {
             if is_error(e) {
@@ -647,17 +674,39 @@ fn schema_two_fingerprints_are_the_same_in_both_engines() {
             }
             let loaded = load_part(step, k, parts.len()).expect("the Rust engine loads it");
             let ours = fingerprint(&loaded).unwrap();
-            checked += 1;
+            out.checked += 1;
+            let own = e["schema"] == json!(2);
+            out.own += usize::from(own);
+            let mut unequal = Vec::new();
             if e["fingerprint_v2"] != json!(ours) {
-                differ.push(format!(
-                    "{name} part {k}: Python {} Rust {ours}",
-                    e["fingerprint_v2"]
+                unequal.push(format!("Python {}", e["fingerprint_v2"]));
+            }
+            if own && e["fingerprint"] != json!(ours) {
+                unequal.push(format!(
+                    "specify-core's own schema 2 fingerprint {}",
+                    e["fingerprint"]
                 ));
             }
-            if e["schema"] == json!(2) && e["fingerprint"] != json!(ours) {
-                differ.push(format!(
-                    "{name} part {k}: specify-core's own schema 2 fingerprint {}",
-                    e["fingerprint"]
+            if unequal.is_empty() {
+                continue;
+            }
+            let gap = faces_gap(&loaded, e);
+            if gap.starts_with("fingerprint differs: faces differ") || gap.contains("length") {
+                let part = if parts.len() > 1 {
+                    format!("{name}#{k}")
+                } else {
+                    name.to_owned()
+                };
+                out.faces_differ.push(difference(
+                    &part,
+                    format!("{at}fingerprint_v2[{gap}]"),
+                    e["fingerprint_v2"].clone(),
+                    json!(ours),
+                ));
+            } else {
+                out.unexplained.push(format!(
+                    "{at}{name} part {k} ({gap}): {} Rust {ours}",
+                    unequal.join(", ")
                 ));
             }
         }
@@ -671,7 +720,7 @@ fn schema_two_fingerprints_are_the_same_in_both_engines() {
             } else {
                 &meta["probe_resume_evidence"]
             };
-            check(&format!("{} (Rust-written)", case.name), &step, evidence);
+            check(&case.name, "", &step, evidence);
         }
     }
     for c in cases() {
@@ -682,17 +731,38 @@ fn schema_two_fingerprints_are_the_same_in_both_engines() {
             &write_fixtures::case_dir(&c.name).join("python_written_evidence.json.gz"),
         );
         check(
-            &format!("{} (Python-written)", c.name),
+            &c.name,
+            "python_written.",
             &written,
             &evidence["resume_evidence"],
         );
     }
-    println!("schema 2 fingerprints compared: {checked} parts");
-    assert!(checked > 0, "no resume evidence captured");
+    out
+}
+
+/// (d): every schema 2 fingerprint Python gives, the capture's canonical form and
+/// specify-core's own, is this engine's wherever the two engines' faces are the same; where
+/// they are not, the difference is judged by `the_engines_read_each_others_files`.
+#[test]
+fn schema_two_fingerprints_are_the_same_in_both_engines() {
+    let found = schema_two_fingerprints();
+    println!(
+        "schema 2 fingerprints compared: {} parts, {} with specify-core's own; {} where the \
+         faces differ",
+        found.checked,
+        found.own,
+        found.faces_differ.len()
+    );
+    assert!(found.checked > 0, "no resume evidence captured");
     assert!(
-        differ.is_empty(),
-        "schema 2 fingerprints differ:\n  {}",
-        differ.join("\n  ")
+        found.own > 0,
+        "no evidence with specify-core's own schema 2 fingerprint; recapture with a \
+         specify-core that writes schema 2"
+    );
+    assert!(
+        found.unexplained.is_empty(),
+        "schema 2 fingerprints differ on the same faces:\n  {}",
+        found.unexplained.join("\n  ")
     );
 }
 
@@ -701,6 +771,7 @@ fn the_engines_read_each_others_files() {
     let (mut python_resumed, mut rust_resumed) = (BTreeMap::new(), BTreeMap::new());
     let mut differences = python_reads_rust(&mut python_resumed);
     differences.extend(rust_reads_python(&mut rust_resumed));
+    differences.extend(schema_two_fingerprints().faces_differ);
     println!("Python resuming Rust-written parts: {python_resumed:?}");
     println!("Rust resuming Python-written parts: {rust_resumed:?}");
     check_known("cross_engine", &differences);

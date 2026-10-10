@@ -54,5 +54,12 @@
     "pattern": "XCAF's third part of a product with surface models does not exist in Rust (question Q7)",
     "verdict": "not-applicable",
     "evidence": "As for #1: nist_ctc_02_asme1_ap242's two surface models are XCAF's parts 1 and 2, and in Rust both are in part 0 (Q7)."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "anchors.*.out[*].same_from_python_point",
+    "pattern": "a cylinder labelled from another point on it: the leader is the face's normal there",
+    "verdict": "equivalent",
+    "evidence": "Captured since specify-core's ISO 286 extension (branch iso286-3150) lets Python apply this part's answers: before it, Python had no anchors here. Groups 72 (the Ø63.5 cylinder, face 72) and 10 (the Ø304.8 cylinder, face 10): both engines anchor on the same face and both leaders are clear; Python's point (Quiddity's inspect_face: (-31.75, 0, 381) and (133.695718, 73.152, 76.2)) leaves along the radius there, (-1, 0, 0) and (0.877268, 0.48, 0), and Rust's point (the U6 stand-in, the face's centre accepted only inside its trimmed domain) along the radius at its own point, (0, 1, 0). From Python's own point, with Python's diagonal, the Rust sightline gives Python's leader exactly (the path's same_from_python_point, tests/anchors.rs explain), so the sightline logic agrees and only the point on the cylinder differs, which upstream need U6 names. Either leader is the clear outward normal of the labelled face."
   }
 ]

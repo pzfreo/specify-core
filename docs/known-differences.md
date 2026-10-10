@@ -11,17 +11,17 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 | Area | rust-correct | rust-wrong | equivalent | undetermined | not-applicable | Total |
 |---|---:|---:|---:|---:|---:|---:|
-| [anchors](#anchors) | 4 | 0 | 1 | 1 | 2 | 8 |
-| [cli](#cli) | 10 | 0 | 3 | 0 | 4 | 17 |
-| [cross_engine](#cross_engine) | 4 | 0 | 0 | 1 | 1 | 6 |
+| [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 9 |
+| [cli](#cli) | 9 | 0 | 3 | 0 | 3 | 15 |
+| [cross_engine](#cross_engine) | 3 | 1 | 0 | 1 | 1 | 6 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
 | [features](#features) | 879 | 1418 | 63 | 1386 | 11 | 3757 |
-| [iso286](#iso286) | 3 | 0 | 0 | 0 | 0 | 3 |
+| [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 12 | 9 | 4 | 5 | 35 |
-| [rules](#rules) | 10 | 0 | 0 | 2 | 0 | 12 |
-| [writer](#writer) | 15 | 0 | 0 | 0 | 14 | 29 |
-| **all** | 957 | 1430 | 76 | 1394 | 47 | 3904 |
+| [rules](#rules) | 6 | 0 | 0 | 0 | 0 | 6 |
+| [writer](#writer) | 16 | 0 | 0 | 0 | 15 | 31 |
+| **all** | 949 | 1431 | 77 | 1392 | 47 | 3896 |
 
 ## anchors
 
@@ -39,11 +39,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Faces 185-187 are cylinders (radius 11.1125, axis along X) whose top boundary dips from v = 265.035 at u = pi to 264.648 at u = 2 pi. Python's anchor for face 185, (-141.366, -64.5795, -47.625), has parameters u = 0, v = 265.0356: on the surface but 0.39 mm beyond the trim there (haecceity's FaceDomain does not contain it, and it is far from every boundary edge). Rust's point (the face's centre, accepted only inside its domain) is on the face.
 
-### anchors: equivalent (1 entry)
+### anchors: equivalent (2 entries)
 
 - **anchored on another face of the group, of the same area** (`*` at `anchors.*.equal_area_face`)
 
   Both engines anchor a group on its largest face, the first of equals; for a group of identical features (a pattern's bores, cgb243's 41 such groups) the faces' areas agree to 1e-6 (haecceity's face_moments, checked by tests/anchors.rs explain), and which one OCCT's or haecceity's quadrature puts first is rounding. Differences of the leader's direction on such a group (path .out...equal_area_face) are the other face's own direction.
+
+- **a cylinder labelled from another point on it: the leader is the face's normal there** (`nist/nist_ctc_05_asme1_ap242` at `anchors.*.out[*].same_from_python_point`)
+
+  Captured since specify-core's ISO 286 extension (branch iso286-3150) lets Python apply this part's answers: before it, Python had no anchors here. Groups 72 (the Ø63.5 cylinder, face 72) and 10 (the Ø304.8 cylinder, face 10): both engines anchor on the same face and both leaders are clear; Python's point (Quiddity's inspect_face: (-31.75, 0, 381) and (133.695718, 73.152, 76.2)) leaves along the radius there, (-1, 0, 0) and (0.877268, 0.48, 0), and Rust's point (the U6 stand-in, the face's centre accepted only inside its trimmed domain) along the radius at its own point, (0, 1, 0). From Python's own point, with Python's diagonal, the Rust sightline gives Python's leader exactly (the path's same_from_python_point, tests/anchors.rs explain), so the sightline logic agrees and only the point on the cylinder differs, which upstream need U6 names. Either leader is the clear outward normal of the labelled face.
 
 ### anchors: undetermined (1 entry)
 
@@ -63,7 +67,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (10 entries)
+### cli: rust-correct (9 entries)
 
 - **Python's write prints OpenCascade's transfer statistics on stdout before the report** (`cli/*` at `stdout_noise`)
 
@@ -97,10 +101,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   As for Infinity: json.dumps writes float('nan') as NaN, not JSON; Rust writes null.
 
-- **a fit above 500 mm: Python refuses it at apply, Rust applies it (Q8) and writes the rest of the intent (Q17)** (`nist/nist_ctc_05_asme1_ap242` at `apply.*`)
-
-  Python's apply refuses the answers with fit_limits' 'nominal size 558.8 outside 0-500 mm' (a fit on the part's Ø558.8 diameter, 22 in), exit 2; the Rust engine tabulates ISO 286 to 3150 mm (the maintainer's decision Q8, docs/questions.md), applies the same answers, and so reaches the write. Python's own intent has a size on hole_patterns.linear:84.85.86.87.88.89 with no faces; the Rust writer writes the rest and lists that item in not_written (the maintainer's decision Q17; writer.json), so the command succeeds, exit 0, with no refusal. The fit itself is checked in tests/standards.rs (iso286_equals_pythons); the content of the write has no Python output to compare with, as for CTC-05's rules outputs (rules.json, undetermined).
-
 ### cli: equivalent (3 entries)
 
 - **mesh's triangle count is the triangulation stand-in's** (`cli/*` at `stdout.triangles`)
@@ -111,7 +111,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `cli/errors/questions-answers-not-json` at `stderr`: Both refuse '{' as 'invalid answer: ...' with exit 2 (Python's JSONDecodeError is a ValueError, caught as an invalid answer; Rust maps a parse error the same way); only the parser's wording differs: 'Expecting property name enclosed in double quotes: line 1 column 2 (char 1)' against 'EOF while parsing an object at line 1 column 1'.
 
-### cli: not-applicable (4 entries)
+### cli: not-applicable (3 entries)
 
 - **feature-id cascade (rule): the engines recognise features differently by design, so analyses are never compared feature by feature with Python's** (`cli/*` at `stdout.features*`)
 
@@ -125,13 +125,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   specify-core's pyproject installs the same entry point twice, as specify-core and as pmi-assist ('the name it was first released under, kept for hosts that still run it'). The alias is an artifact of the Python package's history; a host running the Rust engine names its binary, specify-core (Cargo.toml's one [[bin]]), with the same arguments.
 
-- **a fit above 500 mm: Python refuses it at apply, Rust applies it (Q8) and stops at the write** (`corpus/nist/nist_ctc_05_asme1_rd` at `apply.refusal`)
-
-  Python's apply refuses the answers with fit_limits' 'nominal size 558.8 outside 0-500 mm' (a fit on the part's Ø558.8 diameter, 22 in); the Rust engine tabulates ISO 286 to 3150 mm (the maintainer's decision Q8, docs/questions.md), applies the same answers, and so reaches the write, which stops later: the command passes Python's three analyses of this file and Rust has one part (Question Q7: Python's parts 1 and 2 are surface models that do not exist in Rust; features.json and existing.json), so Rust refuses 'has no part 1'. The fit itself is checked in tests/standards.rs (iso286_equals_pythons, a_600_mm_hole_is_offered_fits_with_their_limits).
-
 ## cross_engine
 
-### cross_engine: rust-correct (4 entries)
+### cross_engine: rust-correct (3 entries)
 
 - **the part's default finish, written as a surface texture, is not read by specify-core (Python)** (`*` at `python_readback.part.surface_finish`)
 
@@ -141,13 +137,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Every fit the Rust writer writes reads back in Python with its nominal value and no upper or lower deviation: the stack's Ø8 H7 bores ([9] of parts 0 and 1, +0.015/0) and Ø8 h6 pin ([3] of part 2, 0/-0.009), and the H11 clearance hole sets on several faces (the plate's and the assembly's Ø6.6, +0.09/0; NIST CTC-03's Ø4.7625 on the 8 faces of hole_patterns.rectangle, the four corner holes, the identical holes and the stack's part 1, +0.075/0), which OpenCascade now reads on all their faces (haecceity writes one geometric_item_specific_usage per face since quiddity-rust c228f95, question Q20 (2)). The Rust writer writes a fit as plus_minus_tolerance -> limits_and_fits('H','hole','7','') (PMI practice §5.2.5), after checking the intent's limits are the class's (src/writer.rs); haecceity's reader reads the class. specify-core's read_existing takes limits only from IsDimWithPlusMinusTolerance (existing.py) and never asks XCAF for the class of tolerance, so the fit's meaning is lost on the Python side. Python's own files carry the fit as bare limits, which is what OCCT's writer forced (docs/design.md, 'What is written').
 
-- **Python (schema 1 only) passes over the Rust writer's schema 2 answers; their fingerprint is the one its own faces give** (`*` at `*resume[python did not resume: the stored payload is schema 2, which this specify-core does not read; Python's faces give its fingerprint]`)
-
-  The Rust writer stores schema 2 (Q14, decided 2026-10-09: the fingerprint writes zeros unsigned, docs/design.md 'The fingerprint'). The specify-core captured (resume.SCHEMA 1, recorded per part as evidence.schema) reads schema 1 only, so its pattern passes the payload over and answers_for gives None, on every Rust-written part it could load (the 2 parts of a_file_with_two_parts, a_placed_part, default_datum_a, wrapped) and on every part of the probes of the 7 files it crashes on (Q16). Python's side of the change is specify-core's branch fingerprint-v2, not yet published when this was captured. For each of those parts the capture computes, in Python and from Python's own faces (OpenCascade's centroids, signs of zero included), the schema 2 fingerprint by the documented canonical form (tools/capture/crossengine.py _fingerprint_v2), and it is exactly the fingerprint the Rust writer stored (checked here, and on all 34 parts of the check by tests/cross_engine.rs schema_two_fingerprints_are_the_same_in_both_engines). So once specify-core reads schema 2 with that form, these answers resume; until then this difference is Python's lag, not the Rust engine's. Before schema 2 the same parts failed on the signs of zero alone (Python -0.0, haecceity 0.0).
-
 - **the Rust engine finds Python-written schema 1 answers but refuses them on the schema 1 fingerprint: zeros' signs differ** (`*` at `python_written.resume[rust did not resume: fingerprint differs only in signs of zero]`)
 
-  On every part of the 11 Python-written synthetic files (tests/fixtures/oracle/parts/\*\*/written.step.gz) resume::stored reads Python's payload (schema 1), equal to what Python's own resume.saved finds (python_written_evidence.json.gz), with the same face count; the stored fingerprint is Python's schema 1 hash of the faces it lists, and those faces equal the Rust engine's by value, differing only in signs of zero (faces_gap), which schema 1's text keeps. Q14 (decided 2026-10-09) keeps schema 1 read exactly as before: resumed only when its own fingerprint matches, so the Rust engine is right not to resume these. The fix is schema 2, which both engines write: the schema 2 fingerprint Python computes from its own faces in these files equals the Rust engine's on all 15 parts (tests/cross_engine.rs schema_two_fingerprints_are_the_same_in_both_engines), so files specify-core writes once it writes schema 2 resume here. Everything else these files hold (existing PMI, part settings) reads in Rust exactly as Python reads it.
+  On every part of the 11 Python-written synthetic files (tests/fixtures/oracle/parts/\*\*/written.step.gz) resume::stored reads Python's payload (schema 1), equal to what Python's own resume.saved finds (python_written_evidence.json.gz), with the same face count; the stored fingerprint is specify-core's own schema 1 hash of the faces it lists (fingerprint_v1 in the evidence), and those faces equal the Rust engine's by value, differing only in signs of zero (faces_gap), which schema 1's text keeps. Q14 (decided 2026-10-09) keeps schema 1 read exactly as before: resumed only when its own fingerprint matches, so the Rust engine is right not to resume these. The fix is schema 2, which both engines write: specify-core's own schema 2 fingerprint (branch fingerprint-v2, captured 2026-10-10) of its faces in these files equals the Rust engine's on all 15 parts (tests/cross_engine.rs schema_two_fingerprints_are_the_same_in_both_engines), so files specify-core writes with schema 2 resume here. These files were written by the oracle's specify-core (cc341dd, schema 1) and are not rewritten by the recapture. Everything else these files hold (existing PMI, part settings) reads in Rust exactly as Python reads it.
+
+### cross_engine: rust-wrong (1 entry)
+
+- **the faces' rounded centroids differ where haecceity's face integrals are off (U11), so the schema 2 fingerprints differ** (`nist/nist_ctc_05_asme1_ap242` at `fingerprint_v2[fingerprint differs: faces differ in kind or rounded centroid]`)
+
+  Python's faces (python_meta.json.gz, resume_evidence) and the Rust engine's faces of the Rust-written file agree in kind and count (156) and in every centroid rounded to 3 decimals but those of faces 93, 97, 109 and 112 (B-spline surfaces: Python [-145.171, 51.241, 52.431], Rust -145.170814, 51.239719, 52.431061) and 98, 103, 104 and 108 (spheres: Python 72.111, Rust 72.111586 rounds to 72.112). OpenCascade's adaptive integral (eps 1e-9) of the same faces gives 51.24061051 and 72.11149644, Python's values: features.json judges each of these eight centroids rust-wrong (faces[93].centroid[\*] etc., upstream need U11, Part::face_moments to 1e-6). The fingerprint itself is not at fault: on the other 34 parts of the check, where the rounded faces are the same, specify-core's own schema 2 fingerprint (branch fingerprint-v2) equals the Rust engine's byte for byte (schema_two_fingerprints_are_the_same_in_both_engines). No answers are stored in a NIST file the Rust writer writes, so nothing fails to resume here; answers stored on this part would not cross engines until U11 is met.
 
 ### cross_engine: undetermined (1 entry)
 
@@ -529,19 +527,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## iso286
 
-### iso286: rust-correct (3 entries)
-
-- **above 500 mm Rust gives the ISO 286 limits, Python refuses the size** (`*` at `limits where Python refuses the size`)
-
-  The maintainer's decision Q8 (docs/questions.md, 2026-10-09): extend ISO 286 to 3150 mm in both engines. The oracle was captured from specify-core cc341dd, whose standards.py (identical to main c1694ec) stops at 500 mm; the Python extension (branch iso286-3150 of specify-core) did not exist when this was captured. Rust's values are ISO 286-1:2010 Table 1 (IT5-IT11), Table 2 (f, g, h) and Table 3 (k, m, n, p) for 500-3150 mm, cross-checked against ISO 286-2 limits for g6, h6, k6, m6, f7 in every range (tests/standards.rs, fit_limits_match_iso_286_to_3150_mm). Every row up to 500 mm is equal. This path is given only where Python's own message is its size refusal and the size is at most 3150 mm (tests/standards.rs, iso286_equals_pythons); an unequal pair of limits is path 'limits', which no entry matches. Regenerate tests/fixtures/iso286_oracle.json.gz from that branch when it lands (see iso286_oracle.py): these entries then go stale.
-
-- **beyond the tables both refuse; Rust names 0-3150 mm, Python 0-500 mm** (`*` at `message for the size`)
-
-  Both raise the same message form, "nominal size N outside 0-L mm"; L is the largest tabulated size, 3150 in Rust after Q8 and 500 in the captured Python. The maintainer's decision Q8 (docs/questions.md, 2026-10-09): extend ISO 286 to 3150 mm in both engines. The oracle was captured from specify-core cc341dd, whose standards.py (identical to main c1694ec) stops at 500 mm; the Python extension (branch iso286-3150 of specify-core) did not exist when this was captured. Rust's values are ISO 286-1:2010 Table 1 (IT5-IT11), Table 2 (f, g, h) and Table 3 (k, m, n, p) for 500-3150 mm, cross-checked against ISO 286-2 limits for g6, h6, k6, m6, f7 in every range (tests/standards.rs, fit_limits_match_iso_286_to_3150_mm). Every row up to 500 mm is equal. This path is given only beyond 3150 mm where both refuse the size. Regenerate tests/fixtures/iso286_oracle.json.gz from that branch when it lands (see iso286_oracle.py): these entries then go stale.
-
-- **k above grade 7 between 500 and 3150 mm: Rust refuses the grade, Python the size** (`k*` at `message for the grade where Python refuses the size`)
-
-  Both refuse. Rust, with the size now tabulated, reaches the grade check Python's fit_limits makes after the size check ("k deviations are tabulated here for grades 4 to 7 only"), the message Python gives for k8 at any size up to 500 mm. The maintainer's decision Q8 (docs/questions.md, 2026-10-09): extend ISO 286 to 3150 mm in both engines. The oracle was captured from specify-core cc341dd, whose standards.py (identical to main c1694ec) stops at 500 mm; the Python extension (branch iso286-3150 of specify-core) did not exist when this was captured. Rust's values are ISO 286-1:2010 Table 1 (IT5-IT11), Table 2 (f, g, h) and Table 3 (k, m, n, p) for 500-3150 mm, cross-checked against ISO 286-2 limits for g6, h6, k6, m6, f7 in every range (tests/standards.rs, fit_limits_match_iso_286_to_3150_mm). Every row up to 500 mm is equal. This path is given only where Python refuses the size and the size is at most 3150 mm. Regenerate tests/fixtures/iso286_oracle.json.gz from that branch when it lands (see iso286_oracle.py): these entries then go stale.
+No entries: every comparison in this area equals Python's (`iso286.json` is empty).
 
 ## mates
 
@@ -671,11 +657,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## rules
 
-### rules: rust-correct (10 entries)
-
-- **a fit above 500 mm: Python fails the part's rules, Rust answers (Q8)** (4 entries, 2 case globs)
-
-  Python's rules fail the whole part with fit_limits' 'nominal size 558.8 outside 0-500 mm': the part has a Ø558.8 (22 in) diameter, which is offered fits, and describing them for the question list raises (docs/questions.md Q8 records the same failure at 600 mm). The maintainer's decision Q8 extends ISO 286 to 3150 mm in both engines; the Rust rules tabulate it (ISO 286-1:2010 Tables 1-3, checked in tests/standards.rs), so Rust answers where Python fails. When specify-core's extension (branch iso286-3150) is captured, the oracle compares the answers and this entry goes stale.
+### rules: rust-correct (6 entries)
 
 - **a knurl's teeth derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].teeth`)
 
@@ -701,15 +683,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The maintainer's decision Q4/Q15 (docs/questions.md): AP242's turned_knurl needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9), so the Rust rules derive them from the knurling standard and state each in the intent with its source, visible and editable ('standard': 'DIN 82', 'derived': key to source). Values: teeth round(pi x 10 / 1) = 31, the pitch kept at the tool's 1 mm; tooth depth P/2 = 0.5, the depth of DIN 82's 90 degree profile (IS 3403:1981 3.1; assumed, no table gives it); root fillet 0.1, the knurling wheel's crest radius up to 1 mm pitch (IS 6776:1980 4.3); a diamond's helix angle 30 degrees and no hand (DIN 82 type RGE). Checked in tests/threads.rs. Python's knurl states pattern, pitch and diameter only.
 
-### rules: undetermined (2 entries)
-
-- **a fit above 500 mm: what Rust answers where Python fails has no Python output to compare with** (2 entries, 2 case globs)
-
-  Python's rules fail the whole part with fit_limits' 'nominal size 558.8 outside 0-500 mm': the part has a Ø558.8 (22 in) diameter, which is offered fits, and describing them for the question list raises (docs/questions.md Q8 records the same failure at 600 mm). The maintainer's decision Q8 extends ISO 286 to 3150 mm in both engines; the Rust rules tabulate it (ISO 286-1:2010 Tables 1-3, checked in tests/standards.rs), so Rust answers where Python fails. The content of those answers (questions, open, answers, problems, preview, apply) has not been compared with any Python output: Python has none for this part. The fits' limits are checked against ISO 286-2 in tests/standards.rs; the rest is the same rules code the oracle checks on every other part. When specify-core's extension (branch iso286-3150) is captured, the oracle compares the answers and this entry goes stale.
-
 ## writer
 
-### writer: rust-correct (15 entries)
+### writer: rust-correct (16 entries)
 
 - **a knurl from Python's intent, its turned_knurl parameters filled in from DIN 82** (`scenarios/turned_*knurl*` at `write.warnings[*knurl on *: the intent states no *]`)
 
@@ -755,7 +731,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The payload is read (tests/resume.rs pythons_stored_answers_are_read) and its face count matches, but Python's fingerprint hashes OpenCascade's centroids, whose zero components carry other signs than haecceity's (plate: Python [-50.0, -0.0, -0.0], Rust [-50.0, -0.0, 0.0]; equal numbers, tests/resume.rs a_python_fingerprint_differs_only_in_signs_of_zero). The Rust engine cannot verify the faces, so it does not resume (the file is analysed with its PMI as its own). Q14 (decided 2026-10-09) keeps schema 1 read exactly as before, so this is the specified outcome; schema 2, which both engines write, fingerprints zeros unsigned, and the two engines' schema 2 fingerprints of these files are equal (tests/cross_engine.rs schema_two_fingerprints_are_the_same_in_both_engines).
 
-### writer: not-applicable (14 entries)
+- **Python's write fails its verification on items with no faces; Rust writes the rest and lists them (Q17)** (`nist/nist_ctc_05_asme1_ap242` at `write`)
+
+  Captured from specify-core with its ISO 286 extension (branch iso286-3150; docs/questions.md Q8, 'Recapture source'), which applies this part's answers where the earlier specify-core refused its Ø558.8 diameter. Python's own intent has the size (H11, 0.11/0.0, clearance for M10) and the position of two hole patterns, hole_patterns.linear:84.85.86.87.88.89 and :78.79.80.81.82.83, with faces []; its write raises VerificationError naming exactly those four ('limits 0.11/0.0 not in file' twice, 'position on [] missing or wrong' twice). As question Q17 decides, the Rust writer writes the rest (material, general tolerance, finish, edges) and lists each of the four in not_written ('the size on hole_patterns.linear:84.85.86.87.88.89 names no faces, so nothing in the file can carry it (question Q17)'; checked by running specify-core write --accept-defaults with the oracle's analysis), verified by reading back; the same file is the cross-engine check's nist/nist_ctc_05_asme1_ap242, which OpenCascade opens and reads (tests/cross_engine.rs).
+
+### writer: not-applicable (15 entries)
 
 - **Python's three parts of one product are one part here** (`nist/nist_ctc_02_asme1_ap242` at `write.message[*]`)
 
@@ -765,9 +745,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   As CTC-02: XCAF's two parts are one product definition in haecceity (question Q7); Python's intents name the one Rust part twice.
 
-- **Python's parts of one product are one part here** (2 entries, 2 case globs)
+- **Python's parts of one product are one part here** (3 entries, 3 case globs)
 
-  The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `corpus/nist/nist_ctc_02_asme1_rc` at `write.message[*]`: Python fails inside its text route ('expected one B-rep representation, found 0'); the Rust engine has one part per product definition (question Q7), so Python's per-XCAF-part intents name the one Rust part more than once ('a part is written once').
+  The evidence is stated per entry (3 distinct; all in `writer.json`). The first, for `corpus/nist/nist_ctc_02_asme1_rc` at `write.message[*]`: Python fails inside its text route ('expected one B-rep representation, found 0'); the Rust engine has one part per product definition (question Q7), so Python's per-XCAF-part intents name the one Rust part more than once ('a part is written once').
 
 - **an assertion on Python's text route or drawing, not ported** (10 entries, 10 case globs)
 
@@ -781,6 +761,11 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
 
 - **a leader from a face with an invalid trim is clear in Rust, blocked in Python** (1 entry)
   - `corpus/inventory_refusal/14052`: `anchors.1.clear`
+
+### cross_engine: rust-wrong
+
+- **the faces' rounded centroids differ where haecceity's face integrals are off (U11), so the schema 2 fingerprints differ** (1 entry)
+  - `nist/nist_ctc_05_asme1_ap242`: `fingerprint_v2[fingerprint differs: faces differ in kind or rounded centroid]`
 
 ### cross_engine: undetermined
 
@@ -1123,9 +1108,3 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `corpus/inventory_refusal/13975`: `check.numbering[*]`
 - **per-face mesh areas differ because faces 1-16 are numbered differently from Python's** (1 entry)
   - `corpus/inventory_refusal/13975`: `areas[*]`
-
-### rules: undetermined
-
-- **a fit above 500 mm: what Rust answers where Python fails has no Python output to compare with** (2 entries)
-  - `corpus/nist/nist_ctc_05_asme1_rd#0/*`: `*`
-  - `nist/nist_ctc_05_asme1_ap242/*`: `*`

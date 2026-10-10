@@ -194,8 +194,10 @@ fingerprint is the lowercase hex SHA-256 of that text's UTF-8 bytes (Python
 `[-50.0, -0.0, -0.0]` from OpenCascade and `[-50.0, -0.0, 0.0]` from haecceity.
 `resume::fingerprint_of` implements both schemas over such a list; the cross-engine check
 (`tests/cross_engine.rs`, `schema_two_fingerprints_are_the_same_in_both_engines`) compares it
-with the hash computed in Python from Python's own faces (`tools/capture/crossengine.py`,
-`_fingerprint_v2`) on every part of every file in the check.
+with specify-core's own `resume.fingerprint` (branch `fingerprint-v2`) and with the hash computed
+in the capture from Python's own faces (`tools/capture/crossengine.py`, `_fingerprint_v2`) on
+every part of every file in the check: equal wherever the two engines' rounded faces are (all but
+NIST CTC-05, whose face integrals differ, U11).
 
 ## What is written, and how it differs
 
@@ -395,7 +397,10 @@ more were integrated on 2026-10-10: the knurl derivation (Q4 and Q15; straight a
 knurls are written through `turned_knurl`, questions.md Q15 status) and haecceity's writer
 decisions with the pin moved to 10884b8 (notes and finish written in standard forms, Q3;
 OpenCascade opens every Rust-written file, Q16; U14's stand-in removed). On that tree fmt and
-clippy are clean and all 317 tests pass with `SPECIFY_CORPUS` set.
+clippy are clean and all 317 tests pass with `SPECIFY_CORPUS` set. On 2026-10-10 the
+comparisons were recaptured against specify-core's branches `iso286-3150` and `fingerprint-v2`
+(questions.md Q8 and Q14 status, "Recapture source"): the ISO 286 and choices grids, the NIST
+CTC-05 oracle cases and the cross-engine fixtures.
 
 ### Implemented and verified, per module
 
@@ -410,21 +415,23 @@ difference or a stale entry fails the sweep.
 | `standards.rs`, `materials.rs`, `choices.rs`, `pyfmt.rs`, `pyjson.rs` | `tests/standards.rs`, `tests/materials.rs`, `tests/choices.rs`, `tests/pyfmt.rs` | Equal to Python-generated tables and sweeps (`choices_oracle.json.gz`, `pyfmt.json`) |
 | `features.rs` | `tests/features.rs` | 120 corpus and NIST parts, none refused as degraded: 19945 differences since the move to 5798c59 (14661 undetermined, most of them the vertices and triangles of three sheet-metal flat patterns; 3900 rust-wrong, 1161 rust-correct, 211 equivalent, 12 not-applicable; 8652 on a16d7af), each face value judged against OpenCascade's adaptive integral; at 5d39eee quiddity-rust's reconciliation removed 252 of them (Rust-only features, 158 of them rust-wrong blend chains; U2) and added none; unchanged at 10884b8 |
 | `existing.rs` | `tests/existing.rs` | 120 inputs and 17 written parts: 230 differences (208 rust-correct, 22 not-applicable) |
-| `rules/`, `extras.rs`, `general.rs`, `locations.rs`, `problems.rs` | `tests/rules_oracle.rs`, `tests/rules.rs`, `tests/datums.rs`, `tests/general.rs`, `tests/locations.rs`, `tests/extras.rs`, `tests/problems.rs`, `tests/attention.rs`, `tests/basis.rs`, `tests/call_out.rs`, `tests/same_as.rs`, `tests/profile_runout.rs`, `tests/threads.rs`, `tests/mmc_finish_notes.rs`, `tests/preview.rs`, `tests/rust_analyses.rs` | Equal to Python on all 994 captured artifacts (from Python's inputs: 248 question sets, 116 file writes, 98 scenarios); `rules.json` holds only the knurl parameters Python's intent lacks (Q4, Q15) and the fits above 500 mm Python refuses (Q8). The rules also run on the Rust engine's own analyses of every synthetic part (`tests/rust_analyses.rs`) |
+| `rules/`, `extras.rs`, `general.rs`, `locations.rs`, `problems.rs` | `tests/rules_oracle.rs`, `tests/rules.rs`, `tests/datums.rs`, `tests/general.rs`, `tests/locations.rs`, `tests/extras.rs`, `tests/problems.rs`, `tests/attention.rs`, `tests/basis.rs`, `tests/call_out.rs`, `tests/same_as.rs`, `tests/profile_runout.rs`, `tests/threads.rs`, `tests/mmc_finish_notes.rs`, `tests/preview.rs`, `tests/rust_analyses.rs` | Equal to Python on all 994 captured artifacts (from Python's inputs: 252 question sets, 116 file writes, 98 scenarios); `rules.json` holds only the knurl parameters Python's intent lacks (Q4, Q15); the fits above 500 mm (Q8) are compared with specify-core's `iso286-3150` (NIST CTC-05 recaptured). The rules also run on the Rust engine's own analyses of every synthetic part (`tests/rust_analyses.rs`) |
 | `mates.rs` | `tests/mates.rs` | 18 multi-part parts: 7 differences (6 not-applicable, Q7; 1 rust-correct) |
 | `mesh.rs`, `triangulate.rs` | `tests/mesh.rs` | 120 cases, 1 312 080 triangles: 1048 differences (553 equivalent, 419 rust-correct, 37 undetermined, 27 not-applicable, 12 rust-wrong); meshes judged by properties (areas, boxes, edges, missing faces), not triangle by triangle |
-| `anchors.rs`, `sightlines.rs` | `tests/anchors.rs` | 124 cases, 708 anchors: 259 differences (129 equivalent, 123 rust-correct, 6 not-applicable, 1 undetermined) |
-| `writer.rs`, `resume.rs` | `tests/writer.rs`, `tests/resume.rs`, `tests/assembly_write.rs`, `tests/write_oracle.rs` | 136 writes, from Python's intents, read back by the Rust reader: 91 differences at 10884b8 with knurls written (77 rust-correct, 14 not-applicable, none undetermined or rust-wrong; 95 before the knurls, 713 before the Q17 integration and the notes written in standard forms, Q3); every file `tests/writer.rs` writes passes haecceity's EXPRESS schema and rule checks |
-| `api.rs`, `main.rs`, `serve.rs` | `tests/api.rs`, `tests/cli.rs`, `tests/serve.rs` | The binary's `analyse`, `mesh`, `questions` and `write` against the library's results (exactly) and against Python's command line and serve transcripts (`cli_oracle.json.gz`): 55 differences (24 rust-correct, 15 equivalent, 16 not-applicable); `test_serve.py` and `test_assembly.py`'s API and command-line tests ported |
-| Cross-engine (`examples/write_fixtures.rs`, `tools/capture/crossengine.py`) | `tests/cross_engine.rs` | Python reading every Rust-written synthetic and NIST file, and the Rust engine reading the 11 Python-written synthetic files: 66 differences at 10884b8 (58 rust-correct, 6 undetermined, 2 not-applicable) |
+| `anchors.rs`, `sightlines.rs` | `tests/anchors.rs` | 126 cases, 719 anchors: 265 differences (133 equivalent, 125 rust-correct, 6 not-applicable, 1 undetermined; 259 before NIST CTC-05 was recaptured) |
+| `writer.rs`, `resume.rs` | `tests/writer.rs`, `tests/resume.rs`, `tests/assembly_write.rs`, `tests/write_oracle.rs` | 138 writes, from Python's intents, read back by the Rust reader: 93 differences after NIST CTC-05 was recaptured (78 rust-correct, 15 not-applicable, none undetermined or rust-wrong; 91 at 10884b8 with knurls written; 95 before the knurls, 713 before the Q17 integration and the notes written in standard forms, Q3); every file `tests/writer.rs` writes passes haecceity's EXPRESS schema and rule checks |
+| `api.rs`, `main.rs`, `serve.rs` | `tests/api.rs`, `tests/cli.rs`, `tests/serve.rs` | The binary's `analyse`, `mesh`, `questions` and `write` against the library's results (exactly) and against Python's command line and serve transcripts (`cli_oracle.json.gz`): 50 differences (24 rust-correct, 15 equivalent, 11 not-applicable; 55 before NIST CTC-05 was recaptured); `test_serve.py` and `test_assembly.py`'s API and command-line tests ported |
+| Cross-engine (`examples/write_fixtures.rs`, `tools/capture/crossengine.py`) | `tests/cross_engine.rs` | Python reading every Rust-written synthetic and NIST file, and the Rust engine reading the 11 Python-written synthetic files: 53 differences with specify-core's `fingerprint-v2` (44 rust-correct, 6 undetermined, 2 not-applicable, 1 rust-wrong: NIST CTC-05's fingerprint, U11), 15 Rust-written parts resumed by Python with the same answers; 66 at 10884b8 before specify-core read schema 2 |
 
-Known-difference entries by verdict (entries, not differences): 3904 in all, 957 rust-correct,
-1430 rust-wrong, 76 equivalent, 1394 undetermined, 47 not-applicable, at 10884b8 with the notes
-and knurls written (4164 after the Q8, Q14 and Q17 integration; 4152 after the move to `prototype/rust-port` 5798c59; 3634 at stage 5, on a16d7af). The whole suite
+Known-difference entries by verdict (entries, not differences): 3898 in all, 950 rust-correct,
+1431 rust-wrong, 77 equivalent, 1392 undetermined, 48 not-applicable, after the recapture against
+specify-core's `iso286-3150` and `fingerprint-v2` (3904 at 10884b8 with the notes and knurls
+written; 4164 after the Q8, Q14 and Q17 integration; 4152 after the move to `prototype/rust-port` 5798c59; 3634 at stage 5, on a16d7af). The whole suite
 (`SPECIFY_CORPUS=/Users/paul/repos/quiddity/tests/corpus cargo test --release`, 317 tests
 since the knurl and notes integration) passed at stage 5, again after the move to
 `prototype/rust-port` 5798c59, after the Q8, Q14 and Q17 integration, and after the knurl and
-notes integration on 2026-10-10. The command line was also run by hand at stage 5 on `tests/fixtures/parts/plate.step` and `assembly.step`
+notes integration on 2026-10-10; after the recapture against specify-core's branches all 318
+pass. The command line was also run by hand at stage 5 on `tests/fixtures/parts/plate.step` and `assembly.step`
 (every README command; exit codes as documented).
 
 ### Stand-ins in use
@@ -439,12 +446,12 @@ in [upstream-needs.md](upstream-needs.md)) and the parts each affects in the ora
 | U3 notes and surface finish | None: met at 10884b8, written in standard forms | specify-core does not read the surface texture (`cross_engine.json`, rust-correct) |
 | U4 face triangulation | `triangulate.rs` (constrained Delaunay in parameter space, `spade`) | Every mesh; faces listed in `missing`: cgb202 face 399 (U13), the zero-area thread end faces of `threaded_connector_109` and cgb242 face 483, and `inventory_refusal/14052` face 1 (a hole crossing its outer loop) (`mesh.json`) |
 | U5 overlap area of coplanar faces | Polygon intersection of the faces' loops (`i_overlay`), arcs resampled exactly | Contacts of every assembly part: the 18 multi-part parts the mates sweep compares; equal to Python's 3 decimals on `parts/stack` |
-| U6 a point on the trimmed face | `face_centre` if inside the face's domain, else the largest triangle's centroid, else no anchor | Every anchor (708 on 124 cases); NIST FTC-07 faces 185-187, where Python's point is off the trim (`anchors.json`, rust-correct) |
+| U6 a point on the trimmed face | `face_centre` if inside the face's domain, else the largest triangle's centroid, else no anchor | Every anchor (708 on 124 cases); NIST FTC-07 faces 185-187, where Python's point is off the trim (`anchors.json`, rust-correct); NIST CTC-05 AP242's two cylinders labelled from another point on them (`anchors.json`, equivalent) |
 | U7 read-back verification as a library function | The comparison rebuilt from `pmi::read` and `pmi::write::differences` | Every write (136 oracle writes, `tests/write_oracle.rs`) |
 | U8 thread pitch and 'number of threads' | haecceity's own test mapping; pitch, drill and depths in an `AttributeSet` | Every written thread |
 | U9 names over the assembly structure, one read | Names from a `p21::Document` of the same bytes; the file is read twice | Every load; `parts/wrapped` named "assembly"; NIST FTC-08 and CTC-04 RD named by the product id |
 | U10 specify-core's notes on faces | Its `GEOMETRIC_ITEM_SPECIFIC_USAGE`s read from the `p21::Document` | Reading the 11 Python-written synthetic files (`tests/existing.rs`, `tests/cross_engine.rs`) |
-| U11 `face_moments` on every face | None: a face without moments refuses the part; accuracy reported value by value | None refused since 5798c59 (cgb217 face 29, refused at a16d7af, now has moments); 1407 face values `rust-wrong`, 1167 `undetermined` (`features.json`) |
+| U11 `face_moments` on every face | None: a face without moments refuses the part; accuracy reported value by value | None refused since 5798c59 (cgb217 face 29, refused at a16d7af, now has moments); 1407 face values `rust-wrong`, 1167 `undetermined` (`features.json`); the schema 2 fingerprint of NIST CTC-05 AP242, whose rounded centroids differ on eight faces (`cross_engine.json`, rust-wrong) |
 | U12 families not recognised | None: absent from the analysis | One `rust-wrong` entry per remaining family (`section_recesses`, `risers`, `step_levels`: 853 features) in `features.json`; 2740 features at a16d7af, ten families |
 | U13 simple parameter-space loops | Closed freeform directions unwrapped; a loop still crossing or jumping refuses the face | cgb202 face 399, listed in `missing` (`mesh.json`, rust-wrong); cgb242 faces 715 and 726 triangulate since 5798c59 |
 | U14 replace of a thread haecceity wrote | None: met at 10884b8, an ordinary replace | Every rewrite of a resumed part with a thread (`tests/resume.rs`) |
@@ -467,9 +474,11 @@ Listed entry by entry in [known-differences.md](known-differences.md), "Open wor
   (cgb202, cgb207, cgb242); refinement stopping at its round cap on cgb243 face 537; NIST CTC-05 AP242
   edges, the folded surface and the face order of `inventory_refusal/13975` (Q13), undetermined.
 - **anchors** (1 undetermined): a leader from `inventory_refusal/14052`'s invalid face.
-- **cross_engine** (1 undetermined): Python does not read AP242 threads (Q20). Resume (Q14) is rust-correct both ways: schema 1
-  files fail on signs of zero as the rule says, and the captured specify-core does not yet read
-  the schema 2 the Rust writer stores, whose fingerprint its own faces give.
+- **cross_engine** (1 rust-wrong, 1 undetermined): the schema 2 fingerprint of NIST CTC-05,
+  whose rounded face centroids differ where haecceity's face integrals are off (U11); Python
+  does not read AP242 threads (Q20). Resume (Q14): specify-core (`fingerprint-v2`) resumes the
+  Rust writer's schema 2 answers, and its own schema 2 fingerprint equals the Rust engine's on
+  every other part; the oracle's schema 1 files fail in Rust on signs of zero, as the rule says.
 - **rules, existing, mates, writer, cli**: none (the writer's three knurl entries went with Q4
   and Q15).
 
@@ -479,13 +488,13 @@ Every question in [questions.md](questions.md) is open, each with what is done m
 
 - **Interchange between engines:** Q1 (mixing engines on one analysis), Q10 and Q13 (a file whose
   face order OpenCascade changes: corpus `inventory_refusal/13975`), Q14 (resume across engines:
-  done in the Rust engine as schema 2; specify-core's side pending), Q20 (what Python reads of a
+  schema 2 in both engines, compared), Q20 (what Python reads of a
   Rust-written file: fits without limits and threads remain).
 - **What is written:** Q6 (an assembly with foreign PMI written by add mode), Q17
   (requirements on no faces listed in `not_written`, the rest written), Q18 (bare parts by `Mode::Replace`; a second material in
   add mode refused).
 - **Engine behaviour:** Q2 (moved to `prototype/rust-port`; recognition kept caller-space),
-  Q7 (a product with surface models: one part), Q8 (ISO 286 extended to 3150 mm), Q9
+  Q7 (a product with surface models: one part), Q8 (ISO 286 extended to 3150 mm, in both engines, compared), Q9
   (malformed input refused as invalid), Q11 (an undecided sightline sample blocks), Q12 (mesh
   density, about 1.8 times Python's triangles), Q19 (unmeasurable contacts as warnings).
 - **Repository:** Q5 (whether CI checks out the corpus).

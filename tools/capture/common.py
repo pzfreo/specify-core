@@ -24,8 +24,12 @@ ROOT = Path(__file__).resolve().parents[2]
 PARTS = ROOT / "tests" / "fixtures" / "parts"
 NIST = ROOT / "tests" / "fixtures" / "nist"
 ORACLE = ROOT / "tests" / "fixtures" / "oracle"
-#: The reference implementation, read-only; its venv runs this tool.
-SPECIFY_CORE = Path("/Users/paul/repos/specify-core")
+#: The reference implementation, read-only; its venv runs this tool. The environment variable
+#: SPECIFY_CORE names another checkout of it (a branch to capture from): its ``src`` is then
+#: loaded in place of the one the venv installs, and its revision is the one recorded.
+SPECIFY_CORE = Path(os.environ.get("SPECIFY_CORE", "/Users/paul/repos/specify-core"))
+if "SPECIFY_CORE" in os.environ:
+    sys.path.insert(0, str(SPECIFY_CORE / "src"))
 #: Quiddity's STEP corpus: QUIDDITY_CORPUS, else this default. Never searched for elsewhere.
 DEFAULT_CORPUS = Path("/Users/paul/repos/quiddity/tests/corpus")
 

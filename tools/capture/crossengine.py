@@ -79,7 +79,9 @@ def _resume_evidence(step: Path, k: int, stage: Callable[[str], None]) -> dict[s
     stored-answer schema 2 fingerprint of the same faces by the canonical form docs/design.md
     defines (every zero written unsigned, ``0.0``, after rounding), computed here from Python's
     own faces whichever schema this specify-core writes (``schema``), so the Rust test can check
-    the two engines' schema 2 fingerprints are equal."""
+    the two engines' schema 2 fingerprints are equal. ``fingerprint`` is specify-core's own
+    for the schema it writes; ``fingerprint_v1`` is its own schema 1 fingerprint (the one a
+    schema 1 payload, as in the files the oracle's specify-core wrote, resumes on)."""
     from specify_core import resume
     from specify_core.features import describe_faces
     from specify_core.load import load
@@ -92,6 +94,9 @@ def _resume_evidence(step: Path, k: int, stage: Callable[[str], None]) -> dict[s
         "face_count": loaded.binding.face_count,
         "faces": faces,
         "fingerprint": resume.fingerprint(loaded),
+        "fingerprint_v1": (
+            resume.fingerprint(loaded, 1) if resume.SCHEMA >= 2 else resume.fingerprint(loaded)
+        ),
         "schema": resume.SCHEMA,
         "fingerprint_v2": _fingerprint_v2(faces),
     }

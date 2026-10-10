@@ -201,5 +201,19 @@
   "pattern": "an assertion on Python's text route or drawing, not ported",
   "verdict": "not-applicable",
   "evidence": "Python's own text route ('manufacturing requirement' sentences, leaders) or its own datum symbol lettering, which haecceity does not write (decisions 5 and 6 of docs/step-ap242.md); the semantic content each test also checks is ported in tests/writer.rs."
+ },
+ {
+  "case": "nist/nist_ctc_05_asme1_ap242",
+  "path": "write",
+  "pattern": "Python's write fails its verification on items with no faces; Rust writes the rest and lists them (Q17)",
+  "verdict": "rust-correct",
+  "evidence": "Captured from specify-core with its ISO 286 extension (branch iso286-3150; docs/questions.md Q8, 'Recapture source'), which applies this part's answers where the earlier specify-core refused its Ø558.8 diameter. Python's own intent has the size (H11, 0.11/0.0, clearance for M10) and the position of two hole patterns, hole_patterns.linear:84.85.86.87.88.89 and :78.79.80.81.82.83, with faces []; its write raises VerificationError naming exactly those four ('limits 0.11/0.0 not in file' twice, 'position on [] missing or wrong' twice). As question Q17 decides, the Rust writer writes the rest (material, general tolerance, finish, edges) and lists each of the four in not_written ('the size on hole_patterns.linear:84.85.86.87.88.89 names no faces, so nothing in the file can carry it (question Q17)'; checked by running specify-core write --accept-defaults with the oracle's analysis), verified by reading back; the same file is the cross-engine check's nist/nist_ctc_05_asme1_ap242, which OpenCascade opens and reads (tests/cross_engine.rs)."
+ },
+ {
+  "case": "corpus/nist/nist_ctc_05_asme1_rd",
+  "path": "write.message[*]",
+  "pattern": "Python's parts of one product are one part here",
+  "verdict": "not-applicable",
+  "evidence": "Captured from specify-core with its ISO 286 extension (branch iso286-3150; docs/questions.md Q8), which applies this file's answers. Python's write then fails inside OpenCascade ('StepShape_DimensionalLocation: Null Reference'; its part 0 intent has two hole patterns' sizes and positions and six locations with faces [], as on the mfcadpp parts); Python's three per-XCAF-part intents name the one Rust part more than once (question Q7: parts 1 and 2 are surface models that are in Rust's part 0), so the Rust writer refuses 'a part is written once' and the CLI 'has no part 1' before writing."
  }
 ]
