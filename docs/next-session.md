@@ -23,7 +23,7 @@ errors), and pass after it. No existing test or fixture was changed.
 
 The editor uses a one-line development path dependency into this worktree. The
 integrator must replace it with this repo's pushed git rev and regenerate the
-editor Cargo.lock before integration. No commit or push was made in this stream.
+editor Cargo.lock before integration. The stream was committed as 5cfcdbc and merged to main.
 
 ### Files changed by D2
 
