@@ -5,7 +5,7 @@ use serde_json::{Map, Value};
 
 use super::py::{self, dot};
 use super::records::{Ctx, Datum, DatumKind, Datums, DefaultDatums, Face, Faces};
-use super::{EXTRA_DATUMS, Error, NONE, Question, Result, invalid};
+use super::{Characteristic, EXTRA_DATUMS, Error, NONE, Question, Result, invalid};
 
 /// The letters A to C, then the extra datums.
 pub(crate) const LETTERS: [char; 8] = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
@@ -489,6 +489,7 @@ pub(crate) fn datum_control_questions(ctx: &Ctx<'_>, datums: &Datums) -> Result<
         out.push(Question {
             default: Some(Value::from(NONE)),
             options: zones(),
+            characteristic: Some(Characteristic::Flatness),
             why: "Datum A is usually the face the part is clamped or mounted on.".to_string(),
             ..Question::new(
                 "datum.A.flatness".to_string(),
@@ -515,6 +516,11 @@ pub(crate) fn datum_control_questions(ctx: &Ctx<'_>, datums: &Datums) -> Result<
         out.push(Question {
             default: Some(Value::from(NONE)),
             options: zones(),
+            characteristic: Some(if control.kind == "position" {
+                Characteristic::Position
+            } else {
+                Characteristic::Perpendicularity
+            }),
             why: "Orients (and for a tertiary hole, locates) the datum feature, so the frame it \
                   builds is repeatable."
                 .to_string(),
