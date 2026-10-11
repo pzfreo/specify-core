@@ -148,6 +148,17 @@ pub(crate) fn invalid<T>(message: impl Into<String>) -> Result<T> {
 // Question and Intent
 // ------------------------------------------------------------------------------------------
 
+/// The geometric tolerance a question asks about, independent of its wording.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Characteristic {
+    Flatness,
+    Perpendicularity,
+    Parallelism,
+    Position,
+    Runout,
+}
+
 /// One question: what it asks, of which faces, its default and options, and why.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Question {
@@ -155,6 +166,9 @@ pub struct Question {
     /// `choice`, `text` or `faces`.
     pub kind: &'static str,
     pub prompt: String,
+    /// A feature row's title, resolved where its geometry is known.
+    pub title: Option<String>,
+    pub characteristic: Option<Characteristic>,
     /// What to highlight.
     pub faces: Vec<i64>,
     /// None: no default (Python's `None`); a datum's is a list of faces, possibly empty.
@@ -194,6 +208,8 @@ impl Question {
             id,
             kind,
             prompt,
+            title: None,
+            characteristic: None,
             faces,
             default: None,
             options: Vec::new(),
@@ -210,6 +226,20 @@ impl Question {
             basis: String::new(),
             mate: String::new(),
         }
+    }
+
+    /// Additive presentation record for clients that must not parse the prompt.
+    /// `to_dict` retains the Python-compatible document for existing callers.
+    pub fn to_presented_dict(&self) -> Value {
+        let mut out = self.to_dict();
+        if let Some(title) = &self.title {
+            out["title"] = Value::from(title.as_str());
+        }
+        if let Some(characteristic) = self.characteristic {
+            out["characteristic"] =
+                serde_json::to_value(characteristic).expect("characteristic serialises");
+        }
+        out
     }
 
     /// `Question.to_dict()`: Python's keys, order and omissions.

@@ -7,7 +7,7 @@ use super::holes::{mated_reason, mated_value};
 use super::mates::suggestion;
 use super::py::{self, fmt, object, sentence};
 use super::records::{Ctx, DatumKind, Datums, Feature};
-use super::{Error, GENERAL, NONE, Question, Result, invalid};
+use super::{Characteristic, Error, GENERAL, NONE, Question, Result, invalid};
 use crate::choices;
 use crate::standards::{self, KNURL_PATTERNS, PITCH, SHAFT_FITS};
 
@@ -79,6 +79,7 @@ pub(crate) fn turned_question(group: &[&Feature<'_>], ctx: &Ctx<'_>) -> Result<Q
               metric size may be threaded; a grip may be knurled. The rest are covered by the \
               general tolerance."
             .to_string(),
+        title: Some(format!("Turned {times}Ø{}", fmt(d))),
         feature: Some(feature.id.to_string()),
         parts: parts(group, ctx)?,
         choices: described,
@@ -149,7 +150,9 @@ pub(crate) fn runout_question(
         why: "How far the diameter may wobble as the part turns on its axis: for bearing seats, \
               seals and anything that spins."
             .to_string(),
+        title: Some(format!("Turned {times}Ø{}", fmt(d))),
         feature: Some(feature.id.to_string()),
+        characteristic: Some(Characteristic::Runout),
         frame: Some(frame.to_string()),
         parts: parts(group, ctx)?,
         ..Question::new(

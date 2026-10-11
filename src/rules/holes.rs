@@ -7,7 +7,7 @@ use super::datums::datum_of;
 use super::mates::suggestion;
 use super::py::{self, fmt, object, sentence};
 use super::records::{Ctx, Datums, Faces, Feature};
-use super::{Error, GENERAL, NONE, Question, Result, invalid};
+use super::{Characteristic, Error, GENERAL, NONE, Question, Result, invalid};
 use crate::choices;
 use crate::locations;
 use crate::standards::{self, CLEARANCE, HOLE_FITS, PITCH, TAP_DRILL};
@@ -205,6 +205,7 @@ pub(crate) fn hole_questions(
         why: "A clearance, tapped or fitted hole each need different size and position \
               tolerances."
             .to_string(),
+        title: Some(label.clone()),
         feature: Some(target.id.to_string()),
         parts: parts.clone(),
         choices: described,
@@ -238,6 +239,7 @@ pub(crate) fn hole_questions(
                 why: "The frame the position is measured from; the datums the mating part \
                       locates on."
                     .to_string(),
+                title: Some(label.clone()),
                 feature: Some(target.id.to_string()),
                 basis: "The part's whole frame, A then B then C.".to_string(),
                 ..Question::new(
@@ -291,9 +293,11 @@ pub(crate) fn hole_questions(
                   (H this hole, F the bolt; with no bolt stated, the largest standard bolt \
                   through it), fixed T = (H − F)/2; fitted holes get 0.05."
                 .to_string(),
+            title: Some(label.clone()),
             feature: Some(target.id.to_string()),
             frame: Some(frame.clone()),
             parts: parts.clone(),
+            characteristic: Some(Characteristic::Position),
             basis: position_basis(function, diameter, tol)?,
             ..Question::new(
                 format!("hole.position:{}", target.id),
@@ -313,6 +317,7 @@ pub(crate) fn hole_questions(
             why: "Their distances from the part's edges: the general tolerance, or a tighter ± \
                   written on each."
                 .to_string(),
+            title: Some(label.clone()),
             feature: Some(target.id.to_string()),
             parts,
             ..Question::new(
