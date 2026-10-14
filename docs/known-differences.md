@@ -15,13 +15,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [cli](#cli) | 9 | 0 | 3 | 0 | 3 | 15 |
 | [cross_engine](#cross_engine) | 3 | 1 | 0 | 1 | 1 | 6 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
-| [features](#features) | 879 | 1418 | 65 | 1391 | 11 | 3764 |
+| [features](#features) | 879 | 1419 | 65 | 1391 | 11 | 3765 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 40 |
 | [rules](#rules) | 6 | 0 | 0 | 0 | 0 | 6 |
-| [writer](#writer) | 16 | 0 | 0 | 0 | 15 | 31 |
-| **all** | 949 | 1436 | 79 | 1397 | 47 | 3908 |
+| [writer](#writer) | 14 | 0 | 0 | 0 | 15 | 29 |
+| **all** | 947 | 1437 | 79 | 1397 | 47 | 3907 |
 
 ## anchors
 
@@ -273,7 +273,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (3 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb217` at `features[id=*].record.profile.body_bounds[*]`: Every difference is 1e-7: OpenCascade's Bnd_Box adds its gap to the solid's box; haecceity's bounds are the exact extent (e.g. string_post: radius 3.75, Python 3.7500001). Here 10 value(s), largest difference 1e-07.
 
-### features: rust-wrong (1418 entries)
+### features: rust-wrong (1419 entries)
 
 - **Python at the adaptive integral, Rust off (U11)** (1407 entries, 16 case globs)
 
@@ -283,9 +283,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Produced by Python quiddity's cross-family reconciliation (build_recognition_result), which quiddity-rust does not port (features/mod.rs: 'the Python aggregate's cross-family reconciliation is not ported'; U2). Rust's analysis lacks the feature Python reports (upstream need U12); specify-core's rules read only holes, hole_patterns and turned_steps, so no question changes, but the picker's feature list does.
 
-- **section_recesses: no such family in quiddity-rust** (`*` at `features[id=section_recesses:*]`)
+- **a section recess Python lists is missing in Rust** (`*` at `features[id=section_recesses:*]`)
 
-  Python quiddity's section-recess aggregate (evidence.py builds it from the recess source families, which it leaves out); quiddity-rust prototype/rust-port 5798c59 has the source families (pockets, channels, prismatic_pockets, section_passages, ...) in Features but not the aggregate. Rust's analysis lacks the feature Python reports (upstream need U12); specify-core's rules read only holes, hole_patterns and turned_steps, so no question changes, but the picker's feature list does.
+  Since v0.1.0-alpha.2 quiddity-rust publishes section_recesses in Features, but not as Python does in two cases: Python's evidence view lists refused regions (record with a reason, e.g. unsupported_support_geometry) as features, which quiddity-rust carries as refusals in its recognition document, not in Features; and where Python recovers by local degradation and quiddity-rust refuses (e.g. 14052; quiddity-rust's known limitation). Upstream need U12; specify-core's rules read only holes, hole_patterns and turned_steps, so no question changes, but the picker's feature list does.
 
 - **risers: no such family in quiddity-rust** (`*` at `features[id=risers:*]`)
 
@@ -322,6 +322,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **an angled step's adjoining plane is constituent, not defining** (`*` at `features[id=angled_steps:*].faces+plane`)
 
   Records equal; Python's faces add a plane. quiddity-rust gives defining faces only (Features::defining); Python quiddity's evidence view gives constituent faces (upstream need U2).
+
+- **a section recess's plane is constituent, not defining** (`*` at `features[id=section_recesses:*].faces+plane`)
+
+  quiddity-rust v0.1.0-alpha.2 publishes section_recesses in Features (154 records over the corpus and fixtures at v0.1.0-alpha.3); each differs only by Python's faces adding plane faces, records equal. quiddity-rust gives defining faces only (Features::defining); Python quiddity's evidence view gives constituent faces (upstream need U2).
 
 ### features: equivalent (65 entries)
 
@@ -701,7 +705,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (16 entries)
+### writer: rust-correct (14 entries)
 
 - **a knurl from Python's intent, its turned_knurl parameters filled in from DIN 82** (`scenarios/turned_*knurl*` at `write.warnings[*knurl on *: the intent states no *]`)
 
@@ -734,10 +738,6 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **written where Python fails in its text route** (`corpus/inventory_refusal/13975` at `write`)
 
   Python fails appending its text route ('expected one B-rep representation, found 0': its anchor search finds no ADVANCED_BREP_SHAPE_REPRESENTATION); the intent (material, general tolerance) is written by haecceity and verified by reading back.
-
-- **an AP203 file that cannot become AP242, refused with its instances named** (2 entries, 2 case globs)
-
-  The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `corpus/nist/*` at `write`: haecceity's decision 1: a file gaining PMI becomes AP242 only if every instance validates against AP242; NIST's AP203 RD/RC files have instances that do not (nist_ctc_01_asme1_rd: '#14 cc_design_approval ... #84 is product_definition, not an entity type of SELECT approved_item'), so the write is refused naming them (WriteError::Refused). Python re-exports the geometry through OpenCascade as AP242DIS, so its file claims a schema its instances need not satisfy.
 
 - **answers stored by Python that Python cannot resume** (`corpus/*` at `resume[python did not resume]`)
 
@@ -809,7 +809,7 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `nist/nist_ctc_05_asme1_ap242`: `faces[93].area`, `faces[93].centroid[*]`, `faces[97].area`, `faces[97].centroid[*]`, `faces[98].area`, `faces[98].centroid[*]`, `faces[103].area`, `faces[103].centroid[*]`, `faces[104].area`, `faces[104].centroid[*]`, `faces[108].area`, `faces[108].centroid[*]`, `faces[109].area`, `faces[109].centroid[*]`, `faces[112].area`, `faces[112].centroid[*]`, `faces[115].area`, `faces[119].area`
 - **step_levels: no such family in quiddity-rust** (1 entry)
   - `*`: `features[id=step_levels:*]`
-- **section_recesses: no such family in quiddity-rust** (1 entry)
+- **a section recess Python lists is missing in Rust** (1 entry)
   - `*`: `features[id=section_recesses:*]`
 - **risers: no such family in quiddity-rust** (1 entry)
   - `*`: `features[id=risers:*]`
@@ -829,6 +829,8 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `*`: `features[id=bosses:*].faces+plane`
 - **an angled step's adjoining plane is constituent, not defining** (1 entry)
   - `*`: `features[id=angled_steps:*].faces+plane`
+- **a section recess's plane is constituent, not defining** (1 entry)
+  - `*`: `features[id=section_recesses:*].faces+plane`
 
 ### features: undetermined
 

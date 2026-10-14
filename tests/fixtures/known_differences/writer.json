@@ -105,20 +105,6 @@
   "evidence": "Python fails appending its text route ('expected one B-rep representation, found 0': its anchor search finds no ADVANCED_BREP_SHAPE_REPRESENTATION); the intent (material, general tolerance) is written by haecceity and verified by reading back."
  },
  {
-  "case": "corpus/nist/*",
-  "path": "write",
-  "pattern": "an AP203 file that cannot become AP242, refused with its instances named",
-  "verdict": "rust-correct",
-  "evidence": "haecceity's decision 1: a file gaining PMI becomes AP242 only if every instance validates against AP242; NIST's AP203 RD/RC files have instances that do not (nist_ctc_01_asme1_rd: '#14 cc_design_approval ... #84 is product_definition, not an entity type of SELECT approved_item'), so the write is refused naming them (WriteError::Refused). Python re-exports the geometry through OpenCascade as AP242DIS, so its file claims a schema its instances need not satisfy."
- },
- {
-  "case": "scenarios/datums_nist_scheme_round_trips",
-  "path": "write",
-  "pattern": "an AP203 file that cannot become AP242, refused with its instances named",
-  "verdict": "rust-correct",
-  "evidence": "The scenario writes corpus nist_ctc_03_asme1_rc, an AP203 file whose instances do not all validate against AP242 (haecceity decision 1); refused naming them, as the corpus case."
- },
- {
   "case": "corpus/*",
   "path": "resume[python did not resume]",
   "pattern": "answers stored by Python that Python cannot resume",
