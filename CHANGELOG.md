@@ -4,13 +4,31 @@ All notable changes to specify-core-rust. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.1.0-alpha.2 (2026-10-14)
+
+Pinned to quiddity-rust `v0.1.0-alpha.3` (from `v0.1.0-alpha.1`).
 
 ### Added
 
 - `part::load_bytes` and `writer::write_bytes`: one part loaded from bytes and written to
   verified AP242 bytes, with no filesystem (for the editor's browser build); byte for byte
   the file API's output (`tests/bytes_api.rs`).
+- `Question::to_presented_dict()`: an opt-in presentation record with a feature row's `title`
+  and a typed `characteristic` (flatness, perpendicularity, parallelism, position, runout) for
+  datum, hole and turned questions; `to_dict()` is unchanged.
+
+### Changed
+
+- quiddity-rust `v0.1.0-alpha.3` publishes `section_recesses` in `Features`, so the analysis
+  lists section recesses. Against Python, 154 of them differ only by Python's added plane faces
+  (constituent, not defining: upstream need U2, as for holes and bosses), and the regions Python
+  lists but quiddity-rust refuses or does not recover are still listed as missing
+  (`docs/known-differences.md`). No question changes: the rules read only holes, hole patterns
+  and turned steps.
+- Writing PMI into the NIST AP203 files (CTC-01, CTC-02, CTC-03, CTC-05, FTC-06, FTC-09) now
+  succeeds: haecceity's upgrade repairs their two classes of instance that are invalid in AP242
+  (and in AP203) and reports each repair, where the write was refused before. These writes now
+  match the Python oracle.
 
 ## 0.1.0-alpha.1 (2026-10-10)
 
