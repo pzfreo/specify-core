@@ -11,6 +11,14 @@ the rev pin.
 
 ### Added
 
+- Gzipped STEP input (maintainer decision 2026-10-15): every command, serve request and library
+  load (`part::File::read`/`of_bytes`, `part::load_bytes`, `api`) reads a gzipped STEP file or
+  bytes, told by its magic bytes, not its name, and decompressed in memory. The binding's
+  `source_sha256` and the stored-answers fingerprint are of the decompressed bytes, so a `.step`
+  and its `.step.gz` bind and resume identically. `write` to a destination named `.gz` writes it
+  gzipped (a write in place to a `.gz` input stays gzipped); other destinations are STEP text. A
+  gzip that does not decompress is refused, saying so. `part::gunzip`.
+
 - A turned diameter's question ("a fit, a thread or knurled?") offers every ISO 261 metric
   thread at its size as a choice beside the fits and knurls: the coarse thread as before
   (`thread:M10`, called up M10×1.5-6g), then the fine pitches (`thread:M10x1.25`, code
@@ -29,6 +37,9 @@ the rev pin.
   (Python's listing has no such key: recorded as `rust-correct` in `docs/known-differences.md`).
 
 ### Changed
+
+- A gzipped STEP file is no longer refused ("the file is gzip-compressed; decompress it first");
+  see Added.
 
 - Writing an assembly mixed in kind, one part resuming specify-core's stored answers and another
   carrying PMI from elsewhere, writes each part by its own mode: replace for the resuming part

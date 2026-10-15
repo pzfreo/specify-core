@@ -19,6 +19,8 @@ path = "src/main.rs"
 quiddity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "0d601d207495dea60b1b6a7109bd3abd109bf745" }
 haecceity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "0d601d207495dea60b1b6a7109bd3abd109bf745" }
 base64 = "0.22.1"
+# Gzipped STEP input is decompressed in memory, and a `.gz` destination written gzipped.
+flate2 = "1.1.10"
 # Overlap area of two facing flat faces (mates::contacts): haecceity has no face boolean yet
 # (upstream need U5), so the faces' boundaries are intersected as polygons with holes.
 i_overlay = "8.1.2"

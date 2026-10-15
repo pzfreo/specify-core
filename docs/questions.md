@@ -1,5 +1,14 @@
 # Questions for the maintainer
 
+## Decision (2026-10-15): gzipped STEP
+
+- **Gzipped STEP input:** accepted everywhere a STEP file or its bytes are read, told by gzip's
+  magic bytes (`1f 8b`), not the name, and decompressed in memory; the binding and fingerprints
+  are of the decompressed bytes, so a `.step` and its `.step.gz` bind identically. Output is STEP
+  text unless the destination's name ends in `.gz`, when it is gzipped (a write in place to a
+  `.gz` input stays gzipped). Replaces the earlier deliberate refusal (docs/design.md, "Gzipped
+  STEP files are read and written").
+
 ## Decisions (2026-10-09)
 
 The maintainer answered these; each question below keeps its text for the record.

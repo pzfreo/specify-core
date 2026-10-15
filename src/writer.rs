@@ -196,6 +196,16 @@ pub fn write_parts(jobs: &[Job<'_>], output: &Path) -> Result<WriteReport, Write
     };
     let staged = target.with_file_name(format!(".{name}.{}.{}.part", std::process::id(), tag()));
     let result = write_verified(jobs).and_then(|(bytes, report)| {
+        // Gzipped only when the destination is named `.gz` (a write in place to a `.gz` input
+        // stays gzipped); the STEP text is verified before it is compressed.
+        let bytes = if output
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("gz"))
+        {
+            gzip(&bytes).map_err(|e| WriteError::Failed(format!("{}: {e}", output.display())))?
+        } else {
+            bytes
+        };
         std::fs::write(&staged, &bytes)
             .map_err(|e| WriteError::Failed(format!("{}: {e}", staged.display())))?;
         let back = std::fs::read(&staged)
@@ -219,6 +229,13 @@ pub fn write_parts(jobs: &[Job<'_>], output: &Path) -> Result<WriteReport, Write
     let mut report = result?;
     report.output = output.to_path_buf();
     Ok(report)
+}
+
+/// `bytes` gzipped, deterministically (no name, no time stamp).
+fn gzip(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    std::io::Write::write_all(&mut encoder, bytes)?;
+    encoder.finish()
 }
 
 /// [`write`] in memory: `loaded` (from [`part::load_bytes`] or [`part::load`]) with `intent`

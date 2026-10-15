@@ -112,8 +112,9 @@ Each of these is recorded with its reason (docs/known-differences.md, docs/quest
   feature by its defining faces, Python's quiddity by its constituent faces, and some families
   differ), so question ids and answer keys do too. An analysis and its answers belong together;
   analyse and write with the same engine (Q1, upstream needs U2, U12).
-- **A gzipped STEP file is refused** ("the file is gzip-compressed; decompress it first", exit
-  1), as specify-core reads only STEP text.
+- **A gzipped STEP file is read** (told by its magic bytes, decompressed in memory, bound by
+  the decompressed bytes' hash), where specify-core refuses it; `write -o out.step.gz` writes
+  it gzipped (maintainer decision 2026-10-15).
 - A file that cannot be read, or an assembly analysed without `--part`, is an `error:` line on
   stderr (exit 1) where Python prints a traceback; `write`'s stdout is only the report, without
   OpenCascade's transfer statistics; meshes are triangulated by a local stand-in (U4) with about

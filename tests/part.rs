@@ -457,7 +457,7 @@ fn a_file_with_two_parts_must_say_which() {
 }
 
 #[test]
-fn unreadable_and_gzipped_files_are_refused() {
+fn unreadable_files_are_refused() {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"));
     let missing = dir.join("no-such-file.step");
     let err = part::load(&missing, None).unwrap_err().to_string();
@@ -466,17 +466,7 @@ fn unreadable_and_gzipped_files_are_refused() {
         "{err}"
     );
 
-    let gz = dir.join("plate.step.gz");
-    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
-    std::io::Write::write_all(&mut encoder, &std::fs::read(fixture("plate.step")).unwrap())
-        .unwrap();
-    std::fs::write(&gz, encoder.finish().unwrap()).unwrap();
-    let err = part::parts(&gz).unwrap_err().to_string();
-    assert!(
-        err.starts_with("cannot read STEP file") && err.contains("gzip"),
-        "{err}"
-    );
-
+    // A gzipped file is read decompressed (tests/gzip.rs), no longer refused.
     let junk = dir.join("junk.step");
     std::fs::write(&junk, "not a STEP file").unwrap();
     let err = part::load(&junk, None).unwrap_err().to_string();
