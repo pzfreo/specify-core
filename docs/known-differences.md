@@ -12,16 +12,16 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | Area | rust-correct | rust-wrong | equivalent | undetermined | not-applicable | Total |
 |---|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 9 |
-| [cli](#cli) | 9 | 0 | 3 | 0 | 3 | 15 |
+| [cli](#cli) | 11 | 0 | 3 | 0 | 3 | 17 |
 | [cross_engine](#cross_engine) | 3 | 1 | 0 | 1 | 1 | 6 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
 | [features](#features) | 879 | 1419 | 65 | 1391 | 11 | 3765 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 40 |
-| [rules](#rules) | 6 | 0 | 0 | 0 | 0 | 6 |
+| [rules](#rules) | 8 | 0 | 0 | 0 | 0 | 8 |
 | [writer](#writer) | 14 | 0 | 0 | 0 | 15 | 29 |
-| **all** | 947 | 1437 | 79 | 1397 | 47 | 3907 |
+| **all** | 951 | 1437 | 79 | 1397 | 47 | 3911 |
 
 ## anchors
 
@@ -67,7 +67,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (9 entries)
+### cli: rust-correct (11 entries)
 
 - **Python's write prints OpenCascade's transfer statistics on stdout before the report** (`cli/*` at `stdout_noise`)
 
@@ -100,6 +100,14 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **a non-finite number is written null, not Python's NaN token** (`cli/json-text` at `json_text.nan`)
 
   As for Infinity: json.dumps writes float('nan') as NaN, not JSON; Rust writes null.
+
+- **a turned diameter offers ISO 261's coarse and fine threads at its size, Python only its coarse table's** (`*` at `*options[*]`)
+
+  Stream S3 (specify-core-rust issue #3, the maintainer's): a turned diameter's question asks whether it is a fit, a thread or knurled, so it offers every ISO 261 general-purpose metric thread at that size (M1.6 to M64; standards::ISO_261): the coarse one first, as Python's 'thread:M10' where Python's coarse table has it (and the coarse threads that table stops short of, M14, M30, M60), then the fine pitches as 'thread:M10x1.25', before the knurls. Python offers only the coarse thread of its 13-size table (M1.6 to M24), so the knurl options and choices move along and the new threads are extra; every other option, the default and the prompt are unchanged. The pitches are ISO 261:1998 Table 1's (all three choice columns; the bracketed M30x3/M33x3 and the spark-plug M14x1.25 left out); each choice's callout states pitch and class (M10x1.25-6g) and choosing it writes the same AP242 thread as typing it (tests/thread_choices.rs).
+
+- **a turned diameter's choices include ISO 261's coarse and fine threads at its size, Python's only its coarse table's** (`*` at `*choices[*]*`)
+
+  Stream S3 (specify-core-rust issue #3, the maintainer's): a turned diameter's question asks whether it is a fit, a thread or knurled, so it offers every ISO 261 general-purpose metric thread at that size (M1.6 to M64; standards::ISO_261): the coarse one first, as Python's 'thread:M10' where Python's coarse table has it (and the coarse threads that table stops short of, M14, M30, M60), then the fine pitches as 'thread:M10x1.25', before the knurls. Python offers only the coarse thread of its 13-size table (M1.6 to M24), so the knurl options and choices move along and the new threads are extra; every other option, the default and the prompt are unchanged. The pitches are ISO 261:1998 Table 1's (all three choice columns; the bracketed M30x3/M33x3 and the spark-plug M14x1.25 left out); each choice's callout states pitch and class (M10x1.25-6g) and choosing it writes the same AP242 thread as typing it (tests/thread_choices.rs).
 
 ### cli: equivalent (3 entries)
 
@@ -677,7 +685,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## rules
 
-### rules: rust-correct (6 entries)
+### rules: rust-correct (8 entries)
 
 - **a knurl's teeth derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].teeth`)
 
@@ -702,6 +710,14 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **a knurl's derived derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].derived`)
 
   The maintainer's decision Q4/Q15 (docs/questions.md): AP242's turned_knurl needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9), so the Rust rules derive them from the knurling standard and state each in the intent with its source, visible and editable ('standard': 'DIN 82', 'derived': key to source). Values: teeth round(pi x 10 / 1) = 31, the pitch kept at the tool's 1 mm; tooth depth P/2 = 0.5, the depth of DIN 82's 90 degree profile (IS 3403:1981 3.1; assumed, no table gives it); root fillet 0.1, the knurling wheel's crest radius up to 1 mm pitch (IS 6776:1980 4.3); a diamond's helix angle 30 degrees and no hand (DIN 82 type RGE). Checked in tests/threads.rs. Python's knurl states pattern, pitch and diameter only.
+
+- **a turned diameter offers ISO 261's coarse and fine threads at its size, Python only its coarse table's** (`*` at `*options[*]`)
+
+  Stream S3 (specify-core-rust issue #3, the maintainer's): a turned diameter's question asks whether it is a fit, a thread or knurled, so it offers every ISO 261 general-purpose metric thread at that size (M1.6 to M64; standards::ISO_261): the coarse one first, as Python's 'thread:M10' where Python's coarse table has it (and the coarse threads that table stops short of, M14, M30, M60), then the fine pitches as 'thread:M10x1.25', before the knurls. Python offers only the coarse thread of its 13-size table (M1.6 to M24), so the knurl options and choices move along and the new threads are extra; every other option, the default and the prompt are unchanged. The pitches are ISO 261:1998 Table 1's (all three choice columns; the bracketed M30x3/M33x3 and the spark-plug M14x1.25 left out); each choice's callout states pitch and class (M10x1.25-6g) and choosing it writes the same AP242 thread as typing it (tests/thread_choices.rs).
+
+- **a turned diameter's choices include ISO 261's coarse and fine threads at its size, Python's only its coarse table's** (`*` at `*choices[*]*`)
+
+  Stream S3 (specify-core-rust issue #3, the maintainer's): a turned diameter's question asks whether it is a fit, a thread or knurled, so it offers every ISO 261 general-purpose metric thread at that size (M1.6 to M64; standards::ISO_261): the coarse one first, as Python's 'thread:M10' where Python's coarse table has it (and the coarse threads that table stops short of, M14, M30, M60), then the fine pitches as 'thread:M10x1.25', before the knurls. Python offers only the coarse thread of its 13-size table (M1.6 to M24), so the knurl options and choices move along and the new threads are extra; every other option, the default and the prompt are unchanged. The pitches are ISO 261:1998 Table 1's (all three choice columns; the bracketed M30x3/M33x3 and the spark-plug M14x1.25 left out); each choice's callout states pitch and class (M10x1.25-6g) and choosing it writes the same AP242 thread as typing it (tests/thread_choices.rs).
 
 ## writer
 

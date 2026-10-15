@@ -13,6 +13,7 @@ use std::io::Read;
 
 use serde_json::{Value, json};
 use specify_core::choices::{SpecError, callout, check, code, describe, interpret, split};
+use specify_core::standards;
 
 const HOLE: &str = "hole.function:x";
 const SHAFT: &str = "diameter.fit:x";
@@ -300,6 +301,28 @@ fn expected(python: &Value) -> Value {
     }
 }
 
+/// Whether a grid case is the one deliberate departure from Python (stream S3, issue #3): a
+/// thread typed for a turned diameter that ISO 261 gives at that diameter's size, coarse or
+/// fine, but Python's coarse table does not (`M6x0.75` on a Ø6, `M22` on a Ø22). Python refuses
+/// it; Rust reads it as the thread, the same answer the question offers as a choice.
+fn iso_261_departure(case: &[Value], got: &Value) -> bool {
+    let (Some("interpret"), Some(qid), Some(d)) =
+        (case[0].as_str(), case[1].as_str(), case[4].as_f64())
+    else {
+        return false;
+    };
+    let Some(spec) = got["ok"].as_str().and_then(|v| v.strip_prefix("thread:")) else {
+        return false;
+    };
+    let python_refused = case[6].get("err").is_some();
+    let beyond_python = spec.contains('x') || standards::lookup(&standards::PITCH, spec).is_none();
+    python_refused
+        && qid.starts_with("diameter.fit:")
+        && beyond_python
+        && standards::external_thread(spec)
+            .is_some_and(|(size, _)| (standards::bolt_diameter(size) - d).abs() <= 0.2)
+}
+
 #[test]
 fn choices_equal_pythons_over_the_grid() {
     let data = oracle();
@@ -318,6 +341,7 @@ fn choices_equal_pythons_over_the_grid() {
     let cases = data["cases"].as_array().unwrap();
     assert!(cases.len() > 100_000);
     let mut wrong = Vec::new();
+    let mut departures = 0;
     for case in cases {
         let c = case.as_array().unwrap();
         let text = |i: usize| c[i].as_str().unwrap();
@@ -354,9 +378,14 @@ fn choices_equal_pythons_over_the_grid() {
             other => panic!("unknown case {other}"),
         };
         if got != expected(python) {
-            wrong.push(format!("{case}\n   rust: {got}"));
+            if iso_261_departure(c, &got) {
+                departures += 1;
+            } else {
+                wrong.push(format!("{case}\n   rust: {got}"));
+            }
         }
     }
+    println!("{departures} ISO 261 threads read where Python refuses them");
     assert!(
         wrong.is_empty(),
         "{} of {} differ from Python, e.g.:\n{}",
