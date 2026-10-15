@@ -16,7 +16,7 @@ All notable changes to specify-core-rust. The format follows
   Ø15, offers those (M15×1.5, M15×1); a diameter at no ISO 261 size offers no thread. Typing
   the same thread in the free-text box reads as the same choice and writes the same AP242
   thread; a fine pitch typed for a turned diameter is no longer refused. Existing answers
-  (`thread:M6`) are unchanged. Against Python these are rules/cli known differences.
+  (`thread:M6`) are unchanged. The oracle sweeps set aside exactly these threads and still compare everything else with Python.
 
 ## 0.1.0-alpha.2 (2026-10-14)
 

@@ -32,9 +32,12 @@ Overturnable judgement calls:
   give (`M15x2`) and a bare fine-only size (`M15`) are refused with new messages that list
   the pitches. The Python grid comparison (`tests/choices.rs`) accepts exactly those
   departures: Python refused, Rust read an ISO 261 thread of that diameter's size.
-- Known differences: two entries each in `rules.json` and `cli.json` (`*options[*]`,
-  `*choices[*]*`, every case). They are broad by path because paths carry indices, not
-  question ids; they could hide a future, unrelated option difference.
+- No known-difference entries. The rules and CLI oracle sweeps (`tests/rules_oracle.rs`,
+  `tests/cli.rs`) drop from Rust's `diameter.fit` questions, before comparing, exactly the
+  thread options and choices Python cannot offer (a fine pitch, or a coarse size not in
+  Python's table: `common::without_threads_beyond_python`); everything else in those
+  questions must still equal Python's. A CLI stdout holding such threads keeps its value
+  comparison but skips the byte-for-byte text check.
 
 # D2: additive typed question presentation (2026-10-11)
 
