@@ -15,8 +15,8 @@
 //! away from the origin, is therefore haecceity's own `Part` like any other (upstream needs U1
 //! and U9, met; the stand-ins that read the file placed back and rebuilt the part are gone).
 //!
-//! What differs from Python: a gzipped file is refused like any unreadable one (specify-core
-//! never reads gzip); a file's parts are haecceity's product definitions, so a product whose
+//! What differs from Python: a gzipped file (by its magic bytes) is read decompressed, and bound
+//! by its STEP text's hash, where specify-core refuses it (maintainer decision 2026-10-15); a file's parts are haecceity's product definitions, so a product whose
 //! shape is a solid plus surface models (NIST CTC-02, 04, 05) is one part here where
 //! OpenCascade's XCAF splits it into a part per shape (see `parts`, question Q7); a file with
 //! several root shapes, which Python refuses ("expected one part"), is read; part names follow
@@ -263,14 +263,16 @@ impl File {
 
     /// [`File::of_bytes`] over bytes already shared (a [`LoadedPart`]'s), not copied.
     pub fn of_shared(path: &Path, bytes: Arc<Vec<u8>>) -> Result<File, LoadError> {
-        // specify-core reads STEP text only; a gzipped file is refused as unreadable, not
-        // decompressed behind the caller's back.
-        if bytes.starts_with(&[0x1f, 0x8b]) {
-            return Err(LoadError::Unreadable {
+        // Gzip (its magic bytes, whatever the file is called) is decompressed in memory, and the
+        // file is its STEP text from here on: its hash, its parts and what the writer edits, so
+        // a `.step` and its `.step.gz` bind identically (maintainer decision 2026-10-15).
+        let bytes = match gunzip(&bytes) {
+            Some(text) => Arc::new(text.map_err(|e| LoadError::Unreadable {
                 path: path.to_path_buf(),
-                reason: "the file is gzip-compressed; decompress it first".into(),
-            });
-        }
+                reason: format!("the file is gzip but cannot be decompressed: {e}"),
+            })?),
+            None => bytes,
+        };
         let step = StepFile::read(&bytes).map_err(|e| step_error(path, e))?;
         if step.parts.is_empty() {
             return Err(LoadError::NoFaces {
@@ -396,6 +398,15 @@ impl File {
 /// A haecceity refusal as a [`LoadError`]: a file that does not parse is unreadable (Python's
 /// `cannot read STEP file`), a file with no shape with faces is [`LoadError::NoFaces`], anything
 /// else is haecceity's own reason.
+/// `bytes` decompressed when they are gzip (they begin with its magic bytes `1f 8b`), else none.
+pub fn gunzip(bytes: &[u8]) -> Option<std::io::Result<Vec<u8>>> {
+    bytes.starts_with(&[0x1f, 0x8b]).then(|| {
+        let mut text = Vec::new();
+        std::io::Read::read_to_end(&mut flate2::read::MultiGzDecoder::new(bytes), &mut text)
+            .map(|_| text)
+    })
+}
+
 fn step_error(path: &Path, error: StepError) -> LoadError {
     let path = path.to_path_buf();
     match error {

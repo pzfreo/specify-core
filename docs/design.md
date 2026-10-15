@@ -106,8 +106,8 @@ and answers are always used with the analysis they were given against.
   by hand.
 - `serde`, `serde_json` (`preserve_order`, so objects keep Python's key order; `float_roundtrip`),
   `sha2` (the binding's `source_sha256`), `base64` (stored answers), `regex` (typed specs and
-  added requirements, as Python reads them). Dev: `flate2` (gzipped
-  fixtures). A stream that needs another crate adds one line to `Cargo.toml` and says why in its
+  added requirements, as Python reads them), `flate2` (gzipped STEP read and written, maintainer
+  decision 2026-10-15; also the gzipped fixtures). A stream that needs another crate adds one line to `Cargo.toml` and says why in its
   commit; the mates stream is expected to add a polygon-boolean crate for flat contacts
   (upstream need U5).
 - Toolchain 1.99 (`rust-toolchain.toml`), edition 2024. No OpenCascade, no Python at run time.
@@ -274,13 +274,24 @@ elsewhere), not committed: its outputs are committed, its inputs are not. A `rea
 the same direct read-back (above) on a STEP the Rust port wrote, for the cross-engine check.
 
 **Gzipped corpus files.** Six corpus inputs are gzipped (`cadgenbench_inputs/cgb{202,217,242,
-243}.step.gz`, `inventory_refusal/{13975,14052}.step.gz`); neither engine reads gzip, and
+243}.step.gz`, `inventory_refusal/{13975,14052}.step.gz`); Python's engine does not read gzip, and
 haecceity's `corpus_upgrade.json` pins the `cadgenbench_inputs` ones as upgradable, so keeping
 them as refusals would lose real cases. Decision: both engines see the decompressed file. The
 capture tool decompresses to a temporary `.step` and runs Python on it; `meta.json` records the
 sha256 of both the `.gz` and the decompressed bytes (the binding's `source_sha256` is the
 decompressed one); the Rust harness's `case.input()` decompresses to a temporary file and
-returns its path. The CLI itself still refuses gzip, as specify-core does.
+returns its path.
+
+**Gzipped STEP files are read and written (maintainer decision 2026-10-15).** The Rust engine no
+longer refuses gzip, where specify-core does. A file is gzip when it begins with gzip's magic
+bytes (`1f 8b`), whatever it is called; it is decompressed in memory in `part::File::of_shared`,
+through which every file and byte load goes (the CLI, serve, `api`, `part::load_bytes`), and is
+its STEP text from then on: `binding.source_sha256` is the decompressed bytes' hash, and the
+stored-answers fingerprint (of the faces) is unchanged, so a `.step` and its `.step.gz` bind and
+resume identically. A gzip that does not decompress is refused as unreadable ("the file is gzip
+but cannot be decompressed: …"). The writer writes STEP text unless the destination's name ends
+in `.gz`, when the verified text is gzipped (no name, no time stamp); a write in place to a `.gz`
+input therefore stays gzipped. `write_bytes` returns STEP text. Tests: `tests/gzip.rs`.
 
 ### Comparison harness and known differences
 
