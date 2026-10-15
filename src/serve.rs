@@ -9,7 +9,8 @@
 //! {"id": 1, "op": "analyse", "step": "/path/part.step"}
 //! -> {"id": 1, "ok": true, "result": {"analysis": {...}, "mesh": {...}}}
 //! {"id": 6, "op": "parts", "step": "/path/assembly.step"}
-//! -> {"id": 6, "ok": true, "result": {"parts": [{"part": 0, "name": ..., ...}, ...]}}
+//! -> {"id": 6, "ok": true, "result": {"parts": [{"part": 0, "name": ..., "product_id": ...,
+//!    ...}, ...]}} (a part is named on the wire by its index, "part")
 //!    and "analyse" of an assembly says which: {..., "part": 1}
 //! {"id": 2, "op": "questions", "analysis": {...}, "answers": {...}}
 //! {"id": 3, "op": "preview", "analysis": {...}, "answers": {...}, "step": "/path/part.step"}
@@ -22,7 +23,8 @@
 //! -> {"id": 4, "ok": false, "error": {"code": "incomplete", "message": ..., "missing": [...]}}
 //! {"id": 7, "op": "write", "step": ..., "output": ..., "accept_defaults": true,
 //!  "parts": [{"analysis": ..., "answers": ...}, ...]}
-//! -> several parts of an assembly, written together
+//! -> parts of an assembly, written together (one part may be written alone: the others and
+//!    their stored answers are left as they are)
 //! ```
 //!
 //! Errors are `{code, message}`: `incomplete` (with `missing`, and `part` in an assembly),
@@ -213,8 +215,10 @@ impl Server {
                     None | Some(Value::Null) => None,
                     Some(v) => Some(index(v, "part")?),
                 };
-                let loaded = part::load(&step, part).map_err(Error::Load)?;
-                let (analysis, warnings) = api::analyse_reporting(&loaded)?;
+                // The file is read once, for the part and the other parts its mates need.
+                let file = part::File::read(&step).map_err(Error::Load)?;
+                let loaded = file.load(part).map_err(Error::Load)?;
+                let (analysis, warnings) = api::analyse_reporting_in(&file, &loaded)?;
                 let mut result = Map::new();
                 result.insert("analysis".into(), analysis);
                 result.insert("mesh".into(), api::mesh(&loaded));

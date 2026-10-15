@@ -12,7 +12,7 @@ use std::process::Command;
 use haecceity::Part;
 use haecceity::geom::Surface;
 use haecceity::step::Placement;
-use serde_json::Value;
+use serde_json::{Value, json};
 use specify_core::part::{self, Binding, LOADER_VERSION, LoadedPart};
 
 fn fixture(name: &str) -> PathBuf {
@@ -265,14 +265,15 @@ fn parts_and_bindings_are_pythons() {
     }
 }
 
-/// The parts listing as JSON, in Python's key order (`api.parts` before it adds `written`).
+/// The parts listing as JSON, in Python's key order (`api.parts` before it adds `written`), with
+/// the product's id after the name (decision D1; not in Python's listing).
 #[test]
 fn a_parts_listing_serialises_as_pythons() {
     let listed = part::parts(&fixture("assembly.step")).unwrap();
     let json = serde_json::to_string(&listed[1]).unwrap();
     assert_eq!(
         json,
-        r#"{"part":1,"name":"pin","faces":7,"instances":2,"placements":[[[1.0,0.0,0.0,-30.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,5.0]],[[1.0,0.0,0.0,30.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,5.0]]]}"#
+        r#"{"part":1,"name":"pin","product_id":"pin","faces":7,"instances":2,"placements":[[[1.0,0.0,0.0,-30.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,5.0]],[[1.0,0.0,0.0,30.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,5.0]]]}"#
     );
     let binding = part::load(&fixture("plate.step"), None).unwrap().binding;
     assert_eq!(
@@ -404,9 +405,7 @@ fn each_face_is_read_from_its_entity() {
         for lp in part::load_all(&fixture(file)).unwrap() {
             for i in 0..lp.binding.face_count {
                 assert_eq!(lp.definition.face_index(lp.face_entity(i)), Some(i));
-                if !lp.rebuilt {
-                    assert_eq!(lp.part.face_source(i).unwrap().entity, lp.face_entity(i));
-                }
+                assert_eq!(lp.part.face_source(i).unwrap().entity, lp.face_entity(i));
             }
         }
     }
@@ -506,7 +505,7 @@ fn each_part_is_listed_once_with_where_its_instances_are() {
     assert_eq!(translations, [[-30.0, 0.0, 5.0], [30.0, 0.0, 5.0]]);
 }
 
-// --- read_step's own Part, the U1 stand-in and its unresolved lists -------------------------
+// --- haecceity's own Part of every part, and its unresolved lists ----------------------------
 
 /// A file of one part placed once at the origin is haecceity's own `Part`, not rebuilt.
 #[test]
@@ -524,10 +523,19 @@ fn a_single_part_file_uses_read_steps_part() {
     }
 }
 
-/// For every rebuilt part, its unresolved lists are read_step's restricted to the part's first
-/// instance and re-indexed (faces by the `#N` they were read from, edges likewise), and its
-/// topology is the instance's: the same faces, edges and solids, by source.
-fn check_rebuilt(path: &Path, lp: &LoadedPart, whole: &Part) {
+/// A part of an assembly, or a part placed more than once, is haecceity's own `Part`
+/// (`StepFile::part`, upstream need U1, met): its unresolved lists are its own `Part`'s and are
+/// read_step's restricted to the part's first instance and re-indexed (faces by the `#N` they
+/// were read from, edges likewise), and its topology is the instance's: the same faces, edges and
+/// solids, by source. (Before U1 was met these parts were rebuilt by a stand-in; the same checks
+/// held of it.)
+fn check_own(path: &Path, lp: &LoadedPart, whole: &Part) {
+    assert!(!lp.rebuilt, "{}", path.display());
+    assert_eq!(lp.unresolved_faces, lp.part.unresolved_faces());
+    assert_eq!(lp.unresolved_edges, lp.part.unresolved_edges());
+    for i in 0..lp.binding.face_count {
+        assert_eq!(lp.part.face_source(i).unwrap().entity, lp.face_entity(i));
+    }
     let instances = &lp.definition.placements[0].instances;
     let ours =
         |s: Option<haecceity::brep::Source>| s.is_some_and(|s| instances.contains(&s.instance));
@@ -548,7 +556,7 @@ fn check_rebuilt(path: &Path, lp: &LoadedPart, whole: &Part) {
         .collect();
     want_faces.sort_unstable();
     assert_eq!(lp.unresolved_faces, want_faces, "{}", path.display());
-    // Edges: map the rebuilt part's edges to the whole read's through the faces' loops.
+    // Edges: map the part's edges to the whole read's through the faces' loops.
     let mut edge_map = std::collections::HashMap::new();
     for (i, &entity) in lp.definition.faces.iter().enumerate() {
         let old = &whole.faces[face_of[&entity]];
@@ -578,34 +586,31 @@ fn check_rebuilt(path: &Path, lp: &LoadedPart, whole: &Part) {
         .filter(|(s, _)| instances.contains(s))
         .count();
     assert_eq!(lp.part.solids.len(), solids);
-    assert_eq!(
-        lp.degraded().is_some(),
-        !lp.unresolved_faces.is_empty() || !lp.unresolved_edges.is_empty()
-    );
+    assert_eq!(lp.degraded(), None);
 }
 
 #[test]
-fn rebuilt_parts_carry_their_instances_unresolved_lists() {
-    let mut rebuilt = 0;
+fn parts_of_assemblies_carry_their_instances_unresolved_lists() {
+    let mut checked = 0;
     for file in SYNTHETIC {
         let path = fixture(file);
         let whole = haecceity::read_step(&std::fs::read(&path).unwrap()).unwrap();
-        for lp in part::load_all(&path).unwrap() {
-            if lp.rebuilt {
-                check_rebuilt(&path, &lp, &whole);
-                rebuilt += 1;
+        let parts = part::load_all(&path).unwrap();
+        for lp in &parts {
+            if parts.len() > 1 || lp.placements.len() > 1 {
+                check_own(&path, lp, &whole);
+                checked += 1;
             }
         }
     }
     // assembly.step: plate and pin; stack.step: base, cover, pin.
-    assert_eq!(rebuilt, 5);
+    assert_eq!(checked, 5);
 }
 
 /// Every corpus file (a gzipped one decompressed first, as the oracle harness does): loads or
-/// is refused with a reason; a part is rebuilt exactly when its file holds more than one
-/// instance of it or other parts beside it; a part not rebuilt is read_step's own; rebuilt parts
-/// carry their instance's unresolved lists. Which parts have unresolved faces or edges, and which
-/// of those come out degraded, is printed.
+/// is refused with a reason; no part is rebuilt or degraded; a part whose file holds more than
+/// one instance of it or other parts beside it carries its first instance's unresolved lists
+/// (`check_own`). Which parts have unresolved faces or edges is printed.
 #[test]
 fn corpus_parts_and_their_unresolved_faces() {
     let root = corpus_root();
@@ -657,19 +662,15 @@ fn corpus_parts_and_their_unresolved_faces() {
             }
         };
         loaded += 1;
+        let assembled = |lp: &LoadedPart| parts.len() > 1 || lp.placements.len() > 1;
         let whole = parts
             .iter()
-            .any(|lp| lp.rebuilt)
+            .any(assembled)
             .then(|| haecceity::read_step(&std::fs::read(&path).unwrap()).unwrap());
         for lp in &parts {
-            assert_eq!(
-                lp.rebuilt,
-                parts.len() > 1 || lp.placements.len() > 1,
-                "{name} part {}",
-                lp.binding.part
-            );
+            assert!(!lp.rebuilt, "{name} part {}", lp.binding.part);
             match &whole {
-                Some(whole) if lp.rebuilt => check_rebuilt(&path, lp, whole),
+                Some(whole) if assembled(lp) => check_own(&path, lp, whole),
                 _ => assert!(lp.part.face_source(0).is_some() && lp.degraded().is_none()),
             }
             if !lp.unresolved_faces.is_empty() || !lp.unresolved_edges.is_empty() {
@@ -682,20 +683,19 @@ fn corpus_parts_and_their_unresolved_faces() {
                     lp.degraded().is_some()
                 );
             }
-            if lp.rebuilt {
-                eprintln!("rebuilt  {name} part {} ({})", lp.binding.part, lp.name);
-            }
         }
     }
     eprintln!("corpus: {loaded} loaded, {refused} refused");
     assert!(loaded > 0);
 }
 
-/// A rebuilt part with an unresolved face is degraded, and says so; the other part of the same
-/// file is not. assembly.step with the pin's drill floor (#1248, the pin's face 5) written on an
-/// `OFFSET_SURFACE`, which haecceity does not model (as its own `unresolved_surface.step`).
+/// A part of an assembly with an unresolved face keeps haecceity's record of it in its own
+/// `Part`, so it is not degraded (before U1 was met, the stand-in rebuilt it without the record
+/// and reported it degraded); the other part of the same file has none. assembly.step with the
+/// pin's drill floor (#1248, the pin's face 5) written on an `OFFSET_SURFACE`, which haecceity
+/// does not model (as its own `unresolved_surface.step`).
 #[test]
-fn a_rebuilt_part_with_an_unresolved_face_is_degraded() {
+fn a_part_with_an_unresolved_face_keeps_haecceitys_record() {
     let text = std::fs::read_to_string(fixture("assembly.step")).unwrap();
     let plane = "#1181 = PLANE('',#1182);";
     assert!(text.contains(plane));
@@ -713,18 +713,15 @@ fn a_rebuilt_part_with_an_unresolved_face_is_degraded() {
     );
 
     let pin = part::load(&path, Some(1)).unwrap();
-    assert!(pin.rebuilt);
     assert_eq!(pin.face_entity(5), 1248);
     assert_eq!(pin.unresolved_faces, [5]);
-    check_rebuilt(&path, &pin, &whole);
-    let why = pin.degraded().expect("degraded");
-    assert!(why.contains("U1") && why.contains("[5]"), "{why}");
-    // The rebuilt Part itself has lost the record: what degraded() exists to report.
-    assert!(pin.part.unresolved_faces().is_empty());
+    // The Part itself has the record, which recognition and solid validity read.
+    assert_eq!(pin.part.unresolved_faces(), [5]);
+    check_own(&path, &pin, &whole);
 
     let plate = part::load(&path, Some(0)).unwrap();
-    assert!(plate.rebuilt && plate.unresolved_faces.is_empty());
-    assert_eq!(plate.degraded(), None);
+    assert!(plate.unresolved_faces.is_empty());
+    check_own(&path, &plate, &whole);
 }
 
 // --- live comparison with Python on corpus and NIST files -----------------------------------
@@ -865,7 +862,14 @@ fn corpus_and_nist_faces_are_pythons_at_every_index() {
                 "{key} part {k}"
             );
             let mut want = py_parts[k].clone();
-            let got = serde_json::to_value(&listed[k]).unwrap();
+            let mut got = serde_json::to_value(&listed[k]).unwrap();
+            // The product's id is reported beside the name (decision D1), not by Python.
+            let product_id = got.as_object_mut().unwrap().remove("product_id");
+            assert_eq!(
+                product_id,
+                Some(json!(lp.definition.product_id)),
+                "{key} part {k}"
+            );
             assert!(same_name(&got["name"], &want["name"]), "{key} part {k}");
             if got["name"] != want["name"] {
                 report.push(format!(

@@ -8,33 +8,27 @@
 //! and the binding keeps [`LOADER_VERSION`] 2 (docs/design.md, "Face numbering is the same in
 //! both engines"; question Q1).
 //!
-//! A file of one part placed once (including a part stored as an assembly holding one solid, as
-//! the NIST test parts are) is read with [`haecceity::read_step`] and that `Part` is used as it
-//! is. A part of an assembly, or a part placed away from the origin, has no `Part` of its own in
-//! haecceity yet (upstream need U1): it is read placed back by the inverse of its first
-//! placement, and when that read holds other parts or instances too, this part's faces are taken
-//! out of it and rebuilt into a `Part` of their own ([`LoadedPart::rebuilt`]). A rebuilt `Part`
-//! loses haecceity's record of unresolved faces and edges, so [`LoadedPart`] carries them itself
-//! and [`LoadedPart::degraded`] says when a later step must refuse or report rather than trust
-//! the rebuilt part's solids.
+//! A file is read once, by haecceity's [`StepFile::read`] ([`File`]): its distinct parts, their
+//! names and product ids, and each part's own `Part` on demand ([`StepFile::part`]), in its own
+//! coordinates with its faces in the definition's order, its face and edge sources and its
+//! unresolved faces and edges as haecceity records them. A part of an assembly, or a part placed
+//! away from the origin, is therefore haecceity's own `Part` like any other (upstream needs U1
+//! and U9, met; the stand-ins that read the file placed back and rebuilt the part are gone).
 //!
 //! What differs from Python: a gzipped file is refused like any unreadable one (specify-core
 //! never reads gzip); a file's parts are haecceity's product definitions, so a product whose
 //! shape is a solid plus surface models (NIST CTC-02, 04, 05) is one part here where
 //! OpenCascade's XCAF splits it into a part per shape (see `parts`, question Q7); a file with
 //! several root shapes, which Python refuses ("expected one part"), is read; part names follow
-//! Python's rule over `NEXT_ASSEMBLY_USAGE_OCCURRENCE`s, not over XCAF's labels (see
-//! `part_names`, upstream need U9).
+//! Python's rule over `NEXT_ASSEMBLY_USAGE_OCCURRENCE`s (haecceity's `PartDefinition.name`), not
+//! over XCAF's labels.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use haecceity::Part;
-use haecceity::brep::{Face, Loop, Solid};
-use haecceity::p21::{Attribute, Document, RawEntity};
-use haecceity::step::{self, PartDefinition, Placement, StepError};
+use haecceity::step::{PartDefinition, Placement, StepError, StepFile};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -60,16 +54,20 @@ pub struct Binding {
 
 /// One part of a STEP file, loaded (Python's `LoadedPart`). Not `Clone`, as `haecceity::Part`
 /// is not; everything downstream takes it by reference.
+///
+/// Its fields are public and kept as they were, so a caller that builds one itself (the
+/// editor's session) still compiles.
 #[derive(Debug)]
 pub struct LoadedPart {
-    /// The file it was read from.
+    /// The file it was read from (or the name standing for it, for bytes held in memory).
     pub path: PathBuf,
     /// The file's bytes, read once and shared by every part of the file.
     pub bytes: Arc<Vec<u8>>,
     pub binding: Binding,
     /// This part's own solid(s) in its own frame, face `i` read from `definition.faces[i]`.
     pub part: Part,
-    /// haecceity's account of the part: its product definition, face and edge `#N`s, placements.
+    /// haecceity's account of the part: its product definition, face and edge `#N`s, placements,
+    /// name and product id.
     pub definition: PartDefinition,
     /// How many parts the file holds; this is part `binding.part` of them.
     pub part_count: usize,
@@ -77,15 +75,16 @@ pub struct LoadedPart {
     pub name: String,
     /// Where each instance of the part is placed in the file, rows of `[R | t]` in millimetres.
     pub placements: Vec<Placement>,
-    /// The part was rebuilt from a read of the whole file by the U1 stand-in, rather than being
-    /// haecceity's own `Part` of the read; its `Part` then has no face or edge sources and no
-    /// unresolved lists (use `unresolved_faces` and `unresolved_edges` here).
+    /// Kept for callers that build a `LoadedPart` themselves: true says the `Part` was rebuilt
+    /// from other geometry and has lost haecceity's record of what did not resolve (see
+    /// [`LoadedPart::degraded`]). This loader never rebuilds a part (upstream need U1 is met),
+    /// so it is always false here.
     pub rebuilt: bool,
-    /// The faces (this part's indices) whose surface haecceity could not resolve: the source
-    /// read's `Part::unresolved_faces`, re-indexed into this part's numbering.
+    /// The faces (this part's indices) whose surface haecceity could not resolve: the part's own
+    /// `Part::unresolved_faces`.
     pub unresolved_faces: Vec<usize>,
-    /// The edges (indices into `part.edges`) whose curve haecceity could not resolve, re-indexed
-    /// likewise.
+    /// The edges (indices into `part.edges`) whose curve haecceity could not resolve: the part's
+    /// own `Part::unresolved_edges`.
     pub unresolved_edges: Vec<usize>,
 }
 
@@ -97,30 +96,35 @@ impl LoadedPart {
         self.definition.faces[index]
     }
 
-    /// Why the part cannot be trusted as a whole solid, if it cannot: it was rebuilt by the U1
-    /// stand-in and has unresolved faces or edges. haecceity's `Part::new` drops the unresolved
-    /// lists, so the rebuilt part's `solid_is_valid` and the recognisers that skip unresolved
-    /// faces would take it for a valid solid. Recognition, meshing and anchors consult this and
-    /// `unresolved_faces`, and refuse or report rather than run on such a part.
+    /// Why the part cannot be trusted as a whole solid, if it cannot: it was rebuilt
+    /// (`rebuilt`, set only by a caller that builds the part itself) and has unresolved faces or
+    /// edges, which a rebuilt `Part` no longer records, so its `solid_is_valid` and the
+    /// recognisers that skip unresolved faces would take it for a valid solid. Recognition,
+    /// meshing and anchors consult this and `unresolved_faces`, and refuse or report rather than
+    /// run on such a part. A part this module loads is never degraded.
     pub fn degraded(&self) -> Option<String> {
         if !self.rebuilt || (self.unresolved_faces.is_empty() && self.unresolved_edges.is_empty()) {
             return None;
         }
         Some(format!(
-            "part {} ({}) was taken out of the file's assembly and rebuilt without haecceity's \
-             record of what did not resolve (upstream need U1); unresolved faces {:?}, \
-             unresolved edges {:?}",
+            "part {} ({}) was rebuilt without haecceity's record of what did not resolve \
+             (upstream need U1); unresolved faces {:?}, unresolved edges {:?}",
             self.binding.part, self.name, self.unresolved_faces, self.unresolved_edges
         ))
     }
 }
 
 /// One distinct part of a file as `parts` lists it: Python's `{part, name, faces, instances,
-/// placements}` in that key order (the API adds `written`).
+/// placements}` in that key order, with the product's id after the name (decision D1: a part is
+/// identified by its index; its name and product id are reported beside it). The API adds
+/// `written`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PartSummary {
     pub part: usize,
     pub name: String,
+    /// `PRODUCT.id` as the file states it (escapes decoded); need not be unique, and often
+    /// equals the name. Not in Python's listing.
+    pub product_id: String,
     pub faces: usize,
     pub instances: usize,
     /// Each instance's placement, rows of `[R | t]`, every value rounded to 9 decimals.
@@ -145,7 +149,7 @@ pub enum LoadError {
         count: usize,
         part: usize,
     },
-    /// The part could not be taken out of the file's assembly (the U1 stand-in).
+    /// haecceity could not read the part's own shape (`StepFile::part`), for the reason given.
     Extract {
         path: PathBuf,
         part: usize,
@@ -188,7 +192,7 @@ impl fmt::Display for LoadError {
                 reason,
             } => write!(
                 f,
-                "{}: cannot take part {part} ({name}) out of the file: {reason}",
+                "{}: cannot read part {part} ({name}): {reason}",
                 path.display()
             ),
         }
@@ -198,172 +202,176 @@ impl fmt::Display for LoadError {
 impl std::error::Error for LoadError {}
 
 /// Load `path` and take its `part`-th part; a file of several parts must say which (Python's
-/// `load`). Only the part asked for is built.
+/// `load`; decision D4). Only the part asked for is built.
 pub fn load(path: &Path, part: Option<usize>) -> Result<LoadedPart, LoadError> {
-    let file = File::read(path)?;
-    let index = match part {
-        Some(index) => index,
-        None if file.definitions.len() > 1 => {
-            return Err(LoadError::Assembly {
-                path: path.to_path_buf(),
-                names: file.names,
-            });
-        }
-        None => 0,
-    };
-    if index >= file.definitions.len() {
-        return Err(LoadError::NoSuchPart {
-            path: path.to_path_buf(),
-            count: file.definitions.len(),
-            part: index,
-        });
-    }
-    file.load(index)
+    File::read(path)?.load(part)
 }
 
 /// [`load`] of a file held in memory, for a caller with no filesystem (the editor's browser
 /// build): `bytes` are the file's, `name` stands in for its path in the [`LoadedPart`] and in
 /// errors. Single part: a file of several parts is refused as [`load`] refuses it without a
-/// part ([`LoadError::Assembly`]). The part is loaded exactly as [`load`] would load the same
-/// bytes from a file, binding and face numbering included.
+/// part ([`LoadError::Assembly`]); [`File::of_bytes`] then [`File::load`] takes a part of an
+/// assembly. The part is loaded exactly as [`load`] would load the same bytes from a file,
+/// binding and face numbering included.
 pub fn load_bytes(name: &str, bytes: Vec<u8>) -> Result<LoadedPart, LoadError> {
-    let file = File::of(Path::new(name), bytes)?;
-    if file.definitions.len() > 1 {
-        return Err(LoadError::Assembly {
-            path: file.path,
-            names: file.names,
-        });
-    }
-    file.load(0)
+    File::of_bytes(Path::new(name), bytes)?.load(None)
 }
 
 /// Every part of `path`, loaded, in [`parts`]' order (Python's `load_all`).
 pub fn load_all(path: &Path) -> Result<Vec<LoadedPart>, LoadError> {
-    let file = File::read(path)?;
-    (0..file.definitions.len())
-        .map(|index| file.load(index))
-        .collect()
+    File::read(path)?.load_all()
 }
 
-/// The distinct parts of `path` (Python's `parts`): each one's name, face count and where each
-/// of its instances is placed. A part placed twice is one part with two placements. No geometry
-/// is built.
+/// The distinct parts of `path` (Python's `parts`): each one's name, product id, face count and
+/// where each of its instances is placed. A part placed twice is one part with two placements.
+/// No part's own geometry is built.
 ///
 /// The parts are haecceity's: one per product definition whose shape has faces, in
 /// specify-core's order. Where OpenCascade's XCAF makes a part of each shape representation of
 /// one product (a solid with surface models beside it, as in NIST CTC-02, 04 and 05), this lists
 /// the product once with all its faces, the solid's first.
 pub fn parts(path: &Path) -> Result<Vec<PartSummary>, LoadError> {
-    let file = File::read(path)?;
-    Ok(file
-        .definitions
-        .iter()
-        .zip(&file.names)
-        .enumerate()
-        .map(|(index, (definition, name))| PartSummary {
-            part: index,
-            name: name.clone(),
-            faces: definition.faces.len(),
-            instances: definition.placements.len(),
-            placements: definition
-                .placements
-                .iter()
-                .map(|p| rounded(&p.placement))
-                .collect(),
-        })
-        .collect())
+    Ok(File::read(path)?.parts())
 }
 
-/// A file read once: its bytes, their hash, its parts and their names.
-struct File {
+/// A STEP file read once (haecceity's [`StepFile`]): its bytes, their hash and its parts, from
+/// which any part, or every part, is loaded without reading or parsing the file again. What
+/// [`load`], [`load_all`] and [`parts`] read through; a caller that needs several parts of one
+/// file (the analysis of a part of an assembly, the writer) holds one.
+pub struct File {
     path: PathBuf,
     bytes: Arc<Vec<u8>>,
     sha256: String,
-    definitions: Vec<PartDefinition>,
-    names: Vec<String>,
+    step: StepFile,
 }
 
 impl File {
-    fn read(path: &Path) -> Result<File, LoadError> {
-        let unreadable = |reason: String| LoadError::Unreadable {
+    /// Reads the file at `path`.
+    pub fn read(path: &Path) -> Result<File, LoadError> {
+        let bytes = std::fs::read(path).map_err(|e| LoadError::Unreadable {
             path: path.to_path_buf(),
-            reason,
-        };
-        let bytes = std::fs::read(path).map_err(|e| unreadable(e.to_string()))?;
-        File::of(path, bytes)
+            reason: e.to_string(),
+        })?;
+        File::of_bytes(path, bytes)
     }
 
-    /// The file `path` whose bytes are `bytes`.
-    fn of(path: &Path, bytes: Vec<u8>) -> Result<File, LoadError> {
-        let unreadable = |reason: String| LoadError::Unreadable {
-            path: path.to_path_buf(),
-            reason,
-        };
+    /// The file whose bytes are `bytes`, `path` standing for where it came from (in the parts
+    /// loaded and in errors); nothing is read from `path`.
+    pub fn of_bytes(path: &Path, bytes: Vec<u8>) -> Result<File, LoadError> {
+        File::of_shared(path, Arc::new(bytes))
+    }
+
+    /// [`File::of_bytes`] over bytes already shared (a [`LoadedPart`]'s), not copied.
+    pub fn of_shared(path: &Path, bytes: Arc<Vec<u8>>) -> Result<File, LoadError> {
         // specify-core reads STEP text only; a gzipped file is refused as unreadable, not
         // decompressed behind the caller's back.
         if bytes.starts_with(&[0x1f, 0x8b]) {
-            return Err(unreadable(
-                "the file is gzip-compressed; decompress it first".into(),
-            ));
+            return Err(LoadError::Unreadable {
+                path: path.to_path_buf(),
+                reason: "the file is gzip-compressed; decompress it first".into(),
+            });
         }
-        let definitions = step::read_part_definitions(&bytes).map_err(|e| step_error(path, e))?;
-        if definitions.is_empty() {
+        let step = StepFile::read(&bytes).map_err(|e| step_error(path, e))?;
+        if step.parts.is_empty() {
             return Err(LoadError::NoFaces {
                 path: path.to_path_buf(),
             });
         }
-        let names = part_names(&bytes, &definitions).map_err(|e| step_error(path, e))?;
-        let sha256 = Sha256::digest(&bytes)
+        let sha256 = Sha256::digest(bytes.as_slice())
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect();
         Ok(File {
             path: path.to_path_buf(),
-            bytes: Arc::new(bytes),
+            bytes,
             sha256,
-            definitions,
-            names,
+            step,
         })
     }
 
-    /// Builds part `index`'s [`LoadedPart`].
-    fn load(&self, index: usize) -> Result<LoadedPart, LoadError> {
-        let definition = &self.definitions[index];
-        let extract = |reason: String| LoadError::Extract {
+    /// Where the file came from, as given.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// The file's bytes, shared with every part loaded from it.
+    pub fn bytes(&self) -> &Arc<Vec<u8>> {
+        &self.bytes
+    }
+
+    /// SHA-256 of the file's bytes, lowercase hex (each part's `binding.source_sha256`).
+    pub fn sha256(&self) -> &str {
+        &self.sha256
+    }
+
+    /// haecceity's account of each distinct part, in [`parts`]' order.
+    pub fn definitions(&self) -> &[PartDefinition] {
+        &self.step.parts
+    }
+
+    /// The distinct parts, as [`parts`] lists them.
+    pub fn parts(&self) -> Vec<PartSummary> {
+        self.step
+            .parts
+            .iter()
+            .enumerate()
+            .map(|(index, definition)| PartSummary {
+                part: index,
+                name: definition.name.clone(),
+                product_id: definition.product_id.clone(),
+                faces: definition.faces.len(),
+                instances: definition.placements.len(),
+                placements: definition
+                    .placements
+                    .iter()
+                    .map(|p| rounded(&p.placement))
+                    .collect(),
+            })
+            .collect()
+    }
+
+    /// The `part`-th part; with no part, the file's only part, and a file of several is refused
+    /// naming its parts ([`LoadError::Assembly`], decision D4).
+    pub fn load(&self, part: Option<usize>) -> Result<LoadedPart, LoadError> {
+        let count = self.step.parts.len();
+        let index = match part {
+            Some(index) => index,
+            None if count > 1 => {
+                return Err(LoadError::Assembly {
+                    path: self.path.clone(),
+                    names: self.step.parts.iter().map(|d| d.name.clone()).collect(),
+                });
+            }
+            None => 0,
+        };
+        if index >= count {
+            return Err(LoadError::NoSuchPart {
+                path: self.path.clone(),
+                count,
+                part: index,
+            });
+        }
+        self.load_index(index)
+    }
+
+    /// Every part, in [`parts`]' order.
+    pub fn load_all(&self) -> Result<Vec<LoadedPart>, LoadError> {
+        (0..self.step.parts.len())
+            .map(|index| self.load_index(index))
+            .collect()
+    }
+
+    /// Builds part `index`'s [`LoadedPart`]: haecceity's own `Part` of it, in its own frame.
+    fn load_index(&self, index: usize) -> Result<LoadedPart, LoadError> {
+        let definition = &self.step.parts[index];
+        let part = self.step.part(index).map_err(|e| LoadError::Extract {
             path: self.path.clone(),
             part: index,
-            name: self.names[index].clone(),
-            reason,
-        };
-        let Some(first) = definition.placements.first() else {
-            return Err(extract("the part has no placement".into()));
-        };
-        // The file read as if its roots were placed by the inverse of this part's first
-        // placement, so this part's first instance lands in the part's own frame. For a part at
-        // the origin that is the plain read.
-        let read = if first.placement == step::IDENTITY {
-            step::read_step(&self.bytes)
-        } else {
-            step::read_step_placed(&self.bytes, &inverse(&first.placement))
-        }
-        .map_err(|e| extract(e.to_string()))?;
-        let (part, rebuilt, unresolved_faces, unresolved_edges) =
-            if same_faces(&read, &definition.faces) {
-                // The read holds this part alone, faces already in the definition's order: use
-                // haecceity's own `Part`, sources and unresolved lists intact.
-                let faces = read.unresolved_faces().to_vec();
-                let edges = read.unresolved_edges().to_vec();
-                (read, false, faces, edges)
-            } else {
-                let extracted =
-                    extract_part(&read, definition, &first.instances).map_err(extract)?;
-                (
-                    extracted.part,
-                    true,
-                    extracted.unresolved_faces,
-                    extracted.unresolved_edges,
-                )
-            };
+            name: definition.name.clone(),
+            reason: e.to_string(),
+        })?;
+        let unresolved_faces = part.unresolved_faces().to_vec();
+        let unresolved_edges = part.unresolved_edges().to_vec();
         Ok(LoadedPart {
             path: self.path.clone(),
             bytes: Arc::clone(&self.bytes),
@@ -375,10 +383,10 @@ impl File {
             },
             part,
             definition: definition.clone(),
-            part_count: self.definitions.len(),
-            name: self.names[index].clone(),
+            part_count: self.step.parts.len(),
+            name: definition.name.clone(),
             placements: definition.placements.iter().map(|p| p.placement).collect(),
-            rebuilt,
+            rebuilt: false,
             unresolved_faces,
             unresolved_edges,
         })
@@ -406,27 +414,6 @@ fn step_error(path: &Path, error: StepError) -> LoadError {
     }
 }
 
-/// Whether `part`'s faces are exactly `faces` (by the `#N` each was read from), in order.
-fn same_faces(part: &Part, faces: &[u64]) -> bool {
-    part.faces.len() == faces.len()
-        && faces
-            .iter()
-            .enumerate()
-            .all(|(i, &entity)| part.face_source(i).is_some_and(|s| s.entity == entity))
-}
-
-/// The inverse of a rigid placement: `[Rᵀ | -Rᵀt]`.
-fn inverse(p: &Placement) -> Placement {
-    let mut out = [[0.0; 4]; 3];
-    for i in 0..3 {
-        for j in 0..3 {
-            out[i][j] = p[j][i];
-        }
-        out[i][3] = -(0..3).map(|k| p[k][i] * p[k][3]).sum::<f64>();
-    }
-    out
-}
-
 /// A placement with every value rounded to 9 decimals, as Python's `_matrix` does
 /// (`round(x, 9)`): Rust's `{:.9}` rounds the exact binary value correctly, as Python's `round`
 /// does, so the two agree.
@@ -434,267 +421,9 @@ fn rounded(p: &Placement) -> Placement {
     p.map(|row| row.map(|x| format!("{x:.9}").parse().unwrap_or(x)))
 }
 
-/// A part taken out of a read of the whole file.
-struct Extracted {
-    part: Part,
-    unresolved_faces: Vec<usize>,
-    unresolved_edges: Vec<usize>,
-}
-
-/// The U1 stand-in: the faces of `read` that belong to `instances` (one placement of the part),
-/// in `definition.faces` order, rebuilt into a `Part` of their own with edges, loops, pcurves and
-/// solids re-indexed, and `read`'s unresolved faces and edges carried over in the new numbering
-/// (those of other instances or parts dropped). Refused if a face of the definition is not found
-/// exactly once among the instances' faces, or a solid of the instances holds a face the
-/// definition lacks.
-fn extract_part(
-    read: &Part,
-    definition: &PartDefinition,
-    instances: &[usize],
-) -> Result<Extracted, String> {
-    let ours = |source: Option<haecceity::brep::Source>| {
-        source.is_some_and(|s| instances.contains(&s.instance))
-    };
-    // Face #N → the read's faces of these instances read from it.
-    let mut by_entity: HashMap<u64, Vec<usize>> = HashMap::new();
-    for f in 0..read.faces.len() {
-        if let Some(s) = read
-            .face_source(f)
-            .filter(|s| instances.contains(&s.instance))
-        {
-            by_entity.entry(s.entity).or_default().push(f);
-        }
-    }
-    let mut old_faces = Vec::with_capacity(definition.faces.len());
-    for (index, entity) in definition.faces.iter().enumerate() {
-        match by_entity.get(entity).map(Vec::as_slice) {
-            Some(&[f]) => old_faces.push(f),
-            found => {
-                return Err(format!(
-                    "face {index} (#{entity}) is found {} times in its instance, not once",
-                    found.map_or(0, <[usize]>::len)
-                ));
-            }
-        }
-    }
-    let new_face: HashMap<usize, usize> = old_faces
-        .iter()
-        .enumerate()
-        .map(|(new, &old)| (old, new))
-        .collect();
-    if let Some(stray) =
-        (0..read.faces.len()).find(|f| ours(read.face_source(*f)) && !new_face.contains_key(f))
-    {
-        return Err(format!(
-            "face #{} of the part's instance is not one of the part's faces",
-            read.face_source(stray).map_or(0, |s| s.entity)
-        ));
-    }
-
-    // Solids in the read's order, each holding the new indices of its faces.
-    let mut new_solid: BTreeMap<usize, usize> = BTreeMap::new();
-    for &old in &old_faces {
-        if let Some(s) = read.faces[old].solid {
-            new_solid.insert(s, 0);
-        }
-    }
-    for (new, slot) in new_solid.values_mut().enumerate() {
-        *slot = new;
-    }
-    let mut solids = Vec::with_capacity(new_solid.len());
-    for &old in new_solid.keys() {
-        let faces = read.solids[old]
-            .faces
-            .iter()
-            .map(|f| {
-                new_face.get(f).copied().ok_or_else(|| {
-                    format!("solid {old} of the read holds face {f}, which is not the part's")
-                })
-            })
-            .collect::<Result<Vec<usize>, String>>()?;
-        solids.push(Solid { faces });
-    }
-
-    // Edges in the order the part's faces' loops first use them.
-    let mut new_edge: HashMap<usize, usize> = HashMap::new();
-    let mut edges = Vec::new();
-    for &old in &old_faces {
-        for &(e, _) in read.faces[old].loops.iter().flat_map(|l| &l.edges) {
-            new_edge.entry(e).or_insert_with(|| {
-                edges.push(read.edges[e].clone());
-                edges.len() - 1
-            });
-        }
-    }
-    let faces = old_faces
-        .iter()
-        .map(|&old| {
-            let face = &read.faces[old];
-            let pcurves = face
-                .pcurves
-                .iter()
-                .map(|(e, pc)| {
-                    new_edge.get(e).map(|&n| (n, pc.clone())).ok_or_else(|| {
-                        format!("face {old} has a pcurve for edge {e} it does not use")
-                    })
-                })
-                .collect::<Result<Vec<_>, String>>()?;
-            Ok(Face {
-                surface: face.surface.clone(),
-                reversed: face.reversed,
-                loops: face
-                    .loops
-                    .iter()
-                    .map(|l| Loop {
-                        edges: l.edges.iter().map(|&(e, d)| (new_edge[&e], d)).collect(),
-                        vertex: l.vertex,
-                    })
-                    .collect(),
-                solid: face.solid.map(|s| new_solid[&s]),
-                pcurves,
-            })
-        })
-        .collect::<Result<Vec<Face>, String>>()?;
-
-    // The read's unresolved faces and edges in the new numbering; those of other instances or
-    // parts are not this part's and are dropped. One of this part's instances that has no new
-    // index would be lost silently, so it is refused.
-    let mut unresolved_faces = Vec::new();
-    for &f in read.unresolved_faces() {
-        match new_face.get(&f) {
-            Some(&n) => unresolved_faces.push(n),
-            None if ours(read.face_source(f)) => {
-                return Err(format!(
-                    "unresolved face {f} of the part has no place in it"
-                ));
-            }
-            None => {}
-        }
-    }
-    let mut unresolved_edges = Vec::new();
-    for &e in read.unresolved_edges() {
-        match new_edge.get(&e) {
-            Some(&n) => unresolved_edges.push(n),
-            None if ours(read.edge_source(e)) => {
-                return Err(format!(
-                    "unresolved edge {e} of the part has no place in it"
-                ));
-            }
-            None => {}
-        }
-    }
-    unresolved_faces.sort_unstable();
-    unresolved_edges.sort_unstable();
-    Ok(Extracted {
-        part: Part::new(faces, edges, solids),
-        unresolved_faces,
-        unresolved_edges,
-    })
-}
-
-/// Each part's name (Python's `_part_name`): that of an assembly holding the part alone (an
-/// exporter may wrap a named part round a solid it calls SOLID), else the part's own product
-/// name (its id if the name is empty). Assemblies are the product definitions
-/// `NEXT_ASSEMBLY_USAGE_OCCURRENCE`s relate, visited depth first from the roots as Python visits
-/// XCAF's assembly labels, components in file order; the first assembly that holds the part as
-/// its only component and has a name wins.
-///
-/// XCAF also makes components of a product's several shape representations (NIST files); those
-/// are not assemblies here, so where Python names such a part by OpenCascade's label for its
-/// shape (`SOLID`), this names it by its product.
-fn part_names(bytes: &[u8], definitions: &[PartDefinition]) -> Result<Vec<String>, StepError> {
-    let doc = Document::parse(bytes.to_vec()).map_err(|e| StepError::Parse(e.to_string()))?;
-    let graph = doc.graph();
-    let reference = |a: Option<&Attribute>| match a {
-        Some(Attribute::EntityRef(n)) => Some(*n),
-        _ => None,
-    };
-    // Assembly → its components' product definitions, in file order (BTreeMap: ids ascending).
-    let mut components: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
-    let mut related = HashSet::new();
-    for entity in graph.entities.values() {
-        if let RawEntity::Simple {
-            name, attributes, ..
-        } = entity
-            && name == "NEXT_ASSEMBLY_USAGE_OCCURRENCE"
-            && let (Some(relating), Some(child)) =
-                (reference(attributes.get(3)), reference(attributes.get(4)))
-        {
-            components.entry(relating).or_default().push(child);
-            related.insert(child);
-        }
-    }
-    // A product definition's name, as OpenCascade names its label: PRODUCT_DEFINITION.formation
-    // → PRODUCT_DEFINITION_FORMATION.of_product → PRODUCT.name, or PRODUCT.id when the name is
-    // empty (NIST FTC-08 and CTC-04 write their title as the id and an empty name, and Python
-    // reports the id).
-    let attribute = |id: u64, index: usize| match graph.entities.get(&id) {
-        Some(RawEntity::Simple { attributes, .. }) => attributes.get(index).cloned(),
-        _ => None,
-    };
-    let product_name = |definition: u64| -> String {
-        let product = reference(attribute(definition, 2).as_ref())
-            .and_then(|formation| reference(attribute(formation, 2).as_ref()));
-        let string = |index: usize| match product.and_then(|p| attribute(p, index)) {
-            Some(Attribute::String(raw)) => text(&raw),
-            _ => String::new(),
-        };
-        let name = string(1);
-        if name.is_empty() { string(0) } else { name }
-    };
-    let mut assemblies = Vec::new();
-    let mut seen = HashSet::new();
-    let mut stack: Vec<u64> = components
-        .keys()
-        .copied()
-        .filter(|k| !related.contains(k))
-        .rev()
-        .collect();
-    while let Some(definition) = stack.pop() {
-        let Some(children) = components.get(&definition) else {
-            continue;
-        };
-        if !seen.insert(definition) {
-            continue;
-        }
-        assemblies.push(definition);
-        stack.extend(children.iter().rev());
-    }
-    Ok(definitions
-        .iter()
-        .map(|d| {
-            assemblies
-                .iter()
-                .find(|a| components[a] == [d.product_definition] && !product_name(**a).is_empty())
-                .map_or_else(|| product_name(d.product_definition), |&a| product_name(a))
-        })
-        .collect())
-}
-
-/// A STEP string's text with its escapes resolved, as OpenCascade gives names; the file's own
-/// text if an escape cannot be resolved (a name is never refused for that).
-fn text(raw: &str) -> String {
-    haecceity::p21::decode(raw).unwrap_or_else(|_| raw.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn inverse_undoes_a_placement() {
-        let (c, s) = (0.6_f64, 0.8_f64);
-        let p: Placement = [[c, -s, 0.0, 10.0], [s, c, 0.0, -3.0], [0.0, 0.0, 1.0, 5.0]];
-        let q = inverse(&p);
-        let x = [1.0, 2.0, 3.0];
-        let apply = |m: &Placement, v: [f64; 3]| {
-            [0, 1, 2].map(|i| (0..3).map(|k| m[i][k] * v[k]).sum::<f64>() + m[i][3])
-        };
-        let back = apply(&q, apply(&p, x));
-        for i in 0..3 {
-            assert!((back[i] - x[i]).abs() < 1e-12);
-        }
-    }
 
     #[test]
     fn placements_round_to_nine_decimals() {

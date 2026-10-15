@@ -18,7 +18,7 @@
 //!   ([`crate::mesh::diagonal`]) where Python's `serve._diagonal` is OpenCascade's loose
 //!   `BRepBndLib` box, so a hole's anchor, moved to its rim, and every leader's clear run scale by
 //!   the ratio of the two diagonals.
-//! - Trust. A part rebuilt by the U1 stand-in with unresolved faces or edges
+//! - Trust. A part a caller rebuilt (`rebuilt`) with unresolved faces or edges
 //!   ([`LoadedPart::degraded`]) has no trustworthy solid to classify against, so none of its
 //!   anchors is reported clear. A face whose surface did not resolve gets no anchor, and nor does
 //!   a group whose largest face is such a face, or has a face whose area haecceity cannot
