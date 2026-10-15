@@ -347,3 +347,69 @@ fn a_part_is_written_once_and_parts_are_of_one_file() {
     }
     assert!(std::fs::read_dir(&dir).unwrap().next().is_none());
 }
+
+// A mixed write of an assembly: the plate resumes the answers specify-core stored for it, the
+// pin carries PMI from elsewhere (the same PMI, its stored answers renamed so they are no longer
+// specify-core's). Both are written together, each part by its own mode: the plate by replace
+// (its PMI becomes the intent's again, not written twice, and its answers are stored), the pin
+// by add (everything it had is kept, no answers stored). Written by one add for both, as before,
+// the plate's PMI was written a second time beside the first and haecceity refused the edit
+// (item_identified_representation_usage.UR1 on the plate's faces).
+#[test]
+fn a_mixed_write_replaces_the_resumed_part_and_adds_to_the_other() {
+    let dir = temp("mixed");
+    let (_, _, out) = written(&dir);
+    let text = std::fs::read_to_string(&out).unwrap();
+    let pattern = Regex::new(r"'pmi-assist answers','([A-Za-z0-9+/=]+)'").unwrap();
+    let mixed_text = pattern.replace_all(&text, |c: &regex::Captures| {
+        use base64::Engine;
+        let raw = base64::engine::general_purpose::STANDARD
+            .decode(&c[1])
+            .unwrap();
+        let p: Value = serde_json::from_slice(&raw).unwrap();
+        if p["part"] == json!(PIN) {
+            format!("'other','{}'", &c[1])
+        } else {
+            c[0].to_string()
+        }
+    });
+    let mixed = dir.join("mixed.step");
+    std::fs::write(&mixed, mixed_text.as_ref()).unwrap();
+    let parts = load_all(&mixed).unwrap();
+    assert_eq!(answers_for(&parts[PLATE]).unwrap(), Some(answers(PLATE)));
+    assert_eq!(answers_for(&parts[PIN]).unwrap(), None);
+    let analyses: Vec<Value> = parts
+        .iter()
+        .enumerate()
+        .map(|(k, l)| reanalysed(k, l))
+        .collect();
+    let x = dir.join("x.step");
+    let report = write_all(&mixed, &analyses, &x).unwrap();
+    assert_eq!(report.not_written, Vec::<String>::new());
+    // The plate: replaced by the same intent, so its PMI is what it was, once; its answers
+    // stored again.
+    assert!(report.written.contains(&"plate: datum A".to_string()));
+    assert_eq!(pmi_of(&x, PLATE), pmi_of(&mixed, PLATE));
+    assert_eq!(
+        answers_for(&load(&x, Some(PLATE)).unwrap()).unwrap(),
+        Some(answers(PLATE))
+    );
+    // The pin: added to, nothing lost (its datums, tolerance, material, the renamed set).
+    assert!(!report.written.iter().any(|w| w.starts_with("pin: datum ")));
+    let (before, after) = (pmi_of(&mixed, PIN), pmi_of(&x, PIN));
+    assert_eq!(after.datums, before.datums);
+    assert_eq!(after.tolerances, before.tolerances);
+    assert_eq!(after.dimensions, before.dimensions);
+    assert_eq!(after.material, before.material);
+    for a in &before.attributes {
+        assert!(after.attributes.contains(a), "the pin lost {a:?}");
+    }
+    assert_eq!(answers_for(&load(&x, Some(PIN)).unwrap()).unwrap(), None);
+    assert_eq!(datum_count(&x), datum_count(&mixed));
+    assert_eq!(
+        stored(&std::fs::read(&x).unwrap())
+            .keys()
+            .collect::<Vec<_>>(),
+        [&PLATE]
+    );
+}

@@ -30,6 +30,18 @@ the rev pin.
 
 ### Changed
 
+- Writing an assembly mixed in kind, one part resuming specify-core's stored answers and another
+  carrying PMI from elsewhere, writes each part by its own mode: replace for the resuming part
+  (its PMI is the intent's, once, and its answers are stored), add for the other (nothing it had
+  is lost). It was one add for both, which wrote the resumed part's PMI a second time and was
+  refused by haecceity (`item_identified_representation_usage.UR1`).
+- The analysis of a part held in a `part::File` (`api::analyse_reporting_in`: `analyse --part
+  N`, serve) takes the file's part definitions from it and parses the file as Part 21 once, for
+  the stored answers and the PMI together, instead of reading the definitions again and parsing
+  up to three more times. Output is unchanged; on `nist_ctc_01_asme1_rd.stp` the analysis runs
+  in 6% fewer instructions (9.10e9 to 8.55e9), 7% on `parts/plate.step`. New:
+  `existing::read_parsed`, `resume::stored_in`, `resume::answers_for_parsed`.
+- `docs/upstream-needs.md`: U1 and U9 cite quiddity-rust PR #10 (rev 0d601d20).
 - Every part is haecceity's own `Part` (`StepFile::part`); specify-core's stand-ins for part
   extraction, part names, the placed-back read and face matching are gone (upstream needs U1
   and U9 met). `LoadedPart` keeps all its fields; `rebuilt` is now always false.

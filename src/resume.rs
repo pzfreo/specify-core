@@ -157,11 +157,16 @@ pub fn is_answers(set: &AttributeSet) -> bool {
 /// base64, not JSON, another schema, a part that is not an integer) is passed over, as Python
 /// passes it over. A file that does not parse as Part 21 stores nothing.
 pub fn stored(bytes: &[u8]) -> BTreeMap<usize, Map<String, Value>> {
+    match Document::parse(bytes.to_vec()) {
+        Ok(doc) => stored_in(&doc),
+        Err(_) => BTreeMap::new(),
+    }
+}
+
+/// [`stored`] of the file already parsed as `doc`.
+pub fn stored_in(doc: &Document) -> BTreeMap<usize, Map<String, Value>> {
     let mut out = BTreeMap::new();
-    let Ok(doc) = Document::parse(bytes.to_vec()) else {
-        return out;
-    };
-    for id in items_in_file_order(&doc) {
+    for id in items_in_file_order(doc) {
         let Some(RawEntity::Simple { attributes, .. }) = doc.get(id) else {
             continue;
         };
@@ -237,7 +242,24 @@ fn schema_of(payload: &Map<String, Value>) -> Option<i64> {
 /// for 2, [`fingerprint_v1`] for 1); `None` otherwise. An error when
 /// the part's faces cannot be described, so the fingerprint cannot be checked.
 pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, FeatureError> {
-    let Some(payload) = stored(&loaded.bytes).remove(&loaded.binding.part) else {
+    answers_in(loaded, stored(&loaded.bytes))
+}
+
+/// [`answers_for`] from the file already parsed: `doc` is `loaded.bytes` as a Part 21 document,
+/// or `None` when they do not parse (nothing is stored then).
+pub fn answers_for_parsed(
+    loaded: &LoadedPart,
+    doc: Option<&Document>,
+) -> Result<Option<Map<String, Value>>, FeatureError> {
+    answers_in(loaded, doc.map(stored_in).unwrap_or_default())
+}
+
+/// The answers for `loaded` among `stored`, the file's stored answers by part.
+fn answers_in(
+    loaded: &LoadedPart,
+    mut stored: BTreeMap<usize, Map<String, Value>>,
+) -> Result<Option<Map<String, Value>>, FeatureError> {
+    let Some(payload) = stored.remove(&loaded.binding.part) else {
         return Ok(None);
     };
     if payload.get("face_count") != Some(&json!(loaded.binding.face_count)) {

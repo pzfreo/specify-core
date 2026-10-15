@@ -15,8 +15,9 @@
 //! intent's. A part with PMI from elsewhere is written by `Mode::Add`: every original byte is
 //! kept, the new items are written beside the file's own, a datum letter the file has is the
 //! file's datum, and no answers are stored (its PMI could not be told apart from what was
-//! added, as in Python). In an assembly the mode is decided by the parts written: `Mode::Replace`
-//! when each has no PMI or answers stored that match it, `Mode::Add` otherwise. An assembly
+//! added, as in Python). In an assembly each part written has its own mode by the same rule: a
+//! part that resumes its answers is replaced while another with PMI from elsewhere is added to
+//! in the same write (two haecceity edits, replace then add; one when the modes agree). An assembly
 //! follows Python's rule that each part is written with its answers, but not its rule that every
 //! part with answers stored is written again: one part may be written alone, and haecceity's
 //! per-part replace leaves the other parts, their PMI and their stored answers byte for byte as
@@ -466,22 +467,19 @@ fn write_verified(jobs: &[Job<'_>]) -> Result<(Vec<u8>, WriteReport), WriteError
     // Python writes a bare or resumed part from its geometry alone, and adds to any other
     // (its `merge`). Replace is the former: the part's PMI becomes exactly the intent's. A bare
     // part is Replace rather than design.md's Add so that Python-form answers that no longer
-    // resume (not PMI to haecceity) go, as from Python's rewrite; question Q18. Decided over the
-    // parts written (for a file of one part, as before): Replace only if every one is bare or
-    // resumes, so PMI from elsewhere on a part written is never replaced, and parts not written
-    // are left alone either way (D3).
-    let mut replace = true;
+    // resume (not PMI to haecceity) go, as from Python's rewrite; question Q18. Decided for each
+    // part written: Replace when it is bare or resumes, Add when it has PMI from elsewhere, so
+    // such PMI is never replaced and a resumed part's own PMI is never written twice; parts not
+    // written are left alone either way (D3).
+    let mut modes = Vec::new();
     for (loaded, _, _) in jobs {
-        if source.has_pmi(loaded.binding.part)
-            && resume::answers_for(loaded).map_err(failed)?.is_none()
-        {
-            replace = false;
-        }
+        let foreign = source.has_pmi(loaded.binding.part)
+            && resume::answers_for(loaded).map_err(failed)?.is_none();
+        modes.push(if foreign { Mode::Add } else { Mode::Replace });
     }
-    let mode = if replace { Mode::Replace } else { Mode::Add };
 
     let mut planned = Vec::new();
-    for &(loaded, intent, answers) in jobs {
+    for (&(loaded, intent, answers), &mode) in jobs.iter().zip(&modes) {
         let before = &source.read.parts[loaded.binding.part];
         let (mut pmi, lines) = part_pmi(intent, before, mode)?;
         let payload = match answers {
@@ -504,32 +502,8 @@ fn write_verified(jobs: &[Job<'_>]) -> Result<(Vec<u8>, WriteReport), WriteError
         .iter()
         .map(|p| (PartId(p.loaded.binding.part), p.pmi.clone()))
         .collect();
-    let policy = PresentationPolicy::RemovePresentation;
-    let refused = |e: pmi::write::WriteError| match e {
-        pmi::write::WriteError::Edition { .. } | pmi::write::WriteError::Refused(_) => {
-            WriteError::Refused(e.to_string())
-        }
-        pmi::write::WriteError::Invalid { .. } => WriteError::Invalid(e.to_string()),
-        other => WriteError::Failed(format!("haecceity could not write the PMI: {other}")),
-    };
-    let (doc, defs) = (&source.doc, source.defs.as_slice());
-    let (mut edit, _) = pmi::write(doc, defs, &items, mode, policy).map_err(refused)?;
-    if mode == Mode::Replace {
-        // Python's own form of stored answers is not PMI haecceity reads (it reports it as not
-        // modelled and keeps it), so a replace takes it out here: the answers stored now are
-        // the only ones.
-        for p in &planned {
-            for id in python_answers(doc, &defs[p.loaded.binding.part]) {
-                edit.remove(id);
-            }
-        }
-    }
-    let written = doc
-        .apply(&edit)
-        .map_err(|e| WriteError::Failed(format!("haecceity could not apply the edit: {e}")))?;
-
-    let back = written.bytes;
-    verify(&source, &items, mode, &back)?;
+    let back = write_by_modes(&source, &items, &modes)?;
+    verify(&source, &items, &modes, &back)?;
     let stored = resume::stored(&back);
     for p in &planned {
         let k = p.loaded.binding.part;
@@ -566,6 +540,63 @@ fn write_verified(jobs: &[Job<'_>]) -> Result<(Vec<u8>, WriteReport), WriteError
         report.warnings.extend(with(p.lines.warnings));
     }
     Ok((back, report))
+}
+
+/// The file `source` with `items` written, each part by its mode in `modes` (in the same order):
+/// one haecceity edit when every part has the same mode, else the parts written by replace
+/// first and then, on that file, the parts written by add (haecceity's write takes one mode per
+/// edit). A part not written is untouched by either.
+fn write_by_modes(
+    source: &Source,
+    items: &[(PartId, PartPmi)],
+    modes: &[Mode],
+) -> Result<Vec<u8>, WriteError> {
+    let policy = PresentationPolicy::RemovePresentation;
+    let refused = |e: pmi::write::WriteError| match e {
+        pmi::write::WriteError::Edition { .. } | pmi::write::WriteError::Refused(_) => {
+            WriteError::Refused(e.to_string())
+        }
+        pmi::write::WriteError::Invalid { .. } => WriteError::Invalid(e.to_string()),
+        other => WriteError::Failed(format!("haecceity could not write the PMI: {other}")),
+    };
+    let defs = source.defs.as_slice();
+    // The file written so far, when an edit has been applied.
+    let mut written: Option<Vec<u8>> = None;
+    for mode in [Mode::Replace, Mode::Add] {
+        let these: Vec<(PartId, PartPmi)> = items
+            .iter()
+            .zip(modes)
+            .filter(|&(_, &m)| m == mode)
+            .map(|(item, _)| item.clone())
+            .collect();
+        if these.is_empty() {
+            continue;
+        }
+        // The replace edit leaves every part's geometry, and so `defs`, as it was.
+        let parsed = match written.take() {
+            Some(bytes) => Some(Document::parse(bytes).map_err(|e| {
+                WriteError::Failed(format!("cannot read the file written by replace: {e}"))
+            })?),
+            None => None,
+        };
+        let current = parsed.as_ref().unwrap_or(&source.doc);
+        let (mut edit, _) = pmi::write(current, defs, &these, mode, policy).map_err(refused)?;
+        if mode == Mode::Replace {
+            // Python's own form of stored answers is not PMI haecceity reads (it reports it as
+            // not modelled and keeps it), so a replace takes it out here: the answers stored
+            // now are the only ones.
+            for (part, _) in &these {
+                for id in python_answers(current, &defs[part.0]) {
+                    edit.remove(id);
+                }
+            }
+        }
+        let applied = current
+            .apply(&edit)
+            .map_err(|e| WriteError::Failed(format!("haecceity could not apply the edit: {e}")))?;
+        written = Some(applied.bytes);
+    }
+    Ok(written.expect("at least one part is written"))
 }
 
 /// The instances of Python's form of stored answers on `part` (`PROPERTY_DEFINITION('pmi-assist
@@ -626,7 +657,7 @@ fn python_answers(doc: &Document, part: &PartDefinition) -> Vec<u64> {
 fn verify(
     source: &Source,
     written: &[(PartId, PartPmi)],
-    mode: Mode,
+    modes: &[Mode],
     back: &[u8],
 ) -> Result<(), VerificationError> {
     let fail =
@@ -653,13 +684,14 @@ fn verify(
     }
     for (i, read) in after.parts.iter().enumerate() {
         let old = &before.parts[i];
-        match written.iter().find(|(p, _)| p.0 == i) {
+        let found = written.iter().zip(modes).find(|((p, _), _)| p.0 == i);
+        match found.map(|((_, new), &mode)| (new, mode)) {
             None => problems.extend(
                 differences_as_stated(old, read)
                     .into_iter()
                     .map(|d| format!("part {i} (not written): {d}")),
             ),
-            Some((_, new)) if mode == Mode::Add => {
+            Some((new, Mode::Add)) => {
                 let keys = |p: &PartPmi| differences_as_stated(&PartPmi::default(), p);
                 let shared: BTreeSet<String> = keys(old)
                     .into_iter()
@@ -687,7 +719,7 @@ fn verify(
                         .map(|k| format!("part {i}: written but not read back: {k}")),
                 );
             }
-            Some((_, new)) => {
+            Some((new, _)) => {
                 problems.extend(
                     differences_as_stated(new, read)
                         .into_iter()

@@ -151,7 +151,7 @@ pub fn analyse_reporting(loaded: &LoadedPart) -> Result<(Value, Vec<String>)> {
         let file = part::File::of_shared(&loaded.path, std::sync::Arc::clone(&loaded.bytes))?;
         return analyse_reporting_in(&file, loaded);
     }
-    analyse_with(loaded, None)
+    analyse_with(loaded, None, None)
 }
 
 /// [`analyse_reporting`] of `loaded`, a part of `file`, the other parts of an assembly loaded
@@ -171,14 +171,16 @@ pub fn analyse_reporting_in(
     } else {
         None
     };
-    analyse_with(loaded, assembly.as_deref())
+    analyse_with(loaded, assembly.as_deref(), Some(file.definitions()))
 }
 
 /// The analysis of `loaded`, with every part of its file (`assembly`) for a part of an
-/// assembly.
+/// assembly and its file's part definitions (`definitions`) when they are already read. The
+/// file is parsed as Part 21 once, for its stored answers and its PMI.
 fn analyse_with(
     loaded: &LoadedPart,
     assembly: Option<&[LoadedPart]>,
+    definitions: Option<&[haecceity::step::PartDefinition]>,
 ) -> Result<(Value, Vec<String>)> {
     let refused = |e: &dyn fmt::Display| Error::Analysis(format!("{}: {e}", loaded.path.display()));
     // Features first: on a part rebuilt without its record of unresolved geometry (U1),
@@ -219,7 +221,8 @@ fn analyse_with(
     if let Some(mated) = mated {
         analysis.insert("mates".into(), Value::Object(mated));
     }
-    match resume::answers_for(loaded).map_err(|e| refused(&e))? {
+    let doc = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone());
+    match resume::answers_for_parsed(loaded, doc.as_ref().ok()).map_err(|e| refused(&e))? {
         Some(answers) => {
             // A file specify-core wrote, opened to be changed: its PMI is the answers', not
             // the file's to keep, and the answers come back to be edited.
@@ -228,8 +231,22 @@ fn analyse_with(
             analysis.insert("resume".into(), json!({ "answers": answers }));
         }
         None => {
-            let existing = existing::read_existing(loaded).map_err(|e| refused(&e))?;
-            let settings = existing::part_settings(loaded).map_err(|e| refused(&e))?;
+            let unreadable =
+                |e: &dyn fmt::Display| refused(&existing::ExistingError::Unreadable(e.to_string()));
+            let doc = doc.map_err(|e| unreadable(&e))?;
+            let read_here;
+            let definitions = match definitions {
+                Some(d) => d,
+                None => {
+                    read_here = haecceity::step::read_part_definitions(&loaded.bytes)
+                        .map_err(|e| unreadable(&e))?;
+                    &read_here
+                }
+            };
+            let reading =
+                existing::read_parsed(loaded, doc, definitions).map_err(|e| refused(&e))?;
+            let existing = reading.existing(loaded).map_err(|e| refused(&e))?;
+            let settings = reading.settings(loaded);
             analysis.insert(
                 "existing".into(),
                 serde_json::to_value(existing).expect("existing PMI serialises"),

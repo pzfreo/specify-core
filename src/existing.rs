@@ -170,7 +170,19 @@ pub fn read(loaded: &LoadedPart) -> Result<Reading, ExistingError> {
     // The reader takes every part of the file, in the order `binding.part` indexes.
     let parts =
         step::read_part_definitions(bytes).map_err(|e| ExistingError::Unreadable(e.to_string()))?;
-    let mut read = pmi::read(&doc, &parts).map_err(|e| ExistingError::Pmi(e.to_string()))?;
+    read_parsed(loaded, doc, &parts)
+}
+
+/// [`read`] from the file already parsed: `doc`, `loaded.bytes` as a Part 21 document, and
+/// `parts`, every part of the file in the order `binding.part` indexes (a [`crate::part::File`]'s
+/// definitions). Neither is checked against the bytes; a caller holding both saves parsing the
+/// file and listing its parts again.
+pub fn read_parsed(
+    loaded: &LoadedPart,
+    doc: Document,
+    parts: &[step::PartDefinition],
+) -> Result<Reading, ExistingError> {
+    let mut read = pmi::read(&doc, parts).map_err(|e| ExistingError::Pmi(e.to_string()))?;
     let index = loaded.binding.part;
     if index >= read.parts.len() {
         return Err(ExistingError::Pmi(format!(
