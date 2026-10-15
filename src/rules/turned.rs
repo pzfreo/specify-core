@@ -49,9 +49,14 @@ pub(crate) fn turned_question(group: &[&Feature<'_>], ctx: &Ctx<'_>) -> Result<Q
     };
     let mut options = vec![GENERAL.to_string()];
     options.extend(SHAFT_FITS.iter().map(|f| f.to_string()));
-    if let Some(thread) = standards::thread_size(d) {
-        options.push(format!("thread:{thread}"));
-    }
+    // Every ISO 261 thread at this size (stream S3): the coarse one as Python offers it
+    // (`thread:M10`, where Python's table has it), then the fine pitches (`thread:M10x1.25`),
+    // and the coarse threads of the sizes Python's table stops short of (M14, M30).
+    options.extend(
+        standards::external_threads(d)
+            .into_iter()
+            .map(|spec| format!("thread:{spec}")),
+    );
     options.extend(KNURL_PATTERNS.iter().map(|p| format!("knurl:{p}")));
     let mut on = Vec::new();
     for f in group {
@@ -218,16 +223,24 @@ pub(crate) fn turned_requirement(
                 py::sub(hi, lo).map_err(|e| Error::Invalid(format!("feature {fid}: {e}")))?
             }
         };
-        let pitch = standards::lookup(&PITCH, spec)
-            .ok_or_else(|| Error::Invalid(crate::pyfmt::repr_str(spec)))?;
+        // An ISO 261 coarse or fine thread (stream S3: `M10x1.25` is designation M10, pitch
+        // 1.25), else Python's coarse table, else Python's refusal.
+        let (size, pitch) = match standards::external_thread(spec) {
+            Some(found) => found,
+            None => (
+                spec,
+                standards::lookup(&PITCH, spec)
+                    .ok_or_else(|| Error::Invalid(crate::pyfmt::repr_str(spec)))?,
+            ),
+        };
         let mut req = base("thread");
         for (key, v) in [
             ("side", Value::from("external")),
-            ("designation", Value::from(spec)),
+            ("designation", Value::from(size)),
             ("pitch", Value::from(pitch)),
             (
                 "spec",
-                Value::from(format!("{spec}x{}", crate::pyfmt::g(pitch))),
+                Value::from(format!("{size}x{}", crate::pyfmt::g(pitch))),
             ),
             ("class", Value::from(standards::EXTERNAL_THREAD_CLASS)),
             ("hand", Value::from("RH")),

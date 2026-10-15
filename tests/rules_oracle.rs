@@ -17,7 +17,10 @@ mod common;
 
 use std::time::Instant;
 
-use common::{Difference, Tolerances, cases, check_known, compare, is_error, scenarios};
+use common::{
+    Difference, Tolerances, cases, check_known, compare, is_error, scenarios,
+    without_threads_beyond_python,
+};
 use serde_json::{Map, Value, json};
 use specify_core::problems::problems;
 use specify_core::rules::{
@@ -184,8 +187,12 @@ fn key_order(case: &str, path: &str, python: &Value, rust: &Value, out: &mut Vec
     }
 }
 
+/// The differences of `rust` from `python`, once the threads Rust's diameter questions offer
+/// beyond Python's are set aside (stream S3; `common::without_threads_beyond_python`): every
+/// other option and choice must equal Python's.
 fn differences(case: &str, python: &Value, rust: &Value) -> Vec<Difference> {
     let python = as_rust_reads(python);
+    let rust = &without_threads_beyond_python(rust);
     let mut out = compare(case, &python, rust, &tolerances());
     key_order(case, "", &python, rust, &mut out);
     out
