@@ -501,8 +501,11 @@ fn run(command: &Command, args: &Args, out: &mut impl Write) -> Result<(), Exit>
         "analyse" => {
             let step = positional(0);
             let part = part_arg(&step, args)?;
-            let loaded = part::load(&step, part).map_err(Exit::error)?;
-            let (analysis, warnings) = api::analyse_reporting(&loaded).map_err(Exit::error)?;
+            // The file is read once, for the part and the other parts its mates need.
+            let file = part::File::read(&step).map_err(Exit::error)?;
+            let loaded = file.load(part).map_err(Exit::error)?;
+            let (analysis, warnings) =
+                api::analyse_reporting_in(&file, &loaded).map_err(Exit::error)?;
             save(&output(), &pyjson::dumps_indent1(&analysis))?;
             print(out, &pyjson::dumps(&summary(&analysis)))?;
             for line in warnings {

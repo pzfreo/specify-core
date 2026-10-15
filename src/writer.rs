@@ -15,10 +15,14 @@
 //! intent's. A part with PMI from elsewhere is written by `Mode::Add`: every original byte is
 //! kept, the new items are written beside the file's own, a datum letter the file has is the
 //! file's datum, and no answers are stored (its PMI could not be told apart from what was
-//! added, as in Python). An assembly follows Python's rules (each part written with its answers;
-//! every part with answers stored written again), except that an assembly with PMI from
-//! elsewhere, which Python refuses because of OpenCascade, is written by `Mode::Add` (question
-//! Q6, a deliberate difference).
+//! added, as in Python). In an assembly the mode is decided by the parts written: `Mode::Replace`
+//! when each has no PMI or answers stored that match it, `Mode::Add` otherwise. An assembly
+//! follows Python's rule that each part is written with its answers, but not its rule that every
+//! part with answers stored is written again: one part may be written alone, and haecceity's
+//! per-part replace leaves the other parts, their PMI and their stored answers byte for byte as
+//! they were (decision D3, 2026-10-15; Python refused, as OpenCascade rewrote the whole file).
+//! An assembly with PMI from elsewhere, which Python refuses because of OpenCascade, is written
+//! by `Mode::Add` (question Q6, a deliberate difference).
 //!
 //! **Notes and finish** (question Q3, decided 2026-10-09). A surface finish (`Ra 3.2`, on faces
 //! or the part's default) is a surface texture in ISO 10303-1110's form, 'any process allowed'
@@ -49,13 +53,16 @@
 //! existing file keeps its permissions, and any failure leaves the destination and the source
 //! as they were.
 //!
-//! **In memory.** [`write_bytes`] is the same write of one part for a caller with no
+//! **In memory.** [`write_bytes`] (one part of a file of one part) and [`write_parts_bytes`]
+//! (any parts of one file, an assembly's included) are the same write for a caller with no
 //! filesystem (the editor's browser build): the bytes are returned rather than staged, after the
-//! same verification of what was written.
+//! same verification of what was written. The file's other parts, where the writer consults
+//! them, are loaded from the parts' bytes, never from a path.
 
 use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use haecceity::p21::{self, Attribute, Document, RawEntity};
 use haecceity::pmi::write::{Mode, PresentationPolicy, differences_as_stated};
@@ -172,19 +179,7 @@ pub fn write(
 /// `jobs` are (part, its intent, the answers it came from). Over references, so a caller holds
 /// its parts (from `part::load_all`) and composes the jobs from them.
 pub fn write_parts(jobs: &[Job<'_>], output: &Path) -> Result<WriteReport, WriteError> {
-    let Some(&(first, _, _)) = jobs.first() else {
-        return invalid("nothing to write");
-    };
-    if jobs.iter().any(|(l, _, _)| l.path != first.path) {
-        return invalid("the parts written together must be of one file");
-    }
-    let parts: BTreeSet<usize> = jobs.iter().map(|(l, _, _)| l.binding.part).collect();
-    if parts.len() != jobs.len() {
-        return invalid("a part is written once");
-    }
-    for (loaded, intent, _) in jobs {
-        check_binding(loaded, intent)?;
-    }
+    check_jobs(jobs)?;
 
     // Written and verified beside the destination, which is replaced only once all is well.
     let target = match std::fs::symlink_metadata(output) {
@@ -229,7 +224,8 @@ pub fn write_parts(jobs: &[Job<'_>], output: &Path) -> Result<WriteReport, Write
 /// added as AP242, verified by reading back as [`write`] verifies its file, and returned as the
 /// file's bytes with the report. The bytes are those [`write`] would put in its destination;
 /// the report's `output` is `loaded.path`, there being no destination. Single part: a part of
-/// a file of several is refused, as writing it alone needs the file's other parts.
+/// a file of several is refused here, as before; [`write_parts_bytes`] (or `api::write_bytes`)
+/// writes one.
 pub fn write_bytes(
     loaded: &LoadedPart,
     intent: &Intent,
@@ -244,6 +240,36 @@ pub fn write_bytes(
     }
     check_binding(loaded, intent)?;
     write_verified(&[(loaded, intent, answers)])
+}
+
+/// [`write_parts`] in memory: each part of one file with its intent, all in one edit, verified by
+/// reading back as [`write_parts`] verifies its file, and returned as the file's bytes with the
+/// report (its `output` the first part's `path`, there being no destination). Unlike
+/// [`write_bytes`], a part of an assembly is written: the file's other parts are loaded from the
+/// parts' bytes where the writer needs them. The jobs are refused as [`write_parts`] refuses
+/// them.
+pub fn write_parts_bytes(jobs: &[Job<'_>]) -> Result<(Vec<u8>, WriteReport), WriteError> {
+    check_jobs(jobs)?;
+    write_verified(jobs)
+}
+
+/// What [`write_parts`] and [`write_parts_bytes`] refuse before writing anything: no jobs, parts
+/// of different files, a part twice, an intent not made for its part.
+fn check_jobs(jobs: &[Job<'_>]) -> Result<(), WriteError> {
+    let Some(&(first, _, _)) = jobs.first() else {
+        return invalid("nothing to write");
+    };
+    if jobs.iter().any(|(l, _, _)| l.path != first.path) {
+        return invalid("the parts written together must be of one file");
+    }
+    let parts: BTreeSet<usize> = jobs.iter().map(|(l, _, _)| l.binding.part).collect();
+    if parts.len() != jobs.len() {
+        return invalid("a part is written once");
+    }
+    for (loaded, intent, _) in jobs {
+        check_binding(loaded, intent)?;
+    }
+    Ok(())
 }
 
 /// Eight hex digits that differ between writes, for the staged file's name (Python's
@@ -391,15 +417,17 @@ fn write_verified(jobs: &[Job<'_>]) -> Result<(Vec<u8>, WriteReport), WriteError
     let first = jobs[0].0;
     let bytes: &[u8] = &first.bytes;
     let source = Source::of(bytes)?;
-    let bare = (0..source.defs.len()).all(|k| !source.has_pmi(k));
     let failed = |e: crate::features::FeatureError| WriteError::Failed(e.to_string());
 
-    let resumed = if first.part_count > 1 {
+    if first.part_count > 1 {
         // Stored answers are how a later write knows the PMI is specify-core's.
         if jobs.iter().any(|(_, _, answers)| answers.is_none()) {
             return invalid("a part of an assembly is written with the answers it came from");
         }
         let stored = resume::stored(bytes);
+        // A part not written now whose answers are stored is loaded from these same bytes
+        // (never from the path, which an in-memory caller does not have), once for all of them.
+        let mut file = None;
         let mut stale = Vec::new();
         for &k in stored.keys() {
             let current = if k >= first.part_count {
@@ -407,8 +435,17 @@ fn write_verified(jobs: &[Job<'_>]) -> Result<(Vec<u8>, WriteReport), WriteError
             } else if let Some((l, _, _)) = jobs.iter().find(|(l, _, _)| l.binding.part == k) {
                 resume::answers_for(l).map_err(failed)?
             } else {
-                let l = part::load(&first.path, Some(k))
-                    .map_err(|e| WriteError::Failed(e.to_string()))?;
+                let load_failed = |e: part::LoadError| WriteError::Failed(e.to_string());
+                if file.is_none() {
+                    let read = part::File::of_shared(&first.path, Arc::clone(&first.bytes))
+                        .map_err(load_failed)?;
+                    file = Some(read);
+                }
+                let l = file
+                    .as_ref()
+                    .expect("read above")
+                    .load(Some(k))
+                    .map_err(load_failed)?;
                 resume::answers_for(&l).map_err(failed)?
             };
             if current.is_none() {
@@ -422,31 +459,26 @@ fn write_verified(jobs: &[Job<'_>]) -> Result<(Vec<u8>, WriteReport), WriteError
                 stale.join(", ")
             ));
         }
-        let unwritten: Vec<String> = stored
-            .keys()
-            .filter(|k| !jobs.iter().any(|(l, _, _)| l.binding.part == **k))
-            .map(ToString::to_string)
-            .collect();
-        if !unwritten.is_empty() {
-            return invalid(format!(
-                "part(s) {} have answers stored in this file; write them again with these, or \
-                 their PMI would be lost",
-                unwritten.join(", ")
-            ));
-        }
-        !stored.is_empty()
-    } else {
-        resume::answers_for(first).map_err(failed)?.is_some()
-    };
-    // Python writes a bare or resumed file from its geometry alone, and adds to any other
+        // Decision D3: a part with answers stored that is not written now is left as it is
+        // (haecceity's replace touches only the parts written), so it need not be written
+        // again with these; Python's refusal ("write them again with these") is not kept.
+    }
+    // Python writes a bare or resumed part from its geometry alone, and adds to any other
     // (its `merge`). Replace is the former: the part's PMI becomes exactly the intent's. A bare
     // part is Replace rather than design.md's Add so that Python-form answers that no longer
-    // resume (not PMI to haecceity) go, as from Python's rewrite; question Q18.
-    let mode = if bare || resumed {
-        Mode::Replace
-    } else {
-        Mode::Add
-    };
+    // resume (not PMI to haecceity) go, as from Python's rewrite; question Q18. Decided over the
+    // parts written (for a file of one part, as before): Replace only if every one is bare or
+    // resumes, so PMI from elsewhere on a part written is never replaced, and parts not written
+    // are left alone either way (D3).
+    let mut replace = true;
+    for (loaded, _, _) in jobs {
+        if source.has_pmi(loaded.binding.part)
+            && resume::answers_for(loaded).map_err(failed)?.is_none()
+        {
+            replace = false;
+        }
+    }
+    let mode = if replace { Mode::Replace } else { Mode::Add };
 
     let mut planned = Vec::new();
     for &(loaded, intent, answers) in jobs {

@@ -78,8 +78,10 @@ specify-core mesh asm.step --part 1 -o pin.mesh.json
 specify-core write asm.step plate.json plate-a.json pin.json pin-a.json -o out.step --accept-defaults
 ```
 
-Writing an assembly specify-core wrote replaces its PMI, so every part with answers stored in it
-must be written again together.
+Writing a part again replaces its PMI and answers. One part may be written alone (`write asm.step
+pin.json pin-a.json -o out.step`): the other parts, their PMI and their stored answers are left as
+they were. `parts` reports each part by its index (`part`, what `--part` takes) with its `name` and
+`product_id` beside it.
 
 `specify-core serve` answers JSON-line requests on stdin for a host process, one reply per line
 on stdout (ops `parts`, `analyse`, `questions`, `preview`, `interpret`, `write`; errors

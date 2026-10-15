@@ -9,6 +9,14 @@ move (2026-10-09, question Q2).
 
 ## U1. A part of an assembly as a `Part` in its own frame
 
+**Status (2026-10-15): met** (quiddity-rust 0d601d2, haecceity's assemblies slice 1, pinned by
+rev): `StepFile::part(i)` / `read_part` give the part's own `Part`, faces in the definition's
+order, sources and unresolved lists kept. `part.rs` loads every part through `part::File` (on
+`StepFile::read`); `extract_part`, the placed-back read and the rebuilt path are deleted, and no
+part is rebuilt or degraded any more (`tests/part.rs`,
+`parts_of_assemblies_carry_their_instances_unresolved_lists`). The text below is the need as it
+was recorded.
+
 **Missing.** `haecceity::step::read_part_definitions` gives each distinct part's face `#N`s in
 specify-core's numbering and its placements, and `read_step` gives one `Part` of every placed
 instance. Nothing gives the `Part` of one distinct part, in its own coordinates, with its faces
@@ -161,6 +169,13 @@ writer refuses booleans).
 **Met when** haecceity settles the meaning of 'number of threads' and where the pitch goes.
 
 ## U9. Part names over the assembly structure, and one read for parts and geometry
+
+**Status (2026-10-15): met** (quiddity-rust 0d601d2): `PartDefinition.name` is the XCAF-style
+display name and `PartDefinition.product_id` the product's id; `StepFile::read` parses the file
+once for the parts and their geometry. `part_names` is deleted; part loading parses the file
+once (it parsed it twice and read it a third time as Part 21). The analysis still parses it
+again in `existing::read` (`read_part_definitions` for `pmi::read`), which is that module's,
+not this need's. The text below is the need as it was recorded.
 
 **Missing.** `PartDefinition.name` is the product's `name` as written (escapes unresolved), and
 haecceity exposes no assembly structure: which product definitions are assemblies and which

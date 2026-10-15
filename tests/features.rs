@@ -186,7 +186,11 @@ fn two_runs_give_identical_json() {
     }
 }
 
-/// A part the U1 stand-in rebuilt with an unresolved face is refused, with the reason.
+/// A part of an assembly with an unresolved face: haecceity's own `Part` of it records the face
+/// (upstream need U1, met), so the part is not degraded, but its faces are not described, as
+/// haecceity cannot integrate the unresolved face (no area or centroid is made up; the refusal
+/// names the face). A part a caller rebuilt itself without that record (`rebuilt`) is still
+/// refused by recognition, with the reason.
 #[test]
 fn recognition_refuses_a_degraded_part() {
     let text = std::fs::read_to_string(fixture("assembly.step")).unwrap();
@@ -198,15 +202,16 @@ fn recognition_refuses_a_degraded_part() {
     );
     let path = Path::new(env!("CARGO_TARGET_TMPDIR")).join("features-degraded.step");
     std::fs::write(&path, text).unwrap();
-    let pin = part::load(&path, Some(1)).unwrap();
-    let why = features::recognise(&pin).unwrap_err().to_string();
-    assert!(why.contains("U1") && why.contains("[5]"), "{why}");
-    // Nor are its faces described: haecceity cannot integrate the unresolved face (it has no
-    // surface), and no area or centroid is made up for it; the refusal names the face.
+    let mut pin = part::load(&path, Some(1)).unwrap();
+    assert_eq!(pin.degraded(), None);
+    assert_eq!(pin.part.unresolved_faces(), [5]);
     assert_eq!(
         features::describe_faces(&pin).unwrap_err(),
         features::FeatureError::NoMoments { part: 1, face: 5 }
     );
+    pin.rebuilt = true;
+    let why = features::recognise(&pin).unwrap_err().to_string();
+    assert!(why.contains("U1") && why.contains("[5]"), "{why}");
     assert!(features::recognise(&part::load(&path, Some(0)).unwrap()).is_ok());
 }
 

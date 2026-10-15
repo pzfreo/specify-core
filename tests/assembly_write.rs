@@ -176,23 +176,34 @@ fn each_part_has_its_own_pmi_and_answers() {
     assert_eq!(pin.material.unwrap().id, "brass");
 }
 
-// test_assembly.py::test_writing_one_part_again_alone_is_refused
+// test_assembly.py::test_writing_one_part_again_alone_is_refused, changed by decision D3
+// (2026-10-15): one part of an assembly may be written again alone. Its PMI and answers are
+// replaced; the other part's PMI and stored answers are left as they were. A part of an
+// assembly is still written with the answers it came from.
 #[test]
-fn writing_one_part_again_alone_is_refused() {
+fn writing_one_part_again_alone_keeps_the_others() {
     let dir = temp("alone");
     let (_, _, out) = written(&dir);
     let pin = load(&out, Some(PIN)).unwrap();
     let again = intent(&reanalysed(PIN, &pin), PIN);
-    let given = answers(PIN);
-    match write(&pin, &again, &dir.join("x.step"), Some(&given)) {
-        Err(WriteError::Invalid(m)) => assert_eq!(
-            m,
-            "part(s) 0 have answers stored in this file; write them again with these, or their \
-             PMI would be lost"
-        ),
-        other => panic!("not refused: {other:?}"),
-    }
-    match write(&pin, &again, &dir.join("x.step"), None) {
+    let mut given = answers(PIN);
+    given.insert("part.coating".into(), json!("Zinc plate"));
+    let x = dir.join("x.step");
+    write(&pin, &again, &x, Some(&given)).unwrap();
+    // The plate is as it was: its PMI, its answers.
+    assert_eq!(pmi_of(&x, PLATE), pmi_of(&out, PLATE));
+    assert_eq!(
+        answers_for(&load(&x, Some(PLATE)).unwrap()).unwrap(),
+        Some(answers(PLATE))
+    );
+    // The pin's answers are the new ones, its PMI replaced, not added to.
+    assert_eq!(
+        answers_for(&load(&x, Some(PIN)).unwrap()).unwrap(),
+        Some(given)
+    );
+    assert_eq!(datum_count(&x), datum_count(&out));
+    assert_eq!(stored(&std::fs::read(&x).unwrap()).len(), 2);
+    match write(&pin, &again, &dir.join("y.step"), None) {
         Err(WriteError::Invalid(m)) => {
             assert_eq!(
                 m,

@@ -12,10 +12,12 @@ path = "src/main.rs"
 
 [dependencies]
 # quiddity-rust: feature recognition (quiddity) and the geometry kernel with STEP import and
-# AP242 semantic PMI (haecceity). Both are pinned to quiddity-rust's tag v0.1.0-alpha.3;
-# Cargo.lock pins the commit. See docs/design.md, "Dependency plan".
-quiddity = { git = "https://github.com/pzfreo/quiddity-rust", tag = "v0.1.0-alpha.3" }
-haecceity = { git = "https://github.com/pzfreo/quiddity-rust", tag = "v0.1.0-alpha.3" }
+# AP242 semantic PMI (haecceity). Both are pinned to quiddity-rust main at 0d601d2 (haecceity's
+# assemblies slice 1: StepFile, read_part, PartDefinition.product_id), which is past tag
+# v0.1.0-alpha.3; the next tagged release replaces this rev pin.
+# See docs/design.md, "Dependency plan".
+quiddity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "0d601d207495dea60b1b6a7109bd3abd109bf745" }
+haecceity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "0d601d207495dea60b1b6a7109bd3abd109bf745" }
 base64 = "0.22.1"
 # Overlap area of two facing flat faces (mates::contacts): haecceity has no face boolean yet
 # (upstream need U5), so the faces' boundaries are intersected as polygons with holes.

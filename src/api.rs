@@ -8,6 +8,12 @@
 //! a part already loaded ([`analyse`], [`mesh`], [`write`]) and one on a path
 //! ([`analyse_file`], [`mesh_file`], [`write_file`]), which loads the part first.
 //!
+//! **In memory** (for a caller with no filesystem, the editor's browser build): a file's bytes
+//! are read with [`part::File::of_bytes`] (any part, [`part::File::load`]) or
+//! [`part::load_bytes`] (a file of one part); [`analyse`] and [`mesh`] take the part so loaded,
+//! and [`write_bytes`] writes any of the file's parts and returns the bytes written with the
+//! report. Nothing in these reads a path.
+//!
 //! The analysis, answers and intent are JSON values, as in Python: an analysis is a stored
 //! snapshot that may come from either engine or an older version, and the rules read it as
 //! such.
@@ -95,15 +101,15 @@ impl From<WriteError> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// The distinct parts of `step`: `{part, name, faces, instances, placements, written}` each,
-/// `written` saying whether specify-core has written the part (answers stored for it).
+/// The distinct parts of `step`: `{part, name, product_id, faces, instances, placements,
+/// written}` each, `written` saying whether specify-core has written the part (answers stored
+/// for it). A part is identified by `part`, its index (decision D1); `name` and `product_id`
+/// are reported beside it and need not be unique.
 pub fn parts(step: &Path) -> Result<Vec<Value>> {
-    let listed = part::parts(step)?;
-    // The file has just been read by `parts`; one that cannot be read now stores nothing.
-    let stored = std::fs::read(step)
-        .map(|bytes| resume::stored(&bytes))
-        .unwrap_or_default();
-    Ok(listed
+    let file = part::File::read(step)?;
+    let stored = resume::stored(file.bytes());
+    Ok(file
+        .parts()
         .into_iter()
         .map(|p| {
             let written = stored.contains_key(&p.part);
@@ -115,9 +121,12 @@ pub fn parts(step: &Path) -> Result<Vec<Value>> {
 }
 
 /// The analysis of the `part`-th part of `step` (any part of a file of one part; a file of
-/// several must say which). See [`analyse`].
+/// several must say which). See [`analyse`]. The file is read once, for the part and, in an
+/// assembly, the other parts its mates need.
 pub fn analyse_file(step: &Path, part: Option<usize>) -> Result<Value> {
-    analyse(&part::load(step, part)?)
+    let file = part::File::read(step)?;
+    let loaded = file.load(part)?;
+    analyse_reporting_in(&file, &loaded).map(|(analysis, _)| analysis)
 }
 
 /// Features, faces and existing PMI of `loaded`, as a JSON snapshot (Python's `analyse`):
@@ -134,7 +143,43 @@ pub fn analyse(loaded: &LoadedPart) -> Result<Value> {
 
 /// [`analyse`], and a line for each pair of facing flat faces whose contact could not be
 /// measured (`mates::contacts_with_refusals`), so a caller can report what the analysis lacks.
+/// For a part of an assembly the other parts are loaded from `loaded.bytes`, not from its path,
+/// so a part loaded from memory is analysed as one loaded from a file; a caller that holds the
+/// [`part::File`] saves that second read with [`analyse_reporting_in`].
 pub fn analyse_reporting(loaded: &LoadedPart) -> Result<(Value, Vec<String>)> {
+    if loaded.part_count > 1 {
+        let file = part::File::of_shared(&loaded.path, std::sync::Arc::clone(&loaded.bytes))?;
+        return analyse_reporting_in(&file, loaded);
+    }
+    analyse_with(loaded, None)
+}
+
+/// [`analyse_reporting`] of `loaded`, a part of `file`, the other parts of an assembly loaded
+/// from `file` (not read again). Refused if `loaded` is not of `file`'s bytes.
+pub fn analyse_reporting_in(
+    file: &part::File,
+    loaded: &LoadedPart,
+) -> Result<(Value, Vec<String>)> {
+    if loaded.binding.source_sha256 != file.sha256() {
+        return Err(Error::Analysis(format!(
+            "{}: the part is not of the file given",
+            loaded.path.display()
+        )));
+    }
+    let assembly = if loaded.part_count > 1 {
+        Some(file.load_all()?)
+    } else {
+        None
+    };
+    analyse_with(loaded, assembly.as_deref())
+}
+
+/// The analysis of `loaded`, with every part of its file (`assembly`) for a part of an
+/// assembly.
+fn analyse_with(
+    loaded: &LoadedPart,
+    assembly: Option<&[LoadedPart]>,
+) -> Result<(Value, Vec<String>)> {
     let refused = |e: &dyn fmt::Display| Error::Analysis(format!("{}: {e}", loaded.path.display()));
     // Features first: on a part rebuilt without its record of unresolved geometry (U1),
     // recognition's refusal names the part and why, which is the failure to pass on.
@@ -149,13 +194,12 @@ pub fn analyse_reporting(loaded: &LoadedPart) -> Result<(Value, Vec<String>)> {
     );
     let mut warnings = Vec::new();
     let mut mated = None;
-    if loaded.part_count > 1 {
+    if let Some(assembly) = assembly.filter(|_| loaded.part_count > 1) {
         // How the part fits the others: suggested answers, and the faces it rests on another
         // part by. Every part of the file is loaded for it, as Python's `load_all` does.
-        let assembly = part::load_all(&loaded.path)?;
         let k = loaded.binding.part;
-        mated = Some(mates::mates(&assembly, k));
-        let (contacts, refusals) = mates::contacts_with_refusals(&assembly, k);
+        mated = Some(mates::mates(assembly, k));
+        let (contacts, refusals) = mates::contacts_with_refusals(assembly, k);
         for (index, contact) in contacts {
             let face = index
                 .parse::<usize>()
@@ -276,6 +320,40 @@ pub fn write_parts(
         jobs.push((part, intent, answers.as_ref()));
     }
     Ok(writer::write_parts(&jobs, output)?)
+}
+
+/// The name standing for the file's path in what [`write_bytes`] loads and reports (its
+/// report's `output`, its errors), there being no path.
+pub const IN_MEMORY: &str = "<in memory>";
+
+/// Write parts of the file whose bytes are `bytes`, in memory (the editor's browser build): each
+/// intent on the part it was made for (its binding's `part`), with the answers it came from (or
+/// none), all in one edit verified by reading back, as [`write_parts`] writes a file. Returns
+/// the bytes written and the report (its `output` is [`IN_MEMORY`]). The file's other parts,
+/// which the writer consults (answers stored for them), are loaded from `bytes`, never from a
+/// path. One part of an assembly may be written alone: the other parts, their PMI and their
+/// stored answers are left as they are (decision D3).
+pub fn write_bytes(
+    bytes: Vec<u8>,
+    jobs: &[(Intent, Option<Map<String, Value>>)],
+) -> Result<(Vec<u8>, WriteReport)> {
+    let file = part::File::of_bytes(Path::new(IN_MEMORY), bytes)?;
+    let mut loaded = Vec::with_capacity(jobs.len());
+    for (intent, _) in jobs {
+        let k = intent_part(intent)?;
+        if k >= file.definitions().len() {
+            return Err(Error::Write(WriteError::Invalid(format!(
+                "{IN_MEMORY} has no part {k}"
+            ))));
+        }
+        loaded.push(file.load(Some(k))?);
+    }
+    let writes: Vec<writer::Job<'_>> = loaded
+        .iter()
+        .zip(jobs)
+        .map(|(l, (intent, answers))| (l, intent, answers.as_ref()))
+        .collect();
+    Ok(writer::write_parts_bytes(&writes)?)
 }
 
 /// Triangles of `loaded` ranged by the face indices its analysis uses, in the part's own frame
