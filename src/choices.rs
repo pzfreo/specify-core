@@ -132,6 +132,10 @@ pub fn code(value: &str) -> String {
             Some(depth) => format!("{spec} tapped, {} mm full thread", fmt3(depth)),
             None => format!("{spec} tapped"),
         },
+        // An ISO 261 fine pitch is named as written on a drawing: `M10x1.25` is M10×1.25.
+        "thread" if spec.contains('x') && standards::external_thread(spec).is_some() => {
+            format!("{} thread", spec.replace('x', "×"))
+        }
         "thread" => format!("{spec} thread"),
         "knurl" => format!("{spec} knurl"),
         _ => value.to_string(),
@@ -162,7 +166,12 @@ pub fn callout(value: &str, d: f64, _hole: bool) -> Result<String, String> {
             ));
         }
         "thread" => {
-            let pitch = pitch()?;
+            // A turned thread may be any ISO 261 size or fine pitch (stream S3): `M10x1.25`
+            // is called up as M10×1.25-6g. Anything else is refused as Python refuses it.
+            let (spec, pitch) = match standards::external_thread(spec) {
+                Some(found) => found,
+                None => (spec, pitch()?),
+            };
             return Ok(format!(
                 "{spec}×{}-{}",
                 g(pitch),
@@ -599,7 +608,14 @@ fn turned(typed: &str, d: f64) -> Result<String, SpecError> {
         }
         return refuse("Type a fit (g6), a thread (M6) or a knurl (diamond knurl).");
     };
-    let bolt = bolt(&size[1], size.get(2).map(|m| m.as_str()))?;
+    let pitch = size.get(2).map(|m| m.as_str());
+    // A size or pitch of ISO 261 beyond Python's coarse table is a thread too (stream S3):
+    // `M10x1.25` reads as that fine thread, `M30` as the coarse M30×3.5. Only a thread of this
+    // diameter's size departs from Python; any other is refused with Python's message.
+    if let Some(spec) = iso_261(&size[1], pitch, d)? {
+        return Ok(format!("thread:{spec}"));
+    }
+    let bolt = bolt(&size[1], pitch)?;
     let nominal = standards::bolt_diameter(bolt);
     if (nominal - d).abs() > 0.2 {
         return refuse(format!(
@@ -609,6 +625,46 @@ fn turned(typed: &str, d: f64) -> Result<String, SpecError> {
         ));
     }
     Ok(format!("thread:{bolt}"))
+}
+
+/// The ISO 261 answer spec a typed nominal (and pitch, if typed) names: the bare size
+/// for its coarse pitch, `M10x1.25` for a fine one. `None` for a size ISO 261 does not list, or
+/// not of diameter `d`, left to [`bolt`]'s refusal; a size of diameter `d` with a pitch ISO 261
+/// does not give it, or with no pitch where it has no coarse one, is refused here.
+fn iso_261(nominal: &str, pitch: Option<&str>, d: f64) -> Result<Option<String>, SpecError> {
+    let number = pyfmt::parse_float(nominal).expect("digits the pattern matched");
+    let size = format!("M{}", fmt3(number));
+    let Some(&(size, coarse, fine)) = standards::ISO_261.iter().find(|(s, _, _)| *s == size) else {
+        return Ok(None);
+    };
+    if (standards::bolt_diameter(size) - d).abs() > 0.2 {
+        return Ok(None);
+    }
+    let pitches = || {
+        coarse
+            .iter()
+            .chain(fine)
+            .map(|p| g(*p))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    match pitch.map(|p| pyfmt::parse_float(p).expect("digits the pattern matched")) {
+        None => match coarse {
+            Some(_) => Ok(Some(size.to_string())),
+            None => refuse(format!(
+                "{size} has no coarse pitch: type its pitch ({} mm), e.g. {size}×{}.",
+                pitches(),
+                g(fine[0])
+            )),
+        },
+        Some(p) if coarse == Some(p) => Ok(Some(size.to_string())),
+        Some(p) if fine.contains(&p) => Ok(Some(format!("{size}x{}", g(p)))),
+        Some(p) => refuse(format!(
+            "{size}×{} is not an ISO 261 thread: {size} takes a pitch of {} mm.",
+            g(p),
+            pitches()
+        )),
+    }
 }
 
 /// The tabulated thread size a typed nominal (and pitch, if typed) names.

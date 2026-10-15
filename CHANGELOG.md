@@ -11,6 +11,15 @@ the rev pin.
 
 ### Added
 
+- A turned diameter's question ("a fit, a thread or knurled?") offers every ISO 261 metric
+  thread at its size as a choice beside the fits and knurls: the coarse thread as before
+  (`thread:M10`, called up M10×1.5-6g), then the fine pitches (`thread:M10x1.25`, code
+  `M10×1.25 thread`, callout M10×1.25-6g), from M1.6 to M64 (`standards::ISO_261`,
+  `external_threads`, `external_thread`). A size ISO 261 gives in fine pitches only, such as
+  Ø15, offers those (M15×1.5, M15×1); a diameter at no ISO 261 size offers no thread. Typing
+  the same thread in the free-text box reads as the same choice and writes the same AP242
+  thread; a fine pitch typed for a turned diameter is no longer refused. Existing answers
+  (`thread:M6`) are unchanged. The oracle sweeps set aside exactly these threads and still compare everything else with Python.
 - `part::File`: one haecceity `StepFile::read` per file, from which every part, its
   definitions and the file's hash are taken (`read`, `of_bytes`, `of_shared`, `load`,
   `load_all`, `parts`, `definitions`, `sha256`, `path`, `bytes`).
