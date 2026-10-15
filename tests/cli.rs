@@ -38,7 +38,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use common::{
     Difference, Tolerances, case, cases, check_known_with, compare, corpus_dir, explained,
-    is_error, load_known, read_json_gz, scenarios,
+    is_error, load_known, read_json_gz, scenarios, without_threads_beyond_python,
 };
 use serde_json::{Map, Value, json};
 use specify_core::api::{self, Error};
@@ -190,6 +190,23 @@ fn exactly(case: &str, at: &str, library: &Value, binary: &Value) -> Vec<Differe
         ..Tolerances::default()
     };
     prefixed(compare(case, library, binary, &tolerances), at)
+}
+
+/// A comparison of the binary's `rust` with the oracle's `python`, once the threads Rust's
+/// diameter questions offer beyond Python's are set aside (stream S3;
+/// `common::without_threads_beyond_python`): every other option and choice must equal Python's.
+fn against_python(
+    case: &str,
+    python: &Value,
+    rust: &Value,
+    tolerances: &Tolerances,
+) -> Vec<Difference> {
+    compare(
+        case,
+        python,
+        &without_threads_beyond_python(rust),
+        tolerances,
+    )
 }
 
 /// Two texts that should be equal, as one difference if not.
@@ -630,7 +647,7 @@ fn questions_against(
     }
     let got: Value = serde_json::from_str(&ran.stdout).unwrap_or(Value::Null);
     out.extend(prefixed(
-        compare(name, questions, &got, &Tolerances::default()),
+        against_python(name, questions, &got, &Tolerances::default()),
         &format!("{at}.questions"),
     ));
     let got: Value = serde_json::from_str(&opened.stdout).unwrap_or(Value::Null);
@@ -641,7 +658,7 @@ fn questions_against(
         .map(|q| q["id"].clone())
         .collect();
     out.extend(prefixed(
-        compare(name, open, &Value::Array(ids), &Tolerances::default()),
+        against_python(name, open, &Value::Array(ids), &Tolerances::default()),
         &format!("{at}.open"),
     ));
     out
@@ -722,7 +739,7 @@ fn write_against(
     for (k, python) in applied.iter().enumerate() {
         let rust = intents.get(k).cloned().unwrap_or(Value::Null);
         out.extend(prefixed(
-            compare(&analyses[k].0, python, &rust, &Tolerances::default()),
+            against_python(&analyses[k].0, python, &rust, &Tolerances::default()),
             "apply",
         ));
     }
@@ -954,11 +971,11 @@ fn serve_replays(dir: &Path) -> Vec<Difference> {
                         json!({"id": r["id"], "ok": r["ok"], "keys": keys})
                     };
                     out.extend(prefixed(
-                        compare(&name, &envelope(python), &envelope(&reply), &tolerances),
+                        against_python(&name, &envelope(python), &envelope(&reply), &tolerances),
                         &at,
                     ));
                     out.extend(prefixed(
-                        compare(
+                        against_python(
                             &name,
                             &mesh_fields(&python["result"]["mesh"], true),
                             &mesh_fields(&reply["result"]["mesh"], false),
@@ -970,7 +987,7 @@ fn serve_replays(dir: &Path) -> Vec<Difference> {
                 "preview" if python["ok"] == json!(true) => {
                     let p = without(python, &["result", "intent"], "anchors");
                     let r = without(&reply, &["result", "intent"], "anchors");
-                    out.extend(prefixed(compare(&name, &p, &r, &tolerances), &at));
+                    out.extend(prefixed(against_python(&name, &p, &r, &tolerances), &at));
                     // Which groups have an anchor, against Python; the anchors themselves,
                     // against the library on the same request.
                     let keys = |v: &Value| -> Value {
@@ -981,7 +998,7 @@ fn serve_replays(dir: &Path) -> Vec<Difference> {
                         )
                     };
                     out.extend(prefixed(
-                        compare(&name, &keys(python), &keys(&reply), &tolerances),
+                        against_python(&name, &keys(python), &keys(&reply), &tolerances),
                         &format!("{at}.anchors"),
                     ));
                     let expected = replaced_in(&library.reply(&request), &to_python);
@@ -995,7 +1012,7 @@ fn serve_replays(dir: &Path) -> Vec<Difference> {
                 "write" if python["ok"] == json!(true) && reply["ok"] == json!(true) => {
                     let p = without(python, &["result"], "report");
                     let r = without(&reply, &["result"], "report");
-                    out.extend(prefixed(compare(&name, &p, &r, &tolerances), &at));
+                    out.extend(prefixed(against_python(&name, &p, &r, &tolerances), &at));
                     out.extend(report_lines(
                         &name,
                         &python["result"]["report"],
@@ -1012,7 +1029,10 @@ fn serve_replays(dir: &Path) -> Vec<Difference> {
                             .unwrap_or_default(),
                     ));
                 }
-                _ => out.extend(prefixed(compare(&name, python, &reply, &tolerances), &at)),
+                _ => out.extend(prefixed(
+                    against_python(&name, python, &reply, &tolerances),
+                    &at,
+                )),
             }
         }
         out.extend(same_text(
@@ -1083,13 +1103,18 @@ fn command_lines(dir: &Path) -> Vec<Difference> {
                 // The report's lines are compared in check 2 (the same write from the same
                 // inputs); here, that it is the report of this output.
                 out.extend(prefixed(
-                    compare(&name, &p["output"], &q["output"], &Tolerances::default()),
+                    against_python(&name, &p["output"], &q["output"], &Tolerances::default()),
                     "stdout.output",
                 ));
             }
             (Ok(p), Ok(q)) => {
-                let diffs = prefixed(compare(&name, &p, &q, &Tolerances::default()), "stdout");
-                if diffs.is_empty() {
+                let diffs = prefixed(
+                    against_python(&name, &p, &q, &Tolerances::default()),
+                    "stdout",
+                );
+                // The text too, unless Rust's stdout holds threads beyond Python's (which the
+                // value comparison has set aside).
+                if diffs.is_empty() && without_threads_beyond_python(&q) == q {
                     out.extend(same_text(&name, "stdout.text", python_stdout, &stdout));
                 }
                 out.extend(diffs);
@@ -1135,7 +1160,7 @@ fn command_lines(dir: &Path) -> Vec<Difference> {
             r
         });
         out.extend(prefixed(
-            compare(
+            against_python(
                 "cli/serve",
                 &entry["reply"],
                 &reply.unwrap_or(Value::Null),

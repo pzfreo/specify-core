@@ -757,3 +757,54 @@ pub fn explained_with(entries: &[KnownDifference], differences: &[Difference]) -
         .cloned()
         .collect()
 }
+
+/// Whether `option` is a turned-diameter thread Python cannot offer (stream S3, issue #3): an
+/// ISO 261 fine pitch (`thread:M10x1.25`), or a coarse size beyond Python's coarse table
+/// (`thread:M30`).
+pub fn is_thread_beyond_python(option: &str) -> bool {
+    option.strip_prefix("thread:").is_some_and(|spec| {
+        spec.contains('x')
+            || specify_core::standards::lookup(&specify_core::standards::PITCH, spec).is_none()
+    })
+}
+
+/// `rust` without the threads that Rust's `diameter.fit` questions offer beyond Python's (see
+/// [`is_thread_beyond_python`]), from their `options` and `choices`, wherever such a question
+/// sits in the value. Applied to Rust's side before comparing with the oracle, so whatever
+/// else a diameter question offers must still equal Python's exactly.
+pub fn without_threads_beyond_python(rust: &Value) -> Value {
+    match rust {
+        Value::Array(items) => {
+            Value::Array(items.iter().map(without_threads_beyond_python).collect())
+        }
+        Value::Object(map) => {
+            let diameter = map
+                .get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| id.starts_with("diameter.fit:"));
+            let mut out = Map::new();
+            for (key, v) in map {
+                let kept = match (diameter, key.as_str(), v) {
+                    (true, "options", Value::Array(options)) => Value::Array(
+                        options
+                            .iter()
+                            .filter(|o| !o.as_str().is_some_and(is_thread_beyond_python))
+                            .cloned()
+                            .collect(),
+                    ),
+                    (true, "choices", Value::Array(choices)) => Value::Array(
+                        choices
+                            .iter()
+                            .filter(|c| !c["value"].as_str().is_some_and(is_thread_beyond_python))
+                            .cloned()
+                            .collect(),
+                    ),
+                    _ => without_threads_beyond_python(v),
+                };
+                out.insert(key.clone(), kept);
+            }
+            Value::Object(out)
+        }
+        other => other.clone(),
+    }
+}

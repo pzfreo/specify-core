@@ -478,3 +478,96 @@ pub fn full_thread(drill_depth: f64, size: &str) -> f64 {
 pub fn thread_size(diameter: f64) -> Option<&'static str> {
     sizes(&PITCH).find(|size| (bolt_diameter(size) - diameter).abs() <= TOLERANCE)
 }
+
+/// ISO 261 general-purpose metric screw threads from M1.6 to M64, for a turned diameter's
+/// thread choices (stream S3, issue #3): each nominal size, its coarse pitch (none for the sizes
+/// ISO 261 gives in fine pitches only, such as M15) and its fine pitches, largest first. All
+/// three choice columns are kept: a third-choice size such as M15×1 or M17×1 is a bearing
+/// locknut's thread on a spindle. ISO 261's bracketed pitches (M30×3, M33×3) and M14×1.25,
+/// which it reserves for spark plugs, are left out. The coarse pitches agree with [`PITCH`],
+/// which holes and mates keep using.
+pub const ISO_261: [(&str, Option<f64>, &[f64]); 49] = [
+    ("M1.6", Some(0.35), &[0.2]),
+    ("M1.8", Some(0.35), &[0.2]),
+    ("M2", Some(0.4), &[0.25]),
+    ("M2.2", Some(0.45), &[0.25]),
+    ("M2.5", Some(0.45), &[0.35]),
+    ("M3", Some(0.5), &[0.35]),
+    ("M3.5", Some(0.6), &[0.35]),
+    ("M4", Some(0.7), &[0.5]),
+    ("M4.5", Some(0.75), &[0.5]),
+    ("M5", Some(0.8), &[0.5]),
+    ("M5.5", None, &[0.5]),
+    ("M6", Some(1.0), &[0.75]),
+    ("M7", Some(1.0), &[0.75]),
+    ("M8", Some(1.25), &[1.0, 0.75]),
+    ("M9", Some(1.25), &[1.0, 0.75]),
+    ("M10", Some(1.5), &[1.25, 1.0, 0.75]),
+    ("M11", Some(1.5), &[1.0, 0.75]),
+    ("M12", Some(1.75), &[1.5, 1.25, 1.0]),
+    ("M14", Some(2.0), &[1.5, 1.0]),
+    ("M15", None, &[1.5, 1.0]),
+    ("M16", Some(2.0), &[1.5, 1.0]),
+    ("M17", None, &[1.5, 1.0]),
+    ("M18", Some(2.5), &[2.0, 1.5, 1.0]),
+    ("M20", Some(2.5), &[2.0, 1.5, 1.0]),
+    ("M22", Some(2.5), &[2.0, 1.5, 1.0]),
+    ("M24", Some(3.0), &[2.0, 1.5, 1.0]),
+    ("M25", None, &[2.0, 1.5, 1.0]),
+    ("M26", None, &[1.5]),
+    ("M27", Some(3.0), &[2.0, 1.5, 1.0]),
+    ("M28", None, &[2.0, 1.5, 1.0]),
+    ("M30", Some(3.5), &[2.0, 1.5, 1.0]),
+    ("M32", None, &[2.0, 1.5]),
+    ("M33", Some(3.5), &[2.0, 1.5]),
+    ("M35", None, &[1.5]),
+    ("M36", Some(4.0), &[3.0, 2.0, 1.5]),
+    ("M38", None, &[1.5]),
+    ("M39", Some(4.0), &[3.0, 2.0, 1.5]),
+    ("M40", None, &[3.0, 2.0, 1.5]),
+    ("M42", Some(4.5), &[4.0, 3.0, 2.0, 1.5]),
+    ("M45", Some(4.5), &[4.0, 3.0, 2.0, 1.5]),
+    ("M48", Some(5.0), &[4.0, 3.0, 2.0, 1.5]),
+    ("M50", None, &[3.0, 2.0, 1.5]),
+    ("M52", Some(5.0), &[4.0, 3.0, 2.0, 1.5]),
+    ("M55", None, &[4.0, 3.0, 2.0, 1.5]),
+    ("M56", Some(5.5), &[4.0, 3.0, 2.0, 1.5]),
+    ("M58", None, &[4.0, 3.0, 2.0, 1.5]),
+    ("M60", Some(5.5), &[4.0, 3.0, 2.0, 1.5]),
+    ("M62", None, &[4.0, 3.0, 2.0, 1.5]),
+    ("M64", Some(6.0), &[4.0, 3.0, 2.0, 1.5]),
+];
+
+/// The ISO 261 threads a turned diameter of `diameter` may carry (its nominal within 0.05 mm,
+/// as [`thread_size`]), as answer specs: the coarse thread as its bare size (`M10`, the spec
+/// Python's answers use) first, then each fine pitch as `M10x1.25`. Empty where no ISO 261
+/// size matches.
+pub fn external_threads(diameter: f64) -> Vec<String> {
+    let Some(&(size, coarse, fine)) = ISO_261
+        .iter()
+        .find(|(size, _, _)| (bolt_diameter(size) - diameter).abs() <= TOLERANCE)
+    else {
+        return Vec::new();
+    };
+    let coarse = coarse.map(|_| size.to_string());
+    coarse
+        .into_iter()
+        .chain(fine.iter().map(|p| format!("{size}x{}", pyfmt::g(*p))))
+        .collect()
+}
+
+/// An external thread spec's ISO 261 size and pitch: `M10` is the coarse M10×1.5 (for a size
+/// with no coarse pitch, none), `M10x1.25` a fine pitch ISO 261 gives for M10. `None` for
+/// anything else.
+pub fn external_thread(spec: &str) -> Option<(&'static str, f64)> {
+    let (size, pitch) = match spec.split_once('x') {
+        Some((size, pitch)) => (size, Some(pyfmt::parse_float(pitch)?)),
+        None => (spec, None),
+    };
+    let &(size, coarse, fine) = ISO_261.iter().find(|(s, _, _)| *s == size)?;
+    match pitch {
+        None => coarse.map(|c| (size, c)),
+        Some(p) if coarse == Some(p) || fine.contains(&p) => Some((size, p)),
+        Some(_) => None,
+    }
+}
