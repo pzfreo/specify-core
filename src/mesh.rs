@@ -56,8 +56,8 @@ pub fn deflection(loaded: &LoadedPart) -> f64 {
 }
 
 /// Face `face` triangulated to the mesh's deflections, or why it cannot be. A face whose
-/// surface haecceity could not resolve is refused here, also for a part rebuilt by the U1
-/// stand-in (whose `Part` no longer lists it).
+/// surface haecceity could not resolve is refused here, also for a part a caller rebuilt
+/// (`LoadedPart::rebuilt`, whose `Part` no longer lists it).
 pub fn face_mesh(loaded: &LoadedPart, face: usize, deflection: f64) -> Result<FaceMesh, String> {
     if loaded.unresolved_faces.contains(&face) || loaded.part.unresolved_faces().contains(&face) {
         return Err("its surface did not resolve".into());

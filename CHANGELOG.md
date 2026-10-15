@@ -6,6 +6,9 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+Pinned to quiddity-rust rev `0d601d2` (from `v0.1.0-alpha.3`); the next tagged release replaces
+the rev pin.
+
 ### Added
 
 - A turned diameter's question ("a fit, a thread or knurled?") offers every ISO 261 metric
@@ -17,6 +20,27 @@ All notable changes to specify-core-rust. The format follows
   the same thread in the free-text box reads as the same choice and writes the same AP242
   thread; a fine pitch typed for a turned diameter is no longer refused. Existing answers
   (`thread:M6`) are unchanged. The oracle sweeps set aside exactly these threads and still compare everything else with Python.
+- `part::File`: one haecceity `StepFile::read` per file, from which every part, its
+  definitions and the file's hash are taken (`read`, `of_bytes`, `of_shared`, `load`,
+  `load_all`, `parts`, `definitions`, `sha256`, `path`, `bytes`).
+- `api::write_bytes(bytes, jobs)`, `api::IN_MEMORY` and `writer::write_parts_bytes`: write
+  several parts of a file held in memory; the other parts are loaded from the same bytes.
+- `PartSummary.product_id`, listed after `name` in the library, `api::parts`, the CLI and serve
+  (Python's listing has no such key: recorded as `rust-correct` in `docs/known-differences.md`).
+
+### Changed
+
+- Every part is haecceity's own `Part` (`StepFile::part`); specify-core's stand-ins for part
+  extraction, part names, the placed-back read and face matching are gone (upstream needs U1
+  and U9 met). `LoadedPart` keeps all its fields; `rebuilt` is now always false.
+- Analysis of an assembly part (`api::analyse_file`, CLI and serve `analyse`) loads the part
+  and the other parts its mates need from one read; `api::analyse` loads them from
+  `loaded.bytes`, never from the path.
+- A part of an assembly can be written alone: the refusal when other parts had stored answers
+  is gone, and the write mode is decided over the parts being written. An assembly with no
+  part chosen still refuses, naming its parts.
+- The plate read from the assembly lists 6 of its 26 mesh edge polylines in a different order
+  (haecceity numbers edges its own way); the edge set is unchanged.
 
 ## 0.1.0-alpha.2 (2026-10-14)
 

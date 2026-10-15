@@ -12,7 +12,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | Area | rust-correct | rust-wrong | equivalent | undetermined | not-applicable | Total |
 |---|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 9 |
-| [cli](#cli) | 9 | 0 | 3 | 0 | 3 | 15 |
+| [cli](#cli) | 11 | 0 | 3 | 0 | 3 | 17 |
 | [cross_engine](#cross_engine) | 3 | 1 | 0 | 1 | 1 | 6 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
 | [features](#features) | 879 | 1419 | 65 | 1391 | 11 | 3765 |
@@ -21,7 +21,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 40 |
 | [rules](#rules) | 6 | 0 | 0 | 0 | 0 | 6 |
 | [writer](#writer) | 14 | 0 | 0 | 0 | 15 | 29 |
-| **all** | 947 | 1437 | 79 | 1397 | 47 | 3907 |
+| **all** | 949 | 1437 | 79 | 1397 | 47 | 3909 |
 
 ## anchors
 
@@ -67,7 +67,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (9 entries)
+### cli: rust-correct (11 entries)
 
 - **Python's write prints OpenCascade's transfer statistics on stdout before the report** (`cli/*` at `stdout_noise`)
 
@@ -100,6 +100,14 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **a non-finite number is written null, not Python's NaN token** (`cli/json-text` at `json_text.nan`)
 
   As for Infinity: json.dumps writes float('nan') as NaN, not JSON; Rust writes null.
+
+- **parts reports each part's product id beside its name (D1), a key Python's listing lacks** (`cli/*/parts` at `stdout.*.product_id`)
+
+  Decision D1 (maintainer, 2026-10-15): a part is identified by its index ('part', what --part and stored answers use); its name and its product's PRODUCT.id are reported beside it. haecceity's PartDefinition.product_id (quiddity-rust 0d601d2) is the id as the file states it, escapes decoded; Python's parts listing has no such key. Every other key of the listing is still compared and equal (tests/part.rs, corpus_and_nist_faces_are_pythons_at_every_index, compares the rest with Python on corpus and NIST files).
+
+- **serve's parts reports each part's product id beside its name (D1), a key Python's listing lacks** (`parts/*@serve` at `serve*.parts.result.parts*.product_id`)
+
+  Decision D1 (maintainer, 2026-10-15): a part is identified by its index ('part', what --part and stored answers use); its name and its product's PRODUCT.id are reported beside it. haecceity's PartDefinition.product_id (quiddity-rust 0d601d2) is the id as the file states it, escapes decoded; Python's parts listing has no such key. Every other key of the listing is still compared and equal (tests/part.rs, corpus_and_nist_faces_are_pythons_at_every_index, compares the rest with Python on corpus and NIST files).
 
 ### cli: equivalent (3 entries)
 

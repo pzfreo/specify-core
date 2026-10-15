@@ -16,7 +16,7 @@
 //! - A pattern's member holes are found among the hole records by equality, the first not yet
 //!   taken (as quiddity-rust's own `fingerprint::derived_faces`), because `HolePattern` holds
 //!   copies of its members, not their indices (U2).
-//! - Recognition refuses a part that the U1 stand-in rebuilt with unresolved faces or edges
+//! - Recognition refuses a part a caller rebuilt (`rebuilt`) with unresolved faces or edges
 //!   ([`LoadedPart::degraded`]): its `Part` has lost haecceity's record of what did not
 //!   resolve, so its solids would be taken as valid.
 //! - Features are listed family by family in quiddity-rust's order (the order of `Features`'

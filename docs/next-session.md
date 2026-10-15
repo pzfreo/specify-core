@@ -39,6 +39,57 @@ Overturnable judgement calls:
   questions must still equal Python's. A CLI stdout holding such threads keeps its value
   comparison but skips the byte-for-byte text check.
 
+# G2: assemblies on haecceity's part API (slice 2, specify-core-rust #2; 2026-10-15)
+
+**Pin.** quiddity and haecceity are pinned by `rev = "0d601d207495dea60b1b6a7109bd3abd109bf745"`
+(quiddity-rust main after haecceity's assemblies slice 1), not a tag. **The next tagged
+quiddity-rust release replaces this rev pin** (Cargo.toml says so too).
+
+**What changed.**
+- `part::File` reads a file once (`StepFile::read`) and loads any part (`File::load(Some(k))`,
+  `load_all`) with `StepFile::part`. The U1 and U9 stand-ins (`extract_part`, `part_names`, the
+  placed-back read, the rebuilt path) are deleted; `upstream-needs.md` marks U1 and U9 met.
+  `LoadedPart` keeps every field (the editor builds one with a struct literal); `rebuilt` is
+  always false from this loader.
+- `parts` reports `product_id` after `name` (D1: the index `part` stays the identifier). This is
+  an addition to Python's listing; the CLI sweep records it in `known_differences/cli.json`.
+- `api::analyse_file`, the CLI's and serve's `analyse` read the file once for the part and the
+  other parts its mates need (`api::analyse_reporting_in(&file, &loaded)`); `api::analyse` of a
+  part of an assembly loads the others from `loaded.bytes`, never from its path.
+- `api::write_bytes(bytes, jobs) -> (bytes, report)` writes any parts of a file held in memory
+  (the editor's browser build; it can drop its writer fork). `writer::write_parts_bytes` is the
+  writer's form. The old single-part `writer::write_bytes` is unchanged.
+- D3: one part of an assembly may be written alone; the other parts, their PMI and stored
+  answers are left byte for byte. `tests/assembly_write.rs`
+  (`writing_one_part_again_alone_keeps_the_others`) replaces the refusal test.
+- D4: an assembly with no part chosen still refuses, naming its parts.
+
+**Editor additions (backwards compatible).** New: `part::File` (`read`, `of_bytes`,
+`of_shared`, `load`, `load_all`, `parts`, `definitions`, `sha256`), `PartSummary.product_id`,
+`api::analyse_reporting_in`, `api::write_bytes`, `api::IN_MEMORY`, `writer::write_parts_bytes`.
+Nothing was removed or changed in signature. To open part `k` of an assembly from bytes:
+`File::of_bytes(Path::new(name), bytes)?.load(Some(k))`, then `api::analyse` / `api::mesh`; to
+write: `api::write_bytes(bytes, &[(intent, Some(answers))])`.
+
+**Overturnable judgement calls.**
+- Write mode is now decided over the parts written, not the whole file: Replace when every part
+  written is bare or its stored answers resume, else Add. For a file of one part this is the old
+  rule. In an assembly it differs in two cases: a bare part beside a part with PMI from elsewhere
+  is now Replace (answers stored; was Add, no answers), and a part with PMI from elsewhere beside
+  a part with stored answers is now Add (was Replace, which would have removed the foreign PMI).
+- `api::write_bytes` takes `(bytes, jobs)` as specified, so its report's `output` and errors use
+  the name `api::IN_MEMORY` ("<in memory>") for the path.
+- The acceptance item "`analyse --part 1` runs one `Parsed::new`" is met for part loading (one
+  `StepFile::read` for the part and its mates, was two `read_part_definitions`/`read_step` parses,
+  one `p21` parse, and the same again for the mates' `load_all`), but not for the whole
+  analysis: `existing::read` still calls `read_part_definitions` (and `resume::stored` parses the
+  `p21` document) on the part's bytes. Changing that needs `LoadedPart` to carry the file, which
+  would break the editor's struct literal, or a change to `existing.rs` outside this stream.
+- `tests/part.rs` and `tests/features.rs` tests of the rebuilt stand-in were rewritten to assert
+  the new behaviour (each part is haecceity's own `Part`, checked against its first instance in
+  the whole read; an unresolved face is recorded in the part's own `Part`, so it is not
+  degraded; a caller-rebuilt part is still refused by recognition).
+
 # D2: additive typed question presentation (2026-10-11)
 
 `rules::Question` now carries an optional feature row `title` and a typed
