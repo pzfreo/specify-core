@@ -203,6 +203,7 @@ impl std::error::Error for LoadError {}
 
 /// Load `path` and take its `part`-th part; a file of several parts must say which (Python's
 /// `load`; decision D4). Only the part asked for is built.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load(path: &Path, part: Option<usize>) -> Result<LoadedPart, LoadError> {
     File::read(path)?.load(part)
 }
@@ -218,6 +219,7 @@ pub fn load_bytes(name: &str, bytes: Vec<u8>) -> Result<LoadedPart, LoadError> {
 }
 
 /// Every part of `path`, loaded, in [`parts`]' order (Python's `load_all`).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load_all(path: &Path) -> Result<Vec<LoadedPart>, LoadError> {
     File::read(path)?.load_all()
 }
@@ -230,6 +232,7 @@ pub fn load_all(path: &Path) -> Result<Vec<LoadedPart>, LoadError> {
 /// specify-core's order. Where OpenCascade's XCAF makes a part of each shape representation of
 /// one product (a solid with surface models beside it, as in NIST CTC-02, 04 and 05), this lists
 /// the product once with all its faces, the solid's first.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn parts(path: &Path) -> Result<Vec<PartSummary>, LoadError> {
     Ok(File::read(path)?.parts())
 }
@@ -247,6 +250,7 @@ pub struct File {
 
 impl File {
     /// Reads the file at `path`.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn read(path: &Path) -> Result<File, LoadError> {
         let bytes = std::fs::read(path).map_err(|e| LoadError::Unreadable {
             path: path.to_path_buf(),

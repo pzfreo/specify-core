@@ -71,7 +71,9 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
-use std::path::{Path, PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use haecceity::p21::{self, Attribute, Document, RawEntity};
@@ -176,6 +178,7 @@ pub type Job<'a> = (&'a LoadedPart, &'a Intent, Option<&'a Map<String, Json>>);
 /// Writes `loaded` with `intent` added as AP242 to `output`, and verifies it (Python's
 /// `write`). Given `answers`, a part written from a bare file or one specify-core wrote stores
 /// them, to be resumed; one with PMI from elsewhere does not.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn write(
     loaded: &LoadedPart,
     intent: &Intent,
@@ -187,6 +190,7 @@ pub fn write(
 
 /// [`write`] with caller attributes, following [`write_bytes_with`]'s rules. The attributes
 /// are verified before the destination is replaced; a `.gz` destination is compressed as usual.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn write_with(
     loaded: &LoadedPart,
     intent: &Intent,
@@ -200,12 +204,14 @@ pub fn write_with(
 /// Writes each part of one file with its intent, all in one edit (Python's `write_parts`):
 /// `jobs` are (part, its intent, the answers it came from). Over references, so a caller holds
 /// its parts (from `part::load_all`) and composes the jobs from them.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn write_parts(jobs: &[Job<'_>], output: &Path) -> Result<WriteReport, WriteError> {
     write_parts_with(jobs, output, &[])
 }
 
 /// [`write_parts`] with caller attributes, following [`write_bytes_with`]'s rules. Nonempty
 /// extras require a file of one part, even when only one assembly part is being written.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn write_parts_with(
     jobs: &[Job<'_>],
     output: &Path,
@@ -264,6 +270,7 @@ pub fn write_parts_with(
 }
 
 /// `bytes` gzipped, deterministically (no name, no time stamp).
+#[cfg(not(target_arch = "wasm32"))]
 fn gzip(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
     let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     std::io::Write::write_all(&mut encoder, bytes)?;
@@ -372,6 +379,7 @@ fn check_jobs(jobs: &[Job<'_>]) -> Result<(), WriteError> {
 
 /// Eight hex digits that differ between writes, for the staged file's name (Python's
 /// `uuid4().hex[:8]`); nothing written depends on them.
+#[cfg(not(target_arch = "wasm32"))]
 fn tag() -> String {
     use std::sync::atomic::{AtomicU32, Ordering};
     static COUNT: AtomicU32 = AtomicU32::new(0);
