@@ -33,12 +33,29 @@ jobs:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0 # API acknowledgement is compared with the PR base / previous push.
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
       - run: rustup toolchain install
       - run: rustup target add wasm32-unknown-unknown
       - run: cargo install wasm-pack --version 0.15.0 --locked
-      - run: wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --no-opt --locked
+      - run: python3 -m unittest discover -s tools -p 'test_*.py'
+      - run: wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
+      - name: Check WASM API snapshot and changelog
+        env:
+          API_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$API_BASE" ] || [ "$API_BASE" = "0000000000000000000000000000000000000000" ]; then
+            API_BASE=$(git hash-object -t tree -w --stdin < /dev/null)
+          fi
+          python3 tools/check_wasm_api.py --base-ref "$API_BASE"
+      - run: python3 tools/wasm_size.py
+      - name: Compare released editor kernel (advisory)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/check_quiddity_pin.py
       - run: cargo build --locked --release -p specify-core-wasm --example parity_reference
       - run: node scripts/wasm-parity.mjs

@@ -36,9 +36,16 @@ jobs:
               with open(path, 'rb') as source:
                   assert tomllib.load(source)['package']['version'] == version, path
           PY
-      - run: wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --no-opt --locked
+      - run: wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
+      - run: python3 tools/wasm_size.py
       - run: cargo build --locked --release -p specify-core-wasm --example parity_reference
       - run: node scripts/wasm-parity.mjs
+      - name: Compare released editor kernel and annotate release (advisory)
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 tools/check_quiddity_pin.py --release "$TAG"
       - name: Archive, checksum and attach package
         env:
           TAG: ${{ github.event.release.tag_name }}

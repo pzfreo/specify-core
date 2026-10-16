@@ -70,31 +70,41 @@ previous extras, so resupply the project on every write that should retain it.
 
 ## Build and verify
 
-Rust comes from `rust-toolchain.toml`. Install wasm-pack 0.15.0 and the WASM target:
+Rust comes from `rust-toolchain.toml`. The checks use Python 3.11+ and Node (CI uses Node 24).
+Install wasm-pack 0.15.0 and the WASM target:
 
 ```sh
 rustup target add wasm32-unknown-unknown
 cargo install wasm-pack --version 0.15.0 --locked
-wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --no-opt --locked
+wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
+python3 tools/check_wasm_api.py
+python3 tools/wasm_size.py
+python3 tools/check_quiddity_pin.py
+python3 -m unittest discover -s tools -p 'test_*.py'
 cargo build --locked --release -p specify-core-wasm --example parity_reference
 node scripts/wasm-parity.mjs
 ```
 
 The root `[profile.wasm-release]` inherits release with `lto = true`, `codegen-units = 1`
-and `opt-level = 3`. `--no-opt` skips wasm-pack's additional wasm-opt pass, so the package
-uses this Cargo profile without depending on a separate optimizer installation.
-Generated `pkg/` is ignored by Git.
+and `opt-level = 3`. Both workflows also run wasm-pack's additional wasm-opt pass. Do not
+use `--no-opt` for the size check or release package. wasm-pack downloads its optimizer
+when needed. If its default cache is unwritable, set `WASM_PACK_CACHE` to a writable directory.
+Generated `pkg/` is ignored by Git; its normalized TypeScript API is reviewed separately.
 
-Measured with Rust 1.99, wasm-pack 0.15.0 and the committed lockfile:
+Measured with Rust 1.99, wasm-pack 0.15.0, wasm-opt 117, Node 26.9.0 and the committed lockfile
+on 2026-10-16:
 
 | WASM binary | Bytes | MiB |
 | --- | ---: | ---: |
-| Raw | 12,258,045 | 11.69 |
-| gzip, level 9 | 3,329,999 | 3.18 |
-| Brotli, quality 11 | 2,176,781 | 2.08 |
+| Raw, optimized | 10,197,823 | 9.73 |
+| gzip, level 9 | 3,157,943 | 3.01 |
+| Brotli, quality 11 | 2,148,100 | 2.05 |
+| Raw ceiling | 11,800,000 | 11.25 |
 
 These measure `specify_core_wasm_bg.wasm`, excluding the small JS/TypeScript/metadata files.
-Release CI prints current measurements; sizes can change with compiler or dependency updates.
+CI and releases print current measurements and the remaining size headroom; sizes can change
+with compiler or dependency updates. The committed baseline and ceiling are in
+`tools/wasm-size-budget.json` (see safeguards below).
 
 File loaders, disk writers (including staging names, process ids and clocks), and the JSON-line
 service are cfg-gated out on `wasm32`. Memory loading, analysis, reviews, meshing, anchors and
@@ -118,6 +128,62 @@ checks that both crate versions equal the `v` tag, builds with the same profile,
 archives `pkg/`, computes SHA-256, and uploads both files with `gh` and `GITHUB_TOKEN`. Only
 that release job has `contents: write`; other jobs retain read-only contents access. Release
 preparation must update both package versions and the binding's exact core dependency together.
+
+## Release safeguards
+
+### Reviewed WASM API
+
+`crates/specify-core-wasm/api.d.ts` is the reviewed snapshot of wasm-pack's
+`pkg/specify_core_wasm.d.ts`. `tools/check_wasm_api.py` removes generated comments (including
+version noise), normalizes whitespace and sorts declarations and class/interface members.
+It retains the public signatures and initialization types. After an intentional API change:
+
+```sh
+wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
+python3 tools/check_wasm_api.py --update
+```
+
+Review and commit the snapshot diff, and add a **new bullet** under `### WASM API` inside
+`## Unreleased` in `CHANGELOG.md`. An existing note or a note in a released section does not
+count. CI compares against the PR base or the commit before a main push; changing the snapshot
+also triggers this requirement, even when it already matches the generated declarations.
+A generated/snapshot mismatch fails unless the same change adds that changelog bullet.
+The check prints the diff and snapshot update command. Locally `--base-ref <commit>` selects
+the comparison commit (default `HEAD`).
+
+### WASM size ceiling
+
+`python3 tools/wasm_size.py` measures the optimized `specify_core_wasm_bg.wasm`: raw bytes,
+gzip at level 9, and Brotli at quality 11. It uses Node's built-in zlib, already needed for
+parity, with no extra Python packages. Both workflows fail if **raw optimized bytes** exceed
+`ceiling_bytes` in `tools/wasm-size-budget.json`; equality passes. Every run prints all three
+sizes and headroom in bytes and as a percentage of the ceiling. Compressed figures are
+recorded for transfer-size visibility and do not have separate limits.
+
+The initial ceiling is approximately 15% above the measured baseline, rounded upward to
+100,000 bytes: 11,800,000 bytes, leaving 1,602,177 bytes of initial headroom.
+Raising it requires a deliberate, reviewed JSON edit; the size checker never
+updates the budget automatically. When rebaselining, record the three measurements and
+tool versions together and explain the increase in the changelog.
+
+### Matching editor kernels
+
+The editor passes STEP files between Specify's browser package and Draftwright's drawing
+package. Different quiddity kernels can number the same faces differently.
+`python3 tools/check_quiddity_pin.py` reads **both** `haecceity` and `quiddity` pins from the
+root `Cargo.toml` and compares them with `pzfreo/draftwright-rust`'s latest published release.
+Prereleases count; drafts do not. Tags and abbreviated revisions are resolved to commits,
+so a full rev and a tag at that same commit match. Internal disagreement between the two
+kernel crates also warns. The check prints each package's pins and the matching commit.
+
+Public GitHub requests work without authentication; `GITHUB_TOKEN` (or `GH_TOKEN`) is used
+when set. CI runs this on main pushes. Before a release upload, the release workflow also
+passes `--release "$TAG"`: a mismatch emits a GitHub Actions `::warning::` annotation and
+uses `gh release edit` to append a `Kernel note:` line listing each package's pins. Reruns
+replace that line without duplicating it or changing the other release notes. A mismatch
+never fails a release, because one repository necessarily releases first after a kernel bump.
+Network or release-note update failures also warn without blocking the upload. The command
+without `--release` only reads GitHub and never edits a release.
 
 ## Switching the editor
 
