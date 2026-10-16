@@ -59,6 +59,15 @@
 //! filesystem (the editor's browser build): the bytes are returned rather than staged, after the
 //! same verification of what was written. The file's other parts, where the writer consults
 //! them, are loaded from the parts' bytes, never from a path.
+//!
+//! **Caller attributes.** [`write_bytes_with`] and [`write_parts_bytes_with`] accept extra
+//! [`AttributeSet`]s, written as given and verified in the same edit as the PMI and stored
+//! answers. [`write_with`] and [`write_parts_with`] do the same for a destination, including
+//! `.gz`. Nonempty extras require a file of one part. The stored-answers name ([`resume::NAME`])
+//! is reserved for both set and item names, since resume reads items by name. Extras follow
+//! the usual write mode: on a resumed part replace removes the previous attributes along with
+//! the previous PMI and answers, so supply every extra wanted in the new write; add leaves
+//! existing attributes alone. There is no separate merge or update by attribute name.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -173,14 +182,37 @@ pub fn write(
     output: &Path,
     answers: Option<&Map<String, Json>>,
 ) -> Result<WriteReport, WriteError> {
-    write_parts(&[(loaded, intent, answers)], output)
+    write_with(loaded, intent, output, answers, &[])
+}
+
+/// [`write`] with caller attributes, following [`write_bytes_with`]'s rules. The attributes
+/// are verified before the destination is replaced; a `.gz` destination is compressed as usual.
+pub fn write_with(
+    loaded: &LoadedPart,
+    intent: &Intent,
+    output: &Path,
+    answers: Option<&Map<String, Json>>,
+    extra: &[AttributeSet],
+) -> Result<WriteReport, WriteError> {
+    write_parts_with(&[(loaded, intent, answers)], output, extra)
 }
 
 /// Writes each part of one file with its intent, all in one edit (Python's `write_parts`):
 /// `jobs` are (part, its intent, the answers it came from). Over references, so a caller holds
 /// its parts (from `part::load_all`) and composes the jobs from them.
 pub fn write_parts(jobs: &[Job<'_>], output: &Path) -> Result<WriteReport, WriteError> {
+    write_parts_with(jobs, output, &[])
+}
+
+/// [`write_parts`] with caller attributes, following [`write_bytes_with`]'s rules. Nonempty
+/// extras require a file of one part, even when only one assembly part is being written.
+pub fn write_parts_with(
+    jobs: &[Job<'_>],
+    output: &Path,
+    extra: &[AttributeSet],
+) -> Result<WriteReport, WriteError> {
     check_jobs(jobs)?;
+    check_extra(jobs, extra)?;
 
     // Written and verified beside the destination, which is replaced only once all is well.
     let target = match std::fs::symlink_metadata(output) {
@@ -195,7 +227,7 @@ pub fn write_parts(jobs: &[Job<'_>], output: &Path) -> Result<WriteReport, Write
         )));
     };
     let staged = target.with_file_name(format!(".{name}.{}.{}.part", std::process::id(), tag()));
-    let result = write_verified(jobs).and_then(|(bytes, report)| {
+    let result = write_verified(jobs, extra).and_then(|(bytes, report)| {
         // Gzipped only when the destination is named `.gz` (a write in place to a `.gz` input
         // stays gzipped); the STEP text is verified before it is compressed.
         let bytes = if output
@@ -249,6 +281,23 @@ pub fn write_bytes(
     intent: &Intent,
     answers: Option<&Map<String, Json>>,
 ) -> Result<(Vec<u8>, WriteReport), WriteError> {
+    write_bytes_with(loaded, intent, answers, &[])
+}
+
+/// [`write_bytes`] with extra attribute sets, written as given and verified in the same edit
+/// as the PMI and stored answers. Use `AttributeSet::on = None` for attributes on the part.
+/// The set name and its item names must not equal [`resume::NAME`] (`pmi-assist answers`).
+///
+/// Extras follow the usual replace/add mode: replacing a resumed part removes its old extras,
+/// as it removes its old answers; pass every extra wanted in this write. Adding to foreign
+/// PMI leaves its existing attributes alone. No attribute is merged or updated by name.
+/// An empty slice is byte-identical to [`write_bytes`].
+pub fn write_bytes_with(
+    loaded: &LoadedPart,
+    intent: &Intent,
+    answers: Option<&Map<String, Json>>,
+    extra: &[AttributeSet],
+) -> Result<(Vec<u8>, WriteReport), WriteError> {
     if loaded.part_count != 1 {
         return invalid(format!(
             "{} has {} parts; writing in memory takes a file of one part",
@@ -257,7 +306,9 @@ pub fn write_bytes(
         ));
     }
     check_binding(loaded, intent)?;
-    write_verified(&[(loaded, intent, answers)])
+    let jobs = [(loaded, intent, answers)];
+    check_extra(&jobs, extra)?;
+    write_verified(&jobs, extra)
 }
 
 /// [`write_parts`] in memory: each part of one file with its intent, all in one edit, verified by
@@ -267,8 +318,37 @@ pub fn write_bytes(
 /// parts' bytes where the writer needs them. The jobs are refused as [`write_parts`] refuses
 /// them.
 pub fn write_parts_bytes(jobs: &[Job<'_>]) -> Result<(Vec<u8>, WriteReport), WriteError> {
+    write_parts_bytes_with(jobs, &[])
+}
+
+/// [`write_parts_bytes`] with caller attributes, following [`write_bytes_with`]'s rules.
+/// Nonempty extras require a file of one part, even when only one assembly part is being
+/// written. With an empty slice, assemblies work as in [`write_parts_bytes`].
+pub fn write_parts_bytes_with(
+    jobs: &[Job<'_>],
+    extra: &[AttributeSet],
+) -> Result<(Vec<u8>, WriteReport), WriteError> {
     check_jobs(jobs)?;
-    write_verified(jobs)
+    check_extra(jobs, extra)?;
+    write_verified(jobs, extra)
+}
+
+/// Reserve both names: resume reads descriptive items by name, independently of their set.
+fn check_extra(jobs: &[Job<'_>], extra: &[AttributeSet]) -> Result<(), WriteError> {
+    if extra.iter().any(|set| {
+        set.name == resume::NAME || set.items.iter().any(|(name, _)| name == resume::NAME)
+    }) {
+        return invalid(format!(
+            "extra attribute set and item names must not be '{}', reserved for stored answers",
+            resume::NAME
+        ));
+    }
+    if !extra.is_empty() && jobs[0].0.part_count != 1 {
+        return invalid(
+            "extra attributes require a file of one part; assemblies are not supported",
+        );
+    }
+    Ok(())
 }
 
 /// What [`write_parts`] and [`write_parts_bytes`] refuse before writing anything: no jobs, parts
@@ -431,7 +511,10 @@ struct Lines {
 
 /// Writes `jobs` and verifies the result by reading it back: the file's bytes and the report
 /// (its `output` the first part's path, for the caller to replace).
-fn write_verified(jobs: &[Job<'_>]) -> Result<(Vec<u8>, WriteReport), WriteError> {
+fn write_verified(
+    jobs: &[Job<'_>],
+    extra: &[AttributeSet],
+) -> Result<(Vec<u8>, WriteReport), WriteError> {
     let first = jobs[0].0;
     let bytes: &[u8] = &first.bytes;
     let source = Source::of(bytes)?;
@@ -507,6 +590,7 @@ fn write_verified(jobs: &[Job<'_>]) -> Result<(Vec<u8>, WriteReport), WriteError
             }
             _ => None,
         };
+        pmi.attributes.extend_from_slice(extra);
         planned.push(Planned {
             loaded,
             pmi,
