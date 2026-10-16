@@ -149,3 +149,15 @@ quiddity-rust's local-degradation retry, which made four features-area entries o
 13975 and 14052 stale (Rust now matches Python there); the release commit removes them and
 regenerates `docs/known-differences.md`. Overturnable judgement call: the section-recess entry's
 evidence is reworded to drop its 14052 example rather than left citing a case that now matches.
+
+## 0.1.0-alpha.4 release (2026-10-16)
+
+Prepared from `main` at 4bacb18: PR #12 adds verified caller attributes and PR #13 adds
+`specify-core-wasm`, shared review and the WASM release workflow. Both already had Unreleased
+entries, now dated for alpha.4. Both workspace crates and the WASM crate's exact core version
+requirement are 0.1.0-alpha.4; external dependency pins and versions are unchanged.
+
+Checks: `cargo fmt --all --check`, workspace/all-targets release Clippy with warnings denied,
+and `cargo test --workspace --release --locked --no-fail-fast` pass: 344 passed, 0 failed,
+0 ignored. Both `QUIDDITY_CORPUS` and `SPECIFY_CORPUS` were set to
+`/Users/paul/repos/quiddity/tests/corpus`; the 500-hole wall-clock gate passed.
