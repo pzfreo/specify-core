@@ -343,7 +343,7 @@ fn check_extra(jobs: &[Job<'_>], extra: &[AttributeSet]) -> Result<(), WriteErro
             resume::NAME
         ));
     }
-    if !extra.is_empty() && jobs[0].0.part_count != 1 {
+    if !extra.is_empty() && jobs.first().is_none_or(|job| job.0.part_count != 1) {
         return invalid(
             "extra attributes require a file of one part; assemblies are not supported",
         );
