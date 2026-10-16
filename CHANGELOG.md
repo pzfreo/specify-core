@@ -4,10 +4,10 @@ All notable changes to specify-core-rust. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.1.0-alpha.3 (2026-10-16)
 
-Pinned to quiddity-rust rev `0d601d2` (from `v0.1.0-alpha.3`); the next tagged release replaces
-the rev pin.
+Pinned by rev to quiddity-rust's 0.1.0-alpha.4 release commit `f5ddb72` (from `v0.1.0-alpha.3`,
+by way of rev `0d601d2`); no tag exists yet.
 
 ### Added
 
@@ -37,6 +37,12 @@ the rev pin.
   (Python's listing has no such key: recorded as `rust-correct` in `docs/known-differences.md`).
 
 ### Changed
+
+- quiddity-rust 0.1.0-alpha.4 takes Python's local-degradation retry, so on corpus parts 13975
+  and 14052 the features match Python's: the four entries for features only Rust reported there
+  (`holes:0` and `pockets:*` on 13975, `holes:8` and `plates:5.6` on 14052) are removed as stale,
+  and the section-recess entry no longer cites 14052 (`docs/known-differences.md`). No question
+  changes.
 
 - A gzipped STEP file is no longer refused ("the file is gzip-compressed; decompress it first");
   see Added.

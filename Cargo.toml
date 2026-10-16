@@ -1,6 +1,6 @@
 [package]
 name = "specify-core"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 description = "Interview-driven AP242 PMI authoring for STEP parts (Rust port of specify-core)"
@@ -12,12 +12,12 @@ path = "src/main.rs"
 
 [dependencies]
 # quiddity-rust: feature recognition (quiddity) and the geometry kernel with STEP import and
-# AP242 semantic PMI (haecceity). Both are pinned to quiddity-rust main at 0d601d2 (haecceity's
-# assemblies slice 1: StepFile, read_part, PartDefinition.product_id), which is past tag
-# v0.1.0-alpha.3; the next tagged release replaces this rev pin.
+# AP242 semantic PMI (haecceity). Both are pinned by rev to quiddity-rust's 0.1.0-alpha.4 release
+# commit f5ddb72 (the merge of its release PR #13); no tag exists yet, so a tag pin can replace
+# the rev once v0.1.0-alpha.4 is tagged at this commit.
 # See docs/design.md, "Dependency plan".
-quiddity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "0d601d207495dea60b1b6a7109bd3abd109bf745" }
-haecceity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "0d601d207495dea60b1b6a7109bd3abd109bf745" }
+quiddity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "f5ddb726783f2e9384a55164eb7e36a1ec9a6f7c" }
+haecceity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "f5ddb726783f2e9384a55164eb7e36a1ec9a6f7c" }
 base64 = "0.22.1"
 # Gzipped STEP input is decompressed in memory, and a `.gz` destination written gzipped.
 flate2 = "1.1.10"

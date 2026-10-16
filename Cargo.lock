@@ -125,8 +125,8 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "haecceity"
-version = "0.1.0-alpha.3"
-source = "git+https://github.com/pzfreo/quiddity-rust?rev=0d601d207495dea60b1b6a7109bd3abd109bf745#0d601d207495dea60b1b6a7109bd3abd109bf745"
+version = "0.1.0-alpha.4"
+source = "git+https://github.com/pzfreo/quiddity-rust?rev=f5ddb726783f2e9384a55164eb7e36a1ec9a6f7c#f5ddb726783f2e9384a55164eb7e36a1ec9a6f7c"
 dependencies = [
  "flate2",
  "i_overlay",
@@ -298,8 +298,8 @@ dependencies = [
 
 [[package]]
 name = "quiddity"
-version = "0.1.0-alpha.3"
-source = "git+https://github.com/pzfreo/quiddity-rust?rev=0d601d207495dea60b1b6a7109bd3abd109bf745#0d601d207495dea60b1b6a7109bd3abd109bf745"
+version = "0.1.0-alpha.4"
+source = "git+https://github.com/pzfreo/quiddity-rust?rev=f5ddb726783f2e9384a55164eb7e36a1ec9a6f7c#f5ddb726783f2e9384a55164eb7e36a1ec9a6f7c"
 dependencies = [
  "flate2",
  "haecceity",
@@ -433,7 +433,7 @@ dependencies = [
 
 [[package]]
 name = "specify-core"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "base64",
  "flate2",

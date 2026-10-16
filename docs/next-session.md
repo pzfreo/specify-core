@@ -139,3 +139,13 @@ Python-oracle fixtures were used unchanged. Commands used `CARGO_BUILD_JOBS=8`
 and `RUST_TEST_THREADS=8`. Only one Cargo command ran at a time. Existing exact
 oracle checks, including the complete CLI and write sweeps, pass without fixture
 updates or relaxed comparisons. `git diff --check` passes; the staged diff is empty.
+
+## 0.1.0-alpha.3 release (2026-10-16)
+
+Released from `main` at b61e2d7 (PRs #5 to #8 since alpha.2, each with its Unreleased entry),
+pinned by rev to quiddity-rust's 0.1.0-alpha.4 release commit f5ddb72 (the merge of
+quiddity-rust PR #13; no tag exists yet, so the pin is a rev, not a tag). The new pin brings
+quiddity-rust's local-degradation retry, which made four features-area entries on corpus parts
+13975 and 14052 stale (Rust now matches Python there); the release commit removes them and
+regenerates `docs/known-differences.md`. Overturnable judgement call: the section-recess entry's
+evidence is reworded to drop its 14052 example rather than left citing a case that now matches.

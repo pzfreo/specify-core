@@ -11,7 +11,7 @@ meshing input and PMI reading and writing from its haecceity kernel.
 
 ## Status
 
-**0.1.0-alpha.2 (2026-10-14)**; see [CHANGELOG.md](CHANGELOG.md).
+**0.1.0-alpha.3 (2026-10-16)**; see [CHANGELOG.md](CHANGELOG.md).
 
 Every module of specify-core is ported (part loading, features, existing PMI, the rules,
 mates, meshing, anchors, the writer with resume and assemblies, the API, the command line and
@@ -25,9 +25,9 @@ needs from quiddity-rust are in [docs/upstream-needs.md](docs/upstream-needs.md)
 decisions waiting for the maintainer in [docs/questions.md](docs/questions.md).
 
 As of stage 5 (consolidation, 2026-10-09) all five planned stages are on `main`. The full suite
-(324 tests, with the quiddity corpus) passes, last on 2026-10-14 at quiddity-rust's alpha 3.
-quiddity and haecceity are pinned to quiddity-rust's tag `v0.1.0-alpha.3`, which has the
-maintainer's haecceity writer decisions of 2026-10-09 and haecceity's U10 and U14 (question Q2).
+(337 tests, with the quiddity corpus) passes, last on 2026-10-16 at quiddity-rust's alpha 4.
+quiddity and haecceity are pinned by rev to quiddity-rust's 0.1.0-alpha.4 release commit
+(`f5ddb72`, not yet tagged), which has the maintainer's haecceity writer decisions of 2026-10-09 and haecceity's U10 and U14 (question Q2).
 
 OpenCascade (and so specify-core's Python) opens every Rust-written file and reads its datums,
 sizes and tolerances, on one face or several (Q16, Q20; `tests/cross_engine.rs`); it reads a fit
