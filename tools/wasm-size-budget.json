@@ -1,0 +1,22 @@
+{
+  "artifact": "crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm",
+  "build_command": "wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked",
+  "measured_on": "2026-10-16",
+  "toolchain": {
+    "rust": "1.99",
+    "wasm_pack": "0.15.0",
+    "wasm_opt": "117",
+    "node": "26.9.0"
+  },
+  "compression": {
+    "gzip_level": 9,
+    "brotli_quality": 11
+  },
+  "baseline": {
+    "raw_bytes": 10197823,
+    "gzip_bytes": 3157943,
+    "brotli_bytes": 2148100
+  },
+  "ceiling_bytes": 11800000,
+  "ceiling_policy": "Raw optimized WASM, baseline plus 15%, rounded up to 100,000 bytes; increases require a reviewed edit."
+}

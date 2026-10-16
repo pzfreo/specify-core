@@ -4,6 +4,19 @@ All notable changes to specify-core-rust. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### WASM API
+
+- Add a reviewed TypeScript API snapshot and CI acknowledgement gate: declaration or snapshot
+  changes require a new Unreleased WASM API bullet; refresh with `python3 tools/check_wasm_api.py --update`.
+
+### Added
+
+- Enforce a reviewed optimized WASM size ceiling, with raw, gzip and Brotli measurements and
+  headroom on every build. Compare both quiddity kernel pins with Draftwright's latest release
+  on main and before uploading releases; mismatches warn and add a Kernel note to release notes.
+
 ## 0.1.0-alpha.4 (2026-10-16)
 
 ### Added
