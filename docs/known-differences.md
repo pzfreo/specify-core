@@ -15,13 +15,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [cli](#cli) | 11 | 0 | 3 | 0 | 3 | 17 |
 | [cross_engine](#cross_engine) | 3 | 1 | 0 | 1 | 1 | 6 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
-| [features](#features) | 879 | 1419 | 65 | 1391 | 11 | 3765 |
+| [features](#features) | 879 | 1419 | 65 | 1387 | 11 | 3761 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 40 |
 | [rules](#rules) | 6 | 0 | 0 | 0 | 0 | 6 |
 | [writer](#writer) | 14 | 0 | 0 | 0 | 15 | 29 |
-| **all** | 949 | 1437 | 79 | 1397 | 47 | 3909 |
+| **all** | 949 | 1437 | 79 | 1393 | 47 | 3905 |
 
 ## anchors
 
@@ -293,7 +293,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **a section recess Python lists is missing in Rust** (`*` at `features[id=section_recesses:*]`)
 
-  Since v0.1.0-alpha.2 quiddity-rust publishes section_recesses in Features, but not as Python does in two cases: Python's evidence view lists refused regions (record with a reason, e.g. unsupported_support_geometry) as features, which quiddity-rust carries as refusals in its recognition document, not in Features; and where Python recovers by local degradation and quiddity-rust refuses (e.g. 14052; quiddity-rust's known limitation). Upstream need U12; specify-core's rules read only holes, hole_patterns and turned_steps, so no question changes, but the picker's feature list does.
+  Since v0.1.0-alpha.2 quiddity-rust publishes section_recesses in Features, but not as Python does: Python's evidence view lists refused regions (record with a reason, e.g. unsupported_support_geometry) as features, which quiddity-rust carries as refusals in its recognition document, not in Features. (Since 0.1.0-alpha.4 quiddity-rust also takes Python's local-degradation retry, so 13975 and 14052 match Python.) Upstream need U12; specify-core's rules read only holes, hole_patterns and turned_steps, so no question changes, but the picker's feature list does.
 
 - **risers: no such family in quiddity-rust** (`*` at `features[id=risers:*]`)
 
@@ -393,7 +393,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   A difference of 1e-7 mm: the face's plane is at z = -40 in the STEP file; Python's value carries OpenCascade's tolerance noise, Rust's is the plane's exact height.
 
-### features: undetermined (1391 entries)
+### features: undetermined (1387 entries)
 
 - **face numbering differs from OpenCascade's** (`corpus/inventory_refusal/13975` at `faces[*`)
 
@@ -491,21 +491,17 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The Rust feature on these faces (listed beside it as Rust only) is composed differently: other faces or a record differing beyond a micron.
 
-- **holes reported by Rust only** (5 entries, 5 case globs)
+- **holes reported by Rust only** (3 entries, 3 case globs)
 
-  The evidence is stated per entry (5 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb217` at `features[id=holes:319]`: Python's holes feature(s) holes:315.319.331.333.335.337.339.341.343 share faces with it but differ in record or faces (the two quiddities compose it differently).
+  The evidence is stated per entry (3 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb217` at `features[id=holes:319]`: Python's holes feature(s) holes:315.319.331.333.335.337.339.341.343 share faces with it but differ in record or faces (the two quiddities compose it differently).
 
 - **interior_voids reported by Rust only** (2 entries, 2 case globs)
 
   The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb217` at `features[id=interior_voids:26.41]`: Python's interior_voids feature(s) interior_voids:25.26.28.40.41.53 share faces with it but differ in record or faces (the two quiddities compose it differently).
 
-- **plates reported by Rust only** (2 entries, 2 case globs)
+- **plates reported by Rust only** (`corpus/gramel/GRM-03_thumbwheel_drive_screw` at `features[id=plates:0.7.11]`)
 
-  The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/gramel/GRM-03_thumbwheel_drive_screw` at `features[id=plates:0.7.11]`: Python's cross-family reconciliation gives these faces to risers and drops this plates record; quiddity-rust does not reconcile (U2).
-
-- **pockets: Rust only** (58 entries, 58 case globs)
-
-  The evidence is stated per entry (6 distinct; all in `features.json`). The first, for `corpus/inventory_refusal/13975` at `features[id=pockets:*]`: quiddity-rust's pockets family; Python quiddity 0.3.9 recognises it but its evidence view leaves the recess source families out (evidence.py, _registry.RECESS_SOURCE_FAMILIES) and reports their section_recesses aggregate instead (not ported); Python gives these faces to no feature.
+  Python's cross-family reconciliation gives these faces to risers and drops this plates record; quiddity-rust does not reconcile (U2).
 
 - **prismatic_pockets: Rust only** (39 entries, 39 case globs)
 
@@ -514,6 +510,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **channels: Rust only** (11 entries, 11 case globs)
 
   The evidence is stated per entry (5 distinct; all in `features.json`). The first, for `corpus/mfcadpp/1000` at `features[id=channels:*]`: quiddity-rust's channels family; Python quiddity 0.3.9 recognises it but its evidence view leaves the recess source families out (evidence.py, _registry.RECESS_SOURCE_FAMILIES) and reports their section_recesses aggregate instead (not ported); Python gives these faces to plates, section_recesses.
+
+- **pockets: Rust only** (57 entries, 57 case globs)
+
+  The evidence is stated per entry (5 distinct; all in `features.json`). The first, for `corpus/mfcadpp/1000` at `features[id=pockets:*]`: quiddity-rust's pockets family; Python quiddity 0.3.9 recognises it but its evidence view leaves the recess source families out (evidence.py, _registry.RECESS_SOURCE_FAMILIES) and reports their section_recesses aggregate instead (not ported); Python gives these faces to section_recesses, step_levels.
 
 - **section_passages: Rust only** (42 entries, 42 case globs)
 
@@ -926,20 +926,68 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
 - **interior_voids reported by Python only** (2 entries)
   - `corpus/cadgenbench_inputs/cgb217`: `features[id=interior_voids:25.26.28.40.41.53]`
   - `corpus/cadgenbench_inputs/cgb243`: `features[id=interior_voids:29.30.31.32.33.34.75.126.127.128.139.146.147.153.158.159.186.220.226.227.528.529.530.531.532.533.534.535]`
-- **holes reported by Rust only** (5 entries)
+- **holes reported by Rust only** (3 entries)
   - `corpus/cadgenbench_inputs/cgb217`: `features[id=holes:319]`
   - `corpus/cadgenbench_inputs/cgb242`: `features[id=holes:156.158.173.185]`
   - `corpus/cadgenbench_inputs/cgb243`: `features[id=holes:133.134.135.136.137.138.139.140.141.142.143.144.145.146.187]`
-  - `corpus/inventory_refusal/13975`: `features[id=holes:0]`
-  - `corpus/inventory_refusal/14052`: `features[id=holes:8]`
 - **interior_voids reported by Rust only** (2 entries)
   - `corpus/cadgenbench_inputs/cgb217`: `features[id=interior_voids:26.41]`
   - `corpus/cadgenbench_inputs/cgb243`: `features[id=interior_voids:31.32.33.34.126.227.528.529.530.531.532.533]`
-- **plates reported by Rust only** (2 entries)
+- **plates reported by Rust only** (1 entry)
   - `corpus/gramel/GRM-03_thumbwheel_drive_screw`: `features[id=plates:0.7.11]`
-  - `corpus/inventory_refusal/14052`: `features[id=plates:5.6]`
-- **pockets: Rust only** (58 entries)
-  - `corpus/inventory_refusal/13975`: `features[id=pockets:*]`
+- **prismatic_pockets: Rust only** (39 entries)
+  - `corpus/inventory_refusal/14052`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/1000`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/10000`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/10020`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/10033`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/10038`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/1004`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/10046`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/10047`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/10063`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/1007`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/10098`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/10127`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/10138`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/10167`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/1017`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/10170`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/10190`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/10245`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp/10278`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/118`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/163`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/16943`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/181`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/196`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/200`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/20273`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/203`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/205`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/229`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/244`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/257`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/265`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/274`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/317`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/408`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/464`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/483`: `features[id=prismatic_pockets:*]`
+  - `corpus/mfcadpp_holdout/808`: `features[id=prismatic_pockets:*]`
+- **channels: Rust only** (11 entries)
+  - `corpus/mfcadpp/1000`: `features[id=channels:*]`
+  - `corpus/mfcadpp/10047`: `features[id=channels:*]`
+  - `corpus/mfcadpp/10092`: `features[id=channels:*]`
+  - `corpus/mfcadpp/10138`: `features[id=channels:*]`
+  - `corpus/mfcadpp/10224`: `features[id=channels:*]`
+  - `corpus/mfcadpp_holdout/274`: `features[id=channels:*]`
+  - `corpus/mfcadpp_holdout/363`: `features[id=channels:*]`
+  - `corpus/mfcadpp_holdout/419`: `features[id=channels:*]`
+  - `corpus/mfcadpp_holdout/498`: `features[id=channels:*]`
+  - `corpus/mfcadpp_holdout/808`: `features[id=channels:*]`
+  - `parts/default_datum_a_takes_every_coplanar_face`: `features[id=channels:*]`
+- **pockets: Rust only** (57 entries)
   - `corpus/mfcadpp/1000`: `features[id=pockets:*]`
   - `corpus/mfcadpp/10000`: `features[id=pockets:*]`
   - `corpus/mfcadpp/10020`: `features[id=pockets:*]`
@@ -997,58 +1045,6 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `nist/nist_ctc_02_asme1_ap242#0`: `features[id=pockets:*]`
   - `nist/nist_ctc_05_asme1_ap242`: `features[id=pockets:*]`
   - `parts/default_datum_a_takes_every_coplanar_face`: `features[id=pockets:*]`
-- **prismatic_pockets: Rust only** (39 entries)
-  - `corpus/inventory_refusal/14052`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/1000`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10000`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10020`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10033`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10038`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/1004`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10046`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10047`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10063`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/1007`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10098`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10127`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10138`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10167`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/1017`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10170`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10190`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10245`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp/10278`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/118`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/163`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/16943`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/181`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/196`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/200`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/20273`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/203`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/205`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/229`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/244`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/257`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/265`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/274`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/317`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/408`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/464`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/483`: `features[id=prismatic_pockets:*]`
-  - `corpus/mfcadpp_holdout/808`: `features[id=prismatic_pockets:*]`
-- **channels: Rust only** (11 entries)
-  - `corpus/mfcadpp/1000`: `features[id=channels:*]`
-  - `corpus/mfcadpp/10047`: `features[id=channels:*]`
-  - `corpus/mfcadpp/10092`: `features[id=channels:*]`
-  - `corpus/mfcadpp/10138`: `features[id=channels:*]`
-  - `corpus/mfcadpp/10224`: `features[id=channels:*]`
-  - `corpus/mfcadpp_holdout/274`: `features[id=channels:*]`
-  - `corpus/mfcadpp_holdout/363`: `features[id=channels:*]`
-  - `corpus/mfcadpp_holdout/419`: `features[id=channels:*]`
-  - `corpus/mfcadpp_holdout/498`: `features[id=channels:*]`
-  - `corpus/mfcadpp_holdout/808`: `features[id=channels:*]`
-  - `parts/default_datum_a_takes_every_coplanar_face`: `features[id=channels:*]`
 - **section_passages: Rust only** (42 entries)
   - `corpus/mfcadpp/1000`: `features[id=section_passages:*]`
   - `corpus/mfcadpp/10007`: `features[id=section_passages:*]`
