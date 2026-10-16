@@ -105,6 +105,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// written}` each, `written` saying whether specify-core has written the part (answers stored
 /// for it). A part is identified by `part`, its index (decision D1); `name` and `product_id`
 /// are reported beside it and need not be unique.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn parts(step: &Path) -> Result<Vec<Value>> {
     let file = part::File::read(step)?;
     let stored = resume::stored(file.bytes());
@@ -123,6 +124,7 @@ pub fn parts(step: &Path) -> Result<Vec<Value>> {
 /// The analysis of the `part`-th part of `step` (any part of a file of one part; a file of
 /// several must say which). See [`analyse`]. The file is read once, for the part and, in an
 /// assembly, the other parts its mates need.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn analyse_file(step: &Path, part: Option<usize>) -> Result<Value> {
     let file = part::File::read(step)?;
     let loaded = file.load(part)?;
@@ -262,6 +264,30 @@ pub fn questions(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Q
     Ok(rules::questions(analysis, answers)?)
 }
 
+/// The front end's review: presented questions (including diameter and depth), open
+/// question ids, preview intent and problems. Geometry anchors require a loaded part and
+/// can be added by the caller with [`anchors`]. All values cross front end boundaries as JSON.
+pub fn review(analysis: &Value, answers: &Map<String, Value>) -> Result<Value> {
+    let questions = questions(analysis, answers)?;
+    let open: Vec<_> = rules::open_questions(&questions, answers)
+        .iter()
+        .map(|question| question.id.clone())
+        .collect();
+    let intent = preview(analysis, answers)?;
+    let problems = crate::problems::problems(analysis, answers)?;
+    Ok(json!({
+        "questions": questions.iter().map(|question| {
+            let mut value = question.to_presented_dict();
+            if let Some(diameter) = question.diameter { value["diameter"] = json!(diameter); }
+            if let Some(depth) = question.depth { value["depth"] = json!(depth); }
+            value
+        }).collect::<Vec<_>>(),
+        "open": open,
+        "intent": intent.to_dict(),
+        "problems": problems,
+    }))
+}
+
 /// Intent from `answers`; with `accept_defaults`, unanswered defaults are taken first, to a
 /// fixed point (some questions only exist once an earlier default is taken).
 pub fn apply(
@@ -297,6 +323,7 @@ pub fn intent_part(intent: &Intent) -> Result<usize> {
 /// Write `intent` into `loaded`'s file at `output`, verified by reading back. Given the
 /// `answers` it came from, they are stored in the file too, so that opening it again resumes
 /// them.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn write(
     loaded: &LoadedPart,
     intent: &Intent,
@@ -307,6 +334,7 @@ pub fn write(
 }
 
 /// [`write`] on `step`, loading the part the intent was made for.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn write_file(
     step: &Path,
     intent: &Intent,
@@ -319,6 +347,7 @@ pub fn write_file(
 
 /// Write several parts of the assembly `step` together: each intent on the part it was made
 /// for, with the answers it came from (or none).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn write_parts(
     step: &Path,
     intents: &[(Intent, Option<Map<String, Value>>)],
@@ -380,6 +409,7 @@ pub fn mesh(loaded: &LoadedPart) -> Value {
 }
 
 /// [`mesh`] of the `part`-th part of `step`.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn mesh_file(step: &Path, part: Option<usize>) -> Result<Value> {
     Ok(mesh(&part::load(step, part)?))
 }

@@ -8,6 +8,17 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- Browser package `specify-core-wasm` in a Cargo workspace (issue #11), preserving the
+  editor's `IntentEngine`, JSON review/interpretation and verified PMI writing API, including
+  face-order checks, geometry anchors and the optional `draftwright editor project` attribute
+  via the upstream writer. Shared `api::review` composes presented questions, open ids, preview
+  intent and problems for any front end. Filesystem APIs and the line service are cfg-gated
+  out of WASM; native entry points and default Cargo commands retain their behaviour.
+- `wasm-release` profile (LTO, one codegen unit, optimization level 3), wasm-pack builds and
+  Node/native parity on PRs and main; published `v*` releases attach a web `pkg/` tarball and
+  SHA-256 checksum after parity verification. Actions are SHA-pinned, release write access is
+  job-scoped, and nothing is published to npm. See `docs/wasm.md` for use and editor migration.
+
 - `writer::{write_bytes_with, write_parts_bytes_with}` accepts caller-provided
   `&[haecceity::pmi::AttributeSet]`, written and verified in the same edit as the PMI and stored
   answers (issue #10). `writer::{write_with, write_parts_with}` also supports atomic file

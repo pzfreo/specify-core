@@ -1,0 +1,52 @@
+name: Release WASM
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  wasm:
+    if: startsWith(github.event.release.tag_name, 'v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - run: rustup toolchain install
+      - run: rustup target add wasm32-unknown-unknown
+      - run: cargo install wasm-pack --version 0.15.0 --locked
+      - name: Verify release version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python3 - <<'PY'
+          import os, tomllib
+          version = os.environ['TAG'].removeprefix('v')
+          for path in ['Cargo.toml', 'crates/specify-core-wasm/Cargo.toml']:
+              with open(path, 'rb') as source:
+                  assert tomllib.load(source)['package']['version'] == version, path
+          PY
+      - run: wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --no-opt --locked
+      - run: cargo build --locked --release -p specify-core-wasm --example parity_reference
+      - run: node scripts/wasm-parity.mjs
+      - name: Archive, checksum and attach package
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version="${TAG#v}"
+          archive="specify-core-wasm-${version}.tgz"
+          tar -czf "$archive" -C crates/specify-core-wasm pkg
+          sha256sum "$archive" > "$archive.sha256"
+          gh release upload "$TAG" "$archive" "$archive.sha256" --clobber
