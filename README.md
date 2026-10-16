@@ -45,6 +45,17 @@ cargo build --release          # target/release/specify-core
 
 Rust 1.99 (`rust-toolchain.toml`).
 
+The workspace also builds **`specify-core-wasm`**, a browser ES module with TypeScript
+bindings. Published `v*` releases attach `specify-core-wasm-<version>.tgz` (containing `pkg/`)
+and a SHA-256 checksum; there is no npm publication. Its `IntentEngine` opens STEP bytes,
+returns JSON snapshots/reviews and writes verified PMI with an optional embedded editor
+project. Free `review` and `interpret` functions also take JSON strings. See
+[docs/wasm.md](docs/wasm.md) for installation, the API, build/parity checks and editor migration.
+
+```bash
+wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --no-opt --locked
+```
+
 ## Use
 
 The command line is specify-core's: the same subcommands, arguments, JSON files, stdout
@@ -96,7 +107,7 @@ echo '{"id": 1, "op": "analyse", "step": "part.step"}' | specify-core serve
 
 - `part::File::{read, of_bytes, load, load_all}` reads a file once and loads its parts;
   `part::load_bytes` loads a single-part STEP held in memory.
-- `api::{analyse, preview}` analyses a loaded part and turns answers into its bound intent.
+- `api::{analyse, preview, review}` analyses a loaded part, turns answers into its bound intent, and composes a front end review.
 - `writer::{write, write_parts}` writes verified PMI and stored answers to a destination;
   `writer::{write_bytes, write_parts_bytes}` returns the same verified STEP bytes in memory.
 - `writer::{write_bytes_with, write_parts_bytes_with}` adds `extra: &[haecceity::pmi::AttributeSet]`
