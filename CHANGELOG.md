@@ -4,6 +4,21 @@ All notable changes to specify-core-rust. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- `writer::{write_bytes_with, write_parts_bytes_with}` accepts caller-provided
+  `&[haecceity::pmi::AttributeSet]`, written and verified in the same edit as the PMI and stored
+  answers (issue #10). `writer::{write_with, write_parts_with}` also supports atomic file
+  output, including `.gz` destinations. Existing APIs delegate with an empty slice and keep
+  their signatures and bytes. Nonempty extras require a single-part file; both set and item
+  names reserve `pmi-assist answers` to protect resume. Extras follow the existing replace/add
+  behaviour: replace removes old attributes, so callers resupply those wanted; add preserves
+  existing attributes. Tests mirror the editor's base64 `draftwright editor project`, including
+  readback through haecceity, resumed answers, name clashes, empty-slice parity, rewrites,
+  foreign PMI and gzip output.
+
 ## 0.1.0-alpha.3 (2026-10-16)
 
 Pinned by rev to quiddity-rust's 0.1.0-alpha.4 release commit `f5ddb72` (from `v0.1.0-alpha.3`,
