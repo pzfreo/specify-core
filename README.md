@@ -11,7 +11,7 @@ meshing input and PMI reading and writing from its haecceity kernel.
 
 ## Status
 
-**0.1.0-alpha.3 (2026-10-16)**; see [CHANGELOG.md](CHANGELOG.md).
+**0.1.0-alpha.4 (2026-10-16)**; see [CHANGELOG.md](CHANGELOG.md).
 
 Every module of specify-core is ported (part loading, features, existing PMI, the rules,
 mates, meshing, anchors, the writer with resume and assemblies, the API, the command line and
@@ -25,7 +25,7 @@ needs from quiddity-rust are in [docs/upstream-needs.md](docs/upstream-needs.md)
 decisions waiting for the maintainer in [docs/questions.md](docs/questions.md).
 
 As of stage 5 (consolidation, 2026-10-09) all five planned stages are on `main`. The full suite
-(337 tests, with the quiddity corpus) passes, last on 2026-10-16 at quiddity-rust's alpha 4.
+(344 tests, with the quiddity corpus) passes, last on 2026-10-16 at quiddity-rust's alpha 4.
 quiddity and haecceity are pinned by rev to quiddity-rust's 0.1.0-alpha.4 release commit
 (`f5ddb72`, not yet tagged), which has the maintainer's haecceity writer decisions of 2026-10-09 and haecceity's U10 and U14 (question Q2).
 

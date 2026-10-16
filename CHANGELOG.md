@@ -4,11 +4,11 @@ All notable changes to specify-core-rust. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.1.0-alpha.4 (2026-10-16)
 
 ### Added
 
-- Browser package `specify-core-wasm` in a Cargo workspace (issue #11), preserving the
+- Browser package `specify-core-wasm` in a Cargo workspace (issue #11, PR #13), preserving the
   editor's `IntentEngine`, JSON review/interpretation and verified PMI writing API, including
   face-order checks, geometry anchors and the optional `draftwright editor project` attribute
   via the upstream writer. Shared `api::review` composes presented questions, open ids, preview
@@ -21,7 +21,7 @@ All notable changes to specify-core-rust. The format follows
 
 - `writer::{write_bytes_with, write_parts_bytes_with}` accepts caller-provided
   `&[haecceity::pmi::AttributeSet]`, written and verified in the same edit as the PMI and stored
-  answers (issue #10). `writer::{write_with, write_parts_with}` also supports atomic file
+  answers (issue #10, PR #12). `writer::{write_with, write_parts_with}` also supports atomic file
   output, including `.gz` destinations. Existing APIs delegate with an empty slice and keep
   their signatures and bytes. Nonempty extras require a single-part file; both set and item
   names reserve `pmi-assist answers` to protect resume. Extras follow the existing replace/add
