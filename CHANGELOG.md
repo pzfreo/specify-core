@@ -6,6 +6,16 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- Turned parts with a common principal axis now default to A on the largest recognised turned
+  diameter (cylindrical area breaks equal-diameter ties) and B on a perpendicular locating
+  shoulder (assembly contact first, otherwise largest area). Explicit datum answers and file
+  datums retain precedence; prismatic parts keep plane datums. Coaxial holes use diametral
+  position to A and are recognised as located by that axis; offset and cross holes still need
+  location. Runout follows the primary axis. See `docs/turned-defaults.md` for detection,
+  ISO 1101 zone interpretation and before/after corpus verification.
+
 ### WASM API
 
 - Add a reviewed TypeScript API snapshot and CI acknowledgement gate: declaration or snapshot

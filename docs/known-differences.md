@@ -19,9 +19,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 40 |
-| [rules](#rules) | 6 | 0 | 0 | 0 | 0 | 6 |
+| [rules](#rules) | 20 | 0 | 0 | 0 | 0 | 20 |
 | [writer](#writer) | 14 | 0 | 0 | 0 | 15 | 29 |
-| **all** | 949 | 1437 | 79 | 1393 | 47 | 3905 |
+| **all** | 963 | 1437 | 79 | 1393 | 47 | 3919 |
 
 ## anchors
 
@@ -685,7 +685,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## rules
 
-### rules: rust-correct (6 entries)
+### rules: rust-correct (20 entries)
 
 - **a knurl's teeth derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].teeth`)
 
@@ -710,6 +710,10 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **a knurl's derived derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].derived`)
 
   The maintainer's decision Q4/Q15 (docs/questions.md): AP242's turned_knurl needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9), so the Rust rules derive them from the knurling standard and state each in the intent with its source, visible and editable ('standard': 'DIN 82', 'derived': key to source). Values: teeth round(pi x 10 / 1) = 31, the pitch kept at the tool's 1 mm; tooth depth P/2 = 0.5, the depth of DIN 82's 90 degree profile (IS 3403:1981 3.1; assumed, no table gives it); root fillet 0.1, the knurling wheel's crest radius up to 1 mm pitch (IS 6776:1980 4.3); a diamond's helix angle 30 degrees and no hand (DIN 82 type RGE). Checked in tests/threads.rs. Python's knurl states pattern, pitch and diameter only.
+
+- **axis-first turned datum defaults and their dependent questions and intent** (14 entries, 14 case globs)
+
+  Axis-first turned datums: largest recognised principal diameter (area breaks ties), then a perpendicular contact/largest shoulder. Axial holes use diametral position to A alone; other holes keep the full frame. Runout uses A and is not offered on the datum diameter itself. A mostly prismatic body or different principal axes keeps plane datums. tests/turned_defaults.rs checks captured and live corpus geometry, overrides, offsets, cross holes and shoulder contacts. tests/fixtures/turned_defaults_oracle.json.gz is an additional exact regression guard on EVERY changed path and both values (including question ordering and all other rules); rules_oracle asserts that complete list before applying these verdict entries, so these scopes cannot hide further differences. See docs/turned-defaults.md.
 
 ## writer
 

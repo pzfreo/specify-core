@@ -511,6 +511,15 @@ fn all_questions(
         if !by_position || bores.iter().any(|i| ctx.positioned.contains(i)) {
             return Ok(Vec::new());
         }
+        // ISO 1101 diametral position with zero nominal offset controls the hole's
+        // median line in a cylindrical zone coaxial with A. The shoulder does not
+        // constrain that zone; keep B for axial dimensions and other features.
+        if datums::datum_of(&bores, &datums).is_none()
+            && datums::turned_axis(ctx)?.is_some()
+            && datums::axis_locates(&bores, &datums, &ctx.faces)?
+        {
+            return Ok(vec!["A".to_string()]);
+        }
         Ok(datums::hole_frames(&bores, &datums, &controls, &frames))
     };
     let covered = |ids: &[i64]| ids.iter().any(|i| ctx.covered.contains(i));
@@ -796,7 +805,12 @@ fn reviewed(mut q: Question, faces: &Faces) -> Result<Question> {
         q.attention = "check";
         return Ok(q);
     }
-    if q.id == "datum.A" {
+    if q.id == "datum.A"
+        && !q
+            .faces
+            .iter()
+            .any(|&i| faces.get(i).is_some_and(|f| f.is_cylinder()))
+    {
         let doubt = datums::datum_a_doubt(faces)?;
         if !doubt.is_empty() {
             q.attention = "check";

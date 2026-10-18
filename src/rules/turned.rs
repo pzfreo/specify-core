@@ -104,8 +104,8 @@ pub(crate) fn turned_question(group: &[&Feature<'_>], ctx: &Ctx<'_>) -> Result<Q
 }
 
 /// `_runout_frame`: the frame a turned diameter's runout is measured from (the datums up to
-/// and including the part's axis: those given, else those that would be proposed, a face then
-/// the axis) and the axis datum's faces. None for a part with no datum axis.
+/// and including the part's axis: those given, else those that would be proposed) and the
+/// axis datum's faces. None for a part with no datum axis.
 pub(crate) fn runout_frame(ctx: &Ctx<'_>, datums: &Datums) -> Result<Option<(String, Vec<i64>)>> {
     if !datums.is_empty() {
         let letters = datums.letters();
@@ -120,6 +120,9 @@ pub(crate) fn runout_frame(ctx: &Ctx<'_>, datums: &Datums) -> Result<Option<(Str
         return Ok(Some((frame, datums.0[at].1.faces.clone())));
     }
     let (a, b, _) = ctx.default_datums()?;
+    if !a.is_empty() && classify(a, &ctx.faces)? == Some(DatumKind::Axis) {
+        return Ok(Some(("A".to_string(), a.clone())));
+    }
     if !a.is_empty()
         && !b.is_empty()
         && classify(a, &ctx.faces)? == Some(DatumKind::Plane)

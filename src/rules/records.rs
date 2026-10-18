@@ -477,8 +477,9 @@ impl<'a> Ctx<'a> {
     /// `_default_datums(faces, features)`, worked out once.
     pub fn default_datums(&self) -> Result<&DefaultDatums> {
         self.default_datums
-            .get_or_init(|| {
-                super::datums::default_datums(&self.faces, self.has_family("turned_steps"))
+            .get_or_init(|| match super::datums::turned_axis(self)? {
+                Some(axis) => super::datums::turned_datums(&self.faces, axis),
+                None => super::datums::default_datums(&self.faces, false),
             })
             .as_ref()
             .map_err(Clone::clone)

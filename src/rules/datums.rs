@@ -67,9 +67,14 @@ pub(crate) fn coplanar(f: &Face, g: &Face) -> Result<bool> {
     Ok(same_direction(&n, &g.direction()?) && offset.abs() < 1e-4)
 }
 
-/// `_coaxial`: the same radius on one axis.
+/// `_coaxial`: the same radius on one axis (faces of one diameter).
 pub(crate) fn coaxial(f: &Face, g: &Face) -> Result<bool> {
-    if (f.radius()? - g.radius()?).abs() > 1e-6 || !parallel(&f.direction()?, &g.direction()?) {
+    Ok((f.radius()? - g.radius()?).abs() <= 1e-6 && same_axis(f, g)?)
+}
+
+/// One axis, independent of diameter and direction sign.
+pub(crate) fn same_axis(f: &Face, g: &Face) -> Result<bool> {
+    if !parallel(&f.direction()?, &g.direction()?) {
         return Ok(false);
     }
     let (o, p) = (f.origin()?, g.origin()?);
@@ -118,46 +123,25 @@ fn planes_by_area(faces: &Faces) -> Result<Vec<&Face>> {
     Ok(planes.into_iter().map(|(f, _)| f).collect())
 }
 
-/// `_default_datums`: A the face the part rests on in its assembly, else the largest plane,
-/// with every face coplanar with it; on a turned part B is the largest cylinder on the axis A
-/// is square to (and every face coaxial with it); otherwise B is the largest plane square to A
-/// and C the largest square to both. `turned`: the part has turned steps.
+/// Default datums. With `turned`, A is the largest diameter (area breaks diameter ties),
+/// including every split face of that diameter; B is a perpendicular locating face, preferring
+/// assembly contact, otherwise the largest area. C is empty: a surface of revolution has no
+/// clocking datum. Without `turned`, retain the resting/largest plane and square planes.
+/// Callers with recognised features use `turned_axis` to establish whether the part is turned.
 pub fn default_datums(faces: &Faces, turned: bool) -> Result<DefaultDatums> {
+    if turned {
+        let cylinders: Vec<_> = faces.iter().filter(|f| f.is_cylinder()).collect();
+        if let Some(axis) = primary_cylinder(&cylinders)? {
+            return turned_datums(faces, axis);
+        }
+    }
     let planes = planes_by_area(faces)?;
     let Some(&largest) = planes.first() else {
         return Ok((Vec::new(), Vec::new(), Vec::new()));
     };
     let a = resting_face(&planes)?.unwrap_or(largest);
-    let mut a_ids = Vec::new();
-    for p in &planes {
-        if coplanar(p, a)? {
-            a_ids.push(p.id);
-        }
-    }
-    a_ids.sort_unstable();
+    let a_ids = coplanar_ids(&planes, a)?;
     let normal = a.direction()?;
-    if turned {
-        let mut cylinders: Vec<(&Face, f64)> = Vec::new();
-        for f in faces.iter().filter(|f| f.is_cylinder()) {
-            if parallel(&f.direction()?, &normal) {
-                cylinders.push((f, f.area()?));
-            }
-        }
-        py::sort_by_float(&mut cylinders, |(_, area)| -area);
-        // With no cylinder on A's axis there is no B (Python's comprehension over none never
-        // reads cylinders[0]).
-        let Some(&(widest, _)) = cylinders.first() else {
-            return Ok((a_ids, Vec::new(), Vec::new()));
-        };
-        let mut b_ids = Vec::new();
-        for (f, _) in &cylinders {
-            if coaxial(f, widest)? {
-                b_ids.push(f.id);
-            }
-        }
-        b_ids.sort_unstable();
-        return Ok((a_ids, b_ids, Vec::new()));
-    }
     let mut square = Vec::new();
     for p in &planes {
         if perpendicular(&p.direction()?, &normal) {
@@ -176,6 +160,112 @@ pub fn default_datums(faces: &Faces, turned: bool) -> Result<DefaultDatums> {
         }
     }
     Ok((a_ids, vec![b.id], c))
+}
+
+/// Largest diameter, then greatest total area of its split cylindrical faces (the longest
+/// seat at an equal diameter), then first in analysis order. Do not combine different diameters
+/// into a datum: they establish the same nominal axis but are distinct datum features.
+fn primary_cylinder<'f>(cylinders: &[&'f Face]) -> Result<Option<&'f Face>> {
+    let mut best: Option<(&Face, f64, f64)> = None;
+    for &f in cylinders {
+        let radius = f.radius()?;
+        let mut area = 0.0;
+        for &g in cylinders {
+            if coaxial(f, g)? {
+                area += g.area()?;
+            }
+        }
+        if best.is_none_or(|(_, r, a)| radius > r || (radius == r && area > a)) {
+            best = Some((f, radius, area));
+        }
+    }
+    Ok(best.map(|(f, _, _)| f))
+}
+
+/// Explicit turned-part detection: recognised turned-step cylinders must share one axis and
+/// dominate the lateral planar area. This admits auxiliary cross holes, flats and keyways,
+/// while a boss on a mostly prismatic body or steps on different axes retain plane datums.
+/// Only recognised principal diameters are candidates for A, never an auxiliary hole.
+pub(crate) fn turned_axis<'c>(ctx: &'c Ctx<'_>) -> Result<Option<&'c Face>> {
+    let mut ids = Vec::new();
+    for feature in ctx.features.iter().filter(|f| f.family == "turned_steps") {
+        for &id in feature.faces()? {
+            if ctx.faces.at(id)?.is_cylinder() && !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+    }
+    let cylinders: Vec<_> = ids
+        .iter()
+        .map(|&i| ctx.faces.at(i))
+        .collect::<Result<_>>()?;
+    let Some(axis) = primary_cylinder(&cylinders)? else {
+        return Ok(None);
+    };
+    if !all(&cylinders, |f| same_axis(f, axis))? {
+        return Ok(None);
+    }
+    let turned_area = cylinders
+        .iter()
+        .try_fold(0.0, |sum, f| -> Result<f64> { Ok(sum + f.area()?) })?;
+    let mut lateral_area = 0.0;
+    for face in ctx.faces.iter().filter(|f| f.is_plane()) {
+        if !parallel(&face.direction()?, &axis.direction()?) {
+            lateral_area += face.area()?;
+        }
+    }
+    Ok((turned_area > lateral_area).then_some(axis))
+}
+
+pub(crate) fn turned_datums(faces: &Faces, axis: &Face) -> Result<DefaultDatums> {
+    let mut a = Vec::new();
+    for face in faces.iter().filter(|f| f.is_cylinder()) {
+        if coaxial(face, axis)? {
+            a.push(face.id);
+        }
+    }
+    a.sort_unstable();
+    let mut shoulders = Vec::new();
+    for face in planes_by_area(faces)? {
+        if parallel(&face.direction()?, &axis.direction()?) {
+            shoulders.push(face);
+        }
+    }
+    let b = match shoulders.first() {
+        Some(&largest) => coplanar_ids(&shoulders, resting_face(&shoulders)?.unwrap_or(largest))?,
+        None => Vec::new(),
+    };
+    Ok((a, b, Vec::new()))
+}
+
+fn coplanar_ids(planes: &[&Face], plane: &Face) -> Result<Vec<i64>> {
+    let mut ids = Vec::new();
+    for &p in planes {
+        if coplanar(p, plane)? {
+            ids.push(p.id);
+        }
+    }
+    ids.sort_unstable();
+    Ok(ids)
+}
+
+/// A primary axis locates a coaxial hole without a transverse datum or a shoulder. Require
+/// every bore face to lie on it, so an offset/parallel or cross hole receives no exemption.
+pub(crate) fn axis_locates(bores: &[i64], datums: &Datums, faces: &Faces) -> Result<bool> {
+    let Some(a) = datums.get('A').filter(|d| d.kind == DatumKind::Axis) else {
+        return Ok(false);
+    };
+    if bores.is_empty() {
+        return Ok(false);
+    }
+    let axis = faces.at(a.faces[0])?;
+    for &id in bores {
+        let face = faces.at(id)?;
+        if !face.is_cylinder() || !same_axis(face, axis)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// `_resting_face`: in an assembly, the plane where the part meets another, the one with the
@@ -248,11 +338,16 @@ pub(crate) fn datum_questions(
 ) -> Result<Vec<Question>> {
     let why = "Datums fix the part for measurement; tolerances refer to them. A datum is one \
                face, several coplanar faces, or a hole or boss (its axis).";
-    let turned = ctx.has_family("turned_steps");
-    let mut basis_a =
-        "The largest flat face: usually what the part sits on or is clamped by.".to_string();
+    let turned = turned_axis(ctx)?.is_some();
+    let mut basis_a = if turned {
+        "The axis of the largest turned diameter; equal diameters prefer the longest seat \
+         (total cylindrical area). A broad diameter is the default holding/locating surface."
+    } else {
+        "The largest flat face: usually what the part sits on or is clamped by."
+    }
+    .to_string();
     let basis_b = if turned {
-        "The part's axis: the largest diameter square to A."
+        "The locating face perpendicular to A: assembly contact first, otherwise the largest area."
     } else {
         "The largest flat face square to A."
     };
@@ -275,7 +370,7 @@ pub(crate) fn datum_questions(
                 break;
             }
         }
-        if let Some(contact) = contact {
+        if let Some(contact) = contact.filter(|_| !turned) {
             let part = contact
                 .get("part")
                 .ok_or_else(|| Error::Invalid("a face's 'contact' has no 'part'".to_string()))?;
