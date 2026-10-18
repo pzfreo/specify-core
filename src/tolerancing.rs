@@ -141,7 +141,7 @@ pub fn gdt_answers(
     let mut kept = answers.clone();
     for id in auto {
         if !(mode == Mode::Plusminus && id == LOCATING) {
-            kept.remove(id);
+            kept.shift_remove(id);
         }
     }
     match mode {
@@ -150,7 +150,7 @@ pub fn gdt_answers(
         }
         Mode::Geometric => {
             if kept.get(LOCATING).and_then(Value::as_str) == Some(PLUS_MINUS) {
-                kept.remove(LOCATING);
+                kept.shift_remove(LOCATING);
             }
         }
     }
@@ -166,7 +166,7 @@ pub fn tolerancing_edit(state: &State, mode: Option<Mode>, answers: &Map<String,
         None => {
             let mut next = answers.clone();
             for id in &auto {
-                next.remove(id);
+                next.shift_remove(id);
             }
             next
         }
