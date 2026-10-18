@@ -389,7 +389,7 @@ fn a_bore_parallel_to_datum_a_gets_no_control() {
 
 // test_datums.py::test_turned_datum_b_takes_every_face_of_a_split_bore
 #[test]
-fn turned_datum_b_takes_every_face_of_a_split_bore() {
+fn turned_datum_a_takes_every_face_of_the_greatest_area_seat() {
     let common = json!({"kind": "cylinder", "direction": [0, 0, 1], "origin": [0, 0, 0],
                         "radius": 5.0, "centroid": [0, 0, 0]});
     let with = |extra: Value| {
@@ -405,23 +405,43 @@ fn turned_datum_b_takes_every_face_of_a_split_bore() {
         with(json!({"area": 20.0})),
         with(json!({"radius": 9.0, "area": 10.0})),
     ]);
-    let (_, b, _) = default_datums(&faces, true).unwrap();
-    assert_eq!(b, [1, 2]);
+    let (a, b, c) = default_datums(&faces, true).unwrap();
+    assert_eq!(a, [1, 2]);
+    assert_eq!(b, [0]);
+    assert!(c.is_empty());
+    // Equal diameters are one feature even when the seam splits their faces.
+    let split = Faces::from_values(
+        &faces
+            .iter()
+            .map(|f| {
+                json!({
+                    "id": f.id, "kind": f.kind, "direction": f.direction, "centroid": f.centroid,
+                    "origin": f.origin, "radius": if f.id == 3 { Some(4.0) } else { f.radius },
+                    "area": f.area
+                })
+            })
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    assert_eq!(default_datums(&split, true).unwrap().0, [1, 2]);
 }
 
 // test_datums.py::test_a_datum_bore_on_a_turned_part_keeps_its_fit
 #[test]
 fn a_datum_bore_on_a_turned_part_keeps_its_fit() {
-    // The spool's default datum B is its bore; a bore that is a datum is often a bearing
-    // seat, so its fit is still asked for, only its position is not.
+    // The spool now locates on its largest external diameter. The bore keeps its fit
+    // and gets a coaxial position to A; B is the shoulder.
     let qs = questions(
         &analysis("corpus/cadgenbench/flanged_spool_132"),
-        &Map::new(),
+        &answers(json!({"hole.function:holes:34.55": "fit:H7"})),
     )
     .unwrap();
     let asked = ids(&qs);
     assert!(asked.contains(&"hole.function:holes:34.55"));
-    assert!(!asked.contains(&"hole.position:holes:34.55"));
+    assert_eq!(
+        by_id(&qs, "hole.position:holes:34.55").frame.as_deref(),
+        Some("A")
+    );
     assert!(asked.contains(&"datum.B.control"));
 }
 

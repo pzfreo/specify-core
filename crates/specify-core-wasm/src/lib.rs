@@ -21,12 +21,17 @@ pub fn interpret(
         question.depth,
     )
     .map_err(|error| error.0)?;
-    let mut result = json!({"value": value, "code": choices::code(&value)});
+    let shown = if question.id.starts_with("hole.function:") {
+        choices::with_default_full_thread(&value, question.depth)
+    } else {
+        value.clone()
+    };
+    let mut result = json!({"value": value, "code": choices::code(&shown)});
     if let Some(diameter) = question.diameter
         && (question.id.starts_with("hole.function:") || question.id.starts_with("diameter.fit:"))
     {
         result["callout"] = json!(choices::callout(
-            &value,
+            &shown,
             diameter,
             question.id.starts_with("hole."),
         )?);
@@ -164,5 +169,42 @@ mod wasm {
         interpret(&analysis, &answers, question_id, text)
             .map(|value| value.to_string())
             .map_err(|error| JsValue::from_str(&error))
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blind_thread_interpretation_summary_matches_the_intent() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/spindle.step");
+        let analysis = api::analyse_file(&path, None).unwrap();
+        let questions = api::questions(&analysis, &Map::new()).unwrap();
+        let hole = questions
+            .iter()
+            .find(|q| {
+                q.id.starts_with("hole.function:")
+                    && q.default == Some(json!("tapped:M5"))
+                    && q.depth.is_some()
+            })
+            .unwrap();
+        let result = interpret(&analysis, &Map::new(), &hole.id, "M5").unwrap();
+        assert_eq!(result["value"], "tapped:M5");
+        let intent = api::preview(&analysis, &Map::new()).unwrap();
+        let thread = intent
+            .requirements
+            .iter()
+            .find(|r| r["kind"] == "thread")
+            .unwrap();
+        let full = thread["full_thread"].as_f64().unwrap();
+        assert_eq!(result["code"], format!("M5 tapped, {full} mm full thread"));
+        assert!(
+            result["callout"]
+                .as_str()
+                .unwrap()
+                .contains(&format!("{full} mm min full thread"))
+        );
     }
 }

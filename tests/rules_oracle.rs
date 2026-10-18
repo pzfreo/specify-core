@@ -252,6 +252,32 @@ fn rules_match_the_oracle() {
         "rules: {compared} artifact(s) compared in {:.1} s",
         started.elapsed().as_secs_f64()
     );
+    // The turned datum correction intentionally changes the Python defaults. Keep the
+    // complete before/after values, including ordering, under an exact regression guard;
+    // the known-difference entries below document the verdict, not a blanket exemption.
+    let departures = json!(
+        all.iter()
+            .map(|d| json!({
+                "case": d.case, "path": d.path, "python": d.python, "rust": d.rust,
+            }))
+            .collect::<Vec<_>>()
+    );
+    let snapshot = common::fixtures().join("turned_defaults_oracle.json.gz");
+    if std::env::var_os("UPDATE_TURNED_DEFAULTS").is_some() {
+        use std::io::Write;
+        let file = std::fs::File::create(&snapshot).unwrap();
+        let mut gz = flate2::GzBuilder::new()
+            .mtime(0)
+            .write(file, flate2::Compression::best());
+        gz.write_all(&serde_json::to_vec_pretty(&departures).unwrap())
+            .unwrap();
+        gz.finish().unwrap();
+    }
+    assert_eq!(
+        common::read_json_gz(&snapshot),
+        departures,
+        "review turned default oracle departures"
+    );
     check_known("rules", &all);
 }
 

@@ -39,14 +39,14 @@ fn turned_diameters_offer_runout_about_the_part_axis_but_not_the_axis_itself() {
         .unwrap()
         .iter()
         .any(|f| f["family"] == "turned_steps");
-    let (_, b, _) = default_datums(&faces, turned).unwrap();
-    let axis: HashSet<i64> = b.into_iter().collect();
+    let (a, _, _) = default_datums(&faces, turned).unwrap();
+    let axis: HashSet<i64> = a.into_iter().collect();
     let asked = runouts(&pin, &Map::new());
     assert!(!asked.is_empty());
     assert!(
         asked
             .iter()
-            .all(|q| q.frame.as_deref() == Some("A|B") && q.default == Some(json!("none")))
+            .all(|q| q.frame.as_deref() == Some("A") && q.default == Some(json!("none")))
     );
     assert!(
         asked
@@ -74,7 +74,7 @@ fn a_runout_is_written_about_the_frame_and_read_back() {
         .collect();
     assert_eq!(runouts.len(), 1);
     assert_eq!(runouts[0]["tolerance"].as_f64(), Some(0.02));
-    assert_eq!(runouts[0]["datums"], json!(["A", "B"]));
+    assert_eq!(runouts[0]["datums"], json!(["A"]));
 }
 
 // test_profile_runout.py::test_profile_and_total_runout_can_be_added_on_any_faces (the intent)

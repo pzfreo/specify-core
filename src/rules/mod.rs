@@ -511,6 +511,15 @@ fn all_questions(
         if !by_position || bores.iter().any(|i| ctx.positioned.contains(i)) {
             return Ok(Vec::new());
         }
+        // ISO 1101 diametral position with zero nominal offset controls the hole's
+        // median line in a cylindrical zone coaxial with A. The shoulder does not
+        // constrain that zone; keep B for axial dimensions and other features.
+        if datums::datum_of(&bores, &datums).is_none()
+            && datums::turned_axis(ctx, answers)?.is_some()
+            && datums::axis_locates(&bores, &datums, &ctx.faces)?
+        {
+            return Ok(vec!["A".to_string()]);
+        }
         Ok(datums::hole_frames(&bores, &datums, &controls, &frames))
     };
     let covered = |ids: &[i64]| ids.iter().any(|i| ctx.covered.contains(i));
@@ -626,7 +635,7 @@ fn all_questions(
         let edges = if by_position {
             None
         } else {
-            let (_, b, c) = ctx.default_datums()?;
+            let (_, b, c) = ctx.default_datums_with(answers)?;
             Some(vec![b.clone(), c.clone()])
         };
         out.extend(holes::hole_questions(
@@ -639,7 +648,7 @@ fn all_questions(
         )?);
     }
 
-    let axial = turned::runout_frame(ctx, &datums)?;
+    let axial = turned::runout_frame(ctx, &datums, answers)?;
     let mut diameters = Vec::with_capacity(turned.len());
     for f in &turned {
         diameters.push(py::round(f.number("diameter")?, 6));
@@ -796,7 +805,12 @@ fn reviewed(mut q: Question, faces: &Faces) -> Result<Question> {
         q.attention = "check";
         return Ok(q);
     }
-    if q.id == "datum.A" {
+    if q.id == "datum.A"
+        && !q
+            .faces
+            .iter()
+            .any(|&i| faces.get(i).is_some_and(|f| f.is_cylinder()))
+    {
         let doubt = datums::datum_a_doubt(faces)?;
         if !doubt.is_empty() {
             q.attention = "check";
@@ -981,7 +995,7 @@ fn intent(ctx: &Ctx<'_>, answers: &Map<String, Value>, qs: &[Question]) -> Resul
         } else if q.id.starts_with("hole.location:") {
             // A tolerance of 0 is false to Python, and makes no requirement either.
             if let Some(tolerance) = locations::parse(value)?.filter(|&t| t != 0.0) {
-                let (_, b, c) = ctx.default_datums()?;
+                let (_, b, c) = ctx.default_datums_with(answers)?;
                 let edges = [b.clone(), c.clone()];
                 for (fid, _) in &parts {
                     let members = members(ctx.feature(fid)?, ctx)?;

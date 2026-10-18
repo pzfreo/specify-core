@@ -198,13 +198,39 @@ pub(crate) fn hole_questions(
     } else {
         hole.optional_number("depth")?
     };
-    let described = choices::describe(&qid, &options, Some(diameter)).map_err(Error::Invalid)?;
+    let mut described =
+        choices::describe(&qid, &options, Some(diameter)).map_err(Error::Invalid)?;
+    for choice in &mut described {
+        let value = choice["value"]
+            .as_str()
+            .expect("a described choice has a value");
+        let shown = choices::with_default_full_thread(value, depth);
+        choice["code"] = Value::from(choices::code(&shown));
+        choice["callout"] =
+            Value::from(choices::callout(&shown, diameter, true).map_err(Error::Invalid)?);
+    }
+    let mut why = "A clearance, tapped or fitted hole each need different size and position \
+                   tolerances."
+        .to_string();
+    if let (Some(drill), Some(size)) = (depth, tapped) {
+        let full = standards::full_thread(drill, size);
+        why += &format!(
+            " For a blind tapped hole, set the minimum full-thread depth by typing e.g. \
+             \"{size} tapped, {} mm full thread\". The default is drill depth minus 3 pitches, \
+             rounded down to 0.5 mm (at least one pitch).",
+            fmt(full)
+        );
+        if default
+            .as_str()
+            .is_some_and(|v| choices::split(v).0 == "tapped")
+        {
+            basis += &format!(" Default minimum full thread: {} mm.", fmt(full));
+        }
+    }
     let mut out = vec![Question {
         default: Some(default.clone()),
         options: options.clone(),
-        why: "A clearance, tapped or fitted hole each need different size and position \
-              tolerances."
-            .to_string(),
+        why,
         title: Some(label.clone()),
         feature: Some(target.id.to_string()),
         parts: parts.clone(),

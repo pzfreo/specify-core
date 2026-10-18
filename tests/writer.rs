@@ -1171,7 +1171,14 @@ fn every_datum_referenced_tolerance_is_written_simply() {
 #[test]
 fn a_datum_symbol_presents_its_datum_feature() {
     let dir = temp("drawn");
-    let (_, _, out) = pin_written(&dir);
+    // Exercise both axis and plane symbols independently of seat defaults: pin_written
+    // makes both diameters rough, so neither can now supply a default datum axis.
+    let intent = apply(
+        &analysis("parts/pin"),
+        json!({"part.material": "brass", "datum.A": [0], "datum.B": [2]}),
+    );
+    let out = dir.join("datum-symbols.step");
+    write(&load(&fixture("pin"), None).unwrap(), &intent, &out, None).unwrap();
     let text = flat(&out);
     let names: Vec<(String, String)> = Regex::new(r"#(\d+)\s*=\s*DRAUGHTING_CALLOUT\('([^']+)'")
         .unwrap()

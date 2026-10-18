@@ -477,11 +477,19 @@ impl<'a> Ctx<'a> {
     /// `_default_datums(faces, features)`, worked out once.
     pub fn default_datums(&self) -> Result<&DefaultDatums> {
         self.default_datums
-            .get_or_init(|| {
-                super::datums::default_datums(&self.faces, self.has_family("turned_steps"))
-            })
+            .get_or_init(|| super::datums::defaults_with(self, &Map::new()))
             .as_ref()
             .map_err(Clone::clone)
+    }
+
+    /// Datum defaults recomputed with the current diameter answers. Keep the no-answer
+    /// cache separate: editing a thread or knurl must immediately update every consumer.
+    pub fn default_datums_with(&self, answers: &Map<String, Value>) -> Result<DefaultDatums> {
+        if answers.keys().any(|key| key.starts_with("diameter.fit:")) {
+            super::datums::defaults_with(self, answers)
+        } else {
+            self.default_datums().cloned()
+        }
     }
 
     /// Whether any feature is of `family`.

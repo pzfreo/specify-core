@@ -20,7 +20,7 @@ use serde_json::{Map, Value};
 use crate::choices::{GENERAL, code};
 use crate::extras;
 use crate::pyfmt::{g, signed_g};
-use crate::rules::datums::{classify, coaxial, parallel};
+use crate::rules::datums::{axis_locates, chosen_datums, classify, coaxial, parallel, turned_axis};
 use crate::rules::{self, Ctx, DatumKind, Error, LOCATING, Result, object, str_of, truthy};
 
 /// The problems with `answers` (defaults standing in for the rest) on `analysis`, each
@@ -42,6 +42,8 @@ pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Va
     for d in &intent.datums {
         datum_faces.extend(face_ids(d.get("faces")));
     }
+    let datums = chosen_datums(&ctx, &merged, &qs)?;
+    let turned = turned_axis(&ctx, &merged)?.is_some();
     for q in &qs {
         if !q.id.starts_with("hole.function:") || !by_position {
             continue;
@@ -62,6 +64,9 @@ pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Va
             .any(|i| ctx.positioned.contains(i) || datum_faces.contains(i))
         {
             continue; // the file locates it, or it is a datum
+        }
+        if turned && axis_locates(&q.faces, &datums, faces)? {
+            continue; // an axial hole is located by A, independently of a shoulder
         }
         let what = what(&q.prompt);
         let many = what.contains('×');

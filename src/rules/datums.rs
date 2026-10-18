@@ -1,6 +1,8 @@
 //! Datums: which are proposed and asked, what the answers make of them, how datum B and C are
 //! held to the datums before them, and the frames a position may be measured from.
 
+use std::collections::HashSet;
+
 use serde_json::{Map, Value};
 
 use super::py::{self, dot};
@@ -67,9 +69,14 @@ pub(crate) fn coplanar(f: &Face, g: &Face) -> Result<bool> {
     Ok(same_direction(&n, &g.direction()?) && offset.abs() < 1e-4)
 }
 
-/// `_coaxial`: the same radius on one axis.
+/// `_coaxial`: the same radius on one axis (faces of one diameter).
 pub(crate) fn coaxial(f: &Face, g: &Face) -> Result<bool> {
-    if (f.radius()? - g.radius()?).abs() > 1e-6 || !parallel(&f.direction()?, &g.direction()?) {
+    Ok((f.radius()? - g.radius()?).abs() <= 1e-6 && same_axis(f, g)?)
+}
+
+/// One axis, independent of diameter and direction sign.
+pub(crate) fn same_axis(f: &Face, g: &Face) -> Result<bool> {
+    if !parallel(&f.direction()?, &g.direction()?) {
         return Ok(false);
     }
     let (o, p) = (f.origin()?, g.origin()?);
@@ -118,46 +125,25 @@ fn planes_by_area(faces: &Faces) -> Result<Vec<&Face>> {
     Ok(planes.into_iter().map(|(f, _)| f).collect())
 }
 
-/// `_default_datums`: A the face the part rests on in its assembly, else the largest plane,
-/// with every face coplanar with it; on a turned part B is the largest cylinder on the axis A
-/// is square to (and every face coaxial with it); otherwise B is the largest plane square to A
-/// and C the largest square to both. `turned`: the part has turned steps.
+/// Default datums. With `turned`, A has the greatest cylindrical area (diameter breaks ties),
+/// including every split face of that diameter; B is a perpendicular locating face, preferring
+/// assembly contact, otherwise the largest area. C is empty: a surface of revolution has no
+/// clocking datum. Without `turned`, retain the resting/largest plane and square planes.
+/// Callers with recognised features use `turned_axis` to establish whether the part is turned.
 pub fn default_datums(faces: &Faces, turned: bool) -> Result<DefaultDatums> {
+    if turned {
+        let cylinders: Vec<_> = faces.iter().filter(|f| f.is_cylinder()).collect();
+        if let Some(axis) = primary_cylinder(&cylinders)? {
+            return turned_datums(faces, axis, &HashSet::new());
+        }
+    }
     let planes = planes_by_area(faces)?;
     let Some(&largest) = planes.first() else {
         return Ok((Vec::new(), Vec::new(), Vec::new()));
     };
     let a = resting_face(&planes)?.unwrap_or(largest);
-    let mut a_ids = Vec::new();
-    for p in &planes {
-        if coplanar(p, a)? {
-            a_ids.push(p.id);
-        }
-    }
-    a_ids.sort_unstable();
+    let a_ids = coplanar_ids(&planes, a)?;
     let normal = a.direction()?;
-    if turned {
-        let mut cylinders: Vec<(&Face, f64)> = Vec::new();
-        for f in faces.iter().filter(|f| f.is_cylinder()) {
-            if parallel(&f.direction()?, &normal) {
-                cylinders.push((f, f.area()?));
-            }
-        }
-        py::sort_by_float(&mut cylinders, |(_, area)| -area);
-        // With no cylinder on A's axis there is no B (Python's comprehension over none never
-        // reads cylinders[0]).
-        let Some(&(widest, _)) = cylinders.first() else {
-            return Ok((a_ids, Vec::new(), Vec::new()));
-        };
-        let mut b_ids = Vec::new();
-        for (f, _) in &cylinders {
-            if coaxial(f, widest)? {
-                b_ids.push(f.id);
-            }
-        }
-        b_ids.sort_unstable();
-        return Ok((a_ids, b_ids, Vec::new()));
-    }
     let mut square = Vec::new();
     for p in &planes {
         if perpendicular(&p.direction()?, &normal) {
@@ -176,6 +162,280 @@ pub fn default_datums(faces: &Faces, turned: bool) -> Result<DefaultDatums> {
         }
     }
     Ok((a_ids, vec![b.id], c))
+}
+
+/// Greatest total area of split cylindrical faces, then largest diameter, then first in
+/// analysis order. Area favours a substantial locating seat over a short, broad collar.
+/// Do not combine different diameters
+/// into a datum: they establish the same nominal axis but are distinct datum features.
+fn primary_cylinder<'f>(cylinders: &[&'f Face]) -> Result<Option<&'f Face>> {
+    let mut best: Option<(&Face, f64, f64)> = None;
+    for &f in cylinders {
+        let radius = f.radius()?;
+        let mut area = 0.0;
+        for &g in cylinders {
+            if coaxial(f, g)? {
+                area += g.area()?;
+            }
+        }
+        if best.is_none_or(|(_, r, a)| area > a || (area == a && radius > r)) {
+            best = Some((f, radius, area));
+        }
+    }
+    Ok(best.map(|(f, _, _)| f))
+}
+
+/// Explicit turned-part detection: recognised turned-step (or boss) cylinders share one axis and
+/// dominate the lateral planar area. This admits auxiliary cross holes, flats and keyways,
+/// while a boss on a mostly prismatic body or steps on different axes retain plane datums.
+/// Only recognised principal diameters are candidates for A, never an auxiliary hole.
+pub(crate) fn turned_axis<'c>(
+    ctx: &'c Ctx<'_>,
+    answers: &Map<String, Value>,
+) -> Result<Option<&'c Face>> {
+    let mut ids = Vec::new();
+    // An interrupted, single-diameter shaft can be recognised only as a boss. Apply the
+    // same dominance and common-axis safeguards, rather than requiring multiple steps.
+    let family = if ctx.has_family("turned_steps") {
+        "turned_steps"
+    } else {
+        "bosses"
+    };
+    for feature in ctx.features.iter().filter(|f| f.family == family) {
+        for &id in feature.faces()? {
+            if ctx.faces.at(id)?.is_cylinder() && !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+    }
+    let cylinders: Vec<_> = ids
+        .iter()
+        .map(|&i| ctx.faces.at(i))
+        .collect::<Result<_>>()?;
+    let Some(axis) = primary_cylinder(&cylinders)? else {
+        return Ok(None);
+    };
+    if !all(&cylinders, |f| same_axis(f, axis))? {
+        return Ok(None);
+    }
+    let turned_area = cylinders
+        .iter()
+        .try_fold(0.0, |sum, f| -> Result<f64> { Ok(sum + f.area()?) })?;
+    let mut lateral_area = 0.0;
+    for face in ctx.faces.iter().filter(|f| f.is_plane()) {
+        if !parallel(&face.direction()?, &axis.direction()?) {
+            lateral_area += face.area()?;
+        }
+    }
+    if turned_area <= lateral_area {
+        return Ok(None);
+    }
+    // Keep rough surfaces in the detection evidence, but never use them as a seat.
+    let excluded = rough_cylinders(ctx, answers)?;
+    let mut plain = Vec::new();
+    for &f in &cylinders {
+        let mut rough = false;
+        for &id in &excluded {
+            let g = ctx.faces.at(id)?;
+            if g.is_cylinder() && coaxial(f, g)? {
+                rough = true;
+                break;
+            }
+        }
+        if !rough {
+            plain.push(f);
+        }
+    }
+    primary_cylinder(&plain)
+}
+
+/// Known threads/knurls, from semantic PMI, recognition, or the effective diameter answer.
+/// Resolve grouped and typed answers exactly as the diameter questions do. An explicit
+/// plain answer cannot erase a thread or knurl already recorded in the file.
+fn rough_cylinders(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> Result<HashSet<i64>> {
+    let mut excluded = HashSet::new();
+    if let Some(items) = ctx.analysis.get("existing").and_then(Value::as_array) {
+        for e in items {
+            if e["kind"] == "note"
+                && matches!(
+                    e["type"].as_str(),
+                    Some("knurl" | "external thread" | "internal thread")
+                )
+                && let Some(ids) = e["faces"].as_array()
+            {
+                excluded.extend(ids.iter().filter_map(Value::as_i64));
+            }
+        }
+    }
+    for f in &ctx.features {
+        if matches!(
+            f.family,
+            "knurls" | "turned_knurls" | "threads" | "external_threads" | "internal_threads"
+        ) {
+            excluded.extend(f.faces()?);
+        }
+    }
+    let mut consider = |q: Question| -> Result<()> {
+        let value = answers.get(&q.id).or(q.default.as_ref());
+        if let Some(Value::String(value)) = value {
+            let canonical =
+                crate::choices::interpret(&q.id, value, &q.options, q.diameter, q.depth)
+                    .map_err(|e| Error::Invalid(e.to_string()))?;
+            if canonical.starts_with("thread:") || canonical.starts_with("knurl:") {
+                excluded.extend(q.faces);
+            }
+        }
+        Ok(())
+    };
+    let mut turned = Vec::new();
+    for f in ctx.features.iter().filter(|f| f.family == "turned_steps") {
+        // Retained answers still describe the surface when PMI coverage hides its
+        // question, or changes which feature leads a same-diameter question group.
+        if answers.contains_key(&format!("diameter.fit:{}", f.id)) {
+            consider(super::turned::turned_question(&[f], ctx)?)?;
+        }
+        if !f.faces()?.iter().any(|id| ctx.covered.contains(id)) {
+            turned.push(f);
+        }
+    }
+    let diameters = turned
+        .iter()
+        .map(|f| Ok(py::round(f.number("diameter")?, 6)))
+        .collect::<Result<Vec<_>>>()?;
+    for group in super::same(&turned, &diameters) {
+        let group: Vec<_> = group.into_iter().copied().collect();
+        consider(super::turned::turned_question(&group, ctx)?)?;
+    }
+    Ok(excluded)
+}
+
+pub(crate) fn defaults_with(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> Result<DefaultDatums> {
+    match turned_axis(ctx, answers)? {
+        Some(axis) => turned_datums(&ctx.faces, axis, &recess_planes(ctx)?),
+        None => default_datums(&ctx.faces, false),
+    }
+}
+
+/// A recess's defining faces and end walls are poor axial stops. The recogniser's slot
+/// faces describe the sides only; its long-axis interval identifies the omitted end walls.
+/// Also exclude blind-hole bottoms even when the recogniser lists only their bores.
+fn recess_planes(ctx: &Ctx<'_>) -> Result<HashSet<i64>> {
+    let mut ids = HashSet::new();
+    for f in &ctx.features {
+        if matches!(
+            f.family,
+            "slots" | "channels" | "pockets" | "section_recesses" | "holes"
+        ) {
+            for &id in f.faces()? {
+                if ctx.faces.at(id)?.is_plane() {
+                    ids.insert(id);
+                }
+            }
+        }
+        if f.family == "section_recesses"
+            && let Some(evidence) = f.get("evidence")?
+            && let Some(constituents) = evidence["constituent_faces"].as_array()
+        {
+            for id in constituents.iter().filter_map(Value::as_i64) {
+                if ctx.faces.at(id)?.is_plane() {
+                    ids.insert(id);
+                }
+            }
+        }
+        if matches!(f.family, "slots" | "channels")
+            && let Some(axis) = f.get("long_axis")?.and_then(Value::as_str)
+            && let Some(component) = ["x", "y", "z"].iter().position(|&a| a == axis)
+        {
+            for p in ctx.faces.iter().filter(|p| p.is_plane()) {
+                if p.direction()?[component].abs() > 1.0 - 1e-6 {
+                    let level = p.centroid()?[component];
+                    if [f.number("lo")?, f.number("hi")?]
+                        .iter()
+                        .any(|end| (level - end).abs() < 1e-4)
+                    {
+                        ids.insert(p.id);
+                    }
+                }
+            }
+        }
+        if f.family == "holes"
+            && f.get("bottom")?.and_then(Value::as_str) == Some("flat")
+            && let Some(depth) = f.optional_number("depth")?
+        {
+            let (location, direction) = (f.vector("location")?, f.vector("axis")?);
+            for p in ctx.faces.iter().filter(|p| p.is_plane()) {
+                let c = p.centroid()?;
+                let offset = [c[0] - location[0], c[1] - location[1], c[2] - location[2]];
+                if parallel(&p.direction()?, &direction)
+                    && (dot(&offset, &direction) - depth).abs() < 1e-4
+                {
+                    ids.insert(p.id);
+                }
+            }
+        }
+    }
+    Ok(ids)
+}
+
+fn turned_datums(faces: &Faces, axis: &Face, recesses: &HashSet<i64>) -> Result<DefaultDatums> {
+    let mut a = Vec::new();
+    for face in faces.iter().filter(|f| f.is_cylinder()) {
+        if coaxial(face, axis)? {
+            a.push(face.id);
+        }
+    }
+    a.sort_unstable();
+    let mut shoulders = Vec::new();
+    for face in planes_by_area(faces)? {
+        if parallel(&face.direction()?, &axis.direction()?) {
+            shoulders.push(face);
+        }
+    }
+    let seats: Vec<_> = shoulders
+        .iter()
+        .copied()
+        .filter(|f| !recesses.contains(&f.id))
+        .collect();
+    let seats = if seats.is_empty() && shoulders.len() == 1 {
+        &shoulders
+    } else {
+        &seats
+    };
+    let b = match seats.first() {
+        Some(&largest) => coplanar_ids(seats, resting_face(seats)?.unwrap_or(largest))?,
+        None => Vec::new(),
+    };
+    Ok((a, b, Vec::new()))
+}
+
+fn coplanar_ids(planes: &[&Face], plane: &Face) -> Result<Vec<i64>> {
+    let mut ids = Vec::new();
+    for &p in planes {
+        if coplanar(p, plane)? {
+            ids.push(p.id);
+        }
+    }
+    ids.sort_unstable();
+    Ok(ids)
+}
+
+/// A primary axis locates a coaxial hole without a transverse datum or a shoulder. Require
+/// every bore face to lie on it, so an offset/parallel or cross hole receives no exemption.
+pub(crate) fn axis_locates(bores: &[i64], datums: &Datums, faces: &Faces) -> Result<bool> {
+    let Some(a) = datums.get('A').filter(|d| d.kind == DatumKind::Axis) else {
+        return Ok(false);
+    };
+    if bores.is_empty() {
+        return Ok(false);
+    }
+    let axis = faces.at(a.faces[0])?;
+    for &id in bores {
+        let face = faces.at(id)?;
+        if !face.is_cylinder() || !same_axis(face, axis)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// `_resting_face`: in an assembly, the plane where the part meets another, the one with the
@@ -248,11 +508,17 @@ pub(crate) fn datum_questions(
 ) -> Result<Vec<Question>> {
     let why = "Datums fix the part for measurement; tolerances refer to them. A datum is one \
                face, several coplanar faces, or a hole or boss (its axis).";
-    let turned = ctx.has_family("turned_steps");
-    let mut basis_a =
-        "The largest flat face: usually what the part sits on or is clamped by.".to_string();
+    let turned = turned_axis(ctx, answers)?.is_some();
+    let mut basis_a = if turned {
+        "The axis of the plain turned seat with the greatest total cylindrical area; \
+         diameter breaks ties. Threads and knurls are excluded from locating seats."
+    } else {
+        "The largest flat face: usually what the part sits on or is clamped by."
+    }
+    .to_string();
     let basis_b = if turned {
-        "The part's axis: the largest diameter square to A."
+        "The locating face perpendicular to A: assembly contact first, otherwise the largest \
+         area, excluding recess walls unless the only perpendicular face."
     } else {
         "The largest flat face square to A."
     };
@@ -261,7 +527,7 @@ pub(crate) fn datum_questions(
     let mut defaults: Vec<(char, Vec<i64>)> = Vec::new();
     let mut resting = String::new();
     if !propose.is_empty() && ctx.in_file.is_empty() {
-        let (a, b, c) = ctx.default_datums()?;
+        let (a, b, c) = &ctx.default_datums_with(answers)?;
         for (x, d) in [('A', a), ('B', b), ('C', c)] {
             if propose.contains(x) {
                 defaults.push((x, d.clone()));
@@ -275,7 +541,7 @@ pub(crate) fn datum_questions(
                 break;
             }
         }
-        if let Some(contact) = contact {
+        if let Some(contact) = contact.filter(|_| !turned) {
             let part = contact
                 .get("part")
                 .ok_or_else(|| Error::Invalid("a face's 'contact' has no 'part'".to_string()))?;

@@ -54,17 +54,20 @@ fn iso_2768_linear() {
 
 // test_general.py::test_pin_lengths_are_baseline_from_datum_a
 #[test]
-fn pin_lengths_are_baseline_from_datum_a() {
+fn pin_lengths_are_baseline_from_the_shoulder_datum_b() {
     let (analysis, intent) = general("parts/pin");
     let faces = analysis["faces"].as_array().unwrap();
     let a = intent.datums.iter().find(|d| d["letter"] == "A").unwrap();
+    // Axial lengths use the same locating plane, now the secondary shoulder B.
+    let b = intent.datums.iter().find(|d| d["letter"] == "B").unwrap();
+    assert_eq!(faces[ids(&a["faces"])[0] as usize]["kind"], "cylinder");
     let lengths: Vec<&Map<String, Value>> = intent
         .general
         .iter()
         .filter(|g| g["kind"] == "location" && g["feature"] == "")
         .collect();
     assert!(!lengths.is_empty(), "{:?}", intent.general);
-    assert!(lengths.iter().all(|g| g["reference"] == a["faces"]));
+    assert!(lengths.iter().all(|g| g["reference"] == b["faces"]));
     // The tap drill's floor is the hole's, not a length of the part.
     let mut distances: Vec<f64> = lengths
         .iter()

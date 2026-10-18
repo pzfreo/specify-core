@@ -6,6 +6,22 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- Turned parts with a common principal axis now default to A on the plain recognised cylinder
+  with the greatest total cylindrical area (diameter breaks ties). Threads and knurls from
+  answers, recognition or PMI are excluded. Interrupted single-diameter shafts recognised as
+  dominant bosses also use their axis. B is a perpendicular locating shoulder (assembly
+  contact first, otherwise largest area), excluding recess walls unless the only perpendicular
+  face. Explicit datum answers and file datums retain precedence; prismatic parts keep plane
+  datums. Coaxial holes use diametral position to A and are recognised as located by that axis;
+  offset and cross holes still need location. Runout follows the primary axis. See `docs/turned-defaults.md` for detection,
+  ISO 1101 zone interpretation and before/after corpus verification.
+- Blind tapped-hole help now gives a valid full-thread-depth example (such as
+  `M2 tapped, 2.5 mm full thread`) and explains the computed default. Choice and typed-answer
+  summaries show that depth, including native serve and WASM interpretation; canonical
+  answers, explicit depths, through holes and unknown depths retain their behaviour.
+
 ## 0.1.0-alpha.5 (2026-10-18)
 
 ### WASM API

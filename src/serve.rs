@@ -427,12 +427,17 @@ fn interpret(
         .map_err(|e| Failure::Invalid(e.0))?;
     let mut out = Map::new();
     out.insert("value".into(), json!(value));
-    out.insert("code".into(), json!(choices::code(&value)));
+    let shown = if q.id.starts_with("hole.function:") {
+        choices::with_default_full_thread(&value, q.depth)
+    } else {
+        value.clone()
+    };
+    out.insert("code".into(), json!(choices::code(&shown)));
     if let Some(d) = q.diameter
         && (q.id.starts_with("hole.function:") || q.id.starts_with("diameter.fit:"))
     {
         let callout =
-            choices::callout(&value, d, q.id.starts_with("hole.")).map_err(Failure::Invalid)?;
+            choices::callout(&shown, d, q.id.starts_with("hole.")).map_err(Failure::Invalid)?;
         out.insert("callout".into(), json!(callout));
     }
     Ok(Value::Object(out))
