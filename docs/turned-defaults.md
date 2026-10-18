@@ -5,19 +5,26 @@ These are geometric defaults to review, not assertions of design intent. Explici
 
 A part is treated as turned when its recognised `turned_steps` cylinder faces share a single
 axis (parallel directions, including reversed directions, and less than 0.0001 mm transverse
-axis separation) and their combined area exceeds the area of lateral planar faces. Lateral
+axis separation) and their combined area exceeds the area of lateral planar faces. When no
+turned steps are recognised, apply the same tests to recognised bosses: an interrupted,
+single-diameter shaft need not have any turned steps. Lateral
 means the plane normal is not parallel to the axis. Cross holes, milled flats and keyways can
 therefore be auxiliary features. Different principal axes and a boss on a mostly planar block
-retain the prismatic rule. A part without recognised steps retains that rule as well.
+retain the prismatic rule. A part without recognised steps or bosses retains that rule as well.
 
-- **A** is the axis of the largest recognised turned diameter. Equal diameters prefer the
-  greatest combined cylindrical area, hence the longest seat. Exact ties retain analysis
-  order. This chooses a broad holding/locating diameter, without guessing which diameter has
-  a functional fit. All split faces of that diameter are included, sorted by face id;
-  different diameters are never combined into one datum feature.
+- **A** is the axis of the plain recognised cylinder with the greatest combined cylindrical
+  area. Diameter breaks equal-area ties, then analysis order. This favours a substantial
+  locating seat over a short broad collar. Threads and knurls identified by the current
+  answers (including grouped answers), recognition or semantic PMI are excluded, including
+  every split face of their diameter. Assembly suggestions use the same effective diameter
+  default as the questions. All split faces of the selected diameter are included, sorted by
+  face id; different diameters are never combined into one datum feature. With no plain
+  candidate, use the prismatic fallback rather than a rough cylinder.
 - **B** is a face perpendicular to A: the greatest coplanar assembly contact area when known,
-  otherwise the largest perpendicular plane by area. Include its coplanar faces. This
-  provides a broad axial stop/locating shoulder; with no shoulder it can be an end face.
+  otherwise the largest perpendicular plane by area. Include its coplanar faces. Recess
+  defining faces, slot/channel end walls and blind-hole bottoms are excluded; a recess wall
+  is used only when it is the sole perpendicular face. Thus a large window end cannot
+  displace an external axial stop, even when it carries contact evidence.
 - **C** has no automatic default on a turned body. An explicit datum can supply clocking.
 
 Prismatic parts retain the resting/largest plane for A and planes square to it for B and C.
@@ -43,9 +50,24 @@ Using the pinned Rust kernel on the real STEP files under `QUIDDITY_CORPUS`:
 
 | Part | Before default scheme | After default scheme | Default review problems, before → after |
 | --- | --- | --- | --- |
-| `gramel/string_post.step` | A plane 11; B empty | A cylinder 9 (Ø7.5); B shoulder 8 | none → none |
-| `gramel/GRM-03_thumbwheel_drive_screw.step` | A plane 0; B cylinder 6 (Ø3) | A cylinder 3 (Ø10); B shoulder 0 | none → B unused (info) |
+| `gramel/string_post.step` | A plane 11; B empty | A cylinder 0 (Ø6); B shoulder 8 | none → none |
+| `gramel/GRM-03_thumbwheel_drive_screw.step` with M3 thread and Ø10 knurl answers | A plane 0; B cylinder 6 (Ø3) | A cylinder 2 (Ø5); B Ø10-to-Ø5 shoulder 0 | none → B unused (info) |
+| `tests/fixtures/parts/GRM-02_shaft.step` | A D-flat 2/6; B window side 12; C window end 5 | A cylinder 0 (Ø8); B end faces 7/11; C empty | no unlocated holes |
 | `gramel/GRM-05_depth_lock_bolt.step` | Proposed A plane 2; B cylinder 0 | Proposed A cylinder 0 (Ø10); B shoulder 2 | none → none |
+
+Reviewer follow-up against the initial axis-first branch: GRM-03 previously selected knurled
+face 3 (Ø10), with B on shoulder 0. With
+`{"hole.function:holes:14":"tapped:M2","diameter.fit:turned_steps:6":"thread:M3","diameter.fit:turned_steps:3":"knurl:straight"}`
+it now selects A on face 2 (Ø5) and retains B on shoulder 0, matching the designer's AP242
+intent. The Ø5 × 3 seat has about 47.12 mm² of cylindrical area; the remaining Ø6 × 0.5 collar
+has only 9.42 mm². This is a general seat-area rule, with no part names or fixed diameters in
+the selection code. Before thread/knurl answers are supplied, the bare STEP has no such
+semantic information: its longest cylinder, Ø3 face 6, has the largest area and is proposed.
+The string post likewise changes from the initial branch's short Ø7.5 face 9 to Ø6 face 0.
+GRM-02 still had the old planar scheme on that branch because recognition reports its main
+cylinder as a boss. Its fixture now runs unconditionally, with tests for a very large window
+contact and for the sole-perpendicular-face fallback. GRM-03 runs against both the committed
+analysis capture and the actual corpus STEP when `QUIDDITY_CORPUS` is set.
 
 The depth lock bolt has no hole requiring location, so no datums are emitted until a runout
 or another datum-referenced control is requested. Its runout now uses A. The thumbwheel's B

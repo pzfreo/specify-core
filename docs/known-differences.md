@@ -12,16 +12,16 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | Area | rust-correct | rust-wrong | equivalent | undetermined | not-applicable | Total |
 |---|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 9 |
-| [cli](#cli) | 34 | 0 | 3 | 0 | 3 | 40 |
+| [cli](#cli) | 40 | 0 | 3 | 0 | 3 | 46 |
 | [cross_engine](#cross_engine) | 3 | 1 | 0 | 1 | 1 | 6 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
 | [features](#features) | 879 | 1419 | 65 | 1387 | 11 | 3761 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 40 |
-| [rules](#rules) | 24 | 0 | 0 | 0 | 0 | 24 |
+| [rules](#rules) | 25 | 0 | 0 | 0 | 0 | 25 |
 | [writer](#writer) | 14 | 0 | 0 | 0 | 15 | 29 |
-| **all** | 990 | 1437 | 79 | 1393 | 47 | 3946 |
+| **all** | 997 | 1437 | 79 | 1393 | 47 | 3953 |
 
 ## anchors
 
@@ -67,7 +67,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (34 entries)
+### cli: rust-correct (40 entries)
 
 - **Python's write prints OpenCascade's transfer statistics on stdout before the report** (`cli/*` at `stdout_noise`)
 
@@ -116,6 +116,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **a perpendicular shoulder datum unused by an axial position is reported** (2 entries, 2 case globs)
 
   The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `parts/assembly*` at `write.warnings[pin: datum B is in the file but no tolerance references it; OCCT-based readers (including Draftwright) will not see it]`: The turned pin now uses axis A for its coaxial hole position; shoulder B remains available for axial location but no default control cites it. The existing writer warning correctly reports that OCCT readers omit unreferenced datums. The intent still stores and verifies B. See docs/turned-defaults.md and the live thumbwheel write verification.
+
+- **Dominant round bosses use their main axis in CLI and serve** (6 entries, 3 case globs)
+
+  The dominant cylindrical boss on a_hole_along_x_is_labelled_from_its_rim now supplies A on cylinder 0 and B on end plane 1. The axial hole keeps its rim anchor and position about A; B is available as an axial stop and is reported unused. The question transcript replaces A flatness with B perpendicularity, and the datum anchor groups change from face 1 to faces 0/1. tests/fixtures/turned_defaults_oracle.json.gz pins the complete library changes exactly, tests/turned_defaults.rs verifies dominant-boss axis selection, and the CLI composition sweep still compares library/executable bytes and every serve reply without filtering. These entries cover only this fixture's Python transcript/envelope differences.
 
 ### cli: equivalent (3 entries)
 
@@ -693,7 +697,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## rules
 
-### rules: rust-correct (24 entries)
+### rules: rust-correct (25 entries)
 
 - **a knurl's teeth derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].teeth`)
 
@@ -719,9 +723,9 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   The maintainer's decision Q4/Q15 (docs/questions.md): AP242's turned_knurl needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9), so the Rust rules derive them from the knurling standard and state each in the intent with its source, visible and editable ('standard': 'DIN 82', 'derived': key to source). Values: teeth round(pi x 10 / 1) = 31, the pitch kept at the tool's 1 mm; tooth depth P/2 = 0.5, the depth of DIN 82's 90 degree profile (IS 3403:1981 3.1; assumed, no table gives it); root fillet 0.1, the knurling wheel's crest radius up to 1 mm pitch (IS 6776:1980 4.3); a diamond's helix angle 30 degrees and no hand (DIN 82 type RGE). Checked in tests/threads.rs. Python's knurl states pattern, pitch and diameter only.
 
-- **axis-first turned datum defaults and their dependent questions and intent** (14 entries, 14 case globs)
+- **axis-first turned datum defaults and their dependent questions and intent** (15 entries, 15 case globs)
 
-  Axis-first turned datums: largest recognised principal diameter (area breaks ties), then a perpendicular contact/largest shoulder. Axial holes use diametral position to A alone; other holes keep the full frame. Runout uses A and is not offered on the datum diameter itself. A mostly prismatic body or different principal axes keeps plane datums. tests/turned_defaults.rs checks captured and live corpus geometry, overrides, offsets, cross holes and shoulder contacts. tests/fixtures/turned_defaults_oracle.json.gz is an additional exact regression guard on EVERY changed path and both values (including question ordering and all other rules); rules_oracle asserts that complete list before applying these verdict entries, so these scopes cannot hide further differences. See docs/turned-defaults.md.
+  The evidence is stated per entry (2 distinct; all in `rules.json`). The first, for `corpus/cadgenbench/flanged_spool_132/*` at `*`: Axis-first turned datums: plain recognised principal cylinder with greatest total area (diameter breaks ties), excluding thread/knurl answers, recognition and PMI; interrupted shafts may use dominant bosses. Then a perpendicular contact/largest shoulder excluding recess walls unless the sole perpendicular face. Axial holes use diametral position to A alone; other holes keep the full frame. Runout uses A and is not offered on the datum diameter itself. A mostly prismatic body or different principal axes keeps plane datums. tests/turned_defaults.rs checks captured and live corpus geometry, overrides, offsets, cross holes and shoulder contacts. tests/fixtures/turned_defaults_oracle.json.gz is an additional exact regression guard on EVERY changed path and both values (including question ordering and all other rules); rules_oracle asserts that complete list before applying these verdict entries, so these scopes cannot hide further differences. See docs/turned-defaults.md.
 
 - **blind tapped-hole help exposes full-thread syntax and summaries show computed depth** (4 entries, 1 case glob)
 

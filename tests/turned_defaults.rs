@@ -33,7 +33,7 @@ fn check(a: &Value, axis: &[i64], shoulder: &[i64], hole: Option<&str>) {
         );
         assert_eq!(q(&qs, "datum.A").default, Some(json!(axis)));
         assert_eq!(q(&qs, "datum.B").default, Some(json!(shoulder)));
-        assert!(q(&qs, "datum.A").basis.contains("largest turned diameter"));
+        assert!(q(&qs, "datum.A").basis.contains("plain turned seat"));
         assert!(q(&qs, "datum.B").basis.contains("perpendicular to A"));
         assert!(!qs.iter().any(|q| q.id == "datum.A.flatness"));
         let intent = preview(a, &Map::new()).unwrap();
@@ -59,13 +59,13 @@ fn check(a: &Value, axis: &[i64], shoulder: &[i64], hole: Option<&str>) {
 fn real_turned_analyses_choose_an_axis_and_perpendicular_face() {
     check(
         &captured("gramel/string_post"),
-        &[9],
+        &[0],
         &[8],
         Some("holes:17.19"),
     );
     check(
         &captured("gramel/GRM-03_thumbwheel_drive_screw"),
-        &[3],
+        &[6],
         &[0],
         Some("holes:12.13"),
     );
@@ -200,8 +200,8 @@ fn live_corpus_turned_datums() {
         let a = api::analyse_file(&root.join(format!("{name}.step")), None).unwrap();
         // The same assertions run against the actual kernel recognition, not just the capture.
         match name {
-            "gramel/string_post" => check(&a, &[9], &[8], Some("holes:17")),
-            "gramel/GRM-03_thumbwheel_drive_screw" => check(&a, &[3], &[0], Some("holes:12")),
+            "gramel/string_post" => check(&a, &[0], &[8], Some("holes:17")),
+            "gramel/GRM-03_thumbwheel_drive_screw" => check(&a, &[6], &[0], Some("holes:12")),
             _ => check(&a, &[0], &[2], None),
         }
     }
@@ -246,4 +246,238 @@ fn cylinder_ties_use_total_seat_area_and_a_needs_no_plane() {
         default_datums(&faces, true).unwrap(),
         (vec![0, 1], vec![], vec![])
     );
+}
+
+fn thumbwheel_answers() -> Map<String, Value> {
+    // Keep the reviewer's supplied map verbatim. The pinned kernel names the M2 bore
+    // holes:12, rather than holes:14; its default is already tapped:M2.
+    json!({
+        "hole.function:holes:14": "tapped:M2",
+        "diameter.fit:turned_steps:6": "thread:M3",
+        "diameter.fit:turned_steps:3": "knurl:straight"
+    })
+    .as_object()
+    .unwrap()
+    .clone()
+}
+
+fn check_thumbwheel(a: &Value) {
+    let given = thumbwheel_answers();
+    let ctx = Ctx::new(a).unwrap();
+    assert_eq!(
+        ctx.default_datums_with(&given).unwrap(),
+        (vec![2], vec![0], vec![])
+    );
+    assert_eq!(ctx.faces.at(2).unwrap().radius().unwrap(), 2.5);
+    // The Ø5 × 3 seat has ~47 mm², versus ~9 mm² for the Ø6 × 0.5 collar.
+    assert!(ctx.faces.at(2).unwrap().area().unwrap() > ctx.faces.at(9).unwrap().area().unwrap());
+    let qs = questions(a, &given).unwrap();
+    assert_eq!(q(&qs, "datum.A").default, Some(json!([2])));
+    assert_eq!(q(&qs, "datum.B").default, Some(json!([0])));
+    assert!(!qs.iter().any(|q| q.id == "diameter.runout:turned_steps:2"));
+    assert_eq!(
+        q(&qs, "diameter.runout:turned_steps:3").frame.as_deref(),
+        Some("A")
+    );
+    let intent = preview(a, &given).unwrap();
+    assert_eq!(intent.datums[0]["faces"], json!([2]));
+    assert_eq!(intent.datums[1]["faces"], json!([0]));
+    assert!(
+        intent
+            .requirements
+            .iter()
+            .any(|r| r["kind"] == "thread" && r["faces"] == json!([6]))
+    );
+    assert!(
+        intent
+            .requirements
+            .iter()
+            .any(|r| r["kind"] == "knurl" && r["faces"] == json!([3]))
+    );
+    assert!(
+        !problems(a, &given)
+            .unwrap()
+            .iter()
+            .any(|p| p["message"].as_str().unwrap().contains("nothing locates"))
+    );
+
+    // Typed specifications have the same effect, and changing/removing an answer cannot
+    // reuse stale defaults from this same context's no-answer cache.
+    ctx.default_datums().unwrap();
+    let typed = json!({"diameter.fit:turned_steps:6": "M3", "diameter.fit:turned_steps:3": "straight knurl"})
+        .as_object().unwrap().clone();
+    assert_eq!(ctx.default_datums_with(&typed).unwrap().0, [2]);
+    assert_eq!(ctx.default_datums().unwrap().0, [6]);
+    let overridden = json!({"datum.A": [9], "datum.B": []})
+        .as_object()
+        .unwrap()
+        .clone();
+    let mut given = given;
+    given.extend(overridden);
+    assert_eq!(preview(a, &given).unwrap().datums[0]["faces"], json!([9]));
+}
+
+#[test]
+fn thumbwheel_uses_the_plain_five_mm_seat_and_its_shoulder() {
+    check_thumbwheel(&captured("gramel/GRM-03_thumbwheel_drive_screw"));
+    if let Some(root) = common::corpus_dir() {
+        let loaded = specify_core::part::load(
+            &root.join("gramel/GRM-03_thumbwheel_drive_screw.step"),
+            None,
+        )
+        .unwrap();
+        let a = api::analyse(&loaded).unwrap();
+        check_thumbwheel(&a);
+        let intent = preview(&a, &thumbwheel_answers()).unwrap();
+        let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, None).unwrap();
+        let reread = specify_core::part::load_bytes("thumbwheel.step", bytes).unwrap();
+        let mut a = api::analyse(&reread).unwrap();
+        for kind in ["external thread", "knurl"] {
+            assert!(
+                a["existing"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|e| e["kind"] == "note" && e["type"] == kind)
+            );
+        }
+        // Force default selection independently of the file datums: the semantic thread
+        // and knurl alone must keep the original seat after writing and reading AP242.
+        a["existing"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|e| e["kind"] != "datum");
+        assert_eq!(
+            Ctx::new(&a).unwrap().default_datums().unwrap(),
+            &(vec![2], vec![0], vec![])
+        );
+    }
+}
+
+#[test]
+fn grouped_answers_and_single_face_pmi_exclude_every_split_face_of_a_rough_seat() {
+    let mut a = captured("gramel/GRM-03_thumbwheel_drive_screw");
+    let mut split_face = a["faces"][6].clone();
+    split_face["id"] = json!(14);
+    a["faces"].as_array_mut().unwrap().push(split_face);
+    let mut split_feature = a["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["id"] == "turned_steps:6")
+        .unwrap()
+        .clone();
+    split_feature["id"] = json!("turned_steps:14");
+    split_feature["faces"] = json!([14]);
+    a["features"].as_array_mut().unwrap().push(split_feature);
+    let given = thumbwheel_answers();
+    assert_eq!(
+        Ctx::new(&a).unwrap().default_datums_with(&given).unwrap().0,
+        [2]
+    );
+    assert_eq!(
+        q(
+            &questions(&a, &given).unwrap(),
+            "diameter.fit:turned_steps:6"
+        )
+        .faces,
+        [6, 14]
+    );
+    a["existing"] = json!([{"kind": "note", "type": "surface finish", "faces": [6]}]);
+    assert_eq!(
+        Ctx::new(&a).unwrap().default_datums_with(&given).unwrap().0,
+        [2]
+    );
+    a["existing"] = json!([
+        {"kind": "note", "type": "external thread", "faces": [6]},
+        {"kind": "note", "type": "knurl", "faces": [3]}
+    ]);
+    assert_eq!(Ctx::new(&a).unwrap().default_datums().unwrap().0, [2]);
+    // With every seat rough, a planar fallback is preferable to silently using a thread.
+    a["existing"].as_array_mut().unwrap().extend([
+        json!({"kind": "note", "type": "knurl", "faces": [2]}),
+        json!({"kind": "note", "type": "external thread", "faces": [9]}),
+    ]);
+    let ctx = Ctx::new(&a).unwrap();
+    assert_eq!(
+        datum_kind(&ctx.default_datums().unwrap().0, &ctx.faces).unwrap(),
+        DatumKind::Plane
+    );
+}
+
+#[test]
+fn recognition_and_pmi_exclude_rough_datum_surfaces_even_with_plain_answers() {
+    for source in ["pmi", "recognition"] {
+        let mut a = captured("gramel/GRM-03_thumbwheel_drive_screw");
+        if source == "pmi" {
+            a["existing"] = json!([
+                {"kind": "note", "type": "external thread", "faces": [6]},
+                {"kind": "note", "type": "knurl", "faces": [3]}
+            ]);
+        } else {
+            a["features"].as_array_mut().unwrap().extend([
+                json!({"id": "external_threads:6", "family": "external_threads", "faces": [6], "record": {}}),
+                json!({"id": "knurls:3", "family": "knurls", "faces": [3], "record": {}}),
+            ]);
+        }
+        let ctx = Ctx::new(&a).unwrap();
+        let plain = json!({"diameter.fit:turned_steps:6": "general", "diameter.fit:turned_steps:3": "general"}).as_object().unwrap().clone();
+        assert_eq!(ctx.default_datums_with(&plain).unwrap().0, [2], "{source}");
+        // File datum intent keeps precedence, even if it explicitly references a thread.
+        a["existing"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"kind": "datum", "type": "A", "faces": [6]}));
+        assert_eq!(
+            preview(&a, &Map::new()).unwrap().datums[0]["faces"],
+            json!([6])
+        );
+    }
+}
+
+#[test]
+fn interrupted_shaft_uses_main_axis_and_end_seat_instead_of_window_walls() {
+    let mut a =
+        api::analyse_file(&common::fixtures().join("parts/GRM-02_shaft.step"), None).unwrap();
+    let ctx = Ctx::new(&a).unwrap();
+    assert!(!ctx.has_family("turned_steps"));
+    assert_eq!(
+        ctx.default_datums().unwrap(),
+        &(vec![0], vec![7, 11], vec![])
+    );
+    assert_eq!(ctx.faces.at(0).unwrap().radius().unwrap(), 4.0);
+    let qs = questions(&a, &Map::new()).unwrap();
+    assert_eq!(q(&qs, "datum.A").default, Some(json!([0])));
+    assert_eq!(q(&qs, "datum.B").default, Some(json!([7, 11])));
+    assert_eq!(q(&qs, "datum.C").default, Some(json!([])));
+    let intent = preview(&a, &Map::new()).unwrap();
+    assert_eq!(intent.datums[0]["faces"], json!([0]));
+    assert_eq!(intent.datums[1]["faces"], json!([7, 11]));
+    assert!(
+        intent
+            .requirements
+            .iter()
+            .filter(|r| r["kind"] == "position")
+            .all(|r| r["datums"] == json!(["A"]))
+    );
+
+    // A window's contact and area cannot displace a usable external axial stop.
+    for f in a["faces"].as_array_mut().unwrap() {
+        if f["id"] == 5 {
+            f["contact"] = json!({"area": 1000, "part": "window insert"});
+        }
+    }
+    assert_eq!(Ctx::new(&a).unwrap().default_datums().unwrap().1, [7, 11]);
+    // If the only perpendicular face is a window end it can be used as a fallback.
+    // Retain lateral faces and all feature references, changing unused axial planes to
+    // unresolved surfaces to exercise the rule independently of recognition changes.
+    for f in a["faces"].as_array_mut().unwrap() {
+        if [3, 7, 9, 11, 13, 16].iter().any(|id| f["id"] == *id) {
+            f["kind"] = json!("other");
+        }
+    }
+    assert_eq!(Ctx::new(&a).unwrap().default_datums().unwrap().1, [5]);
+    // Two recess walls alone do not identify a unique locating seat.
+    a["faces"][3]["kind"] = json!("plane");
+    assert!(Ctx::new(&a).unwrap().default_datums().unwrap().1.is_empty());
 }

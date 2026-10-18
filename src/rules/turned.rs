@@ -106,7 +106,11 @@ pub(crate) fn turned_question(group: &[&Feature<'_>], ctx: &Ctx<'_>) -> Result<Q
 /// `_runout_frame`: the frame a turned diameter's runout is measured from (the datums up to
 /// and including the part's axis: those given, else those that would be proposed) and the
 /// axis datum's faces. None for a part with no datum axis.
-pub(crate) fn runout_frame(ctx: &Ctx<'_>, datums: &Datums) -> Result<Option<(String, Vec<i64>)>> {
+pub(crate) fn runout_frame(
+    ctx: &Ctx<'_>,
+    datums: &Datums,
+    answers: &Map<String, Value>,
+) -> Result<Option<(String, Vec<i64>)>> {
     if !datums.is_empty() {
         let letters = datums.letters();
         let Some(at) = datums.iter().position(|(_, d)| d.kind == DatumKind::Axis) else {
@@ -119,16 +123,16 @@ pub(crate) fn runout_frame(ctx: &Ctx<'_>, datums: &Datums) -> Result<Option<(Str
             .join("|");
         return Ok(Some((frame, datums.0[at].1.faces.clone())));
     }
-    let (a, b, _) = ctx.default_datums()?;
-    if !a.is_empty() && classify(a, &ctx.faces)? == Some(DatumKind::Axis) {
-        return Ok(Some(("A".to_string(), a.clone())));
+    let (a, b, _) = ctx.default_datums_with(answers)?;
+    if !a.is_empty() && classify(&a, &ctx.faces)? == Some(DatumKind::Axis) {
+        return Ok(Some(("A".to_string(), a)));
     }
     if !a.is_empty()
         && !b.is_empty()
-        && classify(a, &ctx.faces)? == Some(DatumKind::Plane)
-        && classify(b, &ctx.faces)? == Some(DatumKind::Axis)
+        && classify(&a, &ctx.faces)? == Some(DatumKind::Plane)
+        && classify(&b, &ctx.faces)? == Some(DatumKind::Axis)
     {
-        return Ok(Some(("A|B".to_string(), b.clone())));
+        return Ok(Some(("A|B".to_string(), b)));
     }
     Ok(None)
 }

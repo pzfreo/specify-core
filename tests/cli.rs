@@ -1276,25 +1276,25 @@ fn without_reviewed_rule_departures(differences: Vec<Difference>) -> Vec<Differe
             "corpus/cadgenbench/flanged_spool_132",
             "questions.defaults.questions[15].faces[0]",
             69,
-            70
+            34
         ],
         [
             "corpus/cadgenbench/flanged_spool_132",
             "questions.defaults.questions[15].faces[1]",
             null,
-            87
+            89
         ],
         [
             "corpus/cadgenbench/flanged_spool_132",
             "questions.defaults.questions[15].default[0]",
             69,
-            70
+            34
         ],
         [
             "corpus/cadgenbench/flanged_spool_132",
             "questions.defaults.questions[15].default[1]",
             null,
-            87
+            89
         ],
         [
             "corpus/cadgenbench/flanged_spool_132",
@@ -1312,13 +1312,13 @@ fn without_reviewed_rule_departures(differences: Vec<Difference>) -> Vec<Differe
             "corpus/gramel/string_post",
             "questions.defaults.questions[15].faces[0]",
             11,
-            9
+            0
         ],
         [
             "corpus/gramel/string_post",
             "questions.defaults.questions[15].default[0]",
             11,
-            9
+            0
         ],
         [
             "corpus/gramel/string_post",

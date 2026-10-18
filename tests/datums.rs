@@ -389,7 +389,7 @@ fn a_bore_parallel_to_datum_a_gets_no_control() {
 
 // test_datums.py::test_turned_datum_b_takes_every_face_of_a_split_bore
 #[test]
-fn turned_datum_a_takes_every_face_of_the_largest_diameter() {
+fn turned_datum_a_takes_every_face_of_the_greatest_area_seat() {
     let common = json!({"kind": "cylinder", "direction": [0, 0, 1], "origin": [0, 0, 0],
                         "radius": 5.0, "centroid": [0, 0, 0]});
     let with = |extra: Value| {
@@ -406,7 +406,7 @@ fn turned_datum_a_takes_every_face_of_the_largest_diameter() {
         with(json!({"radius": 9.0, "area": 10.0})),
     ]);
     let (a, b, c) = default_datums(&faces, true).unwrap();
-    assert_eq!(a, [3]);
+    assert_eq!(a, [1, 2]);
     assert_eq!(b, [0]);
     assert!(c.is_empty());
     // Equal diameters are one feature even when the seam splits their faces.

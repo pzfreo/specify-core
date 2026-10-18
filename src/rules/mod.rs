@@ -515,7 +515,7 @@ fn all_questions(
         // median line in a cylindrical zone coaxial with A. The shoulder does not
         // constrain that zone; keep B for axial dimensions and other features.
         if datums::datum_of(&bores, &datums).is_none()
-            && datums::turned_axis(ctx)?.is_some()
+            && datums::turned_axis(ctx, answers)?.is_some()
             && datums::axis_locates(&bores, &datums, &ctx.faces)?
         {
             return Ok(vec!["A".to_string()]);
@@ -635,7 +635,7 @@ fn all_questions(
         let edges = if by_position {
             None
         } else {
-            let (_, b, c) = ctx.default_datums()?;
+            let (_, b, c) = ctx.default_datums_with(answers)?;
             Some(vec![b.clone(), c.clone()])
         };
         out.extend(holes::hole_questions(
@@ -648,7 +648,7 @@ fn all_questions(
         )?);
     }
 
-    let axial = turned::runout_frame(ctx, &datums)?;
+    let axial = turned::runout_frame(ctx, &datums, answers)?;
     let mut diameters = Vec::with_capacity(turned.len());
     for f in &turned {
         diameters.push(py::round(f.number("diameter")?, 6));
@@ -995,7 +995,7 @@ fn intent(ctx: &Ctx<'_>, answers: &Map<String, Value>, qs: &[Question]) -> Resul
         } else if q.id.starts_with("hole.location:") {
             // A tolerance of 0 is false to Python, and makes no requirement either.
             if let Some(tolerance) = locations::parse(value)?.filter(|&t| t != 0.0) {
-                let (_, b, c) = ctx.default_datums()?;
+                let (_, b, c) = ctx.default_datums_with(answers)?;
                 let edges = [b.clone(), c.clone()];
                 for (fid, _) in &parts {
                     let members = members(ctx.feature(fid)?, ctx)?;

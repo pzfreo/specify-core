@@ -43,7 +43,7 @@ pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Va
         datum_faces.extend(face_ids(d.get("faces")));
     }
     let datums = chosen_datums(&ctx, &merged, &qs)?;
-    let turned = turned_axis(&ctx)?.is_some();
+    let turned = turned_axis(&ctx, &merged)?.is_some();
     for q in &qs {
         if !q.id.starts_with("hole.function:") || !by_position {
             continue;
