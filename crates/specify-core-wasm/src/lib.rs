@@ -37,6 +37,7 @@ pub fn interpret(
 #[cfg(target_arch = "wasm32")]
 mod wasm {
     use super::*;
+    use specify_core::tolerancing;
     use wasm_bindgen::prelude::*;
 
     #[wasm_bindgen]
@@ -60,6 +61,15 @@ mod wasm {
                 .map_err(|error| JsValue::from_str(&format!("Invalid answers: {error}")))?;
             self.0
                 .write_pmi(&answers, project.as_deref())
+                .map(|value| value.to_string())
+                .map_err(|error| JsValue::from_str(&error))
+        }
+        /// The review settled to the default path, and the settled `{answers, auto, gdt}`.
+        pub fn settle(&self, state: &str) -> Result<String, JsValue> {
+            let state = serde_json::from_str(state)
+                .map_err(|error| JsValue::from_str(&format!("Invalid state: {error}")))?;
+            self.0
+                .settle(&state)
                 .map(|value| value.to_string())
                 .map_err(|error| JsValue::from_str(&error))
         }
@@ -92,6 +102,55 @@ mod wasm {
         api::review(&analysis, &answers)
             .map(|value| value.to_string())
             .map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
+    fn state(json: &str) -> Result<tolerancing::State, JsValue> {
+        serde_json::from_str(json)
+            .map_err(|error| JsValue::from_str(&format!("Invalid state: {error}")))
+    }
+    fn answers(json: &str) -> Result<Map<String, Value>, JsValue> {
+        serde_json::from_str(json)
+            .map_err(|error| JsValue::from_str(&format!("Invalid answers: {error}")))
+    }
+    fn out(state: tolerancing::State) -> String {
+        serde_json::to_string(&state).unwrap()
+    }
+
+    /// The person's answers replace the state's (`tolerancing::answer_edit`).
+    #[wasm_bindgen(js_name = answerEdit)]
+    pub fn answer_edit(state: &str, answers: &str) -> Result<String, JsValue> {
+        Ok(out(tolerancing::answer_edit(
+            &self::state(state)?,
+            &self::answers(answers)?,
+        )))
+    }
+
+    /// A change of tolerancing mode (`plusminus`, `geometric`, or none for the default path).
+    #[wasm_bindgen(js_name = tolerancingEdit)]
+    pub fn tolerancing_edit(
+        state: &str,
+        mode: Option<String>,
+        answers: &str,
+    ) -> Result<String, JsValue> {
+        let mode = mode
+            .map(|mode| serde_json::from_value(Value::String(mode)))
+            .transpose()
+            .map_err(|error| JsValue::from_str(&format!("Invalid mode: {error}")))?;
+        Ok(out(tolerancing::tolerancing_edit(
+            &self::state(state)?,
+            mode,
+            &self::answers(answers)?,
+        )))
+    }
+
+    /// The state a project opens with, given the answers a STEP Specify wrote resumes, if any.
+    #[wasm_bindgen(js_name = openedTolerancing)]
+    pub fn opened_tolerancing(state: &str, resume: Option<String>) -> Result<String, JsValue> {
+        let resume = resume.as_deref().map(self::answers).transpose()?;
+        Ok(out(tolerancing::opened(
+            &self::state(state)?,
+            resume.as_ref(),
+        )))
     }
 
     #[wasm_bindgen(js_name = interpret)]

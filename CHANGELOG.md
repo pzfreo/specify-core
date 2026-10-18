@@ -6,13 +6,23 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.0-alpha.5 (2026-10-18)
+
 ### WASM API
 
+- `IntentEngine.settle(state)` returns `{review, state}`: the review settled to the default path
+  with label anchors. `answerEdit`, `tolerancingEdit` and `openedTolerancing` change a project's
+  `{answers, auto, gdt}` as the editor's tolerancing controls, All specs answers and project
+  opening do.
 - Add a reviewed TypeScript API snapshot and CI acknowledgement gate: declaration or snapshot
   changes require a new Unreleased WASM API bullet; refresh with `python3 tools/check_wasm_api.py --update`.
 
 ### Added
 
+- `tolerancing`: a drawing by default, GD&T on request. The editor's rules for the default path
+  (± locating, plain holes except proposed taps, plain diameters except threads and knurls,
+  recorded in `auto`) and for GD&T mode changes, moved from draftwright-editor so the editor and
+  the MCP server make the same changes.
 - Enforce a reviewed optimized WASM size ceiling, with raw, gzip and Brotli measurements and
   headroom on every build. Compare both quiddity kernel pins with Draftwright's latest release
   on main and before uploading releases; mismatches warn and add a Kernel note to release notes.
