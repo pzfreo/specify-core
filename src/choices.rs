@@ -113,6 +113,24 @@ pub fn split(value: &str) -> (&str, &str, Option<f64>) {
     }
 }
 
+/// Resolve a blind tapped hole's implicit full-thread depth for display. Stored choice
+/// values stay canonical (`tapped:M2`); their code and callout can show the actual computed
+/// minimum, just as an explicit `tapped:M2@2.3` does. `None` means through or unknown depth.
+pub fn with_default_full_thread(value: &str, drill_depth: Option<f64>) -> String {
+    let (kind, size, full) = split(value);
+    if kind == "tapped"
+        && given(full).is_none()
+        && let Some(depth) = drill_depth
+        && standards::lookup(&PITCH, size).is_some()
+    {
+        return format!(
+            "tapped:{size}@{}",
+            fmt3(standards::full_thread(depth, size))
+        );
+    }
+    value.to_string()
+}
+
 /// Python's truth of an optional depth: present and not zero (nan is true).
 fn given(depth: Option<f64>) -> Option<f64> {
     depth.filter(|&d| d != 0.0)

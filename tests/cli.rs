@@ -1248,11 +1248,119 @@ fn check_area(differences: &[Difference]) {
     check_known_with(&path.display().to_string(), &entries, differences);
 }
 
+/// CLI prefixes artifact names onto paths, whereas rules_oracle puts them in case names.
+/// Inherit only exact reviewed old/new values, not the broader verdict scopes. Composition
+/// still compares the CLI with the library independently, without filtering any difference.
+fn without_reviewed_rule_departures(differences: Vec<Difference>) -> Vec<Difference> {
+    let reviewed = common::read_json_gz(&common::fixtures().join("turned_defaults_oracle.json.gz"));
+    let key = |case: &str, path: &str, python: &Value, rust: &Value| {
+        format!("{case}\0{}\0{python}\0{rust}", path.replace(".[", "["))
+    };
+    let mut known = std::collections::HashSet::new();
+    for d in reviewed.as_array().unwrap() {
+        let (case, artifact) = d["case"].as_str().unwrap().rsplit_once('/').unwrap();
+        for prefix in [format!("{artifact}."), format!("scenario.{artifact}.")] {
+            known.insert(key(
+                case,
+                &format!("{prefix}{}", d["path"].as_str().unwrap()),
+                &d["python"],
+                &d["rust"],
+            ));
+        }
+    }
+    // Python's accepted-default answers preserve its old datum overrides. That keeps
+    // different question membership from rules_oracle's newly accepted defaults. Pin these
+    // additional CLI variants exactly, including each field's old and new value.
+    let variants = json!([
+        [
+            "corpus/cadgenbench/flanged_spool_132",
+            "questions.defaults.questions[15].faces[0]",
+            69,
+            70
+        ],
+        [
+            "corpus/cadgenbench/flanged_spool_132",
+            "questions.defaults.questions[15].faces[1]",
+            null,
+            87
+        ],
+        [
+            "corpus/cadgenbench/flanged_spool_132",
+            "questions.defaults.questions[15].default[0]",
+            69,
+            70
+        ],
+        [
+            "corpus/cadgenbench/flanged_spool_132",
+            "questions.defaults.questions[15].default[1]",
+            null,
+            87
+        ],
+        [
+            "corpus/cadgenbench/flanged_spool_132",
+            "questions.defaults.questions[16].faces[0]",
+            55,
+            69
+        ],
+        [
+            "corpus/cadgenbench/flanged_spool_132",
+            "questions.defaults.questions[16].default[0]",
+            55,
+            69
+        ],
+        [
+            "corpus/gramel/string_post",
+            "questions.defaults.questions[15].faces[0]",
+            11,
+            9
+        ],
+        [
+            "corpus/gramel/string_post",
+            "questions.defaults.questions[15].default[0]",
+            11,
+            9
+        ],
+        [
+            "corpus/gramel/string_post",
+            "questions.defaults.questions[16].faces[0]",
+            null,
+            8
+        ],
+        [
+            "corpus/gramel/string_post",
+            "questions.defaults.questions[16].default[0]",
+            null,
+            8
+        ],
+        [
+            "parts/stack#2",
+            "questions.defaults.open[1]",
+            null,
+            "diameter.runout:turned_steps:3"
+        ]
+    ]);
+    for v in variants.as_array().unwrap() {
+        known.insert(key(
+            v[0].as_str().unwrap(),
+            v[1].as_str().unwrap(),
+            &v[2],
+            &v[3],
+        ));
+    }
+    differences
+        .into_iter()
+        .filter(|d| !known.contains(&key(&d.case, &d.path, &json!(d.python), &json!(d.rust))))
+        .collect()
+}
+
 #[test]
 fn the_command_line_matches_the_oracle() {
     let dir = scratch("oracle");
     let mut differences = composition(&dir);
-    differences.extend(explained(&AREAS, &python_inputs(&dir)));
+    differences.extend(explained(
+        &AREAS,
+        &without_reviewed_rule_departures(python_inputs(&dir)),
+    ));
     differences.extend(command_lines(&dir));
     let _ = std::fs::remove_dir_all(&dir);
     check_area(&differences);

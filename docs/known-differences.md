@@ -12,16 +12,16 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | Area | rust-correct | rust-wrong | equivalent | undetermined | not-applicable | Total |
 |---|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 9 |
-| [cli](#cli) | 11 | 0 | 3 | 0 | 3 | 17 |
+| [cli](#cli) | 34 | 0 | 3 | 0 | 3 | 40 |
 | [cross_engine](#cross_engine) | 3 | 1 | 0 | 1 | 1 | 6 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
 | [features](#features) | 879 | 1419 | 65 | 1387 | 11 | 3761 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 40 |
-| [rules](#rules) | 20 | 0 | 0 | 0 | 0 | 20 |
+| [rules](#rules) | 24 | 0 | 0 | 0 | 0 | 24 |
 | [writer](#writer) | 14 | 0 | 0 | 0 | 15 | 29 |
-| **all** | 963 | 1437 | 79 | 1393 | 47 | 3919 |
+| **all** | 990 | 1437 | 79 | 1393 | 47 | 3946 |
 
 ## anchors
 
@@ -67,7 +67,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (11 entries)
+### cli: rust-correct (34 entries)
 
 - **Python's write prints OpenCascade's transfer statistics on stdout before the report** (`cli/*` at `stdout_noise`)
 
@@ -108,6 +108,14 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **serve's parts reports each part's product id beside its name (D1), a key Python's listing lacks** (`parts/*@serve` at `serve*.parts.result.parts*.product_id`)
 
   Decision D1 (maintainer, 2026-10-15): a part is identified by its index ('part', what --part and stored answers use); its name and its product's PRODUCT.id are reported beside it. haecceity's PartDefinition.product_id (quiddity-rust 0d601d2) is the id as the file states it, escapes decoded; Python's parts listing has no such key. Every other key of the listing is still compared and equal (tests/part.rs, corpus_and_nist_faces_are_pythons_at_every_index, compares the rest with Python on corpus and NIST files).
+
+- **CLI and serve expose the corrected turned datums and blind-thread summaries** (21 entries, 11 case globs)
+
+  The CLI composition check independently requires byte-identical library and executable outputs. Corrected axis-first defaults change datum faces, axial position/runout frames, question ordering and dependent intent text on the pin/stack; blind tap summaries include computed full-thread depth. The full library before/after changes are exactly pinned in turned_defaults_oracle.json.gz; tests/turned_defaults.rs and tests/thread_depth_help.rs verify the intended geometry and displays. CLI Python-input checks inherit only exact matching reviewed rule changes via without_reviewed_rule_departures; these entries cover command/transcript envelopes and intent text. No composition differences are filtered.
+
+- **a perpendicular shoulder datum unused by an axial position is reported** (2 entries, 2 case globs)
+
+  The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `parts/assembly*` at `write.warnings[pin: datum B is in the file but no tolerance references it; OCCT-based readers (including Draftwright) will not see it]`: The turned pin now uses axis A for its coaxial hole position; shoulder B remains available for axial location but no default control cites it. The existing writer warning correctly reports that OCCT readers omit unreferenced datums. The intent still stores and verifies B. See docs/turned-defaults.md and the live thumbwheel write verification.
 
 ### cli: equivalent (3 entries)
 
@@ -685,7 +693,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## rules
 
-### rules: rust-correct (20 entries)
+### rules: rust-correct (24 entries)
 
 - **a knurl's teeth derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].teeth`)
 
@@ -714,6 +722,10 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **axis-first turned datum defaults and their dependent questions and intent** (14 entries, 14 case globs)
 
   Axis-first turned datums: largest recognised principal diameter (area breaks ties), then a perpendicular contact/largest shoulder. Axial holes use diametral position to A alone; other holes keep the full frame. Runout uses A and is not offered on the datum diameter itself. A mostly prismatic body or different principal axes keeps plane datums. tests/turned_defaults.rs checks captured and live corpus geometry, overrides, offsets, cross holes and shoulder contacts. tests/fixtures/turned_defaults_oracle.json.gz is an additional exact regression guard on EVERY changed path and both values (including question ordering and all other rules); rules_oracle asserts that complete list before applying these verdict entries, so these scopes cannot hide further differences. See docs/turned-defaults.md.
+
+- **blind tapped-hole help exposes full-thread syntax and summaries show computed depth** (4 entries, 1 case glob)
+
+  Blind tap questions include an example valid at the recognised drill depth and the existing drill-minus-three-pitches rule (round down to 0.5 mm, at least one pitch). Their choice code/callout and basis show the resolved default; canonical values remain unchanged. Through and unknown depths keep their prior summaries. tests/thread_depth_help.rs tests discovery, defaults, explicit depths and limits. Every changed path and both old/new values are exactly pinned by tests/fixtures/turned_defaults_oracle.json.gz before these entries apply.
 
 ## writer
 

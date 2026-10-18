@@ -59,6 +59,28 @@ thumbwheel's axial M2 hole changes from plane A|axis B to axis A. Neither origin
 review happened to reproduce the prototype's missing-location warning; regression tests
 exercise missing A, missing B, and offset/cross-hole cases explicitly.
 
+Both M2 parts were also written as AP242 with accepted defaults and read-back verification.
+The string post writes without warnings. The thumbwheel reports the existing writer warning
+that an unreferenced B is omitted by OCCT-based readers, consistent with its unused-B info;
+B is still present in the written file and the verified intent.
+
+## Blind tapped hole help and summaries
+
+For the string post's Ø1.6 × 4 mm blind tap drill the question's `why` includes:
+
+> For a blind tapped hole, set the minimum full-thread depth by typing e.g.
+> "M2 tapped, 2.5 mm full thread". The default is drill depth minus 3 pitches,
+> rounded down to 0.5 mm (at least one pitch).
+
+The choice's code and a typed `M2` answer summary now read **M2 tapped, 2.5 mm full thread**;
+its callout includes **2.5 mm min full thread**. This is `(4 - 3 × 0.4) = 2.8 mm`, rounded
+down to 2.5 mm. The thumbwheel's 3.8 mm tap drill also defaults to 2.5 mm. An explicit
+`M2 tapped, 2.3 mm full thread` keeps 2.3 mm; `M2 tapped, 5 mm full thread` uses the existing
+syntax and is accepted when the drill has room (at least 6.2 mm for M2). Through holes and
+unknown drill depths receive no blind-depth claim. Stored values remain `tapped:M2` unless a
+depth is explicitly specified (`tapped:M2@2.3`); display resolution does not stamp an implicit
+depth into an answer. Both native serve and WASM interpretation use the same display rule.
+
 ## Oracle regression guard
 
 The Python captures intentionally retain the old defaults. `tests/rules_oracle.rs` still
@@ -68,3 +90,7 @@ expected deviations (both old and new values) is additionally pinned in
 verdicts are applied. This prevents the changed turned-part scopes from accepting unrelated
 regressions, including any change to a prismatic part. Inspect with `gzip -dc`; after a reviewed
 rule change regenerate with `UPDATE_TURNED_DEFAULTS=1 cargo test --release --test rules_oracle`.
+The CLI sweep inherits these exact values with its artifact prefixes normalised; explicit
+old-default answer variants are also pinned. Its independent library/executable composition
+comparison remains unfiltered. Axial length tests now verify their unchanged distances from
+shoulder B, and runout tests verify the primary-axis frame A.

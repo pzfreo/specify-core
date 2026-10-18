@@ -15,6 +15,10 @@ All notable changes to specify-core-rust. The format follows
   position to A and are recognised as located by that axis; offset and cross holes still need
   location. Runout follows the primary axis. See `docs/turned-defaults.md` for detection,
   ISO 1101 zone interpretation and before/after corpus verification.
+- Blind tapped-hole help now gives a valid full-thread-depth example (such as
+  `M2 tapped, 2.5 mm full thread`) and explains the computed default. Choice and typed-answer
+  summaries show that depth, including native serve and WASM interpretation; canonical
+  answers, explicit depths, through holes and unknown depths retain their behaviour.
 
 ### WASM API
 
