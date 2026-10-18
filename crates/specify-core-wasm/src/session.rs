@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 use specify_core::{
     api,
     part::{Binding, LOADER_VERSION, LoadedPart},
+    tolerancing,
 };
 use std::{path::PathBuf, sync::Arc};
 
@@ -86,6 +87,15 @@ impl Session {
         Ok(
             json!({"bytes": bytes, "source_sha256": self.loaded.binding.source_sha256, "report": report.to_dict()}),
         )
+    }
+
+    /// The review settled to the default path (`specify_core::tolerancing::settle`), with the
+    /// label anchors [`Session::review`] adds: `{review, state}`.
+    pub fn settle(&self, state: &tolerancing::State) -> Result<Value, String> {
+        let (_, settled) =
+            tolerancing::settle(&self.analysis, state).map_err(|error| error.to_string())?;
+        let review = self.review(&settled.answers)?;
+        Ok(json!({"review": review, "state": settled}))
     }
 
     pub fn review(&self, answers: &Map<String, Value>) -> Result<Value, String> {
