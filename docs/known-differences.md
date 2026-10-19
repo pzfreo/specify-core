@@ -12,7 +12,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | Area | rust-correct | rust-wrong | equivalent | undetermined | not-applicable | Total |
 |---|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 9 |
-| [cli](#cli) | 124 | 0 | 3 | 0 | 3 | 130 |
+| [cli](#cli) | 128 | 0 | 3 | 0 | 3 | 134 |
 | [cross_engine](#cross_engine) | 3 | 1 | 0 | 1 | 1 | 6 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
 | [features](#features) | 879 | 1419 | 65 | 1387 | 11 | 3761 |
@@ -21,7 +21,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 40 |
 | [rules](#rules) | 30 | 0 | 0 | 0 | 0 | 30 |
 | [writer](#writer) | 14 | 0 | 0 | 0 | 15 | 29 |
-| **all** | 1086 | 1437 | 79 | 1393 | 47 | 4042 |
+| **all** | 1090 | 1437 | 79 | 1393 | 47 | 4046 |
 
 ## anchors
 
@@ -67,7 +67,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (124 entries)
+### cli: rust-correct (128 entries)
 
 - **Python's write prints OpenCascade's transfer statistics on stdout before the report** (`cli/*` at `stdout_noise`)
 
@@ -124,6 +124,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **measurement datum defaults in CLI and serve envelopes** (84 entries, 84 case globs)
 
   Maintainer decision (draftwright-rust #122), rules version 2: default measurement datums add questions, datum features, baseline origins, dependent anchors, unreferenced-datum reports and unanswered-question ids to CLI/serve envelopes. The locating help now explains measurement origins. Full --intent JSON text carries rules_version 2 and the new datums. Original Python captures remain unchanged. tests/cli.rs pins every additional departure (case, path and both complete values) in tests/fixtures/cli_datum_origins.json.gz before applying these verdict entries; it independently requires no library/executable composition differences. Library outputs are exactly guarded by rule_defaults_oracle.json.gz; tests/writer.rs verifies datum features without FCFs, and tests/locations.rs verifies changed/removed origins.
+
+- **axis-first turned defaults change string-post datum and basic-location report lines** (4 entries, 1 case glob)
+
+  The existing axis-first turned defaults (cx/turned-part-defaults) select string_post axis A on face 0 and shoulder B on face 8, replacing Python's A plane 11 and B axis 0. Consequently B is now a written datum; the old 1.2 mm basic offsets from plane 11 disappear, and the transverse hole holes:5 has a 3.85 mm basic location from shoulder 8. This is the report envelope of the already pinned library intent in rule_defaults_oracle.json.gz; tests/turned_defaults.rs verifies the actual axis, shoulder, coaxial hole and cross-hole defaults, and tests/writer.rs verifies readback. The full corpus CLI sweep compares executable/library composition independently.
 
 ### cli: equivalent (3 entries)
 
