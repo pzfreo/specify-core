@@ -3,7 +3,7 @@
 //!
 //! A hole positioned by a tolerance has **basic** dimensions (exact, boxed on a drawing) from
 //! the planes of its datum frame; a hole located by ± dimensions has toleranced ones from the
-//! part's edge faces. Either way a dimension runs from a plane along the hole's axis (whose
+//! selected datum planes. Either way a dimension runs from a plane along the hole's axis (whose
 //! normal is square to it) to the axis, for each hole of a pattern. A frame of axes (a bolt
 //! circle round a bore) has no plane to measure from: its holes get none here.
 //!

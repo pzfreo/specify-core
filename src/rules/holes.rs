@@ -138,7 +138,7 @@ pub(crate) fn hole_key<'a>(
 }
 
 /// `_hole_questions`: what the hole (or holes) are for, which datums locate them and how
-/// closely; and, located by ± dimensions (`edges`), how closely from the part's edges.
+/// closely; and, located by ± dimensions (`planes`), how closely from the selected datum planes.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn hole_questions(
     ctx: &Ctx<'_>,
@@ -146,7 +146,7 @@ pub(crate) fn hole_questions(
     hole: &Feature<'_>,
     answers: &Map<String, Value>,
     frames: &[String],
-    edges: Option<&[Vec<i64>]>,
+    planes: Option<&[Vec<i64>]>,
 ) -> Result<Vec<Question>> {
     let diameter = hole.number("diameter")?;
     let bores = bores(&target.faces, diameter, &ctx.faces)?;
@@ -333,14 +333,14 @@ pub(crate) fn hole_questions(
             )
         });
     }
-    // Located by ± dimensions: how closely, from the part's edge faces.
-    if let Some(edges) = edges
-        && !locations::references(edges, &hole.vector("axis")?, &ctx.faces)?.is_empty()
+    // Located by ± dimensions: how closely, from the selected datum planes.
+    if let Some(planes) = planes
+        && !locations::references(planes, &hole.vector("axis")?, &ctx.faces)?.is_empty()
     {
         out.push(Question {
             default: Some(Value::from(locations::TOLERANCES[0])),
             options: locations::TOLERANCES.map(String::from).to_vec(),
-            why: "Their distances from the part's edges: the general tolerance, or a tighter ± \
+            why: "Their distances from the selected datum planes: the general tolerance, or a tighter ± \
                   written on each."
                 .to_string(),
             title: Some(label.clone()),

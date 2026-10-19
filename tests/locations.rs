@@ -1,4 +1,4 @@
-//! Location dimensions, basic from a position's datum planes and ± from the edges:
+//! Location dimensions, basic or ± from the selected datum planes:
 //! specify-core's `tests/test_locations.py`, on the oracle's captured analysis of the plate.
 //!
 //! Each test's write and read-back is the writer's (stage 3); the intent each asserts is here.
@@ -149,4 +149,58 @@ fn a_part_whose_only_dimensions_are_locations_keeps_its_tolerance_values() {
         .filter(|r| r["kind"] == "position")
         .collect();
     assert_eq!(positions.len(), 1);
+}
+
+#[test]
+fn plus_minus_locations_follow_changed_and_removed_datums() {
+    let plate = plate();
+    let mut given = answers(json!({"part.locating": LOCATING[1], "part.material": "steel"}));
+    for q in questions(&plate, &given).unwrap() {
+        if q.id.starts_with("hole.location:") {
+            given.insert(q.id, json!("±0.05"));
+        }
+    }
+    let original = apply_with_defaults(&plate, &given, true).unwrap();
+    let old_b = &original.datums.iter().find(|d| d["letter"] == "B").unwrap()["faces"];
+    // Select the opposite parallel side: distances must now come from that side.
+    let faces = plate["faces"].as_array().unwrap();
+    let b_face = faces.iter().find(|f| f["id"] == old_b[0]).unwrap();
+    let opposite = faces
+        .iter()
+        .find(|f| {
+            f["kind"] == "plane"
+                && (0..3)
+                    .map(|i| {
+                        f["direction"][i].as_f64().unwrap()
+                            * b_face["direction"][i].as_f64().unwrap()
+                    })
+                    .sum::<f64>()
+                    < -0.999
+        })
+        .unwrap();
+    given.insert("datum.B".into(), json!([opposite["id"]]));
+    given.insert("datum.C".into(), json!([]));
+    let changed = apply_with_defaults(&plate, &given, true).unwrap();
+    let located = locations(&changed);
+    assert!(!located.is_empty());
+    assert!(
+        located
+            .iter()
+            .all(|r| r["reference"] == json!([opposite["id"]]))
+    );
+    assert!(located.iter().any(|r| {
+        !locations(&original)
+            .iter()
+            .any(|o| o["feature"] == r["feature"] && o["distance"] == r["distance"])
+    }));
+    assert!(
+        located
+            .iter()
+            .all(|r| r["upper"] == 0.05 && r["lower"] == -0.05 && !r.contains_key("basic"))
+    );
+    given.insert("datum.A".into(), json!([]));
+    given.insert("datum.B".into(), json!([]));
+    let removed = apply_with_defaults(&plate, &given, true).unwrap();
+    assert!(removed.datums.is_empty());
+    assert!(locations(&removed).is_empty());
 }

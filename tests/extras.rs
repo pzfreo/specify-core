@@ -110,11 +110,11 @@ fn added_requirements_are_written_and_read_back() {
 // test_locating_problems_extras.py::
 //     test_an_added_orientation_brings_datums_where_nothing_else_needs_them
 #[test]
-fn an_added_orientation_brings_datums_where_nothing_else_needs_them() {
+fn an_added_orientation_keeps_the_default_measurement_frame() {
     let plate = plate();
     let mut plain = plain_holes(&questions(&plate, &Map::new()).unwrap());
     let qs = questions(&plate, &plain).unwrap();
-    assert!(!qs.iter().any(|q| q.id.starts_with("datum.")));
+    assert!(ids(&qs).contains(&"datum.A"));
     let extra = json!({"faces": [bore8(&plate)], "kind": "perpendicularity", "value": "0.02",
                        "datums": ["A"]});
     plain.insert("extra.1".into(), extra);
@@ -199,7 +199,7 @@ fn an_added_requirement_that_does_not_suit_its_faces_is_refused() {
 
 // test_locating_problems_extras.py::test_only_the_datums_added_orientations_cite_are_proposed
 #[test]
-fn only_the_datums_added_orientations_cite_are_proposed() {
+fn added_orientations_keep_the_full_default_measurement_frame() {
     let plate = plate();
     let extra = json!({"faces": [bore8(&plate)], "kind": "perpendicularity", "value": "0.02",
                        "datums": ["B"]});
@@ -209,7 +209,7 @@ fn only_the_datums_added_orientations_cite_are_proposed() {
         .into_iter()
         .filter(|i| i.matches('.').count() == 1 && i.starts_with("datum."))
         .collect();
-    assert_eq!(datums, ["datum.B"]);
+    assert_eq!(datums, ["datum.A", "datum.B", "datum.C"]);
     let b = asked.iter().find(|q| q.id == "datum.B").unwrap();
     assert!(
         b.default
@@ -222,5 +222,5 @@ fn only_the_datums_added_orientations_cite_are_proposed() {
     let asked = questions(&plate, &given).unwrap();
     let asked = ids(&asked);
     assert!(asked.contains(&"datum.A") && asked.contains(&"datum.B"));
-    assert!(!asked.contains(&"datum.C"));
+    assert!(asked.contains(&"datum.C"));
 }

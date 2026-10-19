@@ -105,7 +105,7 @@ pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Va
         }
     }
     for d in &intent.datums {
-        if !d.get("existing").is_some_and(truthy) && !used.contains(&letter(d)) {
+        if by_position && !d.get("existing").is_some_and(truthy) && !used.contains(&letter(d)) {
             out.push(problem(
                 "info",
                 format!(

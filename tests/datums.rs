@@ -447,7 +447,7 @@ fn a_datum_bore_on_a_turned_part_keeps_its_fit() {
 
 // test_datums.py::test_datums_are_proposed_only_when_something_is_measured_from_them
 #[test]
-fn datums_are_proposed_only_when_something_is_measured_from_them() {
+fn datums_are_proposed_even_when_all_holes_use_general_tolerance() {
     let plate = analysis("parts/plate");
     let qs = questions(&plate, &Map::new()).unwrap();
     let asked = ids(&qs);
@@ -460,7 +460,9 @@ fn datums_are_proposed_only_when_something_is_measured_from_them() {
     assert!(a > last_hole);
     let plain = plain_holes(&qs);
     let qs = questions(&plate, &plain).unwrap();
-    assert!(!qs.iter().any(|q| q.id.starts_with("datum.")));
+    for x in ["datum.A", "datum.B", "datum.C"] {
+        assert!(ids(&qs).contains(&x));
+    }
 }
 
 /// Every hole answered `general`.
@@ -491,8 +493,11 @@ fn a_datum_given_or_removed_is_always_asked() {
         .clone();
     plain.insert("datum.A".into(), json!([top]));
     let added = questions(&plate, &plain).unwrap();
-    assert_eq!(by_id(&added, "datum.A").default, Some(json!([])));
-    assert!(!ids(&added).contains(&"datum.B"));
+    assert_eq!(
+        by_id(&added, "datum.A").default,
+        by_id(&questions(&plate, &Map::new()).unwrap(), "datum.A").default
+    );
+    assert!(ids(&added).contains(&"datum.B"));
     let removed = questions(&plate, &answers(json!({"datum.C": []}))).unwrap();
     assert!(ids(&removed).contains(&"datum.C"));
     let positions: Vec<&Question> = removed

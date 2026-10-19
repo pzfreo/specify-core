@@ -3,7 +3,7 @@
 //! `src/model/intent.ts`, docs/WORKFLOW.md there).
 //!
 //! Until GD&T is asked for, some questions are answered on the person's behalf so Specify
-//! proposes no tolerancing scheme: holes located by ± dimensions (no datums, no position),
+//! proposes measurement datums and holes located by ± dimensions (no position tolerances),
 //! plain holes except a proposed tap, and plain diameters except a proposed thread or knurl.
 //! Those answers are recorded in `auto` so they can be given back. `gdt` is the tolerancing
 //! asked for: none yet (the default path), ± only, or geometric.
@@ -21,7 +21,7 @@ use crate::api;
 pub enum Mode {
     /// ± only: holes located by ± dimensions.
     Plusminus,
-    /// Geometric (GD&T): Specify proposes datums and position tolerances.
+    /// Geometric (GD&T): Specify proposes position tolerances from the measurement datums.
     Geometric,
 }
 

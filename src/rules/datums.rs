@@ -506,8 +506,14 @@ pub(crate) fn datum_questions(
     answers: &Map<String, Value>,
     propose: &str,
 ) -> Result<Vec<Question>> {
-    let why = "Datums fix the part for measurement; tolerances refer to them. A datum is one \
-               face, several coplanar faces, or a hole or boss (its axis).";
+    let by_dimensions = py::is_str(answers.get("part.locating"), super::LOCATING[1]);
+    let why = if by_dimensions {
+        "Datums: the part is measured from these faces or axes. Choose one face, several \
+         coplanar faces, or a hole or boss (its axis); leave empty to remove a datum."
+    } else {
+        "Datums fix the part for measurement; tolerances refer to them. A datum is one \
+         face, several coplanar faces, or a hole or boss (its axis)."
+    };
     let turned = turned_axis(ctx, answers)?.is_some();
     let mut basis_a = if turned {
         "The axis of the plain turned seat with the greatest total cylindrical area; \
@@ -566,7 +572,12 @@ pub(crate) fn datum_questions(
             continue;
         }
         let default = known.map(|(_, d)| d.clone()).unwrap_or_default();
-        let prompt = if letter == 'A' {
+        let prompt = if by_dimensions {
+            format!(
+                "Datums: where is the part measured from? Choose datum {letter}{} (empty for none)",
+                if letter == 'A' { " (primary)" } else { "" }
+            )
+        } else if letter == 'A' {
             "Which face(s), hole or boss is datum A (primary)?".to_string()
         } else {
             format!("Which face(s), hole or boss is datum {letter}? (empty for none)")
@@ -671,6 +682,16 @@ pub(crate) fn chosen_datums(
         ));
     }
     Ok(Datums(out))
+}
+
+/// The selected planar measurement origins, in datum precedence order. Removed datums
+/// contribute no origin; cylindrical datums are axes, not substitute edge planes.
+pub(crate) fn planes(datums: &Datums) -> Vec<Vec<i64>> {
+    datums
+        .iter()
+        .filter(|(_, d)| d.kind == DatumKind::Plane)
+        .map(|(_, d)| d.faces.clone())
+        .collect()
 }
 
 /// The tolerance that relates datum B or C to the datums before it (`_datum_control`).

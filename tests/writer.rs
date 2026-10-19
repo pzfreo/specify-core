@@ -320,7 +320,9 @@ fn unreferenced_datums_are_warned() {
         None,
     )
     .unwrap();
-    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    assert_eq!(report.warnings.len(), 3, "{:?}", report.warnings);
+    given["datum.B"] = json!([]);
+    given["datum.C"] = json!([]);
     given["datum.A"] = json!([top_face(&analysis)]);
     let report = write(&plate, &apply(&analysis, given), &dir.join("q.step"), None).unwrap();
     assert_eq!(report.warnings.len(), 1, "{:?}", report.warnings);
@@ -1533,4 +1535,59 @@ fn a_knurl_off_the_standard_is_listed_not_guessed() {
         write(&pin, &intent, &dir.join("bad.step"), None),
         Err(WriteError::Invalid(m)) if m.contains("teeth 31.5 is not a whole number")
     ));
+}
+
+#[test]
+fn plus_minus_plate_writes_datum_features_without_geometric_tolerances() {
+    let loaded = load(&fixture("plate"), None).unwrap();
+    let analysis = specify_core::api::analyse(&loaded).unwrap();
+    let mut given = answers(
+        json!({"part.material": "steel", "part.locating": specify_core::rules::LOCATING[1]}),
+    );
+    let qs = questions(&analysis, &given).unwrap();
+    for letter in ["A", "B", "C"] {
+        let q = qs
+            .iter()
+            .find(|q| q.id == format!("datum.{letter}"))
+            .unwrap();
+        assert!(
+            q.default
+                .as_ref()
+                .unwrap()
+                .as_array()
+                .is_some_and(|f| !f.is_empty())
+        );
+        assert!(
+            q.prompt
+                .starts_with("Datums: where is the part measured from?")
+        );
+        assert!(q.why.starts_with("Datums: the part is measured from"));
+    }
+    let output = temp("plus-minus-datums").join("plate.step");
+    for remove in [false, true] {
+        if remove {
+            for letter in ["A", "B", "C"] {
+                given.insert(format!("datum.{letter}"), json!([]));
+            }
+        }
+        let intent = apply_with_defaults(&analysis, &given, true).unwrap();
+        assert_eq!(intent.datums.len(), if remove { 0 } else { 3 });
+        write(&loaded, &intent, &output, Some(&given)).unwrap();
+        let written = load(&output, None).unwrap();
+        let items = read_existing(&written).unwrap();
+        let datums: Vec<_> = items.iter().filter(|e| e.kind == "datum").collect();
+        assert_eq!(datums.len(), intent.datums.len());
+        for d in &intent.datums {
+            assert!(
+                datums
+                    .iter()
+                    .any(|e| e.r#type == d["letter"].as_str().unwrap()
+                        && json!(e.faces) == d["faces"])
+            );
+        }
+        let step = std::fs::read_to_string(&output).unwrap();
+        assert_eq!(step.matches("DATUM_FEATURE(").count(), intent.datums.len());
+        assert!(!step.contains("GEOMETRIC_TOLERANCE("));
+        assert!(items.iter().all(|e| e.kind != "geometric_tolerance"));
+    }
 }

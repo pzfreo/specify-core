@@ -1,5 +1,5 @@
 //! The default path on a real part: settled with no tolerancing asked for, Specify proposes no
-//! scheme; asked for GD&T, the automatic answers are given back and it proposes one again.
+//! geometric scheme; asked for GD&T, the automatic answers are given back and it proposes one again.
 
 mod common;
 
@@ -29,7 +29,21 @@ fn a_part_settles_to_the_default_path_and_gdt_gives_its_answers_back() {
         .iter()
         .filter(|q| q["id"].as_str().is_some_and(|id| id.starts_with("datum.")))
         .count();
-    assert_eq!(datums, 0, "no datums are asked about on the default path");
+    assert_eq!(
+        datums, 3,
+        "A/B/C measurement origins are asked on the default path"
+    );
+    let preview = api::preview(&analysis, &settled.answers).unwrap();
+    assert_eq!(preview.datums.len(), 3);
+    assert!(preview.requirements.iter().all(|r| r["kind"] != "position"));
+    assert!(
+        review["questions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|q| q["id"].as_str().is_some_and(|id| id.starts_with("datum.")))
+            .all(|q| q["prompt"].as_str().unwrap().contains("measured from"))
+    );
 
     let geometric =
         tolerancing::tolerancing_edit(&settled, Some(Mode::Geometric), &settled.answers);
