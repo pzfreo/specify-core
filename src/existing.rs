@@ -54,13 +54,14 @@ pub const NOTE_KINDS: [&str; 5] = [
     "surface texture",
 ];
 
-/// The part's notes, each a 'manufacturing requirement' of this kind (Python's
-/// `requirements.PART_NOTES`), by the key `part_settings` reports it under.
-pub const PART_NOTES: [(&str, &str); 4] = [
+/// The part's notes by the key `part_settings` reports them under: Python's four
+/// `requirements.PART_NOTES`, plus ordered free-text `notes` (draftwright-rust #123).
+pub const PART_NOTES: [(&str, &str); 5] = [
     ("surface_finish", "surface texture"),
     ("coating", "surface treatment"),
     ("heat_treatment", "heat treatment"),
     ("edges", "edge condition"),
+    ("notes", "general note"),
 ];
 
 /// One item of PMI the file states (Python's `ExistingPmi`).
@@ -218,9 +219,6 @@ pub fn findings(loaded: &LoadedPart) -> Result<Vec<Finding>, ExistingError> {
 /// The material and general tolerance the file states, and the part's notes (see
 /// [`Reading::settings`]).
 pub fn part_settings(loaded: &LoadedPart) -> Result<Map<String, Value>, ExistingError> {
-    if loaded.part_count > 1 {
-        return Ok(Map::new());
-    }
     Ok(read(loaded)?.settings(loaded))
 }
 
@@ -349,11 +347,17 @@ impl Reading {
     }
 
     /// The material and general tolerance the file states, and the part's notes (surface finish
-    /// default, coating, heat treatment, edges) as specify-core writes them (Python's
-    /// `part_settings`). Empty for a part of an assembly, as Python's: its text scan cannot tell
-    /// whose they are (haecceity could; kept for compatibility with what specify-core asks).
+    /// default, coating, heat treatment, edges, ordered free text). The four legacy settings
+    /// stay empty for a part of an assembly, as Python's `part_settings`: its text scan cannot
+    /// tell whose they are. Free-text notes are read by their semantic owner in all files.
     pub fn settings(&self, loaded: &LoadedPart) -> Map<String, Value> {
         let mut out = Map::new();
+        // Unlike Python's legacy text scan, these are resolved to their owning part, also
+        // in assemblies. Explicit indices carry order; unindexed notes follow in read order.
+        let notes = general_notes(&self.pmi);
+        if !notes.is_empty() {
+            out.insert("notes".into(), Value::from(notes));
+        }
         if loaded.part_count > 1 {
             return out;
         }
@@ -368,6 +372,9 @@ impl Reading {
             out.insert("general_tolerance".into(), Value::String(text.clone()));
         }
         for (key, kind) in PART_NOTES {
+            if key == "notes" {
+                continue; // Free-text part notes have only the semantic attribute form.
+            }
             // The finish as specify-core writes it now, and as it was written before it took
             // Draftwright's form.
             let kinds: &[&str] = if key == "surface_finish" {
@@ -406,7 +413,7 @@ impl Reading {
             for (item, v) in &a.items {
                 let key = PART_NOTES
                     .iter()
-                    .find(|(key, kind)| *key != "surface_finish" && kind == item)
+                    .find(|(key, kind)| *key != "surface_finish" && *key != "notes" && kind == item)
                     .map(|(key, _)| *key);
                 if let (Some(key), pmi::AttributeValue::Text(words)) = (key, v) {
                     out.entry(key).or_insert(Value::String(words.clone()));
@@ -415,6 +422,34 @@ impl Reading {
         }
         out
     }
+}
+
+/// Part-owned semantic text, PMI practice §7.4. Each note has its own set, a `general note`
+/// text item and a one-based integer `note index`. Stable sorting keeps duplicate indices in
+/// read order; missing/nonpositive indices follow indexed notes in read order. No legacy
+/// note or drawing text is migrated into this list.
+fn general_notes(pmi: &PartPmi) -> Vec<String> {
+    let mut notes = Vec::new();
+    for set in &pmi.attributes {
+        if set.on.is_some() || set.name != crate::writer::SEMANTIC_TEXT {
+            continue;
+        }
+        let index = set.items.iter().find_map(|(name, value)| match value {
+            pmi::AttributeValue::Integer(i) if name == crate::writer::NOTE_INDEX && *i > 0 => {
+                Some(*i)
+            }
+            _ => None,
+        });
+        for (name, value) in &set.items {
+            if name == "general note"
+                && let pmi::AttributeValue::Text(text) = value
+            {
+                notes.push((index, text.clone()));
+            }
+        }
+    }
+    notes.sort_by_key(|(index, _)| (index.is_none(), *index));
+    notes.into_iter().map(|(_, text)| text).collect()
 }
 
 /// The notes on the part's faces (Python's `existing.notes`), one per kind with every face it

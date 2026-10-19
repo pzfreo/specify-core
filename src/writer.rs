@@ -30,7 +30,8 @@
 //! (ISO 1302's basic symbol, which an unqualified `Ra 3.2` means); the part's other notes
 //! (coating, heat treatment, edges) are the PMI practice's 'semantic text' on the part (§7.4),
 //! each named by its kind in Python's text route ('surface treatment', 'heat treatment', 'edge
-//! condition'), which specify-core reads.
+//! condition'), which specify-core reads. Free-text part notes use `general note` plus a
+//! one-based integer `note index` in each set (see `docs/part-notes.md`).
 //!
 //! **Knurls** are written as AP242's `turned_knurl`, the parameters it needs beyond the intent's
 //! diameter and pitch derived from the knurling standard where the intent does not state them,
@@ -58,7 +59,9 @@
 //! (any parts of one file, an assembly's included) are the same write for a caller with no
 //! filesystem (the editor's browser build): the bytes are returned rather than staged, after the
 //! same verification of what was written. The file's other parts, where the writer consults
-//! them, are loaded from the parts' bytes, never from a path.
+//! them, are loaded from the parts' bytes, never from a path. An unchanged resumed write
+//! retains the original bytes when its complete planned PMI and stored answers match them;
+//! the replacement candidate is still written and verified before that no-op is accepted.
 //!
 //! **Caller attributes.** [`write_bytes_with`] and [`write_parts_bytes_with`] accept extra
 //! [`AttributeSet`]s, written as given and verified in the same edit as the PMI and stored
@@ -626,6 +629,18 @@ fn write_verified(
         }
     }
 
+    // A no-op on a resumed file should keep its bytes, including entity numbers and datum
+    // presentation. haecceity replaces equivalent PMI with freshly numbered instances. The
+    // candidate above was still written and fully verified; keep the original only when
+    // every planned part (including caller attributes and the exact answers payload) already
+    // states precisely that candidate. Changed/removed notes or answers take the edit path.
+    let unchanged = modes.iter().all(|m| *m == Mode::Replace)
+        && planned.iter().all(|p| p.payload.is_some())
+        && items
+            .iter()
+            .all(|(part, pmi)| differences_as_stated(&source.read.parts[part.0], pmi).is_empty());
+    let back = if unchanged { bytes.to_vec() } else { back };
+
     // In an assembly written together, each line says which part it is of.
     let mut report = WriteReport {
         output: first.path.clone(),
@@ -935,6 +950,9 @@ fn face_list(v: Option<&Json>) -> String {
 
 /// The user defined attribute that carries a note in words (PMI practice §7.4).
 pub const SEMANTIC_TEXT: &str = "semantic text";
+
+/// One-based order of a free-text part note within its `semantic text` attribute set.
+pub const NOTE_INDEX: &str = "note index";
 
 /// A finish as specify-core states it (`Ra 3.2`, micrometres: `extras` and the rules' choices)
 /// as a surface texture parameter; `None` for anything else.
@@ -1398,11 +1416,35 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
     }
     // The part's notes in standard forms (question Q3, decided 2026-10-09): its default finish
     // as a surface texture on the part (ISO 10303-1110), the rest as the PMI practice's
-    // 'semantic text' on the part (§7.4), one attribute set per note. Its one item is named by
+    // 'semantic text' on the part (§7.4), one attribute set per note. Its text item is named by
     // the kind Python's text route gives the note ('surface treatment', 'heat treatment',
     // 'edge condition'), so specify-core's `part_settings`, which scans for an item of that
     // name, reads it too.
     for key in crate::rules::NOTES {
+        if key == "notes" {
+            if let Some(value) = intent.part.get(key) {
+                for (i, words) in crate::rules::note_strings(value)
+                    .map_err(|e| WriteError::Invalid(e.to_string()))?
+                    .into_iter()
+                    .enumerate()
+                {
+                    p.attributes.push(AttributeSet {
+                        description: None,
+                        general_property: None,
+                        name: SEMANTIC_TEXT.into(),
+                        on: None,
+                        items: vec![
+                            ("general note".into(), AttributeValue::Text(words.into())),
+                            (NOTE_INDEX.into(), AttributeValue::Integer((i + 1) as i64)),
+                        ],
+                    });
+                    lines
+                        .written
+                        .push(format!("general note {} {words}", i + 1));
+                }
+            }
+            continue;
+        }
         let Some(value) = intent.part.get(key).filter(|v| truthy(Some(v))) else {
             continue;
         };
