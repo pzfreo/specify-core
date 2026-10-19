@@ -25,6 +25,22 @@ fn check(a: &Value, axis: &[i64], shoulder: &[i64], hole: Option<&str>) {
     assert_eq!(defaults, &(axis.to_vec(), shoulder.to_vec(), vec![]));
     assert_eq!(datum_kind(axis, &ctx.faces).unwrap(), DatumKind::Axis);
     assert_eq!(datum_kind(shoulder, &ctx.faces).unwrap(), DatumKind::Plane);
+    // The same seats are measurement origins in ± mode, including parts with no hole.
+    let plus_minus = json!({"part.locating": specify_core::rules::LOCATING[1]})
+        .as_object()
+        .unwrap()
+        .clone();
+    let qs = questions(a, &plus_minus).unwrap();
+    assert_eq!(q(&qs, "datum.A").default, Some(json!(axis)));
+    assert_eq!(q(&qs, "datum.B").default, Some(json!(shoulder)));
+    assert_eq!(q(&qs, "datum.C").default, Some(json!([])));
+    assert!(q(&qs, "datum.A").basis.contains("plain turned seat"));
+    let intent = preview(a, &plus_minus).unwrap();
+    assert_eq!(intent.datums.len(), 2);
+    assert!(intent.requirements.iter().all(|r| !matches!(
+        r["kind"].as_str(),
+        Some("position" | "flatness" | "perpendicularity" | "runout")
+    )));
     if let Some(hole) = hole {
         let qs = questions(a, &Map::new()).unwrap();
         assert_eq!(

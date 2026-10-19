@@ -108,10 +108,10 @@ depth into an answer. Both native serve and WASM interpretation use the same dis
 The Python captures intentionally retain the old defaults. `tests/rules_oracle.rs` still
 compares every field, question order, and requirement against them. The complete list of
 expected deviations (both old and new values) is additionally pinned in
-`tests/fixtures/turned_defaults_oracle.json.gz`, before the documented known-difference
+`tests/fixtures/rule_defaults_oracle.json.gz`, before the documented known-difference
 verdicts are applied. This prevents the changed turned-part scopes from accepting unrelated
 regressions, including any change to a prismatic part. Inspect with `gzip -dc`; after a reviewed
-rule change regenerate with `UPDATE_TURNED_DEFAULTS=1 cargo test --release --test rules_oracle`.
+rule change regenerate with `UPDATE_RULE_DEFAULTS=1 cargo test --release --test rules_oracle`.
 The CLI sweep inherits these exact values with its artifact prefixes normalised; explicit
 old-default answer variants are also pinned. Its independent library/executable composition
 comparison remains unfiltered. Axial length tests now verify their unchanged distances from

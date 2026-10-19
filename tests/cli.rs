@@ -1242,7 +1242,10 @@ fn check_area(differences: &[Difference]) {
         println!("no corpus: corpus entries of cli not checked");
         entries
             .into_iter()
-            .filter(|e| !e.case.starts_with("corpus/") && !on_corpus.contains(&e.case))
+            .filter(|e| {
+                (!e.case.starts_with("corpus/") && !on_corpus.contains(&e.case))
+                    || differences.iter().any(|d| e.matches(d))
+            })
             .collect()
     };
     check_known_with(&path.display().to_string(), &entries, differences);
@@ -1252,7 +1255,7 @@ fn check_area(differences: &[Difference]) {
 /// Inherit only exact reviewed old/new values, not the broader verdict scopes. Composition
 /// still compares the CLI with the library independently, without filtering any difference.
 fn without_reviewed_rule_departures(differences: Vec<Difference>) -> Vec<Difference> {
-    let reviewed = common::read_json_gz(&common::fixtures().join("turned_defaults_oracle.json.gz"));
+    let reviewed = common::read_json_gz(&common::fixtures().join("rule_defaults_oracle.json.gz"));
     let key = |case: &str, path: &str, python: &Value, rust: &Value| {
         format!("{case}\0{}\0{python}\0{rust}", path.replace(".[", "["))
     };
@@ -1353,16 +1356,91 @@ fn without_reviewed_rule_departures(differences: Vec<Difference>) -> Vec<Differe
         .collect()
 }
 
+/// Keep the CLI/serve envelopes of the measurement-origin rule change under the same
+/// exact before/after guard as the library rules. Older reviewed CLI differences retain
+/// their existing verdicts; composition never enters this snapshot.
+fn check_datum_origin_departures(differences: &[Difference]) {
+    const PATTERN: &str = "measurement datum defaults in CLI and serve envelopes";
+    let prior: Vec<_> = load_known(&common::known_differences_file("cli"))
+        .into_iter()
+        .filter(|e| e.pattern != PATTERN)
+        .collect();
+    let mut departures: Vec<Value> = differences
+        .iter()
+        .filter(|d| !prior.iter().any(|e| e.matches(d)))
+        .map(|d| json!({"case": d.case, "path": d.path, "python": d.python, "rust": d.rust}))
+        .collect();
+    let on_corpus: BTreeSet<String> = scenarios()
+        .into_iter()
+        .filter(|s| s.case.starts_with("corpus/"))
+        .map(|s| format!("scenarios/{}", s.name))
+        .collect();
+    let available = |v: &Value| {
+        let case = v["case"].as_str().unwrap();
+        let path = v["path"].as_str().unwrap();
+        // Questions use captured analyses and are checked even without STEP inputs.
+        corpus_dir().is_some()
+            || path.starts_with("questions.")
+            || path.starts_with("scenario.")
+            || (!case.starts_with("corpus/") && !on_corpus.contains(case))
+    };
+    let order = |items: &mut Vec<Value>| {
+        items.sort_by(|a, b| {
+            (a["case"].as_str(), a["path"].as_str()).cmp(&(b["case"].as_str(), b["path"].as_str()))
+        })
+    };
+    order(&mut departures);
+    let path = common::fixtures().join("cli_datum_origins.json.gz");
+    if std::env::var_os("UPDATE_CLI_DATUM_ORIGINS").is_some() {
+        let mut merged = departures.clone();
+        if path.is_file() {
+            merged.extend(
+                read_json_gz(&path)
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|v| !available(v))
+                    .cloned(),
+            );
+        }
+        order(&mut merged);
+        let file = std::fs::File::create(&path).unwrap();
+        let mut gz = flate2::GzBuilder::new()
+            .mtime(0)
+            .write(file, flate2::Compression::best());
+        gz.write_all(&serde_json::to_vec_pretty(&merged).unwrap())
+            .unwrap();
+        gz.finish().unwrap();
+    }
+    let mut expected: Vec<_> = read_json_gz(&path)
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|v| available(v))
+        .cloned()
+        .collect();
+    order(&mut expected);
+    assert_eq!(
+        expected, departures,
+        "review CLI datum-origin oracle departures"
+    );
+}
+
 #[test]
 fn the_command_line_matches_the_oracle() {
     let dir = scratch("oracle");
-    let mut differences = composition(&dir);
-    differences.extend(explained(
+    let composition = composition(&dir);
+    assert!(
+        composition.is_empty(),
+        "library/executable differences: {composition:?}"
+    );
+    let mut differences = explained(
         &AREAS,
         &without_reviewed_rule_departures(python_inputs(&dir)),
-    ));
+    );
     differences.extend(command_lines(&dir));
     let _ = std::fs::remove_dir_all(&dir);
+    check_datum_origin_departures(&differences);
     check_area(&differences);
 }
 

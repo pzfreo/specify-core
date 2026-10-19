@@ -26,11 +26,6 @@ pub fn truthy_opt(value: Option<&Value>) -> bool {
     value.is_some_and(truthy)
 }
 
-/// Whether an optional value is Python's `None`: absent, or JSON null.
-pub fn is_none(value: Option<&Value>) -> bool {
-    matches!(value, None | Some(Value::Null))
-}
-
 /// Whether `value` is the string `text` (Python's `value == text`).
 pub fn is_str(value: Option<&Value>, text: &str) -> bool {
     matches!(value, Some(Value::String(s)) if s == text)

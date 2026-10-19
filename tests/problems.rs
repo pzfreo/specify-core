@@ -49,20 +49,22 @@ fn text(p: &Value) -> &str {
 
 // test_locating_problems_extras.py::test_holes_located_by_plus_minus_need_no_positions_or_datums
 #[test]
-fn holes_located_by_plus_minus_need_no_positions_or_datums() {
+fn holes_located_by_plus_minus_have_datums_without_positions() {
     let plate = plate();
     let qs = questions(&plate, &Map::new()).unwrap();
     assert!(qs.iter().any(|q| q.id == "part.locating"));
     assert!(qs.iter().any(|q| q.id.starts_with("hole.position")));
     let plus_minus = answers(json!({"part.locating": LOCATING[1]}));
     let qs = questions(&plate, &plus_minus).unwrap();
-    assert!(!qs.iter().any(|q| q.id.starts_with("hole.position")
-        || q.id.starts_with("hole.frame")
-        || q.id.starts_with("datum.")));
+    assert!(
+        !qs.iter()
+            .any(|q| q.id.starts_with("hole.position") || q.id.starts_with("hole.frame"))
+    );
     let mut given = plus_minus;
     given.insert("part.material".into(), json!("steel"));
     let intent = apply_with_defaults(&plate, &given, true).unwrap();
-    assert!(intent.datums.is_empty());
+    assert_eq!(intent.datums.len(), 3);
+    assert!(problems(&plate, &given).unwrap().is_empty());
     assert!(!intent.requirements.iter().any(|r| r["kind"] == "position"));
     assert!(intent.requirements.iter().any(|r| r["kind"] == "size")); // fits still apply
 }
@@ -103,7 +105,10 @@ fn an_unused_and_a_redundant_datum_are_reported() {
     given.insert("datum.A".into(), json!([extreme(&plate, true)]));
     let found = problems(&plate, &given).unwrap();
     let about: Vec<&Value> = found.iter().map(|p| &p["about"]).collect();
-    assert_eq!(about, [&json!("datum.A")]);
+    assert_eq!(
+        about,
+        [&json!("datum.A"), &json!("datum.B"), &json!("datum.C")]
+    );
     assert_eq!(found[0]["severity"], "info");
     let redundant = problems(
         &plate,

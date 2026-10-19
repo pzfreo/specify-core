@@ -5,6 +5,6 @@
   "hole.function:holes:12": "general",
   "hole.function:hole_patterns.grid:6.7.8.10.11.13": "general"
  },
- "why": "Every hole general: no datums proposed.",
+ "why": "Rust: default measurement datums are proposed even when every hole uses the general tolerance. Captured Python result retains its conditional proposal behavior as evidence.",
  "from": "test_datums.py::test_datums_are_proposed_only_when_something_is_measured_from_them; test_locating_problems_extras.py::test_an_added_orientation_brings_datums_where_nothing_else_needs_them"
 }

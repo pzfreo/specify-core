@@ -35,13 +35,13 @@ pub(crate) use holes::{bores, bores_of};
 pub(crate) use py::{float_of, int_of, iter_of, object, repr, round, str_of, truthy};
 pub(crate) use records::{Ctx, Feature};
 
-pub const RULES_VERSION: i64 = 1;
+pub const RULES_VERSION: i64 = 2;
 
 pub const NONE: &str = choices::NONE;
 pub const GENERAL: &str = choices::GENERAL;
 
 /// How holes are located: by position tolerances from datums, or by ± dimensions on the
-/// drawing under the general tolerance, which needs no datums.
+/// drawing under the general tolerance. Both use datums as measurement origins.
 pub const LOCATING: [&str; 2] = ["position tolerances", "± dimensions"];
 
 /// Surface roughness Ra in micrometres, finest first, and edge notes.
@@ -390,10 +390,9 @@ impl Intent {
 
 /// Every question the part needs, given the answers so far.
 ///
-/// Datums exist to measure tolerances from, so they are proposed only when a feature needs a
-/// frame (a hole or pattern for anything but the general tolerance, or an answered runout) and
-/// asked after the features they serve. Where only added orientations need them, only the
-/// letters those cite are proposed. Datums the person added or removed are always asked.
+/// Propose the measurement frame before choosing how closely features are located, including
+/// in ± mode and when every feature uses the general tolerance. Datums the person changes
+/// or removes remain questions; a file's own frame is retained.
 pub fn questions(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Question>> {
     questions_in(&Ctx::new(analysis)?, answers)
 }
@@ -409,22 +408,7 @@ pub fn questions_proposing(
 
 pub(crate) fn questions_in(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> Result<Vec<Question>> {
     let cited: String = extras::cited(answers)?.into_iter().collect();
-    let qs = all_questions(ctx, answers, &format!("ABC{cited}"))?;
-    let located = !py::is_str(answer(answers, &qs, "part.locating"), LOCATING[1])
-        && qs.iter().any(|q| {
-            q.id.starts_with("hole.function:") && !py::is_str(answer(answers, &qs, &q.id), GENERAL)
-        });
-    // An answered runout is measured from the part's axis: the frame is needed.
-    let runout = qs.iter().any(|q| {
-        q.id.starts_with("diameter.runout:") && {
-            let a = answer(answers, &qs, &q.id);
-            !py::is_none(a) && !py::is_str(a, NONE)
-        }
-    });
-    if !located && !runout {
-        return all_questions(ctx, answers, &cited);
-    }
-    Ok(qs)
+    all_questions(ctx, answers, &format!("ABC{cited}"))
 }
 
 /// `_answer`: the answer to `qid`, else the default of the question `qid` among `qs`.
@@ -460,8 +444,7 @@ fn all_questions(
             options: LOCATING.map(String::from).to_vec(),
             why: "Position tolerances locate each hole from datums, for parts that must fit \
                   together. ± dimensions locate them on the drawing under the general \
-                  tolerance, and need no datums unless a perpendicularity or parallelism is \
-                  added."
+                  tolerance. In both modes, datums say where the part is measured from."
                 .to_string(),
             basis: "Position tolerances, as holes usually take parts that must line up."
                 .to_string(),
@@ -632,11 +615,10 @@ fn all_questions(
                 ..target
             };
         }
-        let edges = if by_position {
+        let planes = if by_position {
             None
         } else {
-            let (_, b, c) = ctx.default_datums_with(answers)?;
-            Some(vec![b.clone(), c.clone()])
+            Some(datums::planes(&datums))
         };
         out.extend(holes::hole_questions(
             ctx,
@@ -644,11 +626,15 @@ fn all_questions(
             hole,
             answers,
             located_frames,
-            edges.as_deref(),
+            planes.as_deref(),
         )?);
     }
 
-    let axial = turned::runout_frame(ctx, &datums, answers)?;
+    let axial = if by_position {
+        turned::runout_frame(ctx, &datums, answers)?
+    } else {
+        None
+    };
     let mut diameters = Vec::with_capacity(turned.len());
     for f in &turned {
         diameters.push(py::round(f.number("diameter")?, 6));
@@ -672,7 +658,9 @@ fn all_questions(
     }
 
     out.extend(asked_datums);
-    out.extend(datums::datum_control_questions(ctx, &datums)?);
+    if by_position {
+        out.extend(datums::datum_control_questions(ctx, &datums)?);
+    }
     // A typed answer is refused here, where it is given, not when the file is written.
     for q in &out {
         if q.kind == "choice"
@@ -995,13 +983,12 @@ fn intent(ctx: &Ctx<'_>, answers: &Map<String, Value>, qs: &[Question]) -> Resul
         } else if q.id.starts_with("hole.location:") {
             // A tolerance of 0 is false to Python, and makes no requirement either.
             if let Some(tolerance) = locations::parse(value)?.filter(|&t| t != 0.0) {
-                let (_, b, c) = ctx.default_datums_with(answers)?;
-                let edges = [b.clone(), c.clone()];
+                let planes = datums::planes(&datums);
                 for (fid, _) in &parts {
                     let members = members(ctx.feature(fid)?, ctx)?;
                     reqs.extend(locations::dimensions(
                         &members,
-                        &edges,
+                        &planes,
                         &ctx.faces,
                         Some(tolerance),
                     )?);

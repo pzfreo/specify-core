@@ -97,6 +97,21 @@ tests by `tools/capture/scenarios.py`. `scenarios/<name>.result.json.gz`: `quest
 `problems`, `preview` and `apply` (with defaults), each a value or a failure; with `write`, also
 the write report and `readback` (as above).
 
+Rust's intentional rule departures are expected outputs in
+`../rule_defaults_oracle.json.gz` (formerly `turned_defaults_oracle.json.gz`): each entry
+pins the case, JSON path, captured Python value and expected Rust value, checked before the
+known-difference verdicts. Regenerate with `UPDATE_RULE_DEFAULTS=1 cargo test --release
+--test rules_oracle rules_match_the_oracle` and review the values. In particular,
+`locating_plus_minus_needs_no_positions_or_datums` now expects A/B/C in Rust without
+positions or FCFs, and `rules_datums_proposed_only_when_measured_from` expects the default
+frame even with every hole set to general. Their `.result.json.gz` files retain Python's
+original no-datum outputs as evidence. CLI/serve envelopes (including complete `--intent`
+text and refusal messages) are pinned separately in `../cli_datum_origins.json.gz`, with
+verdicts in `../known_differences/cli.json`. Regenerate with
+`UPDATE_CLI_DATUM_ORIGINS=1 cargo test --release --test cli the_command_line_matches_the_oracle`;
+set `QUIDDITY_CORPUS` to include corpus cases. Regeneration without a corpus retains their
+existing snapshot entries. The independent library/executable comparison must be empty.
+
 Corpus-backed scenarios: 15 scenarios answer a corpus case whose input is not committed (11 on
 `corpus/nist/nist_ctc_03_asme1_rc`, from specify-core's CTC-03 tests, and 4 on
 `corpus/cadgenbench/flanged_spool_132`). Without `QUIDDITY_CORPUS` (or `SPECIFY_CORPUS`) the Rust

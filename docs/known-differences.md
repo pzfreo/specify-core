@@ -12,16 +12,16 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | Area | rust-correct | rust-wrong | equivalent | undetermined | not-applicable | Total |
 |---|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 9 |
-| [cli](#cli) | 40 | 0 | 3 | 0 | 3 | 46 |
+| [cli](#cli) | 128 | 0 | 3 | 0 | 3 | 134 |
 | [cross_engine](#cross_engine) | 3 | 1 | 0 | 1 | 1 | 6 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
 | [features](#features) | 879 | 1419 | 65 | 1387 | 11 | 3761 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 40 |
-| [rules](#rules) | 25 | 0 | 0 | 0 | 0 | 25 |
+| [rules](#rules) | 30 | 0 | 0 | 0 | 0 | 30 |
 | [writer](#writer) | 14 | 0 | 0 | 0 | 15 | 29 |
-| **all** | 997 | 1437 | 79 | 1393 | 47 | 3953 |
+| **all** | 1090 | 1437 | 79 | 1393 | 47 | 4046 |
 
 ## anchors
 
@@ -67,7 +67,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (40 entries)
+### cli: rust-correct (128 entries)
 
 - **Python's write prints OpenCascade's transfer statistics on stdout before the report** (`cli/*` at `stdout_noise`)
 
@@ -111,7 +111,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **CLI and serve expose the corrected turned datums and blind-thread summaries** (21 entries, 11 case globs)
 
-  The CLI composition check independently requires byte-identical library and executable outputs. Corrected axis-first defaults change datum faces, axial position/runout frames, question ordering and dependent intent text on the pin/stack; blind tap summaries include computed full-thread depth. The full library before/after changes are exactly pinned in turned_defaults_oracle.json.gz; tests/turned_defaults.rs and tests/thread_depth_help.rs verify the intended geometry and displays. CLI Python-input checks inherit only exact matching reviewed rule changes via without_reviewed_rule_departures; these entries cover command/transcript envelopes and intent text. No composition differences are filtered.
+  The CLI composition check independently requires byte-identical library and executable outputs. Corrected axis-first defaults change datum faces, axial position/runout frames, question ordering and dependent intent text on the pin/stack; blind tap summaries include computed full-thread depth. The full library before/after changes are exactly pinned in rule_defaults_oracle.json.gz; tests/turned_defaults.rs and tests/thread_depth_help.rs verify the intended geometry and displays. CLI Python-input checks inherit only exact matching reviewed rule changes via without_reviewed_rule_departures; these entries cover command/transcript envelopes and intent text. No composition differences are filtered.
 
 - **a perpendicular shoulder datum unused by an axial position is reported** (2 entries, 2 case globs)
 
@@ -119,7 +119,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **Dominant round bosses use their main axis in CLI and serve** (6 entries, 3 case globs)
 
-  The dominant cylindrical boss on a_hole_along_x_is_labelled_from_its_rim now supplies A on cylinder 0 and B on end plane 1. The axial hole keeps its rim anchor and position about A; B is available as an axial stop and is reported unused. The question transcript replaces A flatness with B perpendicularity, and the datum anchor groups change from face 1 to faces 0/1. tests/fixtures/turned_defaults_oracle.json.gz pins the complete library changes exactly, tests/turned_defaults.rs verifies dominant-boss axis selection, and the CLI composition sweep still compares library/executable bytes and every serve reply without filtering. These entries cover only this fixture's Python transcript/envelope differences.
+  The dominant cylindrical boss on a_hole_along_x_is_labelled_from_its_rim now supplies A on cylinder 0 and B on end plane 1. The axial hole keeps its rim anchor and position about A; B is available as an axial stop and is reported unused. The question transcript replaces A flatness with B perpendicularity, and the datum anchor groups change from face 1 to faces 0/1. tests/fixtures/rule_defaults_oracle.json.gz pins the complete library changes exactly, tests/turned_defaults.rs verifies dominant-boss axis selection, and the CLI composition sweep still compares library/executable bytes and every serve reply without filtering. These entries cover only this fixture's Python transcript/envelope differences.
+
+- **measurement datum defaults in CLI and serve envelopes** (84 entries, 84 case globs)
+
+  Maintainer decision (draftwright-rust #122), rules version 2: default measurement datums add questions, datum features, baseline origins, dependent anchors, unreferenced-datum reports and unanswered-question ids to CLI/serve envelopes. The locating help now explains measurement origins. Full --intent JSON text carries rules_version 2 and the new datums. Original Python captures remain unchanged. tests/cli.rs pins every additional departure (case, path and both complete values) in tests/fixtures/cli_datum_origins.json.gz before applying these verdict entries; it independently requires no library/executable composition differences. Library outputs are exactly guarded by rule_defaults_oracle.json.gz; tests/writer.rs verifies datum features without FCFs, and tests/locations.rs verifies changed/removed origins.
+
+- **axis-first turned defaults change string-post datum and basic-location report lines** (4 entries, 1 case glob)
+
+  The existing axis-first turned defaults (cx/turned-part-defaults) select string_post axis A on face 0 and shoulder B on face 8, replacing Python's A plane 11 and B axis 0. Consequently B is now a written datum; the old 1.2 mm basic offsets from plane 11 disappear, and the transverse hole holes:5 has a 3.85 mm basic location from shoulder 8. This is the report envelope of the already pinned library intent in rule_defaults_oracle.json.gz; tests/turned_defaults.rs verifies the actual axis, shoulder, coaxial hole and cross-hole defaults, and tests/writer.rs verifies readback. The full corpus CLI sweep compares executable/library composition independently.
 
 ### cli: equivalent (3 entries)
 
@@ -697,7 +705,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## rules
 
-### rules: rust-correct (25 entries)
+### rules: rust-correct (30 entries)
 
 - **a knurl's teeth derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].teeth`)
 
@@ -725,11 +733,15 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 - **axis-first turned datum defaults and their dependent questions and intent** (15 entries, 15 case globs)
 
-  The evidence is stated per entry (2 distinct; all in `rules.json`). The first, for `corpus/cadgenbench/flanged_spool_132/*` at `*`: Axis-first turned datums: plain recognised principal cylinder with greatest total area (diameter breaks ties), excluding thread/knurl answers, recognition and PMI; interrupted shafts may use dominant bosses. Then a perpendicular contact/largest shoulder excluding recess walls unless the sole perpendicular face. Axial holes use diametral position to A alone; other holes keep the full frame. Runout uses A and is not offered on the datum diameter itself. A mostly prismatic body or different principal axes keeps plane datums. tests/turned_defaults.rs checks captured and live corpus geometry, overrides, offsets, cross holes and shoulder contacts. tests/fixtures/turned_defaults_oracle.json.gz is an additional exact regression guard on EVERY changed path and both values (including question ordering and all other rules); rules_oracle asserts that complete list before applying these verdict entries, so these scopes cannot hide further differences. See docs/turned-defaults.md.
+  The evidence is stated per entry (2 distinct; all in `rules.json`). The first, for `corpus/cadgenbench/flanged_spool_132/*` at `*`: Axis-first turned datums: plain recognised principal cylinder with greatest total area (diameter breaks ties), excluding thread/knurl answers, recognition and PMI; interrupted shafts may use dominant bosses. Then a perpendicular contact/largest shoulder excluding recess walls unless the sole perpendicular face. Axial holes use diametral position to A alone; other holes keep the full frame. Runout uses A and is not offered on the datum diameter itself. A mostly prismatic body or different principal axes keeps plane datums. tests/turned_defaults.rs checks captured and live corpus geometry, overrides, offsets, cross holes and shoulder contacts. tests/fixtures/rule_defaults_oracle.json.gz is an additional exact regression guard on EVERY changed path and both values (including question ordering and all other rules); rules_oracle asserts that complete list before applying these verdict entries, so these scopes cannot hide further differences. See docs/turned-defaults.md.
 
 - **blind tapped-hole help exposes full-thread syntax and summaries show computed depth** (4 entries, 1 case glob)
 
-  Blind tap questions include an example valid at the recognised drill depth and the existing drill-minus-three-pitches rule (round down to 0.5 mm, at least one pitch). Their choice code/callout and basis show the resolved default; canonical values remain unchanged. Through and unknown depths keep their prior summaries. tests/thread_depth_help.rs tests discovery, defaults, explicit depths and limits. Every changed path and both old/new values are exactly pinned by tests/fixtures/turned_defaults_oracle.json.gz before these entries apply.
+  Blind tap questions include an example valid at the recognised drill depth and the existing drill-minus-three-pitches rule (round down to 0.5 mm, at least one pitch). Their choice code/callout and basis show the resolved default; canonical values remain unchanged. Through and unknown depths keep their prior summaries. tests/thread_depth_help.rs tests discovery, defaults, explicit depths and limits. Every changed path and both old/new values are exactly pinned by tests/fixtures/rule_defaults_oracle.json.gz before these entries apply.
+
+- **measurement datums are proposed before dimensions, including in ± mode** (5 entries, 5 case globs)
+
+  Maintainer decision (draftwright-rust #122): choose measurement origins before dimensions. Rust proposes the same geometric A/B/C frame in ± mode and when no feature needs a geometric tolerance; turned parts retain their plain axis A and perpendicular shoulder B. Empty datum answers still remove them. ± hole locations use selected datum planes, never recomputed edge defaults; accepting ± defaults adds no position or geometric-control requirements. General baseline dimensions consequently use the proposed planes too. tests/tolerancing.rs, tests/locations.rs, tests/turned_defaults.rs and tests/writer.rs verify the default path, changed/removed origins, both modes and AP242 DATUM_FEATURE entities with no FCFs. The complete Python and Rust values, including both named no-datum scenarios, are pinned exactly in tests/fixtures/rule_defaults_oracle.json.gz before these verdict entries apply; original Python captures remain unchanged. Rules version 2 identifies this output change.
 
 ## writer
 

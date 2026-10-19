@@ -145,6 +145,13 @@ existing attributes alone. There is no separate merge or update by attribute nam
 
 Each of these is recorded with its reason (docs/known-differences.md, docs/questions.md):
 
+- **Datums are proposed as measurement origins in ± mode too** (maintainer decision,
+  draftwright-rust #122; rules version 2). The same A/B/C defaults apply, including a turned
+  part's axis A and shoulder B. They are written as AP242 datum features without adding
+  geometric tolerances in ± mode. Selected datum planes also set the origins of explicit ±
+  hole locations; changing or removing datums changes those origins. Verdict and exact Python
+  before/after evidence: [rules differences](tests/fixtures/known_differences/rules.json) and
+  `tests/fixtures/rule_defaults_oracle.json.gz`; the captured Python results are retained.
 - **Part notes and surface finish are written in AP242's standard forms**, not Python's text
   route: a finish (the default or on faces) as an ISO 10303-1110 surface texture, the coating,
   heat treatment and edge note as the PMI practice's 'semantic text' (Q3). specify-core reads
