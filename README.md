@@ -156,6 +156,10 @@ Each of these is recorded with its reason (docs/known-differences.md, docs/quest
   route: a finish (the default or on faces) as an ISO 10303-1110 surface texture, the coating,
   heat treatment and edge note as the PMI practice's 'semantic text' (Q3). specify-core reads
   the notes back but not the finish.
+  Rust also supports ordered free-text manufacturing notes through `part.notes` (default
+  `[]`), each a semantic `general note` with an explicit one-based `note index`. See the
+  [STEP form and readback contract](docs/part-notes.md). Drawing-only notes stay in the
+  drawing Spec; no automatic migration is performed.
 - **Knurls are written as AP242's `turned_knurl`**, straight or diamond, which Python writes
   as text: the number of teeth, tooth depth, root fillet and a diamond's helix angle are
   derived from DIN 82 and stated in the intent with their sources, filled in with a warning

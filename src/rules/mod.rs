@@ -35,7 +35,7 @@ pub(crate) use holes::{bores, bores_of};
 pub(crate) use py::{float_of, int_of, iter_of, object, repr, round, str_of, truthy};
 pub(crate) use records::{Ctx, Feature};
 
-pub const RULES_VERSION: i64 = 2;
+pub const RULES_VERSION: i64 = 3;
 
 pub const NONE: &str = choices::NONE;
 pub const GENERAL: &str = choices::GENERAL;
@@ -52,9 +52,15 @@ pub const EDGES: [&str; 4] = [
     "Deburr only",
     "No edge note",
 ];
-/// The part's notes, beside its material and general tolerance; an answer that says there is
-/// nothing to note writes nothing.
-pub const NOTES: [&str; 4] = ["surface_finish", "coating", "heat_treatment", "edges"];
+/// The part's notes, beside its material and general tolerance. The four conventional notes
+/// accept "nothing" answers; free-text `notes` is an ordered string list, empty by default.
+pub const NOTES: [&str; 5] = [
+    "surface_finish",
+    "coating",
+    "heat_treatment",
+    "edges",
+    "notes",
+];
 const NOTHING: [&str; 5] = [
     "",
     "none",
@@ -163,7 +169,7 @@ pub enum Characteristic {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Question {
     pub id: String,
-    /// `choice`, `text` or `faces`.
+    /// `choice`, `text`, `text_list` (ordered free-text strings) or `faces`.
     pub kind: &'static str,
     pub prompt: String,
     /// A feature row's title, resolved where its geometry is known.
@@ -431,6 +437,9 @@ fn all_questions(
     answers: &Map<String, Value>,
     propose: &str,
 ) -> Result<Vec<Question>> {
+    if let Some(notes) = answers.get("part.notes") {
+        note_strings(notes)?;
+    }
     let mut out = part_questions();
     // A file with its own datums locates by them; the choice is for a bare part.
     if ctx.in_file.is_empty()
@@ -738,6 +747,18 @@ fn part_questions() -> Vec<Question> {
             "Sharp edges cut hands and chip; a standard note says how far to break them.",
             "Breaking edges to 0.2 is the common standard note.",
         ),
+        Question {
+            default: Some(Value::Array(Vec::new())),
+            why: "Notes about making the part are stored with the model. Drawing-only notes \
+                  belong in the drawing specification."
+                .into(),
+            ..Question::new(
+                "part.notes".into(),
+                "text_list",
+                "What other notes apply to making the part, in order?".into(),
+                Vec::new(),
+            )
+        },
     ]
 }
 
@@ -929,6 +950,14 @@ fn intent(ctx: &Ctx<'_>, answers: &Map<String, Value>, qs: &[Question]) -> Resul
     let mut intent = Intent::new(binding.clone());
     for key in ["material", "general_tolerance"].into_iter().chain(NOTES) {
         let id = format!("part.{key}");
+        if key == "notes" {
+            if let Some(value) = answers.get(&id)
+                && !note_strings(value)?.is_empty()
+            {
+                intent.part.insert(key.into(), value.clone());
+            }
+            continue;
+        }
         let given = answers.get(&id).filter(|v| truthy(v));
         let text = given.map(str_of).unwrap_or_default();
         let text = crate::pyfmt::strip(&text).to_lowercase();
@@ -1138,4 +1167,13 @@ pub(crate) fn members<'a>(
         .into_iter()
         .map(|h| Ok((h.id.to_string(), h.clone(), bores_of(h, &ctx.faces)?)))
         .collect()
+}
+
+/// Free-text notes are literal strings: no trimming, sentinel words or deduplication.
+/// Shared with the writer, since callers can supply intent without going through questions.
+pub(crate) fn note_strings(value: &Value) -> Result<Vec<&str>> {
+    value
+        .as_array()
+        .and_then(|items| items.iter().map(Value::as_str).collect())
+        .ok_or_else(|| Error::Invalid("part.notes: expected an ordered list of strings".into()))
 }
