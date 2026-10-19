@@ -260,7 +260,15 @@ fn the_spool_is_written_verified_and_read_back() {
     let back = load(&out, None).unwrap();
     let found = read_existing(&back).unwrap();
     let positions: Vec<_> = found.iter().filter(|e| e.r#type == "Position").collect();
-    assert!(positions.iter().all(|e| e.datums == ["A", "B"]));
+    // Axis-first turned defaults: the coaxial bore is positioned about A alone;
+    // the off-axis pattern retains the full A|B frame.
+    assert!(positions.iter().any(|e| e.datums == ["A"]));
+    assert!(positions.iter().any(|e| e.datums == ["A", "B"]));
+    for position in &positions {
+        assert!(intent.requirements.iter().any(|r| r["kind"] == "position"
+            && r["faces"] == json!(position.faces)
+            && r["datums"] == json!(position.datums)));
+    }
     let mut wanted: Vec<Vec<usize>> = intent
         .requirements
         .iter()
