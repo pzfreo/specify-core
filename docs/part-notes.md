@@ -51,6 +51,9 @@ file restores `resume.answers["part.notes"]`, editable and removable like the ot
 notes; stored-answer schema remains 2. Without stored answers, analysis reports `part.notes`
 as an already-stated requirement, following the other imported part notes. Specify's
 existing add policy retains foreign PMI; it does not take ownership of it for editing.
+Reapplying an identical foreign note list writes no duplicates. Adding a different nonempty
+list is refused, since replacing foreign notes is outside add mode and restarting their
+indices would make order ambiguous.
 
 An unchanged resumed rewrite retains the original file bytes, including entity numbers and
 datum presentation. The writer first builds and verifies the replacement candidate, then

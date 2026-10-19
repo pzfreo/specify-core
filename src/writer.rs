@@ -1423,11 +1423,26 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
     for key in crate::rules::NOTES {
         if key == "notes" {
             if let Some(value) = intent.part.get(key) {
-                for (i, words) in crate::rules::note_strings(value)
-                    .map_err(|e| WriteError::Invalid(e.to_string()))?
-                    .into_iter()
-                    .enumerate()
-                {
+                let notes = crate::rules::note_strings(value)
+                    .map_err(|e| WriteError::Invalid(e.to_string()))?;
+                if add && !notes.is_empty() {
+                    let old = crate::existing::general_notes(before);
+                    if !old.is_empty() {
+                        if notes.iter().copied().eq(old.iter().map(String::as_str)) {
+                            lines.warnings.push(
+                                "general notes are already stated in the file; not written again"
+                                    .into(),
+                            );
+                            continue;
+                        }
+                        return invalid(
+                            "the part already states general notes; adding a different list \
+                             would give it conflicting note indices (it was not written by \
+                             specify-core, so it is added to, not replaced)",
+                        );
+                    }
+                }
+                for (i, words) in notes.into_iter().enumerate() {
                     p.attributes.push(AttributeSet {
                         description: None,
                         general_property: None,

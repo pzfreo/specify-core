@@ -285,3 +285,37 @@ assert reader.Transfer(doc)
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn semantic_readback_without_answers_rewrites_without_duplicate_notes() {
+    let loaded = plate();
+    let mut intent = Intent::new(serde_json::to_value(&loaded.binding).unwrap());
+    intent
+        .part
+        .insert("notes".into(), json!(["First", "Second", "First"]));
+    let (bytes, _) = writer::write_bytes(&loaded, &intent, None).unwrap();
+    let reopened = part::load_bytes("semantic-notes.step", bytes.clone()).unwrap();
+    assert!(resume::answers_for(&reopened).unwrap().is_none());
+    let mut read_intent = Intent::new(serde_json::to_value(&reopened.binding).unwrap());
+    read_intent.part = existing::part_settings(&reopened).unwrap();
+    assert_eq!(read_intent.part, intent.part);
+    let (rewritten, report) = writer::write_bytes(&reopened, &read_intent, None).unwrap();
+    assert!(
+        rewritten == bytes,
+        "semantic readback must not duplicate foreign notes"
+    );
+    assert!(report.written.is_empty());
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.contains("not written again"))
+    );
+    read_intent.part.insert("notes".into(), json!(["Changed"]));
+    let err = writer::write_bytes(&reopened, &read_intent, None).unwrap_err();
+    assert!(matches!(err, writer::WriteError::Invalid(_)), "{err}");
+    assert!(
+        err.to_string().contains("already states general notes"),
+        "{err}"
+    );
+}

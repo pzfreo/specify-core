@@ -428,7 +428,7 @@ impl Reading {
 /// text item and a one-based integer `note index`. Stable sorting keeps duplicate indices in
 /// read order; missing/nonpositive indices follow indexed notes in read order. No legacy
 /// note or drawing text is migrated into this list.
-fn general_notes(pmi: &PartPmi) -> Vec<String> {
+pub(crate) fn general_notes(pmi: &PartPmi) -> Vec<String> {
     let mut notes = Vec::new();
     for set in &pmi.attributes {
         if set.on.is_some() || set.name != crate::writer::SEMANTIC_TEXT {
