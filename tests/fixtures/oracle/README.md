@@ -105,7 +105,12 @@ known-difference verdicts. Regenerate with `UPDATE_RULE_DEFAULTS=1 cargo test --
 `locating_plus_minus_needs_no_positions_or_datums` now expects A/B/C in Rust without
 positions or FCFs, and `rules_datums_proposed_only_when_measured_from` expects the default
 frame even with every hole set to general. Their `.result.json.gz` files retain Python's
-original no-datum outputs as evidence.
+original no-datum outputs as evidence. CLI/serve envelopes (including complete `--intent`
+text and refusal messages) are pinned separately in `../cli_datum_origins.json.gz`, with
+verdicts in `../known_differences/cli.json`. Regenerate with
+`UPDATE_CLI_DATUM_ORIGINS=1 cargo test --release --test cli the_command_line_matches_the_oracle`;
+set `QUIDDITY_CORPUS` to include corpus cases. Regeneration without a corpus retains their
+existing snapshot entries. The independent library/executable comparison must be empty.
 
 Corpus-backed scenarios: 15 scenarios answer a corpus case whose input is not committed (11 on
 `corpus/nist/nist_ctc_03_asme1_rc`, from specify-core's CTC-03 tests, and 4 on

@@ -12,7 +12,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | Area | rust-correct | rust-wrong | equivalent | undetermined | not-applicable | Total |
 |---|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 9 |
-| [cli](#cli) | 40 | 0 | 3 | 0 | 3 | 46 |
+| [cli](#cli) | 124 | 0 | 3 | 0 | 3 | 130 |
 | [cross_engine](#cross_engine) | 3 | 1 | 0 | 1 | 1 | 6 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
 | [features](#features) | 879 | 1419 | 65 | 1387 | 11 | 3761 |
@@ -21,7 +21,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 40 |
 | [rules](#rules) | 30 | 0 | 0 | 0 | 0 | 30 |
 | [writer](#writer) | 14 | 0 | 0 | 0 | 15 | 29 |
-| **all** | 1002 | 1437 | 79 | 1393 | 47 | 3958 |
+| **all** | 1086 | 1437 | 79 | 1393 | 47 | 4042 |
 
 ## anchors
 
@@ -67,7 +67,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (40 entries)
+### cli: rust-correct (124 entries)
 
 - **Python's write prints OpenCascade's transfer statistics on stdout before the report** (`cli/*` at `stdout_noise`)
 
@@ -120,6 +120,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **Dominant round bosses use their main axis in CLI and serve** (6 entries, 3 case globs)
 
   The dominant cylindrical boss on a_hole_along_x_is_labelled_from_its_rim now supplies A on cylinder 0 and B on end plane 1. The axial hole keeps its rim anchor and position about A; B is available as an axial stop and is reported unused. The question transcript replaces A flatness with B perpendicularity, and the datum anchor groups change from face 1 to faces 0/1. tests/fixtures/rule_defaults_oracle.json.gz pins the complete library changes exactly, tests/turned_defaults.rs verifies dominant-boss axis selection, and the CLI composition sweep still compares library/executable bytes and every serve reply without filtering. These entries cover only this fixture's Python transcript/envelope differences.
+
+- **measurement datum defaults in CLI and serve envelopes** (84 entries, 84 case globs)
+
+  Maintainer decision (draftwright-rust #122), rules version 2: default measurement datums add questions, datum features, baseline origins, dependent anchors, unreferenced-datum reports and unanswered-question ids to CLI/serve envelopes. The locating help now explains measurement origins. Full --intent JSON text carries rules_version 2 and the new datums. Original Python captures remain unchanged. tests/cli.rs pins every additional departure (case, path and both complete values) in tests/fixtures/cli_datum_origins.json.gz before applying these verdict entries; it independently requires no library/executable composition differences. Library outputs are exactly guarded by rule_defaults_oracle.json.gz; tests/writer.rs verifies datum features without FCFs, and tests/locations.rs verifies changed/removed origins.
 
 ### cli: equivalent (3 entries)
 
