@@ -4,6 +4,6 @@
   "part.locating": "± dimensions",
   "part.material": "steel"
  },
- "why": "Holes located by ± dimensions: no positions, no datums, no locations.",
+ "why": "Rust: ± dimensions propose A/B/C measurement origins, with no positions or FCFs; general location tolerance writes no explicit hole locations. Captured Python result retains its no-datums behavior as evidence.",
  "from": "test_locating_problems_extras.py::test_holes_located_by_plus_minus_need_no_positions_or_datums; test_locations.py::test_general_writes_no_location"
 }

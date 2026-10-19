@@ -1252,7 +1252,7 @@ fn check_area(differences: &[Difference]) {
 /// Inherit only exact reviewed old/new values, not the broader verdict scopes. Composition
 /// still compares the CLI with the library independently, without filtering any difference.
 fn without_reviewed_rule_departures(differences: Vec<Difference>) -> Vec<Difference> {
-    let reviewed = common::read_json_gz(&common::fixtures().join("turned_defaults_oracle.json.gz"));
+    let reviewed = common::read_json_gz(&common::fixtures().join("rule_defaults_oracle.json.gz"));
     let key = |case: &str, path: &str, python: &Value, rust: &Value| {
         format!("{case}\0{}\0{python}\0{rust}", path.replace(".[", "["))
     };

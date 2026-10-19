@@ -154,7 +154,7 @@ except where a hash is taken (resume fingerprint, `pyjson.rs`).
   other, area, centroid, direction?, origin?, radius?, contact? }`. `Feature { id, family, record
   (JSON object), faces, members?, notes? }`.
 - Answers: `{question id: JSON value}` (strings, face lists, `extra.*` objects).
-- `Question` (to_dict order and omissions as Python's), `Intent { schema: 1, rules_version: 1,
+- `Question` (to_dict order and omissions as Python's), `Intent { schema: 1, rules_version: 2,
   binding, part, datums, requirements, general }` with requirements as JSON objects whose kinds
   are `size`, `location`, `position`, `flatness`, `perpendicularity`, `parallelism`, `profile`,
   `runout`, `total_runout`, `thread`, `knurl`, `finish` (Python's keys). The rules work on
