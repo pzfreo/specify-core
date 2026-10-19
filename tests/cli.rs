@@ -1356,8 +1356,9 @@ fn without_reviewed_rule_departures(differences: Vec<Difference>) -> Vec<Differe
         .collect()
 }
 
-/// Keep the CLI/serve envelopes of the measurement-origin rule change under the same
-/// exact before/after guard as the library rules. Older reviewed CLI differences retain
+/// Keep CLI/serve envelopes of measurement origins and ordered part notes under the same
+/// exact before/after guard as the library rules. The snapshot retains its original datum-
+/// origin filename. Older reviewed CLI differences retain
 /// their existing verdicts; composition never enters this snapshot.
 fn check_datum_origin_departures(differences: &[Difference]) {
     const PATTERN: &str = "measurement datum defaults in CLI and serve envelopes";

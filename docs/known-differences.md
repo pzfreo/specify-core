@@ -12,16 +12,16 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | Area | rust-correct | rust-wrong | equivalent | undetermined | not-applicable | Total |
 |---|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 9 |
-| [cli](#cli) | 128 | 0 | 3 | 0 | 3 | 134 |
+| [cli](#cli) | 135 | 0 | 3 | 0 | 3 | 141 |
 | [cross_engine](#cross_engine) | 3 | 1 | 0 | 1 | 1 | 6 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
 | [features](#features) | 879 | 1419 | 65 | 1387 | 11 | 3761 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 40 |
-| [rules](#rules) | 30 | 0 | 0 | 0 | 0 | 30 |
+| [rules](#rules) | 32 | 0 | 0 | 0 | 0 | 32 |
 | [writer](#writer) | 14 | 0 | 0 | 0 | 15 | 29 |
-| **all** | 1090 | 1437 | 79 | 1393 | 47 | 4046 |
+| **all** | 1099 | 1437 | 79 | 1393 | 47 | 4055 |
 
 ## anchors
 
@@ -67,7 +67,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (128 entries)
+### cli: rust-correct (135 entries)
 
 - **Python's write prints OpenCascade's transfer statistics on stdout before the report** (`cli/*` at `stdout_noise`)
 
@@ -121,9 +121,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The dominant cylindrical boss on a_hole_along_x_is_labelled_from_its_rim now supplies A on cylinder 0 and B on end plane 1. The axial hole keeps its rim anchor and position about A; B is available as an axial stop and is reported unused. The question transcript replaces A flatness with B perpendicularity, and the datum anchor groups change from face 1 to faces 0/1. tests/fixtures/rule_defaults_oracle.json.gz pins the complete library changes exactly, tests/turned_defaults.rs verifies dominant-boss axis selection, and the CLI composition sweep still compares library/executable bytes and every serve reply without filtering. These entries cover only this fixture's Python transcript/envelope differences.
 
-- **measurement datum defaults in CLI and serve envelopes** (84 entries, 84 case globs)
+- **measurement datum defaults in CLI and serve envelopes** (91 entries, 91 case globs)
 
-  Maintainer decision (draftwright-rust #122), rules version 2: default measurement datums add questions, datum features, baseline origins, dependent anchors, unreferenced-datum reports and unanswered-question ids to CLI/serve envelopes. The locating help now explains measurement origins. Full --intent JSON text carries rules_version 2 and the new datums. Original Python captures remain unchanged. tests/cli.rs pins every additional departure (case, path and both complete values) in tests/fixtures/cli_datum_origins.json.gz before applying these verdict entries; it independently requires no library/executable composition differences. Library outputs are exactly guarded by rule_defaults_oracle.json.gz; tests/writer.rs verifies datum features without FCFs, and tests/locations.rs verifies changed/removed origins.
+  The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `cli/a_file_with_two_parts_must_say_which#0/questions` at `*`: Maintainer decision (draftwright-rust #122), rules version 2: default measurement datums add questions, datum features, baseline origins, dependent anchors, unreferenced-datum reports and unanswered-question ids to CLI/serve envelopes. The locating help now explains measurement origins. Full --intent JSON text carries rules_version 2 and the new datums. Original Python captures remain unchanged. tests/cli.rs pins every additional departure (case, path and both complete values) in tests/fixtures/cli_datum_origins.json.gz before applying these verdict entries; it independently requires no library/executable composition differences. Library outputs are exactly guarded by rule_defaults_oracle.json.gz; tests/writer.rs verifies datum features without FCFs, and tests/locations.rs verifies changed/removed origins. Rules version 3 (draftwright-rust #123) additionally introduces the ordered part.notes text_list question with default [], shifts later question positions and unanswered ids, and updates full intent JSON to rules_version 3. The same exact CLI snapshot now pins these envelope departures too; tests/part_notes.rs and docs/part-notes.md verify and specify the semantic note form, order, readback and byte-stable rewrite.
 
 - **axis-first turned defaults change string-post datum and basic-location report lines** (4 entries, 1 case glob)
 
@@ -705,7 +705,11 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## rules
 
-### rules: rust-correct (30 entries)
+### rules: rust-correct (32 entries)
+
+- **ordered free-text part notes are model PMI** (2 entries, 1 case glob)
+
+  Maintainer decision (draftwright-rust #123), rules version 3: part.notes is an ordered list of literal strings, asked as text_list with default []; drawing-only notes remain in the drawing Spec and no text is migrated. Each note is a part-owned semantic text attribute set with general note text and a one-based integer note index (PMI practice §7.4). tests/part_notes.rs verifies validation, literal text, duplicates, semantic readback without stored answers, assembly ownership, identical resumed answers, edits/removal, byte-stable rewrite and live OpenCascade import when available. docs/part-notes.md states the exact STEP form and index/fallback convention. Every changed rules path and both Python/Rust values, including question ordering, are pinned in rule_defaults_oracle.json.gz before verdict matching; original Python captures are unchanged.
 
 - **a knurl's teeth derived from DIN 82, which Python's intent does not state** (`scenarios/turned_*knurl*` at `*requirements[*].teeth`)
 

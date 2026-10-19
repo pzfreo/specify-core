@@ -131,3 +131,13 @@ Not captured (the scenario format answers one captured input with one answer set
 `interpret.json.gz`: a list of `{from, fn, ..., result}`: every spec specify-core's tests type at
 `choices.interpret` (and `check`, `code`, `callout`, `describe`), with Python's value or its
 `SpecError`.
+
+## Ordered free-text part notes (rules version 3)
+
+Rust adds `part.notes`, an ordered list of literal manufacturing-note strings, with empty
+list default and question kind `text_list` (draftwright-rust #123). Python's captures remain
+unchanged. The additional question changes subsequent question indices and unanswered ids;
+accepting defaults adds `part.notes: []` to settled answers. Rules version 3 identifies the
+changed outputs. `rule_defaults_oracle.json.gz` pins every complete before/after difference,
+including ordering, before the known-difference verdicts apply. `tests/part_notes.rs` checks
+semantic STEP readback and answer round trips; `docs/part-notes.md` documents the form.
