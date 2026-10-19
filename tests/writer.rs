@@ -725,9 +725,12 @@ fn pmi_is_added_to_a_part_that_has_some() {
         assert!(!ids.contains(&stated), "{stated} asked again");
     }
     // What the first pass wrote is read back, its notes too (Q3); "no coating" and "no heat
-    // treatment" write nothing, so they are offered again at their defaults.
+    // treatment" and an empty free-text note list write nothing, so they are offered again.
     for q in ids.iter().filter(|i| i.starts_with("part.")) {
-        assert!(["part.coating", "part.heat_treatment"].contains(q), "{q}");
+        assert!(
+            ["part.coating", "part.heat_treatment", "part.notes"].contains(q),
+            "{q}"
+        );
     }
     assert!(!qs.iter().any(|q| q.prompt.contains("Ø8")));
     let six = qs
@@ -831,6 +834,7 @@ fn a_nist_part_keeps_all_its_pmi() {
         "part.coating",
         "part.heat_treatment",
         "part.edges",
+        "part.notes",
         "datum.B.control",
         "datum.C.control",
     ];
