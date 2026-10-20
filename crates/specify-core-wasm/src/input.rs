@@ -72,7 +72,9 @@ pub fn answers_shape(answers: &Map<String, Value>) -> Result<(), Error> {
         } else if let Some(suffix) = id.strip_prefix("datum.") {
             let (letter, control) = suffix.split_once('.').unwrap_or((suffix, ""));
             if !matches!(letter, "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H")
-                || !matches!(control, "" | "control" | "flatness")
+                || !(control.is_empty()
+                    || suffix == "A.flatness"
+                    || matches!(suffix, "B.control" | "C.control"))
             {
                 return Err(invalid("unknown answer ID"));
             }
@@ -118,16 +120,23 @@ pub fn answers(analysis: &Value, answers: &Map<String, Value>) -> Result<(), Err
     answers_shape(answers)?;
     // Resolve even dormant feature answers: edits may retain a question hidden by a mode.
     for (id, value) in answers {
-        if let Some((_, feature)) = id.split_once(':') {
+        if let Some((kind, feature)) = id.split_once(':') {
             let found = analysis
                 .get("features")
                 .and_then(Value::as_array)
-                .is_some_and(|fs| {
+                .and_then(|fs| {
                     fs.iter()
-                        .any(|f| f.get("id").and_then(Value::as_str) == Some(feature))
-                });
-            if !found {
-                return Err(bad(id, format!("unknown feature {feature}")));
+                        .find(|f| f.get("id").and_then(Value::as_str) == Some(feature))
+                })
+                .ok_or_else(|| bad(id, format!("unknown feature {feature}")))?;
+            let family = found.get("family").and_then(Value::as_str);
+            let applicable = if kind.starts_with("hole.") {
+                matches!(family, Some("holes" | "hole_patterns"))
+            } else {
+                family == Some("turned_steps")
+            };
+            if !applicable {
+                return Err(bad(id, "unknown answer ID for this feature family"));
             }
         }
         if id.starts_with("datum.")

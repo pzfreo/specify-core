@@ -29,6 +29,9 @@ try {
   }
   for (const answers of [
     { missing: 'steel' },
+    { 'datum.A.control': 'none' },
+    { 'datum.D.flatness': 'none' },
+    { [hole.id.replace('hole.function:', 'diameter.fit:')]: 'general' },
     { 'hole.function:missing': 'general' },
     { [hole.id]: 'tapped:clearance M6' },
     { [hole.id]: 'clearance tapped M6' },
