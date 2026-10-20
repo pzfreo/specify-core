@@ -364,8 +364,10 @@ fn preview_carries_anchors_for_its_labels_when_given_the_file() {
 #[test]
 fn anchors_are_not_given_for_a_different_file() {
     let analysis = api::analyse_file(&part("pin"), None).unwrap();
+    // #20: use accepted PMI so an empty result actually checks the foreign binding.
+    let accepted = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
     let reply = Server::default().reply(&json!({
-        "id": 1, "op": "preview", "analysis": analysis, "answers": {}, "step": part("plate"),
+        "id": 1, "op": "preview", "analysis": analysis, "answers": accepted, "step": part("plate"),
     }));
     assert_eq!(reply["result"]["intent"]["anchors"], json!({}));
 }
@@ -377,11 +379,17 @@ fn anchors_are_cached_for_the_last_two_parts() {
     let mut server = Server::default();
     for stem in ["pin", "plate", "wrapped", "pin"] {
         let analysis = api::analyse_file(&part(stem), None).unwrap();
+        // #20: keep exercising actual label anchors as parts enter and leave the cache.
+        let accepted = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
         let reply = server.reply(&json!({
-            "id": 1, "op": "preview", "analysis": analysis, "answers": {}, "step": part(stem),
+            "id": 1, "op": "preview", "analysis": analysis, "answers": accepted, "step": part(stem),
         }));
         let anchors = reply["result"]["intent"]["anchors"].as_object().unwrap();
-        let groups = api::preview(&analysis, &Map::new()).unwrap();
+        assert!(
+            !anchors.is_empty(),
+            "{stem}: accepted specifications have labels"
+        );
+        let groups = api::preview(&analysis, &accepted).unwrap();
         let direct = api::anchors(
             &load(&part(stem), None).unwrap(),
             &groups
