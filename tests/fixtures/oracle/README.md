@@ -148,6 +148,7 @@ The frozen Python oracle remains unchanged. Rust-written byte fixtures and their
 readbacks are regenerated with `cargo run --release --example write_fixtures`, then the
 existing `tools/capture.py cross-engine` tool (see `../cross_engine/README.md`). The new
 `ExistingPmi.provenance` field is an intentional `rust-correct` difference, documented in
-`docs/pmi-provenance.md`. CLI/serve byte payloads embedded in `cli_datum_origins.json.gz` are
-regenerated through the existing `UPDATE_CLI_DATUM_ORIGINS=1 cargo test --release --test cli
-the_command_line_matches_the_oracle` hook, preserving full before/after values.
+`docs/pmi-provenance.md`. The CLI/serve envelope guard `cli_datum_origins.json.gz` is checked
+through its existing `UPDATE_CLI_DATUM_ORIGINS=1 cargo test --release --test cli
+the_command_line_matches_the_oracle` hook, preserving full before/after values if envelopes
+change. The STEP byte fixtures themselves are the cross-engine `rust.step.gz` files.
