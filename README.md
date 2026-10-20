@@ -25,9 +25,12 @@ needs from quiddity-rust are in [docs/upstream-needs.md](docs/upstream-needs.md)
 decisions waiting for the maintainer in [docs/questions.md](docs/questions.md).
 
 As of stage 5 (consolidation, 2026-10-09) all five planned stages are on `main`. The full suite
-(344 tests, with the quiddity corpus) passes, last on 2026-10-16 at quiddity-rust's alpha 4.
-quiddity and haecceity are pinned by rev to quiddity-rust's 0.1.0-alpha.4 release commit
-(`f5ddb72`, not yet tagged), which has the maintainer's haecceity writer decisions of 2026-10-09 and haecceity's U10 and U14 (question Q2).
+(376 tests, with the quiddity corpus) passes, last on 2026-10-20 at quiddity-rust's alpha.8.
+quiddity and haecceity are pinned to quiddity-rust's `v0.1.0-alpha.8` tag
+(`c62081c6`), which has the maintainer's haecceity writer decisions of 2026-10-09 and
+haecceity's U10 and U14 (question Q2). The pin matches draftwright-rust alpha.9;
+`tools/check_quiddity_pin.py` checks the release pins. This includes derived PMI geometry and measured modelled threads;
+Specify's thread choices and editable full-thread depth remain separate work.
 
 OpenCascade (and so specify-core's Python) opens every Rust-written file and reads its datums,
 sizes and tolerances, on one face or several (Q16, Q20; `tests/cross_engine.rs`); it reads a fit
@@ -192,6 +195,12 @@ Tests compare the port with fixtures captured from specify-core (`tools/capture.
 specify-core's environment); tests whose input is a quiddity corpus file skip without the
 corpus. `docs/known-differences.md` is regenerated after an area file changes with
 `UPDATE_KNOWN_DIFFERENCES=1 cargo test --release --test known_differences_doc`.
+
+Optional live Python/OpenCascade tests use only an explicitly configured
+`SPECIFY_TEST_PYTHON=/path/to/specify-core/.venv/bin/python`; they never discover a
+checkout on the host. `SPECIFY_TEST_NIST_AP242=/path/to/plain/nist` additionally enables
+live comparisons on the five `nist_ctc_0N_asme1_ap242.stp` inputs. The committed captures
+remain the default regression record; these live checks do not recapture them.
 
 ## Licence
 

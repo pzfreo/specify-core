@@ -70,6 +70,18 @@ pub fn corpus_dir() -> Option<PathBuf> {
         .find(|dir| dir.is_dir())
 }
 
+/// Optional live Python checks must opt into an explicit environment. Frozen captures
+/// remain the default comparison; never discover another checkout on the host.
+pub fn live_python() -> Option<PathBuf> {
+    let path = PathBuf::from(std::env::var_os("SPECIFY_TEST_PYTHON")?);
+    assert!(
+        path.is_file(),
+        "SPECIFY_TEST_PYTHON is not a file: {}",
+        path.display()
+    );
+    Some(path)
+}
+
 /// A gzipped JSON file, parsed. Panics if it cannot be read: a fixture is broken.
 pub fn read_json_gz(path: &Path) -> Value {
     let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));

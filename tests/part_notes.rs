@@ -1,5 +1,7 @@
 //! Free-text manufacturing notes are part PMI (draftwright-rust #123).
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -249,18 +251,17 @@ fn assembly_notes_belong_to_their_part() {
 
 #[test]
 fn opencascade_can_open_a_part_with_ordered_notes() {
-    const PYTHON: &str = "/Users/paul/repos/specify-core/.venv/bin/python";
-    if !Path::new(PYTHON).is_file() {
-        eprintln!("skipped: specify-core's venv is not present");
+    let Some(python) = common::live_python() else {
+        eprintln!("skipped: set SPECIFY_TEST_PYTHON for live OpenCascade checks");
         return;
-    }
+    };
     let loaded = plate();
     let answers = given(json!(["Inspect bore", "Deburr after coating"]));
     let intent = api::apply(&api::analyse(&loaded).unwrap(), &answers, true).unwrap();
     let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
     let path = Path::new(env!("CARGO_TARGET_TMPDIR")).join("ordered-notes-occt.step");
     std::fs::write(&path, bytes).unwrap();
-    let output = Command::new(PYTHON)
+    let output = Command::new(python)
         .args([
             "-c",
             r#"

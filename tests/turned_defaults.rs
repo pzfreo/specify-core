@@ -423,7 +423,7 @@ fn grouped_answers_and_single_face_pmi_exclude_every_split_face_of_a_rough_seat(
 
 #[test]
 fn recognition_and_pmi_exclude_rough_datum_surfaces_even_with_plain_answers() {
-    for source in ["pmi", "recognition"] {
+    for source in ["pmi", "recognition", "modelled_threads"] {
         let mut a = captured("gramel/GRM-03_thumbwheel_drive_screw");
         if source == "pmi" {
             a["existing"] = json!([
@@ -432,7 +432,7 @@ fn recognition_and_pmi_exclude_rough_datum_surfaces_even_with_plain_answers() {
             ]);
         } else {
             a["features"].as_array_mut().unwrap().extend([
-                json!({"id": "external_threads:6", "family": "external_threads", "faces": [6], "record": {}}),
+                json!({"id": format!("{source}:6"), "family": if source == "modelled_threads" { source } else { "external_threads" }, "faces": [6], "record": {}}),
                 json!({"id": "knurls:3", "family": "knurls", "faces": [3], "record": {}}),
             ]);
         }

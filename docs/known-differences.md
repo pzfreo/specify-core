@@ -15,13 +15,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [cli](#cli) | 135 | 0 | 3 | 0 | 3 | 141 |
 | [cross_engine](#cross_engine) | 3 | 1 | 0 | 1 | 1 | 6 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
-| [features](#features) | 879 | 1419 | 65 | 1387 | 11 | 3761 |
+| [features](#features) | 1028 | 1419 | 65 | 1387 | 11 | 3910 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 40 |
 | [rules](#rules) | 32 | 0 | 0 | 0 | 0 | 32 |
 | [writer](#writer) | 14 | 0 | 0 | 0 | 15 | 29 |
-| **all** | 1099 | 1437 | 79 | 1393 | 47 | 4055 |
+| **all** | 1248 | 1437 | 79 | 1393 | 47 | 4204 |
 
 ## anchors
 
@@ -291,7 +291,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## features
 
-### features: rust-correct (879 entries)
+### features: rust-correct (1028 entries)
 
 - **Rust at the adaptive integral, Python off** (876 entries, 14 case globs)
 
@@ -300,6 +300,14 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **turned body's bounds 1e-7 wider in Python** (3 entries, 3 case globs)
 
   The evidence is stated per entry (3 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb217` at `features[id=*].record.profile.body_bounds[*]`: Every difference is 1e-7: OpenCascade's Bnd_Box adds its gap to the solid's box; haecceity's bounds are the exact extent (e.g. string_post: radius 3.75, Python 3.7500001). Here 10 value(s), largest difference 1e-07.
+
+- **a measured modelled screw thread replaces its blanket freeform classification** (144 entries, 2 case globs)
+
+  The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/cadgenbench/threaded_connector_109` at `features[id=freeform_surfaces:0]`: Independently checked on 2026-10-20 with OpenCascade (~/cld/quiddity/.venv/bin/python -I tools/known_differences/threads.py INPUT ANALYSIS), reading the original STEP and Specify analyse output as hypotheses; no quiddity recogniser is imported. All 16 flank patches belong to the same external helical thread: independently fitted OCP boundary leads 6.3500357813..6.3500357815 mm with maximum axial residual 0.000101603 mm (6.35 mm reported pitch, one start, right hand). Crest radii 54.96944734..55.00543695 mm and root radii 51.55998189..51.56512027 mm agree with the reported major 109.99979735 and minor 103.12000000 mm within the stated diameter bounds. Flank/runout bounds independently give Z 367.61420731113..419.20579270186 mm, matching the measured span rather than the carrier length. The 136 old B-spline freeform records (flanks, crests, root strips and runouts) become faces of one measured thread; four unrelated freeforms remain and every original face remains in the analysis. The regression modelled_thread_parts_still_analyse_interview_and_write checks the counts, interview, nonempty intent, verified write and resumed answers. OCP local differential leads vary (6.02479..6.67995 mm), and nearly collapsed root strips have ambiguous normals; the evidence is for global pitch, dimensions and physical-thread classification, not certified continuous spline bounds or a nominal thread standard.
+
+- **a modelled screw thread is measured from physical geometry** (5 entries, 2 case globs)
+
+  The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/cadgenbench/threaded_connector_109` at `features[id=modelled_threads:0.1.2.3.4.5.6.7.8.9.10.11.12.13.14.15.16.17.19.20.21.22.23.24.25.26.27.28.29.30.31.32.33.34.35.36.37.38.40.41.42.43.44.45.46.47.48.49.50.51.52.53.54.55.56.57.59.60.61.62.63.64.65.66.67.68.69.70.71.72.73.74.75.76.78.79.80.81.82.83.84.85.86.87.88.89.90.91.92.93.94.95.97.98.99.100.101.102.103.104.105.106.107.108.109.110.111.112.113.114.116.117.118.119.120.121.122.123.124.125.126.127.128.129.130.131.132.133.135.136.137.138.139.140.141.142.143.145.146.147.148.149.150.151.153.154]`: Independently checked on 2026-10-20 with OpenCascade (~/cld/quiddity/.venv/bin/python -I tools/known_differences/threads.py INPUT ANALYSIS), reading the original STEP and Specify analyse output as hypotheses; no quiddity recogniser is imported. All 16 flank patches belong to the same external helical thread: independently fitted OCP boundary leads 6.3500357813..6.3500357815 mm with maximum axial residual 0.000101603 mm (6.35 mm reported pitch, one start, right hand). Crest radii 54.96944734..55.00543695 mm and root radii 51.55998189..51.56512027 mm agree with the reported major 109.99979735 and minor 103.12000000 mm within the stated diameter bounds. Flank/runout bounds independently give Z 367.61420731113..419.20579270186 mm, matching the measured span rather than the carrier length. The 136 old B-spline freeform records (flanks, crests, root strips and runouts) become faces of one measured thread; four unrelated freeforms remain and every original face remains in the analysis. The regression modelled_thread_parts_still_analyse_interview_and_write checks the counts, interview, nonempty intent, verified write and resumed answers. OCP local differential leads vary (6.02479..6.67995 mm), and nearly collapsed root strips have ambiguous normals; the evidence is for global pitch, dimensions and physical-thread classification, not certified continuous spline bounds or a nominal thread standard.
 
 ### features: rust-wrong (1419 entries)
 

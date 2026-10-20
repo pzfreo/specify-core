@@ -4,7 +4,9 @@
 //! Ports `tests/test_load.py`'s behavioural tests and `tests/test_assembly.py`'s parts listing.
 //! Expected values come from Python: written below as literals (with the command that produced
 //! them) for the committed synthetic parts, and compared live for corpus and NIST files when
-//! specify-core's venv is present (skipped otherwise, as are files that are absent).
+//! `SPECIFY_TEST_PYTHON` is set (skipped otherwise, as are files that are absent).
+
+mod common;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -29,20 +31,11 @@ const SYNTHETIC: [&str; 5] = [
     "wrapped.step",
 ];
 
-fn corpus_root() -> PathBuf {
-    std::env::var_os("QUIDDITY_CORPUS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/Users/paul/repos/quiddity/tests/corpus"))
-}
-
-/// A corpus file, if the corpus has it.
+/// A corpus file, only from the explicitly configured corpus roots.
 fn corpus(relative: &str) -> Option<PathBuf> {
-    let path = corpus_root().join(relative);
+    let path = common::corpus_dir()?.join(relative);
     path.is_file().then_some(path)
 }
-
-const NIST_AP242: &str = "/Users/paul/repos/dw-examples/steps/nist";
-const PYTHON: &str = "/Users/paul/repos/specify-core/.venv/bin/python";
 
 /// One file and part from each of five corpus subdirectories (and a sixth), and the corpus's
 /// NIST geometry files: the files the live face-by-face comparison runs on.
@@ -603,11 +596,10 @@ fn parts_of_assemblies_carry_their_instances_unresolved_lists() {
 /// (`check_own`). Which parts have unresolved faces or edges is printed.
 #[test]
 fn corpus_parts_and_their_unresolved_faces() {
-    let root = corpus_root();
-    if !root.is_dir() {
+    let Some(root) = common::corpus_dir() else {
         eprintln!("skipped: corpus not present");
         return;
-    }
+    };
     let mut files = Vec::new();
     let mut stack = vec![root.clone()];
     while let Some(dir) = stack.pop() {
@@ -716,10 +708,11 @@ fn a_part_with_an_unresolved_face_keeps_haecceitys_record() {
 
 // --- live comparison with Python on corpus and NIST files -----------------------------------
 
-/// Python's `parts`, bindings and faces for `paths`, from specify-core's venv; `None` when the
-/// venv is absent.
+/// Python's `parts`, bindings and faces for `paths`, using `SPECIFY_TEST_PYTHON`;
+/// `None` when it is unset or `paths` is empty.
 fn python_parts(paths: &[PathBuf]) -> Option<serde_json::Map<String, Value>> {
-    if !Path::new(PYTHON).is_file() || paths.is_empty() {
+    let python = common::live_python()?;
+    if paths.is_empty() {
         return None;
     }
     const SCRIPT: &str = r#"
@@ -736,7 +729,7 @@ for path in sys.argv[1:]:
         out[path] = {"error": f"{type(e).__name__}: {e}"}
 json.dump(out, sys.stdout)
 "#;
-    let output = Command::new(PYTHON)
+    let output = Command::new(python)
         .arg("-c")
         .arg(SCRIPT)
         .args(paths)
@@ -778,9 +771,14 @@ fn same_name(rust: &Value, python: &Value) -> bool {
 #[test]
 fn corpus_and_nist_faces_are_pythons_at_every_index() {
     let mut paths: Vec<PathBuf> = CORPUS_SAMPLE.iter().filter_map(|f| corpus(f)).collect();
-    for k in 1..=5 {
-        let path = PathBuf::from(format!("{NIST_AP242}/nist_ctc_0{k}_asme1_ap242.stp"));
-        if path.is_file() {
+    if let Some(root) = std::env::var_os("SPECIFY_TEST_NIST_AP242").map(PathBuf::from) {
+        for k in 1..=5 {
+            let path = root.join(format!("nist_ctc_0{k}_asme1_ap242.stp"));
+            assert!(
+                path.is_file(),
+                "SPECIFY_TEST_NIST_AP242 lacks {}",
+                path.display()
+            );
             paths.push(path);
         }
     }
