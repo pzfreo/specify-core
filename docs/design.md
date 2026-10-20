@@ -327,8 +327,9 @@ embed them. So comparisons with Python are made where the inputs are Python's (P
 analysis and answers into the Rust rules, writer, CLI and serve); Rust-produced analyses are
 checked by composition (the CLI equals the library) and by smoke tests (the rules run on them
 without panic or refusal), not entry by entry against Python. The cascade is recorded once as a
-documented rule in the `cli` area, not per difference. Tests whose input is a corpus file skip when
-`QUIDDITY_CORPUS` does not have it; tests on committed fixtures always run, in CI too.
+documented rule in the `cli` area, not per difference. Local tests whose input is a corpus file
+skip when `QUIDDITY_CORPUS` does not have it. CI checks out the pinned corpus and sets
+`QUIDDITY_CORPUS_REQUIRED=1`, making a missing corpus or captured input fatal.
 
 Python's unit tests are ported where they test behaviour (named after the Python test, citing
 it), not where they test an OpenCascade workaround (`test_p21.py`, `test_magnitudes.py`,
@@ -532,5 +533,8 @@ Every question in [questions.md](questions.md) is open, each with what is done m
   file Python wrote (built instead from the committed `written.step.gz` files by
   `tests/resume.rs`, `tests/writer.rs` and `tests/cross_engine.rs`), an assembly write with
   different answers per part through Python, and tests of internals on hand-made face dicts.
-- **CI and the corpus:** without `SPECIFY_CORPUS` (or `QUIDDITY_CORPUS`) every corpus case and
-  the 15 corpus-backed scenarios skip (Q5).
+- **CI and the corpus:** Ubuntu and macOS test the full workspace with Quiddity's corpus pinned
+  to `6d544e060cd0eeb4442d2196e5df757b5a15ea55`, matching quiddity-rust's suite. Both
+  `QUIDDITY_CORPUS` and `SPECIFY_CORPUS` point to the sparse checkout;
+  `QUIDDITY_CORPUS_REQUIRED=1` prevents silent skips. Local runs without the switch can still
+  omit the corpus (Q5). Live Python/OpenCascade checks remain opt-in.
