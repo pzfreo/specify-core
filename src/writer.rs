@@ -11,7 +11,7 @@
 //! instance it makes against the AP242 schema before anything is returned.
 //!
 //! **Provenance.** Every authored semantic requirement carries [`PMI_PROVENANCE`] in
-//! standard AP242 fields or dimension identification attributes. Input PMI stays unmarked; see
+//! standard AP242 fields or representation descriptions. Input PMI stays unmarked; see
 //! `docs/pmi-provenance.md` for the exact STEP-only reader contract.
 //!
 //! **Modes.** A part with no PMI, or one specify-core wrote (answers stored that match its
@@ -718,6 +718,25 @@ fn write_by_modes(
             None => None,
         };
         let current = parsed.as_ref().unwrap_or(&source.doc);
+        let stripped = if mode == Mode::Replace {
+            let parts: Vec<_> = these
+                .iter()
+                .map(|(id, _)| source.read.provenance.parts[id.0].clone())
+                .collect();
+            let edit = provenance::before_replace(current, &parts);
+            Some(
+                Document::parse(
+                    current
+                        .apply(&edit)
+                        .map_err(|e| WriteError::Failed(e.to_string()))?
+                        .bytes,
+                )
+                .map_err(|e| WriteError::Failed(e.to_string()))?,
+            )
+        } else {
+            None
+        };
+        let current = stripped.as_ref().unwrap_or(current);
         let (mut edit, _) = pmi::write(current, defs, &these, mode, policy).map_err(refused)?;
         if mode == Mode::Replace {
             // Python's own form of stored answers is not PMI haecceity reads (it reports it as
@@ -1513,9 +1532,6 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
         lines.written.push(format!("{name} {words}"));
     }
     p.features = features;
-    if p.material.is_some() {
-        p.attributes.push(provenance::material_attribute());
-    }
     Ok((p, lines))
 }
 

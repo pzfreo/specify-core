@@ -231,6 +231,13 @@ pub fn part_settings(loaded: &LoadedPart) -> Result<Map<String, Value>, Existing
     Ok(read(loaded)?.settings(loaded))
 }
 
+/// Authorship of the values returned by [`part_settings`], without changing their shape.
+/// Scalar settings map to the token; `notes` maps to an aligned array of tokens or nulls.
+/// Unmarked settings are omitted. See `docs/pmi-provenance.md`.
+pub fn part_settings_provenance(loaded: &LoadedPart) -> Result<Map<String, Value>, ExistingError> {
+    Ok(read(loaded)?.settings_provenance(loaded))
+}
+
 impl Reading {
     /// The semantic PMI the file states on the part, as [`read_existing`]; `loaded` is the part
     /// this reading is of. A tolerance citing a datum the reader does not hold is refused, not
@@ -364,6 +371,103 @@ impl Reading {
 
         out.extend(notes(loaded, doc, pmi, prov));
         Ok(out)
+    }
+
+    /// Authorship alongside [`Self::settings`]; values and selection order are unchanged.
+    pub fn settings_provenance(&self, loaded: &LoadedPart) -> Map<String, Value> {
+        let mut out = Map::new();
+        let p = &self.pmi;
+        let prov = &self.provenance;
+        let owned = |ids: &[u64], kind: &str| provenance::marked(&self.doc, ids, kind);
+        let mut notes = Vec::new();
+        for (i, set) in p.attributes.iter().enumerate() {
+            if set.on.is_some() || set.name != crate::writer::SEMANTIC_TEXT {
+                continue;
+            }
+            let index = set.items.iter().find_map(|(name, v)| match v {
+                pmi::AttributeValue::Integer(n) if name == crate::writer::NOTE_INDEX && *n > 0 => {
+                    Some(*n)
+                }
+                _ => None,
+            });
+            for (name, v) in &set.items {
+                if name == "general note" && matches!(v, pmi::AttributeValue::Text(_)) {
+                    notes.push((index, owned(&prov.attributes[i], "attribute")));
+                }
+            }
+        }
+        notes.sort_by_key(|(index, _)| (index.is_none(), *index));
+        if notes.iter().any(|(_, owned)| *owned) {
+            out.insert(
+                "notes".into(),
+                Value::Array(
+                    notes
+                        .into_iter()
+                        .map(|(_, yes)| {
+                            if yes {
+                                Value::from(provenance::MARKER)
+                            } else {
+                                Value::Null
+                            }
+                        })
+                        .collect(),
+                ),
+            );
+        }
+        if loaded.part_count > 1 {
+            return out;
+        }
+        if p.material.is_some() && owned(&prov.material, "material") {
+            out.insert("material".into(), Value::from(provenance::MARKER));
+        }
+        if let Some(i) = p
+            .general
+            .iter()
+            .position(|g| matches!(g, GeneralTolerance::Class { .. }))
+            && owned(&prov.general[i], "general")
+        {
+            out.insert("general_tolerance".into(), Value::from(provenance::MARKER));
+        }
+        // Legacy note routes have precedence, and carry no Specify marker.
+        let mut selected = BTreeSet::new();
+        for (key, kind) in PART_NOTES {
+            if key == "notes" {
+                continue;
+            }
+            if p.notes.iter().any(|n| {
+                (n.kind == kind || (key == "surface_finish" && n.kind == "general surface texture"))
+                    && (key != "surface_finish" || default_finish(&n.text).is_some())
+            }) {
+                selected.insert(key);
+            }
+        }
+        for (i, texture) in p.surface_textures.iter().enumerate() {
+            if texture.on.is_none()
+                && finish_words(texture).is_some()
+                && selected.insert("surface_finish")
+                && owned(&prov.surface_textures[i], "surface texture")
+            {
+                out.insert("surface_finish".into(), Value::from(provenance::MARKER));
+            }
+        }
+        for (i, set) in p.attributes.iter().enumerate() {
+            if set.on.is_some() || set.name != crate::writer::SEMANTIC_TEXT {
+                continue;
+            }
+            for (name, v) in &set.items {
+                if !matches!(v, pmi::AttributeValue::Text(_)) {
+                    continue;
+                }
+                if let Some((key, _)) = PART_NOTES.iter().find(|(key, kind)| {
+                    *key != "surface_finish" && *key != "notes" && *kind == name
+                }) && selected.insert(key)
+                    && owned(&prov.attributes[i], "attribute")
+                {
+                    out.insert((*key).into(), Value::from(provenance::MARKER));
+                }
+            }
+        }
+        out
     }
 
     /// The findings of this reading (see [`findings`]).

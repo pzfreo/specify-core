@@ -19,6 +19,17 @@ fn has(doc: &Document, ids: &[u64], entity: &str, slot: usize) -> bool {
     })
 }
 
+fn described(doc: &Document, ids: &[u64], entity: &str) -> bool {
+    ids.iter().any(|&id| {
+        matches!(doc.get(id), Some(RawEntity::Simple { name, .. }) if name == entity)
+            && doc.referrers(id).iter().any(|&r| {
+                matches!(doc.get(r),
+            Some(RawEntity::Simple { name, attributes, .. }) if name == "DESCRIPTION_ATTRIBUTE"
+                && attributes == &[Attribute::String(MARKER.into()), Attribute::EntityRef(id)])
+            })
+    })
+}
+
 /// Read through the pinned reader, checking every semantic root, independently of Specify's
 /// recognition helper. Raw fields are reached through the reader's per-item provenance.
 fn all_owned(bytes: &[u8]) -> pmi::PartPmi {
@@ -30,8 +41,8 @@ fn all_owned(bytes: &[u8]) -> pmi::PartPmi {
     let prov = &read.provenance.parts[0];
     for ids in &prov.dimensions {
         assert!(
-            has(&doc, ids, "ID_ATTRIBUTE", 0),
-            "dimension lacks its identification marker: {ids:?}"
+            described(&doc, ids, "SHAPE_DIMENSION_REPRESENTATION"),
+            "dimension lacks its representation description: {ids:?}"
         );
     }
     assert!(
@@ -43,9 +54,6 @@ fn all_owned(bytes: &[u8]) -> pmi::PartPmi {
         (&prov.datums, "DATUM", 1),
         (&prov.threads, "THREAD", 1),
         (&prov.knurls, "TURNED_KNURL", 0),
-        (&prov.general, "PROPERTY_DEFINITION", 1),
-        (&prov.surface_textures, "PROPERTY_DEFINITION", 1),
-        (&prov.attributes, "PROPERTY_DEFINITION", 1),
     ] {
         for ids in items {
             assert!(
@@ -54,11 +62,63 @@ fn all_owned(bytes: &[u8]) -> pmi::PartPmi {
             );
         }
     }
-    if p.material.is_some() {
-        assert!(p.attributes.iter().any(|a| a.name == "Specify provenance"
-            && a.on.is_none()
-            && a.items == [("material".into(), AttributeValue::Text(MARKER.into()))]));
+    for items in [&prov.general, &prov.surface_textures, &prov.attributes] {
+        for ids in items {
+            assert!(
+                described(&doc, ids, "PROPERTY_DEFINITION_REPRESENTATION"),
+                "{ids:?}"
+            );
+        }
     }
+    if p.material.is_some() {
+        assert!(described(
+            &doc,
+            &prov.material,
+            "PROPERTY_DEFINITION_REPRESENTATION"
+        ));
+    }
+    // Fixed UDA metadata and values stay exactly as alpha.8 writes/reads them. No additional
+    // note or attribute is introduced by the description annotations.
+    assert!(
+        p.attributes
+            .iter()
+            .all(|a| a.description.as_deref() == Some("user defined attribute"))
+    );
+    let mut unmark = haecceity::p21::Edit::new();
+    for (&id, e) in &doc.graph().entities {
+        if matches!(e, RawEntity::Simple { name, .. } if name == "DESCRIPTION_ATTRIBUTE") {
+            unmark.remove(id);
+        }
+        if let RawEntity::Simple {
+            name, attributes, ..
+        } = e
+            && name == "PROPERTY_DEFINITION"
+        {
+            assert!(!matches!(attributes.get(1), Some(Attribute::String(s)) if s == MARKER));
+            if matches!(attributes.first(), Some(Attribute::String(s)) if s.is_empty() || s == "surface_condition")
+            {
+                assert_eq!(
+                    attributes[1],
+                    Attribute::String(String::new()),
+                    "helper/parameter #{id}"
+                );
+                for &link in doc.referrers(id) {
+                    assert!(
+                        !described(&doc, &[link], "PROPERTY_DEFINITION_REPRESENTATION"),
+                        "helper #{id} marked: {e:?}, referrers: {:?}",
+                        doc.referrers(id)
+                            .iter()
+                            .map(|r| doc.get(*r))
+                            .collect::<Vec<_>>()
+                    );
+                }
+            }
+        }
+    }
+    let plain = Document::parse(doc.apply(&unmark).unwrap().bytes).unwrap();
+    let plain_read = pmi::read(&plain, &defs).unwrap();
+    assert_eq!(p.attributes, plain_read.parts[0].attributes);
+    assert_eq!(read.findings, plain_read.findings);
     assert!(haecceity::express::validate_document(doc.graph()).is_empty());
     assert!(haecceity::express_rules::check_all(&doc).is_empty());
     p.clone()
@@ -85,7 +145,8 @@ fn gramel_threads_knurls_and_every_other_written_requirement_have_step_provenanc
             }
             None => {
                 assert!(
-                    common::corpus_dir().is_none(),
+                    std::env::var_os("SPECIFY_CORPUS").is_none()
+                        && std::env::var_os("QUIDDITY_CORPUS").is_none(),
                     "exported corpus is missing {stem}"
                 );
                 eprintln!("no corpus: GRM-03 provenance regression not run");
@@ -132,6 +193,11 @@ fn gramel_threads_knurls_and_every_other_written_requirement_have_step_provenanc
             assert!(!pmi.general.is_empty());
             assert!(!pmi.surface_textures.is_empty());
             let back = part::load_bytes("written.step", bytes.clone()).unwrap();
+            let settings_prov = existing::part_settings_provenance(&back).unwrap();
+            for key in ["material", "general_tolerance", "surface_finish"] {
+                assert_eq!(settings_prov[key], MARKER, "{stem}: {key}");
+            }
+            assert_eq!(settings_prov["notes"], json!([MARKER]));
             let items = existing::read_existing(&back).unwrap();
             assert!(!items.is_empty());
             assert!(
@@ -248,7 +314,7 @@ fn dimensions_tolerances_and_caller_attributes_are_marked() {
     assert!(!pmi.dimensions.is_empty());
     assert!(!pmi.tolerances.is_empty());
     assert!(pmi.attributes.iter().any(|a| a.name == "editor metadata"
-        && a.description.as_deref() == Some(MARKER)
+        && a.description.as_deref() == Some("user defined attribute")
         && a.items == [("literal".into(), AttributeValue::Text("unchanged".into()))]));
 }
 
@@ -271,14 +337,10 @@ fn an_unmarked_legacy_resumed_file_gains_markers_before_the_noop_shortcut() {
         else {
             continue;
         };
-        if name == "PROPERTY_DEFINITION"
-            && matches!(attributes.get(1), Some(Attribute::String(s)) if s == MARKER)
+        if name == "DESCRIPTION_ATTRIBUTE"
+            && matches!(attributes.first(), Some(Attribute::String(s)) if s == MARKER)
         {
-            let mut record = entity.clone();
-            if let RawEntity::Simple { attributes, .. } = &mut record {
-                attributes[1] = Attribute::String("user defined attribute".into());
-            }
-            edit.replace(id, record);
+            edit.remove(id);
         }
     }
     let legacy_bytes = doc.apply(&edit).unwrap().bytes;
@@ -331,16 +393,135 @@ fn writing_an_identical_imported_material_does_not_claim_its_authorship() {
     let doc = Document::parse(bytes).unwrap();
     let read = pmi::read(&doc, &defs).unwrap();
     assert_eq!(read.parts[0].material.as_ref().unwrap().id, "brass");
+    assert!(!described(
+        &doc,
+        &read.provenance.parts[0].material,
+        "PROPERTY_DEFINITION_REPRESENTATION"
+    ));
     assert!(
-        read.parts[0]
-            .attributes
-            .iter()
-            .all(|a| a.name != "Specify provenance")
+        !existing::part_settings_provenance(
+            &part::load_bytes("mixed.step", doc.bytes().to_vec()).unwrap()
+        )
+        .unwrap()
+        .contains_key("material")
     );
     assert!(
         read.parts[0]
             .attributes
             .iter()
-            .any(|a| a.name == "semantic text" && a.description.as_deref() == Some(MARKER))
+            .any(|a| a.name == "semantic text"
+                && a.description.as_deref() == Some("user defined attribute"))
     );
+}
+
+#[test]
+fn two_sizes_on_one_aspect_do_not_use_the_identifier_slot() {
+    let loaded = part::load(&common::fixtures().join("parts/pin.step"), None).unwrap();
+    let mut intent = rules::Intent::new(serde_json::to_value(&loaded.binding).unwrap());
+    for nominal in [10, 11] {
+        intent.requirements.push(
+            json!({"kind":"size", "faces":[0], "feature":"same aspect",
+            "nominal":nominal, "upper":0.1, "lower":-0.1})
+            .as_object()
+            .unwrap()
+            .clone(),
+        );
+    }
+    let (bytes, _) = writer::write_bytes(&loaded, &intent, None).unwrap();
+    let p = all_owned(&bytes);
+    assert_eq!(p.dimensions.len(), 2);
+    assert!(matches!((&p.dimensions[0].kind, &p.dimensions[1].kind),
+        (pmi::DimensionKind::Size { feature: a, .. }, pmi::DimensionKind::Size { feature: b, .. }) if a == b));
+    let doc = Document::parse(bytes).unwrap();
+    let roots: Vec<_> = doc
+        .graph()
+        .entities
+        .iter()
+        .filter_map(|(&id, e)| {
+            matches!(e, RawEntity::Simple { name, .. } if name == "DIMENSIONAL_SIZE").then_some(id)
+        })
+        .collect();
+    assert_eq!(roots.len(), 2);
+    // Explicit UR1/WR2 regression: provenance occupies none of either size's identifier slots.
+    for id in roots {
+        assert!(!doc.referrers(id).iter().any(|&r|
+            matches!(doc.get(r), Some(RawEntity::Simple { name, .. }) if name == "ID_ATTRIBUTE")));
+    }
+}
+
+#[test]
+fn settings_provenance_tracks_selected_values_and_each_ordered_note() {
+    let loaded = part::load(&common::fixtures().join("parts/plate.step"), None).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let given = json!({"part.material":"steel", "part.surface_finish":"Ra 3.2",
+        "part.coating":"black oxide", "part.heat_treatment":"anneal", "part.edges":"Deburr only",
+        "part.notes":["First instruction", "Second instruction"]})
+    .as_object()
+    .unwrap()
+    .clone();
+    let mut intent = rules::apply_with_defaults(&analysis, &given, true).unwrap();
+    intent.requirements.push(
+        json!({"kind":"finish", "faces":[0], "value":"Ra 1.6"})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+    let (bytes, _) = writer::write_bytes(&loaded, &intent, None).unwrap();
+    all_owned(&bytes);
+    let back = part::load_bytes("settings.step", bytes.clone()).unwrap();
+    assert!(
+        existing::read_existing(&back)
+            .unwrap()
+            .iter()
+            .any(|row| row.kind == "note"
+                && row.r#type == "surface finish"
+                && row.provenance.as_deref() == Some(MARKER))
+    );
+    let settings = existing::part_settings(&back).unwrap();
+    let sources = existing::part_settings_provenance(&back).unwrap();
+    for key in [
+        "material",
+        "general_tolerance",
+        "surface_finish",
+        "coating",
+        "heat_treatment",
+        "edges",
+    ] {
+        assert!(settings.contains_key(key), "{key}");
+        assert_eq!(sources[key], MARKER, "{key}");
+    }
+    assert_eq!(sources["notes"], json!([MARKER, MARKER]));
+    let doc = Document::parse(bytes).unwrap();
+    let defs = read_part_definitions(doc.bytes()).unwrap();
+    let read = pmi::read(&doc, &defs).unwrap();
+    let mut edit = haecceity::p21::Edit::new();
+    // Simulate a mixed file: an unmarked first note and material beside marked settings.
+    let first = read.parts[0]
+        .attributes
+        .iter()
+        .position(|a| {
+            a.items
+                .iter()
+                .any(|(_, v)| *v == AttributeValue::Text("First instruction".into()))
+        })
+        .unwrap();
+    for ids in [
+        &read.provenance.parts[0].material,
+        &read.provenance.parts[0].attributes[first],
+    ] {
+        for id in ids {
+            for &r in doc.referrers(*id) {
+                if matches!(doc.get(r), Some(RawEntity::Simple { name, .. }) if name == "DESCRIPTION_ATTRIBUTE")
+                {
+                    edit.remove(r);
+                }
+            }
+        }
+    }
+    let mixed = part::load_bytes("mixed.step", doc.apply(&edit).unwrap().bytes).unwrap();
+    assert_eq!(existing::part_settings(&mixed).unwrap(), settings);
+    let sources = existing::part_settings_provenance(&mixed).unwrap();
+    assert!(!sources.contains_key("material"));
+    assert_eq!(sources["notes"], json!([null, MARKER]));
+    assert_eq!(sources["coating"], MARKER);
 }

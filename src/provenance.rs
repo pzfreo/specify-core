@@ -1,52 +1,40 @@
 //! Specify's STEP-only authorship contract; see docs/pmi-provenance.md.
 use haecceity::p21::{Attribute, Document, Edit, RawEntity};
-use haecceity::pmi::{AttributeSet, AttributeValue, PartPmi, PartProvenance};
+use haecceity::pmi::{PartPmi, PartProvenance};
+use std::collections::BTreeSet;
 
 pub const MARKER: &str = "specify-core:written:v1";
-pub const PROPERTY: &str = "Specify provenance";
 
-pub fn material_attribute() -> AttributeSet {
-    AttributeSet {
-        name: PROPERTY.into(),
-        on: None,
-        items: vec![("material".into(), AttributeValue::Text(MARKER.into()))],
-        description: None,
-        general_property: None,
-    }
+fn string(a: Option<&Attribute>, expected: &str) -> bool {
+    matches!(a, Some(Attribute::String(s)) if s == expected)
 }
 
-pub fn material(pmi: &PartPmi) -> bool {
-    pmi.attributes.iter().any(|a| {
-        a.name == PROPERTY
-            && a.on.is_none()
-            && a.items
-                .contains(&("material".into(), AttributeValue::Text(MARKER.into())))
-    })
-}
-
-fn is_dimension(entity: &RawEntity) -> bool {
-    let is_dimension_type = |name: &str| {
-        let name = name.to_ascii_lowercase();
-        haecceity::express::is_a(&name, "dimensional_size")
-            || haecceity::express::is_a(&name, "dimensional_location")
-    };
+fn description_target(entity: &RawEntity) -> Option<u64> {
     match entity {
-        RawEntity::Simple { name, .. } => is_dimension_type(name),
-        RawEntity::Complex { parts, .. } => parts.iter().any(|p| is_dimension_type(&p.name)),
+        RawEntity::Simple {
+            name, attributes, ..
+        } if name == "DESCRIPTION_ATTRIBUTE" && string(attributes.first(), MARKER) => {
+            match attributes.get(1) {
+                Some(Attribute::EntityRef(id)) => Some(*id),
+                _ => None,
+            }
+        }
+        _ => None,
     }
+}
+
+/// A description attached to this exact representation/link, never to a shared owner.
+fn described(doc: &Document, id: u64) -> bool {
+    doc.referrers(id)
+        .iter()
+        .any(|r| doc.get(*r).and_then(description_target) == Some(id))
 }
 
 pub fn dimension(doc: &Document, ids: &[u64]) -> bool {
     ids.iter().any(|&id| {
-        matches!(doc.get(id), Some(RawEntity::Simple { name, attributes, .. })
-            if name == "ID_ATTRIBUTE" && string(attributes.first(), MARKER)
-                && matches!(attributes.get(1), Some(Attribute::EntityRef(root))
-                    if ids.contains(root) && doc.get(*root).is_some_and(is_dimension)))
+        matches!(doc.get(id), Some(RawEntity::Simple { name, .. })
+            if name == "SHAPE_DIMENSION_REPRESENTATION" && described(doc, id))
     })
-}
-
-fn string(a: Option<&Attribute>, expected: &str) -> bool {
-    matches!(a, Some(Attribute::String(s)) if s == expected)
 }
 
 /// Only the item's own root records count. A shared feature or referenced datum must not
@@ -67,38 +55,44 @@ pub fn marked(doc: &Document, ids: &[u64], kind: &str) -> bool {
             "datum" => name == "DATUM" && string(attributes.get(1), MARKER),
             "thread" => name == "THREAD" && string(attributes.get(1), MARKER),
             "knurl" => name == "TURNED_KNURL" && string(attributes.first(), MARKER),
-            "general" | "surface texture" | "attribute" => {
-                name == "PROPERTY_DEFINITION"
-                    && (kind == "attribute"
-                        || string(
-                            attributes.first(),
-                            if kind == "general" {
-                                "default tolerances"
-                            } else {
-                                "surface texture"
-                            },
-                        ))
-                    && string(attributes.get(1), MARKER)
+            "general" | "surface texture" | "attribute" | "material" => {
+                name == "PROPERTY_DEFINITION_REPRESENTATION"
+                    && described(doc, id)
+                    && matches!(attributes.first(), Some(Attribute::EntityRef(root))
+                    if ids.contains(root) && matches!(doc.get(*root),
+                        Some(RawEntity::Simple { name, attributes, .. })
+                            if name == "PROPERTY_DEFINITION" && (kind == "attribute" ||
+                                string(attributes.first(), match kind {
+                                    "general" => "default tolerances",
+                                    "material" => "material property",
+                                    _ => "surface texture",
+                                }))))
             }
             _ => false,
         }
     })
 }
 
-/// Annotate only records added by this haecceity edit. Input records, including reused
-/// datums/features and other assembly parts, are never edited. Reserved AP242 vocabulary
-/// (dimension kind, knurl pattern, material property kind) is left intact.
+fn property_helper(doc: &Document, id: u64, attributes: &[Attribute]) -> bool {
+    // A blank property on THREAD / TURNED_KNURL is its parameter container, not a UDA.
+    (string(attributes.first(), "") && matches!(attributes.get(2), Some(Attribute::EntityRef(root))
+        if matches!(doc.get(*root), Some(RawEntity::Simple { name, .. }) if matches!(name.as_str(), "THREAD" | "TURNED_KNURL"))))
+        // Surface texture's related parameter properties are helpers; a caller UDA may
+        // legitimately have the same name, so identify the relationship, not just the name.
+        || doc.referrers(id).iter().any(|&r| matches!(doc.get(r),
+            Some(RawEntity::Simple { name, attributes, .. })
+                if name == "PROPERTY_DEFINITION_RELATIONSHIP"
+                    && string(attributes.first(), "surface texture parameter")
+                    && attributes.get(3) == Some(&Attribute::EntityRef(id))))
+}
+
+/// Annotate only newly emitted semantic roots. In particular, preserve all UDA vocabulary,
+/// material names, surface-condition parameters and thread parameter helper definitions.
 pub fn mark_new(before: &Document, after: &Document) -> Edit {
     let mut edit = Edit::new();
     for (&id, entity) in &after.graph().entities {
         if before.get(id).is_some() {
             continue;
-        }
-        if is_dimension(entity) {
-            edit.add(haecceity::p21::simple(
-                "ID_ATTRIBUTE",
-                vec![Attribute::String(MARKER.into()), Attribute::EntityRef(id)],
-            ));
         }
         let RawEntity::Simple {
             name, attributes, ..
@@ -106,11 +100,22 @@ pub fn mark_new(before: &Document, after: &Document) -> Edit {
         else {
             continue;
         };
+        let property_link = name == "PROPERTY_DEFINITION_REPRESENTATION"
+            && matches!(attributes.first(), Some(Attribute::EntityRef(root))
+                if before.get(*root).is_none() && matches!(after.get(*root),
+                    Some(RawEntity::Simple { name, attributes, .. })
+                        if name == "PROPERTY_DEFINITION"
+                            && !property_helper(after, *root, attributes)));
+        if name == "SHAPE_DIMENSION_REPRESENTATION" || property_link {
+            edit.add(haecceity::p21::simple(
+                "DESCRIPTION_ATTRIBUTE",
+                vec![Attribute::String(MARKER.into()), Attribute::EntityRef(id)],
+            ));
+        }
         let slot = match name.as_str() {
             "THREAD" | "DATUM" => Some(1),
             "SHAPE_ASPECT" | "DATUM_FEATURE" if string(attributes.get(1), "") => Some(1),
             "TURNED_KNURL" => Some(0),
-            "PROPERTY_DEFINITION" if !string(attributes.get(1), "material name") => Some(1),
             _ => None,
         };
         if let Some(slot) = slot {
@@ -119,6 +124,20 @@ pub fn mark_new(before: &Document, after: &Document) -> Edit {
                 attributes[slot] = Attribute::String(MARKER.into());
             }
             edit.replace(id, record);
+        }
+    }
+    edit
+}
+
+/// Alpha.8 does not consume DESCRIPTION_ATTRIBUTE. Remove our annotations of the selected
+/// parts' consumed records before its replace planner runs. Foreign annotations stay intact
+/// and retain the upstream planner's refusal behaviour.
+pub fn before_replace(doc: &Document, parts: &[PartProvenance]) -> Edit {
+    let targets: BTreeSet<_> = parts.iter().flat_map(PartProvenance::all).collect();
+    let mut edit = Edit::new();
+    for (&id, entity) in &doc.graph().entities {
+        if description_target(entity).is_some_and(|target| targets.contains(&target)) {
+            edit.remove(id);
         }
     }
     edit
@@ -141,7 +160,7 @@ pub fn all(p: &PartPmi, prov: &PartProvenance, doc: &Document) -> bool {
         ]
         .iter()
         .all(|(items, kind)| items.iter().all(|ids| marked(doc, ids, kind)))
-        && (p.material.is_none() || material(p))
+        && (p.material.is_none() || marked(doc, &prov.material, "material"))
         && p.holes.is_empty()
         && p.notes.is_empty()
         && p.datum_targets.is_empty()
