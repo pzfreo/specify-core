@@ -1,5 +1,12 @@
 [
  {
+  "case": "*",
+  "path": "existing[key=*].provenance",
+  "pattern": "Specify-written requirements retain STEP-only authorship (issue #22)",
+  "verdict": "rust-correct",
+  "evidence": "Issue #22 (https://github.com/pzfreo/specify-core-rust/issues/22) explicitly requires a stable STEP-only marker on Specify-authored PMI and recognition by existing.rs. Rust adds provenance=specify-core:written:v1 only for marked requirements; Python has no such field. The pinned haecceity alpha.8 reader exposes dimension identification attributes, tolerance and attribute descriptions, and per-item consumed IDs for the remaining standard AP242 root fields. tests/pmi_provenance.rs verifies gramel GRM-02 threads and GRM-03 threads/knurls, every emitted kind, repeat writes, EXPRESS validity, and byte preservation of imported NIST AP242 PMI on a shared face. docs/pmi-provenance.md specifies exact fields and matching rules. Frozen Python oracle captures are retained."
+ },
+ {
   "case": "scenarios/turned_*knurl*",
   "path": "write.warnings[*knurl on *: the intent states no *]",
   "pattern": "a knurl from Python's intent, its turned_knurl parameters filled in from DIN 82",

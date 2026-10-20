@@ -141,3 +141,13 @@ accepting defaults adds `part.notes: []` to settled answers. Rules version 3 ide
 changed outputs. `rule_defaults_oracle.json.gz` pins every complete before/after difference,
 including ordering, before the known-difference verdicts apply. `tests/part_notes.rs` checks
 semantic STEP readback and answer round trips; `docs/part-notes.md` documents the form.
+
+## Specify PMI provenance (#22)
+
+The frozen Python oracle remains unchanged. Rust-written byte fixtures and their cross-engine
+readbacks are regenerated with `cargo run --release --example write_fixtures`, then the
+existing `tools/capture.py cross-engine` tool (see `../cross_engine/README.md`). The new
+`ExistingPmi.provenance` field is an intentional `rust-correct` difference, documented in
+`docs/pmi-provenance.md`. CLI/serve byte payloads embedded in `cli_datum_origins.json.gz` are
+regenerated through the existing `UPDATE_CLI_DATUM_ORIGINS=1 cargo test --release --test cli
+the_command_line_matches_the_oracle` hook, preserving full before/after values.
