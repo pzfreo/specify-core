@@ -22,8 +22,6 @@ use serde_json::{Map, Value, json};
 use specify_core::existing::{self, ExistingPmi};
 use specify_core::part::{self, LoadedPart};
 
-const PYTHON: &str = "/Users/paul/repos/specify-core/.venv/bin/python";
-
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/parts")
@@ -94,10 +92,10 @@ fn a_part_of_an_assembly_has_no_settings() {
 /// a coating, a heat treatment, a finish default and a finish on its top face.
 #[test]
 fn the_parts_notes_and_a_face_finish_are_read_back() {
-    if !Path::new(PYTHON).is_file() {
-        eprintln!("skipped: specify-core's venv is not present");
+    let Some(python) = common::live_python() else {
+        eprintln!("skipped: set SPECIFY_TEST_PYTHON for live Python checks");
         return;
-    }
+    };
     let out = Path::new(env!("CARGO_TARGET_TMPDIR")).join("notes-plate.step");
     const SCRIPT: &str = r#"
 import sys
@@ -118,7 +116,7 @@ answers = {
 write(plate, apply(analysis, answers, accept_defaults=True), out)
 print(top["id"])
 "#;
-    let output = Command::new(PYTHON)
+    let output = Command::new(python)
         .arg("-c")
         .arg(SCRIPT)
         .arg(fixture("plate.step"))

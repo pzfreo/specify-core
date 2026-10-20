@@ -115,7 +115,9 @@ and answers are always used with the analysis they were given against.
   commit; the mates stream is expected to add a polygon-boolean crate for flat contacts
   (upstream need U5).
 - Toolchain 1.99 (`rust-toolchain.toml`), edition 2024. No OpenCascade, no Python at run time.
-  Python is used only by the oracle capture tool, in specify-core's own venv.
+  Python is used by the oracle capture tool and optional live checks. Live tests require
+  an explicit `SPECIFY_TEST_PYTHON` path and never discover another host checkout;
+  additional plain NIST inputs use `SPECIFY_TEST_NIST_AP242`. Frozen captures are unchanged.
 
 ## Module map
 

@@ -195,6 +195,12 @@ specify-core's environment); tests whose input is a quiddity corpus file skip wi
 corpus. `docs/known-differences.md` is regenerated after an area file changes with
 `UPDATE_KNOWN_DIFFERENCES=1 cargo test --release --test known_differences_doc`.
 
+Optional live Python/OpenCascade tests use only an explicitly configured
+`SPECIFY_TEST_PYTHON=/path/to/specify-core/.venv/bin/python`; they never discover a
+checkout on the host. `SPECIFY_TEST_NIST_AP242=/path/to/plain/nist` additionally enables
+live comparisons on the five `nist_ctc_0N_asme1_ap242.stp` inputs. The committed captures
+remain the default regression record; these live checks do not recapture them.
+
 ## Licence
 
 AGPL-3.0-or-later; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
