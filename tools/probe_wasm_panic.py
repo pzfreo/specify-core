@@ -22,7 +22,7 @@ def main():
         needle = "    pub fn review(&self, answers: &Map<String, Value>) -> Result<Value, String> {"
         assert text.count(needle) == 1
         source.write_text(text.replace(needle, needle + '''
-        if answers.contains_key("__panic_probe") {
+        if answers.get("part.material").and_then(Value::as_str) == Some("__panic_probe") {
             panic!("injected IntentEngine review panic (#26)");
         }
 '''))

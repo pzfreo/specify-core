@@ -5,7 +5,7 @@ import init, { IntentEngine } from '../crates/specify-core-wasm/pkg/specify_core
 await init({ module_or_path: readFileSync(new URL('../crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm', import.meta.url)) });
 const engine = new IntentEngine('plate.step', readFileSync(new URL('../tests/fixtures/parts/plate.step', import.meta.url)));
 const before = engine.review('{}');
-const answers = JSON.stringify({ __panic_probe: true });
+const answers = JSON.stringify({ 'part.material': '__panic_probe' });
 let failure;
 try { engine.review(answers); } catch (error) { failure = error; }
 console.log('Hostile answer result:', failure);
