@@ -18,6 +18,7 @@
 //! snapshot that may come from either engine or an older version, and the rules read it as
 //! such.
 
+// JSON index writes below target objects produced by PartSummary serialization or to_presented_dict().
 use std::fmt;
 use std::path::Path;
 

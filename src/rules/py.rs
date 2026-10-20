@@ -158,6 +158,7 @@ pub fn int_of(value: &Value) -> Result<i64, IntError> {
 /// Python's `int(text)` in base 10.
 fn int_of_str(text: &str) -> Option<i64> {
     let text = pyfmt::strip(text);
+    // The slices are taken only after matching an ASCII sign, which occupies one UTF-8 byte.
     let (negative, digits) = match text.chars().next()? {
         '-' => (true, &text[1..]),
         '+' => (false, &text[1..]),

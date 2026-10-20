@@ -38,6 +38,7 @@
 //! the surface, or whose periodic loops cannot be cut is not triangulated, and the caller
 //! reports it (the mesh's `missing`). No patch is guessed.
 
+// Sheet parameter arrays have length 2; axis arguments below are literals 0/1 or come from a bounded pair.
 use std::collections::VecDeque;
 use std::f64::consts::TAU;
 

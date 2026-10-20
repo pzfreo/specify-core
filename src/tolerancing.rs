@@ -10,6 +10,7 @@
 //!
 //! The state is the project's own `{answers, auto, gdt}`; `auto` absent (not empty) marks a
 //! project saved before the default path existed.
+// JSON Value indexing below is read-only and returns Null for absent or ill-typed keys.
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 

@@ -12,6 +12,7 @@
 //! a record the rules need but cannot read is an [`Error::Invalid`] naming it, never a panic.
 //! Messages, prompts and the JSON produced are specify-core's, byte for byte and key for key.
 
+// Literal indices into LOCATING and EDGES are in bounds of their fixed-size constant arrays.
 use std::collections::BTreeSet;
 use std::fmt;
 

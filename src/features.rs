@@ -23,6 +23,7 @@
 //!   fields), patterns after the holes they are made of, hole sets last. Python lists its
 //!   evidence view's order; both are deterministic and nothing depends on the order.
 
+// Face indices below enumerate the loaded part; Session::open sets binding.face_count from that same list.
 use std::collections::BTreeSet;
 use std::fmt;
 
