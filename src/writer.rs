@@ -553,6 +553,7 @@ fn write_verified(
                         .map_err(load_failed)?;
                     file = Some(read);
                 }
+                // file was assigned Some on the immediately preceding branch when it was None.
                 let l = file
                     .as_ref()
                     .expect("read above")
@@ -720,6 +721,7 @@ fn write_by_modes(
             .map_err(|e| WriteError::Failed(format!("haecceity could not apply the edit: {e}")))?;
         written = Some(applied.bytes);
     }
+    // jobs is checked nonempty and every edit group assigns written before reaching this return.
     Ok(written.expect("at least one part is written"))
 }
 
@@ -1545,6 +1547,7 @@ fn thread(
         major_diameter: major.clone(),
         minor_diameter: None,
         pitch_diameter: None,
+        // The literal 1. is a valid Decimal, independent of the STEP input.
         number_of_threads: Ratio(Decimal::parse("1.").expect("a decimal")),
         form: "M".into(),
         fit_class: text(req, "class")?.into(),

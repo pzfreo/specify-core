@@ -40,7 +40,9 @@ fn parts(group: &[&Feature<'_>], ctx: &Ctx<'_>) -> Result<Vec<(String, Vec<i64>)
 /// `_turned_question`: one question for the turned diameters of one size; each keeps its own
 /// fit.
 pub(crate) fn turned_question(group: &[&Feature<'_>], ctx: &Ctx<'_>) -> Result<Question> {
-    let feature = group[0];
+    let feature = group
+        .first()
+        .ok_or_else(|| Error::Invalid("a turned group needs at least one feature".into()))?;
     let d = feature.number("diameter")?;
     let times = if group.len() > 1 {
         format!("{}× ", group.len())
@@ -84,7 +86,7 @@ pub(crate) fn turned_question(group: &[&Feature<'_>], ctx: &Ctx<'_>) -> Result<Q
               metric size may be threaded; a grip may be knurled. The rest are covered by the \
               general tolerance."
             .to_string(),
-        title: Some(format!("Turned {times}Ø{}", fmt(d))),
+        title: Some(format!("Turned {times}Ø{}", fmt(d)?)),
         feature: Some(feature.id.to_string()),
         parts: parts(group, ctx)?,
         choices: described,
@@ -96,7 +98,7 @@ pub(crate) fn turned_question(group: &[&Feature<'_>], ctx: &Ctx<'_>) -> Result<Q
             "choice",
             format!(
                 "Is the turned {times}Ø{} diameter a fit, a thread or knurled?",
-                fmt(d)
+                fmt(d)?
             ),
             on,
         )
@@ -116,11 +118,13 @@ pub(crate) fn runout_frame(
         let Some(at) = datums.iter().position(|(_, d)| d.kind == DatumKind::Axis) else {
             return Ok(None);
         };
+        // letters is mapped from datums; at is the position in that same ordered list.
         let frame = letters[..=at]
             .iter()
             .map(char::to_string)
             .collect::<Vec<_>>()
             .join("|");
+        // at is found by enumerating datums; datums is immutable.
         return Ok(Some((frame, datums.0[at].1.faces.clone())));
     }
     let (a, b, _) = ctx.default_datums_with(answers)?;
@@ -143,7 +147,9 @@ pub(crate) fn runout_question(
     ctx: &Ctx<'_>,
     frame: &str,
 ) -> Result<Question> {
-    let feature = group[0];
+    let feature = group
+        .first()
+        .ok_or_else(|| Error::Invalid("a turned group needs at least one feature".into()))?;
     let d = feature.number("diameter")?;
     let times = if group.len() > 1 {
         format!("{}× ", group.len())
@@ -162,7 +168,7 @@ pub(crate) fn runout_question(
         why: "How far the diameter may wobble as the part turns on its axis: for bearing seats, \
               seals and anything that spins."
             .to_string(),
-        title: Some(format!("Turned {times}Ø{}", fmt(d))),
+        title: Some(format!("Turned {times}Ø{}", fmt(d)?)),
         feature: Some(feature.id.to_string()),
         characteristic: Some(Characteristic::Runout),
         frame: Some(frame.to_string()),
@@ -172,7 +178,7 @@ pub(crate) fn runout_question(
             "choice",
             format!(
                 "Runout of the turned {times}Ø{} relative to {frame}?",
-                fmt(d)
+                fmt(d)?
             ),
             on,
         )

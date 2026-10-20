@@ -127,8 +127,10 @@ pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Va
         let Some(kind) = classify(&ids, faces)? else {
             continue;
         };
+        // classify() above refused empty face lists before returning a datum kind.
         let mine = faces.at(ids[0])?;
         for (earlier, theirs_kind) in &seen {
+            // seen contains only datums that passed the same nonempty classify() check.
             let theirs = faces.at(face_ids(earlier.get("faces"))[0])?;
             let same = match (kind, theirs_kind) {
                 (DatumKind::Plane, DatumKind::Plane) => {
@@ -174,6 +176,7 @@ pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Va
         let Some(j) = (0..i).find(|&j| !size_faces[j].is_disjoint(&size_faces[i])) else {
             continue;
         };
+        // j ranges over sizes of this same list.
         let earlier = sizes[j];
         let twice = format!("{} and {}", size_text(earlier)?, size_text(later)?);
         let nominal = later
@@ -278,6 +281,7 @@ fn face_ids(value: Option<&Value>) -> Vec<i64> {
 /// `_what`: what a hole question asks about (`6× Ø6.6 holes`), from its prompt.
 fn what(prompt: &str) -> String {
     static WHAT: LazyLock<Regex> =
+        // Pattern and interpolated character classes are source constants, never user text.
         LazyLock::new(|| Regex::new(r"^What (?:are|is) the (.+) for\?$").expect("pattern"));
     WHAT.captures(prompt)
         .map_or_else(|| "hole".to_string(), |caps| caps[1].to_string())
@@ -374,6 +378,7 @@ fn awaiting_datum_frames(
             Value::from(faces.into_iter().collect::<Vec<_>>()),
             id,
         );
+        // problem() constructs an object; Value writes add string keys without bounds checks.
         p["code"] = Value::from("awaits_datum_frame");
         p["datum_frame"] = Value::from(frame);
         p["awaiting"] = Value::from(awaiting);

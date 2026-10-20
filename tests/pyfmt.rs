@@ -63,7 +63,7 @@ fn numbers_are_formatted_as_python_formats_them() {
         check("fixed3", pyfmt::fixed(x, 3), text(&case["fixed3"]));
         check("fmt3", pyfmt::fmt3(x), text(&case["fmt3"]));
         if let Some(want) = case["fmt_rules"].as_str() {
-            check("fmt_rules", pyfmt::fmt_rules(x), want);
+            check("fmt_rules", pyfmt::fmt_rules(x).unwrap(), want);
         }
         for (n, want) in digits.iter().zip(case["round"].as_array().unwrap()) {
             let want = if want.is_null() { x } else { float(want) };
@@ -221,13 +221,17 @@ fn rounding_past_the_largest_float_panics_as_python_raises() {
 }
 
 #[test]
-#[should_panic(expected = "cannot convert float infinity to integer")]
-fn rules_fmt_of_infinity_panics_as_python_raises() {
-    pyfmt::fmt_rules(f64::INFINITY);
+fn rules_fmt_of_infinity_refuses_with_python_message() {
+    assert_eq!(
+        pyfmt::fmt_rules(f64::INFINITY).unwrap_err().to_string(),
+        "rules._fmt: cannot convert float infinity to integer"
+    );
 }
 
 #[test]
-#[should_panic(expected = "cannot convert float NaN to integer")]
-fn rules_fmt_of_nan_panics_as_python_raises() {
-    pyfmt::fmt_rules(f64::NAN);
+fn rules_fmt_of_nan_refuses_with_python_message() {
+    assert_eq!(
+        pyfmt::fmt_rules(f64::NAN).unwrap_err().to_string(),
+        "rules._fmt: cannot convert float NaN to integer"
+    );
 }

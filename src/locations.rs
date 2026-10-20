@@ -10,6 +10,7 @@
 //! Python's `mark_basic` is not ported: it edits the written file because OpenCascade cannot
 //! mark a dimension basic, and haecceity writes a basic dimension as such.
 
+// Coordinate indexing uses [f64; 3] (or a bounded 0..3 loop), never variable-length JSON arrays.
 use serde_json::{Map, Value};
 
 use crate::pyfmt;
@@ -71,6 +72,7 @@ pub fn dimensions(
     for (fid, hole, bores) in members {
         let axis = hole.vector("axis")?;
         for plane in references(planes, &axis, faces)? {
+            // references() explicitly skips empty planes before returning them.
             let face = faces.at(plane[0])?;
             let d = distance(
                 &hole.vector("location")?,

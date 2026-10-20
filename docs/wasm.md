@@ -98,6 +98,49 @@ preserved exactly: nonempty ASCII alphanumerics or `+`, `/`, `=` only (no decodi
 validation). Omit the argument for no project attribute. Rewriting a resumed part replaces
 previous extras, so resupply the project on every write that should retain it.
 
+## Errors
+
+Refusals throw **strings**, preserving the editor's existing error transport: malformed JSON
+starts with `Invalid answers:`, `Invalid analysis:` or `Invalid state:`; rule and STEP errors
+name what could not be read or specified. Unknown answer/feature/face IDs, wrong answer types,
+contradictory choices and invalid `auto` entries refuse explicitly. Partial answers remain
+valid: unanswered questions stay open. Dormant answers for existing features may remain in a
+project when a mode hides their questions. The editor-only state transforms have no analysis,
+so they check ID syntax and value shapes; session calls also resolve IDs against the part.
+
+Limits are **64 MiB STEP**, **8 MiB per JSON or project argument**, and **64 KiB per input name,
+question ID, interpretation text or mode**, measured as UTF-8 bytes. Oversized arguments return
+`<field> exceeds the <limit> byte limit` before Rust parses or clones them. wasm-bindgen still
+has to transfer the argument into WASM memory before that check. These limits bound individual
+inputs, not total browser memory or kernel computation.
+
+Every session method borrows `&self`; analysis and loaded geometry are immutable. Review,
+default acceptance, settling and editor edits compute new values, and PMI writing edits a
+separate in-memory document and verifies it before returning bytes. A refusal cannot leave a
+session half-mutated. Reuse the same engine after a string refusal; dispose it with `free()`.
+No JavaScript/TypeScript signatures changed.
+
+The pinned Rust `wasm32-unknown-unknown` target reports `panic="abort"`; `wasm-release`
+inherits release and does not override that strategy. `std::panic::catch_unwind` therefore
+cannot catch a panic. The target's prebuilt standard library and current build do not provide
+an unwinding boundary; adding `catch_unwind` would give false protection. The panic hook only
+logs. Unexpected kernel panics remain the separate quiddity-rust#52 scope; allocation failure
+and arbitrary traps are not converted to refusals here.
+
+`tools/probe_wasm_panic.py` makes a disposable source copy, injects a panic into
+`Session::review`, builds with the same profile and optimizer, and runs
+`scripts/wasm-panic.mjs` in a separate Node process. It introduces no production export or
+panic feature. On Rust 1.99 / Node 26.9.0, the panic throws `WebAssembly.RuntimeError:
+unreachable`. A subsequent shared review succeeds, but `free()` fails with `attempted to take
+ownership of Rust value while it was borrowed`: wasm-bindgen's borrow bookkeeping never
+unwound. An unexpected trap requires discarding the module, not treating it as a string refusal.
+
+`scripts/wasm-hostile.mjs` exercises malformed STEP/JSON, contradictory answers, unknown IDs,
+wrong types, non-finite feature records, invalid editor state and oversized inputs against the
+release web package. After every refusal it checks an identical valid review and snapshot on
+the same engine, then exercises default acceptance, verified writing and disposal. Both the
+CI `wasm` job and release workflow run it beside parity and the existing safeguards.
+
 ## Build and verify
 
 Rust comes from `rust-toolchain.toml`. The checks use Python 3.11+ and Node (CI uses Node 24).
@@ -113,6 +156,7 @@ python3 tools/check_quiddity_pin.py
 python3 -m unittest discover -s tools -p 'test_*.py'
 cargo build --locked --release -p specify-core-wasm --example parity_reference
 node scripts/wasm-parity.mjs
+node scripts/wasm-hostile.mjs
 ```
 
 The root `[profile.wasm-release]` inherits release with `lto = true`, `codegen-units = 1`

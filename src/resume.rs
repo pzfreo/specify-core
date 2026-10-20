@@ -97,6 +97,7 @@ pub fn fingerprint_of(faces: &Value, schema: i64) -> String {
             .into_iter()
             .flatten()
             .map(|f| {
+                // f is a serde_json::Value: missing or ill-typed reads return Null rather than panicking.
                 let centroid: Vec<Value> = f[1]
                     .as_array()
                     .into_iter()

@@ -194,8 +194,8 @@ pub fn round(x: f64, digits: i32) -> f64 {
 }
 
 /// `rules._fmt`: a number in a prompt, basis or reason (`6.6`, `8`, `0.25`).
-pub fn fmt(x: f64) -> String {
-    pyfmt::fmt_rules(x)
+pub fn fmt(x: f64) -> super::Result<String> {
+    pyfmt::fmt_rules(x).map_err(|error| super::Error::Invalid(error.to_string()))
 }
 
 /// `rules._sentence`: the words with a capital and a full stop.

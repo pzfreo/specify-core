@@ -16,6 +16,7 @@
 //! of OpenCascade's `BRepClass3d_SolidClassifier`. It can also answer `Unknown` (every probe ray
 //! was ambiguous); such a point is not shown to be free, so it blocks the leader like `In`.
 
+// Coordinate indexing uses [f64; 3] (or a bounded 0..3 loop), never variable-length JSON arrays.
 use haecceity::Part;
 use haecceity::classify::{Classifier, State};
 use haecceity::geom::V3;
@@ -90,6 +91,7 @@ impl<'a> SightTester<'a> {
                 candidates.push(unit);
             }
         }
+        // PRINCIPAL always supplies six nonzero unit vectors, so candidates is nonempty.
         let mut best = candidates[0];
         let mut best_run = -1.0;
         for &candidate in &candidates {

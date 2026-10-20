@@ -296,6 +296,7 @@ pub fn interpret<S: AsRef<str>>(
         static GRADE: LazyLock<Regex> =
             LazyLock::new(|| pattern(r"^(?:iso{S}*)?(?:2768{S}*-?{S}*)?([fmcv])$"));
         if let Some(grade) = GRADE.captures(&typed.to_lowercase()) {
+            // GRADE has a mandatory capture group 1.
             let named = format!("ISO 2768-{}", &grade[1]);
             if options.iter().any(|o| o.as_ref() == named) {
                 return Ok(named);
@@ -357,7 +358,8 @@ pub fn zone(typed: &str) -> Result<String, SpecError> {
 /// `hole` keyword is not used there, so it is not taken here.
 pub fn fit(letter: &str, grade: &str, d: f64) -> Result<String, SpecError> {
     // int(grade): the grade is the one or two decimal digits a pattern matched.
-    let grade = pyfmt::parse_digits(grade).expect("a grade of decimal digits");
+    let grade = pyfmt::parse_digits(grade)
+        .ok_or_else(|| SpecError(format!("invalid fit grade {}", repr_str(grade))))?;
     let fit = format!("{letter}{grade}");
     match standards::fit_limits(&fit, d) {
         Ok(_) => Ok(fit),
@@ -381,6 +383,7 @@ fn pattern(text: &str) -> Regex {
         .replace("{S}", SPACE)
         .replace("{D}", DIGIT)
         .replace("{W}", WORD);
+    // Only source literals and the constant S/D/W character classes reach this compiler.
     Regex::new(&text).expect("valid pattern")
 }
 
@@ -414,6 +417,7 @@ fn hole(typed: &str, d: f64, depth: Option<f64>) -> Result<String, SpecError> {
     if let Some(found) = FIT.captures(&low) {
         return Ok(format!(
             "fit:{}",
+            // FIT has two mandatory captures in this successful match.
             fit(&found[1].to_uppercase(), &found[2], d)?
         ));
     }
@@ -425,6 +429,7 @@ fn hole(typed: &str, d: f64, depth: Option<f64>) -> Result<String, SpecError> {
         }
         return refuse("Type a fit (H7), a thread (M5) or a bolt (clearance M6).");
     };
+    // SIZE always captures a nominal; pitch group 2 is accessed with get().
     let bolt = bolt(&size[1], size.get(2).map(|m| m.as_str()))?;
     let any_word = |prefixes: [&str; 3]| {
         words
@@ -436,9 +441,11 @@ fn hole(typed: &str, d: f64, depth: Option<f64>) -> Result<String, SpecError> {
     if clearance && tapped {
         return refuse("A hole is either tapped or a clearance hole, not both.");
     }
+    // bolt() returns a PITCH key; TAP_DRILL has the same constant keys.
     let drill = standards::lookup(&TAP_DRILL, bolt).expect("a tabulated bolt");
     let fits_tap = (drill - d).abs() <= 0.1;
     let nominal = standards::bolt_diameter(bolt);
+    // bolt() returns a PITCH key; CLEARANCE_COARSE has the same constant keys.
     let coarse = standards::lookup(&standards::CLEARANCE_COARSE, bolt).expect("a tabulated bolt");
     let fits_bolt = 0.0 < d - nominal && d - nominal <= 2.0 * (coarse - nominal);
     if tapped || (!clearance && fits_tap) {
@@ -465,6 +472,7 @@ fn hole(typed: &str, d: f64, depth: Option<f64>) -> Result<String, SpecError> {
         if d <= nominal {
             return refuse(format!("An {bolt} bolt will not pass a ⌀{} hole.", fmt3(d)));
         }
+        // bolt() returns a PITCH key; CLEARANCE_FINE has the same constant keys.
         let fine = standards::lookup(&standards::CLEARANCE_FINE, bolt).expect("a tabulated bolt");
         return refuse(format!(
             "⌀{} is too loose to be a clearance hole for {bolt} (ISO 273: ⌀{}–{}).",
@@ -515,6 +523,7 @@ fn lengths(rest: &str) -> Result<Vec<f64>, SpecError> {
         if UNITS.contains(&unit) {
             return refuse(format!(
                 "Lengths are in mm; {} {unit} is not read.",
+                // NUMBER has a mandatory numeric capture group 1.
                 &number[1]
             ));
         }
@@ -522,7 +531,8 @@ fn lengths(rest: &str) -> Result<Vec<f64>, SpecError> {
         if !tail.is_empty() && !says_depth(tail) {
             return refuse(format!("{token} is not read."));
         }
-        out.push(pyfmt::parse_float(&number[1]).expect("a number the pattern matched"));
+        // NUMBER has a mandatory numeric capture group 1.
+        out.push(finite_number(&number[1])?);
     }
     Ok(out)
 }
@@ -584,6 +594,7 @@ fn thread_depth(
     if full <= 0.0 {
         return refuse("A thread depth is more than 0 mm.");
     }
+    // thread_depth is called only with a tabulated bolt returned by bolt().
     let pitch = standards::lookup(&PITCH, bolt).expect("a tabulated bolt");
     let most = depth - 3.0 * pitch;
     if full > most + 1e-9 {
@@ -612,6 +623,7 @@ fn turned(typed: &str, d: f64) -> Result<String, SpecError> {
     if let Some(found) = FIT.captures(&low)
         && !THREAD.is_match(typed)
     {
+        // FIT has two mandatory captures in this successful match.
         return fit(&found[1], &found[2], d);
     }
     if low.contains("knurl") || low == "diamond" || low == "straight" {
@@ -630,9 +642,11 @@ fn turned(typed: &str, d: f64) -> Result<String, SpecError> {
     // A size or pitch of ISO 261 beyond Python's coarse table is a thread too (stream S3):
     // `M10x1.25` reads as that fine thread, `M30` as the coarse M30×3.5. Only a thread of this
     // diameter's size departs from Python; any other is refused with Python's message.
+    // SIZE always captures a nominal; pitch group 2 is accessed with get().
     if let Some(spec) = iso_261(&size[1], pitch, d)? {
         return Ok(format!("thread:{spec}"));
     }
+    // SIZE always captures a nominal; pitch group 2 is accessed with get().
     let bolt = bolt(&size[1], pitch)?;
     let nominal = standards::bolt_diameter(bolt);
     if (nominal - d).abs() > 0.2 {
@@ -650,7 +664,7 @@ fn turned(typed: &str, d: f64) -> Result<String, SpecError> {
 /// not of diameter `d`, left to [`bolt`]'s refusal; a size of diameter `d` with a pitch ISO 261
 /// does not give it, or with no pitch where it has no coarse one, is refused here.
 fn iso_261(nominal: &str, pitch: Option<&str>, d: f64) -> Result<Option<String>, SpecError> {
-    let number = pyfmt::parse_float(nominal).expect("digits the pattern matched");
+    let number = finite_number(nominal)?;
     let size = format!("M{}", fmt3(number));
     let Some(&(size, coarse, fine)) = standards::ISO_261.iter().find(|(s, _, _)| *s == size) else {
         return Ok(None);
@@ -666,12 +680,13 @@ fn iso_261(nominal: &str, pitch: Option<&str>, d: f64) -> Result<Option<String>,
             .collect::<Vec<_>>()
             .join(", ")
     };
-    match pitch.map(|p| pyfmt::parse_float(p).expect("digits the pattern matched")) {
+    match pitch.map(finite_number).transpose()? {
         None => match coarse {
             Some(_) => Ok(Some(size.to_string())),
             None => refuse(format!(
                 "{size} has no coarse pitch: type its pitch ({} mm), e.g. {size}×{}.",
                 pitches(),
+                // Every ISO_261 row without a coarse pitch has at least one constant fine pitch.
                 g(fine[0])
             )),
         },
@@ -685,9 +700,16 @@ fn iso_261(nominal: &str, pitch: Option<&str>, d: f64) -> Result<Option<String>,
     }
 }
 
+/// Regex matches are not a guarantee of finite or representable numeric input.
+fn finite_number(text: &str) -> Result<f64, SpecError> {
+    pyfmt::parse_float(text)
+        .filter(|x| x.is_finite())
+        .ok_or_else(|| SpecError(format!("{} is not a finite number", repr_str(text))))
+}
+
 /// The tabulated thread size a typed nominal (and pitch, if typed) names.
 fn bolt(nominal: &str, pitch: Option<&str>) -> Result<&'static str, SpecError> {
-    let number = pyfmt::parse_float(nominal).expect("digits the pattern matched");
+    let number = finite_number(nominal)?;
     let size = format!("M{}", fmt3(number));
     let Some(&(size, coarse)) = PITCH.iter().find(|(s, _)| *s == size) else {
         let known = standards::sizes(&PITCH).collect::<Vec<_>>().join(", ");
@@ -696,7 +718,7 @@ fn bolt(nominal: &str, pitch: Option<&str>) -> Result<&'static str, SpecError> {
         ));
     };
     if let Some(pitch) = pitch {
-        let pitch = pyfmt::parse_float(pitch).expect("digits the pattern matched");
+        let pitch = finite_number(pitch)?;
         if (pitch - coarse).abs() > 1e-9 {
             return refuse(format!(
                 "Only coarse pitch is tabulated: {size}×{}.",
@@ -731,6 +753,7 @@ fn capitalize(text: &str) -> String {
         Some(first) => {
             let lower = text.to_lowercase();
             let cut = first.to_lowercase().map(char::len_utf8).sum::<usize>();
+            // The first scalar lowercases identically at the start of the full string, so cut is a UTF-8 boundary.
             titlecase(first) + &lower[cut..]
         }
         None => String::new(),
@@ -742,6 +765,7 @@ fn capitalize(text: &str) -> String {
 /// here, which are every character whose title case is not its upper case.
 fn titlecase(c: char) -> String {
     let code = c as u32;
+    // Every branch supplies a Unicode scalar literal or ORs 0x8 into U+1F80..U+1FAF.
     let one = |code: u32| char::from_u32(code).expect("a character").to_string();
     match code {
         0x01c4..=0x01c6 => one(0x01c5),

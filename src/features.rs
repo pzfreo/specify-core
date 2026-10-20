@@ -136,6 +136,7 @@ pub fn describe_faces(loaded: &LoadedPart) -> Result<Vec<Face>, FeatureError> {
                 part: loaded.binding.part,
                 face: index,
             })?;
+            // index comes from enumerating this part's faces; the collection is not mutated.
             let face = &part.faces[index];
             let mut out = Face {
                 id: index,
@@ -280,6 +281,7 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
             .find(|(b, _)| *b == base)
             .map(|(_, v)| v.as_slice())
             .unwrap_or_default();
+        // DERIVED contains only hole_patterns, the family constructed in kinds immediately above.
         let family_kinds = &kinds.iter().find(|(f, _)| *f == family).expect("listed").1;
         let mut taken = vec![false; pool.len()];
         for (n, record) in list.iter().enumerate() {
@@ -291,8 +293,10 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
             for (i, member) in listed.into_iter().flatten().enumerate() {
                 // The first record of the base family equal to the member, not yet taken
                 // (quiddity-rust's `fingerprint::derived_faces`).
+                // taken is allocated with pool.len(); k ranges over that same length.
                 let found = (0..pool.len()).find(|&k| !taken[k] && pool[k] == *member);
                 match found.and_then(|k| {
+                    // k was found in 0..pool.len(); taken has the same length.
                     taken[k] = true;
                     pool_ids.get(k).cloned().flatten()
                 }) {
@@ -400,6 +404,7 @@ fn hole_sets(features: &[Feature]) -> Vec<Feature> {
             record.insert("kind".into(), Value::String("set".into()));
             record.insert(
                 "diameter".into(),
+                // This branch has already required at least two members.
                 members[0]
                     .record
                     .get("diameter")

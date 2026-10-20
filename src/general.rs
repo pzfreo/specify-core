@@ -12,6 +12,7 @@
 //! from those same references. Diameters are each hole's and turned step's own, unless a fit,
 //! thread or knurl already sizes them.
 
+// Coordinate indexing uses [f64; 3] (or a bounded 0..3 loop), never variable-length JSON arrays.
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use serde_json::{Map, Value};
@@ -94,10 +95,12 @@ pub fn deviation(general: &str, nominal: f64) -> Option<f64> {
         return None;
     };
     let (_, row) = ISO_2768.iter().find(|(c, _)| *c == letter)?;
+    // BOUNDS is a nonempty constant table.
     if !(0.5 <= nominal && nominal <= BOUNDS[BOUNDS.len() - 1]) {
         return None;
     }
     // bisect_left: the first range whose bound is at least the nominal size.
+    // nominal is bounded by the last BOUNDS entry; every constant row has BOUNDS.len() entries.
     row[BOUNDS.partition_point(|&b| b < nominal)]
 }
 
@@ -277,6 +280,7 @@ pub fn dimensions(
             }
             _ => continue,
         };
+        // The match constructs one hole or accepts only a nonempty member list.
         let d = holes[0].number("diameter")?;
         let mut on = Vec::new();
         for h in &holes {
@@ -302,9 +306,11 @@ pub fn dimensions(
         let levels = levels(&line)?;
         let reference = match reference(&levels, datums) {
             Some(r) => r,
+            // lines() creates nonempty groups, and levels() emits a nonempty face group for each.
             None => levels[0].1.clone(),
         };
         references.push(reference.clone());
+        // reference and line come from nonempty groups constructed by levels()/lines().
         let base = dot(&faces.at(reference[0])?.centroid()?, &line[0].direction()?);
         for (offset, ids) in &levels {
             if *ids == reference || (offset - base).abs() < LEVEL {
@@ -357,6 +363,7 @@ fn lines<'f>(planes: &[&'f Face]) -> Result<Vec<Vec<&'f Face>>> {
         let n = plane.direction()?;
         let mut placed = false;
         for line in out.iter_mut() {
+            // lines are created with one plane and are only appended to.
             if (dot(&line[0].direction()?, &n).abs() - 1.0).abs() < 1e-6 {
                 line.push(plane);
                 placed = true;
@@ -372,6 +379,7 @@ fn lines<'f>(planes: &[&'f Face]) -> Result<Vec<Vec<&'f Face>>> {
 
 /// `_levels`: the planes on one line as (offset, faces) per level, lowest first.
 fn levels(line: &[&Face]) -> Result<Vec<(f64, Vec<i64>)>> {
+    // levels() is private and receives only nonempty groups from lines().
     let n = line[0].direction()?;
     let mut planes: Vec<(&Face, f64)> = line
         .iter()

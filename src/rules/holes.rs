@@ -152,9 +152,9 @@ pub(crate) fn hole_questions(
     let bores = bores(&target.faces, diameter, &ctx.faces)?;
     let count = target.members.len().max(1);
     let mut label = if count > 1 {
-        format!("{count}× Ø{} holes", fmt(diameter))
+        format!("{count}× Ø{} holes", fmt(diameter)?)
     } else {
-        format!("Ø{} hole", fmt(diameter))
+        format!("Ø{} hole", fmt(diameter)?)
     };
     if target.groups > 0 {
         label += &format!(" in {} identical groups", target.groups);
@@ -174,11 +174,12 @@ pub(crate) fn hole_questions(
     }
     options.extend(HOLE_FITS.iter().map(|fit| format!("fit:{fit}")));
     let chosen = if !bolts.is_empty() || tapped.is_some() {
+        // A bolt or tap was appended to the initial general option in this branch.
         options[1].clone()
     } else {
         GENERAL.to_string()
     };
-    let mut basis = function_basis(&chosen, diameter, tapped);
+    let mut basis = function_basis(&chosen, diameter, tapped)?;
     let mut default = Value::from(chosen);
     let mut mate = String::new();
     if let Some(mated) = suggestion(ctx.mates, &bores)? {
@@ -201,6 +202,7 @@ pub(crate) fn hole_questions(
     let mut described =
         choices::describe(&qid, &options, Some(diameter)).map_err(Error::Invalid)?;
     for choice in &mut described {
+        // describe() constructs each choice as an object with a string value from options.
         let value = choice["value"]
             .as_str()
             .expect("a described choice has a value");
@@ -218,13 +220,13 @@ pub(crate) fn hole_questions(
             " For a blind tapped hole, set the minimum full-thread depth by typing e.g. \
              \"{size} tapped, {} mm full thread\". The default is drill depth minus 3 pitches, \
              rounded down to 0.5 mm (at least one pitch).",
-            fmt(full)
+            fmt(full)?
         );
         if default
             .as_str()
             .is_some_and(|v| choices::split(v).0 == "tapped")
         {
-            basis += &format!(" Default minimum full thread: {} mm.", fmt(full));
+            basis += &format!(" Default minimum full thread: {} mm.", fmt(full)?);
         }
     }
     let mut out = vec![Question {
@@ -256,10 +258,12 @@ pub(crate) fn hole_questions(
         let Value::String(function) = function else {
             return Err(refusal(&qid, function, &options, Some(diameter), depth));
         };
+        // The enclosing condition requires !frames.is_empty().
         let mut frame = frames[0].clone();
         if frames.len() > 1 {
             let fid = format!("hole.frame:{}", target.id);
             out.push(Question {
+                // The enclosing condition requires !frames.is_empty().
                 default: Some(Value::from(frames[0].clone())),
                 options: frames.to_vec(),
                 why: "The frame the position is measured from; the datums the mating part \
@@ -278,6 +282,7 @@ pub(crate) fn hole_questions(
             let given = answers
                 .get(&fid)
                 .cloned()
+                // The enclosing condition requires !frames.is_empty().
                 .unwrap_or_else(|| Value::from(frames[0].clone()));
             match &given {
                 Value::String(f) if frames.contains(f) => frame = f.clone(),
@@ -299,7 +304,7 @@ pub(crate) fn hole_questions(
                 depth,
             ));
         };
-        let t = fmt(tol);
+        let t = fmt(tol)?;
         let mut zones: Vec<String> = Vec::new();
         for z in [t.as_str(), "0.05", "0.1", "0.2", "0.5"] {
             if !zones.iter().any(|x| x == z) {
@@ -391,18 +396,20 @@ fn refusal(
 }
 
 /// `_function_basis`: why a hole's purpose defaults to what it does.
-fn function_basis(default: &str, diameter: f64, tapped: Option<&str>) -> String {
-    let d = fmt(diameter);
+fn function_basis(default: &str, diameter: f64, tapped: Option<&str>) -> Result<String> {
+    let d = fmt(diameter)?;
     if let Some(bolt) = default.strip_prefix("clearance:") {
         let also = tapped
             .map(|t| format!("; it is also the {t} tap drill"))
             .unwrap_or_default();
-        return format!("⌀{d} is an ISO 273 clearance hole for {bolt}{also}.");
+        return Ok(format!(
+            "⌀{d} is an ISO 273 clearance hole for {bolt}{also}."
+        ));
     }
     if let Some(size) = default.strip_prefix("tapped:") {
-        return format!("⌀{d} is the tap-drill size for {size}.");
+        return Ok(format!("⌀{d} is the tap-drill size for {size}."));
     }
-    String::new() // left to the general tolerance: nothing was chosen
+    Ok(String::new()) // left to the general tolerance: nothing was chosen
 }
 
 /// `standards.bolt_diameter`, refusing as Python's `float()` does a size that is not `M` and a
@@ -420,7 +427,7 @@ fn bolt_diameter(size: &str) -> Result<f64> {
 /// `_position_basis`: how a hole's default position tolerance was worked out.
 fn position_basis(function: &str, diameter: f64, tol: f64) -> Result<String> {
     let (kind, size, _) = choices::split(function);
-    let t = fmt(tol);
+    let t = fmt(tol)?;
     if kind == "fit" {
         return Ok(format!("⌀{t}: a fitted hole is located closely."));
     }
@@ -430,7 +437,7 @@ fn position_basis(function: &str, diameter: f64, tol: f64) -> Result<String> {
         return Ok(format!(
             "⌀{t} = (H − F)/2 for a fixed {size} screw: the mating part's ⌀{} clearance hole \
              less the screw, halved.",
-            fmt(h)
+            fmt(h)?
         ));
     }
     let bolt = if size.is_empty() {
@@ -441,7 +448,7 @@ fn position_basis(function: &str, diameter: f64, tol: f64) -> Result<String> {
     Ok(match bolt {
         Some(bolt) => format!(
             "⌀{t} = H − F for a floating {bolt} bolt: this ⌀{} hole less the bolt.",
-            fmt(diameter)
+            fmt(diameter)?
         ),
         None => format!("⌀{t}: no bolt is known, so a common value."),
     })
@@ -499,6 +506,7 @@ pub(crate) fn hole_requirements(
     let limits = |fit: &str| standards::fit_limits(fit, d).map_err(Error::Invalid);
     if kind == "fit" {
         let (upper, lower) = limits(spec)?;
+        // req is a Map initialized with the kind key immediately above.
         req["kind"] = Value::from("size");
         req.insert("nominal".into(), Value::from(d));
         req.insert("fit".into(), Value::from(spec));
@@ -523,6 +531,7 @@ pub(crate) fn hole_requirements(
                 }
             },
         };
+        // req is a Map initialized with the kind key immediately above.
         req["kind"] = Value::from("thread");
         for (key, v) in [
             ("side", Value::from("internal")),
@@ -549,6 +558,7 @@ pub(crate) fn hole_requirements(
     }
     // Clearance: the hole as drawn is the nominal; H11 bounds it.
     let (upper, lower) = limits("H11")?;
+    // req is a Map initialized with the kind key immediately above.
     req["kind"] = Value::from("size");
     req.insert("nominal".into(), Value::from(d));
     req.insert("fit".into(), Value::from("H11"));

@@ -141,6 +141,7 @@ pub fn edges(loaded: &LoadedPart, deflection: f64) -> Vec<Vec<f64>> {
         let length: f64 = edge
             .samples
             .windows(2)
+            // windows(2) yields exactly two samples.
             .map(|w| geom::dist(w[0], w[1]))
             .sum();
         if edge.samples.len() < 2 || length <= 1e-9 * deflection {
@@ -149,6 +150,7 @@ pub fn edges(loaded: &LoadedPart, deflection: f64) -> Vec<Vec<f64>> {
         let kept = triangulate::thin(&edge.samples, &[], None, deflection, None);
         out.push(
             kept.into_iter()
+                // thin() returns indices from 0..edge.samples.len().
                 .flat_map(|k| point(edge.samples[k]))
                 .collect(),
         );
@@ -160,7 +162,9 @@ pub fn edges(loaded: &LoadedPart, deflection: f64) -> Vec<Vec<f64>> {
 /// `BRep_Tool::IsClosed(edge, face)`).
 fn is_seam(loaded: &LoadedPart, e: usize) -> bool {
     let part = &loaded.part;
+    // e enumerates part.edges; the kernel builds one adjacency entry per edge.
     part.edge_faces()[e].iter().any(|&f| {
+        // The kernel constructs edge_faces from validated topology face indices.
         part.faces[f]
             .loops
             .iter()

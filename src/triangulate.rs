@@ -112,6 +112,7 @@ impl<'a> Sheet<'a> {
 
     /// (u, v) wrapped into a closed freeform surface's range.
     fn wrapped(&self, u: f64, v: f64) -> (f64, f64) {
+        // axis is passed only as 0 or 1 below; wrap and period are fixed arrays of length 2.
         let fold = |x: f64, axis: usize| match (self.wrap[axis], self.period[axis]) {
             (Some(start), Some(period)) => start + (x - start).rem_euclid(period),
             _ => x,
@@ -131,6 +132,7 @@ impl<'a> Sheet<'a> {
 
     /// `x` moved by whole periods of direction `axis` to lie nearest `reference`.
     fn nearest(&self, x: f64, reference: f64, axis: usize) -> f64 {
+        // nearest() callers pass only the literal axes 0 and 1.
         match self.period[axis] {
             Some(period) => x + period * ((reference - x) / period).round(),
             None => x,
@@ -159,6 +161,7 @@ pub struct FaceMesh {
 impl FaceMesh {
     /// The triangle's area in space.
     pub fn triangle_area(&self, t: usize) -> f64 {
+        // WASM callers enumerate triangles; finish() creates all vertex indices from the same points list.
         let [a, b, c] = self.triangles[t].map(|i| self.points[i]);
         0.5 * geom::norm(geom::cross(geom::sub(b, a), geom::sub(c, a)))
     }
@@ -180,7 +183,10 @@ pub fn triangulate(
     deflection: f64,
     angular: f64,
 ) -> Result<FaceMesh, String> {
-    let f = &part.faces[face];
+    let f = part
+        .faces
+        .get(face)
+        .ok_or_else(|| format!("no face {face} in the part"))?;
     let surface = &f.surface;
     if let Surface::Other { kind } = surface {
         return Err(format!("its surface ({kind}) did not resolve"));
@@ -216,7 +222,10 @@ fn attempt(
     boundary: f64,
     angular: f64,
 ) -> Result<FaceMesh, String> {
-    let f = &part.faces[face];
+    let f = part
+        .faces
+        .get(face)
+        .ok_or_else(|| format!("no face {face} in the part"))?;
     let surface = &f.surface;
     let loops = part
         .uv_loops(face)
@@ -235,9 +244,11 @@ fn attempt(
             continue;
         }
         let points = thin_loop(&sheet, &lp.points, &lp.anchors, boundary, angular);
+        // thin_loop keeps both endpoints of each loop whose input length was checked >= 2.
         let (first, last) = (points[0], points[points.len() - 1]);
         let (du, dv) = (last.0 - first.0, last.1 - first.1);
         // Runs once round a periodic direction: ends about a period from where it began.
+        // Only the literal axes 0 and 1 are passed to this length-2 array.
         let round = |d: f64, axis: usize| period[axis].is_some_and(|p| d.abs() > 0.5 * p);
         if round(du, 0) && !round(dv, 1) {
             winding_u.push(points);
@@ -291,6 +302,7 @@ fn attempt(
         // parameters were not unwrapped across): no triangulation of that polygon is the face.
         let mut sampled = Vec::with_capacity(polygon.len());
         for i in 0..polygon.len() {
+            // i ranges over polygon.len(); for an empty polygon the loop body is never entered.
             let (a, b) = (polygon[i], polygon[(i + 1) % polygon.len()]);
             sampled.push(a);
             let mid = sheet.value(0.5 * (a.0 + b.0), 0.5 * (a.1 + b.1));
@@ -320,6 +332,7 @@ fn attempt(
         for polygon in &mut polygons {
             let mut dense = Vec::with_capacity(polygon.len());
             for i in 0..polygon.len() {
+                // i ranges over polygon.len(); for an empty polygon the loop body is never entered.
                 let (a, b) = (polygon[i], polygon[(i + 1) % polygon.len()]);
                 let length = ((b.0 - a.0) * scale.0).hypot((b.1 - a.1) * scale.1);
                 let pieces = length.round().clamp(1.0, 1e4) as usize;
@@ -376,6 +389,7 @@ pub fn thin(
         return (0..n).collect();
     }
     let mut kept = vec![false; n];
+    // n > 2 here; kept has n entries and every subsequent point index stays within 0..n.
     kept[0] = true;
     kept[n - 1] = true;
     for (k, &forced) in keep.iter().enumerate().take(n) {
@@ -383,11 +397,13 @@ pub fn thin(
     }
     // Whether the chord from point i to point j stands for the points between.
     let stands = |i: usize, j: usize| -> bool {
+        // stands() is called only with 0 <= i < j < n.
         let (a, b) = (points[i], points[j]);
         let chord = geom::unit(geom::sub(b, a));
         for k in i + 1..j {
             let mut off = segment_distance(points[k], a, b);
             if let Some(on) = on {
+                // WASM callers build uv and normals by mapping the same points list used for thin().
                 let (ua, ub, uk) = (on.uv[i], on.uv[j], on.uv[k]);
                 let d = (ub.0 - ua.0, ub.1 - ua.1);
                 let len2 = d.0 * d.0 + d.1 * d.1;
@@ -403,6 +419,7 @@ pub fn thin(
                 return false;
             }
             if let (Some(angular), Some(chord)) = (angular, chord) {
+                // i < k < j < n ensures k-1 and k+1 are both valid point indices.
                 for (p, q) in [(points[k - 1], points[k]), (points[k], points[k + 1])] {
                     // A sub-segment far shorter than the deflection has no direction to speak
                     // of (sample noise at an edge's ends).
@@ -417,6 +434,7 @@ pub fn thin(
             }
             if let (Some(angular), Some(on)) = (angular, on)
                 && let (Some(nk), Some(ni), Some(nj)) =
+                    // WASM callers build normals with the same length as points; i < k < j < n.
                     (on.normals[k], on.normals[i], on.normals[j])
                 && geom::dist(a, b) > deflection
                 && angle(ni, nk).max(angle(nk, nj)) > angular
@@ -430,6 +448,7 @@ pub fn thin(
     // halving a failed chord instead could keep up to twice the points needed.
     let breaks: Vec<usize> = (0..n).filter(|&k| kept[k]).collect();
     for w in breaks.windows(2) {
+        // windows(2) has exactly two entries, both indices collected from 0..n.
         let (mut i, end) = (w[0], w[1]);
         while i < end {
             let (mut good, mut step) = (i + 1, 1);
@@ -527,14 +546,18 @@ fn thin_loop(
         .collect();
     let mut from = 0;
     for start in anchors.iter().flatten() {
+        // from starts at 0 and advances only to positions found within the remaining suffix.
         if let Some(k) = points[from..].iter().position(|p| p == start) {
+            // keep maps points one-for-one, and k was found in the suffix beginning at from.
             keep[from + k] = true;
             from += k;
         }
     }
     let mut points = points.to_vec();
     for k in 1..points.len() {
+        // k iterates over 1..points.len(), so both neighbouring indices exist.
         let (last, here) = (points[k - 1], points[k]);
+        // k iterates over 1..points.len(), and no length changes occur.
         points[k] = (
             sheet.nearest(here.0, last.0, 0),
             sheet.nearest(here.1, last.1, 1),
@@ -546,17 +569,22 @@ fn thin_loop(
     let mut merged: Vec<usize> = Vec::with_capacity(points.len());
     for k in 0..points.len() {
         if let Some(&last) = merged.last() {
+            // merged contains only earlier indices into points; k ranges over points.len().
             let (a, b): ((f64, f64), (f64, f64)) = (points[last], points[k]);
             let scale = 1.0 + a.0.abs().max(a.1.abs());
             if (a.0 - b.0).abs() + (a.1 - b.1).abs() <= 1e-12 * scale && k + 1 != points.len() {
+                // keep is built one-for-one from points; last and k are indices into points.
                 keep[last] |= keep[k];
                 continue;
             }
         }
         merged.push(k);
     }
+    // merged contains only point indices; space, keep and points have identical lengths.
     let space: Vec<V3> = merged.iter().map(|&k| space[k]).collect();
+    // merged contains only point indices; keep was built one-for-one from points.
     let keep: Vec<bool> = merged.iter().map(|&k| keep[k]).collect();
+    // merged contains only indices obtained by enumerating points.
     let uv: Vec<(f64, f64)> = merged.iter().map(|&k| points[k]).collect();
     let normals: Vec<Option<V3>> = uv.iter().map(|&(u, v)| sheet.normal(u, v)).collect();
     let on = OnSurface {
@@ -566,6 +594,7 @@ fn thin_loop(
     };
     thin(&space, &keep, Some(&on), deflection, Some(angular))
         .into_iter()
+        // thin returns indices into merged; merged contains only indices into points.
         .map(|k| points[merged[k]])
         .collect()
 }
@@ -588,6 +617,7 @@ fn signed_area(polygon: &[(f64, f64)]) -> f64 {
     let n = polygon.len();
     (0..n)
         .map(|i| {
+            // i ranges over 0..n; when n is zero the loop body is never entered.
             let (a, b) = (polygon[i], polygon[(i + 1) % n]);
             a.0 * b.1 - b.0 * a.1
         })
@@ -599,6 +629,7 @@ fn inside(polygon: &[(f64, f64)], p: (f64, f64)) -> bool {
     let n = polygon.len();
     let mut odd = false;
     for i in 0..n {
+        // i ranges over 0..n; when n is zero the loop body is never entered.
         let (a, b) = (polygon[i], polygon[(i + 1) % n]);
         if (a.1 > p.1) != (b.1 > p.1) {
             let x = a.0 + (p.1 - a.1) / (b.1 - a.1) * (b.0 - a.0);
@@ -622,6 +653,7 @@ fn outer_and_holes(
     // The largest by area in parameter space; the first of equals.
     let mut outer = 0;
     for (i, lp) in closed.iter().enumerate() {
+        // closed was checked nonempty; outer is initially 0 and later an enumerate() index.
         if signed_area(lp).abs() > signed_area(&closed[outer]).abs() {
             outer = i;
         }
@@ -629,6 +661,7 @@ fn outer_and_holes(
     let outer_loop = closed.remove(outer);
     let mut polygons = vec![outer_loop];
     for hole in closed {
+        // polygons is initialized with outer_loop and only appended to.
         polygons.push(place_hole(&polygons[0], hole, period, None)?);
     }
     Ok(polygons)
@@ -643,8 +676,9 @@ fn place_hole(
     fixed_u: Option<f64>,
 ) -> Result<Vec<(f64, f64)>, String> {
     let turns = |p: bool| if p { -2..=2 } else { 0..=0 };
-    let start = hole[0];
+    let start = *hole.first().ok_or("an inner loop has no points")?;
     let mut found = None;
+    // period is a fixed array of exactly two optional periods.
     let (pu, pv) = (period[0].unwrap_or(0.0), period[1].unwrap_or(0.0));
     'search: for ku in turns(period[0].is_some() && fixed_u.is_none()) {
         for kv in turns(period[1].is_some()) {
@@ -675,6 +709,7 @@ fn strip(
     swapped: bool,
 ) -> Result<Vec<Vec<(f64, f64)>>, String> {
     let (axis, other) = if swapped { (1, 0) } else { (0, 1) };
+    // axis and other are chosen only from 0 and 1.
     let turn = sheet.period[axis].ok_or("a loop runs round a direction that is not periodic")?;
     // Work as if the winding direction were u.
     let swap = |p: (f64, f64)| if swapped { (p.1, p.0) } else { p };
@@ -682,6 +717,7 @@ fn strip(
         .iter()
         .map(|lp| {
             let mut lp: Vec<(f64, f64)> = lp.iter().map(|&p| swap(p)).collect();
+            // attempt() passes only winding loops with both endpoints retained from an input of length >= 2.
             if lp[lp.len() - 1].0 < lp[0].0 {
                 lp.reverse();
             }
@@ -692,6 +728,7 @@ fn strip(
         .into_iter()
         .map(|lp| lp.into_iter().map(swap).collect())
         .collect();
+    // other is chosen only from the literal axes 0 and 1.
     let other_period = sheet.period[other];
 
     // Candidate cuts, spread over the turn at an angle no modelled symmetry is likely to share.
@@ -712,11 +749,14 @@ fn strip(
         })
         .ok_or("no parameter line crosses each of its periodic loops once and misses its holes")?;
 
+    // attempt() calls strip only after matching exactly two winding loops.
     let a = one_turn(&winding[0], cut, turn);
+    // attempt() calls strip only after matching exactly two winding loops.
     let b = one_turn(&winding[1], cut, turn);
     // The cut line from b's end to a's end, at u = cut + 2π, and back at u = cut. Both lie on
     // the same curve in space and are sampled alike.
-    let (va, vb) = (a[0].1, b[0].1);
+    let va = a.first().ok_or("the first periodic loop cannot be cut")?.1;
+    let vb = b.first().ok_or("the second periodic loop cannot be cut")?.1;
     let line: Vec<f64> =
         straight_side(sheet, swap((cut, va)), swap((cut, vb)), deflection, angular)
             .into_iter()
@@ -729,6 +769,7 @@ fn strip(
     band.extend(b.iter().rev());
     // b starts at (cut, vb): back to a's start.
     band.extend(interior.iter().rev().map(|&v| (cut, v)));
+    // The cut result a was checked nonempty above.
     band.pop_if(|p| *p == a[0]);
 
     let mut polygons = vec![band];
@@ -741,6 +782,7 @@ fn strip(
         // Into [cut, cut + 2π) in u, then by whole turns in v if v is periodic too.
         let shift_u = -turn * turn_index(lo, cut, turn) as f64;
         let periods = [None, other_period];
+        // polygons starts with band and is only appended to.
         let placed = place_hole(&polygons[0], hole, periods, Some(shift_u))?;
         polygons.push(placed);
     }
@@ -774,6 +816,8 @@ fn straight_side(
         normals: &normals,
     };
     let kept = thin(&space, &[], Some(&on), deflection, Some(angular));
+    // The sampled side has CUT_SAMPLES+1 points; thin() retains its first and last indices.
+    // kept contains indices into uv, which was mapped one-for-one to space.
     kept[1..kept.len() - 1].iter().map(|&k| uv[k]).collect()
 }
 
@@ -786,6 +830,7 @@ fn turn_index(u: f64, cut: f64, turn: f64) -> i64 {
 /// How many times the open polyline crosses the lines `u = cut + k turn`.
 fn crossings(lp: &[(f64, f64)], cut: f64, turn: f64) -> usize {
     lp.windows(2)
+        // windows(2) always contains exactly two points.
         .map(|w| turn_index(w[0].0, cut, turn).abs_diff(turn_index(w[1].0, cut, turn)) as usize)
         .sum()
 }
@@ -795,7 +840,9 @@ fn crossings(lp: &[(f64, f64)], cut: f64, turn: f64) -> usize {
 fn one_turn(lp: &[(f64, f64)], cut: f64, turn: f64) -> Vec<(f64, f64)> {
     // The loop followed by its next turn covers any window one turn long.
     let mut extended: Vec<(f64, f64)> = lp.to_vec();
+    // one_turn is private and receives winding loops of length >= 2 from attempt().
     extended.extend(lp[1..].iter().map(|&(u, v)| (u + turn, v)));
+    // one_turn is private and receives winding loops of length >= 2 from attempt().
     let k = turn_index(lp[0].0, cut, turn);
     let (from, to) = (cut + turn * (k + 1) as f64, cut + turn * (k + 2) as f64);
     let at = |a: (f64, f64), b: (f64, f64), u: f64| {
@@ -804,6 +851,7 @@ fn one_turn(lp: &[(f64, f64)], cut: f64, turn: f64) -> Vec<(f64, f64)> {
     };
     let mut out = Vec::new();
     for w in extended.windows(2) {
+        // windows(2) always contains exactly two points.
         let (a, b) = (w[0], w[1]);
         if out.is_empty() {
             if a.0 < from && b.0 >= from {
@@ -873,14 +921,17 @@ fn parameter_scale(
                 let (a, b) = (at(-h), at(h));
                 let (pa, pb) = (sheet.value(a.0, a.1), sheet.value(b.0, b.1));
                 let first = geom::dist(pa, pb) / (2.0 * h);
+                // axis is a literal 0 or 1 above; speed has exactly two entries.
                 speed[axis] += first * first;
                 let second = geom::scale(
                     geom::sub(geom::add(pa, pb), geom::scale(centre, 2.0)),
                     1.0 / (h * h),
                 );
+                // axis is a literal 0 or 1 above; bend has exactly two entries.
                 bend[axis] += geom::dot(second, second);
                 if let (Some(na), Some(nb)) = (sheet.normal(a.0, a.1), sheet.normal(b.0, b.1)) {
                     let rate = geom::norm(geom::sub(nb, na)) / (2.0 * h);
+                    // axis is a literal 0 or 1 above; turn has exactly two entries.
                     turn[axis] += rate * rate;
                 }
             }
@@ -889,6 +940,7 @@ fn parameter_scale(
     if samples == 0 {
         return Err("its surface has no normal over the face".into());
     }
+    // rms is called only with the literal axes 0 and 1 on length-2 arrays.
     let rms = |x: [f64; 2], axis: usize| (x[axis] / samples as f64).sqrt();
     let spacing = |axis: usize, extent: f64| {
         let (turn, bend) = (rms(turn, axis), rms(bend, axis));
@@ -963,6 +1015,7 @@ impl<'a> Mesher<'a> {
                 .map(|&uv| mesher.insert(uv))
                 .collect::<Result<Vec<_>, _>>()?;
             for i in 0..handles.len() {
+                // i ranges over handles.len(); an empty polygon never enters the body.
                 let (a, b) = (handles[i], handles[(i + 1) % handles.len()]);
                 if a == b {
                     continue;
@@ -1003,7 +1056,9 @@ impl<'a> Mesher<'a> {
             for side in [edge, edge.rev()] {
                 if let Some(face) = side.face().as_inner() {
                     let index = face.fix().index();
+                    // The live face handle index is below num_all_faces(); this flood does not mutate cdt.
                     if state[index].is_none() {
+                        // The live face handle index is below num_all_faces(); this flood does not mutate cdt.
                         state[index] = Some(edge.is_constraint_edge());
                         queue.push_back(face.fix());
                     }
@@ -1012,11 +1067,15 @@ impl<'a> Mesher<'a> {
         }
         while let Some(fixed) = queue.pop_front() {
             let face = self.cdt.face(fixed);
+            // Only faces whose state was set are queued; no faces are inserted or removed during this flood.
+            // state has num_all_faces() entries; each queued index is a live handle of this unchanged cdt.
             let here = state[fixed.index()].expect("queued faces are set");
             for edge in face.adjacent_edges() {
                 if let Some(next) = edge.rev().face().as_inner() {
                     let index = next.fix().index();
+                    // The live face handle index is below num_all_faces(); this flood does not mutate cdt.
                     if state[index].is_none() {
+                        // The live face handle index is below num_all_faces(); this flood does not mutate cdt.
                         state[index] = Some(here != edge.is_constraint_edge());
                         queue.push_back(next.fix());
                     }
@@ -1045,12 +1104,16 @@ impl<'a> Mesher<'a> {
             let mut seen = vec![false; self.cdt.num_undirected_edges()];
             let mut wanted: Vec<(f64, f64)> = Vec::new();
             let mut want_edge = |index: usize, a: &Node, b: &Node, wanted: &mut Vec<(f64, f64)>| {
+                // seen has num_undirected_edges() entries; index is a live edge handle and insertion is deferred.
                 if !seen[index] {
+                    // index is a live edge handle below num_undirected_edges(), with insertion deferred.
                     seen[index] = true;
                     wanted.push(((a.uv.0 + b.uv.0) / 2.0, (a.uv.1 + b.uv.1) / 2.0));
                 }
             };
             for face in self.cdt.inner_faces() {
+                // inside_faces() returns num_all_faces() entries before any triangulation mutation.
+                // inside_faces() returns num_all_faces() entries and finish() does not mutate cdt.
                 if !inside[face.fix().index()] {
                     continue;
                 }
@@ -1148,6 +1211,7 @@ impl<'a> Mesher<'a> {
         let thin = 1e-6 * deflection;
         let mut folded_dropped = (0, 0.0);
         for face in self.cdt.inner_faces() {
+            // inside_faces() returns num_all_faces() entries and finish() does not mutate cdt.
             if !inside[face.fix().index()] {
                 continue;
             }
@@ -1186,11 +1250,15 @@ impl<'a> Mesher<'a> {
             }
             let mut tri = corners.map(|v| {
                 let k = v.fix().index();
+                // index has num_vertices() entries; k is a live vertex handle, with no removals creating holes.
                 if index[k] == usize::MAX {
+                    // k is a live vertex handle below num_vertices(); cdt is immutable in finish().
+                    // k is a live vertex handle below num_vertices(); the slot was assigned just above.
                     index[k] = points.len();
                     points.push(v.data().point);
                     uv.push(v.data().uv);
                 }
+                // k is a live vertex handle below num_vertices(); the slot was assigned just above.
                 index[k]
             });
             // Counter-clockwise in (u, v) is along Su × Sv; a reversed face's outside is not.

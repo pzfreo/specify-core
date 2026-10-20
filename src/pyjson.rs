@@ -145,6 +145,7 @@ fn number(n: &Number) -> String {
     if let Some(u) = n.as_u64() {
         return u.to_string();
     }
+    // Without arbitrary_precision, Number is i64/u64/f64; both integer cases returned above.
     let x = n.as_f64().expect("a JSON number is an integer or a float");
     if x.is_nan() {
         "NaN".into()
