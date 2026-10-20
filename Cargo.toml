@@ -17,12 +17,11 @@ path = "src/main.rs"
 
 [dependencies]
 # quiddity-rust: feature recognition (quiddity) and the geometry kernel with STEP import and
-# AP242 semantic PMI (haecceity). Both are pinned by rev to quiddity-rust's 0.1.0-alpha.4 release
-# commit f5ddb72 (the merge of its release PR #13); no tag exists yet, so a tag pin can replace
-# the rev once v0.1.0-alpha.4 is tagged at this commit.
+# AP242 semantic PMI (haecceity). Both use the tagged v0.1.0-alpha.8 release,
+# matching draftwright-rust alpha.9 (tools/check_quiddity_pin.py).
 # See docs/design.md, "Dependency plan".
-quiddity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "f5ddb726783f2e9384a55164eb7e36a1ec9a6f7c" }
-haecceity = { git = "https://github.com/pzfreo/quiddity-rust", rev = "f5ddb726783f2e9384a55164eb7e36a1ec9a6f7c" }
+quiddity = { git = "https://github.com/pzfreo/quiddity-rust", tag = "v0.1.0-alpha.8" }
+haecceity = { git = "https://github.com/pzfreo/quiddity-rust", tag = "v0.1.0-alpha.8" }
 base64 = "0.22.1"
 # Gzipped STEP input is decompressed in memory, and a `.gz` destination written gzipped.
 flate2 = "1.1.10"
