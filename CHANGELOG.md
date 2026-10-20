@@ -17,6 +17,12 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- Answering a question no longer accepts every unanswered default (issue #20). Review,
+  preview and WASM PMI writing include only answered specifications and existing datums;
+  datum, hole-position and general-tolerance defaults remain open suggestions with their
+  reasons. CLI/serve writing with explicit `accept_defaults` is unchanged. The editor's
+  automatic ±/plain-hole path does not accept the remaining suggestions. No API signatures
+  change.
 - Turned parts with a common principal axis now default to A on the plain recognised cylinder
   with the greatest total cylindrical area (diameter breaks ties). Threads and knurls from
   answers, recognition or PMI are excluded. Interrupted single-diameter shafts recognised as

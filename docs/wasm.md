@@ -52,7 +52,7 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `new IntentEngine(name, bytes)` | Opens one STEP part. Refuses gzip, any count other than one distinct part, any count other than one placement, and a mismatch between haecceity's ordered face sources and the STEP definition. `name` labels the input; it is never read as a path. |
 | `engine.snapshot()` | `{analysis, mesh, provenance: {source_sha256, face_entities, part: 0}}`. |
 | `engine.review(answersJson)` | `{questions, open, intent, problems}`; adds geometry anchors to `intent.anchors`. |
-| `engine.writePmi(answersJson, projectBase64?)` | `{bytes, source_sha256, report}`; `bytes` is an array of byte values. Previews answers with defaults, writes and verifies PMI and stored answers in memory. `report` is the upstream writer's report; its `output` is the constructor's name. |
+| `engine.writePmi(answersJson, projectBase64?)` | `{bytes, source_sha256, report}`; `bytes` is an array of byte values. Writes and verifies answered PMI and stored answers in memory. Unanswered defaults remain suggestions. `report` is the upstream writer's report; its `output` is the constructor's name. |
 | `review(analysisJson, answersJson)` | Same review composition without a session or geometry anchors. Calls `specify_core::api::review`. |
 | `interpret(analysisJson, answersJson, questionId, text)` | `{value, code, callout?}` for a choice question; includes a diameter callout for `hole.function:` and `diameter.fit:`. |
 | `start()` | Installs `console_error_panic_hook`; initialization also calls it automatically. |
@@ -60,6 +60,14 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 Questions use `to_presented_dict()` with `diameter` and `depth` added when present. `open`
 is the list of ids returned by `rules::open_questions`. `intent` is `api::preview(...).to_dict()`;
 `problems` comes from `problems::problems`. Native front ends can use `api::review` directly.
+
+Defaults and their reasons remain in `questions`, and unanswered ids remain in `open`.
+They contribute no PMI to review or `writePmi` until their values are supplied in answers;
+in particular, an unanswered general tolerance is absent from `intent.part`, so a drawing
+can continue reporting `general_tolerance_missing`. Existing file datums remain available.
+The shared #16 settling path still records its automatic ±/plain answers in `state.auto`;
+it does not accept datum or general-tolerance suggestions. Diagnostic `problems` continues
+to inspect the proposed scheme. These are behaviour changes with no signature changes.
 
 An optional project is written through `writer::write_bytes_with` as an `AttributeSet` with
 `name: "draftwright editor project"`, `on: None`, one text item with that same name and the

@@ -192,7 +192,9 @@ mod tests {
             .unwrap();
         let result = interpret(&analysis, &Map::new(), &hole.id, "M5").unwrap();
         assert_eq!(result["value"], "tapped:M5");
-        let intent = api::preview(&analysis, &Map::new()).unwrap();
+        // #20: the proposed tap is written only once its interpreted answer is supplied.
+        let answers = Map::from_iter([(hole.id.clone(), result["value"].clone())]);
+        let intent = api::preview(&analysis, &answers).unwrap();
         let thread = intent
             .requirements
             .iter()

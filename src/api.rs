@@ -302,7 +302,8 @@ pub fn apply(
     )?)
 }
 
-/// What the answers so far amount to, defaults standing in (`rules::preview`).
+/// What the answers so far amount to (`rules::preview`). Unanswered defaults stay suggestions
+/// on questions, and contribute no PMI until explicitly accepted.
 pub fn preview(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {
     Ok(rules::preview(analysis, answers)?)
 }

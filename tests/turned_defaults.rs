@@ -5,7 +5,13 @@ use serde_json::{Map, Value, json};
 use specify_core::api;
 use specify_core::problems::problems;
 use specify_core::rules::records::Ctx;
-use specify_core::rules::{DatumKind, Question, datum_kind, preview, questions};
+use specify_core::rules::{DatumKind, Question, datum_kind, preview, questions, with_all_defaults};
+
+// These tests verify the proposed datum scheme and its dependent geometry after acceptance.
+// #20 keeps suggestions out of preview; tests/default_suggestions.rs guards that distinction.
+fn accepted_preview(a: &Value, answers: &Map<String, Value>) -> specify_core::rules::Intent {
+    preview(a, &with_all_defaults(a, answers).unwrap()).unwrap()
+}
 
 fn captured(name: &str) -> Value {
     common::case(&format!("corpus/{name}"))
@@ -35,7 +41,8 @@ fn check(a: &Value, axis: &[i64], shoulder: &[i64], hole: Option<&str>) {
     assert_eq!(q(&qs, "datum.B").default, Some(json!(shoulder)));
     assert_eq!(q(&qs, "datum.C").default, Some(json!([])));
     assert!(q(&qs, "datum.A").basis.contains("plain turned seat"));
-    let intent = preview(a, &plus_minus).unwrap();
+    assert!(preview(a, &plus_minus).unwrap().datums.is_empty());
+    let intent = accepted_preview(a, &plus_minus);
     assert_eq!(intent.datums.len(), 2);
     assert!(intent.requirements.iter().all(|r| !matches!(
         r["kind"].as_str(),
@@ -52,7 +59,7 @@ fn check(a: &Value, axis: &[i64], shoulder: &[i64], hole: Option<&str>) {
         assert!(q(&qs, "datum.A").basis.contains("plain turned seat"));
         assert!(q(&qs, "datum.B").basis.contains("perpendicular to A"));
         assert!(!qs.iter().any(|q| q.id == "datum.A.flatness"));
-        let intent = preview(a, &Map::new()).unwrap();
+        let intent = accepted_preview(a, &Map::new());
         let pos = intent
             .requirements
             .iter()
@@ -187,10 +194,14 @@ fn runout_uses_primary_axis_even_before_datums_are_proposed() {
         q(&qs, "diameter.runout:turned_steps:6").frame.as_deref(),
         Some("A")
     );
-    let given = json!({"diameter.runout:turned_steps:6": "0.02"})
+    let mut given = json!({"diameter.runout:turned_steps:6": "0.02"})
         .as_object()
         .unwrap()
         .clone();
+    let pending = preview(&a, &given).unwrap();
+    assert!(pending.datums.is_empty());
+    assert!(pending.requirements.is_empty());
+    given.insert("datum.A".into(), json!([0]));
     let intent = preview(&a, &given).unwrap();
     assert_eq!(intent.datums[0]["faces"], json!([0]));
     assert_eq!(
@@ -295,7 +306,7 @@ fn check_thumbwheel(a: &Value) {
         q(&qs, "diameter.runout:turned_steps:3").frame.as_deref(),
         Some("A")
     );
-    let intent = preview(a, &given).unwrap();
+    let intent = accepted_preview(a, &given);
     assert_eq!(intent.datums[0]["faces"], json!([2]));
     assert_eq!(intent.datums[1]["faces"], json!([0]));
     assert!(
@@ -466,7 +477,7 @@ fn interrupted_shaft_uses_main_axis_and_end_seat_instead_of_window_walls() {
     assert_eq!(q(&qs, "datum.A").default, Some(json!([0])));
     assert_eq!(q(&qs, "datum.B").default, Some(json!([7, 11])));
     assert_eq!(q(&qs, "datum.C").default, Some(json!([])));
-    let intent = preview(&a, &Map::new()).unwrap();
+    let intent = accepted_preview(&a, &Map::new());
     assert_eq!(intent.datums[0]["faces"], json!([0]));
     assert_eq!(intent.datums[1]["faces"], json!([7, 11]));
     assert!(

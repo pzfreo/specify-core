@@ -1,11 +1,11 @@
-//! The intent the answers so far amount to, defaults standing in: specify-core's
-//! `tests/test_preview.py`, on the oracle's captured analysis of the plate. Label anchors for
+//! The intent the answers so far amount to, with defaults remaining suggestions (#20).
+//! Adapted from `tests/test_preview.py`, on the oracle's captured analysis of the plate. Label anchors for
 //! the preview are stage 4's (serve).
 
 mod common;
 
 use serde_json::{Map, Value, json};
-use specify_core::rules::{Error, apply, preview, with_all_defaults};
+use specify_core::rules::{Error, apply, preview, questions, with_all_defaults};
 
 fn plate() -> Value {
     common::case("parts/plate")
@@ -17,21 +17,21 @@ fn answers(value: Value) -> Map<String, Value> {
     value.as_object().cloned().expect("an object")
 }
 
-// test_preview.py::test_nothing_answered_shows_the_defaults
+// #20 intentionally departs from Python: suggestions must not become drawn/written PMI.
 #[test]
-fn nothing_answered_shows_the_defaults() {
+fn nothing_answered_keeps_the_defaults_on_questions() {
     let intent = preview(&plate(), &Map::new()).unwrap();
-    let letters: Vec<&Value> = intent.datums.iter().map(|d| &d["letter"]).collect();
-    assert_eq!(letters, [&json!("A"), &json!("B"), &json!("C")]);
-    assert!(!intent.requirements.is_empty());
-    assert!(
-        intent
-            .requirements
-            .iter()
-            .all(|r| r["default"] == json!(true))
-    );
-    assert!(intent.datums.iter().all(|d| d["default"] == json!(true)));
+    assert!(intent.datums.is_empty());
+    assert!(intent.requirements.is_empty());
+    assert!(intent.general.is_empty());
+    assert!(!intent.part.contains_key("general_tolerance"));
     assert!(!intent.part.contains_key("material")); // no answer and no default
+    let qs = questions(&plate(), &Map::new()).unwrap();
+    for id in ["datum.A", "datum.B", "datum.C", "part.general_tolerance"] {
+        let q = qs.iter().find(|q| q.id == id).unwrap();
+        assert!(q.default.is_some());
+        assert!(!q.basis.is_empty());
+    }
 }
 
 // test_preview.py::test_an_answer_is_shown_as_decided
@@ -46,7 +46,18 @@ fn an_answer_is_shown_as_decided() {
         .find(|id| id.starts_with("hole_patterns.grid"))
         .unwrap();
     let position = format!("hole.position:{grid}");
-    let given = answers(json!({ position.clone(): "0.2", "part.material": "6082-T6" }));
+    let mut given = answers(json!({ position.clone(): "0.2", "part.material": "6082-T6" }));
+    let pending = preview(&plate, &given).unwrap();
+    assert!(pending.datums.is_empty());
+    assert!(
+        pending.requirements.is_empty(),
+        "an unanswered datum frame cannot be written"
+    );
+    for q in questions(&plate, &given).unwrap() {
+        if ["datum.A", "datum.B", "datum.C"].contains(&q.id.as_str()) {
+            given.insert(q.id, q.default.unwrap());
+        }
+    }
     let intent = preview(&plate, &given).unwrap();
     let found: Vec<_> = intent
         .requirements

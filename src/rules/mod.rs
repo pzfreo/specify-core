@@ -74,8 +74,8 @@ pub const EXTRA_DATUMS: &str = "DEFGH";
 
 /// How much each question needs a person, so a part can be reviewed rather than
 /// interrogated: `required` has no default and must be answered; `check` has a default the
-/// rules doubt, with a `reason`; `routine` has a default from a standard or the geometry,
-/// accepted unless changed; `refine` is an optional tightening that defaults to none or
+/// rules doubt, with a `reason`; `routine` has a suggested default from a standard or the
+/// geometry; `refine` is an optional tightening that defaults to none or
 /// general.
 pub const ATTENTION: [&str; 4] = ["required", "check", "routine", "refine"];
 
@@ -913,21 +913,30 @@ pub fn apply_with_defaults(
 
 /// The intent the answers so far amount to, for showing while they are given.
 ///
-/// Defaults stand in for unanswered questions (datum defaults feed every position frame), and
-/// every datum and requirement says which question it came from and whether that question was
-/// answered (`"default": true` when not). A question with neither answer nor default
-/// contributes nothing.
+/// Unanswered defaults remain suggestions on the questions; they contribute no PMI. Existing
+/// file datums are retained, and answered tolerances need an answered or existing datum frame.
+/// Items keep the `default` field for front ends, always false for an answered question.
 pub fn preview(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {
-    preview_in(&Ctx::new(analysis)?, answers).map(|(intent, _, _)| intent)
+    let ctx = Ctx::new(analysis)?;
+    let qs = questions_in(&ctx, answers)?;
+    let mut intent = intent(&ctx, answers, &qs)?;
+    mark_defaults(&mut intent, answers);
+    Ok(intent)
 }
 
-/// `preview`, with the settled answers and their questions (which `problems` uses too).
-pub(crate) fn preview_in(
+/// Prospective diagnostics still examine the suggested scheme, without accepting it. This is
+/// private to `problems`, never the intent returned to a front end or passed to a writer.
+pub(crate) fn proposed_in(
     ctx: &Ctx<'_>,
     answers: &Map<String, Value>,
 ) -> Result<(Intent, Map<String, Value>, Vec<Question>)> {
     let (merged, qs) = settled(ctx, answers)?;
     let mut intent = intent(ctx, &merged, &qs)?;
+    mark_defaults(&mut intent, answers);
+    Ok((intent, merged, qs))
+}
+
+fn mark_defaults(intent: &mut Intent, answers: &Map<String, Value>) {
     for item in intent
         .datums
         .iter_mut()
@@ -939,7 +948,6 @@ pub(crate) fn preview_in(
             item.insert("default".into(), Value::from(default));
         }
     }
-    Ok((intent, merged, qs))
 }
 
 /// `_intent`: intent from the answered questions among `qs`; each item names its question.
@@ -968,7 +976,9 @@ fn intent(ctx: &Ctx<'_>, answers: &Map<String, Value>, qs: &[Question]) -> Resul
             );
         }
     }
-    let datums = datums::chosen_datums(ctx, answers, qs)?;
+    // Questions may use suggested datums to propose dependent tolerances. Only existing or
+    // answered datums belong in PMI, so do not supply question defaults here.
+    let datums = datums::chosen_datums(ctx, answers, &[])?;
     intent.datums = datums
         .iter()
         .map(|(x, d)| {
@@ -1029,6 +1039,12 @@ fn intent(ctx: &Ctx<'_>, answers: &Map<String, Value>, qs: &[Question]) -> Resul
                 .map_or_else(|| "None".to_string(), str_of);
             let frame = q.frame.clone().unwrap_or_default();
             let letters: Vec<&str> = frame.split('|').collect();
+            if !letters
+                .iter()
+                .all(|x| one_letter(x).is_some_and(|x| datums.contains(x)))
+            {
+                continue;
+            }
             // Basic dimensions from the frame's planes say where "true position" is.
             let mut planes = Vec::new();
             for x in &letters {
@@ -1117,7 +1133,8 @@ fn intent(ctx: &Ctx<'_>, answers: &Map<String, Value>, qs: &[Question]) -> Resul
             intent.requirements.push(req);
         }
     }
-    let tolerance = answer(answers, qs, "part.general_tolerance")
+    let tolerance = answers
+        .get("part.general_tolerance")
         .filter(|v| truthy(v))
         .or_else(|| {
             ctx.stated

@@ -29,7 +29,7 @@ pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Va
     let ctx = Ctx::new(analysis)?;
     // Python asks for the settled answers' questions and the preview separately; both come
     // from one settling of the same answers.
-    let (intent, merged, qs) = rules::preview_in(&ctx, answers)?;
+    let (intent, merged, qs) = rules::proposed_in(&ctx, answers)?;
     let faces = &ctx.faces;
     let asked: HashSet<&str> = qs.iter().map(|q| q.id.as_str()).collect();
     let mut out = Vec::new();
