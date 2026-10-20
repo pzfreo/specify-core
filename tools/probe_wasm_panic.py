@@ -26,7 +26,7 @@ def main():
             panic!("injected IntentEngine review panic (#26)");
         }
 '''))
-        env = dict(os.environ, CARGO_TARGET_DIR=str(ROOT / "target"))
+        env = dict(os.environ, CARGO_TARGET_DIR=str(ROOT / "target" / "panic-probe"))
         subprocess.run(["wasm-pack", "build", "crates/specify-core-wasm", "--target", "web",
                         "--profile", "wasm-release", "--locked"], cwd=copy, env=env, check=True)
         subprocess.run(["node", "scripts/wasm-panic.mjs"], cwd=copy, env=env, check=True)
