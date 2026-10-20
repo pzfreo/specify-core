@@ -270,7 +270,12 @@ fn rough_cylinders(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> Result<HashSe
     for f in &ctx.features {
         if matches!(
             f.family,
-            "knurls" | "turned_knurls" | "threads" | "external_threads" | "internal_threads"
+            "knurls"
+                | "turned_knurls"
+                | "threads"
+                | "external_threads"
+                | "internal_threads"
+                | "modelled_threads"
         ) {
             excluded.extend(f.faces()?);
         }

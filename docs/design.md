@@ -86,17 +86,21 @@ and answers are always used with the analysis they were given against.
 
 ## Dependency plan
 
-- `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity-rust`, **branch
-  `prototype/rust-port`**, which contains the former `ap242` head a16d7af (the stage 1-5 pin;
-  checked with `git merge-base --is-ancestor a16d7af origin/prototype/rust-port`). Cargo.lock
-  pins the commit (5798c59 since the move, question Q2; 5d39eee for the haecceity writer
-  decisions of 2026-10-09, 10884b8 since, with haecceity's U10 and U14), so fresh clones and CI resolve the
-  same one; moving to a newer head is `cargo update -p quiddity -p haecceity` in a commit of
-  its own, followed by the whole suite and the oracle comparisons with the area files
-  rejudged (the features sweep's per-face and per-feature entries name exact cases and
-  indices; `tools/known_differences/features.py` says how). Recognition stays caller-space
-  (`correspondence::recognise`), as Python's entry points, not the framed `recognise_placed`
-  (Q2).
+- `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity-rust`,
+  pinned to tag `v0.1.0-alpha.8` (`c62081c6`) in both manifests and Cargo.lock.
+  Update only these packages with `cargo update -p quiddity -p haecceity`, then run
+  the whole suite and rejudge any departures from the frozen Python captures with
+  independent evidence. Recognition stays caller-space (`correspondence::recognise`),
+  as Python's entry points, not framed `recognise_placed` (Q2).
+  Specify consumes typed features, not the upstream recognition document: modelled
+  threads are additive features; their claimed freeforms become thread faces. The
+  upstream document uses recognition/4 only for thread measurements/refusals, otherwise
+  recognition/3. Specify keeps its own analysis schema and binding because face numbering
+  is unchanged. Derived PMI geometry is followed through its deriving faces by
+  `existing::faces_of`; Specify reads PMI anew from STEP, never persists the upstream
+  PMI JSON (version 2, now reader binding `haecceity-pmi-read/8`; /7 must be reread).
+  It builds its own write report, so upstream parts/write-report version 2 and the
+  graphic-only `Accounting::presentation` do not change that report's shape.
 - **Cargo.toml and Cargo.lock across parallel streams.** A stream that adds a crate adds its
   line in alphabetical order within its table (`[dependencies]` or `[dev-dependencies]`) and
   regenerates the lock with `cargo update -p <crate>` only (never a bare `cargo update`, which

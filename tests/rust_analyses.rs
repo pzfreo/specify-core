@@ -209,3 +209,106 @@ fn general_dimensions_run_over_the_plates_plane_levels() {
         assert_eq!(g["upper"].as_f64(), g["lower"].as_f64().map(|l| -l));
     }
 }
+
+/// Alpha.8 publishes physical thread measurements without changing Specify's interview
+/// contract. Both thread-bearing corpus inputs must complete the existing writer path.
+#[test]
+fn modelled_thread_parts_still_analyse_interview_and_write() {
+    let Some(corpus) = common::corpus_dir() else {
+        return;
+    };
+    let dir = std::env::temp_dir()
+        .join("specify-core-modelled-threads")
+        .join(std::process::id().to_string());
+    std::fs::create_dir_all(&dir).unwrap();
+    for (file, count, freeforms) in [
+        ("cadgenbench_inputs/cgb243.step.gz", 4, 66),
+        ("cadgenbench/threaded_connector_109.step", 1, 4),
+    ] {
+        let path = corpus.join(file);
+        let analysis = specify_core::api::analyse_file(&path, None).unwrap();
+        let features = analysis["features"].as_array().unwrap();
+        assert_eq!(
+            features
+                .iter()
+                .filter(|f| f["family"] == "modelled_threads")
+                .count(),
+            count,
+            "{file}"
+        );
+        assert_eq!(
+            features
+                .iter()
+                .filter(|f| f["family"] == "freeform_surfaces")
+                .count(),
+            freeforms,
+            "{file}"
+        );
+        // A more specific feature classification must retain every old freeform face.
+        let case_name = format!(
+            "corpus/{}",
+            file.trim_end_matches(".gz").trim_end_matches(".step")
+        );
+        let captured = common::case(&case_name).artifact("analysis").unwrap();
+        let claimed: std::collections::BTreeSet<_> = features
+            .iter()
+            .filter(|f| f["family"] == "modelled_threads")
+            .flat_map(|f| {
+                f["faces"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_u64().unwrap())
+            })
+            .collect();
+        let removed: Vec<_> = captured["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|f| {
+                f["family"] == "freeform_surfaces" && !features.iter().any(|r| r["id"] == f["id"])
+            })
+            .collect();
+        assert_eq!(removed.len(), if count == 4 { 8 } else { 136 });
+        for old in removed {
+            assert!(
+                old["faces"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|f| claimed.contains(&f.as_u64().unwrap())),
+                "{file}: lost {old}"
+            );
+        }
+        let roundtrip: Value = serde_json::from_str(&analysis.to_string()).unwrap();
+        let qs = questions(&roundtrip, &Map::new()).unwrap();
+        assert!(!qs.is_empty(), "{file}: interview disappeared");
+        let applied = intent(&roundtrip).unwrap();
+        assert!(
+            !applied.requirements.is_empty(),
+            "{file}: intent disappeared"
+        );
+        let loaded = specify_core::part::load(&path, None).unwrap();
+        let answers = json!({"part.material": "steel"});
+        let output = dir.join(format!(
+            "{}.step",
+            path.file_stem().unwrap().to_string_lossy()
+        ));
+        let report = write_parts(&[(&loaded, &applied, answers.as_object())], &output).unwrap();
+        assert!(!report.written.is_empty(), "{file}: nothing written");
+        let resumed = specify_core::part::load(&output, None).unwrap();
+        assert_eq!(
+            specify_core::resume::answers_for(&resumed).unwrap(),
+            answers.as_object().cloned(),
+            "{file}"
+        );
+        println!(
+            "{file}: {count} measured threads, {freeforms} freeforms, {} questions, {} requirements, {} written, {} not written; answers resume",
+            qs.len(),
+            applied.requirements.len(),
+            report.written.len(),
+            report.not_written.len()
+        );
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -6,6 +6,15 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Changed
+
+- Pin quiddity and haecceity (native and WASM) to quiddity-rust `v0.1.0-alpha.8`,
+  matching draftwright-rust alpha.9. This brings derived PMI geometry, measured
+  modelled threads and graphic-only PMI presentation accounting. Modelled thread
+  faces are excluded from plain datum seats; existing thread interviews and verified
+  writing remain available. New departures from the frozen Python captures are
+  recorded with independent OpenCascade evidence in the known differences.
+
 ### Fixed
 
 - Turned parts with a common principal axis now default to A on the plain recognised cylinder
