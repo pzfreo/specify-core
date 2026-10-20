@@ -384,6 +384,7 @@ pub fn thin(
     deflection: f64,
     angular: Option<f64>,
 ) -> Vec<usize> {
+    // V3 coordinates have length 3; parameter axes throughout this module are literals 0 or 1.
     let n = points.len();
     if n <= 2 {
         return (0..n).collect();

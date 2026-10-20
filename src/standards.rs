@@ -7,6 +7,7 @@
 //! reaches people (the sizes listed in a refusal, the first match of a lookup). The ISO 2768-1
 //! table is in `general.rs`.
 
+// Capture indexing below follows successful matches with mandatory groups; optional groups use get().
 use std::sync::LazyLock;
 
 use regex::Regex;

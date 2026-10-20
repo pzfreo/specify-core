@@ -11,6 +11,7 @@
 //! sized twice two sizes on one diameter, both of which would be written
 //! ```
 
+// Capture indexing below follows successful matches with mandatory groups; optional groups use get().
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::LazyLock;
 

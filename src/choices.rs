@@ -16,6 +16,7 @@
 //! checked against Python's over every character in `tests/pyfmt.rs`). `fullmatch` is anchored
 //! at both ends, `match` at the start, `search` not at all.
 
+// Capture indexing below follows successful matches with mandatory groups; optional groups use get().
 use std::fmt;
 use std::sync::LazyLock;
 

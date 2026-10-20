@@ -21,6 +21,7 @@
 //! problem.
 
 // Coordinate indexing uses [f64; 3] (or a bounded 0..3 loop), never variable-length JSON arrays.
+// Capture indexing below follows successful matches with mandatory groups; optional groups use get().
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
