@@ -157,11 +157,14 @@ fn each_part_has_its_own_pmi_and_answers() {
         assert_eq!(answers_for(&back).unwrap(), Some(answers(k)), "part {k}");
     }
     // Two parts, each with its own datum A, under its own letter in the file.
-    let mut letters: Vec<String> = Regex::new(r"DATUM\('','',#\d+,\.F\.,'(\w+)'\)")
-        .unwrap()
-        .captures_iter(&std::fs::read_to_string(&out).unwrap())
-        .map(|c| c[1].to_string())
-        .collect();
+    let mut letters: Vec<String> = Regex::new(&format!(
+        r"DATUM\('','{}',#\d+,\.F\.,'(\w+)'\)",
+        regex::escape(specify_core::writer::PMI_PROVENANCE)
+    ))
+    .unwrap()
+    .captures_iter(&std::fs::read_to_string(&out).unwrap())
+    .map(|c| c[1].to_string())
+    .collect();
     letters.sort();
     assert_eq!(letters, ["A", "A", "B", "B", "C"]);
     let (plate, pin) = (pmi_of(&out, PLATE), pmi_of(&out, PIN));
