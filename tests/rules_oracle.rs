@@ -252,7 +252,8 @@ fn rules_match_the_oracle() {
         "rules: {compared} artifact(s) compared in {:.1} s",
         started.elapsed().as_secs_f64()
     );
-    // Turned defaults, datum origins and free-text part notes change the Python rules. Keep the
+    // Turned defaults, datum origins, free-text notes and #20's unaccepted suggestions change
+    // the Python rules. Only preview departures changed for #20; applied defaults are intact. Keep the
     // complete before/after values, including ordering, under an exact regression guard;
     // the known-difference entries below document the verdict, not a blanket exemption.
     let departures = json!(
