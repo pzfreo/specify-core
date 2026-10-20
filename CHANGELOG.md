@@ -6,22 +6,51 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
-### Added
-
-- WASM `IntentEngine.acceptDefaults(answers)` and free `acceptDefaults(analysis, answers)`
-  return ordinary editable answers with unanswered defaults explicitly accepted to the same
-  fixed point as CLI/serve apply. Supplied answers are preserved; questions without defaults
-  stay open. Existing review, settle and writePmi paths consume the returned answers.
+## 0.1.0-alpha.6 (2026-10-20)
 
 ### WASM API
 
+- Behaviour change for the editor (issue #20, #28): without a call to `acceptDefaults`, unanswered
+  default datums, positions and the general tolerance are no longer drawn or written. Review
+  intent and `writePmi` include only answered specifications and the file's own datums. The
+  defaults stay on their questions as suggestions with their reasons, and their ids stay in
+  `open`; an unanswered general tolerance is absent from `intent.part`. Intent items keep
+  their `default` field, which is now always `false`. No signatures change.
 - Add `IntentEngine.acceptDefaults(answers: string): string` and
-  `acceptDefaults(analysis: string, answers: string): string`. Existing signatures are unchanged.
+  `acceptDefaults(analysis: string, answers: string): string` (#28). Both return ordinary
+  editable answers with every unanswered default accepted to the same fixed point as CLI/serve
+  `accept_defaults`. Supplied answers are preserved, questions without defaults stay open, and
+  the session is not changed. The existing `review`, `settle` and `writePmi` take the returned
+  answers. Existing signatures are unchanged.
+
+### Added
+
+- Free-text part notes as semantic PMI (#25). A new `part.notes` question (kind `text_list`,
+  default `[]`) takes an ordered list of literal strings for notes about making the part;
+  drawing-only notes stay in the drawing Spec and no existing text is migrated. Each note is
+  written as a part-owned `semantic text` attribute set with a `general note` text item and a
+  one-based integer `note index`. Answers that are not a list of strings are refused by the
+  rules and by the writer. `existing::part_settings` reads the notes back as `notes` in index
+  order, also from files without stored answers and for each part of an assembly. Writing an
+  identical list over notes another tool wrote adds no duplicates; writing a different one is
+  refused. Rules version 3. See `docs/part-notes.md`.
 
 ### Changed
 
+- Datums A/B/C are now proposed as measurement origins on every part, not only when a hole
+  position or runout needs a frame: also in ± locating mode, when every hole uses the general
+  tolerance, and on parts without holes (#24; rules version 2). The same A/B/C defaults apply, including a
+  turned part's axis A and shoulder B, and the ± datum prompts ask where the part is measured
+  from. Explicit ± hole locations are dimensioned from the selected datum planes instead of
+  the default edge faces, so changing or removing a datum changes or removes those
+  dimensions. ± mode asks for and adds no position tolerances, datum controls or runout, and does not
+  report unused datums. Accepted datums are written as AP242 datum features without
+  geometric tolerances. Like other defaults, these datums are written only once answered or
+  accepted (#28).
+- Rewriting a resumed file whose PMI and stored answers are unchanged returns the original
+  bytes, after the replacement has been written and verified (#25).
 - Pin quiddity and haecceity (native and WASM) to quiddity-rust `v0.1.0-alpha.8`,
-  matching draftwright-rust alpha.9. This brings derived PMI geometry, measured
+  matching draftwright-rust alpha.9 (#27). This brings derived PMI geometry, measured
   modelled threads and graphic-only PMI presentation accounting. Modelled thread
   faces are excluded from plain datum seats; existing thread interviews and verified
   writing remain available. New departures from the frozen Python captures are
@@ -29,27 +58,28 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
-- Answering a question no longer accepts every unanswered default (issue #20). Review,
+- Answering a question no longer accepts every unanswered default (issue #20, #28). Review,
   preview and WASM PMI writing include only answered specifications and existing datums;
   datum, hole-position and general-tolerance defaults remain open suggestions with their
   reasons. CLI/serve writing with explicit `accept_defaults` is unchanged. The editor's
-  automatic ±/plain-hole path does not accept the remaining suggestions. No API signatures
-  change. Answered controls waiting for unaccepted datum frames now report
-  `awaits_datum_frame` in review/serve problems instead of disappearing silently; strict
-  apply still refuses an unavailable datum control.
+  automatic ±/plain-hole path does not accept the remaining suggestions. Answered controls
+  waiting for unaccepted datum frames now report `awaits_datum_frame` in review/serve
+  problems instead of disappearing silently; strict apply still refuses an unavailable
+  datum control.
 - Turned parts with a common principal axis now default to A on the plain recognised cylinder
-  with the greatest total cylindrical area (diameter breaks ties). Threads and knurls from
+  with the greatest total cylindrical area (diameter breaks ties) (#23). Threads and knurls from
   answers, recognition or PMI are excluded. Interrupted single-diameter shafts recognised as
   dominant bosses also use their axis. B is a perpendicular locating shoulder (assembly
   contact first, otherwise largest area), excluding recess walls unless the only perpendicular
   face. Explicit datum answers and file datums retain precedence; prismatic parts keep plane
   datums. Coaxial holes use diametral position to A and are recognised as located by that axis;
-  offset and cross holes still need location. Runout follows the primary axis. See `docs/turned-defaults.md` for detection,
-  ISO 1101 zone interpretation and before/after corpus verification.
+  offset and cross holes still need location. Runout follows the primary axis. See
+  `docs/turned-defaults.md` for detection, ISO 1101 zone interpretation and before/after
+  corpus verification.
 - Blind tapped-hole help now gives a valid full-thread-depth example (such as
-  `M2 tapped, 2.5 mm full thread`) and explains the computed default. Choice and typed-answer
-  summaries show that depth, including native serve and WASM interpretation; canonical
-  answers, explicit depths, through holes and unknown depths retain their behaviour.
+  `M2 tapped, 2.5 mm full thread`) and explains the computed default (#23). Choice and
+  typed-answer summaries show that depth, including native serve and WASM interpretation;
+  canonical answers, explicit depths, through holes and unknown depths retain their behaviour.
 
 ## 0.1.0-alpha.5 (2026-10-18)
 
