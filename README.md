@@ -25,10 +25,11 @@ needs from quiddity-rust are in [docs/upstream-needs.md](docs/upstream-needs.md)
 decisions waiting for the maintainer in [docs/questions.md](docs/questions.md).
 
 As of stage 5 (consolidation, 2026-10-09) all five planned stages are on `main`. The full suite
-with the quiddity corpus is required when the kernel pin changes.
+(376 tests, with the quiddity corpus) passes, last on 2026-10-20 at quiddity-rust's alpha.8.
 quiddity and haecceity are pinned to quiddity-rust's `v0.1.0-alpha.8` tag
-(`c62081c6`), matching draftwright-rust alpha.9; `tools/check_quiddity_pin.py`
-checks the release pins. This includes derived PMI geometry and measured modelled threads;
+(`c62081c6`), which has the maintainer's haecceity writer decisions of 2026-10-09 and
+haecceity's U10 and U14 (question Q2). The pin matches draftwright-rust alpha.9;
+`tools/check_quiddity_pin.py` checks the release pins. This includes derived PMI geometry and measured modelled threads;
 Specify's thread choices and editable full-thread depth remain separate work.
 
 OpenCascade (and so specify-core's Python) opens every Rust-written file and reads its datums,

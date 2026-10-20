@@ -215,6 +215,7 @@ fn general_dimensions_run_over_the_plates_plane_levels() {
 #[test]
 fn modelled_thread_parts_still_analyse_interview_and_write() {
     let Some(corpus) = common::corpus_dir() else {
+        eprintln!("skipped: no corpus (set QUIDDITY_CORPUS or SPECIFY_CORPUS)");
         return;
     };
     let dir = std::env::temp_dir()

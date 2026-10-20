@@ -4,7 +4,7 @@
 //! Ports `tests/test_load.py`'s behavioural tests and `tests/test_assembly.py`'s parts listing.
 //! Expected values come from Python: written below as literals (with the command that produced
 //! them) for the committed synthetic parts, and compared live for corpus and NIST files when
-//! specify-core's venv is present (skipped otherwise, as are files that are absent).
+//! `SPECIFY_TEST_PYTHON` is set (skipped otherwise, as are files that are absent).
 
 mod common;
 
@@ -708,8 +708,8 @@ fn a_part_with_an_unresolved_face_keeps_haecceitys_record() {
 
 // --- live comparison with Python on corpus and NIST files -----------------------------------
 
-/// Python's `parts`, bindings and faces for `paths`, from specify-core's venv; `None` when the
-/// venv is absent.
+/// Python's `parts`, bindings and faces for `paths`, using `SPECIFY_TEST_PYTHON`;
+/// `None` when it is unset or `paths` is empty.
 fn python_parts(paths: &[PathBuf]) -> Option<serde_json::Map<String, Value>> {
     let python = common::live_python()?;
     if paths.is_empty() {
