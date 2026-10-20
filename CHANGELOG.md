@@ -9,7 +9,7 @@ All notable changes to specify-core-rust. The format follows
 ### Added
 
 - For #22, STEP-only provenance on every Specify-written semantic PMI requirement, using
-  the stable `specify-core:written:v1` token in AP242 fields and a dimension-owned UDA.
+  the stable `specify-core:written:v1` token in AP242 fields and dimension identification attributes.
   Imported PMI remains unmarked; existing-PMI results expose the token independently of
   stored answers. See `docs/pmi-provenance.md`.
 

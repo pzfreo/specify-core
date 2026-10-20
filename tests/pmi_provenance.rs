@@ -4,7 +4,7 @@ mod common;
 use std::path::PathBuf;
 
 use haecceity::p21::{Attribute, Document, RawEntity};
-use haecceity::pmi::{self, AttributeValue, DimensionId, NoteOwner};
+use haecceity::pmi::{self, AttributeValue};
 use haecceity::step::read_part_definitions;
 use serde_json::{Map, Value, json};
 use specify_core::{api, existing, part, rules, writer};
@@ -28,10 +28,11 @@ fn all_owned(bytes: &[u8]) -> pmi::PartPmi {
     assert_eq!(read.parts.len(), 1);
     let p = &read.parts[0];
     let prov = &read.provenance.parts[0];
-    for i in 0..p.dimensions.len() {
-        assert!(p.attributes.iter().any(|a| a.name == "Specify provenance"
-            && a.on == Some(NoteOwner::Dimension(DimensionId(i)))
-            && a.items == [("writer".into(), AttributeValue::Text(MARKER.into()))]));
+    for ids in &prov.dimensions {
+        assert!(
+            has(&doc, ids, "ID_ATTRIBUTE", 0),
+            "dimension lacks its identification marker: {ids:?}"
+        );
     }
     assert!(
         p.tolerances
@@ -54,7 +55,9 @@ fn all_owned(bytes: &[u8]) -> pmi::PartPmi {
         }
     }
     if p.material.is_some() {
-        assert!(has(&doc, &prov.material, "REPRESENTATION", 0));
+        assert!(p.attributes.iter().any(|a| a.name == "Specify provenance"
+            && a.on.is_none()
+            && a.items == [("material".into(), AttributeValue::Text(MARKER.into()))]));
     }
     assert!(haecceity::express::validate_document(doc.graph()).is_empty());
     assert!(haecceity::express_rules::check_all(&doc).is_empty());
@@ -247,4 +250,97 @@ fn dimensions_tolerances_and_caller_attributes_are_marked() {
     assert!(pmi.attributes.iter().any(|a| a.name == "editor metadata"
         && a.description.as_deref() == Some(MARKER)
         && a.items == [("literal".into(), AttributeValue::Text("unchanged".into()))]));
+}
+
+#[test]
+fn an_unmarked_legacy_resumed_file_gains_markers_before_the_noop_shortcut() {
+    let loaded = part::load(&common::fixtures().join("parts/plate.step"), None).unwrap();
+    let mut intent = rules::Intent::new(serde_json::to_value(&loaded.binding).unwrap());
+    intent.part.insert("notes".into(), json!(["Legacy note"]));
+    let answers = json!({"part.notes":["Legacy note"]})
+        .as_object()
+        .unwrap()
+        .clone();
+    let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
+    let doc = Document::parse(bytes).unwrap();
+    let mut edit = haecceity::p21::Edit::new();
+    for (&id, entity) in &doc.graph().entities {
+        let RawEntity::Simple {
+            name, attributes, ..
+        } = entity
+        else {
+            continue;
+        };
+        if name == "PROPERTY_DEFINITION"
+            && matches!(attributes.get(1), Some(Attribute::String(s)) if s == MARKER)
+        {
+            let mut record = entity.clone();
+            if let RawEntity::Simple { attributes, .. } = &mut record {
+                attributes[1] = Attribute::String("user defined attribute".into());
+            }
+            edit.replace(id, record);
+        }
+    }
+    let legacy_bytes = doc.apply(&edit).unwrap().bytes;
+    let legacy = part::load_bytes("legacy.step", legacy_bytes.clone()).unwrap();
+    assert!(
+        specify_core::resume::answers_for(&legacy)
+            .unwrap()
+            .is_some()
+    );
+    intent.binding = serde_json::to_value(&legacy.binding).unwrap();
+    let (upgraded, _) = writer::write_bytes(&legacy, &intent, Some(&answers)).unwrap();
+    assert_ne!(legacy_bytes, upgraded);
+    all_owned(&upgraded);
+    let reopened = part::load_bytes("upgraded.step", upgraded.clone()).unwrap();
+    intent.binding = serde_json::to_value(&reopened.binding).unwrap();
+    let (again, _) = writer::write_bytes(&reopened, &intent, Some(&answers)).unwrap();
+    assert_eq!(again, upgraded);
+}
+
+#[test]
+fn writing_an_identical_imported_material_does_not_claim_its_authorship() {
+    let loaded = part::load(&common::fixtures().join("parts/plate.step"), None).unwrap();
+    let doc = Document::parse(loaded.bytes.to_vec()).unwrap();
+    let defs = read_part_definitions(&loaded.bytes).unwrap();
+    let foreign = pmi::PartPmi {
+        material: Some(pmi::Material {
+            id: "brass".into(),
+            name: None,
+            density: None,
+        }),
+        ..Default::default()
+    };
+    let (edit, _) = pmi::write(
+        &doc,
+        &defs,
+        &[(pmi::PartId(0), foreign)],
+        pmi::write::Mode::Add,
+        pmi::write::PresentationPolicy::RemovePresentation,
+    )
+    .unwrap();
+    let imported = doc.apply(&edit).unwrap().bytes;
+    let loaded = part::load_bytes("imported-material.step", imported).unwrap();
+    let mut intent = rules::Intent::new(serde_json::to_value(&loaded.binding).unwrap());
+    intent.part.insert("material".into(), json!("brass"));
+    intent
+        .part
+        .insert("notes".into(), json!(["New instruction"]));
+    let (bytes, _) = writer::write_bytes(&loaded, &intent, None).unwrap();
+    let defs = read_part_definitions(&bytes).unwrap();
+    let doc = Document::parse(bytes).unwrap();
+    let read = pmi::read(&doc, &defs).unwrap();
+    assert_eq!(read.parts[0].material.as_ref().unwrap().id, "brass");
+    assert!(
+        read.parts[0]
+            .attributes
+            .iter()
+            .all(|a| a.name != "Specify provenance")
+    );
+    assert!(
+        read.parts[0]
+            .attributes
+            .iter()
+            .any(|a| a.name == "semantic text" && a.description.as_deref() == Some(MARKER))
+    );
 }

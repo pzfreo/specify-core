@@ -11,7 +11,7 @@
 //! instance it makes against the AP242 schema before anything is returned.
 //!
 //! **Provenance.** Every authored semantic requirement carries [`PMI_PROVENANCE`] in
-//! standard AP242 fields or a dimension-owned UDA. Input PMI stays unmarked; see
+//! standard AP242 fields or dimension identification attributes. Input PMI stays unmarked; see
 //! `docs/pmi-provenance.md` for the exact STEP-only reader contract.
 //!
 //! **Modes.** A part with no PMI, or one specify-core wrote (answers stored that match its
@@ -1513,8 +1513,9 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
         lines.written.push(format!("{name} {words}"));
     }
     p.features = features;
-    p.attributes
-        .extend((0..p.dimensions.len()).map(provenance::dimension_attribute));
+    if p.material.is_some() {
+        p.attributes.push(provenance::material_attribute());
+    }
     Ok((p, lines))
 }
 

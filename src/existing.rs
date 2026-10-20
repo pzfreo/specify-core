@@ -270,7 +270,8 @@ impl Reading {
                 ),
             };
             let mut item = ExistingPmi::new("dimension", r#type, first);
-            item.provenance = provenance::dimension(pmi, i).then(|| provenance::MARKER.into());
+            item.provenance =
+                provenance::dimension(doc, &prov.dimensions[i]).then(|| provenance::MARKER.into());
             item.faces2 = second;
             let nominal = dimension.nominal.as_ref();
             item.value = nominal.map(value);
