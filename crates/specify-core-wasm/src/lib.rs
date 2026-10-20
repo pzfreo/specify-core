@@ -2,6 +2,14 @@ use serde_json::{Map, Value, json};
 use specify_core::{api, choices};
 pub mod session;
 
+/// Accept every unanswered default to the same fixed point as CLI/serve apply.
+pub fn accept_defaults(
+    analysis: &Value,
+    answers: &Map<String, Value>,
+) -> Result<Map<String, Value>, String> {
+    specify_core::rules::with_all_defaults(analysis, answers).map_err(|error| error.to_string())
+}
+
 pub fn interpret(
     analysis: &Value,
     answers: &Map<String, Value>,
@@ -86,6 +94,14 @@ mod wasm {
                 .map(|value| value.to_string())
                 .map_err(|error| JsValue::from_str(&error))
         }
+
+        #[wasm_bindgen(js_name = acceptDefaults)]
+        pub fn accept_defaults(&self, answers: &str) -> Result<String, JsValue> {
+            self.0
+                .accept_defaults(&self::answers(answers)?)
+                .map(|answers| Value::Object(answers).to_string())
+                .map_err(|error| JsValue::from_str(&error))
+        }
     }
 
     fn parse(analysis: &str, answers: &str) -> Result<(Value, Map<String, Value>), JsValue> {
@@ -107,6 +123,14 @@ mod wasm {
         api::review(&analysis, &answers)
             .map(|value| value.to_string())
             .map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
+    #[wasm_bindgen(js_name = acceptDefaults)]
+    pub fn accept_defaults_json(analysis: &str, answers: &str) -> Result<String, JsValue> {
+        let (analysis, answers) = parse(analysis, answers)?;
+        accept_defaults(&analysis, &answers)
+            .map(|answers| Value::Object(answers).to_string())
+            .map_err(|error| JsValue::from_str(&error))
     }
 
     fn state(json: &str) -> Result<tolerancing::State, JsValue> {

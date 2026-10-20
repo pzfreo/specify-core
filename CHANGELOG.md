@@ -6,6 +6,18 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- WASM `IntentEngine.acceptDefaults(answers)` and free `acceptDefaults(analysis, answers)`
+  return ordinary editable answers with unanswered defaults explicitly accepted to the same
+  fixed point as CLI/serve apply. Supplied answers are preserved; questions without defaults
+  stay open. Existing review, settle and writePmi paths consume the returned answers.
+
+### WASM API
+
+- Add `IntentEngine.acceptDefaults(answers: string): string` and
+  `acceptDefaults(analysis: string, answers: string): string`. Existing signatures are unchanged.
+
 ### Changed
 
 - Pin quiddity and haecceity (native and WASM) to quiddity-rust `v0.1.0-alpha.8`,

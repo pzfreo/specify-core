@@ -213,3 +213,80 @@ fn grm03_answered_position_reports_its_pending_frame_then_is_written() {
             .any(|p| p.kind == "geometric_tolerance" && p.r#type.starts_with("Position"))
     );
 }
+
+fn check_accepted_defaults(path: &std::path::Path, given: Map<String, Value>) {
+    let loaded = part::load(path, None).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let accepted = specify_core::rules::with_all_defaults(&analysis, &given).unwrap();
+    assert_eq!(
+        specify_core::rules::with_all_defaults(&analysis, &accepted).unwrap(),
+        accepted
+    );
+    for (id, value) in &given {
+        assert_eq!(accepted.get(id), Some(value));
+    }
+    let review = api::review(&analysis, &accepted).unwrap();
+    assert!(review["open"].as_array().unwrap().is_empty());
+    assert_eq!(review["intent"]["part"]["general_tolerance"], "ISO 2768-m");
+    let expected = api::apply(&analysis, &given, true).unwrap();
+    let mut preview = api::preview(&analysis, &accepted).unwrap();
+    for item in preview
+        .datums
+        .iter_mut()
+        .chain(preview.requirements.iter_mut())
+    {
+        assert_eq!(item.remove("default"), Some(json!(false)));
+    }
+    assert_eq!(preview.to_dict(), expected.to_dict());
+    assert!(!expected.datums.is_empty());
+    assert!(
+        expected
+            .requirements
+            .iter()
+            .any(|r| r["kind"] == "position")
+    );
+    let (actual_bytes, _) =
+        specify_core::writer::write_bytes(&loaded, &preview, Some(&accepted)).unwrap();
+    let (expected_bytes, _) =
+        specify_core::writer::write_bytes(&loaded, &expected, Some(&accepted)).unwrap();
+    assert_eq!(actual_bytes, expected_bytes);
+    let reopened = part::load_bytes("accepted.step", actual_bytes).unwrap();
+    assert_eq!(
+        api::analyse(&reopened).unwrap()["resume"]["answers"],
+        json!(accepted)
+    );
+    assert_eq!(
+        specify_core::existing::part_settings(&reopened).unwrap()["general_tolerance"],
+        "ISO 2768-m"
+    );
+    assert!(
+        specify_core::existing::read_existing(&reopened)
+            .unwrap()
+            .iter()
+            .any(|p| p.kind == "geometric_tolerance" && p.r#type == "Position")
+    );
+}
+
+#[test]
+fn grm02_explicit_bulk_acceptance_matches_apply_with_defaults() {
+    check_accepted_defaults(
+        &common::fixtures().join("parts/GRM-02_shaft.step"),
+        answers(json!({"part.material": "steel", "part.surface_finish": "Ra 1.6"})),
+    );
+}
+
+#[test]
+fn grm03_explicit_bulk_acceptance_matches_apply_with_defaults() {
+    let Some(root) = common::corpus_dir() else {
+        return;
+    };
+    check_accepted_defaults(
+        &root.join("gramel/GRM-03_thumbwheel_drive_screw.step"),
+        answers(json!({
+            "part.material": "steel",
+            "hole.function:holes:12": "tapped:M2",
+            "diameter.fit:turned_steps:6": "thread:M3",
+            "diameter.fit:turned_steps:3": "knurl:straight",
+        })),
+    );
+}

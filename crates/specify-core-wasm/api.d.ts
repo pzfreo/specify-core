@@ -1,5 +1,6 @@
 export class IntentEngine {
   [Symbol.dispose](): void;
+  acceptDefaults(answers: string): string;
   constructor(name: string, bytes: Uint8Array);
   free(): void;
   review(answers: string): string;
@@ -9,6 +10,8 @@ export class IntentEngine {
 }
 
 export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;
+
+export function acceptDefaults(analysis: string, answers: string): string;
 
 export function answerEdit(state: string, answers: string): string;
 
@@ -32,7 +35,9 @@ export interface InitOutput {
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_start: () => void;
+  readonly acceptDefaults: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly answerEdit: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+  readonly intentengine_acceptDefaults: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_open: (a: number, b: number, c: number, d: number) => [number, number, number];
   readonly intentengine_review: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_settle: (a: number, b: number, c: number) => [number, number, number, number];

@@ -52,8 +52,10 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `new IntentEngine(name, bytes)` | Opens one STEP part. Refuses gzip, any count other than one distinct part, any count other than one placement, and a mismatch between haecceity's ordered face sources and the STEP definition. `name` labels the input; it is never read as a path. |
 | `engine.snapshot()` | `{analysis, mesh, provenance: {source_sha256, face_entities, part: 0}}`. |
 | `engine.review(answersJson)` | `{questions, open, intent, problems}`; adds geometry anchors to `intent.anchors`. |
+| `engine.acceptDefaults(answersJson)` | Answers object with every unanswered default filled to a fixed point, using the same rules as CLI/serve `accept_defaults`. Preserves supplied answers; questions without defaults stay unanswered. |
 | `engine.writePmi(answersJson, projectBase64?)` | `{bytes, source_sha256, report}`; `bytes` is an array of byte values. Writes and verifies answered PMI and stored answers in memory. Unanswered defaults remain suggestions. `report` is the upstream writer's report; its `output` is the constructor's name. |
 | `review(analysisJson, answersJson)` | Same review composition without a session or geometry anchors. Calls `specify_core::api::review`. |
+| `acceptDefaults(analysisJson, answersJson)` | Same accepted answers as the session method, using the supplied analysis. |
 | `interpret(analysisJson, answersJson, questionId, text)` | `{value, code, callout?}` for a choice question; includes a diameter callout for `hole.function:` and `diameter.fit:`. |
 | `start()` | Installs `console_error_panic_hook`; initialization also calls it automatically. |
 
@@ -68,6 +70,17 @@ can continue reporting `general_tolerance_missing`. Existing file datums remain 
 The shared #16 settling path still records its automatic ±/plain answers in `state.auto`;
 it does not accept datum or general-tolerance suggestions. Diagnostic `problems` continues
 to inspect the proposed scheme. These are behaviour changes with no signature changes.
+
+For an explicit bulk acceptance, store `JSON.parse(engine.acceptDefaults(answersJson))`
+as the editor's ordinary answers (or use the free function). The call returns answers only;
+it does not mutate the session or write PMI. Defaults that reveal further questions are
+accepted until no more defaults can be added. Repeating the call is idempotent. Feed the
+result to `review`, `settle` (as `state.answers`, with `state.auto = []` to mark the bulk
+result as manual) and `writePmi`: accepted items are answered,
+editable, absent from `open`, and drawn/written through the existing paths. Accepting
+`part.general_tolerance` puts it in `intent.part.general_tolerance`, clearing the condition
+for `general_tolerance_missing`. A required question without a default, such as material,
+still needs an answer. These two exports are additive; existing signatures are unchanged.
 
 Answered items that await an unanswered datum frame remain omitted from PMI. Review's
 `problems` (also returned by serve) includes an additive warning with
@@ -131,9 +144,12 @@ kernel revision, `cargo tree --target wasm32-unknown-unknown` contains neither `
 introduces them, enable the appropriate browser feature only in WASM target dependencies.
 
 The Node check loads the **web release package** directly, then runs a native reference on a
-plate, a turned pin and a placed part. It compares snapshots (analysis, mesh, provenance),
-session/free reviews, choice interpretation, bare/project STEP bytes and reports, and resumed
-answers. STEP bytes, reports, ids and strings compare exactly; geometric floating values allow
+plate, a turned pin, a placed part and the GRM-02 shaft. With `QUIDDITY_CORPUS` or
+`SPECIFY_CORPUS` configured it also checks `gramel/GRM-03_thumbwheel_drive_screw.step`.
+It compares snapshots (analysis, mesh, provenance), session/free reviews and `acceptDefaults`,
+idempotence, preserved answers, questions without defaults, settle, choice interpretation,
+bare/project STEP bytes and reports, and resumed answers. Accepted-default PMI bytes and
+reports also match native `apply(..., true)`. STEP bytes, reports, ids and strings compare exactly; geometric floating values allow
 relative/absolute error of `1e-10` for native/WASM math differences. Mesh checks compare
 metadata, per-face vertex sets, area and oriented area: circular planar caps can choose
 different Delaunay diagonals on native and WASM while describing the same surface. It also checks thrown-string
