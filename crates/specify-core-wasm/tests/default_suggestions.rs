@@ -107,3 +107,65 @@ fn accepting_one_default_writes_only_that_default() {
     assert_eq!(datums.len(), 1);
     assert_eq!(datums[0].r#type, "A");
 }
+
+#[test]
+fn session_reports_an_answered_control_until_its_frame_is_accepted() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/parts/plate.step");
+    let session = Session::open("plate.step", &std::fs::read(path).unwrap()).unwrap();
+    let initial = session.review(&Map::new()).unwrap();
+    let questions = initial["questions"].as_array().unwrap();
+    let position = questions
+        .iter()
+        .find(|q| {
+            q["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("hole.position:"))
+        })
+        .unwrap()["id"]
+        .as_str()
+        .unwrap();
+    let mut given = json!({position: "0.2"}).as_object().unwrap().clone();
+    let review = session.review(&given).unwrap();
+    assert!(
+        review["problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["code"] == "awaits_datum_frame" && p["about"] == position)
+    );
+    let written = session.write_pmi(&given, None).unwrap();
+    let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
+    let loaded = specify_core::part::load_bytes("pending.step", bytes).unwrap();
+    assert!(
+        specify_core::existing::read_existing(&loaded)
+            .unwrap()
+            .iter()
+            .all(|p| p.kind != "geometric_tolerance")
+    );
+    for q in questions {
+        if q["id"]
+            .as_str()
+            .is_some_and(|id| ["datum.A", "datum.B", "datum.C"].contains(&id))
+        {
+            given.insert(q["id"].as_str().unwrap().into(), q["default"].clone());
+        }
+    }
+    let review = session.review(&given).unwrap();
+    assert!(
+        review["problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|p| p["code"] != "awaits_datum_frame")
+    );
+    let written = session.write_pmi(&given, None).unwrap();
+    let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
+    let loaded = specify_core::part::load_bytes("accepted.step", bytes).unwrap();
+    assert!(
+        specify_core::existing::read_existing(&loaded)
+            .unwrap()
+            .iter()
+            .any(|p| p.kind == "geometric_tolerance" && p.r#type == "Position")
+    );
+}

@@ -69,6 +69,15 @@ The shared #16 settling path still records its automatic ±/plain answers in `st
 it does not accept datum or general-tolerance suggestions. Diagnostic `problems` continues
 to inspect the proposed scheme. These are behaviour changes with no signature changes.
 
+Answered items that await an unanswered datum frame remain omitted from PMI. Review's
+`problems` (also returned by serve) includes an additive warning with
+`code: "awaits_datum_frame"`, `about` naming the answered question, `datum_frame` listing
+the complete required frame, and `awaiting` listing the missing datum letters. Its message
+names both the answer and frame. This covers hole positions, explicit ± hole locations
+(including partially available measurement planes), runout, flatness and datum controls.
+Accepting or answering the missing datums removes the warning and enables the control.
+Preview items retain their `default` field for API stability; it is always `false`.
+
 An optional project is written through `writer::write_bytes_with` as an `AttributeSet` with
 `name: "draftwright editor project"`, `on: None`, one text item with that same name and the
 supplied base64 text, and `description`/`general_property` both `None`. The editor's check is

@@ -201,7 +201,20 @@ fn runout_uses_primary_axis_even_before_datums_are_proposed() {
     let pending = preview(&a, &given).unwrap();
     assert!(pending.datums.is_empty());
     assert!(pending.requirements.is_empty());
+    let found = problems(&a, &given).unwrap();
+    let awaiting = found
+        .iter()
+        .find(|p| p["code"] == "awaits_datum_frame")
+        .unwrap();
+    assert_eq!(awaiting["about"], "diameter.runout:turned_steps:6");
+    assert_eq!(awaiting["awaiting"], json!(["A"]));
     given.insert("datum.A".into(), json!([0]));
+    assert!(
+        problems(&a, &given)
+            .unwrap()
+            .iter()
+            .all(|p| p["code"] != "awaits_datum_frame")
+    );
     let intent = preview(&a, &given).unwrap();
     assert_eq!(intent.datums[0]["faces"], json!([0]));
     assert_eq!(

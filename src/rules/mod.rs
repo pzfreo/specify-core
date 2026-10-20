@@ -893,7 +893,7 @@ pub fn apply(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {
     if !missing.is_empty() {
         return Err(IncompleteError::new(missing, None).into());
     }
-    intent(&ctx, answers, &qs)
+    intent(&ctx, answers, &qs, IntentMode::Apply)
 }
 
 /// `api.apply`: intent from `answers`; with `accept_defaults`, unanswered defaults are taken
@@ -919,7 +919,7 @@ pub fn apply_with_defaults(
 pub fn preview(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {
     let ctx = Ctx::new(analysis)?;
     let qs = questions_in(&ctx, answers)?;
-    let mut intent = intent(&ctx, answers, &qs)?;
+    let mut intent = intent(&ctx, answers, &qs, IntentMode::Preview)?;
     mark_defaults(&mut intent, answers);
     Ok(intent)
 }
@@ -931,7 +931,7 @@ pub(crate) fn proposed_in(
     answers: &Map<String, Value>,
 ) -> Result<(Intent, Map<String, Value>, Vec<Question>)> {
     let (merged, qs) = settled(ctx, answers)?;
-    let mut intent = intent(ctx, &merged, &qs)?;
+    let mut intent = intent(ctx, &merged, &qs, IntentMode::Apply)?;
     mark_defaults(&mut intent, answers);
     Ok((intent, merged, qs))
 }
@@ -950,8 +950,19 @@ fn mark_defaults(intent: &mut Intent, answers: &Map<String, Value>) {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum IntentMode {
+    Preview,
+    Apply,
+}
+
 /// `_intent`: intent from the answered questions among `qs`; each item names its question.
-fn intent(ctx: &Ctx<'_>, answers: &Map<String, Value>, qs: &[Question]) -> Result<Intent> {
+fn intent(
+    ctx: &Ctx<'_>,
+    answers: &Map<String, Value>,
+    qs: &[Question],
+    mode: IntentMode,
+) -> Result<Intent> {
     let Some(binding) = ctx.analysis.get("binding") else {
         return invalid("the analysis has no 'binding'");
     };
@@ -1116,7 +1127,10 @@ fn intent(ctx: &Ctx<'_>, answers: &Map<String, Value>, qs: &[Question]) -> Resul
             };
             let (Some(letter), Some(control)) = (letter, control) else {
                 // The question can propose a control before its datum frame is accepted.
-                continue;
+                if mode == IntentMode::Preview {
+                    continue;
+                }
+                return invalid("there is no datum control to give");
             };
             reqs.push(object([
                 ("kind", Value::from(control.kind)),
@@ -1196,4 +1210,39 @@ pub(crate) fn note_strings(value: &Value) -> Result<Vec<&str>> {
         .as_array()
         .and_then(|items| items.iter().map(Value::as_str).collect())
         .ok_or_else(|| Error::Invalid("part.notes: expected an ordered list of strings".into()))
+}
+
+#[cfg(test)]
+mod intent_mode_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn only_preview_may_skip_a_control_without_its_frame() {
+        let analysis = json!({"binding": {}, "faces": [], "features": []});
+        let ctx = Ctx::new(&analysis).unwrap();
+        let given = json!({"datum.B.control": "0.05"})
+            .as_object()
+            .unwrap()
+            .clone();
+        // Public apply regenerates questions from the complete accepted frame: normally
+        // datum_control_questions excludes this impossible control. Pin the shared intent
+        // boundary with a stale question so apply/accept-defaults cannot silently skip it.
+        let qs = [Question::new(
+            "datum.B.control".into(),
+            "choice",
+            String::new(),
+            vec![],
+        )];
+        assert!(
+            intent(&ctx, &given, &qs, IntentMode::Preview)
+                .unwrap()
+                .requirements
+                .is_empty()
+        );
+        assert!(matches!(
+            intent(&ctx, &given, &qs, IntentMode::Apply),
+            Err(Error::Invalid(message)) if message == "there is no datum control to give"
+        ));
+    }
 }

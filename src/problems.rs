@@ -11,7 +11,7 @@
 //! sized twice two sizes on one diameter, both of which would be written
 //! ```
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -24,7 +24,8 @@ use crate::rules::datums::{axis_locates, chosen_datums, classify, coaxial, paral
 use crate::rules::{self, Ctx, DatumKind, Error, LOCATING, Result, object, str_of, truthy};
 
 /// The problems with `answers` (defaults standing in for the rest) on `analysis`, each
-/// `{severity, message, faces, about}`.
+/// `{severity, message, faces, about}`. Answered controls awaiting datums additionally name
+/// their `code`, `datum_frame` and missing `awaiting` letters.
 pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Value>> {
     let ctx = Ctx::new(analysis)?;
     // Python asks for the settled answers' questions and the preview separately; both come
@@ -32,7 +33,7 @@ pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Va
     let (intent, merged, qs) = rules::proposed_in(&ctx, answers)?;
     let faces = &ctx.faces;
     let asked: HashSet<&str> = qs.iter().map(|q| q.id.as_str()).collect();
-    let mut out = Vec::new();
+    let mut out = awaiting_datum_frames(&ctx, answers, &intent)?;
 
     let by_position = !matches!(
         rules::answer(&merged, &qs, "part.locating"),
@@ -298,6 +299,87 @@ fn size_text(req: &Map<String, Value>) -> Result<String> {
     } else {
         format!("{}/{}", signed_g(upper), signed_g(lower))
     })
+}
+
+/// Use the proposed requirements to find each answered item's complete frame, including
+/// measurement planes and the subject of a datum control. Compare with accepted/existing
+/// datums, not the settled suggestions used for the other prospective diagnostics.
+fn awaiting_datum_frames(
+    ctx: &Ctx<'_>,
+    answers: &Map<String, Value>,
+    proposed: &rules::Intent,
+) -> Result<Vec<Value>> {
+    let accepted = chosen_datums(ctx, answers, &[])?;
+    let mut frames: BTreeMap<&str, (Vec<String>, BTreeSet<i64>)> = BTreeMap::new();
+    for req in &proposed.requirements {
+        let Some(id) = req.get("question").and_then(Value::as_str) else {
+            continue;
+        };
+        if !answers.contains_key(id)
+            || !(id.starts_with("hole.position:")
+                || id.starts_with("hole.location:")
+                || id.starts_with("diameter.runout:")
+                || id == "datum.A.flatness"
+                || (id.starts_with("datum.") && id.ends_with(".control")))
+        {
+            continue;
+        }
+        let (frame, faces) = frames.entry(id).or_default();
+        faces.extend(face_ids(req.get("faces")));
+        if let Some(Value::Array(letters)) = req.get("datums") {
+            // A position's basic locations precede its control. The control's ordered
+            // references supersede those planes: D|B|C must not be reported as B|C|D.
+            *frame = letters.iter().map(str_of).collect();
+        }
+        if let Some(reference) = req.get("reference") {
+            for datum in &proposed.datums {
+                if datum.get("faces") == Some(reference) {
+                    let reference = letter(datum);
+                    if !frame.contains(&reference) {
+                        frame.push(reference);
+                    }
+                }
+            }
+        }
+        if id == "datum.A.flatness" || id.ends_with(".control") {
+            // C controls require B even when B is not square to C and therefore absent
+            // from the perpendicularity references (datum_control checks the whole frame).
+            if id == "datum.C.control" && !frame.iter().any(|x| x == "B") {
+                frame.push("B".into());
+            }
+            if let Some(subject) = id.split('.').nth(1)
+                && !frame.iter().any(|x| x == subject)
+            {
+                frame.push(subject.to_string());
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for (id, (frame, faces)) in frames {
+        let awaiting: Vec<_> = frame
+            .iter()
+            .filter(|letter| !letter.chars().next().is_some_and(|c| accepted.contains(c)))
+            .cloned()
+            .collect();
+        if awaiting.is_empty() {
+            continue;
+        }
+        let mut p = problem(
+            "warning",
+            format!(
+                "Answer {id} awaits datum frame {}: accept or answer datum {} before the complete control can be written.",
+                frame.join("|"),
+                awaiting.join(", ")
+            ),
+            Value::from(faces.into_iter().collect::<Vec<_>>()),
+            id,
+        );
+        p["code"] = Value::from("awaits_datum_frame");
+        p["datum_frame"] = Value::from(frame);
+        p["awaiting"] = Value::from(awaiting);
+        out.push(p);
+    }
+    Ok(out)
 }
 
 fn problem(severity: &str, message: String, faces: Value, about: &str) -> Value {

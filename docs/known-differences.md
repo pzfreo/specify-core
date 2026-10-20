@@ -12,16 +12,16 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | Area | rust-correct | rust-wrong | equivalent | undetermined | not-applicable | Total |
 |---|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 9 |
-| [cli](#cli) | 135 | 0 | 3 | 0 | 3 | 141 |
+| [cli](#cli) | 138 | 0 | 3 | 0 | 3 | 144 |
 | [cross_engine](#cross_engine) | 3 | 1 | 0 | 1 | 1 | 6 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
 | [features](#features) | 1028 | 1419 | 65 | 1387 | 11 | 3910 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 40 |
-| [rules](#rules) | 32 | 0 | 0 | 0 | 0 | 32 |
+| [rules](#rules) | 41 | 0 | 0 | 0 | 0 | 41 |
 | [writer](#writer) | 14 | 0 | 0 | 0 | 15 | 29 |
-| **all** | 1248 | 1437 | 79 | 1393 | 47 | 4204 |
+| **all** | 1260 | 1437 | 79 | 1393 | 47 | 4216 |
 
 ## anchors
 
@@ -67,7 +67,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (135 entries)
+### cli: rust-correct (138 entries)
 
 - **Python's write prints OpenCascade's transfer statistics on stdout before the report** (`cli/*` at `stdout_noise`)
 
@@ -109,9 +109,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Decision D1 (maintainer, 2026-10-15): a part is identified by its index ('part', what --part and stored answers use); its name and its product's PRODUCT.id are reported beside it. haecceity's PartDefinition.product_id (quiddity-rust 0d601d2) is the id as the file states it, escapes decoded; Python's parts listing has no such key. Every other key of the listing is still compared and equal (tests/part.rs, corpus_and_nist_faces_are_pythons_at_every_index, compares the rest with Python on corpus and NIST files).
 
-- **CLI and serve expose the corrected turned datums and blind-thread summaries** (21 entries, 11 case globs)
+- **CLI and serve expose the corrected turned datums and blind-thread summaries** (20 entries, 11 case globs)
 
   The CLI composition check independently requires byte-identical library and executable outputs. Corrected axis-first defaults change datum faces, axial position/runout frames, question ordering and dependent intent text on the pin/stack; blind tap summaries include computed full-thread depth. The full library before/after changes are exactly pinned in rule_defaults_oracle.json.gz; tests/turned_defaults.rs and tests/thread_depth_help.rs verify the intended geometry and displays. CLI Python-input checks inherit only exact matching reviewed rule changes via without_reviewed_rule_departures; these entries cover command/transcript envelopes and intent text. No composition differences are filtered.
+
+- **measurement datum defaults in CLI and serve envelopes** (95 entries, 94 case globs)
+
+  The evidence is stated per entry (5 distinct; all in `cli.json`). The first, for `cli/serve` at `lines[*].result.intent.requirements[*]*`: Issue #20 (https://github.com/pzfreo/specify-core-rust/issues/20), maintainer-approved decision: unanswered defaults remain suggestions, with no provisional PMI. This existing verdict previously compared the datum-frame leaf of an implicitly defaulted position requirement. The entire unanswered requirement is now omitted, so the comparison is at the requirement rather than its datums leaf. The scope retains the old leaf paths and now includes the containing requirement. Moving it into the measurement-datum departure group makes EVERY matching before/after value subject to the exact cli_datum_origins.json.gz guard in tests/cli.rs, strengthening coverage instead of exempting the new omissions. The completed full CLI sweep supplied the exact values; a replay of all 11 serve transcripts and all 123 command lines independently verified the changed granularity. The original Python captures and this verdict entry are retained; only preview expectations change, and explicit accept_defaults output is unchanged.
 
 - **a perpendicular shoulder datum unused by an axial position is reported** (2 entries, 2 case globs)
 
@@ -120,10 +124,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **Dominant round bosses use their main axis in CLI and serve** (6 entries, 3 case globs)
 
   The dominant cylindrical boss on a_hole_along_x_is_labelled_from_its_rim now supplies A on cylinder 0 and B on end plane 1. The axial hole keeps its rim anchor and position about A; B is available as an axial stop and is reported unused. The question transcript replaces A flatness with B perpendicularity, and the datum anchor groups change from face 1 to faces 0/1. tests/fixtures/rule_defaults_oracle.json.gz pins the complete library changes exactly, tests/turned_defaults.rs verifies dominant-boss axis selection, and the CLI composition sweep still compares library/executable bytes and every serve reply without filtering. These entries cover only this fixture's Python transcript/envelope differences.
-
-- **measurement datum defaults in CLI and serve envelopes** (91 entries, 91 case globs)
-
-  The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `cli/a_file_with_two_parts_must_say_which#0/questions` at `*`: Maintainer decision (draftwright-rust #122), rules version 2: default measurement datums add questions, datum features, baseline origins, dependent anchors, unreferenced-datum reports and unanswered-question ids to CLI/serve envelopes. The locating help now explains measurement origins. Full --intent JSON text carries rules_version 2 and the new datums. Original Python captures remain unchanged. tests/cli.rs pins every additional departure (case, path and both complete values) in tests/fixtures/cli_datum_origins.json.gz before applying these verdict entries; it independently requires no library/executable composition differences. Library outputs are exactly guarded by rule_defaults_oracle.json.gz; tests/writer.rs verifies datum features without FCFs, and tests/locations.rs verifies changed/removed origins. Rules version 3 (draftwright-rust #123) additionally introduces the ordered part.notes text_list question with default [], shifts later question positions and unanswered ids, and updates full intent JSON to rules_version 3. The same exact CLI snapshot now pins these envelope departures too; tests/part_notes.rs and docs/part-notes.md verify and specify the semantic note form, order, readback and byte-stable rewrite.
 
 - **axis-first turned defaults change string-post datum and basic-location report lines** (4 entries, 1 case glob)
 
@@ -713,7 +713,15 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## rules
 
-### rules: rust-correct (32 entries)
+### rules: rust-correct (41 entries)
+
+- **answered controls report the datum frame awaiting acceptance (issue #20)** (5 entries, 5 case globs)
+
+  Maintainer-approved issue #20 (https://github.com/pzfreo/specify-core-rust/issues/20) keeps unanswered defaults as suggestions, so an answered datum-dependent control is omitted until its frame is accepted. The approved review follow-up requires that omission to be visible: Rust adds awaits_datum_frame warnings naming the answered question, required frame and missing datum letters. Python implicitly accepts the frame and reports no pending control. tests/preview.rs, tests/turned_defaults.rs, tests/default_suggestions.rs and the WASM session regression cover position, partial ± locations, runout, flatness and datum controls, clearing the warning and writing semantic PMI after acceptance. Every departure and ordering change is exactly pinned by the documented UPDATE_RULE_DEFAULTS hook in rule_defaults_oracle.json.gz; frozen Python captures are unchanged.
+
+- **unanswered defaults remain suggestions until explicitly accepted (issue #20)** (4 entries, 1 case glob)
+
+  Maintainer-approved decision in specify-core-rust issue #20 (https://github.com/pzfreo/specify-core-rust/issues/20): defaults stay suggestions until answered or explicitly accepted; only those are written as PMI, with no provisional drawing. Python preview fills unanswered defaults, but Rust preview/review and IntentEngine.writePmi now use only supplied answers and existing datums. Questions retain suggested values and reasons and unanswered ids remain open; an absent general_tolerance stays absent for draftwright general_tolerance_missing. Position/runout and datum-control answers wait for their datum frames; flatness on A waits for A. They cannot commit an unanswered datum suggestion. CLI/serve apply with explicit accept_defaults is unchanged, and #16 settling does not accept datum or general-tolerance suggestions. tests/default_suggestions.rs and crates/specify-core-wasm/tests/default_suggestions.rs verify GRM-02/GRM-03, partial answers, #16, explicit acceptance and semantic PMI readback; tests/preview.rs guards pending frames. Every complete Python/Rust departure remains pinned in rule_defaults_oracle.json.gz; original captures are unchanged.
 
 - **ordered free-text part notes are model PMI** (2 entries, 1 case glob)
 

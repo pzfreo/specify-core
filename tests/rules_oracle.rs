@@ -253,7 +253,8 @@ fn rules_match_the_oracle() {
         started.elapsed().as_secs_f64()
     );
     // Turned defaults, datum origins, free-text notes and #20's unaccepted suggestions change
-    // the Python rules. Only preview departures changed for #20; applied defaults are intact. Keep the
+    // the Python rules. #20 changes preview and adds pending-frame problems; applied defaults
+    // are intact. Keep the
     // complete before/after values, including ordering, under an exact regression guard;
     // the known-difference entries below document the verdict, not a blanket exemption.
     let departures = json!(

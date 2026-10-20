@@ -106,6 +106,10 @@ fn grm03_tap_thread_and_knurl_do_not_add_datums_or_position() {
             q.id.starts_with("hole.function:") && q.diameter.is_some_and(|d| (d - 1.6).abs() < 1e-6)
         })
         .unwrap();
+    assert_eq!(
+        hole.id, "hole.function:holes:12",
+        "alpha.8 Ø1.6 hole identity"
+    );
     let mut given = given;
     given.insert(hole.id, json!("tapped:M2"));
     check_suggestions(&analysis, &given);
@@ -136,5 +140,76 @@ fn grm03_tap_thread_and_knurl_do_not_add_datums_or_position() {
             .unwrap()
             .iter()
             .all(|p| { p.kind != "datum" && p.kind != "geometric_tolerance" })
+    );
+}
+
+#[test]
+fn grm03_answered_position_reports_its_pending_frame_then_is_written() {
+    let Some(root) = common::corpus_dir() else {
+        return;
+    };
+    let loaded = part::load(
+        &root.join("gramel/GRM-03_thumbwheel_drive_screw.step"),
+        None,
+    )
+    .unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let qs = api::questions(&analysis, &Map::new()).unwrap();
+    let position = qs
+        .iter()
+        .find(|q| q.id == "hole.position:holes:12")
+        .cloned()
+        .unwrap();
+    let mut given = answers(json!({position.id.clone(): "0.2"}));
+    let review = api::review(&analysis, &given).unwrap();
+    let pending = review["problems"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["code"] == "awaits_datum_frame" && p["about"] == position.id)
+        .unwrap();
+    assert_eq!(pending["awaiting"], json!(["A"]));
+    assert!(
+        review["intent"]["requirements"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        !review["open"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(position.id))
+    );
+    let served = Server::default()
+        .reply(&json!({"id": 1, "op": "questions", "analysis": analysis, "answers": given}));
+    assert_eq!(served["result"]["problems"], review["problems"]);
+    for q in qs {
+        if ["datum.A", "datum.B", "datum.C"].contains(&q.id.as_str()) {
+            given.insert(q.id, q.default.unwrap());
+        }
+    }
+    let review = api::review(&analysis, &given).unwrap();
+    assert!(
+        review["problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|p| p["code"] != "awaits_datum_frame")
+    );
+    let intent = api::preview(&analysis, &given).unwrap();
+    assert!(
+        intent
+            .requirements
+            .iter()
+            .any(|r| r["question"] == position.id && r["kind"] == "position")
+    );
+    let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
+    let reopened = part::load_bytes("grm03-position.step", bytes).unwrap();
+    assert!(
+        specify_core::existing::read_existing(&reopened)
+            .unwrap()
+            .iter()
+            .any(|p| p.kind == "geometric_tolerance" && p.r#type.starts_with("Position"))
     );
 }
