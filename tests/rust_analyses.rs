@@ -221,9 +221,29 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
         .join("specify-core-modelled-threads")
         .join(std::process::id().to_string());
     std::fs::create_dir_all(&dir).unwrap();
-    for (file, count, freeforms) in [
-        ("cadgenbench_inputs/cgb243.step.gz", 4, 66),
-        ("cadgenbench/threaded_connector_109.step", 1, 4),
+    // Counts below are from origin/main's alpha.4 build. Before/after CLI comparisons
+    // also give identical questions, intent, reports and STEP bytes on both inputs.
+    for (file, count, freeforms, question_count, requirements, general, datums, written) in [
+        (
+            "cadgenbench_inputs/cgb243.step.gz",
+            4,
+            66,
+            38,
+            110,
+            57,
+            3,
+            117,
+        ),
+        (
+            "cadgenbench/threaded_connector_109.step",
+            1,
+            4,
+            18,
+            0,
+            17,
+            2,
+            6,
+        ),
     ] {
         let path = corpus.join(file);
         let analysis = specify_core::api::analyse_file(&path, None).unwrap();
@@ -282,12 +302,11 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
         }
         let roundtrip: Value = serde_json::from_str(&analysis.to_string()).unwrap();
         let qs = questions(&roundtrip, &Map::new()).unwrap();
-        assert!(!qs.is_empty(), "{file}: interview disappeared");
+        assert_eq!(qs.len(), question_count, "{file}: interview changed");
         let applied = intent(&roundtrip).unwrap();
-        assert!(
-            !applied.requirements.is_empty(),
-            "{file}: intent disappeared"
-        );
+        assert_eq!(applied.requirements.len(), requirements, "{file}");
+        assert_eq!(applied.general.len(), general, "{file}");
+        assert_eq!(applied.datums.len(), datums, "{file}");
         let loaded = specify_core::part::load(&path, None).unwrap();
         let answers = json!({"part.material": "steel"});
         let output = dir.join(format!(
@@ -295,7 +314,12 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
             path.file_stem().unwrap().to_string_lossy()
         ));
         let report = write_parts(&[(&loaded, &applied, answers.as_object())], &output).unwrap();
-        assert!(!report.written.is_empty(), "{file}: nothing written");
+        assert_eq!(report.written.len(), written, "{file}");
+        assert!(
+            report.not_written.is_empty(),
+            "{file}: {:?}",
+            report.not_written
+        );
         let resumed = specify_core::part::load(&output, None).unwrap();
         assert_eq!(
             specify_core::resume::answers_for(&resumed).unwrap(),
