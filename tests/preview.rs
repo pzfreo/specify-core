@@ -71,6 +71,27 @@ fn an_answer_is_shown_as_decided() {
     assert_eq!(intent.part["material"], "6082-T6");
 }
 
+#[test]
+fn datum_controls_wait_for_their_datum_answers() {
+    let plate = plate();
+    for id in ["datum.A.flatness", "datum.B.control", "datum.C.control"] {
+        let mut given = answers(json!({id: "0.05"}));
+        let pending = preview(&plate, &given).unwrap();
+        assert!(pending.datums.is_empty());
+        assert!(pending.requirements.is_empty(), "{id}: {pending:?}");
+        for q in questions(&plate, &given).unwrap() {
+            if ["datum.A", "datum.B", "datum.C"].contains(&q.id.as_str()) {
+                given.insert(q.id, q.default.unwrap());
+            }
+        }
+        let accepted = preview(&plate, &given).unwrap();
+        assert_eq!(accepted.datums.len(), 3);
+        assert_eq!(accepted.requirements.len(), 1);
+        assert_eq!(accepted.requirements[0]["question"], id);
+        assert_eq!(accepted.requirements[0]["tolerance"], 0.05);
+    }
+}
+
 // test_preview.py::test_every_item_names_its_question
 #[test]
 fn every_item_names_its_question() {

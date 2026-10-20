@@ -1100,6 +1100,9 @@ fn intent(ctx: &Ctx<'_>, answers: &Map<String, Value>, qs: &[Question]) -> Resul
                 reqs.push(turned::turned_requirement(value, d, fid, cylinders, ctx)?);
             }
         } else if q.id == "datum.A.flatness" && !py::is_str(Some(value), NONE) {
+            if !datums.contains('A') {
+                continue;
+            }
             reqs.push(object([
                 ("kind", Value::from("flatness")),
                 ("faces", Value::from(q.faces.clone())),
@@ -1112,8 +1115,8 @@ fn intent(ctx: &Ctx<'_>, answers: &Map<String, Value>, qs: &[Question]) -> Resul
                 None => None,
             };
             let (Some(letter), Some(control)) = (letter, control) else {
-                // Python's TypeError: the control no longer exists for these datums.
-                return invalid(format!("{}: there is no datum control to give", q.id));
+                // The question can propose a control before its datum frame is accepted.
+                continue;
             };
             reqs.push(object([
                 ("kind", Value::from(control.kind)),
