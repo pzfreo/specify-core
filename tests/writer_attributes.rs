@@ -27,10 +27,19 @@ fn plate() -> LoadedPart {
 }
 
 fn answers(material: &str) -> Map<String, Value> {
-    json!({"part.material": material, "hole.function:holes:9": "fit:H7"})
+    let mut given = json!({"part.material": material, "hole.function:holes:9": "fit:H7"})
         .as_object()
         .unwrap()
-        .clone()
+        .clone();
+    // #20: these attribute tests explicitly accept the datum suggestions, retaining datum
+    // PMI in the verified edit rather than depending on an unanswered preview default.
+    let analysis = api::analyse(&plate()).unwrap();
+    for q in api::questions(&analysis, &given).unwrap() {
+        if ["datum.A", "datum.B", "datum.C"].contains(&q.id.as_str()) {
+            given.insert(q.id, q.default.unwrap());
+        }
+    }
+    given
 }
 
 fn preview_intent(loaded: &LoadedPart, answers: &Map<String, Value>) -> Intent {

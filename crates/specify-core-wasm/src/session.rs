@@ -89,6 +89,15 @@ impl Session {
         )
     }
 
+    /// Return ordinary editable answers, preserving supplied values and leaving questions
+    /// without defaults open. This does not mutate the session or write PMI.
+    pub fn accept_defaults(
+        &self,
+        answers: &Map<String, Value>,
+    ) -> Result<Map<String, Value>, String> {
+        crate::accept_defaults(&self.analysis, answers)
+    }
+
     /// The review settled to the default path (`specify_core::tolerancing::settle`), with the
     /// label anchors [`Session::review`] adds: `{review, state}`.
     pub fn settle(&self, state: &tolerancing::State) -> Result<Value, String> {

@@ -34,8 +34,18 @@ fn a_part_settles_to_the_default_path_and_gdt_gives_its_answers_back() {
         "A/B/C measurement origins are asked on the default path"
     );
     let preview = api::preview(&analysis, &settled.answers).unwrap();
-    assert_eq!(preview.datums.len(), 3);
+    assert!(
+        preview.datums.is_empty(),
+        "#20: measurement origins are suggestions until answered"
+    );
     assert!(preview.requirements.iter().all(|r| r["kind"] != "position"));
+    let mut accepted = settled.answers.clone();
+    for q in api::questions(&analysis, &accepted).unwrap() {
+        if ["datum.A", "datum.B", "datum.C"].contains(&q.id.as_str()) {
+            accepted.insert(q.id, q.default.unwrap());
+        }
+    }
+    assert_eq!(api::preview(&analysis, &accepted).unwrap().datums.len(), 3);
     assert!(
         review["questions"]
             .as_array()

@@ -6,6 +6,18 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- WASM `IntentEngine.acceptDefaults(answers)` and free `acceptDefaults(analysis, answers)`
+  return ordinary editable answers with unanswered defaults explicitly accepted to the same
+  fixed point as CLI/serve apply. Supplied answers are preserved; questions without defaults
+  stay open. Existing review, settle and writePmi paths consume the returned answers.
+
+### WASM API
+
+- Add `IntentEngine.acceptDefaults(answers: string): string` and
+  `acceptDefaults(analysis: string, answers: string): string`. Existing signatures are unchanged.
+
 ### Changed
 
 - Pin quiddity and haecceity (native and WASM) to quiddity-rust `v0.1.0-alpha.8`,
@@ -17,6 +29,14 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- Answering a question no longer accepts every unanswered default (issue #20). Review,
+  preview and WASM PMI writing include only answered specifications and existing datums;
+  datum, hole-position and general-tolerance defaults remain open suggestions with their
+  reasons. CLI/serve writing with explicit `accept_defaults` is unchanged. The editor's
+  automatic ±/plain-hole path does not accept the remaining suggestions. No API signatures
+  change. Answered controls waiting for unaccepted datum frames now report
+  `awaits_datum_frame` in review/serve problems instead of disappearing silently; strict
+  apply still refuses an unavailable datum control.
 - Turned parts with a common principal axis now default to A on the plain recognised cylinder
   with the greatest total cylindrical area (diameter breaks ties). Threads and knurls from
   answers, recognition or PMI are excluded. Interrupted single-diameter shafts recognised as

@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { brotliCompressSync, gzipSync, constants } from 'node:zlib';
-import init, { IntentEngine, review, interpret, start } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
+import init, { IntentEngine, review, acceptDefaults, interpret, start } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
 
 const root = new URL('../', import.meta.url);
 const wasm = readFileSync(new URL('crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm', root));
@@ -56,8 +57,11 @@ function throwsString(action, pattern) {
   assert.throws(action, error => typeof error === 'string' && pattern.test(error));
 }
 
-for (const part of ['plate', 'pin', 'a_placed_part_is_meshed_in_the_frame_the_analysis_uses']) {
-  const path = fileURLToPath(new URL(`tests/fixtures/parts/${part}.step`, root));
+const parts = ['plate', 'pin', 'a_placed_part_is_meshed_in_the_frame_the_analysis_uses', 'GRM-02_shaft']
+  .map(part => [part, fileURLToPath(new URL(`tests/fixtures/parts/${part}.step`, root))]);
+const corpus = process.env.QUIDDITY_CORPUS || process.env.SPECIFY_CORPUS;
+if (corpus) parts.push(['GRM-03_thumbwheel_drive_screw', join(corpus, 'gramel/GRM-03_thumbwheel_drive_screw.step')]);
+for (const [part, path] of parts) {
   const name = `${part}.step`;
   const bytes = readFileSync(path);
   const engine = new IntentEngine(name, bytes);
@@ -91,17 +95,51 @@ for (const part of ['plate', 'pin', 'a_placed_part_is_meshed_in_the_frame_the_an
     const stored = JSON.parse(engine.writePmi(answersJson, project));
     assert.deepEqual(bare, expected.bare, 'bare STEP bytes and report');
     assert.deepEqual(stored, expected.project, 'project STEP bytes and report');
+    const acceptedJson = engine.acceptDefaults(answersJson);
+    const accepted = JSON.parse(acceptedJson);
+    assert.deepEqual(accepted, expected.accepted, 'native/session accepted answers');
+    assert.deepEqual(JSON.parse(acceptDefaults(JSON.stringify(snapshot.analysis), answersJson)), accepted, 'free accepted answers');
+    assert.deepEqual(JSON.parse(engine.acceptDefaults(acceptedJson)), accepted, 'session acceptance is idempotent');
+    assert.deepEqual(JSON.parse(acceptDefaults(JSON.stringify(snapshot.analysis), acceptedJson)), accepted, 'free acceptance is idempotent');
+    for (const [id, value] of Object.entries(answers)) assert.deepEqual(accepted[id], value, `${id}: supplied answer preserved`);
+    const defaults = JSON.parse(engine.acceptDefaults('{}'));
+    assert.deepEqual(defaults, expected.defaults_without_answers);
+    assert.ok(!Object.hasOwn(defaults, 'part.material'), 'no invented default for material');
+    assert.ok(JSON.parse(engine.review(JSON.stringify(defaults))).open.includes('part.material'));
+    const acceptedReview = JSON.parse(engine.review(acceptedJson));
+    compare(acceptedReview, expected.accepted_review);
+    compare(JSON.parse(review(JSON.stringify(snapshot.analysis), acceptedJson)), expected.accepted_free_review);
+    assert.deepEqual(acceptedReview.open, [], 'accepted defaults are answered');
+    assert.equal(acceptedReview.intent.part.general_tolerance, accepted['part.general_tolerance']);
+    assert.ok(acceptedReview.intent.datums.length > 0);
+    assert.ok(!acceptedReview.problems.some(p => p.code === 'awaits_datum_frame'));
+    const state = { answers: accepted, auto: [], gdt: null };
+    const settled = JSON.parse(engine.settle(JSON.stringify(state)));
+    compare(settled, expected.accepted_settle);
+    assert.deepEqual(settled.state.answers, accepted, 'settle preserves accepted answers');
+    const acceptedWrite = JSON.parse(engine.writePmi(acceptedJson));
+    assert.deepEqual(acceptedWrite, expected.accepted_write, 'accepted PMI matches native apply-with-defaults bytes/report');
+    const acceptedReopened = new IntentEngine(name, Uint8Array.from(acceptedWrite.bytes));
+    try { assert.deepEqual(JSON.parse(acceptedReopened.snapshot()).analysis.resume.answers, accepted); }
+    finally { acceptedReopened.free(); }
+    const edited = { ...accepted, 'part.general_tolerance': 'ISO 2768-f' };
+    assert.equal(JSON.parse(engine.acceptDefaults(JSON.stringify(edited)))['part.general_tolerance'], 'ISO 2768-f');
+    assert.equal(JSON.parse(engine.review(JSON.stringify(edited))).intent.part.general_tolerance, 'ISO 2768-f');
     assert.ok(stored.report.written.length > 0, 'PMI written');
     assert.ok(Buffer.from(stored.bytes).includes(Buffer.from(`DESCRIPTIVE_REPRESENTATION_ITEM('draftwright editor project','${project}')`)));
     const reopened = new IntentEngine(name, Uint8Array.from(stored.bytes));
     try { assert.deepEqual(JSON.parse(reopened.snapshot()).analysis.resume.answers, answers); }
     finally { reopened.free(); }
     throwsString(() => engine.review('[]'), /Invalid answers/);
+    throwsString(() => engine.acceptDefaults('[]'), /Invalid answers/);
+    throwsString(() => acceptDefaults('{', '{}'), /Invalid analysis/);
+    throwsString(() => acceptDefaults(JSON.stringify(snapshot.analysis), 'null'), /Invalid answers/);
+    throwsString(() => acceptDefaults('{}', '{}'), /faces/);
     throwsString(() => engine.writePmi('{}', 'not base64!'), /not base64/);
     throwsString(() => engine.writePmi('{}', ''), /not base64/);
     throwsString(() => review('{', '{}'), /Invalid analysis/);
     throwsString(() => interpret(JSON.stringify(snapshot.analysis), '{}', 'missing', 'H7'), /No choice question/);
-    console.log(`${part}: snapshot, review, interpretation, exact PMI bytes/report, project and resume parity passed`);
+    console.log(`${part}: snapshot, review, interpretation, acceptDefaults, settle, exact PMI bytes/report, project and resume parity passed`);
   } finally { engine.free(); }
   throwsString(() => new IntentEngine(name, gzipSync(bytes)), /Decompress/);
 }

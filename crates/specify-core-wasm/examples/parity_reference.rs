@@ -3,7 +3,7 @@ use std::io::{self, Read};
 
 use serde_json::{Map, Value, json};
 use specify_core::{api, part, writer};
-use specify_core_wasm::{interpret, session::Session};
+use specify_core_wasm::{accept_defaults, interpret, session::Session};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut input = String::new();
@@ -21,12 +21,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(snapshot["mesh"], api::mesh(&loaded));
     let intent = api::preview(&analysis, &answers)?;
     let (bare_bytes, report) = writer::write_bytes(&loaded, &intent, Some(&answers))?;
+    let accepted = accept_defaults(&analysis, &answers)?;
+    assert_eq!(session.accept_defaults(&answers)?, accepted);
+    let applied = api::apply(&analysis, &answers, true)?;
+    let (accepted_bytes, accepted_report) =
+        writer::write_bytes(&loaded, &applied, Some(&accepted))?;
+    let accepted_write = session.write_pmi(&accepted, None)?;
+    assert_eq!(accepted_write["bytes"], json!(accepted_bytes));
+    assert_eq!(accepted_write["report"], accepted_report.to_dict());
     println!(
         "{}",
         json!({
             "snapshot": snapshot,
             "review": session.review(&answers)?,
             "free_review": api::review(&analysis, &answers)?,
+            "accepted": accepted,
+            "defaults_without_answers": accept_defaults(&analysis, &Map::new())?,
+            "accepted_review": session.review(&accepted)?,
+            "accepted_free_review": api::review(&analysis, &accepted)?,
+            "accepted_write": accepted_write,
+            "accepted_settle": session.settle(&specify_core::tolerancing::State {
+                answers: accepted.clone(), auto: Some(vec![]), gdt: None,
+            })?,
             "interpret": interpret(&analysis, &answers,
                 request["question_id"].as_str().ok_or("missing question_id")?,
                 request["text"].as_str().ok_or("missing text")?)?,

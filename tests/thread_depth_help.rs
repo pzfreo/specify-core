@@ -54,7 +54,16 @@ fn blind_tap_help_gives_valid_syntax_and_the_summary_shows_the_computed_depth() 
         .unwrap();
     assert_eq!(presented["why"], q.why);
     assert_eq!(presented["choices"], json!(q.choices));
-    let intent = rules::preview(&a, &Map::new()).unwrap();
+    // #20: help remains visible while the proposed tap is unanswered, but its thread PMI
+    // (and the depth being checked) appears only after that suggestion is accepted.
+    assert!(
+        rules::preview(&a, &Map::new())
+            .unwrap()
+            .requirements
+            .is_empty()
+    );
+    let given = Map::from_iter([(q.id.clone(), q.default.clone().unwrap())]);
+    let intent = rules::preview(&a, &given).unwrap();
     assert_eq!(
         intent
             .requirements
