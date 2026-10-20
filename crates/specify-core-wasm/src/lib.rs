@@ -145,9 +145,10 @@ mod wasm {
     }
     fn state(json: &str) -> Result<tolerancing::State, JsValue> {
         limit("State", json, input::JSON_LIMIT)?;
-        let state = serde_json::from_str(json)
+        let state: tolerancing::State = serde_json::from_str(json)
             .map_err(|error| JsValue::from_str(&format!("Invalid state: {error}")))?;
-        input::state(&state).map_err(js_error)?;
+        // Saved auto IDs may be stale or repeated; core transforms handle them safely.
+        input::answers_shape(&state.answers).map_err(js_error)?;
         Ok(state)
     }
     fn answers(json: &str) -> Result<Map<String, Value>, JsValue> {

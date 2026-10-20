@@ -36,7 +36,7 @@ try {
     { [hole.id]: 'tapped:clearance M6' },
     { [hole.id]: 'clearance tapped M6' },
     { [hole.id]: 42 },
-    { 'part.material': {} },
+    { 'part.notes': null },
     { 'part.notes': ['ok', 42] },
     { 'datum.A': [999999] },
     { 'extra.bad': { faces: [999999], kind: 'flatness', value: '0.05' } },
@@ -45,7 +45,7 @@ try {
       refuses(`${method}: hostile answer`, () => engine[method](JSON.stringify(answers)), /answer|feature|face|text|read|tabulated|either|Choose|Type|datum/i);
     }
   }
-  for (const bad of ['{', 'null', '[]', '{}', '{"answers":42}', '{"answers":{},"auto":[42]}', '{"answers":{},"auto":["missing"]}', '{"answers":{},"gdt":"invalid"}']) {
+  for (const bad of ['{', 'null', '[]', '{}', '{"answers":42}', '{"answers":{},"auto":[42]}', '{"answers":{},"auto":{}}', '{"answers":{},"gdt":"invalid"}']) {
     refuses('settle: invalid state', () => engine.settle(bad), /Invalid state|answer/);
     refuses('answerEdit: invalid state', () => answerEdit(bad, '{}'), /Invalid state|answer/);
     refuses('tolerancingEdit: invalid state', () => tolerancingEdit(bad, undefined, '{}'), /Invalid state|answer/);
@@ -79,6 +79,33 @@ try {
   refuses('oversized interpretation', () => interpret(analysis, '{}', hole.id, large), /exceeds.*limit/);
   refuses('oversized project', () => engine.writePmi('{}', large), /exceeds.*limit/);
   refuses('oversized STEP', () => new IntentEngine('large.step', new Uint8Array(64 * 1024 * 1024 + 1)), /exceeds.*limit/);
+  // These values are deliberately accepted by rules/py.rs, not malformed answers.
+  let compatible = 0;
+  for (const id of ['part.material', 'part.coating', 'part.heat_treatment']) {
+    for (const value of [null, '', 42, false, 0, [], {}, ['legacy']]) {
+      const answers = { [id]: value };
+      const text = JSON.stringify(answers);
+      const result = JSON.parse(engine.review(text));
+      if (value === null || value === '' || value === false || value === 0 ||
+          (typeof value === 'object' && Object.keys(value).length === 0)) {
+        assert.ok(!Object.hasOwn(result.intent.part, id.slice(5)), `${id}: cleared answer`);
+      } else assert.deepEqual(result.intent.part[id.slice(5)], value);
+      assert.deepEqual(JSON.parse(engine.acceptDefaults(text))[id], value);
+      assert.ok(JSON.parse(engine.writePmi(text)).bytes.length > 0);
+      const legacy = { answers, auto: ['missing', 'missing', id], gdt: null };
+      const legacyJson = JSON.stringify(legacy);
+      assert.deepEqual(JSON.parse(answerEdit(legacyJson, text)), legacy);
+      assert.deepEqual(JSON.parse(openedTolerancing(legacyJson)), legacy);
+      const edited = JSON.parse(tolerancingEdit(legacyJson, 'geometric', text));
+      assert.deepEqual(edited, { answers: {}, auto: [], gdt: 'geometric' });
+      const settled = JSON.parse(engine.settle(legacyJson));
+      assert.deepEqual(settled.review, JSON.parse(engine.review(JSON.stringify(settled.state.answers))), 'settle reuses review with identical anchors');
+      assert.deepEqual(settled.state.answers[id], value);
+      assert.equal(engine.snapshot(), snapshot);
+      compatible++;
+    }
+  }
+  console.log(`${compatible} legacy text/state cases: review, defaults, write, settle and editor transforms passed`);
   assert.ok(JSON.parse(engine.acceptDefaults('{}')));
   assert.ok(JSON.parse(engine.writePmi('{}')).bytes.length > 0);
   console.log(`${count} hostile-input refusals: thrown strings; next valid review and identical snapshot on the same engine`);

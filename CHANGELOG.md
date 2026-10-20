@@ -11,6 +11,9 @@ All notable changes to specify-core-rust. The format follows
 - Refuse invalid browser answers, state, non-finite dimensions and oversized inputs with
   thrown string errors; preserve the session after refusals. Audit the WASM-reachable panic
   and indexing sites and exercise hostile inputs in the WASM CI job (#26).
+- Preserve Python-compatible text answers (including `null`, empty and non-string values)
+  and saved state with stale or repeated automatic-answer IDs at the WASM boundary (#26).
+  Reuse core choice validation and the settled review to avoid redundant rule passes.
 
 ### Changed
 
@@ -20,7 +23,7 @@ All notable changes to specify-core-rust. The format follows
 ### WASM API
 
 - No JavaScript/TypeScript signature changes (#26). Invalid answer IDs, contradictory choices,
-  wrong answer types and invalid automatic-answer state now refuse explicitly. Inputs are
+  invalid choice/note types and malformed state now refuse explicitly. Inputs are
   bounded to 64 MiB STEP, 8 MiB per JSON/project argument and 64 KiB names/interpretation/mode.
 
 ## 0.1.0-alpha.6 (2026-10-20)

@@ -1,6 +1,5 @@
 //! Checks shared by the JSON bindings and the in-memory session, before cloning or rules.
 use serde_json::{Map, Value};
-use specify_core::{api, choices, tolerancing};
 use std::fmt;
 
 pub const JSON_LIMIT: usize = 8 * 1024 * 1024;
@@ -11,16 +10,12 @@ pub const TEXT_LIMIT: usize = 64 * 1024;
 pub enum Error {
     TooLarge { field: &'static str, limit: usize },
     Answer { id: String, why: String },
-    State(String),
-    Rules(api::Error),
 }
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TooLarge { field, limit } => write!(f, "{field} exceeds the {limit} byte limit"),
             Self::Answer { id, why } => write!(f, "Invalid answers: {id}: {why}"),
-            Self::State(why) => write!(f, "Invalid state: {why}"),
-            Self::Rules(error) => error.fmt(f),
         }
     }
 }
@@ -63,7 +58,9 @@ pub fn answers_shape(answers: &Map<String, Value>) -> Result<(), Error> {
             ]
             .contains(&name)
             {
-                if !value.is_string() {
+                // Text answers retain the core rules' Python truthiness and str_of semantics.
+                if !matches!(name, "material" | "coating" | "heat_treatment") && !value.is_string()
+                {
                     return Err(invalid("an answer must be text"));
                 }
             } else {
@@ -153,35 +150,6 @@ pub fn answers(analysis: &Value, answers: &Map<String, Value>) -> Result<(), Err
             }
         }
     }
-    let questions = api::questions(analysis, answers).map_err(Error::Rules)?;
-    for question in questions {
-        if question.kind == "choice"
-            && let Some(value) = answers.get(&question.id)
-        {
-            choices::check(
-                &question.id,
-                value,
-                &question.options,
-                question.diameter,
-                question.depth,
-            )
-            .map_err(|e| bad(&question.id, e.0))?;
-        }
-    }
-    Ok(())
-}
-
-pub fn state(state: &tolerancing::State) -> Result<(), Error> {
-    answers_shape(&state.answers)?;
-    if let Some(auto) = &state.auto {
-        let mut seen = std::collections::HashSet::new();
-        for id in auto {
-            if !state.answers.contains_key(id) || !seen.insert(id) {
-                return Err(Error::State(format!(
-                    "automatic answer {id} is missing or repeated"
-                )));
-            }
-        }
-    }
+    // Core question generation checks choices during review, preview, defaults and interpret.
     Ok(())
 }

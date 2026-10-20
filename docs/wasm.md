@@ -102,9 +102,12 @@ previous extras, so resupply the project on every write that should retain it.
 
 Refusals throw **strings**, preserving the editor's existing error transport: malformed JSON
 starts with `Invalid answers:`, `Invalid analysis:` or `Invalid state:`; rule and STEP errors
-name what could not be read or specified. Unknown answer/feature/face IDs, wrong answer types,
-contradictory choices and invalid `auto` entries refuse explicitly. Partial answers remain
-valid: unanswered questions stay open. Dormant answers for existing features may remain in a
+name what could not be read or specified. Unknown answer/feature/face IDs, invalid choice or
+note types, and contradictory choices refuse explicitly. Text answers (`part.material`,
+`part.coating`, `part.heat_treatment`) preserve the core rules' Python-compatible truthiness
+and JSON values: `null` or `""` clears an answer, and non-string values remain accepted.
+Saved state may retain stale or repeated `auto` IDs, as the core state transforms allow.
+Partial answers remain valid: unanswered questions stay open. Dormant answers for existing features may remain in a
 project when a mode hides their questions. The editor-only state transforms have no analysis,
 so they check ID syntax and value shapes; session calls also resolve IDs against the part.
 
@@ -138,7 +141,9 @@ unwound. An unexpected trap requires discarding the module, not treating it as a
 `scripts/wasm-hostile.mjs` exercises malformed STEP/JSON, contradictory answers, unknown IDs,
 wrong types, non-finite feature records, invalid editor state and oversized inputs against the
 release web package. After every refusal it checks an identical valid review and snapshot on
-the same engine, then exercises default acceptance, verified writing and disposal. Both the
+the same engine, then exercises default acceptance, verified writing and disposal. It also checks legacy text
+values and stale automatic-answer state through review, writing and editor transforms. Native
+compatibility tests compare these results with direct core calls. Both the
 CI `wasm` job and release workflow run it beside parity and the existing safeguards.
 
 ## Build and verify

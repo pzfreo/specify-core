@@ -107,18 +107,21 @@ impl Session {
     /// The review settled to the default path (`specify_core::tolerancing::settle`), with the
     /// label anchors [`Session::review`] adds: `{review, state}`.
     pub fn settle(&self, state: &tolerancing::State) -> Result<Value, String> {
-        input::state(state).map_err(|e| e.to_string())?;
         input::answers(&self.analysis, &state.answers).map_err(|e| e.to_string())?;
-        let (_, settled) =
+        let (review, settled) =
             tolerancing::settle(&self.analysis, state).map_err(|error| error.to_string())?;
-        let review = self.review(&settled.answers)?;
+        let review = self.with_anchors(review);
         Ok(json!({"review": review, "state": settled}))
     }
 
     pub fn review(&self, answers: &Map<String, Value>) -> Result<Value, String> {
         input::answers(&self.analysis, answers).map_err(|e| e.to_string())?;
+        let review = api::review(&self.analysis, answers).map_err(|error| error.to_string())?;
+        Ok(self.with_anchors(review))
+    }
+
+    fn with_anchors(&self, mut review: Value) -> Value {
         // JSON reads return Null on a missing key; api::review always constructs an object intent.
-        let mut review = api::review(&self.analysis, answers).map_err(|error| error.to_string())?;
         let groups = review["intent"]["datums"]
             .as_array()
             .into_iter()
@@ -138,7 +141,7 @@ impl Session {
             })
             .collect::<Vec<Vec<usize>>>();
         review["intent"]["anchors"] = json!(api::anchors(&self.loaded, &groups));
-        Ok(review)
+        review
     }
 }
 
