@@ -94,8 +94,10 @@ try {
       assert.ok(JSON.parse(engine.writePmi(text)).bytes.length > 0);
       const legacy = { answers, auto: ['missing', 'missing', id], gdt: null };
       const legacyJson = JSON.stringify(legacy);
-      assert.deepEqual(JSON.parse(answerEdit(legacyJson, text)), legacy);
-      assert.deepEqual(JSON.parse(openedTolerancing(legacyJson)), legacy);
+      // State's serde contract omits gdt when None, even when input explicitly says null.
+      const expectedState = { answers, auto: legacy.auto };
+      assert.deepEqual(JSON.parse(answerEdit(legacyJson, text)), expectedState);
+      assert.deepEqual(JSON.parse(openedTolerancing(legacyJson)), expectedState);
       const edited = JSON.parse(tolerancingEdit(legacyJson, 'geometric', text));
       assert.deepEqual(edited, { answers: {}, auto: [], gdt: 'geometric' });
       const settled = JSON.parse(engine.settle(legacyJson));
