@@ -1225,7 +1225,7 @@ fn command_lines(dir: &Path) -> Vec<Difference> {
 // The sweep
 // ---------------------------------------------------------------------------------------------
 
-/// `check_known("cli")`, but without the corpus (as in CI) the entries for corpus cases and
+/// `check_known("cli")`, but without the corpus the entries for corpus cases and
 /// for scenarios on corpus cases are left out: their cases were skipped, so they cannot be
 /// stale. With the corpus, every entry must match.
 fn check_area(differences: &[Difference]) {

@@ -520,7 +520,7 @@ fn dropped() -> Vec<Difference> {
         .collect()
 }
 
-/// `check_known("writer")`, but without the corpus (as in CI) the entries for corpus cases and
+/// `check_known("writer")`, but without the corpus the entries for corpus cases and
 /// for scenarios on corpus cases, and the cross-case (`*`) entries that then match nothing, are
 /// left out: their cases were skipped, so they cannot be stale. With the corpus, every entry
 /// must match.

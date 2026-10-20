@@ -506,7 +506,7 @@ Listed entry by entry in [known-differences.md](known-differences.md), "Open wor
 
 ### Open questions
 
-Every question in [questions.md](questions.md) is open, each with what is done meanwhile:
+The remaining questions and interim behaviour are recorded in [questions.md](questions.md):
 
 - **Interchange between engines:** Q1 (mixing engines on one analysis), Q10 and Q13 (a file whose
   face order OpenCascade changes: corpus `inventory_refusal/13975`), Q14 (resume across engines:
@@ -519,7 +519,6 @@ Every question in [questions.md](questions.md) is open, each with what is done m
   Q7 (a product with surface models: one part), Q8 (ISO 286 extended to 3150 mm, in both engines, compared), Q9
   (malformed input refused as invalid), Q11 (an undecided sightline sample blocks), Q12 (mesh
   density, about 1.8 times Python's triangles), Q19 (unmeasurable contacts as warnings).
-- **Repository:** Q5 (whether CI checks out the corpus).
 
 ### What remains
 
@@ -537,4 +536,4 @@ Every question in [questions.md](questions.md) is open, each with what is done m
   to `6d544e060cd0eeb4442d2196e5df757b5a15ea55`, matching quiddity-rust's suite. Both
   `QUIDDITY_CORPUS` and `SPECIFY_CORPUS` point to the sparse checkout;
   `QUIDDITY_CORPUS_REQUIRED=1` prevents silent skips. Local runs without the switch can still
-  omit the corpus (Q5). Live Python/OpenCascade checks remain opt-in.
+  omit the corpus (Q5, decided 2026-10-20). Live Python/OpenCascade checks remain opt-in.

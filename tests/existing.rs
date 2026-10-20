@@ -349,7 +349,7 @@ fn existing_pmi_matches_the_oracle() {
     check_area("existing", &all);
 }
 
-/// `check_known(area)`, but without the corpus (as in CI) the entries for corpus cases, and the
+/// `check_known(area)`, but without the corpus the entries for corpus cases, and the
 /// cross-case (`*`) entries that then match nothing, are left out: their cases were skipped, so
 /// they cannot be stale. With the corpus, every entry must match.
 fn check_area(area: &str, differences: &[Difference]) {
