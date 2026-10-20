@@ -6,6 +6,15 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- For #22, STEP-only provenance on every Specify-written semantic PMI requirement, using
+  the stable `specify-core:written:v1` token in AP242 fields and representation descriptions.
+  Imported PMI remains unmarked; existing-PMI results expose the token independently of
+  stored answers. `existing::part_settings_provenance` also exposes settings authorship.
+  The new public `ExistingPmi.provenance` field breaks Rust struct-literal callers; add
+  `provenance: None` when constructing an unmarked row. See `docs/pmi-provenance.md`.
+
 ### Changed
 
 - CI: run the full workspace tests on Ubuntu and macOS with Quiddity's pinned STEP corpus;

@@ -1,5 +1,12 @@
 [
  {
+  "case": "*",
+  "path": "existing[key=*].provenance",
+  "pattern": "Specify-written requirements retain STEP-only authorship (issue #22)",
+  "verdict": "rust-correct",
+  "evidence": "Issue #22 (https://github.com/pzfreo/specify-core-rust/issues/22) explicitly requires a stable STEP-only marker on Specify-authored PMI and recognition by existing.rs. Rust adds provenance=specify-core:written:v1 only for marked requirements; Python has no such field. The pinned haecceity alpha.8 reader exposes tolerance descriptions and per-item consumed IDs; the other markers require raw Document slots or inverse DESCRIPTION_ATTRIBUTE references to those IDs. tests/pmi_provenance.rs checks default PMI on GRM-02 (using the committed shaft fixture when absent from the corpus, without explicit thread answers), and explicit M2/M3 threads and straight knurl on corpus GRM-03 when available. An exported corpus missing GRM-03 fails. The tests also cover emitted requirement kinds, repeated writes, reserved UDA metadata, two sizes on one aspect without identifier tags, EXPRESS validity and byte preservation of imported NIST AP242 PMI on a shared face. docs/pmi-provenance.md specifies exact fields and matching rules. Frozen Python oracle captures are retained."
+ },
+ {
   "case": "scenarios/turned_*knurl*",
   "path": "write.warnings[*knurl on *: the intent states no *]",
   "pattern": "a knurl from Python's intent, its turned_knurl parameters filled in from DIN 82",

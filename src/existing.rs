@@ -42,6 +42,7 @@ use serde::ser::{Serialize, SerializeMap, Serializer};
 use serde_json::{Map, Value};
 
 use crate::part::LoadedPart;
+use crate::provenance;
 use crate::pyfmt::round_half_even;
 
 /// The notes specify-core writes on faces by its text route, by the name of their
@@ -83,6 +84,8 @@ pub struct ExistingPmi {
     pub lower: Option<f64>,
     /// The datum letters a tolerance cites, primary first.
     pub datums: Vec<String>,
+    /// STEP authorship token on this requirement; absent for unmarked input PMI.
+    pub provenance: Option<String>,
 }
 
 impl ExistingPmi {
@@ -96,6 +99,7 @@ impl ExistingPmi {
             upper: None,
             lower: None,
             datums: Vec::new(),
+            provenance: None,
         }
     }
 }
@@ -125,6 +129,9 @@ impl Serialize for ExistingPmi {
         }
         if !self.datums.is_empty() {
             map.serialize_entry("datums", &self.datums)?;
+        }
+        if let Some(provenance) = &self.provenance {
+            map.serialize_entry("provenance", provenance)?;
         }
         if self.faces.is_empty() {
             map.serialize_entry("faces", &self.faces)?;
@@ -160,6 +167,7 @@ impl std::error::Error for ExistingError {}
 pub struct Reading {
     doc: Document,
     pmi: PartPmi,
+    provenance: pmi::PartProvenance,
     findings: Vec<Finding>,
 }
 
@@ -198,6 +206,7 @@ pub fn read_parsed(
         .collect();
     Ok(Reading {
         pmi: read.parts.swap_remove(index),
+        provenance: read.provenance.parts.swap_remove(index),
         findings,
         doc,
     })
@@ -222,15 +231,27 @@ pub fn part_settings(loaded: &LoadedPart) -> Result<Map<String, Value>, Existing
     Ok(read(loaded)?.settings(loaded))
 }
 
+/// Authorship of the values returned by [`part_settings`], without changing their shape.
+/// Scalar settings map to the token; `notes` maps to an aligned array of tokens or nulls.
+/// Unmarked settings are omitted. See `docs/pmi-provenance.md`.
+pub fn part_settings_provenance(loaded: &LoadedPart) -> Result<Map<String, Value>, ExistingError> {
+    Ok(read(loaded)?.settings_provenance(loaded))
+}
+
 impl Reading {
     /// The semantic PMI the file states on the part, as [`read_existing`]; `loaded` is the part
     /// this reading is of. A tolerance citing a datum the reader does not hold is refused, not
     /// listed without it.
     pub fn existing(&self, loaded: &LoadedPart) -> Result<Vec<ExistingPmi>, ExistingError> {
-        let Reading { doc, pmi, .. } = self;
+        let Reading {
+            doc,
+            pmi,
+            provenance: prov,
+            ..
+        } = self;
         let mut out = Vec::new();
 
-        for dimension in &pmi.dimensions {
+        for (i, dimension) in pmi.dimensions.iter().enumerate() {
             let (r#type, first, second) = match &dimension.kind {
                 DimensionKind::Size {
                     feature,
@@ -256,6 +277,8 @@ impl Reading {
                 ),
             };
             let mut item = ExistingPmi::new("dimension", r#type, first);
+            item.provenance =
+                provenance::dimension(doc, &prov.dimensions[i]).then(|| provenance::MARKER.into());
             item.faces2 = second;
             let nominal = dimension.nominal.as_ref();
             item.value = nominal.map(value);
@@ -296,6 +319,8 @@ impl Reading {
             };
             let mut item =
                 ExistingPmi::new("geometric_tolerance", tolerance_type(tolerance.kind), faces);
+            item.provenance = (tolerance.description.as_deref() == Some(provenance::MARKER))
+                .then(|| provenance::MARKER.into());
             item.value = tolerance.magnitude.as_ref().map(value);
             item.datums = tolerance
                 .datums
@@ -318,8 +343,8 @@ impl Reading {
             out.push(item);
         }
 
-        let mut seen: Vec<(String, Vec<usize>)> = Vec::new();
-        for datum in &pmi.datums {
+        let mut seen = Vec::new();
+        for (i, datum) in pmi.datums.iter().enumerate() {
             // The datum feature's faces, and those of the features its targets are or lie on.
             let mut features: Vec<FeatureId> = datum.feature().into_iter().collect();
             for target in datum.targets() {
@@ -330,15 +355,119 @@ impl Reading {
                     features.extend(t.on());
                 }
             }
-            let key = (datum.label().as_str().to_string(), faces_of(pmi, &features));
+            let owned = provenance::marked(doc, &prov.datums[i], "datum");
+            let key = (
+                datum.label().as_str().to_string(),
+                faces_of(pmi, &features),
+                owned,
+            );
             if !seen.contains(&key) {
-                out.push(ExistingPmi::new("datum", &key.0, key.1.clone()));
+                let mut item = ExistingPmi::new("datum", &key.0, key.1.clone());
+                item.provenance = owned.then(|| provenance::MARKER.into());
+                out.push(item);
                 seen.push(key);
             }
         }
 
-        out.extend(notes(loaded, doc, pmi));
+        out.extend(notes(loaded, doc, pmi, prov));
         Ok(out)
+    }
+
+    /// Authorship alongside [`Self::settings`]; values and selection order are unchanged.
+    pub fn settings_provenance(&self, loaded: &LoadedPart) -> Map<String, Value> {
+        let mut out = Map::new();
+        let p = &self.pmi;
+        let prov = &self.provenance;
+        let owned = |ids: &[u64], kind: &str| provenance::marked(&self.doc, ids, kind);
+        let mut notes = Vec::new();
+        for (i, set) in p.attributes.iter().enumerate() {
+            if set.on.is_some() || set.name != crate::writer::SEMANTIC_TEXT {
+                continue;
+            }
+            let index = set.items.iter().find_map(|(name, v)| match v {
+                pmi::AttributeValue::Integer(n) if name == crate::writer::NOTE_INDEX && *n > 0 => {
+                    Some(*n)
+                }
+                _ => None,
+            });
+            for (name, v) in &set.items {
+                if name == "general note" && matches!(v, pmi::AttributeValue::Text(_)) {
+                    notes.push((index, owned(&prov.attributes[i], "attribute")));
+                }
+            }
+        }
+        notes.sort_by_key(|(index, _)| (index.is_none(), *index));
+        if notes.iter().any(|(_, owned)| *owned) {
+            out.insert(
+                "notes".into(),
+                Value::Array(
+                    notes
+                        .into_iter()
+                        .map(|(_, yes)| {
+                            if yes {
+                                Value::from(provenance::MARKER)
+                            } else {
+                                Value::Null
+                            }
+                        })
+                        .collect(),
+                ),
+            );
+        }
+        if loaded.part_count > 1 {
+            return out;
+        }
+        if p.material.is_some() && owned(&prov.material, "material") {
+            out.insert("material".into(), Value::from(provenance::MARKER));
+        }
+        if let Some(i) = p
+            .general
+            .iter()
+            .position(|g| matches!(g, GeneralTolerance::Class { .. }))
+            && owned(&prov.general[i], "general")
+        {
+            out.insert("general_tolerance".into(), Value::from(provenance::MARKER));
+        }
+        // Legacy note routes have precedence, and carry no Specify marker.
+        let mut selected = BTreeSet::new();
+        for (key, kind) in PART_NOTES {
+            if key == "notes" {
+                continue;
+            }
+            if p.notes.iter().any(|n| {
+                (n.kind == kind || (key == "surface_finish" && n.kind == "general surface texture"))
+                    && (key != "surface_finish" || default_finish(&n.text).is_some())
+            }) {
+                selected.insert(key);
+            }
+        }
+        for (i, texture) in p.surface_textures.iter().enumerate() {
+            if texture.on.is_none()
+                && finish_words(texture).is_some()
+                && selected.insert("surface_finish")
+                && owned(&prov.surface_textures[i], "surface texture")
+            {
+                out.insert("surface_finish".into(), Value::from(provenance::MARKER));
+            }
+        }
+        for (i, set) in p.attributes.iter().enumerate() {
+            if set.on.is_some() || set.name != crate::writer::SEMANTIC_TEXT {
+                continue;
+            }
+            for (name, v) in &set.items {
+                if !matches!(v, pmi::AttributeValue::Text(_)) {
+                    continue;
+                }
+                if let Some((key, _)) = PART_NOTES.iter().find(|(key, kind)| {
+                    *key != "surface_finish" && *key != "notes" && *kind == name
+                }) && selected.insert(key)
+                    && owned(&prov.attributes[i], "attribute")
+                {
+                    out.insert((*key).into(), Value::from(provenance::MARKER));
+                }
+            }
+        }
+        out
     }
 
     /// The findings of this reading (see [`findings`]).
@@ -455,15 +584,20 @@ pub(crate) fn general_notes(pmi: &PartPmi) -> Vec<String> {
 /// The notes on the part's faces (Python's `existing.notes`), one per kind with every face it
 /// is on: specify-core's text route read from the document (in file order), then the threads
 /// and knurls haecceity reads semantically.
-fn notes(loaded: &LoadedPart, doc: &Document, pmi: &PartPmi) -> Vec<ExistingPmi> {
-    let mut found: Vec<(String, BTreeSet<usize>)> = Vec::new();
-    let mut add = |kind: &str, faces: &[usize]| {
+fn notes(
+    loaded: &LoadedPart,
+    doc: &Document,
+    pmi: &PartPmi,
+    prov: &pmi::PartProvenance,
+) -> Vec<ExistingPmi> {
+    let mut found: Vec<(String, bool, BTreeSet<usize>)> = Vec::new();
+    let mut add = |kind: &str, faces: &[usize], owned: bool| {
         if faces.is_empty() {
             return;
         }
-        match found.iter_mut().find(|(k, _)| k == kind) {
-            Some((_, set)) => set.extend(faces),
-            None => found.push((kind.to_string(), faces.iter().copied().collect())),
+        match found.iter_mut().find(|(k, o, _)| k == kind && *o == owned) {
+            Some((_, _, set)) => set.extend(faces),
+            None => found.push((kind.to_string(), owned, faces.iter().copied().collect())),
         }
     };
     let graph = doc.graph();
@@ -486,28 +620,44 @@ fn notes(loaded: &LoadedPart, doc: &Document, pmi: &PartPmi) -> Vec<ExistingPmi>
         if NOTE_KINDS.contains(&kind.as_str())
             && let Some(index) = loaded.definition.face_index(*face)
         {
-            add(&kind, &[index]);
+            add(&kind, &[index], false);
         }
     }
-    for thread in &pmi.threads {
+    for (i, thread) in pmi.threads.iter().enumerate() {
         let kind = match thread.side {
             pmi::ThreadSide::Internal => "internal thread",
             pmi::ThreadSide::External => "external thread",
         };
-        add(kind, &faces_of(pmi, &[thread.feature]));
+        add(
+            kind,
+            &faces_of(pmi, &[thread.feature]),
+            provenance::marked(doc, &prov.threads[i], "thread"),
+        );
     }
-    for knurl in &pmi.knurls {
-        add("knurl", &faces_of(pmi, &[knurl.feature]));
+    for (i, knurl) in pmi.knurls.iter().enumerate() {
+        add(
+            "knurl",
+            &faces_of(pmi, &[knurl.feature]),
+            provenance::marked(doc, &prov.knurls[i], "knurl"),
+        );
     }
     // A finish on faces as the Rust writer writes it: a surface texture on them (question Q3).
-    for t in &pmi.surface_textures {
+    for (i, t) in pmi.surface_textures.iter().enumerate() {
         if let Some(f) = t.on {
-            add("surface finish", &faces_of(pmi, &[f]));
+            add(
+                "surface finish",
+                &faces_of(pmi, &[f]),
+                provenance::marked(doc, &prov.surface_textures[i], "surface texture"),
+            );
         }
     }
     found
         .into_iter()
-        .map(|(kind, faces)| ExistingPmi::new("note", &kind, faces.into_iter().collect()))
+        .map(|(kind, owned, faces)| {
+            let mut item = ExistingPmi::new("note", &kind, faces.into_iter().collect());
+            item.provenance = owned.then(|| provenance::MARKER.into());
+            item
+        })
         .collect()
 }
 

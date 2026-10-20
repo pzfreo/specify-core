@@ -26,3 +26,15 @@ differently from one platform's maths library to another's, so the stored payloa
 differed on Linux (CI run 37920952871). Schema 2 writes every zero unsigned (Q14); it changed
 only that line of the committed files (same Cargo.lock), and Linux CI has passed since (run
 37962711443).
+
+For #22, regenerate `rust.step.gz` with the example above: every authored semantic
+requirement now carries the documented `specify-core:written:v1` token. Recapture the
+Python readbacks and SHA-256 metadata with `tools/capture.py cross-engine`; do not edit
+compressed bytes or capture hashes. The reference can be reproduced in an isolated checkout
+of `pzfreo/specify-core` at `cc341dd` with `origin/iso286-3150` and `origin/fingerprint-v2`
+cherry-picked, followed by `uv sync --frozen`. Set `SPECIFY_CORE` to that checkout when
+running its `.venv/bin/python tools/capture.py cross-engine tests/fixtures/cross_engine`.
+This preserves the original reference source and pinned Python dependencies without needing
+another working repository on the host. The capture records the reconstructed commit hash.
+The provenance-only readback departures have explicit `rust-correct` verdicts backed by #22;
+the original Python oracle is unchanged. See `docs/pmi-provenance.md` for reader matching.

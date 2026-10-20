@@ -13,15 +13,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 9 |
 | [cli](#cli) | 138 | 0 | 3 | 0 | 3 | 144 |
-| [cross_engine](#cross_engine) | 3 | 1 | 0 | 1 | 1 | 6 |
+| [cross_engine](#cross_engine) | 4 | 1 | 0 | 1 | 1 | 7 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 33 |
 | [features](#features) | 1028 | 1419 | 65 | 1387 | 11 | 3910 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 40 |
 | [rules](#rules) | 41 | 0 | 0 | 0 | 0 | 41 |
-| [writer](#writer) | 14 | 0 | 0 | 0 | 15 | 29 |
-| **all** | 1260 | 1437 | 79 | 1393 | 47 | 4216 |
+| [writer](#writer) | 15 | 0 | 0 | 0 | 15 | 30 |
+| **all** | 1262 | 1437 | 79 | 1393 | 47 | 4218 |
 
 ## anchors
 
@@ -155,7 +155,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cross_engine
 
-### cross_engine: rust-correct (3 entries)
+### cross_engine: rust-correct (4 entries)
+
+- **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `python_readback.existing[key=*].provenance`)
+
+  Issue #22 (https://github.com/pzfreo/specify-core-rust/issues/22) explicitly requires a stable STEP-only marker on Specify-authored PMI and recognition by existing.rs. Rust adds provenance=specify-core:written:v1 only for marked requirements; Python has no such field. The pinned haecceity alpha.8 reader exposes tolerance descriptions and per-item consumed IDs; the other markers require raw Document slots or inverse DESCRIPTION_ATTRIBUTE references to those IDs. tests/pmi_provenance.rs checks default PMI on GRM-02 (using the committed shaft fixture when absent from the corpus, without explicit thread answers), and explicit M2/M3 threads and straight knurl on corpus GRM-03 when available. An exported corpus missing GRM-03 fails. The tests also cover emitted requirement kinds, repeated writes, reserved UDA metadata, two sizes on one aspect without identifier tags, EXPRESS validity and byte preservation of imported NIST AP242 PMI on a shared face. docs/pmi-provenance.md specifies exact fields and matching rules. Frozen Python oracle captures are retained.
 
 - **the part's default finish, written as a surface texture, is not read by specify-core (Python)** (`*` at `python_readback.part.surface_finish`)
 
@@ -765,7 +769,11 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (14 entries)
+### writer: rust-correct (15 entries)
+
+- **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
+
+  Issue #22 (https://github.com/pzfreo/specify-core-rust/issues/22) explicitly requires a stable STEP-only marker on Specify-authored PMI and recognition by existing.rs. Rust adds provenance=specify-core:written:v1 only for marked requirements; Python has no such field. The pinned haecceity alpha.8 reader exposes tolerance descriptions and per-item consumed IDs; the other markers require raw Document slots or inverse DESCRIPTION_ATTRIBUTE references to those IDs. tests/pmi_provenance.rs checks default PMI on GRM-02 (using the committed shaft fixture when absent from the corpus, without explicit thread answers), and explicit M2/M3 threads and straight knurl on corpus GRM-03 when available. An exported corpus missing GRM-03 fails. The tests also cover emitted requirement kinds, repeated writes, reserved UDA metadata, two sizes on one aspect without identifier tags, EXPRESS validity and byte preservation of imported NIST AP242 PMI on a shared face. docs/pmi-provenance.md specifies exact fields and matching rules. Frozen Python oracle captures are retained.
 
 - **a knurl from Python's intent, its turned_knurl parameters filled in from DIN 82** (`scenarios/turned_*knurl*` at `write.warnings[*knurl on *: the intent states no *]`)
 

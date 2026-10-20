@@ -10,6 +10,10 @@
 //! Every part is written in one `haecceity::pmi::write` edit of the file, which validates every
 //! instance it makes against the AP242 schema before anything is returned.
 //!
+//! **Provenance.** Every authored semantic requirement carries [`PMI_PROVENANCE`] in
+//! standard AP242 fields or representation descriptions. Input PMI stays unmarked; see
+//! `docs/pmi-provenance.md` for the exact STEP-only reader contract.
+//!
 //! **Modes.** A part with no PMI, or one specify-core wrote (answers stored that match its
 //! faces, [`resume`]), is written by `Mode::Replace`: afterwards its PMI is exactly the
 //! intent's. A part with PMI from elsewhere is written by `Mode::Add`: every original byte is
@@ -96,10 +100,15 @@ use serde::Serialize;
 use serde_json::{Map, Value as Json, json};
 
 use crate::part::{self, LoadedPart};
+use crate::provenance;
 use crate::pyfmt;
+
 use crate::pyjson;
 use crate::resume;
 use crate::rules::Intent;
+
+/// Stable STEP authorship token. See `docs/pmi-provenance.md` for its AP242 fields.
+pub const PMI_PROVENANCE: &str = provenance::MARKER;
 
 /// What a write did (Python's `WriteReport`; `to_dict`'s keys and order).
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -636,9 +645,14 @@ fn write_verified(
     // states precisely that candidate. Changed/removed notes or answers take the edit path.
     let unchanged = modes.iter().all(|m| *m == Mode::Replace)
         && planned.iter().all(|p| p.payload.is_some())
-        && items
-            .iter()
-            .all(|(part, pmi)| differences_as_stated(&source.read.parts[part.0], pmi).is_empty());
+        && items.iter().all(|(part, pmi)| {
+            differences_as_stated(&source.read.parts[part.0], pmi).is_empty()
+                && provenance::all(
+                    &source.read.parts[part.0],
+                    &source.read.provenance.parts[part.0],
+                    &source.doc,
+                )
+        });
     let back = if unchanged { bytes.to_vec() } else { back };
 
     // In an assembly written together, each line says which part it is of.
@@ -704,6 +718,25 @@ fn write_by_modes(
             None => None,
         };
         let current = parsed.as_ref().unwrap_or(&source.doc);
+        let stripped = if mode == Mode::Replace {
+            let parts: Vec<_> = these
+                .iter()
+                .map(|(id, _)| source.read.provenance.parts[id.0].clone())
+                .collect();
+            let edit = provenance::before_replace(current, &parts);
+            Some(
+                Document::parse(
+                    current
+                        .apply(&edit)
+                        .map_err(|e| WriteError::Failed(e.to_string()))?
+                        .bytes,
+                )
+                .map_err(|e| WriteError::Failed(e.to_string()))?,
+            )
+        } else {
+            None
+        };
+        let current = stripped.as_ref().unwrap_or(current);
         let (mut edit, _) = pmi::write(current, defs, &these, mode, policy).map_err(refused)?;
         if mode == Mode::Replace {
             // Python's own form of stored answers is not PMI haecceity reads (it reports it as
@@ -718,7 +751,13 @@ fn write_by_modes(
         let applied = current
             .apply(&edit)
             .map_err(|e| WriteError::Failed(format!("haecceity could not apply the edit: {e}")))?;
-        written = Some(applied.bytes);
+        let after =
+            Document::parse(applied.bytes).map_err(|e| WriteError::Failed(e.to_string()))?;
+        let marker_edit = provenance::mark_new(current, &after);
+        let marked = after
+            .apply(&marker_edit)
+            .map_err(|e| WriteError::Failed(format!("cannot mark written PMI: {e}")))?;
+        written = Some(marked.bytes);
     }
     Ok(written.expect("at least one part is written"))
 }
@@ -1333,7 +1372,7 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
                     unequal: None,
                     datums: system(req)?,
                     auxiliary: Vec::new(),
-                    description: None,
+                    description: Some(PMI_PROVENANCE.into()),
                 });
                 let on = if truthy(req.get("feature")) {
                     feature_name()

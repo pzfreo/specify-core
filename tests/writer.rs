@@ -1392,7 +1392,10 @@ fn a_straight_knurl_is_written_through_turned_knurl() {
     assert_eq!(pattern, pmi::KnurlPattern::Straight);
     assert_eq!(lengths, [10.0, 10.0, 1.0, 0.5, 0.1]);
     assert_eq!((teeth, angle, hand), (Some(31), None, false));
-    assert!(flat(&out).contains("TURNED_KNURL('','straight')"));
+    assert!(flat(&out).contains(&format!(
+        "TURNED_KNURL('{}','straight')",
+        specify_core::writer::PMI_PROVENANCE
+    )));
     let existing = read_existing(&load(&out, None).unwrap()).unwrap();
     assert!(
         existing
