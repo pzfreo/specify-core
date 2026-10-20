@@ -182,7 +182,9 @@ with compiler or dependency updates. The committed baseline and ceiling are in
 
 File loaders, disk writers (including staging names, process ids and clocks), and the JSON-line
 service are cfg-gated out on `wasm32`. Memory loading, analysis, reviews, meshing, anchors and
-verified writing remain available. Native APIs and behaviour are unchanged. At the pinned
+verified writing remain available. Native file-loading APIs are unchanged. The native numeric
+helper `pyfmt::fmt_rules` now returns `Result<String, FormatError>` so callers can propagate
+non-finite dimension refusals; valid CLI/rule output is unchanged. At the pinned
 kernel revision, `cargo tree --target wasm32-unknown-unknown` contains neither `uuid` nor
 `getrandom`, so no JS randomness feature or backend override is needed. If a future kernel
 introduces them, enable the appropriate browser feature only in WASM target dependencies.

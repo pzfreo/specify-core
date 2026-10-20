@@ -12,6 +12,11 @@ All notable changes to specify-core-rust. The format follows
   thrown string errors; preserve the session after refusals. Audit the WASM-reachable panic
   and indexing sites and exercise hostile inputs in the WASM CI job (#26).
 
+### Changed
+
+- **Native Rust helper:** `pyfmt::fmt_rules` now returns `Result<String, FormatError>`;
+  callers must handle non-finite dimension refusals instead of relying on a panic (#26).
+
 ### WASM API
 
 - No JavaScript/TypeScript signature changes (#26). Invalid answer IDs, contradictory choices,
