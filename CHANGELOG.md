@@ -6,6 +6,22 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- For #22, STEP-only provenance on every Specify-written semantic PMI requirement, using
+  the stable `specify-core:written:v1` token in AP242 fields and representation descriptions.
+  Imported PMI remains unmarked; existing-PMI results expose the token independently of
+  stored answers. `existing::part_settings_provenance` also exposes settings authorship.
+  The new public `ExistingPmi.provenance` field breaks Rust struct-literal callers; add
+  `provenance: None` when constructing an unmarked row. See `docs/pmi-provenance.md`.
+
+### Changed
+
+- CI: run the full workspace tests on Ubuntu and macOS with Quiddity's pinned STEP corpus;
+  require the corpus and its captured inputs instead of silently skipping them.
+- **Native Rust helper:** `pyfmt::fmt_rules` now returns `Result<String, FormatError>`;
+  callers must handle non-finite dimension refusals instead of relying on a panic (#26).
+
 ### Fixed
 
 - Refuse invalid browser answers, state, non-finite dimensions and oversized inputs with
@@ -14,11 +30,6 @@ All notable changes to specify-core-rust. The format follows
 - Preserve Python-compatible text answers (including `null`, empty and non-string values)
   and saved state with stale or repeated automatic-answer IDs at the WASM boundary (#26).
   Reuse core choice validation and the settled review to avoid redundant rule passes.
-
-### Changed
-
-- **Native Rust helper:** `pyfmt::fmt_rules` now returns `Result<String, FormatError>`;
-  callers must handle non-finite dimension refusals instead of relying on a panic (#26).
 
 ### WASM API
 

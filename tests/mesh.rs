@@ -209,7 +209,15 @@ fn solid_volume(loaded: &LoadedPart) -> f64 {
 #[test]
 fn every_triangle_winds_outward() {
     let mut parts = vec![("plate".to_owned(), load("plate.step"))];
-    match corpus_dir().map(|d| d.join("cadgenbench/flanged_spool_132.step")) {
+    let spool = corpus_dir().map(|d| d.join("cadgenbench/flanged_spool_132.step"));
+    if let Some(path) = &spool {
+        assert!(
+            path.is_file() || std::env::var_os("QUIDDITY_CORPUS_REQUIRED").is_none(),
+            "QUIDDITY_CORPUS_REQUIRED: missing corpus input {}",
+            path.display()
+        );
+    }
+    match spool {
         Some(spool) if spool.is_file() => {
             parts.push(("spool".to_owned(), part::load(&spool, None).unwrap()))
         }
@@ -643,7 +651,7 @@ fn mesh_matches_the_oracle() {
 }
 
 /// `check_known(area, differences)`, with the entries for cases this run did not compare (a
-/// corpus file absent, as in CI) left out of the stale check. Every difference must still match
+/// corpus file absent) left out of the stale check. Every difference must still match
 /// an entry, and every entry for a compared case must match a difference.
 pub fn check_known_compared(area: &str, differences: &[Difference], compared: &[String]) {
     let path = known_differences_file(area);

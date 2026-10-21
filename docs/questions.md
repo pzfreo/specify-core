@@ -101,9 +101,11 @@ nominal diameter both the turned diameter, diametral pitch the intent's pitch); 
 to `not_written`. Should a standard helix angle (e.g. 30°) be assumed and stated in intent?
 *Status (2026-10-09): done; see Q15.*
 
-**Q5. CI and the corpus.** quiddity-rust's CI checks out pzfreo/quiddity's `tests/corpus` at a
-pinned revision. This repository's CI runs only committed fixtures (corpus-backed tests skip).
-Should it check out the corpus too, so the corpus comparisons run in CI?
+**Q5. CI and the corpus.** *Decision (2026-10-20):* Ubuntu and macOS CI check out
+pzfreo/quiddity's `tests/corpus` at `6d544e060cd0eeb4442d2196e5df757b5a15ea55`, matching
+quiddity-rust's suite, and run the full workspace tests. Both `QUIDDITY_CORPUS` and
+`SPECIFY_CORPUS` point to that checkout; `QUIDDITY_CORPUS_REQUIRED=1` makes a missing corpus
+directory or required input fatal. Local runs without the switch may omit the corpus.
 
 **Q6. Assemblies with PMI from elsewhere.** Python refuses to write an assembly that already has
 PMI it did not write (an OpenCascade limitation). haecceity's add mode can write it, keeping

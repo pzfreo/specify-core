@@ -17,15 +17,24 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       CARGO_TERM_COLOR: always
+      QUIDDITY_CORPUS: ${{ github.workspace }}/quiddity/tests/corpus
+      SPECIFY_CORPUS: ${{ github.workspace }}/quiddity/tests/corpus
+      QUIDDITY_CORPUS_REQUIRED: "1"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      # Same corpus revision and sparse checkout as quiddity-rust's suite.yml.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: pzfreo/quiddity
+          ref: 6d544e060cd0eeb4442d2196e5df757b5a15ea55
+          path: quiddity
+          sparse-checkout: tests/corpus
       # The toolchain comes from rust-toolchain.toml. quiddity-rust is a public git dependency,
-      # pinned by Cargo.lock. Quiddity's STEP corpus is not checked out: tests whose input is a
-      # corpus file skip without it (QUIDDITY_CORPUS); tests on committed fixtures always run.
+      # pinned by Cargo.lock.
       - run: rustup toolchain install
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --release -- -D warnings
-      - run: cargo test --release
+      - run: cargo test --workspace --release --locked --no-fail-fast
 
   wasm:
     runs-on: ubuntu-latest

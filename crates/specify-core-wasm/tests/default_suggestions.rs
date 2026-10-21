@@ -273,6 +273,10 @@ fn bulk_acceptance_round_trips_grm03() {
         .map(std::path::PathBuf::from)
         .find(|p| p.is_dir())
     else {
+        assert!(
+            std::env::var_os("QUIDDITY_CORPUS_REQUIRED").is_none(),
+            "QUIDDITY_CORPUS_REQUIRED: set QUIDDITY_CORPUS or SPECIFY_CORPUS to the corpus directory"
+        );
         return;
     };
     check_bulk_acceptance(
