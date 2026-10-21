@@ -24,6 +24,11 @@ fn fixture(name: &str) -> PathBuf {
 /// The spool of specify-core's `conftest.py`, if the corpus is here.
 fn spool() -> Option<PathBuf> {
     let path = corpus_dir()?.join("cadgenbench/flanged_spool_132.step");
+    assert!(
+        path.is_file() || std::env::var_os("QUIDDITY_CORPUS_REQUIRED").is_none(),
+        "QUIDDITY_CORPUS_REQUIRED: missing corpus input {}",
+        path.display()
+    );
     path.is_file().then_some(path)
 }
 
@@ -493,7 +498,7 @@ fn order(case: &str, python: &Value, rust: &Value) -> Option<Difference> {
     })
 }
 
-/// `check_known(area)`, but without the corpus (as in CI) the entries for corpus cases, and the
+/// `check_known(area)`, but without the corpus the entries for corpus cases, and the
 /// cross-case (`*`) entries that then match nothing, are left out: their cases were skipped, so
 /// they cannot be stale. With the corpus, every entry must match.
 fn check_area(area: &str, differences: &[Difference]) {

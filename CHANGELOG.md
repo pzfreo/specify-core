@@ -15,6 +15,11 @@ All notable changes to specify-core-rust. The format follows
   The new public `ExistingPmi.provenance` field breaks Rust struct-literal callers; add
   `provenance: None` when constructing an unmarked row. See `docs/pmi-provenance.md`.
 
+### Changed
+
+- CI: run the full workspace tests on Ubuntu and macOS with Quiddity's pinned STEP corpus;
+  require the corpus and its captured inputs instead of silently skipping them.
+
 ## 0.1.0-alpha.6 (2026-10-20)
 
 ### WASM API

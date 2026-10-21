@@ -61,13 +61,18 @@ pub fn oracle_dir() -> PathBuf {
 
 /// Quiddity's STEP corpus, if this run has it: `QUIDDITY_CORPUS` (the capture tool's name for
 /// it), else `SPECIFY_CORPUS`, when it names a directory. No default: without either, every
-/// corpus case is skipped, as in CI.
+/// corpus case is skipped. `QUIDDITY_CORPUS_REQUIRED` makes a missing corpus fatal in CI.
 pub fn corpus_dir() -> Option<PathBuf> {
-    ["QUIDDITY_CORPUS", "SPECIFY_CORPUS"]
+    let dir = ["QUIDDITY_CORPUS", "SPECIFY_CORPUS"]
         .iter()
         .filter_map(std::env::var_os)
         .map(PathBuf::from)
-        .find(|dir| dir.is_dir())
+        .find(|dir| dir.is_dir());
+    assert!(
+        dir.is_some() || std::env::var_os("QUIDDITY_CORPUS_REQUIRED").is_none(),
+        "QUIDDITY_CORPUS_REQUIRED: set QUIDDITY_CORPUS or SPECIFY_CORPUS to the corpus directory"
+    );
+    dir
 }
 
 /// Optional live Python checks must opt into an explicit environment. Frozen captures
@@ -191,6 +196,12 @@ impl Case {
         let path = root.join(rel);
         if !path.is_file() {
             if self.kind() == "corpus" {
+                assert!(
+                    std::env::var_os("QUIDDITY_CORPUS_REQUIRED").is_none(),
+                    "QUIDDITY_CORPUS_REQUIRED: {}: missing corpus input {}",
+                    self.name,
+                    path.display()
+                );
                 println!(
                     "skipped {}: {} is not in the corpus",
                     self.name,

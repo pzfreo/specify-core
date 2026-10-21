@@ -310,7 +310,7 @@ fn mates_and_contacts_match_the_oracle() {
     if corpus_dir().is_some() {
         check_known("mates", &differences);
     } else {
-        // Without the corpus (as in CI) its cases are skipped, so its entries meet nothing: check
+        // Without the corpus its cases are skipped, so its entries meet nothing: check
         // against the others only, rather than call them stale.
         let path = known_differences_file("mates");
         let entries: Vec<_> = load_known(&path)

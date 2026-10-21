@@ -34,6 +34,11 @@ const SYNTHETIC: [&str; 5] = [
 /// A corpus file, only from the explicitly configured corpus roots.
 fn corpus(relative: &str) -> Option<PathBuf> {
     let path = common::corpus_dir()?.join(relative);
+    assert!(
+        path.is_file() || std::env::var_os("QUIDDITY_CORPUS_REQUIRED").is_none(),
+        "QUIDDITY_CORPUS_REQUIRED: missing corpus input {}",
+        path.display()
+    );
     path.is_file().then_some(path)
 }
 

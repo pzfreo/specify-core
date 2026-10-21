@@ -189,8 +189,11 @@ Each of these is recorded with its reason (docs/known-differences.md, docs/quest
 
 ```bash
 cargo test --release
-SPECIFY_CORPUS=/path/to/quiddity/tests/corpus cargo test --release   # with the corpus comparisons
+SPECIFY_CORPUS=/path/to/quiddity/tests/corpus cargo test --workspace --release   # with the corpus comparisons
 ```
+
+CI runs the full workspace with the pinned corpus and `QUIDDITY_CORPUS_REQUIRED=1`, which
+fails on a missing corpus or captured corpus input; set it locally to require the same coverage.
 
 Tests compare the port with fixtures captured from specify-core (`tools/capture.py`, run in
 specify-core's environment); tests whose input is a quiddity corpus file skip without the

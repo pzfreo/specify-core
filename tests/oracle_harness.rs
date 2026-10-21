@@ -293,6 +293,40 @@ fn a_gz_input_is_decompressed_once_and_checked() {
 }
 
 #[test]
+fn required_corpus_rejects_missing_directory_and_missing_inputs() {
+    // Isolate environment changes from the other tests running in this process.
+    let empty = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("required-corpus-empty");
+    std::fs::create_dir_all(&empty).unwrap();
+    for (root, required, diagnostic) in [
+        (None, false, ""),
+        (None, true, "set QUIDDITY_CORPUS or SPECIFY_CORPUS"),
+        (Some(&empty), false, ""),
+        (Some(&empty), true, "missing corpus input"),
+    ] {
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+        child
+            .args(["--exact", "every_case_is_bound_to_its_input"])
+            .env_remove("QUIDDITY_CORPUS")
+            .env_remove("SPECIFY_CORPUS")
+            .env_remove("QUIDDITY_CORPUS_REQUIRED");
+        if let Some(root) = root {
+            child.env("SPECIFY_CORPUS", root);
+        }
+        if required {
+            child.env("QUIDDITY_CORPUS_REQUIRED", "1");
+        }
+        let output = child.output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(output.status.success(), !required, "{stdout}");
+        if required {
+            assert!(stdout.contains("QUIDDITY_CORPUS_REQUIRED"), "{stdout}");
+            assert!(stdout.contains(diagnostic), "{stdout}");
+        }
+    }
+    std::fs::remove_dir(&empty).unwrap();
+}
+
+#[test]
 fn every_case_is_bound_to_its_input() {
     let all = cases();
     assert!(all.len() >= 20, "only {} cases captured", all.len());
