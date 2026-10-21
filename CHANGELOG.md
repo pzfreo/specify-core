@@ -19,6 +19,23 @@ All notable changes to specify-core-rust. The format follows
 
 - CI: run the full workspace tests on Ubuntu and macOS with Quiddity's pinned STEP corpus;
   require the corpus and its captured inputs instead of silently skipping them.
+- **Native Rust helper:** `pyfmt::fmt_rules` now returns `Result<String, FormatError>`;
+  callers must handle non-finite dimension refusals instead of relying on a panic (#26).
+
+### Fixed
+
+- Refuse invalid browser answers, state, non-finite dimensions and oversized inputs with
+  thrown string errors; preserve the session after refusals. Audit the WASM-reachable panic
+  and indexing sites and exercise hostile inputs in the WASM CI job (#26).
+- Preserve Python-compatible text answers (including `null`, empty and non-string values)
+  and saved state with stale or repeated automatic-answer IDs at the WASM boundary (#26).
+  Reuse core choice validation and the settled review to avoid redundant rule passes.
+
+### WASM API
+
+- No JavaScript/TypeScript signature changes (#26). Invalid answer IDs, contradictory choices,
+  invalid choice/note types and malformed state now refuse explicitly. Inputs are
+  bounded to 64 MiB STEP, 8 MiB per JSON/project argument and 64 KiB names/interpretation/mode.
 
 ## 0.1.0-alpha.6 (2026-10-20)
 

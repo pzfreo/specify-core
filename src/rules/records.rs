@@ -141,6 +141,7 @@ impl Faces {
         for value in values {
             let face = Face::from_value(value)?;
             match faces.index.get(&face.id) {
+                // index is private and records only positions appended to list; list is never shortened.
                 Some(&i) => faces.list[i] = face,
                 None => {
                     faces.index.insert(face.id, faces.list.len());
@@ -153,6 +154,7 @@ impl Faces {
 
     /// The face `id`, if the analysis has it.
     pub fn get(&self, id: i64) -> Option<&Face> {
+        // index is private and records only positions appended to list; list is never shortened.
         self.index.get(&id).map(|&i| &self.list[i])
     }
 
@@ -421,6 +423,7 @@ impl<'a> Ctx<'a> {
                             let known = in_file.iter().position(|(t, _)| t == kind_type);
                             if !ids.is_empty() || known.is_none() {
                                 match known {
+                                    // i is a position in this same in_file vector, which is not shortened.
                                     Some(i) => in_file[i].1 = ids.clone(),
                                     None => in_file.push((kind_type.to_string(), ids.clone())),
                                 }
@@ -460,6 +463,7 @@ impl<'a> Ctx<'a> {
     pub fn feature(&self, id: &str) -> Result<&Feature<'a>> {
         self.by_id
             .get(id)
+            // by_id is constructed by enumerating features, which is immutable thereafter.
             .map(|&i| &self.features[i])
             .ok_or_else(|| Error::Invalid(format!("no feature {id} in the analysis")))
     }

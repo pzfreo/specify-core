@@ -7,6 +7,7 @@
 //! reaches people (the sizes listed in a refusal, the first match of a lookup). The ISO 2768-1
 //! table is in `general.rs`.
 
+// Capture indexing below follows successful matches with mandatory groups; optional groups use get().
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -131,7 +132,10 @@ const UPPER_DEVIATION: [&str; 3] = ["f", "g", "h"];
 /// Python's `_FIT = re.compile(r"^(H|JS|js|[fghkmnp])(\d{1,2})$")` used with `match`: `$` also
 /// matches before a final newline, and `\d` is any Unicode decimal digit.
 static FIT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(H|JS|js|[fghkmnp])(\p{Nd}{1,2})\n?$").expect("valid pattern"));
+    // This regex is a checked source literal, independent of the input fit.
+    LazyLock::new(|| {
+        Regex::new(r"^(H|JS|js|[fghkmnp])(\p{Nd}{1,2})\n?$").expect("valid pattern")
+    });
 
 /// Hole fits offered in questions, and shaft fits, most common first.
 pub const HOLE_FITS: [&str; 4] = ["H7", "H8", "H9", "H11"];
@@ -369,6 +373,7 @@ pub fn sizes(table: &SizeTable) -> impl Iterator<Item = &'static str> + '_ {
 /// `table[size]` for a size known to be tabulated: from a table, or checked by the caller.
 /// Panics otherwise, as Python's `KeyError` would end the request.
 fn at(table: &SizeTable, size: &str) -> f64 {
+    // Every at() caller supplies a constant table key; the thread tables share the same keys.
     lookup(table, size).unwrap_or_else(|| panic!("{size} is not a tabulated thread"))
 }
 
@@ -378,12 +383,15 @@ pub fn fit_limits(fit: &str, nominal: f64) -> Result<(f64, f64), String> {
     let caps = FIT
         .captures(fit)
         .ok_or_else(|| format!("unsupported fit {}", pyfmt::repr_str(fit)))?;
+    // FIT has two mandatory groups; captures() succeeded above.
     let letter = &caps[1];
     // int() of one or two decimal digits; "07" is grade 7.
-    let grade = pyfmt::parse_digits(&caps[2]).expect("decimal digits");
+    let grade = pyfmt::parse_digits(&caps[2])
+        .ok_or_else(|| format!("unsupported fit {}", pyfmt::repr_str(fit)))?;
     let Some(&(_, it_row)) = IT.iter().find(|(g, _)| *g == grade) else {
         return Err(format!("unsupported grade IT{grade}"));
     };
+    // RANGES is a nonempty constant table.
     let largest = RANGES[RANGES.len() - 1];
     if !(0.0 < nominal && nominal <= largest) {
         return Err(format!(
@@ -393,12 +401,15 @@ pub fn fit_limits(fit: &str, nominal: f64) -> Result<(f64, f64), String> {
     }
     // bisect_left: the first range whose upper bound is at least the nominal size.
     let index = RANGES.partition_point(|&upper| upper < nominal);
+    // nominal is at most the last RANGES entry; each IT row has RANGES.len() columns.
     let it = f64::from(it_row[index]);
     let shaft = |letter: &str| {
+        // FIT permits only H/JS/js or letters present in the constant SHAFT table; special cases return first.
         let (_, row) = SHAFT
             .iter()
             .find(|(l, _)| *l == letter)
             .expect("a shaft letter");
+        // index is bounded by RANGES; every constant SHAFT row has that many columns.
         f64::from(row[index])
     };
     let (upper, lower) = if letter == "H" {
@@ -461,6 +472,7 @@ pub fn largest_bolt_below(diameter: f64) -> Option<&'static str> {
 /// `M` and a number, as Python's `float()` would raise; sizes come from the tables.
 pub fn bolt_diameter(size: &str) -> f64 {
     let number = size.strip_prefix('M').unwrap_or(size);
+    // All WASM-reachable callers supply a size from the constant metric thread tables.
     pyfmt::parse_float(number).unwrap_or_else(|| panic!("{size} is not a metric thread size"))
 }
 

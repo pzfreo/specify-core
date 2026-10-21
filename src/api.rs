@@ -18,6 +18,7 @@
 //! snapshot that may come from either engine or an older version, and the rules read it as
 //! such.
 
+// JSON index writes below target objects produced by PartSummary serialization or to_presented_dict().
 use std::fmt;
 use std::path::Path;
 
@@ -114,6 +115,7 @@ pub fn parts(step: &Path) -> Result<Vec<Value>> {
         .into_iter()
         .map(|p| {
             let written = stored.contains_key(&p.part);
+            // PartSummary contains only JSON-serializable fields with string keys (native-only API).
             let mut value = serde_json::to_value(p).expect("a part summary serialises");
             value["written"] = Value::Bool(written);
             value
@@ -189,12 +191,12 @@ fn analyse_with(
     // recognition's refusal names the part and why, which is the failure to pass on.
     let features = features::recognise(loaded).map_err(|e| refused(&e))?;
     let faces = features::describe_faces(loaded).map_err(|e| refused(&e))?;
-    let mut faces = serde_json::to_value(faces).expect("faces serialise");
+    let mut faces = serde_json::to_value(faces).map_err(|e| refused(&e))?;
     let mut analysis = Map::new();
     analysis.insert("schema".into(), json!(ANALYSIS_SCHEMA));
     analysis.insert(
         "binding".into(),
-        serde_json::to_value(&loaded.binding).expect("a binding serialises"),
+        serde_json::to_value(&loaded.binding).map_err(|e| refused(&e))?,
     );
     let mut warnings = Vec::new();
     let mut mated = None;
@@ -218,7 +220,7 @@ fn analyse_with(
     analysis.insert("faces".into(), faces);
     analysis.insert(
         "features".into(),
-        serde_json::to_value(features).expect("features serialise"),
+        serde_json::to_value(features).map_err(|e| refused(&e))?,
     );
     if let Some(mated) = mated {
         analysis.insert("mates".into(), Value::Object(mated));
@@ -251,7 +253,7 @@ fn analyse_with(
             let settings = reading.settings(loaded);
             analysis.insert(
                 "existing".into(),
-                serde_json::to_value(existing).expect("existing PMI serialises"),
+                serde_json::to_value(existing).map_err(|e| refused(&e))?,
             );
             analysis.insert("part".into(), Value::Object(settings));
         }

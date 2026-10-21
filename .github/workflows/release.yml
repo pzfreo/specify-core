@@ -40,6 +40,7 @@ jobs:
       - run: python3 tools/wasm_size.py
       - run: cargo build --locked --release -p specify-core-wasm --example parity_reference
       - run: node scripts/wasm-parity.mjs
+      - run: node scripts/wasm-hostile.mjs
       - name: Compare released editor kernel and annotate release (advisory)
         env:
           TAG: ${{ github.event.release.tag_name }}

@@ -46,23 +46,34 @@ pub fn fmt3(x: f64) -> String {
 /// `rules._fmt`: [`g`] for a value close to a whole number (`math.isclose(x, round(x))`), else
 /// [`fmt3`].
 ///
-/// # Panics
-///
-/// On inf and nan, where Python raises (`round` cannot make them integers), with Python's
-/// message: a dimension that is not finite is a bug upstream, not something to write.
-pub fn fmt_rules(x: f64) -> String {
+/// Refuses non-finite dimensions with Python's message before they enter a prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormatError(pub &'static str);
+
+impl std::fmt::Display for FormatError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+impl std::error::Error for FormatError {}
+
+pub fn fmt_rules(x: f64) -> Result<String, FormatError> {
     if x.is_nan() {
-        panic!("rules._fmt: cannot convert float NaN to integer");
+        return Err(FormatError(
+            "rules._fmt: cannot convert float NaN to integer",
+        ));
     }
     if x.is_infinite() {
-        panic!("rules._fmt: cannot convert float infinity to integer");
+        return Err(FormatError(
+            "rules._fmt: cannot convert float infinity to integer",
+        ));
     }
     let whole = x.round_ties_even();
     // math.isclose with its default rel_tol=1e-9 and abs_tol=0.
     if (x - whole).abs() <= 1e-9 * x.abs().max(whole.abs()) {
-        g(x)
+        Ok(g(x))
     } else {
-        fmt3(x)
+        Ok(fmt3(x))
     }
 }
 
@@ -79,6 +90,7 @@ pub fn repr(x: f64) -> String {
         let body = if exp >= 0 {
             let point = exp as usize + 1;
             if digits.len() > point {
+                // digits is ASCII scientific output; the length test bounds point.
                 format!("{}.{}", &digits[..point], &digits[point..])
             } else {
                 format!("{digits}{}.0", "0".repeat(point - digits.len()))
@@ -111,6 +123,7 @@ pub fn round_half_even(x: f64, digits: i32) -> f64 {
     if digits >= 0 {
         // Rust's fixed formatting is the exact value correctly rounded, ties to even, as
         // Python's dtoa mode 3; reading it back is correctly rounded too.
+        // Finite Rust fixed-point output is valid f64 text, including up to 323 decimal places.
         return format!("{x:.prec$}", prec = digits as usize)
             .parse()
             .expect("a formatted float reads back");
@@ -142,8 +155,11 @@ pub fn round_half_even(x: f64, digits: i32) -> f64 {
             }
         }
     }
+    // kept contains only the ASCII digits copied above, with ASCII-only carry operations.
     let kept = String::from_utf8(kept).expect("ASCII digits");
+    // ASCII digits followed by e and an integer exponent are valid f64 syntax.
     let rounded: f64 = format!("{kept}e{places}").parse().expect("a number");
+    // WASM callers round only to nonnegative constant digits; this overflow branch is native-only.
     assert!(
         rounded.is_finite(),
         "round: rounded value too large to represent"
@@ -271,6 +287,7 @@ pub fn repr_str(text: &str) -> String {
 pub fn is_printable(c: char) -> bool {
     use std::sync::LazyLock;
     static NOT_PRINTABLE: LazyLock<regex::Regex> =
+        // This regex is a valid source literal, independent of the character being tested.
         LazyLock::new(|| regex::Regex::new(r"^[\p{C}\p{Z}]$").expect("valid pattern"));
     c == ' ' || !NOT_PRINTABLE.is_match(c.encode_utf8(&mut [0; 4]))
 }
@@ -282,6 +299,7 @@ pub fn decimal_digit(c: char) -> Option<u8> {
         return Some(code as u8 - b'0');
     }
     // Every Unicode decimal digit is in a run of ten from its zero.
+    // binary_search indices address this constant table; Err(0) returns before i-1.
     let zero = match DECIMAL_ZEROS.binary_search(&code) {
         Ok(i) => DECIMAL_ZEROS[i],
         Err(0) => return None,
@@ -364,10 +382,13 @@ fn shortest_nearest(x: f64) -> (bool, String, i32) {
             if negative { "-" } else { "" },
             exp - precision as i32
         );
+        // m is an integer and the exponent/sign are generated from finite Rust float output.
         text.parse::<f64>().expect("a number") == x
     };
     // At most 17 significant digits, so the digits fit a u64.
+    // Rust shortest scientific output has at most 17 significant digits, fitting u64.
     let m: u64 = digits.parse().expect("digits");
+    // The nearest decimal or its immediate neighbour lies in the shortest round-trip interval.
     let chosen = [m, m + 1, m.wrapping_sub(1)]
         .into_iter()
         .find(|&m| m != u64::MAX && reads_back(m))
@@ -388,10 +409,12 @@ fn scientific(text: &str) -> (bool, String, i32) {
         Some(rest) => (true, rest),
         None => (false, text),
     };
+    // scientific() is private and receives only finite Rust e-format output, which includes e.
     let (mantissa, exp) = text.split_once('e').expect("exponent form");
     (
         negative,
         mantissa.replace('.', ""),
+        // Rust f64 exponents are signed decimal integers in -324..=308, fitting i32.
         exp.parse().expect("an exponent"),
     )
 }
@@ -401,6 +424,7 @@ fn mantissa(digits: &str) -> String {
     match digits.len() {
         0 => "0".to_string(),
         1 => digits.to_string(),
+        // digits is ASCII and this arm has length >= 2.
         _ => format!("{}.{}", &digits[..1], &digits[1..]),
     }
 }

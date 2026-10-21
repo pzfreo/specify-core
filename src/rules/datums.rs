@@ -1,6 +1,7 @@
 //! Datums: which are proposed and asked, what the answers make of them, how datum B and C are
 //! held to the datums before them, and the frames a position may be measured from.
 
+// Coordinate indexing uses [f64; 3] (or a bounded 0..3 loop), never variable-length JSON arrays.
 use std::collections::HashSet;
 
 use serde_json::{Map, Value};
@@ -155,6 +156,7 @@ pub fn default_datums(faces: &Faces, turned: bool) -> Result<DefaultDatums> {
     };
     let b_normal = b.direction()?;
     let mut c = Vec::new();
+    // square includes the nonempty primary plane group selected above.
     for p in &square[1..] {
         if perpendicular(&p.direction()?, &b_normal) {
             c.push(p.id);
@@ -433,7 +435,11 @@ pub(crate) fn axis_locates(bores: &[i64], datums: &Datums, faces: &Faces) -> Res
     if bores.is_empty() {
         return Ok(false);
     }
-    let axis = faces.at(a.faces[0])?;
+    let first = a
+        .faces
+        .first()
+        .ok_or_else(|| Error::Invalid("datum A needs at least one face".into()))?;
+    let axis = faces.at(*first)?;
     for &id in bores {
         let face = faces.at(id)?;
         if !face.is_cylinder() || !same_axis(face, axis)? {
@@ -493,11 +499,14 @@ pub(crate) fn datum_a_doubt(faces: &Faces) -> Result<String> {
         }
     }
     py::sort_by_float(&mut groups, |(_, area)| -area);
+    // Both group indices are guarded by len() > 1.
     if groups.len() > 1 && groups[1].1 >= 0.8 * groups[0].1 {
         return Ok(format!(
             "face {} is nearly as large as face {}; the primary datum is whichever the part is \
              mounted on",
-            groups[1].0.id, groups[0].0.id
+            // The enclosing branch checks groups.len() > 1.
+            groups[1].0.id,
+            groups[0].0.id
         ));
     }
     Ok(String::new())
@@ -718,6 +727,7 @@ pub fn datum_control(letter: char, datums: &Datums, faces: &Faces) -> Result<Opt
     if letter == 'C' && !datums.contains('B') {
         return Ok(None);
     }
+    // The entry checks datums.contains(letter), and datums is not mutated.
     let datum = datums.get(letter).expect("checked above");
     let axis = datum.kind == DatumKind::Axis;
     if letter == 'C' && axis {
@@ -734,6 +744,7 @@ pub fn datum_control(letter: char, datums: &Datums, faces: &Faces) -> Result<Opt
     };
     let mut refs = Vec::new();
     for &(r, name) in candidates {
+        // A is checked at entry; the C branch also checks B before selecting candidates.
         let other = datums.get(r).expect("checked above");
         if square(datum, other, faces)? {
             refs.push(name);
@@ -795,6 +806,7 @@ pub(crate) fn datum_control_questions(ctx: &Ctx<'_>, datums: &Datums) -> Result<
         let Some(control) = datum_control(letter, datums, &ctx.faces)? else {
             continue;
         };
+        // datum_control returned Some only after checking this datum exists; datums is immutable.
         let datum = datums.get(letter).expect("a control has its datum");
         if datum.faces.iter().any(|i| ctx.toleranced.contains(i)) {
             continue;

@@ -20,6 +20,8 @@
 //! removed is not refused (the datum may come back) but is not written, and is reported as a
 //! problem.
 
+// Coordinate indexing uses [f64; 3] (or a bounded 0..3 loop), never variable-length JSON arrays.
+// Capture indexing below follows successful matches with mandatory groups; optional groups use get().
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
@@ -65,20 +67,31 @@ const NUMBER: &str = r"\d*\.?\d+";
 
 /// `_FIT`: a hole fit (capitals: H7, JS7) or a shaft fit (g6, js6).
 static FIT: LazyLock<Regex> =
+    // Pattern and interpolated character classes are source constants, never user text.
     LazyLock::new(|| Regex::new(r"^(JS|js|H|[fghkmnp])(\d{1,2})$").expect("pattern"));
 /// `_PLUS_MINUS`: `±0.05`, `+-0.05`, `+/-0.05` or `0.05`.
 static PLUS_MINUS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(&format!(r"^(?:±|\+-|\+/-)?{S}*({NUMBER})$")).expect("pattern"));
+    // Pattern and interpolated character classes are source constants, never user text.
+    LazyLock::new(|| {
+        Regex::new(&format!(r"^(?:±|\+-|\+/-)?{S}*({NUMBER})$")).expect("pattern")
+    });
 /// `_LIMITS` with `/` between the deviations. Python's pattern is one, with a lookahead the
 /// regex crate lacks: `(a)(?:/|(?=[+-]))(b)`; split in two it matches the same texts with
 /// the same groups (a deviation holds no `/` or sign but its first, so the split is unique).
 static LIMITS_SLASH: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(&format!(r"^([+-]?{NUMBER})/([+-]?{NUMBER})$")).expect("pattern"));
+    // Pattern and interpolated character classes are source constants, never user text.
+    LazyLock::new(|| {
+        Regex::new(&format!(r"^([+-]?{NUMBER})/([+-]?{NUMBER})$")).expect("pattern")
+    });
 /// `_LIMITS` with the second deviation's sign between them.
 static LIMITS_SIGN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(&format!(r"^([+-]?{NUMBER})([+-]{NUMBER})$")).expect("pattern"));
+    // Pattern and interpolated character classes are source constants, never user text.
+    LazyLock::new(|| {
+        Regex::new(&format!(r"^([+-]?{NUMBER})([+-]{NUMBER})$")).expect("pattern")
+    });
 /// `_finish`'s roughness: `Ra 0.8`, `ra0.8`, `0.8`, `0.8 µm`.
 static FINISH: LazyLock<Regex> = LazyLock::new(|| {
+    // Pattern and interpolated character classes are source constants, never user text.
     Regex::new(&format!(r"^(?:ra{S}*)?({NUMBER}){S}*(?:µm|um)?$")).expect("pattern")
 });
 
@@ -204,6 +217,7 @@ pub fn check(key: &str, extra: &Map<String, Value>, faces: &Faces) -> Result<()>
                 "{key}: a {kind} applies to the cylinder(s) of one diameter"
             ));
         }
+        // check() refused empty faces and requires exactly one cylinder radius above.
         let d = 2.0 * chosen[0].radius()?;
         if kind == "fit" {
             fit(key, &value, d)?;
@@ -327,6 +341,7 @@ fn fit(key: &str, value: &str, d: f64) -> Result<String> {
             pyfmt::repr_str(value)
         ));
     };
+    // FIT has two mandatory capture groups after a successful match.
     choices::fit(&caps[1], &caps[2], d).map_err(|e| Error::Invalid(format!("{key}: {e}")))
 }
 
@@ -343,17 +358,20 @@ fn limits(key: &str, value: &str, nominal: f64, fits: bool) -> Result<(String, f
     }
     let number = |s: &str| pyfmt::parse_float(s).unwrap_or(f64::NAN);
     let (upper, lower) = if let Some(caps) = PLUS_MINUS.captures(&text) {
+        // PLUS_MINUS has a mandatory numeric capture group 1.
         let upper = number(&caps[1]);
         (upper, -upper)
     } else if let Some(caps) = LIMITS_SLASH
         .captures(&text)
         .or_else(|| LIMITS_SIGN.captures(&text))
         .filter(|caps| {
+            // Both LIMITS variants have mandatory numeric capture groups 1 and 2.
             [&caps[1], &caps[2]]
                 .iter()
                 .all(|part| part.starts_with(['+', '-']) || number(part) == 0.0)
         })
     {
+        // Both LIMITS variants have mandatory numeric capture groups 1 and 2.
         let (a, b) = (number(&caps[1]), number(&caps[2]));
         // sorted(reverse=True): the larger first; equal values keep their order.
         if b > a { (b, a) } else { (a, b) }
@@ -397,12 +415,14 @@ fn distance(key: &str, extra: &Map<String, Value>, chosen: &[&Face], faces: &Fac
     {
         return invalid(format!("{key}: a face cannot be measured from itself"));
     }
+    // The empty-reference check returned above.
     let n = reference[0].direction()?;
     for f in &reference {
         if !parallel(&f.direction()?, &n) {
             return invalid(format!("{key}: the faces measured from must be parallel"));
         }
     }
+    // The empty-reference check returned above.
     let base = dot(&reference[0].centroid()?, &n);
     for f in &reference {
         if (dot(&f.centroid()?, &n) - base).abs() > 1e-4 {

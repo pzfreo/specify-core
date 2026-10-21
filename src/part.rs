@@ -93,6 +93,7 @@ impl LoadedPart {
     /// `face_ranks` and `requirements.face_entities_of`). Panics if `index` is not a face of the
     /// part, as indexing does.
     pub fn face_entity(&self, index: usize) -> u64 {
+        // This native helper is not called by the WASM crate; its caller must supply a definition face index.
         self.definition.faces[index]
     }
 
@@ -369,6 +370,7 @@ impl File {
 
     /// Builds part `index`'s [`LoadedPart`]: haecceity's own `Part` of it, in its own frame.
     fn load_index(&self, index: usize) -> Result<LoadedPart, LoadError> {
+        // load() validates the requested part index against this definitions list before indexing.
         let definition = &self.step.parts[index];
         let part = self.step.part(index).map_err(|e| LoadError::Extract {
             path: self.path.clone(),

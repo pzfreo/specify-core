@@ -1,3 +1,4 @@
+use crate::input;
 use haecceity::step;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
@@ -15,6 +16,8 @@ pub struct Session {
 
 impl Session {
     pub fn open(name: &str, bytes: &[u8]) -> Result<Self, String> {
+        input::size("STEP input", bytes.len(), input::STEP_LIMIT).map_err(|e| e.to_string())?;
+        input::size("Input name", name.len(), input::TEXT_LIMIT).map_err(|e| e.to_string())?;
         if bytes.starts_with(&[0x1f, 0x8b]) {
             return Err("Decompress the STEP file before opening it.".into());
         }
@@ -25,12 +28,14 @@ impl Session {
                 definitions.len()
             ));
         }
-        let definition = definitions.into_iter().next().unwrap();
+        let definition = definitions.into_iter().next().ok_or_else(||
+            "Specify browser loading currently requires one distinct part; found 0. Assembly selection is not available yet.".to_string())?;
         if definition.placements.len() != 1 {
             return Err(
                 "Specify browser loading currently requires one instance of the part.".into(),
             );
         }
+        // The length check above proves this is the sole placement.
         let placement = definition.placements[0].placement;
         // The kernel owns the part/frame/source mapping; refuse any ordered-face mismatch.
         let part = step::read_part(bytes, &definition).map_err(|error| error.to_string())?;
@@ -79,6 +84,7 @@ impl Session {
         answers: &Map<String, Value>,
         project: Option<&str>,
     ) -> Result<Value, String> {
+        input::answers(&self.analysis, answers).map_err(|e| e.to_string())?;
         let intent = api::preview(&self.analysis, answers).map_err(|error| error.to_string())?;
         let extra = project_attribute(project)?;
         let (bytes, report) =
@@ -101,14 +107,21 @@ impl Session {
     /// The review settled to the default path (`specify_core::tolerancing::settle`), with the
     /// label anchors [`Session::review`] adds: `{review, state}`.
     pub fn settle(&self, state: &tolerancing::State) -> Result<Value, String> {
-        let (_, settled) =
+        input::answers(&self.analysis, &state.answers).map_err(|e| e.to_string())?;
+        let (review, settled) =
             tolerancing::settle(&self.analysis, state).map_err(|error| error.to_string())?;
-        let review = self.review(&settled.answers)?;
+        let review = self.with_anchors(review);
         Ok(json!({"review": review, "state": settled}))
     }
 
     pub fn review(&self, answers: &Map<String, Value>) -> Result<Value, String> {
-        let mut review = api::review(&self.analysis, answers).map_err(|error| error.to_string())?;
+        input::answers(&self.analysis, answers).map_err(|e| e.to_string())?;
+        let review = api::review(&self.analysis, answers).map_err(|error| error.to_string())?;
+        Ok(self.with_anchors(review))
+    }
+
+    fn with_anchors(&self, mut review: Value) -> Value {
+        // JSON reads return Null on a missing key; api::review always constructs an object intent.
         let groups = review["intent"]["datums"]
             .as_array()
             .into_iter()
@@ -128,7 +141,7 @@ impl Session {
             })
             .collect::<Vec<Vec<usize>>>();
         review["intent"]["anchors"] = json!(api::anchors(&self.loaded, &groups));
-        Ok(review)
+        review
     }
 }
 
@@ -136,6 +149,9 @@ impl Session {
 fn project_attribute(project: Option<&str>) -> Result<Vec<haecceity::pmi::AttributeSet>, String> {
     use haecceity::pmi::{AttributeSet, AttributeValue};
     const NAME: &str = "draftwright editor project";
+    if let Some(text) = project {
+        input::size("Project", text.len(), input::JSON_LIMIT).map_err(|e| e.to_string())?;
+    }
     match project {
         Some(text)
             if text.is_empty()

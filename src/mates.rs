@@ -31,6 +31,7 @@
 //! in mates or contacts, and a loop that runs along an edge whose curve did not resolve (whose
 //! samples are only its chord) is refused like an open one.
 
+// Assembly geometry paths are unreachable from Session::open, which refuses multiple parts/placements.
 use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
@@ -124,6 +125,7 @@ pub fn mates(parts: &[LoadedPart], part: usize) -> Map<String, Value> {
         let values: BTreeSet<&str> = suggestions.iter().map(|(v, _)| v.as_str()).collect();
         if values.len() == 1 {
             // Python's min() of the (value, reason) tuples: the first in the ordered set.
+            // values.len() == 1 proves suggestions contains at least one tuple.
             let (value, reason) = suggestions.into_iter().next().expect("one suggestion");
             out.insert(face.to_string(), json!({"value": value, "reason": reason}));
         }

@@ -25,6 +25,7 @@
 //!   measure (Python's areas are OpenCascade's, always known): the largest face is then not
 //!   known, and a smaller one is not anchored in its place.
 
+// Coordinate indexing uses [f64; 3] (or a bounded 0..3 loop), never variable-length JSON arrays.
 use haecceity::geom::{Surface, V3};
 use serde_json::{Map, Value, json};
 
@@ -86,6 +87,7 @@ fn anchor(
         let area = part
             .face_moments(i)
             .map(|m| m.area)
+            // face_mass returns a fixed-size mass-properties array, so component 0 exists.
             .or_else(|| part.face_mass(i).map(|m| m[0]))?;
         if face.is_none() || area > largest {
             (face, largest) = (Some(i), area);
@@ -113,7 +115,7 @@ fn leader(
     let normal = normalise(part.face_normal(face, u, v)?)?;
     let mut preferred = vec![normal];
     let mut hole = None;
-    if let Surface::Cylinder { frame, .. } = part.faces[face].surface
+    if let Surface::Cylinder { frame, .. } = part.faces.get(face)?.surface
         && let Some(axis) = normalise(frame.z)
         && inward(frame.origin, axis, at, normal)
     {
@@ -141,7 +143,7 @@ fn leader(
 /// `diagonal * REACH` long: for comparing with another engine's anchor point, the point being
 /// the one thing the U6 stand-in chooses differently. None where the face has no normal there.
 pub fn anchor_from_point(loaded: &LoadedPart, face: usize, at: V3, diagonal: f64) -> Option<Value> {
-    let uv = loaded.part.faces[face].surface.parameters(at, None)?;
+    let uv = loaded.part.faces.get(face)?.surface.parameters(at, None)?;
     let tester = SightTester::new(&loaded.part, diagonal * REACH);
     leader(loaded, face, at, uv, &tester, loaded.degraded().is_none())
 }
@@ -151,7 +153,7 @@ pub fn anchor_from_point(loaded: &LoadedPart, face: usize, at: V3, diagonal: f64
 /// surface, else None.
 fn point_on(loaded: &LoadedPart, face: usize) -> Option<(V3, (f64, f64))> {
     let part = &loaded.part;
-    let surface = &part.faces[face].surface;
+    let surface = &part.faces.get(face)?.surface;
     let domain = part.domain(face)?;
     if let Some(centre) = part.face_centre(face)
         && let Some((u, v)) = surface.parameters(centre, None)
@@ -168,6 +170,7 @@ fn point_on(loaded: &LoadedPart, face: usize) -> Option<(V3, (f64, f64))> {
             (largest, area) = (Some(t), a);
         }
     }
+    // largest is a triangle index from the loop; finish() builds uv and triangle vertices together.
     let corners = triangles.triangles[largest?].map(|k| triangles.uv[k]);
     let u = corners.iter().map(|c| c.0).sum::<f64>() / 3.0;
     let v = corners.iter().map(|c| c.1).sum::<f64>() / 3.0;

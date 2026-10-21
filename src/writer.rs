@@ -506,6 +506,7 @@ impl Source {
 
     /// Whether the part has PMI other than stored answers.
     fn has_pmi(&self, part: usize) -> bool {
+        // WASM sessions bind part 0 of one-part bytes; Source::of verifies the reader's part count.
         let mut p = self.read.parts[part].clone();
         p.attributes.retain(|a| !resume::is_answers(a));
         p != PartPmi::default()
@@ -535,6 +536,7 @@ fn write_verified(
     jobs: &[Job<'_>],
     extra: &[AttributeSet],
 ) -> Result<(Vec<u8>, WriteReport), WriteError> {
+    // Every write_verified caller first rejects empty jobs; a session supplies exactly one job.
     let first = jobs[0].0;
     let bytes: &[u8] = &first.bytes;
     let source = Source::of(bytes)?;
@@ -562,6 +564,7 @@ fn write_verified(
                         .map_err(load_failed)?;
                     file = Some(read);
                 }
+                // file was assigned Some on the immediately preceding branch when it was None.
                 let l = file
                     .as_ref()
                     .expect("read above")
@@ -600,6 +603,7 @@ fn write_verified(
 
     let mut planned = Vec::new();
     for (&(loaded, intent, answers), &mode) in jobs.iter().zip(&modes) {
+        // The session binding comes from these same one-part bytes; Source::of verifies reader counts.
         let before = &source.read.parts[loaded.binding.part];
         let (mut pmi, lines) = part_pmi(intent, before, mode)?;
         let payload = match answers {
@@ -646,6 +650,7 @@ fn write_verified(
     let unchanged = modes.iter().all(|m| *m == Mode::Replace)
         && planned.iter().all(|p| p.payload.is_some())
         && items.iter().all(|(part, pmi)| {
+            // items is mapped from the same validated session bindings used to plan the writes above.
             differences_as_stated(&source.read.parts[part.0], pmi).is_empty()
                 && provenance::all(
                     &source.read.parts[part.0],
@@ -743,6 +748,7 @@ fn write_by_modes(
             // not modelled and keeps it), so a replace takes it out here: the answers stored
             // now are the only ones.
             for (part, _) in &these {
+                // these retains the same validated part ids; replace edits do not change geometry or definitions.
                 for id in python_answers(current, &defs[part.0]) {
                     edit.remove(id);
                 }
@@ -759,6 +765,7 @@ fn write_by_modes(
             .map_err(|e| WriteError::Failed(format!("cannot mark written PMI: {e}")))?;
         written = Some(marked.bytes);
     }
+    // jobs is checked nonempty and every edit group assigns written before reaching this return.
     Ok(written.expect("at least one part is written"))
 }
 
@@ -846,6 +853,7 @@ fn verify(
         }
     }
     for (i, read) in after.parts.iter().enumerate() {
+        // Source::of checked before.parts.len() == defs.len(); after.parts is checked against defs above.
         let old = &before.parts[i];
         let found = written.iter().zip(modes).find(|((p, _), _)| p.0 == i);
         match found.map(|((_, new), &mode)| (new, mode)) {
@@ -888,10 +896,13 @@ fn verify(
                         .into_iter()
                         .map(|d| format!("part {i}: {d}")),
                 );
-                let prov = &before.provenance.parts[i];
+                let prov = before.provenance.parts.get(i).ok_or_else(|| {
+                    fail(format!("part {i}: the PMI reader returned no provenance"))
+                })?;
                 let geometry: BTreeSet<u64> = prov.geometry.iter().flatten().copied().collect();
                 // An instance survives when the file written still has it, unchanged.
                 fn text(doc: &Document, id: u64) -> Option<&[u8]> {
+                    // Document::span returns parser-owned byte ranges within this same immutable document.
                     doc.span(id).map(|s| &doc.bytes()[s])
                 }
                 for id in prov.all() {
@@ -1081,6 +1092,7 @@ fn fit_class(name: &str) -> Result<Iso286Class, WriteError> {
         .find(|c: char| c.is_ascii_digit())
         .ok_or_else(refused)?;
     Ok(Iso286Class {
+        // find() returned the UTF-8 byte boundary of an ASCII digit, so both string slices are valid.
         deviation: FundamentalDeviation::parse(&name[..split]).map_err(|_| refused())?,
         grade: ToleranceGrade::parse(&name[split..]).map_err(|_| refused())?,
     })
@@ -1584,6 +1596,7 @@ fn thread(
         major_diameter: major.clone(),
         minor_diameter: None,
         pitch_diameter: None,
+        // The literal 1. is a valid Decimal, independent of the STEP input.
         number_of_threads: Ratio(Decimal::parse("1.").expect("a decimal")),
         form: "M".into(),
         fit_class: text(req, "class")?.into(),

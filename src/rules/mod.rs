@@ -12,6 +12,7 @@
 //! a record the rules need but cannot read is an [`Error::Invalid`] naming it, never a panic.
 //! Messages, prompts and the JSON produced are specify-core's, byte for byte and key for key.
 
+// Literal indices into LOCATING and EDGES are in bounds of their fixed-size constant arrays.
 use std::collections::BTreeSet;
 use std::fmt;
 
@@ -239,9 +240,11 @@ impl Question {
     pub fn to_presented_dict(&self) -> Value {
         let mut out = self.to_dict();
         if let Some(title) = &self.title {
+            // to_dict() constructs an object; Value writes add string keys without bounds checks.
             out["title"] = Value::from(title.as_str());
         }
         if let Some(characteristic) = self.characteristic {
+            // Characteristic is a fieldless Serialize enum, which always serializes as a string.
             out["characteristic"] =
                 serde_json::to_value(characteristic).expect("characteristic serialises");
         }
@@ -600,6 +603,7 @@ fn all_questions(
         keys.push(holes::hole_key(target, hole, frames, &ctx.faces, &datums)?);
     }
     for group in same(&holes, &keys) {
+        // same() creates groups with one item and only appends, so every group is nonempty.
         let (target, hole, located_frames) = group[0];
         let mut target = target.clone();
         if group.len() > 1 {
@@ -769,6 +773,7 @@ fn same<'i, T, K: PartialEq>(items: &'i [T], keys: &[K]) -> Vec<Vec<&'i T>> {
     let mut groups: Vec<Vec<&T>> = Vec::new();
     for (item, key) in items.iter().zip(keys) {
         match firsts.iter().position(|k| *k == key) {
+            // keys and groups are appended together; i comes from the keys position.
             Some(i) => groups[i].push(item),
             None => {
                 firsts.push(key);
@@ -809,7 +814,7 @@ fn reviewed(mut q: Question, faces: &Faces) -> Result<Question> {
         q.reason = format!(
             "⌀{} is the tap-drill size for {size}, so it is assumed tapped {size}; if it is not \
              threaded, choose what it is for",
-            py::fmt(q.diameter.unwrap_or(0.0))
+            py::fmt(q.diameter.unwrap_or(0.0))?
         );
         q.attention = "check";
         return Ok(q);
@@ -1141,6 +1146,7 @@ fn intent(
                 ("datums", Value::from(control.datums.clone())),
             ]));
         }
+        // before was the length before this iteration appended requirements; no items are removed.
         for req in &mut intent.requirements[before..] {
             req.insert("question".into(), Value::from(q.id.as_str()));
         }

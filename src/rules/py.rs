@@ -158,6 +158,7 @@ pub fn int_of(value: &Value) -> Result<i64, IntError> {
 /// Python's `int(text)` in base 10.
 fn int_of_str(text: &str) -> Option<i64> {
     let text = pyfmt::strip(text);
+    // The slices are taken only after matching an ASCII sign, which occupies one UTF-8 byte.
     let (negative, digits) = match text.chars().next()? {
         '-' => (true, &text[1..]),
         '+' => (false, &text[1..]),
@@ -194,8 +195,8 @@ pub fn round(x: f64, digits: i32) -> f64 {
 }
 
 /// `rules._fmt`: a number in a prompt, basis or reason (`6.6`, `8`, `0.25`).
-pub fn fmt(x: f64) -> String {
-    pyfmt::fmt_rules(x)
+pub fn fmt(x: f64) -> super::Result<String> {
+    pyfmt::fmt_rules(x).map_err(|error| super::Error::Invalid(error.to_string()))
 }
 
 /// `rules._sentence`: the words with a capital and a full stop.
