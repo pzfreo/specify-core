@@ -124,6 +124,16 @@ fn rematching_requires_unique_same_family_support_and_reports_every_refusal() {
                 .any(|id| id.starts_with("hole.function:"))
         );
     }
+    for id in [
+        "hole.function:holes:",
+        "hole.function:holes:not-a-face",
+        "hole.function:missing-family-and-faces",
+    ] {
+        let malformed = serde_json::Map::from_iter([(id.to_string(), json!("plain"))]);
+        let result = resume::rematch(&malformed, &current);
+        assert_eq!(result.unresolved.len(), 1, "{id}");
+        assert!(result.answers.is_empty(), "{id}");
+    }
     let collision = json!({"hole.function:holes:6":"plain", "hole.function:holes:7":"fit:H7"});
     let result = resume::rematch(collision.as_object().unwrap(), &current);
     assert_eq!(result.unresolved.len(), 2);
@@ -192,6 +202,7 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
         rotation: [[d, t * s, t * c], [0., c, -s], [-t, d * s, d * c]],
         translation: [31., -17., 43.],
     };
+    let mut placements_checked = 0;
     for name in [
         "plate",
         "pin",
@@ -234,9 +245,23 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
             &common::Tolerances::default().with("*", 1e-5, 1e-8),
         );
         assert!(differences.is_empty(), "{name}: {differences:?}");
-        let answers =
-            rules::with_all_defaults(&aa, json!({"part.material":"steel"}).as_object().unwrap())
-                .unwrap();
+        let mut seed = json!({"part.material":"steel"})
+            .as_object()
+            .unwrap()
+            .clone();
+        if let Some((question, option)) = qa.iter().find_map(|q| {
+            q.id.starts_with("diameter.fit:")
+                .then(|| {
+                    q.options
+                        .iter()
+                        .find(|option| option.starts_with("thread:"))
+                        .map(|option| (&q.id, option))
+                })
+                .flatten()
+        }) {
+            seed.insert(question.clone(), json!(option));
+        }
+        let answers = rules::with_all_defaults(&aa, &seed).unwrap();
         let mut ia = rules::apply(&aa, &answers).unwrap();
         let mut ib = rules::apply(&ab, &answers).unwrap();
         ia.binding = json!(null);
@@ -249,6 +274,9 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
         );
         assert!(differences.is_empty(), "{name}: {differences:?}");
         // Use each source's binding for the real PMI writer and its independent readback check.
+        let mut written_pmi = Vec::new();
+        let mut written_parts = Vec::new();
+        let mut readbacks = Vec::new();
         for loaded in [&a, &b] {
             let analysis = api::analyse(loaded).unwrap();
             let intent = rules::apply(&analysis, &answers).unwrap();
@@ -262,6 +290,60 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
                 intent.requirements.len() + intent.datums.len(),
                 "{name}"
             );
+            readbacks.push(
+                serde_json::to_value(specify_core::existing::read_existing(&back).unwrap())
+                    .unwrap(),
+            );
+            let doc = Document::parse(back.bytes.to_vec()).unwrap();
+            written_pmi.push(
+                haecceity::pmi::read(&doc, std::slice::from_ref(&back.definition))
+                    .unwrap()
+                    .parts
+                    .remove(0),
+            );
+            written_parts.push(back);
+        }
+        let differences = common::compare(
+            name,
+            &readbacks[0],
+            &readbacks[1],
+            &common::Tolerances::default().with("*", 1e-5, 1e-8),
+        );
+        assert!(
+            differences.is_empty(),
+            "{name}: written PMI {differences:?}"
+        );
+        let (base_pmi, moved_pmi) = (&written_pmi[0], &written_pmi[1]);
+        assert_eq!(
+            base_pmi.features, moved_pmi.features,
+            "{name}: PMI source-face attachments"
+        );
+        assert_eq!(
+            base_pmi.datums, moved_pmi.datums,
+            "{name}: written datum associations"
+        );
+        // This writer places semantic PMI by source-face associations, not supplemental
+        // geometry. Inspect the actual geometry those written anchors address in both files.
+        for feature in &base_pmi.features {
+            if let haecceity::pmi::Feature::Items(anchors) = feature {
+                for anchor in anchors {
+                    if let haecceity::pmi::Anchor::Face(face) = anchor {
+                        placements_checked += 1;
+                        let a = &written_parts[0].part;
+                        let b = &written_parts[1].part;
+                        close(
+                            &motion.point(a.face_moments(face.0).unwrap().centroid),
+                            &b.face_moments(face.0).unwrap().centroid,
+                            1e-5,
+                        );
+                        close(
+                            &motion.direction(a.face_normal(face.0, 0.0, 0.0).unwrap()),
+                            &b.face_normal(face.0, 0.0, 0.0).unwrap(),
+                            1e-6,
+                        );
+                    }
+                }
+            }
         }
         let fa = features::recognise(&a).unwrap();
         let fb = features::recognise(&b).unwrap();
@@ -282,6 +364,10 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
             );
         }
     }
+    assert!(
+        placements_checked > 0,
+        "written PMI geometry must be tested, not just item counts"
+    );
 }
 
 #[test]

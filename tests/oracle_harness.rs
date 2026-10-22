@@ -216,7 +216,7 @@ fn verdicts_and_fields_are_validated() {
             .map(|v| json!({"case": "*", "path": "x", "pattern": "p", "verdict": v, "evidence": "e"}))
             .collect::<Vec<_>>()),
     );
-    assert_eq!(load_known(&good).len(), 5);
+    assert_eq!(load_known(&good).len(), VERDICTS.len());
     let bad = write(
         "bad.json",
         json!([
@@ -405,4 +405,33 @@ fn every_scenario_names_a_case_and_has_a_result() {
             assert!(result.get(key).is_some(), "{}: no {key}", scenario.name);
         }
     }
+}
+
+#[test]
+fn resolved_entries_assert_absence_and_never_explain_departures() {
+    let resolved = known("case", "value", "resolved");
+    check_known_with("test", std::slice::from_ref(&resolved), &[]);
+    let differences = compare(
+        "case",
+        &json!({"value":1}),
+        &json!({"value":2}),
+        &Tolerances::default(),
+    );
+    let message =
+        panics(|| check_known_with("test", std::slice::from_ref(&resolved), &differences));
+    assert!(
+        message.contains("resolved difference returned"),
+        "{message}"
+    );
+    assert_eq!(
+        common::explained_with(std::slice::from_ref(&resolved), &differences).len(),
+        1
+    );
+    // A later broad active entry must not mask a regression in a resolved path.
+    let active = known("case", "*", "rust-correct");
+    let message = panics(|| check_known_with("test", &[active, resolved], &differences));
+    assert!(
+        message.contains("resolved difference returned"),
+        "{message}"
+    );
 }

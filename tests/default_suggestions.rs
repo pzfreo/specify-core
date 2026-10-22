@@ -126,7 +126,22 @@ fn grm03_tap_thread_and_knurl_do_not_add_datums_or_position() {
     let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
     let reopened = part::load_bytes("grm03.step", bytes).unwrap();
     let reread = api::analyse(&reopened).unwrap();
-    assert_eq!(reread["resume"]["answers"], json!(given));
+    // A deliberately stale key stays recoverable in the resume report, rather than being
+    // silently carried as if it still addressed a recognised feature.
+    let mut current = given.clone();
+    let stale = current.shift_remove("hole.function:holes:14").unwrap();
+    assert_eq!(reread["resume"]["answers"], json!(current));
+    assert_eq!(
+        reread["resume"]["unresolved"][0]["id"],
+        "hole.function:holes:14"
+    );
+    assert_eq!(reread["resume"]["unresolved"][0]["answer"], stale);
+    assert!(
+        reread["resume"]["unresolved"][0]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("no same-family")
+    );
     // Analyse intentionally hides stored PMI when it resumes answers. Read semantic PMI
     // directly as well, so these absence assertions cannot pass just because it resumed.
     assert!(

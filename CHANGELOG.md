@@ -20,6 +20,9 @@ All notable changes to specify-core-rust. The format follows
 - Pin quiddity/haecceity to **v0.1.1** (a27b7064), including the WASM crate. Specify's
   version is unchanged. Draftwright's released kernel pin temporarily differs; the
   advisory pin checker continues to warn.
+- Adopt the kernel's file-grid/near-axis publication and support-plane plate boundaries
+  (#79), and remove CTC-04's false quarter-cone countersink features (#80). Hidden-line
+  drawing corrections are upstream; Specify does not consume that drawing API.
 - Read framed recognition correctly: file-space vectors/positions stay in file space,
   local slot/channel end planes are projected through the inferred frame, and remaining
   local record coordinates carry explicit frame metadata. Equal-area datum proposals

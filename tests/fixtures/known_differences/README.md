@@ -28,7 +28,7 @@ One file per area, `<area>.json`, a JSON array of entries:
   matches itself.
 - `pattern` names what the difference is, in a few words.
 - `verdict` is one of `rust-correct`, `rust-wrong`, `equivalent`, `undetermined`,
-  `not-applicable`. A `rust-wrong` entry is a bug kept visible, not a pass.
+  `not-applicable`, `resolved`. A `rust-wrong` entry is a bug kept visible, not a pass.
 - `evidence` says what was checked to reach the verdict.
 
 Every field is a non-empty string and no other field is allowed (`tests/common`'s `load_known`
@@ -51,3 +51,13 @@ checks it).
   differences"): only that stream edits it.
 - An entry is as narrow as the evidence: a pattern seen on every corpus case may be `corpus/*`;
   one checked on one file names that file.
+
+## Corrected historical differences
+
+Keep an entry that a kernel correction removes with verdict `resolved`, the original
+case/path and historical evidence, followed by the correcting quiddity PR and evidence.
+This is an absence assertion: the area's sweep fails if **any** difference matches that
+path, even if another active entry would cover it. Resolved entries never explain
+current departures and are excluded from the stale-entry rule. `tests/oracle_harness.rs`
+checks both properties. This retains history without exempting current mismatches or
+deleting fixed entries to make the sweep pass.

@@ -738,45 +738,6 @@
     ]
    },
    {
-    "id": "turned_steps:4",
-    "family": "turned_steps",
-    "record": {
-     "axis": "z",
-     "lo": 0.0,
-     "hi": 12.0,
-     "diameter": 6.0,
-     "profile": {
-      "axis": "z",
-      "axis_origin": [
-       0.0,
-       0.0,
-       0.0
-      ],
-      "body_bounds": [
-       -5.0,
-       5.0,
-       -5.0,
-       5.0,
-       0.0,
-       32.0
-      ],
-      "body_key": [
-       -5.0,
-       -5.0,
-       0.0,
-       5.0,
-       5.0,
-       32.0,
-       1799.25294456,
-       1117.15034762
-      ]
-     }
-    },
-    "faces": [
-     4
-    ]
-   },
-   {
     "id": "turned_steps:0",
     "family": "turned_steps",
     "record": {
@@ -816,46 +777,61 @@
     ]
    },
    {
-    "id": "step_levels:2",
-    "family": "step_levels",
+    "id": "turned_steps:4",
+    "family": "turned_steps",
     "record": {
-     "z": 12.0,
-     "x_span": [
-      -5.0,
-      5.0
-     ],
-     "y_span": [
-      -5.0,
-      5.0
-     ],
-     "body_key": [
-      -5.0,
-      -5.0,
-      0.0,
-      5.0,
-      5.0,
-      32.0,
-      1799.25294456,
-      1117.15034762
-     ]
+     "axis": "z",
+     "lo": 0.0,
+     "hi": 12.0,
+     "diameter": 6.0,
+     "profile": {
+      "axis": "z",
+      "axis_origin": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "body_bounds": [
+       -5.0,
+       5.0,
+       -5.0,
+       5.0,
+       0.0,
+       32.0
+      ],
+      "body_key": [
+       -5.0,
+       -5.0,
+       0.0,
+       5.0,
+       5.0,
+       32.0,
+       1799.25294456,
+       1117.15034762
+      ]
+     }
     },
     "faces": [
-     2
+     4
     ]
    },
    {
-    "id": "step_levels:5",
-    "family": "step_levels",
+    "id": "risers:2",
+    "family": "risers",
     "record": {
-     "z": 24.0,
-     "x_span": [
-      -2.1,
-      2.1
+     "vertical": true,
+     "axis": "x",
+     "positions": [
+      6.613
      ],
-     "y_span": [
-      -2.1,
-      2.1
-     ],
+     "other_axis": "y",
+     "other_positions": [],
+     "z_lo": -5.0,
+     "z_hi": 5.0,
+     "lo_at_envelope": true,
+     "hi_at_envelope": true,
+     "tol": 0.5,
+     "body_levels": [],
      "body_key": [
       -5.0,
       -5.0,
@@ -865,10 +841,44 @@
       32.0,
       1799.25294456,
       1117.15034762
-     ]
+     ],
+     "_local": [
+      "axis",
+      "hi_at_envelope",
+      "lo_at_envelope",
+      "other_axis",
+      "other_positions",
+      "positions",
+      "z_hi",
+      "z_lo"
+     ],
+     "_frame": {
+      "status": "inferred",
+      "origin": [
+       -3.4713131330485794e-17,
+       -2.801223467097147e-17,
+       18.613214136052523
+      ],
+      "x": [
+       0.0,
+       0.0,
+       -1.0
+      ],
+      "y": [
+       1.0,
+       0.0,
+       0.0
+      ],
+      "z": [
+       0.0,
+       -1.0,
+       0.0
+      ],
+      "gauge": "axial"
+     }
     },
     "faces": [
-     5
+     2
     ]
    }
   ],

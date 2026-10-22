@@ -205,6 +205,10 @@ are unresolved; colliding answers are never merged, even if their values agree.
 Non-feature answers and literal notes keep their values and insertion order. Current
 IDs are rederived on every reopening, never reused as quiddity positional IDs.
 
+Low-level `answers_for`/`answers_for_parsed` remain payload readers: they retain the
+original keys for clients holding the original analysis and byte-preserving round trips.
+Use `api::analyse`/the session, or `report_for_parsed`, to resume against new recognition.
+
 `analysis.resume` contains `answers`, optional `migrated` old/new question pairs and
 optional `unresolved` records (`id`, `feature`, `answer`, `reason`). Only `answers` are
 applied. CLI/serve warnings and the existing review/session `problems` list also name
@@ -252,6 +256,11 @@ Writer placement uses source faces/surfaces and requirement dimensions, never ra
 record fields. Split/symmetric datum faces tied below 1e-6 mm² keep face order so
 integration noise under motion does not switch the proposed datum. The moved named-part
 tests compare questions/defaults, location dimensions, geometry and verified PMI writes.
+Local checks for this upgrade use `cargo nextest run --workspace --release --locked
+--profile quiddity-upgrade`; the named profile selects the touched binaries, cross-engine,
+resume/answers and WASM session tests, with six test processes. Export both corpus paths
+and `QUIDDITY_CORPUS_REQUIRED=1`. The full workspace suite remains CI's check.
+
 Part-21 strings are decoded text in step-io 0.3 (#62): do not decode an attribute twice;
 haecceity's `Document::span` continues to provide checked `usize` slices of its own bytes.
 

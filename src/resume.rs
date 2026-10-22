@@ -242,6 +242,10 @@ fn schema_of(payload: &Map<String, Value>) -> Option<i64> {
 /// they were given for (same face count, same fingerprint of the payload's schema: [`fingerprint`]
 /// for 2, [`fingerprint_v1`] for 1); `None` otherwise. An error when
 /// the part's faces cannot be described, so the fingerprint cannot be checked.
+///
+/// This low-level payload reader preserves the original keys for callers holding the saved
+/// analysis (and for byte-for-byte round trips). To resume against newly recognised geometry,
+/// use [`report_for_parsed`] or [`crate::api::analyse`], which migrate and report unresolved keys.
 pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, FeatureError> {
     answers_in(loaded, stored(&loaded.bytes))
 }
@@ -272,12 +276,7 @@ fn answers_in(
     if payload.get("faces") != Some(&Value::String(faces)) {
         return Ok(None);
     }
-    let Some(answers) = payload.get("answers").and_then(Value::as_object) else {
-        return Ok(None);
-    };
-    Ok(Some(
-        rematch(answers, &crate::features::recognise(loaded)?).answers,
-    ))
+    Ok(payload.get("answers").and_then(Value::as_object).cloned())
 }
 
 /// One stored answer that needs a human decision. Keep the original value for recovery.
@@ -347,8 +346,16 @@ pub fn report_for_parsed(
 fn answer_feature(id: &str) -> Option<(&str, &str)> {
     let (question, feature) = id.split_once(':')?;
     // Only feature-question keys, never colon-containing literal text or part notes.
-    let (family, faces) = feature.split_once(':')?;
-    (!question.is_empty() && !family.is_empty() && !faces.is_empty()).then_some((question, feature))
+    matches!(
+        question,
+        "hole.function"
+            | "hole.frame"
+            | "hole.position"
+            | "hole.location"
+            | "diameter.fit"
+            | "diameter.runout"
+    )
+    .then_some((question, feature))
 }
 
 /// Match geometric supports, never feature list positions or dimensions. Defining faces
@@ -365,6 +372,12 @@ pub fn rematch(answers: &Map<String, Value>, features: &[crate::features::Featur
             continue;
         };
         let Some((family, support)) = old.split_once(':') else {
+            out.unresolved.push(UnresolvedAnswer {
+                id: id.clone(),
+                feature: Some(old.into()),
+                answer: answer.clone(),
+                reason: "malformed saved feature ID; expected family:faces".into(),
+            });
             continue;
         };
         let support: Option<Vec<usize>> = support.split('.').map(|s| s.parse().ok()).collect();
