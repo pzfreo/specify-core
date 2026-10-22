@@ -220,19 +220,30 @@ fn analyse_with(
     analysis.insert("faces".into(), faces);
     analysis.insert(
         "features".into(),
-        serde_json::to_value(features).map_err(|e| refused(&e))?,
+        serde_json::to_value(&features).map_err(|e| refused(&e))?,
     );
     if let Some(mated) = mated {
         analysis.insert("mates".into(), Value::Object(mated));
     }
     let doc = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone());
-    match resume::answers_for_parsed(loaded, doc.as_ref().ok()).map_err(|e| refused(&e))? {
-        Some(answers) => {
+    match resume::report_for_parsed(loaded, doc.as_ref().ok(), &features)
+        .map_err(|e| refused(&e))?
+    {
+        Some(resumed) => {
             // A file specify-core wrote, opened to be changed: its PMI is the answers', not
             // the file's to keep, and the answers come back to be edited.
             analysis.insert("existing".into(), json!([]));
             analysis.insert("part".into(), json!({}));
-            analysis.insert("resume".into(), json!({ "answers": answers }));
+            for unresolved in &resumed.unresolved {
+                warnings.push(format!(
+                    "saved answer {}: {}; left open",
+                    unresolved.id, unresolved.reason
+                ));
+            }
+            analysis.insert(
+                "resume".into(),
+                serde_json::to_value(resumed).map_err(|e| refused(&e))?,
+            );
         }
         None => {
             let unreadable =

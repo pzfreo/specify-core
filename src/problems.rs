@@ -35,6 +35,22 @@ pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Va
     let faces = &ctx.faces;
     let asked: HashSet<&str> = qs.iter().map(|q| q.id.as_str()).collect();
     let mut out = awaiting_datum_frames(&ctx, answers, &intent)?;
+    for saved in analysis["resume"]["unresolved"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        if let (Some(id), Some(reason)) = (saved["id"].as_str(), saved["reason"].as_str()) {
+            let mut diagnostic = problem(
+                "warning",
+                format!("Saved answer {id}: {reason}; review the open questions."),
+                Value::Array(vec![]),
+                id,
+            );
+            diagnostic["code"] = Value::from("saved_answer_unresolved");
+            out.push(diagnostic);
+        }
+    }
 
     let by_position = !matches!(
         rules::answer(&merged, &qs, "part.locating"),

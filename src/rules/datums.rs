@@ -122,7 +122,9 @@ fn planes_by_area(faces: &Faces) -> Result<Vec<&Face>> {
         .filter(|f| f.is_plane())
         .map(|f| Ok((f, f.area()?)))
         .collect::<Result<_>>()?;
-    py::sort_by_float(&mut planes, |(_, area)| -area);
+    // Integration noise under a rigid motion must not swap equal-area datum faces.
+    // A square micron is below the geometry coordinate floor; ties keep face order.
+    py::sort_by_float(&mut planes, |(_, area)| -py::round(*area, 6));
     Ok(planes.into_iter().map(|(f, _)| f).collect())
 }
 
@@ -349,18 +351,36 @@ fn recess_planes(ctx: &Ctx<'_>) -> Result<HashSet<i64>> {
                 }
             }
         }
-        if matches!(f.family, "slots" | "channels")
-            && let Some(axis) = f.get("long_axis")?.and_then(Value::as_str)
-            && let Some(component) = ["x", "y", "z"].iter().position(|&a| a == axis)
-        {
-            for p in ctx.faces.iter().filter(|p| p.is_plane()) {
-                if p.direction()?[component].abs() > 1.0 - 1e-6 {
-                    let level = p.centroid()?[component];
-                    if [f.number("lo")?, f.number("hi")?]
-                        .iter()
-                        .any(|end| (level - end).abs() < 1e-4)
-                    {
-                        ids.insert(p.id);
+        if matches!(f.family, "slots" | "channels") {
+            let end_frame = if f.get("end_direction")?.is_some() {
+                Some((
+                    f.vector("end_direction")?,
+                    [f.vector("end_lo")?, f.vector("end_hi")?],
+                ))
+            } else {
+                f.get("long_axis")?
+                    .and_then(Value::as_str)
+                    .and_then(|axis| ["x", "y", "z"].iter().position(|&a| a == axis))
+                    .map(|component| -> Result<_> {
+                        let direction =
+                            std::array::from_fn(|i| if i == component { 1.0 } else { 0.0 });
+                        let point = |level| {
+                            std::array::from_fn(|i| if i == component { level } else { 0.0 })
+                        };
+                        Ok((direction, [point(f.number("lo")?), point(f.number("hi")?)]))
+                    })
+                    .transpose()?
+            };
+            if let Some((direction, ends)) = end_frame {
+                for p in ctx.faces.iter().filter(|p| p.is_plane()) {
+                    if parallel(&p.direction()?, &direction) {
+                        let centroid = p.centroid()?;
+                        if ends.iter().any(|end| {
+                            let offset = std::array::from_fn(|i| centroid[i] - end[i]);
+                            dot(&offset, &direction).abs() < 1e-4
+                        }) {
+                            ids.insert(p.id);
+                        }
                     }
                 }
             }
@@ -498,7 +518,7 @@ pub(crate) fn datum_a_doubt(faces: &Faces) -> Result<String> {
             groups.push((f, f.area()?));
         }
     }
-    py::sort_by_float(&mut groups, |(_, area)| -area);
+    py::sort_by_float(&mut groups, |(_, area)| -py::round(*area, 6));
     // Both group indices are guarded by len() > 1.
     if groups.len() > 1 && groups[1].1 >= 0.8 * groups[0].1 {
         return Ok(format!(

@@ -1,0 +1,364 @@
+//! Independent compatibility evidence for the v0.1.1 kernel upgrade. These are Rust-written
+//! alpha.6 inputs, not outputs recaptured from Python or regenerated after the pin changed.
+use haecceity::p21::{Attribute, Document, Edit, RawEntity};
+use serde_json::{Map, Value, json};
+use specify_core::{
+    api,
+    features::{self, Feature},
+    part, resume, rules, writer,
+};
+mod common;
+use std::{collections::BTreeSet, path::Path};
+
+fn fixture(name: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
+}
+
+#[test]
+fn five_real_alpha6_files_resume_all_87_answers_including_a_rotated_part() {
+    let mut total = 0;
+    let mut changed_parts = 0;
+    for name in ["plate", "plate-moved", "shaft", "corners", "pin"] {
+        let base: Value = serde_json::from_slice(
+            &std::fs::read(fixture(&format!("resume-alpha6/{name}.json"))).unwrap(),
+        )
+        .unwrap();
+        let loaded = part::load(&fixture(&format!("resume-alpha6/{name}.step.gz")), None).unwrap();
+        let (analysis, warnings) = api::analyse_reporting(&loaded).unwrap();
+        assert!(warnings.is_empty(), "{name}: {warnings:?}");
+        assert_eq!(analysis["resume"]["answers"], base["answers"], "{name}");
+        assert!(analysis["resume"]["unresolved"].is_null());
+        let ids = |value: &Value| {
+            value
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|f| f["id"].as_str().unwrap().to_string())
+                .collect::<BTreeSet<_>>()
+        };
+        if ids(&base["features"]) != ids(&analysis["features"]) {
+            changed_parts += 1;
+        }
+        let answers = analysis["resume"]["answers"].as_object().unwrap();
+        total += answers.len();
+        assert!(
+            api::review(&analysis, answers).unwrap()["open"]
+                .as_array()
+                .unwrap()
+                .is_empty(),
+            "{name}"
+        );
+        let intent = rules::apply(&analysis, answers).unwrap();
+        let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(answers)).unwrap();
+        let back = part::File::of_bytes(Path::new(name), bytes)
+            .unwrap()
+            .load(None)
+            .unwrap();
+        assert_eq!(resume::answers_for(&back).unwrap().as_ref(), Some(answers));
+        // Stored base64 bytes and literal Unicode/quote/backslash text survive step-io 0.3.
+        let before = resume::stored(&loaded.bytes);
+        let after = resume::stored(&back.bytes);
+        assert_eq!(
+            resume::encode(&json!(before[&0])),
+            resume::encode(&json!(after[&0]))
+        );
+        let settings = specify_core::existing::part_settings(&back).unwrap();
+        assert_eq!(settings["notes"], base["answers"]["part.notes"]);
+    }
+    assert_eq!(total, 87);
+    assert_eq!(
+        changed_parts, 2,
+        "shaft and pin feature IDs changed; saved answers must still resume"
+    );
+}
+
+fn feature(id: &str, family: &str, faces: Vec<usize>) -> Feature {
+    Feature {
+        id: id.into(),
+        family: family.into(),
+        faces,
+        record: Map::new(),
+        members: vec![],
+        notes: vec![],
+    }
+}
+
+#[test]
+fn rematching_requires_unique_same_family_support_and_reports_every_refusal() {
+    let answers = json!({"hole.function:holes:6": "plain", "part.notes": ["do not edit holes:6"]});
+    let current = vec![feature("holes:6.7", "holes", vec![6, 7])];
+    let migrated = resume::rematch(answers.as_object().unwrap(), &current);
+    assert_eq!(migrated.answers["hole.function:holes:6.7"], "plain");
+    assert_eq!(
+        migrated.migrated,
+        [(
+            "hole.function:holes:6".into(),
+            "hole.function:holes:6.7".into()
+        )]
+    );
+    assert_eq!(migrated.answers["part.notes"], answers["part.notes"]);
+    for (features, reason) in [
+        (vec![], "no same-family"),
+        (
+            vec![feature("bosses:6", "bosses", vec![6])],
+            "no same-family",
+        ),
+        (
+            vec![
+                feature("holes:6.7", "holes", vec![6, 7]),
+                feature("holes:6.8", "holes", vec![6, 8]),
+            ],
+            "ambiguous",
+        ),
+    ] {
+        let result = resume::rematch(answers.as_object().unwrap(), &features);
+        assert_eq!(result.unresolved.len(), 1);
+        assert_eq!(result.unresolved[0].id, "hole.function:holes:6");
+        assert!(result.unresolved[0].reason.contains(reason));
+        assert!(
+            !result
+                .answers
+                .keys()
+                .any(|id| id.starts_with("hole.function:"))
+        );
+    }
+    let collision = json!({"hole.function:holes:6":"plain", "hole.function:holes:7":"fit:H7"});
+    let result = resume::rematch(collision.as_object().unwrap(), &current);
+    assert_eq!(result.unresolved.len(), 2);
+    assert!(result.answers.is_empty());
+    let cross_question_collision =
+        json!({"hole.function:holes:6":"plain", "hole.position:holes:7":"0.05"});
+    let result = resume::rematch(cross_question_collision.as_object().unwrap(), &current);
+    assert_eq!(result.unresolved.len(), 2);
+    assert!(
+        result.answers.is_empty(),
+        "different question types cannot hide merged-feature ambiguity"
+    );
+}
+
+fn moved_bytes(bytes: Vec<u8>, motion: &quiddity::framed_records::Rigid) -> Vec<u8> {
+    let doc = Document::parse(bytes).unwrap();
+    let mut edit = Edit::new();
+    for id in doc.ids() {
+        let Some(RawEntity::Simple {
+            name, attributes, ..
+        }) = doc.get(id)
+        else {
+            continue;
+        };
+        if !matches!(name.as_str(), "CARTESIAN_POINT" | "DIRECTION") {
+            continue;
+        }
+        let Some(Attribute::List(items)) = attributes.get(1) else {
+            continue;
+        };
+        let values: Option<Vec<f64>> = items
+            .iter()
+            .map(|a| match a {
+                Attribute::Real(v) => Some(*v),
+                _ => None,
+            })
+            .collect();
+        let Some(values) = values else { continue };
+        let Ok(v) = <[f64; 3]>::try_from(values) else {
+            continue;
+        };
+        let v = if name == "CARTESIAN_POINT" {
+            motion.point(v)
+        } else {
+            motion.direction(v)
+        };
+        let mut attributes = attributes.clone();
+        attributes[1] = Attribute::List(v.into_iter().map(Attribute::Real).collect());
+        edit.replace(id, haecceity::p21::simple(name, attributes));
+    }
+    doc.apply(&edit).unwrap().bytes
+}
+
+fn close(a: &[f64; 3], b: &[f64; 3], tolerance: f64) {
+    assert!(
+        (0..3).all(|i| (a[i] - b[i]).abs() < tolerance),
+        "{a:?} != {b:?}"
+    );
+}
+
+#[test]
+fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_motion() {
+    let (s, c) = 37_f64.to_radians().sin_cos();
+    let (t, d) = 23_f64.to_radians().sin_cos();
+    let motion = quiddity::framed_records::Rigid {
+        rotation: [[d, t * s, t * c], [0., c, -s], [-t, d * s, d * c]],
+        translation: [31., -17., 43.],
+    };
+    for name in [
+        "plate",
+        "pin",
+        "GRM-02_shaft",
+        "four_corner_holes_are_quiddity_rectangle_with_members",
+    ] {
+        let bytes = std::fs::read(fixture(&format!("parts/{name}.step"))).unwrap();
+        let a = part::File::of_bytes(Path::new(name), bytes.clone())
+            .unwrap()
+            .load(None)
+            .unwrap();
+        let b = part::File::of_bytes(Path::new(name), moved_bytes(bytes, &motion))
+            .unwrap()
+            .load(None)
+            .unwrap();
+        // Independent Part::transformed route proves source face indices are preserved.
+        let transformed = a
+            .part
+            .transformed(&[
+                [d, t * s, t * c, 31.],
+                [0., c, -s, -17.],
+                [-t, d * s, d * c, 43.],
+            ])
+            .unwrap();
+        for i in 0..a.part.faces.len() {
+            close(
+                &b.part.face_moments(i).unwrap().centroid,
+                &transformed.face_moments(i).unwrap().centroid,
+                1e-6,
+            );
+        }
+        let aa = api::analyse(&a).unwrap();
+        let ab = api::analyse(&b).unwrap();
+        let qa = rules::questions(&aa, &Map::new()).unwrap();
+        let qb = rules::questions(&ab, &Map::new()).unwrap();
+        let differences = common::compare(
+            name,
+            &json!(qa.iter().map(|q| q.to_dict()).collect::<Vec<_>>()),
+            &json!(qb.iter().map(|q| q.to_dict()).collect::<Vec<_>>()),
+            &common::Tolerances::default().with("*", 1e-5, 1e-8),
+        );
+        assert!(differences.is_empty(), "{name}: {differences:?}");
+        let answers =
+            rules::with_all_defaults(&aa, json!({"part.material":"steel"}).as_object().unwrap())
+                .unwrap();
+        let mut ia = rules::apply(&aa, &answers).unwrap();
+        let mut ib = rules::apply(&ab, &answers).unwrap();
+        ia.binding = json!(null);
+        ib.binding = json!(null);
+        let differences = common::compare(
+            name,
+            &ia.to_dict(),
+            &ib.to_dict(),
+            &common::Tolerances::default().with("*", 1e-5, 1e-8),
+        );
+        assert!(differences.is_empty(), "{name}: {differences:?}");
+        // Use each source's binding for the real PMI writer and its independent readback check.
+        for loaded in [&a, &b] {
+            let analysis = api::analyse(loaded).unwrap();
+            let intent = rules::apply(&analysis, &answers).unwrap();
+            let (written, _report) = writer::write_bytes(loaded, &intent, Some(&answers)).unwrap();
+            let back = part::File::of_bytes(Path::new(name), written)
+                .unwrap()
+                .load(None)
+                .unwrap();
+            assert_eq!(
+                specify_core::existing::read_existing(&back).unwrap().len(),
+                intent.requirements.len() + intent.datums.len(),
+                "{name}"
+            );
+        }
+        let fa = features::recognise(&a).unwrap();
+        let fb = features::recognise(&b).unwrap();
+        for hole in fa.iter().filter(|f| f.family == "holes") {
+            let other = fb.iter().find(|f| f.id == hole.id).unwrap();
+            let vector = |f: &Feature, k: &str| -> [f64; 3] {
+                serde_json::from_value(f.record[k].clone()).unwrap()
+            };
+            close(
+                &motion.point(vector(hole, "location")),
+                &vector(other, "location"),
+                1e-5,
+            );
+            close(
+                &motion.direction(vector(hole, "axis")),
+                &vector(other, "axis"),
+                1e-6,
+            );
+        }
+    }
+}
+
+#[test]
+fn unresolved_saved_answers_reach_review_and_leave_questions_open() {
+    let loaded = part::load(&fixture("resume-alpha6/pin.step.gz"), None).unwrap();
+    let mut payload = json!(resume::stored(&loaded.bytes)[&0]);
+    let key = payload["answers"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .find(|id| id.starts_with("hole.function:"))
+        .unwrap()
+        .clone();
+    let value = payload["answers"]
+        .as_object_mut()
+        .unwrap()
+        .remove(&key)
+        .unwrap();
+    payload["answers"]["hole.function:holes:999"] = value.clone();
+    let rewrite = |payload: &Value| {
+        let doc = Document::parse(loaded.bytes.as_ref().clone()).unwrap();
+        let mut edit = Edit::new();
+        for id in doc.ids() {
+            if let Some(RawEntity::Simple {
+                name, attributes, ..
+            }) = doc.get(id)
+                && name == "DESCRIPTIVE_REPRESENTATION_ITEM"
+                && matches!(attributes.first(), Some(Attribute::String(s)) if s == resume::NAME)
+            {
+                let mut attributes = attributes.clone();
+                attributes[1] = Attribute::String(resume::encode(payload));
+                edit.replace(id, haecceity::p21::simple(name, attributes));
+            }
+        }
+        doc.apply(&edit).unwrap().bytes
+    };
+    let bytes = rewrite(&payload);
+    let part = part::File::of_bytes(Path::new("orphan.step"), bytes)
+        .unwrap()
+        .load(None)
+        .unwrap();
+    let (analysis, warnings) = api::analyse_reporting(&part).unwrap();
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains("hole.function:holes:999"));
+    assert_eq!(analysis["resume"]["unresolved"][0]["answer"], value);
+    assert_eq!(analysis["resume"]["unresolved"][0]["feature"], "holes:999");
+    let review = api::review(
+        &analysis,
+        analysis["resume"]["answers"].as_object().unwrap(),
+    )
+    .unwrap();
+    assert!(review["open"].as_array().unwrap().contains(&json!(key)));
+    assert!(
+        review["problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["code"] == "saved_answer_unresolved"
+                && p["message"].as_str().unwrap().contains("holes:999"))
+    );
+    // A changed face fingerprint cannot be treated as proof that old face numbers still mean
+    // the same geometry. Preserve every original value in the report and apply none of them.
+    payload["faces"] = json!("unproved");
+    let part = part::File::of_bytes(Path::new("changed.step"), rewrite(&payload))
+        .unwrap()
+        .load(None)
+        .unwrap();
+    let (analysis, warnings) = api::analyse_reporting(&part).unwrap();
+    assert!(
+        analysis["resume"]["answers"]
+            .as_object()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        analysis["resume"]["unresolved"].as_array().unwrap().len(),
+        17
+    );
+    assert_eq!(warnings.len(), 17);
+}

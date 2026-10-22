@@ -2,13 +2,12 @@
 //!
 //! A face is identified by its index in the part's numbering ([`crate::part`]), and a feature
 //! by its family and the sorted indices of its faces (`holes:3`, `hole_patterns.grid:6.7.8`),
-//! as in specify-core. The analysis is stored, not re-derived, so these ids never need to
-//! survive a change of recogniser.
+//! as in specify-core. Saved STEP answers are re-matched on resume (see `resume`).
 //!
 //! What differs from Python, by design (docs/design.md, "Features differ by design"):
 //!
-//! - Features come from quiddity-rust (`quiddity::correspondence::recognise`, caller-space
-//!   records: question Q2), not Python quiddity's evidence view. A feature's faces are its
+//! - Features come from quiddity-rust (`quiddity::correspondence::recognise`, framed
+//!   records converted/labelled at this boundary), not Python quiddity's evidence view. A feature's faces are its
 //!   *defining* faces (`Features::defining`), not its constituent faces (upstream need U2): a
 //!   blind hole is its bore, without its floor, so ids for the same feature can differ between
 //!   the engines. The families are quiddity-rust's: Python's cross-family reconciliation
@@ -240,7 +239,7 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
             ));
         }
         let mut family_ids = Vec::with_capacity(list.len());
-        for (record, faces) in list.iter().zip(defining) {
+        for (n, (record, faces)) in list.iter().zip(defining).enumerate() {
             let mut faces = faces.clone();
             faces.sort_unstable();
             faces.dedup();
@@ -252,7 +251,7 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
             let feature = Feature {
                 id: feature_id(family, &faces),
                 family: family.clone(),
-                record: object(family, record)?,
+                record: framed_record(&recognition, family, n, object(family, record)?)?,
                 faces,
                 members: Vec::new(),
                 notes: Vec::new(),
@@ -316,6 +315,7 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
                 continue;
             }
             record.insert("kind".into(), Value::String(kind.to_string()));
+            let record = framed_record(&recognition, family, n, record)?;
             features.push(Feature {
                 id: feature_id(&format!("{family}.{kind}"), &faces),
                 family: family.to_string(),
@@ -329,6 +329,67 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
     let sets = hole_sets(&features);
     features.extend(sets);
     Ok(features)
+}
+
+/// Quiddity already maps points/vectors to file coordinates. Preserve explicit metadata
+/// for axis-letter coordinates which cannot be represented along a file axis. The only
+/// positional consumer of those fields is the slot/channel end-plane datum exclusion;
+/// publish its direction and actual plane points in file space. Turned hi-lo is a length, frame invariant.
+fn framed_record(
+    recognition: &quiddity::correspondence::Recognition,
+    family: &str,
+    n: usize,
+    mut record: Map<String, Value>,
+) -> Result<Map<String, Value>, FeatureError> {
+    let Some(local) = recognition.local.get(&format!("{family}/{n}")) else {
+        return Ok(record);
+    };
+    record.insert("_local".into(), serde_json::json!(local));
+    record.insert(
+        "_frame".into(),
+        serde_json::to_value(&recognition.frame).map_err(|e| FeatureError::Records {
+            family: family.into(),
+            reason: e.to_string(),
+        })?,
+    );
+    if matches!(family, "slots" | "channels") && local.iter().any(|p| p == "long_axis") {
+        let quiddity::frames::RecordFrame::Inferred(frame) = &recognition.frame else {
+            return Err(FeatureError::Records {
+                family: family.into(),
+                reason: "local end planes without an inferred frame".into(),
+            });
+        };
+        let axis = match record.get("long_axis").and_then(Value::as_str) {
+            Some("x") => 0,
+            Some("y") => 1,
+            Some("z") => 2,
+            _ => {
+                return Err(FeatureError::Records {
+                    family: family.into(),
+                    reason: "invalid local long_axis".into(),
+                });
+            }
+        };
+        let (lo, hi) = if family == "slots" {
+            let slot = &recognition.features.slots[n];
+            (*slot.lo.raw(), *slot.hi.raw())
+        } else {
+            let channel = &recognition.features.channels[n];
+            (*channel.lo.raw(), *channel.hi.raw())
+        };
+        // Datum eligibility needs the actual supporting planes, not their rounded nominal
+        // coordinates. Carry Placed's geometric source through the frame, leaving its public
+        // lo/hi untouched on their grid (#69/#79). No snapping or epsilon frame is used here.
+        let point =
+            |level| frame.to_world(std::array::from_fn(|i| if i == axis { level } else { 0.0 }));
+        record.insert(
+            "end_direction".into(),
+            serde_json::json!([frame.x, frame.y, frame.z][axis]),
+        );
+        record.insert("end_lo".into(), serde_json::json!(point(lo)));
+        record.insert("end_hi".into(), serde_json::json!(point(hi)));
+    }
+    Ok(record)
 }
 
 /// A record as a JSON object, or a refusal naming the family.

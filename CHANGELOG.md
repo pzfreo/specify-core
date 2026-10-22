@@ -17,6 +17,23 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Pin quiddity/haecceity to **v0.1.1** (a27b7064), including the WASM crate. Specify's
+  version is unchanged. Draftwright's released kernel pin temporarily differs; the
+  advisory pin checker continues to warn.
+- Read framed recognition correctly: file-space vectors/positions stay in file space,
+  local slot/channel end planes are projected through the inferred frame, and remaining
+  local record coordinates carry explicit frame metadata. Equal-area datum proposals
+  keep face order across rigid motion below a square-micron area grid.
+- Migrate saved feature answers by unique same-family geometric face support after
+  validating the legacy ordered face fingerprint. Unmatched, ambiguous or colliding
+  answers retain their old ID/value/reason in `analysis.resume.unresolved` and appear in
+  the existing review warnings; affected questions stay open. **Editor upgrading note:**
+  review these warnings and answer the open questions before saving; recover old values
+  from the resume report. Alpha.6 STEP files and unchanged schema-2 payload bytes remain
+  supported. See `docs/design.md`, "Saved answers across kernel upgrades".
+- Adapt PMI to the v0.1.x model and step-io 0.3 decoded strings; keep stored answers,
+  literal note text and the STEP-only provenance token round-tripping.
+
 - CI: run the full workspace tests on Ubuntu and macOS with Quiddity's pinned STEP corpus;
   require the corpus and its captured inputs instead of silently skipping them.
 - **Native Rust helper:** `pyfmt::fmt_rules` now returns `Result<String, FormatError>`;
@@ -32,6 +49,10 @@ All notable changes to specify-core-rust. The format follows
   Reuse core choice validation and the settled review to avoid redundant rule passes.
 
 ### WASM API
+
+- No JS/TypeScript signatures change for the kernel pin. Session analysis can additionally
+  report `resume.migrated` and `resume.unresolved`; review problems expose unresolved
+  saved-answer warnings using `code: "saved_answer_unresolved"`.
 
 - No JavaScript/TypeScript signature changes (#26). Invalid answer IDs, contradictory choices,
   invalid choice/note types and malformed state now refuse explicitly. Inputs are
