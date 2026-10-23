@@ -190,8 +190,8 @@ On opening a Specify-written STEP, `resume::report_for_parsed` first checks the
 payload's part, face count and **ordered geometric face fingerprint**, using its
 original schema. This proves the saved face indices still denote the same ordered
 surface kinds and rounded centroids. No face-index correspondence is inferred when
-that check fails: every saved answer is retained as unresolved, with its original
-key/value and the failed check, and none is applied. This legacy evidence is deliberately
+that check fails: the file opens as a foreign file, retaining its existing PMI and
+part settings, as before this migration. This legacy evidence is deliberately
 conservative: it does not migrate topology edits or reordered faces, and cannot distinguish
 geometry edits that preserve all the legacy fingerprint's rounded surface kinds/centroids.
 
@@ -206,7 +206,7 @@ are unresolved; colliding answers are never merged, even if their values agree.
 Non-feature answers and literal notes keep their values and insertion order. Current
 IDs are rederived on every reopening, never reused as quiddity positional IDs.
 
-Low-level `answers_for`/`answers_for_parsed` remain payload readers: they retain the
+Low-level `answers_for` remain payload readers: they retain the
 original keys for clients holding the original analysis and byte-preserving round trips.
 Use `api::analyse`/the session, or `report_for_parsed`, to resume against new recognition.
 
@@ -218,7 +218,9 @@ each unresolved old ID and reason (`saved_answer_unresolved`). The analysis carr
 Editor users should review these warnings and answer the open questions before saving;
 original unresolved values remain available in the resume report for manual recovery.
 No defaults are automatically accepted by migration. Rewriting stores the user's
-current answers through the existing schema-2 payload; unchanged answer payloads retain
+current answers through the existing schema-2 payload. **Unresolved old answers are not
+persisted when saving again**; recover their values from the resume report before saving.
+Unchanged answer payloads retain
 the same compact JSON/base64 bytes.
 
 Compatibility inputs in `tests/fixtures/resume-alpha6` were written and committed with

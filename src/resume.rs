@@ -250,15 +250,6 @@ pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, Fe
     answers_in(loaded, stored(&loaded.bytes))
 }
 
-/// [`answers_for`] from the file already parsed: `doc` is `loaded.bytes` as a Part 21 document,
-/// or `None` when they do not parse (nothing is stored then).
-pub fn answers_for_parsed(
-    loaded: &LoadedPart,
-    doc: Option<&Document>,
-) -> Result<Option<Map<String, Value>>, FeatureError> {
-    answers_in(loaded, doc.map(stored_in).unwrap_or_default())
-}
-
 /// The answers for `loaded` among `stored`, the file's stored answers by part.
 fn answers_in(
     loaded: &LoadedPart,
@@ -317,28 +308,13 @@ pub fn report_for_parsed(
     let Some(answers) = payload.get("answers").and_then(Value::as_object) else {
         return Ok(None);
     };
-    let reason = if payload.get("face_count") != Some(&json!(loaded.binding.face_count)) {
-        Some("saved face count differs; geometric face identity is unproved")
-    } else {
-        let schema = schema_of(&payload).unwrap_or(SCHEMA);
-        let faces = fingerprint_of(&rounded_faces(loaded)?, schema);
-        (payload.get("faces") != Some(&Value::String(faces))).then_some(
-            "saved ordered face geometry fingerprint differs; geometric face identity is unproved",
-        )
-    };
-    if let Some(reason) = reason {
-        return Ok(Some(Resumed {
-            unresolved: answers
-                .iter()
-                .map(|(id, answer)| UnresolvedAnswer {
-                    id: id.clone(),
-                    feature: answer_feature(id).map(|(_, f)| f.into()),
-                    answer: answer.clone(),
-                    reason: reason.into(),
-                })
-                .collect(),
-            ..Resumed::default()
-        }));
+    if payload.get("face_count") != Some(&json!(loaded.binding.face_count)) {
+        return Ok(None);
+    }
+    let schema = schema_of(&payload).unwrap_or(SCHEMA);
+    let faces = fingerprint_of(&rounded_faces(loaded)?, schema);
+    if payload.get("faces") != Some(&Value::String(faces)) {
+        return Ok(None);
     }
     Ok(Some(rematch(answers, features)))
 }

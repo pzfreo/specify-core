@@ -428,23 +428,31 @@ fn unresolved_saved_answers_reach_review_and_leave_questions_open() {
             .any(|p| p["code"] == "saved_answer_unresolved"
                 && p["message"].as_str().unwrap().contains("holes:999"))
     );
-    // A changed face fingerprint cannot be treated as proof that old face numbers still mean
-    // the same geometry. Preserve every original value in the report and apply none of them.
-    payload["faces"] = json!("unproved");
-    let part = part::File::of_bytes(Path::new("changed.step"), rewrite(&payload))
-        .unwrap()
-        .load(None)
-        .unwrap();
-    let (analysis, warnings) = api::analyse_reporting(&part).unwrap();
-    assert!(
-        analysis["resume"]["answers"]
-            .as_object()
+    // Edited geometry opens as a foreign file, retaining written PMI and part settings.
+    // Migration is restricted to the original geometry, for both independent checks.
+    let original = payload.clone();
+    for field in ["faces", "face_count"] {
+        payload = original.clone();
+        payload[field] = if field == "faces" {
+            json!("unproved")
+        } else {
+            json!(999)
+        };
+        let part = part::File::of_bytes(Path::new("changed.step"), rewrite(&payload))
             .unwrap()
-            .is_empty()
-    );
-    assert_eq!(
-        analysis["resume"]["unresolved"].as_array().unwrap().len(),
-        17
-    );
-    assert_eq!(warnings.len(), 17);
+            .load(None)
+            .unwrap();
+        let (analysis, warnings) = api::analyse_reporting(&part).unwrap();
+        assert!(analysis.get("resume").is_none(), "{field}");
+        assert!(warnings.is_empty(), "{field}: {warnings:?}");
+        assert!(
+            !analysis["existing"].as_array().unwrap().is_empty(),
+            "{field}"
+        );
+        assert_eq!(analysis["part"]["material"], "steel", "{field}");
+        assert_eq!(
+            analysis["part"]["notes"], original["answers"]["part.notes"],
+            "{field}"
+        );
+    }
 }

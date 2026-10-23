@@ -115,6 +115,24 @@ pub(crate) fn perpendicular(a: &[f64; 3], b: &[f64; 3]) -> bool {
     dot(a, b).abs() < 1e-6
 }
 
+/// Stable descending area order. Integration noise must not choose between equal faces.
+fn sort_by_area<T>(items: &mut [(T, f64)]) {
+    // An approximate comparison is not transitive. Insertion sort preserves input order
+    // for ties without asking the standard sort to assume a total order.
+    for i in 1..items.len() {
+        let mut j = i;
+        while j > 0 {
+            let (previous, next) = (items[j - 1].1, items[j].1);
+            let tolerance = 1e-6_f64.max(1e-6 * previous.abs().max(next.abs()));
+            if next - previous <= tolerance {
+                break;
+            }
+            items.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+}
+
 /// The planes by area, largest first (a stable sort, as Python's `sorted(key=-area)`).
 fn planes_by_area(faces: &Faces) -> Result<Vec<&Face>> {
     let mut planes: Vec<(&Face, f64)> = faces
@@ -122,9 +140,7 @@ fn planes_by_area(faces: &Faces) -> Result<Vec<&Face>> {
         .filter(|f| f.is_plane())
         .map(|f| Ok((f, f.area()?)))
         .collect::<Result<_>>()?;
-    // Integration noise under a rigid motion must not swap equal-area datum faces.
-    // A square micron is below the geometry coordinate floor; ties keep face order.
-    py::sort_by_float(&mut planes, |(_, area)| -py::round(*area, 6));
+    sort_by_area(&mut planes);
     Ok(planes.into_iter().map(|(f, _)| f).collect())
 }
 
@@ -518,7 +534,7 @@ pub(crate) fn datum_a_doubt(faces: &Faces) -> Result<String> {
             groups.push((f, f.area()?));
         }
     }
-    py::sort_by_float(&mut groups, |(_, area)| -py::round(*area, 6));
+    sort_by_area(&mut groups);
     // Both group indices are guarded by len() > 1.
     if groups.len() > 1 && groups[1].1 >= 0.8 * groups[0].1 {
         return Ok(format!(
@@ -931,4 +947,25 @@ pub(crate) fn hole_frames(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod area_tests {
+    use super::sort_by_area;
+
+    #[test]
+    fn area_ties_cross_rounding_boundaries_and_scale_with_area() {
+        for (a, b) in [
+            (1.00000049, 1.00000051),
+            (1000.0, 1000.0009),
+            (0.0, 0.0000009),
+        ] {
+            let mut faces = [(0, a), (1, b)];
+            sort_by_area(&mut faces);
+            assert_eq!(faces.map(|(id, _)| id), [0, 1]);
+        }
+        let mut faces = [(0, 1.0), (1, 1.000002)];
+        sort_by_area(&mut faces);
+        assert_eq!(faces.map(|(id, _)| id), [1, 0]);
+    }
 }
