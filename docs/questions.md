@@ -62,10 +62,17 @@ dependencies follow branch `prototype/rust-port`, Cargo.lock pinning 5798c59 (5d
 the haecceity writer decisions of 2026-10-09, 10884b8 since, with haecceity's U10 and U14;
 oracle comparisons rerun at each, no difference changed at 10884b8); the new pattern
 families (slot, pocket and oriented slot patterns) are left out of the analysis as gusset rib
-patterns are. Recognition stays caller-space (`correspondence::recognise`): the decision moved
-the dependency without choosing the framed form, and caller-space is what Python's entry points
+patterns are. At that point recognition stayed caller-space (`correspondence::recognise`): the decision moved
+the dependency without choosing the framed form, and caller-space was what Python's entry points
 and the oracle use. Every oracle comparison was rerun and each changed difference rejudged
 (`features.json`, `anchors.json`; docs/upstream-needs.md U11 and U12).
+
+**Superseded for the v0.1.1 pin (2026-10-23).** Quiddity #61 now has one public
+`correspondence::recognise` entry point, returning framed records; `recognise_placed`
+and public caller-space algorithms are gone. Specify follows that API and reads fields
+marked `local` through `frame`. Quiddity #79 owns grid publication and near-axis handling.
+The coordinate audit and saved-answer migration rule are in `design.md`, "Recognition
+coordinates at the Specify boundary" and "Saved answers across kernel upgrades".
 
 **Q3. Notes and surface finish.** haecceity writes no notes (its decision 5: standard forms
 only, none chosen). Part notes (surface-finish default, coating, heat treatment, edges) have

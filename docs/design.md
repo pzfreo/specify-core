@@ -89,13 +89,14 @@ the resume correspondence rule below handles feature-ID changes.
 - `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity-rust`,
   pinned to tag `v0.1.1` (`a27b7064`) in both manifests and Cargo.lock.
   Update only these packages with `cargo update -p quiddity -p haecceity`, then run
-  the whole suite and rejudge any departures from the frozen Python captures with
+  the named local profile below and the full suite in CI, and rejudge any departures from the frozen Python captures with
   independent evidence. `correspondence::recognise` returns framed records (#61);
   Specify maps consumed local coordinates through the inferred frame (see below).
   Specify consumes typed features, not the upstream recognition document: modelled
   threads are additive features; their claimed freeforms become thread faces. The
   upstream document is recognition/5 with complete face accounting (#66). Specify has no
-  unclaimed/unrecognised-face display, so it does not add a new UI for that accounting. Specify keeps its own analysis schema and binding because face numbering
+  unclaimed/unrecognised-face display, so it does not add a new UI for that accounting.
+  Specify keeps its own analysis schema and binding because face numbering
   is unchanged. Derived PMI geometry is followed through its deriving faces by
   `existing::faces_of`; Specify reads PMI anew from STEP, never persists the upstream
   PMI JSON (version 2, now reader binding `haecceity-pmi-read/11`; older readings must be reread).
@@ -600,7 +601,7 @@ The remaining questions and interim behaviour are recorded in [questions.md](que
 - **What is written:** Q6 (an assembly with foreign PMI written by add mode), Q17
   (requirements on no faces listed in `not_written`, the rest written), Q18 (bare parts by `Mode::Replace`; a second material in
   add mode refused).
-- **Engine behaviour:** Q2 (moved to `prototype/rust-port`; recognition kept caller-space),
+- **Engine behaviour:** Q2 (historical branch move; superseded by the public framed API in v0.1.1),
   Q7 (a product with surface models: one part), Q8 (ISO 286 extended to 3150 mm, in both engines, compared), Q9
   (malformed input refused as invalid), Q11 (an undecided sightline sample blocks), Q12 (mesh
   density, about 1.8 times Python's triangles), Q19 (unmeasurable contacts as warnings).
