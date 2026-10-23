@@ -71,7 +71,7 @@ for (const [part, path] of parts) {
     const initial = JSON.parse(engine.review('{}'));
     const depth = initial.questions.find(q => q.id.startsWith('hole.full_thread:'));
     const question = initial.questions.find(q =>
-      part === 'spindle' ? q.options.includes('thread:M10') :
+      part === 'spindle' ? q.options?.includes('thread:M10') :
       part.startsWith('GRM-') ? q.id === depth.id.replace('hole.full_thread:', 'hole.function:') :
       /^(hole.function:|diameter.fit:)/.test(q.id));
     assert.ok(question, `${part}: a diameter choice to interpret`);
