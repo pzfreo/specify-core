@@ -37,7 +37,7 @@ fn alpha7_answered_tap_keeps_computed_depth_in_write_pmi_and_resave() {
                 .unwrap()["full_thread"],
             2.0
         );
-        let out = session.write_pmi(&given, None).unwrap();
+        let out = session.write_pmi(&given, None, None).unwrap();
         let bytes: Vec<u8> = serde_json::from_value(out["bytes"].clone()).unwrap();
         let defs = read_part_definitions(&bytes).unwrap();
         let doc = Document::parse(bytes).unwrap();
@@ -86,7 +86,7 @@ fn full_thread_edit_is_optional_and_survives_a_session_write() {
             .unwrap()["full_thread"],
         1.8
     );
-    let written = session.write_pmi(&given, None).unwrap();
+    let written = session.write_pmi(&given, None, None).unwrap();
     let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
     let reopened = Session::open("edited.step", &bytes).unwrap();
     assert_eq!(
@@ -147,7 +147,7 @@ fn answering_material_does_not_write_unanswered_defaults() {
                 .is_none()
         );
 
-        let written = session.write_pmi(&answers, None).unwrap();
+        let written = session.write_pmi(&answers, None, None).unwrap();
         let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
         let reopened = Session::open("shaft-written.step", &bytes)
             .unwrap()
@@ -198,7 +198,7 @@ fn accepting_one_default_writes_only_that_default() {
             .unwrap()
             .contains(&json!("datum.B"))
     );
-    let written = session.write_pmi(&given, None).unwrap();
+    let written = session.write_pmi(&given, None, None).unwrap();
     let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
     let loaded = specify_core::part::load_bytes("plate-written.step", bytes).unwrap();
     let existing = specify_core::existing::read_existing(&loaded).unwrap();
@@ -233,7 +233,7 @@ fn session_reports_an_answered_control_until_its_frame_is_accepted() {
             .iter()
             .any(|p| p["code"] == "awaits_datum_frame" && p["about"] == position)
     );
-    let written = session.write_pmi(&given, None).unwrap();
+    let written = session.write_pmi(&given, None, None).unwrap();
     let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
     let loaded = specify_core::part::load_bytes("pending.step", bytes).unwrap();
     assert!(
@@ -258,7 +258,7 @@ fn session_reports_an_answered_control_until_its_frame_is_accepted() {
             .iter()
             .all(|p| p["code"] != "awaits_datum_frame")
     );
-    let written = session.write_pmi(&given, None).unwrap();
+    let written = session.write_pmi(&given, None, None).unwrap();
     let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
     let loaded = specify_core::part::load_bytes("accepted.step", bytes).unwrap();
     assert!(
@@ -314,7 +314,7 @@ fn check_bulk_acceptance(path: &std::path::Path, given: Map<String, Value>) {
         }
     }
     assert_eq!(actual, expected.to_dict());
-    let written = session.write_pmi(&accepted, None).unwrap();
+    let written = session.write_pmi(&accepted, None, None).unwrap();
     let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
     let (expected_bytes, _) =
         specify_core::writer::write_bytes(&loaded, &expected, Some(&accepted)).unwrap();

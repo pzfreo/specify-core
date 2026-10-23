@@ -144,6 +144,38 @@ for (const [part, path] of parts) {
     const reopened = new IntentEngine(name, Uint8Array.from(stored.bytes));
     try { assert.deepEqual(JSON.parse(reopened.snapshot()).analysis.resume.answers, answers); }
     finally { reopened.free(); }
+    // #35: a carried payload, the original part, and saved answers matched with face evidence.
+    const payload = { name: 'an app', value: { revision: 2, note: '‘α’ it\'s' } };
+    const carried = JSON.parse(engine.writePmi(answersJson, null, JSON.stringify(payload)));
+    const evidence = engine.evidence();
+    const carrying = new IntentEngine(name, Uint8Array.from(carried.bytes));
+    try {
+      assert.deepEqual(JSON.parse(carrying.payload('an app')), payload.value);
+      assert.equal(carrying.payload('another app'), undefined);
+      // The spindle came with datums and their presentation, which the writer replaces, so
+      // it has no original to give back; every other part's is its bytes exactly.
+      const original = carrying.original();
+      if (part === 'spindle') assert.equal(original, undefined, 'replaced PMI: no original');
+      else assert.deepEqual(Buffer.from(original), Buffer.from(bytes), 'original part bytes');
+      assert.deepEqual(JSON.parse(carrying.evidence()), JSON.parse(evidence));
+      const rematched = JSON.parse(carrying.rematchAnswers(answersJson, evidence, '[]'));
+      assert.deepEqual(rematched.answers, answers);
+      assert.deepEqual(rematched.automatic, []);
+      // Without evidence no answer on a feature or a datum is applied, even on an unchanged ID:
+      // each is left open with its value; the part's own answers are kept.
+      const given = { ...answers, 'hole.function:holes:9999': 'fit:H7' };
+      const unknown = JSON.parse(carrying.rematchAnswers(JSON.stringify(given)));
+      const geometric = id => /^(hole|diameter|datum)\./.test(id);
+      assert.deepEqual(unknown.unresolved.map(u => [u.id, u.answer]),
+        Object.entries(given).filter(([id]) => geometric(id)));
+      assert.deepEqual(Object.keys(unknown.answers), Object.keys(given).filter(id => !geometric(id)));
+      assert.ok(unknown.unverified);
+    } finally { carrying.free(); }
+    assert.equal(engine.original(), undefined, 'a bare part records no original');
+    throwsString(() => engine.writePmi('{}', project, JSON.stringify(payload)), /not both/);
+    throwsString(() => engine.writePmi('{}', null, '{"name":"pmi-assist answers","value":1}'), /must be named/);
+    throwsString(() => engine.writePmi('{}', null, '{"value":1}'), /Invalid payload/);
+    throwsString(() => engine.rematchAnswers('{}', '{"schema":3}'), /Invalid evidence/);
     throwsString(() => engine.review('[]'), /Invalid answers/);
     throwsString(() => engine.acceptDefaults('[]'), /Invalid answers/);
     throwsString(() => acceptDefaults('{', '{}'), /Invalid analysis/);

@@ -53,7 +53,11 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `engine.snapshot()` | `{analysis, mesh, provenance: {source_sha256, face_entities, part: 0}}`. |
 | `engine.review(answersJson)` | `{questions, open, intent, problems}`; adds geometry anchors to `intent.anchors`. |
 | `engine.acceptDefaults(answersJson)` | Answers object with every unanswered default filled to a fixed point, using the same rules as CLI/serve `accept_defaults`. Preserves supplied answers; questions without defaults stay unanswered. |
-| `engine.writePmi(answersJson, projectBase64?)` | `{bytes, source_sha256, report}`; `bytes` is an array of byte values. Writes and verifies answered PMI and stored answers in memory. Unanswered defaults remain suggestions. `report` is the upstream writer's report; its `output` is the constructor's name. |
+| `engine.writePmi(answersJson, projectBase64?, payloadJson?)` | `{bytes, source_sha256, report}`; `bytes` is an array of byte values. Writes and verifies answered PMI and stored answers in memory. Unanswered defaults remain suggestions. `report` is the upstream writer's report; its `output` is the constructor's name. `payloadJson` is `{name, value}`: any JSON value carried in the STEP under `name` (give the project or a payload, not both; see below). |
+| `engine.payload(name)` | The JSON text of the payload `name` the opened STEP carries, or `undefined`. |
+| `engine.original()` | `Uint8Array` of the part the opened STEP was first written from (without what the writer added, its `FILE_SCHEMA` restored), or `undefined` when it records none or the bytes do not hash to the recorded sha256. |
+| `engine.evidence()` | `{schema, face_count, faces}`: the face evidence to keep with answers saved outside the STEP. |
+| `engine.rematchAnswers(answersJson, evidenceJson?, automaticJson?)` | Saved answers matched to this part as now recognised: `{answers, unresolved?, migrated?, unverified?, automatic?}`. Does not change the session. See "Answers saved outside the STEP". |
 | `review(analysisJson, answersJson)` | Same review composition without a session or geometry anchors. Calls `specify_core::api::review`. |
 | `acceptDefaults(analysisJson, answersJson)` | Same accepted answers as the session method, using the supplied analysis. |
 | `interpret(analysisJson, answersJson, questionId, text)` | `{value, code, callout?}` for a choice question; includes a diameter callout for `hole.function:` and `diameter.fit:`. |
@@ -98,6 +102,51 @@ preserved exactly: nonempty ASCII alphanumerics or `+`, `/`, `=` only (no decodi
 validation). Omit the argument for no project attribute. Rewriting a resumed part replaces
 previous extras, so resupply the project on every write that should retain it.
 
+A payload (`{name, value}`) is stored the same way under its own `name`, as base64 of the
+value's compact UTF-8 JSON; for `name: "draftwright editor project"` that is exactly the
+item the editor's `readProject` and draftwright-mcp's `project::read` match, so files written
+either way read either way. A name must not be empty, `pmi-assist answers` or
+`specify-core original`. Either argument also stores a `specify-core original` attribute,
+`{schema: 1, sha256, header, from}`, from which `original()` gives back the part: it takes out
+every instance numbered `from` or more, restores the `FILE_SCHEMA` statement, and returns the
+bytes only if they hash to `sha256`. Rewriting a file that records its original carries the
+record forward, so `original()` remains the part first opened. `writePmi` without a project or
+payload drops what the opened file carried: the written file has no project, payload or
+original record, so resupply the project or payload on every write that should keep them.
+The core sets no payload size limit (`carried` leaves limits to callers); `writePmi` refuses
+payload JSON over 8 MiB, its JSON input limit. A part that came with PMI or presentation the
+writer replaced, or a file written without a project or payload, gives `undefined`. Core
+callers use `specify_core::carried::{attributes, payload, original}` with
+`writer::write_bytes_with`.
+
+## Answers saved outside the STEP
+
+A project that keeps its answers itself (not only in the STEP it exports) should also keep
+`engine.evidence()` from when they were saved, and on opening call
+`engine.rematchAnswers(answersJson, evidenceJson, JSON.stringify(state.auto))` instead of
+setting aside answers by a list of answer kinds. The result is `resume::Resumed`, as
+`analysis.resume` reports answers stored in a STEP:
+
+- With evidence whose face count and fingerprint match the part, feature answers move to
+  a unique same-family feature containing their saved faces (`migrated` lists old/new IDs),
+  exactly as on reopening a STEP (docs/design.md, "Saved answers across kernel upgrades").
+- Without evidence, or with evidence that does not match (another part's, or the part before
+  an edit), no face correspondence is inferred. A feature ID or face index that still exists
+  is no evidence of the same feature: IDs renumber between kernels. So every answer on a
+  feature (`hole.*`, `diameter.*`) or a datum (`datum.X` and its settings such as
+  `datum.A.flatness`, `datum.B.control`) is left in `unresolved`, each with a reason, and
+  `unverified` says why. Only the part's own answers (`part.*`) are kept.
+- Everything not kept is in `unresolved` (`id`, `feature`, `answer`, `reason`), never dropped
+  or applied. Show these to the person to confirm on the feature's current question; nothing
+  in `unresolved` is settled.
+  Those the default path gave (`automatic`) are marked `automatic: true`: the default path
+  answers them again on the current ID, so they need not be reported to the person.
+  `automatic` is the given list with migrated IDs renamed and unresolved ones left out; store
+  it as `state.auto`.
+
+Use `answers` for review, settle and write. A project saved before it kept evidence opens
+without it, so its feature and datum answers open as `unresolved` for the person to confirm.
+
 ## Errors
 
 Refusals throw **strings**, preserving the editor's existing error transport: malformed JSON
@@ -111,8 +160,8 @@ Partial answers remain valid: unanswered questions stay open. Dormant answers fo
 project when a mode hides their questions. The editor-only state transforms have no analysis,
 so they check ID syntax and value shapes; session calls also resolve IDs against the part.
 
-Limits are **64 MiB STEP**, **8 MiB per JSON or project argument**, and **64 KiB per input name,
-question ID, interpretation text or mode**, measured as UTF-8 bytes. Oversized arguments return
+Limits are **64 MiB STEP**, **8 MiB per JSON, project, payload, evidence or automatic-list
+argument**, and **64 KiB per input name, payload name, question ID, interpretation text or mode**, measured as UTF-8 bytes. Oversized arguments return
 `<field> exceeds the <limit> byte limit` before Rust parses or clones them. wasm-bindgen still
 has to transfer the argument into WASM memory before that check. These limits bound individual
 inputs, not total browser memory or kernel computation.

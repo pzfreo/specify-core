@@ -206,6 +206,46 @@ are unresolved; colliding answers are never merged, even if their values agree.
 Non-feature answers and literal notes keep their values and insertion order. Current
 IDs are rederived on every reopening, never reused as quiddity positional IDs.
 
+**Schema 1 under another kernel.** Schema 1 hashes the sign of each zero centroid
+component, which is integration noise, and quiddity v0.1.1 gives other signs than the
+kernel that wrote the pre-alpha browser exports (the mounting plate: 14 of its 23 zero
+components, face 1 `[-0.0, -30.0, 0.0]` then and `[0.0, -30.0, 0.0]` now; its schema 2
+fingerprint is the same under both). The stored hash cannot be searched for every sign
+(2^23 there), so it cannot be checked. A schema 1 payload stored as this port stores it (a
+user defined attribute, not Python's own `PROPERTY_DEFINITION('pmi-assist answers','schema
+1',...)`), with the part's face count, whose hash is not reproduced is therefore read as
+answers **without face evidence**, as below: the part's own answers resume, and every answer
+on a feature or a datum is unresolved with its value for the person to confirm.
+`analysis.resume.unverified` says so, the analysis warnings and review `problems`
+(`saved_answers_unverified`, and `saved_answer_unresolved` for each open answer) repeat it.
+Python-written schema 1 files still open as foreign files (Q14). Fixture:
+`tests/fixtures/legacy-schema1` (`tests/shared_answers.rs`): `part.material = 6082-T6`
+resumes and `hole.function:holes:9 = fit:H7` is open with its value.
+
+**Answers held outside the STEP.** A caller that keeps answers itself (the editor's
+project, draftwright-mcp's hosted part) uses `resume::rematch_answers(loaded, features,
+answers, evidence, automatic)` (WASM `rematchAnswers`) instead of its own list of
+feature-keyed answer kinds. The sound evidence is the part's face evidence when the answers
+were saved: `resume::evidence(loaded)`, `{schema: 2, face_count, faces}`, the same fields
+and fingerprint the writer stores with answers in the file (a stored payload serves too).
+The fingerprint, not the source sha256, is what proves the saved face indices still denote
+the same ordered faces across loader and kernel changes. With matching evidence the answers
+are matched exactly as answers stored in a STEP are, by `rematch`.
+
+**Without verified face evidence** (no evidence given, evidence that does not match, or the
+schema 1 case above) no correspondence is inferred, and a feature ID or face index that still
+exists is not taken as evidence either: IDs renumber between kernels for the same geometry,
+and another part's or an edited part's IDs can coincide. Every answer on a feature (the
+feature-keyed kinds) or a datum (`datum.X` and the settings that follow it, `datum.X.flatness`
+and `datum.X.control`) is `unresolved` with its value and a reason; only the part's own answers
+(`part.*`) are kept, and `unverified` gives the reason for the whole. A saved answer whose
+feature cannot be matched unambiguously is so never dropped, applied, or attached to another
+feature: it is reported and left open. No evidence takes the mismatch rule, rather than
+keeping answers by ID with a per-answer marker, so that nothing unverified is ever in
+`answers`, which callers review, settle and write as settled. `automatic` (the editor's
+`auto`) marks unresolved answers the default path gave, which need not be reported, and is
+returned with migrated IDs renamed.
+
 Low-level `answers_for` remain payload readers: they retain the
 original keys for clients holding the original analysis and byte-preserving round trips.
 Use `api::analyse`/the session, or `report_for_parsed`, to resume against new recognition.
@@ -220,6 +260,10 @@ original unresolved values remain available in the resume report for manual reco
 No defaults are automatically accepted by migration. Rewriting stores the user's
 current answers through the existing schema-2 payload. **Unresolved old answers are not
 persisted when saving again**; recover their values from the resume report before saving.
+As unverified answers are never applied (above), a rewrite cannot launder them: the fresh
+schema 2 fingerprint covers only answers verified by face support, the part's own answers,
+and answers the person gave again on the current questions. An answer left open becomes
+verified only by the person answering it, which is the explicit acceptance.
 Unchanged answer payloads retain
 the same compact JSON/base64 bytes.
 
@@ -281,7 +325,8 @@ kind string, `x, y, z` its centroid's components each rounded to 3 decimals by P
 - **Schema 2** (written): every component that is zero after rounding is written unsigned:
   `0.0`, never `-0.0` (Python `0.0 if r == 0 else r`; Rust `if r == 0.0 { 0.0 } else { r }`).
   Rounding comes first, so `-0.0004` becomes `0.0`.
-- **Schema 1** (read only): the components as rounded, signs of zero kept.
+- **Schema 1** (read only): the components as rounded, signs of zero kept. Under a kernel
+  whose signs of zero differ it is not reproduced; see "Saved answers across kernel upgrades".
 
 The list is written as Python's `json.dumps(faces)` writes it with its defaults: `[` `]`
 brackets, `", "` between items and `": "` (unused here), strings as JSON strings with

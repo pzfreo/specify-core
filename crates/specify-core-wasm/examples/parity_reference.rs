@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let applied = api::apply(&analysis, &answers, true)?;
     let (accepted_bytes, accepted_report) =
         writer::write_bytes(&loaded, &applied, Some(&accepted))?;
-    let accepted_write = session.write_pmi(&accepted, None)?;
+    let accepted_write = session.write_pmi(&accepted, None, None)?;
     assert_eq!(accepted_write["bytes"], json!(accepted_bytes));
     assert_eq!(accepted_write["report"], accepted_report.to_dict());
     println!(
@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 request["text"].as_str().ok_or("missing text")?)?,
             "bare": {"bytes": bare_bytes, "report": report.to_dict(),
                 "source_sha256": loaded.binding.source_sha256},
-            "project": session.write_pmi(&answers, request["project"].as_str())?,
+            "project": session.write_pmi(&answers, request["project"].as_str(), None)?,
         })
     );
     Ok(())

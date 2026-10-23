@@ -461,8 +461,11 @@ fn the_writer_stores_schema_two() {
     assert_eq!(answers_for(&loaded).unwrap(), given.as_object().cloned());
 }
 
-// Each schema is checked against its own fingerprint: a schema 1 payload resumes on the
-// schema 1 fingerprint and not on schema 2's, and the reverse.
+// Each schema is checked against its own fingerprint: a schema 1 payload is verified on the
+// schema 1 fingerprint and not on schema 2's, and the reverse. A schema 1 payload in this
+// port's attribute form whose hash is not reproduced (another kernel's signs of zero) still
+// resumes, without face evidence (#35): `unverified` says so, and its answers on faces (here a
+// datum) are left open with their values rather than applied.
 #[test]
 fn each_schema_is_checked_against_its_own_fingerprint() {
     let dir = temp("schemas");
@@ -474,17 +477,31 @@ fn each_schema_is_checked_against_its_own_fingerprint() {
         fingerprint(&loaded).unwrap(),
     );
     let mut payload = Value::Object(stored(text.as_bytes()).remove(&0).unwrap());
-    for (schema, faces, resumes) in [
-        (1, &v1, true),
-        (1, &v2, false),
-        (2, &v1, false),
-        (2, &v2, true),
+    payload["answers"]["datum.A"] = json!([0]);
+    for (schema, faces, resumes, verified) in [
+        (1, &v1, true, true),
+        (1, &v2, true, false),
+        (2, &v1, false, false),
+        (2, &v2, true, true),
     ] {
         payload["schema"] = json!(schema);
         payload["faces"] = json!(faces);
         let path = dir.join(format!("s{schema}-{resumes}.step"));
         std::fs::write(&path, with_payload(&text, &payload)).unwrap();
         let back = load(&path, None).unwrap();
+        let resume = &specify_core::api::analyse(&back).unwrap()["resume"];
+        assert_eq!(
+            resume.is_object() && resume["unverified"].is_null(),
+            verified,
+            "schema {schema}: {resume}"
+        );
+        assert_eq!(resume.is_object(), resumes, "schema {schema}: {resume}");
+        if resumes {
+            // Verified, the datum is applied; unverified, it is open with its value.
+            assert_eq!(resume["answers"].get("datum.A").is_some(), verified);
+            assert_eq!(resume["unresolved"][0]["id"] == "datum.A", !verified);
+            assert_eq!(resume["answers"]["part.material"], "steel");
+        }
         assert_eq!(
             answers_for(&back).unwrap().is_some(),
             resumes,

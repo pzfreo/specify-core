@@ -56,7 +56,8 @@ The workspace also builds **`specify-core-wasm`**, a browser ES module with Type
 bindings. Published `v*` releases attach `specify-core-wasm-<version>.tgz` (containing `pkg/`)
 and a SHA-256 checksum; there is no npm publication. Its `IntentEngine` opens STEP bytes,
 returns JSON snapshots/reviews and writes verified PMI with an optional embedded editor
-project. `IntentEngine.acceptDefaults` explicitly accepts all suggested defaults as editable
+project or named application payload, which it reads back with the original part. It also
+re-matches answers saved outside the STEP (`rematchAnswers`). `IntentEngine.acceptDefaults` explicitly accepts all suggested defaults as editable
 answers. Free `acceptDefaults`, `review` and `interpret` functions also take JSON strings. See
 [docs/wasm.md](docs/wasm.md) for installation, the API, build/parity checks and editor migration.
 
