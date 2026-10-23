@@ -225,14 +225,15 @@ fn without_evidence_a_datum_on_a_face_the_part_lacks_is_unresolved() {
     let loaded = part::load(&fixture("parts/plate.step"), None).unwrap();
     let analysis = api::analyse(&loaded).unwrap();
     let answers = object(json!({
-        "datum.A": [0], "datum.B": [999], "datum.A.flatness": "0.05", "part.material": "steel"
+        "datum.A": [0], "datum.B": [999], "datum.A.flatness": "0.05",
+        "datum.B.control": "flatness", "part.material": "steel"
     }));
     let out = resume::rematch_answers(&loaded, &features(&analysis), &answers, None, None).unwrap();
     assert_eq!(
         Value::Object(out.answers),
         json!({"datum.A": [0], "datum.A.flatness": "0.05", "part.material": "steel"})
     );
-    assert_eq!(out.unresolved.len(), 1);
+    assert_eq!(out.unresolved.len(), 2);
     assert_eq!(out.unresolved[0].id, "datum.B");
     assert_eq!(out.unresolved[0].answer, json!([999]));
     assert!(
@@ -240,6 +241,10 @@ fn without_evidence_a_datum_on_a_face_the_part_lacks_is_unresolved() {
             .reason
             .contains("a face this part does not have")
     );
+    // Its setting follows the open datum rather than being kept on its own.
+    assert_eq!(out.unresolved[1].id, "datum.B.control");
+    assert_eq!(out.unresolved[1].answer, json!("flatness"));
+    assert!(out.unresolved[1].reason.contains("datum.B is unresolved"));
 
     // With evidence that does not match, datums and their settings are left open.
     let other =

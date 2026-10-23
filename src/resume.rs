@@ -706,6 +706,30 @@ fn rematch_by(
             }
         }
     }
+    // A datum's settings (`datum.B.control`) follow it: they stay open with an open datum.
+    let open: Vec<String> = out
+        .unresolved
+        .iter()
+        .filter(|u| u.id.starts_with("datum.") && u.id.matches('.').count() == 1)
+        .map(|u| format!("{}.", u.id))
+        .collect();
+    let settings: Vec<String> = out
+        .answers
+        .keys()
+        .filter(|id| open.iter().any(|datum| id.starts_with(datum.as_str())))
+        .cloned()
+        .collect();
+    for id in settings {
+        let answer = out.answers.remove(&id).expect("listed from answers");
+        let datum = &id[..id.rfind('.').expect("a datum setting")];
+        out.unresolved.push(UnresolvedAnswer {
+            reason: format!("its datum {datum} is unresolved"),
+            feature: None,
+            id,
+            answer,
+            automatic: false,
+        });
+    }
     out
 }
 
