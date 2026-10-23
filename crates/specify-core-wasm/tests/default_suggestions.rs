@@ -3,6 +3,59 @@ use serde_json::{Map, Value, json};
 use specify_core_wasm::session::Session;
 
 #[test]
+fn full_thread_edit_is_open_until_accepted_and_survives_a_session_write() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/parts/GRM-02_shaft.step");
+    let session = Session::open("shaft.step", &std::fs::read(path).unwrap()).unwrap();
+    let a = session.snapshot()["analysis"].clone();
+    let review = session.review(&Map::new()).unwrap();
+    let q = review["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["id"].as_str().unwrap().starts_with("hole.full_thread:"))
+        .unwrap();
+    let id = q["id"].as_str().unwrap();
+    assert_eq!(q["kind"], "text");
+    assert_eq!(q["default"], "2");
+    assert!(review["open"].as_array().unwrap().contains(&json!(id)));
+    let function = id.replace("hole.full_thread:", "hole.function:");
+    let given = json!({"part.material":"steel", function.as_str():"tapped:M2", id:"1.8"})
+        .as_object()
+        .unwrap()
+        .clone();
+    let accepted = session.accept_defaults(&given).unwrap();
+    assert_eq!(accepted[id], "1.8");
+    assert_eq!(
+        accepted,
+        specify_core_wasm::accept_defaults(&a, &given).unwrap()
+    );
+    let review = session.review(&given).unwrap();
+    assert_eq!(
+        review["intent"]["requirements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["kind"] == "thread")
+            .unwrap()["full_thread"],
+        1.8
+    );
+    let written = session.write_pmi(&given, None).unwrap();
+    let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
+    let reopened = Session::open("edited.step", &bytes).unwrap();
+    assert_eq!(
+        reopened.snapshot()["analysis"]["resume"]["answers"][id],
+        "1.8"
+    );
+    let bad = json!({function:"tapped:M2", id:"3"})
+        .as_object()
+        .unwrap()
+        .clone();
+    assert!(session.review(&bad).is_err());
+    assert!(session.accept_defaults(&bad).is_err());
+}
+
+#[test]
 fn answering_material_does_not_write_unanswered_defaults() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/parts/GRM-02_shaft.step");

@@ -107,6 +107,42 @@ fn object(value: &Value) -> Map<String, Value> {
     value.as_object().cloned().unwrap_or_default()
 }
 
+#[test]
+fn full_thread_depth_uses_the_existing_questions_and_answers_cli() {
+    let dir = scratch("full-thread");
+    let a = api::analyse_file(&part("GRM-02_shaft"), None).unwrap();
+    let a_path = dir.join("analysis.json");
+    save(&a_path, &a);
+    let asked = run(&["questions", &s(&a_path)]);
+    assert_eq!(asked.code, 0, "{}", asked.stderr);
+    let qs: Value = serde_json::from_str(&asked.stdout).unwrap();
+    let q = qs
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["id"].as_str().unwrap().starts_with("hole.full_thread:"))
+        .unwrap();
+    assert_eq!(q["kind"], "text");
+    assert_eq!(q["default"], "2");
+    let id = q["id"].as_str().unwrap();
+    let given = json!({"part.material": "steel", id: "1.8"});
+    let answers_path = dir.join("answers.json");
+    save(&answers_path, &given);
+    let out = dir.join("edited.step");
+    let written = run(&[
+        "write",
+        &s(&part("GRM-02_shaft")),
+        &s(&a_path),
+        &s(&answers_path),
+        "--accept-defaults",
+        "-o",
+        &s(&out),
+    ]);
+    assert_eq!(written.code, 0, "{}", written.stderr);
+    let reopened = api::analyse_file(&out, None).unwrap();
+    assert_eq!(reopened["resume"]["answers"][id], "1.8");
+}
+
 /// A `specify-core serve` child, asked one line at a time.
 struct Session {
     child: Child,

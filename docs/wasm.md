@@ -215,6 +215,20 @@ preparation must update both package versions and the binding's exact core depen
 
 ## Release safeguards
 
+Blind tapped holes expose `hole.full_thread:<feature>` using the existing `text` question
+kind, string `default` and answer map. The default is drill depth minus three pitches,
+rounded down to 0.5 mm (at least one pitch), or an explicit inline tapped depth. Submit a
+positive number in mm (optionally suffixed `mm`) that leaves three pitches; edits are
+unrounded and override inline depth. An unanswered computed depth remains a suggestion:
+the blind thread is omitted from preview PMI until its depth is accepted. `acceptDefaults`
+accepts it like any other default. Older saved files may therefore resume with this new
+question open. Saved depth edits resume under the same feature-migration rules as hole
+function answers. Through holes and holes without known depth have no depth question.
+
+Turned diameter choices include matching ISO 261 coarse and fine threads within 0.05 mm
+of the nominal major diameter, inclusive; outside that range no thread choice is offered.
+Choice values and interpreted text use the same canonical thread answer and STEP PMI.
+
 ### Reviewed WASM API
 
 `crates/specify-core-wasm/api.d.ts` is the reviewed snapshot of wasm-pack's

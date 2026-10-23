@@ -200,3 +200,13 @@ fn a_diameter_at_no_metric_size_offers_no_thread() {
     assert!(standards::external_threads(13.0).is_empty());
     assert!(standards::external_threads(62.5).is_empty());
 }
+
+#[test]
+fn thread_match_is_within_point_zero_five_mm_without_snapping_other_sizes() {
+    for d in [9.95, 9.951, 10.0, 10.049, 10.05] {
+        assert_eq!(standards::external_threads(d)[0], "M10");
+    }
+    for d in [9.949, 10.051, 13.0] {
+        assert!(standards::external_threads(d).is_empty(), "Ø{d}");
+    }
+}

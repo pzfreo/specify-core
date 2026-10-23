@@ -63,6 +63,15 @@ fn blind_tap_help_gives_valid_syntax_and_the_summary_shows_the_computed_depth() 
             .is_empty()
     );
     let given = Map::from_iter([(q.id.clone(), q.default.clone().unwrap())]);
+    // #21: the tap alone does not accept the computed depth.
+    assert!(
+        rules::preview(&a, &given)
+            .unwrap()
+            .requirements
+            .iter()
+            .all(|r| r["kind"] != "thread")
+    );
+    let given = rules::with_all_defaults(&a, &given).unwrap();
     let intent = rules::preview(&a, &given).unwrap();
     assert_eq!(
         intent
@@ -72,6 +81,187 @@ fn blind_tap_help_gives_valid_syntax_and_the_summary_shows_the_computed_depth() 
             .unwrap()["full_thread"],
         2.5
     );
+}
+
+#[test]
+fn full_thread_is_a_text_edit_and_defaults_stay_suggestions() {
+    let a = string_post();
+    let id = "hole.full_thread:holes:17.19";
+    let q = rules::questions(&a, &Map::new())
+        .unwrap()
+        .into_iter()
+        .find(|q| q.id == id)
+        .unwrap();
+    assert_eq!(q.kind, "text");
+    assert_eq!(q.default, Some(json!("2.5")));
+    assert!(rules::open_questions(&[q], &Map::new()).len() == 1);
+    for text in [
+        json!("0"),
+        json!("-1"),
+        json!("3"),
+        json!("NaN"),
+        json!("inf"),
+        json!("6 inches"),
+        json!(2),
+    ] {
+        let given = Map::from_iter([(id.into(), text)]);
+        assert!(rules::questions(&a, &given).is_err(), "{given:?}");
+    }
+    let given = Map::from_iter([
+        (id.into(), json!("2.3 mm")),
+        ("hole.function:holes:17.19".into(), json!("tapped:M2@2.5")),
+    ]);
+    let accepted = rules::with_all_defaults(&a, &given).unwrap();
+    assert_eq!(accepted[id], "2.3 mm");
+    let intent = rules::preview(&a, &accepted).unwrap();
+    assert_eq!(
+        intent
+            .requirements
+            .iter()
+            .find(|r| r["kind"] == "thread")
+            .unwrap()["full_thread"],
+        2.3
+    );
+    for function in ["general", "fit:H7"] {
+        let given = Map::from_iter([("hole.function:holes:17.19".into(), json!(function))]);
+        assert!(
+            rules::questions(&a, &given)
+                .unwrap()
+                .iter()
+                .all(|q| q.id != id)
+        );
+    }
+}
+
+#[test]
+fn gramel_defaults_edit_step_pmi_and_resume() {
+    use haecceity::{p21::Document, pmi, step::read_part_definitions};
+    for (path, expected, edited) in [
+        (
+            Some(common::fixtures().join("parts/GRM-02_shaft.step")),
+            2.0,
+            "1.8",
+        ),
+        (
+            common::corpus_dir().map(|p| p.join("gramel/GRM-03_thumbwheel_drive_screw.step")),
+            // This corpus revision has a 3.8 mm flat-bottom drill, not the 8 mm
+            // drill in #21. Exercise the reported 8 mm case separately below.
+            2.5,
+            "2.3",
+        ),
+    ] {
+        let Some(path) = path else { continue };
+        let loaded = specify_core::part::load(&path, None).unwrap();
+        let a = api::analyse(&loaded).unwrap();
+        let qs = rules::questions(&a, &Map::new()).unwrap();
+        let q = qs
+            .iter()
+            .find(|q| q.id.starts_with("hole.full_thread:"))
+            .unwrap();
+        assert_eq!(
+            q.default
+                .as_ref()
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .parse::<f64>()
+                .unwrap(),
+            expected,
+            "{}",
+            path.display()
+        );
+        let function = q.id.replace("hole.full_thread:", "hole.function:");
+        let given = Map::from_iter([
+            ("part.material".into(), json!("steel")),
+            (function, json!("tapped:M2")),
+            (q.id.clone(), json!(edited)),
+        ]);
+        let accepted = rules::with_all_defaults(&a, &given).unwrap();
+        let intent = api::apply(&a, &accepted, false).unwrap();
+        let full = edited.parse::<f64>().unwrap();
+        assert_eq!(
+            intent
+                .requirements
+                .iter()
+                .find(|r| r["kind"] == "thread" && r["side"] == "internal")
+                .unwrap()["full_thread"],
+            full
+        );
+        let (bytes, _) =
+            specify_core::writer::write_bytes(&loaded, &intent, Some(&accepted)).unwrap();
+        let defs = read_part_definitions(&bytes).unwrap();
+        let doc = Document::parse(bytes.clone()).unwrap();
+        let read = pmi::read(&doc, &defs).unwrap();
+        let attr = read
+            .parts
+            .iter()
+            .flat_map(|p| &p.attributes)
+            .flat_map(|a| &a.items)
+            .find(|(name, _)| name == "minimum full thread")
+            .unwrap();
+        let pmi::AttributeValue::Measure(measure) = &attr.1 else {
+            panic!("a length measure")
+        };
+        let pmi::Quantity::Length(length) = &measure.quantity else {
+            panic!("a length")
+        };
+        assert_eq!(length.value.to_string().parse::<f64>().unwrap(), full);
+        let reopened = specify_core::part::load_bytes("edited.step", bytes).unwrap();
+        assert_eq!(
+            specify_core::resume::answers_for(&reopened)
+                .unwrap()
+                .unwrap()[&q.id],
+            edited
+        );
+        let a = api::analyse(&reopened).unwrap();
+        assert_eq!(a["resume"]["answers"][&q.id], edited);
+        let resumed = a["resume"]["answers"].as_object().unwrap();
+        assert_eq!(
+            api::preview(&a, resumed)
+                .unwrap()
+                .requirements
+                .iter()
+                .find(|r| r["kind"] == "thread" && r["side"] == "internal")
+                .unwrap()["full_thread"],
+            full
+        );
+    }
+}
+
+#[test]
+fn issue_21_eight_mm_m2_drill_suggests_six_point_five_and_accepts_six() {
+    // Rules input for the geometry reported in #21. The committed GRM-03 capture and
+    // available corpus both describe a 3.8 mm drill; do not change their evidence.
+    let mut a = common::case("corpus/gramel/GRM-03_thumbwheel_drive_screw")
+        .artifact("analysis")
+        .unwrap();
+    let hole = a["features"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|f| f["family"] == "holes" && f["record"]["diameter"] == 1.6)
+        .unwrap();
+    let fid = hole["id"].as_str().unwrap().to_string();
+    hole["record"]["depth"] = json!(8.0);
+    let id = format!("hole.full_thread:{fid}");
+    let q = rules::questions(&a, &Map::new())
+        .unwrap()
+        .into_iter()
+        .find(|q| q.id == id)
+        .unwrap();
+    assert_eq!(q.default, Some(json!("6.5")));
+    let given = Map::from_iter([
+        (format!("hole.function:{fid}"), json!("tapped:M2")),
+        (id, json!("6")),
+    ]);
+    let intent = rules::preview(&a, &given).unwrap();
+    let thread = intent
+        .requirements
+        .iter()
+        .find(|r| r["kind"] == "thread")
+        .unwrap();
+    assert_eq!(thread["drill_depth"], 8.0);
+    assert_eq!(thread["full_thread"], 6.0);
 }
 
 #[test]

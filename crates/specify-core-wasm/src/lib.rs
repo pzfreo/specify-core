@@ -237,6 +237,7 @@ mod tests {
         assert_eq!(result["value"], "tapped:M5");
         // #20: the proposed tap is written only once its interpreted answer is supplied.
         let answers = Map::from_iter([(hole.id.clone(), result["value"].clone())]);
+        let answers = accept_defaults(&analysis, &answers).unwrap();
         let intent = api::preview(&analysis, &answers).unwrap();
         let thread = intent
             .requirements

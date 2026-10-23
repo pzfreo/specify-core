@@ -18,6 +18,36 @@ fn part(stem: &str) -> PathBuf {
         .join(format!("{stem}.step"))
 }
 
+#[test]
+fn full_thread_depth_is_exposed_and_edited_over_serve() {
+    let analysis = specify_core::api::analyse_file(&part("GRM-02_shaft"), None).unwrap();
+    let mut child = Session::start();
+    let asked = child.ask(&json!({"id":1, "op":"questions", "analysis":analysis, "answers":{}}));
+    assert_eq!(asked["ok"], true, "{asked}");
+    let q = asked["result"]["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["id"].as_str().unwrap().starts_with("hole.full_thread:"))
+        .unwrap();
+    let id = q["id"].as_str().unwrap();
+    assert_eq!(q["default"], "2");
+    assert_eq!(q["kind"], "text");
+    let function = id.replace("hole.full_thread:", "hole.function:");
+    let reply = child.ask(&json!({"id":2, "op":"preview", "analysis":analysis, "answers":{function:"tapped:M2", id:"1.8"}}));
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(
+        reply["result"]["intent"]["requirements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["kind"] == "thread")
+            .unwrap()["full_thread"],
+        1.8
+    );
+    child.finish();
+}
+
 /// A `specify-core serve` child, asked one line at a time.
 struct Session {
     child: Child,

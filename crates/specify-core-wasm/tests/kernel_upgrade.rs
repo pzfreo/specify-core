@@ -21,11 +21,15 @@ fn browser_sessions_resume_all_87_alpha6_answers() {
         let snapshot = session.snapshot();
         assert_eq!(&snapshot["analysis"]["resume"]["answers"], expected);
         count += expected.as_object().unwrap().len();
+        // #21 adds a depth question that alpha.6 never stored. Old answers still resume
+        // exactly; the new depth remains a suggestion until explicitly accepted.
+        let review = session.review(expected.as_object().unwrap()).unwrap();
         assert!(
-            session.review(expected.as_object().unwrap()).unwrap()["open"]
+            review["open"]
                 .as_array()
                 .unwrap()
-                .is_empty()
+                .iter()
+                .all(|id| id.as_str().unwrap().starts_with("hole.full_thread:"))
         );
     }
     assert_eq!(count, 87);

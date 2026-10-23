@@ -59,6 +59,7 @@ function throwsString(action, pattern) {
 
 const parts = ['plate', 'pin', 'a_placed_part_is_meshed_in_the_frame_the_analysis_uses', 'GRM-02_shaft']
   .map(part => [part, fileURLToPath(new URL(`tests/fixtures/parts/${part}.step`, root))]);
+parts.push(['spindle', fileURLToPath(new URL('tests/fixtures/spindle.step', root))]);
 const corpus = process.env.QUIDDITY_CORPUS || process.env.SPECIFY_CORPUS;
 if (corpus) parts.push(['GRM-03_thumbwheel_drive_screw', join(corpus, 'gramel/GRM-03_thumbwheel_drive_screw.step')]);
 for (const [part, path] of parts) {
@@ -68,14 +69,26 @@ for (const [part, path] of parts) {
   try {
     const snapshot = JSON.parse(engine.snapshot());
     const initial = JSON.parse(engine.review('{}'));
-    const question = initial.questions.find(q => /^(hole.function:|diameter.fit:)/.test(q.id));
+    const depth = initial.questions.find(q => q.id.startsWith('hole.full_thread:'));
+    const question = initial.questions.find(q =>
+      part === 'spindle' ? q.options.includes('thread:M10') :
+      part.startsWith('GRM-') ? q.id === depth.id.replace('hole.full_thread:', 'hole.function:') :
+      /^(hole.function:|diameter.fit:)/.test(q.id));
     assert.ok(question, `${part}: a diameter choice to interpret`);
     assert.ok(question.diameter > 0, 'presented question preserves diameter');
     assert.ok(initial.open.includes(question.id), 'unanswered question remains open despite preview defaults');
-    const text = question.id.startsWith('hole.') ? 'H7' : 'h6';
+    const text = part === 'spindle' ? 'M10' : part.startsWith('GRM-') ? 'M2' : question.id.startsWith('hole.') ? 'H7' : 'h6';
     const chosen = JSON.parse(interpret(JSON.stringify(snapshot.analysis), '{}', question.id, text));
     assert.ok(chosen.callout, 'diameter interpretation includes callout');
     const answers = { 'part.material': 'steel', [question.id]: chosen.value };
+    if (part.startsWith('GRM-')) {
+      assert.equal(depth.kind, 'text');
+      // This pinned GRM-03 has a 3.8 mm drill (2.5 mm full thread); #21's
+      // reported 8 mm drill is covered as an explicit core rules input.
+      assert.equal(Number(depth.default), part.startsWith('GRM-03') ? 2.5 : 2);
+      assert.ok(initial.open.includes(depth.id));
+      answers[depth.id] = part.startsWith('GRM-03') ? '2.3' : '1.8';
+    }
     const answersJson = JSON.stringify(answers);
     assert.ok(!JSON.parse(engine.review(answersJson)).open.includes(question.id), 'explicit answer closes question');
     const native = spawnSync(executable, [], {
