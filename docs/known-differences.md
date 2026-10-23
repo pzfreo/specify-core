@@ -12,7 +12,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | Area | rust-correct | rust-wrong | equivalent | undetermined | not-applicable | resolved | Total |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 138 | 0 | 3 | 0 | 3 | 0 | 144 |
+| [cli](#cli) | 186 | 0 | 3 | 0 | 3 | 0 | 192 |
 | [cross_engine](#cross_engine) | 4 | 1 | 0 | 1 | 1 | 0 | 7 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 0 | 33 |
 | [features](#features) | 1256 | 1418 | 465 | 1379 | 13 | 10 | 4541 |
@@ -21,7 +21,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 41 | 0 | 0 | 0 | 0 | 0 | 41 |
 | [writer](#writer) | 15 | 0 | 0 | 0 | 15 | 0 | 30 |
-| **all** | 1490 | 1436 | 479 | 1385 | 49 | 10 | 4849 |
+| **all** | 1538 | 1436 | 479 | 1385 | 49 | 10 | 4897 |
 
 ## anchors
 
@@ -67,7 +67,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (138 entries)
+### cli: rust-correct (186 entries)
 
 - **Python's write prints OpenCascade's transfer statistics on stdout before the report** (`cli/*` at `stdout_noise`)
 
@@ -113,9 +113,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The CLI composition check independently requires byte-identical library and executable outputs. Corrected axis-first defaults change datum faces, axial position/runout frames, question ordering and dependent intent text on the pin/stack; blind tap summaries include computed full-thread depth. The full library before/after changes are exactly pinned in rule_defaults_oracle.json.gz; tests/turned_defaults.rs and tests/thread_depth_help.rs verify the intended geometry and displays. CLI Python-input checks inherit only exact matching reviewed rule changes via without_reviewed_rule_departures; these entries cover command/transcript envelopes and intent text. No composition differences are filtered.
 
-- **measurement datum defaults in CLI and serve envelopes** (95 entries, 94 case globs)
+- **measurement datum defaults in CLI and serve envelopes** (143 entries, 98 case globs)
 
-  The evidence is stated per entry (5 distinct; all in `cli.json`). The first, for `cli/serve` at `lines[*].result.intent.requirements[*]*`: Issue #20 (https://github.com/pzfreo/specify-core-rust/issues/20), maintainer-approved decision: unanswered defaults remain suggestions, with no provisional PMI. This existing verdict previously compared the datum-frame leaf of an implicitly defaulted position requirement. The entire unanswered requirement is now omitted, so the comparison is at the requirement rather than its datums leaf. The scope retains the old leaf paths and now includes the containing requirement. Moving it into the measurement-datum departure group makes EVERY matching before/after value subject to the exact cli_datum_origins.json.gz guard in tests/cli.rs, strengthening coverage instead of exempting the new omissions. The completed full CLI sweep supplied the exact values; a replay of all 11 serve transcripts and all 123 command lines independently verified the changed granularity. The original Python captures and this verdict entry are retained; only preview expectations change, and explicit accept_defaults output is unchanged.
+  The evidence is stated per entry (11 distinct; all in `cli.json`). The first, for `cli/serve` at `lines[*].result.intent.requirements[*]*`: Issue #20 (https://github.com/pzfreo/specify-core-rust/issues/20), maintainer-approved decision: unanswered defaults remain suggestions, with no provisional PMI. This existing verdict previously compared the datum-frame leaf of an implicitly defaulted position requirement. The entire unanswered requirement is now omitted, so the comparison is at the requirement rather than its datums leaf. The scope retains the old leaf paths and now includes the containing requirement. Moving it into the measurement-datum departure group makes EVERY matching before/after value subject to the exact cli_datum_origins.json.gz guard in tests/cli.rs, strengthening coverage instead of exempting the new omissions. The completed full CLI sweep supplied the exact values; a replay of all 11 serve transcripts and all 123 command lines independently verified the changed granularity. The original Python captures and this verdict entry are retained; only preview expectations change, and explicit accept_defaults output is unchanged.
 
 - **a perpendicular shoulder datum unused by an axial position is reported** (2 entries, 2 case globs)
 
