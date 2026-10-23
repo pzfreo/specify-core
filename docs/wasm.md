@@ -130,12 +130,16 @@ setting aside answers by a list of answer kinds. The result is `resume::Resumed`
 - With evidence whose face count and fingerprint match the part, feature answers move to
   a unique same-family feature containing their saved faces (`migrated` lists old/new IDs),
   exactly as on reopening a STEP (docs/design.md, "Saved answers across kernel upgrades").
-- Without evidence, or with evidence that does not match (another part's, or the part before
-  an edit), no face correspondence is inferred. A feature ID or face index that still exists
-  is no evidence of the same feature: IDs renumber between kernels. So every answer on a
-  feature (`hole.*`, `diameter.*`) or a datum (`datum.X` and its settings such as
-  `datum.A.flatness`, `datum.B.control`) is left in `unresolved`, each with a reason, and
-  `unverified` says why. Only the part's own answers (`part.*`) are kept.
+- Without evidence (a project saved before it kept evidence), the answers are trusted by
+  ID: a feature answer is kept when the part has a feature with that ID, a datum when its
+  faces exist on the part, and the rest are in `unresolved`. `unverified` says the match was
+  by ID; surface it to the person, but the kept answers are in `answers`.
+- With evidence that does not match (another part's, or the part before an edit), no face
+  correspondence is inferred. A feature ID or face index that still exists is no evidence of
+  the same feature: IDs renumber between kernels. So every answer on a feature (`hole.*`,
+  `diameter.*`) or a datum (`datum.X` and its settings such as `datum.A.flatness`,
+  `datum.B.control`) is left in `unresolved`, each with a reason, and `unverified` says why.
+  Only the part's own answers (`part.*`) are kept.
 - Everything not kept is in `unresolved` (`id`, `feature`, `answer`, `reason`), never dropped
   or applied. Show these to the person to confirm on the feature's current question; nothing
   in `unresolved` is settled.
@@ -145,7 +149,7 @@ setting aside answers by a list of answer kinds. The result is `resume::Resumed`
   it as `state.auto`.
 
 Use `answers` for review, settle and write. A project saved before it kept evidence opens
-without it, so its feature and datum answers open as `unresolved` for the person to confirm.
+without it, so its answers are matched by feature ID.
 
 ## Errors
 
