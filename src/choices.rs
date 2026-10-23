@@ -586,6 +586,23 @@ fn thread_depth(
             fmt3(full)
         ));
     }
+    check_thread_depth(full, bolt, depth)?;
+    Ok(Some(full))
+}
+
+/// A full-thread text question's answer, in mm. Use the same limits as an inline tapped
+/// answer; no rounding is applied to a designer's value.
+pub fn full_thread_depth(text: &str, bolt: &str, depth: f64) -> Result<f64, SpecError> {
+    let text = pyfmt::strip(text);
+    let text = pyfmt::strip(text.strip_suffix("mm").unwrap_or(text));
+    let full = pyfmt::parse_float(text)
+        .filter(|n| n.is_finite())
+        .ok_or_else(|| SpecError("Give a full-thread depth in mm, e.g. 6 or 6 mm.".into()))?;
+    check_thread_depth(full, bolt, Some(depth))?;
+    Ok(full)
+}
+
+fn check_thread_depth(full: f64, bolt: &str, depth: Option<f64>) -> Result<(), SpecError> {
     let Some(depth) = depth else {
         return refuse(
             "A thread depth is only set on a blind hole of known depth; \
@@ -595,8 +612,8 @@ fn thread_depth(
     if full <= 0.0 {
         return refuse("A thread depth is more than 0 mm.");
     }
-    // thread_depth is called only with a tabulated bolt returned by bolt().
-    let pitch = standards::lookup(&PITCH, bolt).expect("a tabulated bolt");
+    let pitch = standards::lookup(&PITCH, bolt)
+        .ok_or_else(|| SpecError(format!("Unknown tapped thread size {bolt}.")))?;
     let most = depth - 3.0 * pitch;
     if full > most + 1e-9 {
         return refuse(format!(
@@ -608,7 +625,7 @@ fn thread_depth(
             fmt3(most)
         ));
     }
-    Ok(Some(full))
+    Ok(())
 }
 
 /// A typed turned-diameter spec: a fit, a thread or a knurl.

@@ -555,10 +555,12 @@ pub const ISO_261: [(&str, Option<f64>, &[f64]); 49] = [
 /// Python's answers use) first, then each fine pitch as `M10x1.25`. Empty where no ISO 261
 /// size matches.
 pub fn external_threads(diameter: f64) -> Vec<String> {
-    let Some(&(size, coarse, fine)) = ISO_261
-        .iter()
-        .find(|(size, _, _)| (bolt_diameter(size) - diameter).abs() <= TOLERANCE)
-    else {
+    let Some(&(size, coarse, fine)) = ISO_261.iter().find(|(size, _, _)| {
+        let nominal = bolt_diameter(size);
+        // Compare endpoints so a decimal boundary such as 10.05 is included despite
+        // cancellation in (diameter - nominal). No rounding or snapping outside it.
+        nominal - TOLERANCE <= diameter && diameter <= nominal + TOLERANCE
+    }) else {
         return Vec::new();
     };
     let coarse = coarse.map(|_| size.to_string());

@@ -682,6 +682,8 @@ fn all_questions(
             choices::check(&q.id, value, &q.options, q.diameter, q.depth)?;
         }
     }
+    // Keep dependent depth edits after the existing questions, preserving their order.
+    out.sort_by_key(|q| q.id.starts_with("hole.full_thread:"));
     out.into_iter().map(|q| reviewed(q, &ctx.faces)).collect()
 }
 
@@ -834,6 +836,7 @@ fn reviewed(mut q: Question, faces: &Faces) -> Result<Question> {
     }
     if q.id.starts_with("diameter.fit:")
         || q.id.starts_with("diameter.runout:")
+        || q.id.starts_with("hole.full_thread:")
         || q.id == "datum.A.flatness"
         || q.id.ends_with(".control")
     {
@@ -842,9 +845,12 @@ fn reviewed(mut q: Question, faces: &Faces) -> Result<Question> {
     Ok(q)
 }
 
-/// The questions among `qs` not answered.
+/// Unanswered questions that need answers. Full-thread depth is an optional override of
+/// the manufacturing depth already implied by an answered tap, so it never blocks saving.
 pub fn open_questions<'q>(qs: &'q [Question], answers: &Map<String, Value>) -> Vec<&'q Question> {
-    qs.iter().filter(|q| !answers.contains_key(&q.id)).collect()
+    qs.iter()
+        .filter(|q| !q.id.starts_with("hole.full_thread:") && !answers.contains_key(&q.id))
+        .collect()
 }
 
 /// `answers` plus the default of every unanswered question that has one.
@@ -920,6 +926,8 @@ pub fn apply_with_defaults(
 ///
 /// Unanswered defaults remain suggestions on the questions; they contribute no PMI. Existing
 /// file datums are retained, and answered tolerances need an answered or existing datum frame.
+/// An answered tap includes its established inline/computed manufacturing depth; the optional
+/// full-thread question overrides that depth only when answered.
 /// Items keep the `default` field for front ends, always false for an answered question.
 pub fn preview(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {
     let ctx = Ctx::new(analysis)?;
@@ -1033,7 +1041,22 @@ fn intent(
                     };
                     ctx.feature(first)?
                 };
-                reqs.extend(holes::hole_requirements(value, bores, feature, hole)?);
+                for mut req in holes::hole_requirements(value, bores, feature, hole)? {
+                    if req.get("kind").and_then(Value::as_str) == Some("thread")
+                        && !py::is_str(hole.get("bottom")?, "through")
+                        && let Some(drill) = hole.optional_number("depth")?
+                    {
+                        let id = format!("hole.full_thread:{}", q.feature.as_deref().unwrap_or(""));
+                        if let Some(text) = answers.get(&id).and_then(Value::as_str) {
+                            let size = choices::split(value.as_str().unwrap_or("")).1;
+                            req.insert(
+                                "full_thread".into(),
+                                Value::from(choices::full_thread_depth(text, size, drill)?),
+                            );
+                        }
+                    }
+                    reqs.push(req);
+                }
             }
         } else if q.id.starts_with("hole.location:") {
             // A tolerance of 0 is false to Python, and makes no requirement either.

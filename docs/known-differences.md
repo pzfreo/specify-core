@@ -12,16 +12,16 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | Area | rust-correct | rust-wrong | equivalent | undetermined | not-applicable | resolved | Total |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 138 | 0 | 52 | 0 | 3 | 0 | 193 |
+| [cli](#cli) | 143 | 0 | 52 | 0 | 3 | 0 | 198 |
 | [cross_engine](#cross_engine) | 4 | 1 | 0 | 1 | 1 | 0 | 7 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 0 | 33 |
 | [features](#features) | 1031 | 1418 | 1057 | 2787 | 677 | 10 | 6980 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
-| [rules](#rules) | 41 | 0 | 615 | 0 | 0 | 0 | 656 |
+| [rules](#rules) | 89 | 0 | 615 | 0 | 0 | 0 | 704 |
 | [writer](#writer) | 15 | 0 | 0 | 0 | 15 | 0 | 30 |
-| **all** | 1265 | 1436 | 1735 | 2793 | 713 | 10 | 7952 |
+| **all** | 1318 | 1436 | 1735 | 2793 | 713 | 10 | 8005 |
 
 ## anchors
 
@@ -67,7 +67,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (138 entries)
+### cli: rust-correct (143 entries)
+
+- **measurement datum defaults in CLI and serve envelopes** (100 entries, 94 case globs)
+
+  The evidence is stated per entry (6 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb217` at `questions.defaults.questions.[37]`: For #21, this exact CLI question field exposes the optional hole.full_thread text edit with refine attention. It is excluded from open and changes neither the accepted tap's inline/computed depth nor review obligations. tests/thread_depth_help.rs verifies exact alpha.7 STEP equivalence; cli_datum_origins.json.gz pins this question value.
 
 - **Python's write prints OpenCascade's transfer statistics on stdout before the report** (`cli/*` at `stdout_noise`)
 
@@ -112,10 +116,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **CLI and serve expose the corrected turned datums and blind-thread summaries** (20 entries, 11 case globs)
 
   The CLI composition check independently requires byte-identical library and executable outputs. Corrected axis-first defaults change datum faces, axial position/runout frames, question ordering and dependent intent text on the pin/stack; blind tap summaries include computed full-thread depth. The full library before/after changes are exactly pinned in rule_defaults_oracle.json.gz; tests/turned_defaults.rs and tests/thread_depth_help.rs verify the intended geometry and displays. CLI Python-input checks inherit only exact matching reviewed rule changes via without_reviewed_rule_departures; these entries cover command/transcript envelopes and intent text. No composition differences are filtered.
-
-- **measurement datum defaults in CLI and serve envelopes** (95 entries, 94 case globs)
-
-  The evidence is stated per entry (5 distinct; all in `cli.json`). The first, for `cli/serve` at `lines[*].result.intent.requirements[*]*`: Issue #20 (https://github.com/pzfreo/specify-core-rust/issues/20), maintainer-approved decision: unanswered defaults remain suggestions, with no provisional PMI. This existing verdict previously compared the datum-frame leaf of an implicitly defaulted position requirement. The entire unanswered requirement is now omitted, so the comparison is at the requirement rather than its datums leaf. The scope retains the old leaf paths and now includes the containing requirement. Moving it into the measurement-datum departure group makes EVERY matching before/after value subject to the exact cli_datum_origins.json.gz guard in tests/cli.rs, strengthening coverage instead of exempting the new omissions. The completed full CLI sweep supplied the exact values; a replay of all 11 serve transcripts and all 123 command lines independently verified the changed granularity. The original Python captures and this verdict entry are retained; only preview expectations change, and explicit accept_defaults output is unchanged.
 
 - **a perpendicular shoulder datum unused by an axial position is reported** (2 entries, 2 case globs)
 
@@ -779,7 +779,11 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## rules
 
-### rules: rust-correct (41 entries)
+### rules: rust-correct (89 entries)
+
+- **Optional full-thread depth question and explicit default acceptance** (48 entries, 16 case globs)
+
+  For #21, Rust exposes an optional hole.full_thread text edit with refine attention, excluded from open. The accepted tap keeps alpha.7's inline/computed manufacturing depth until an explicit edit overrides it. tests/thread_depth_help.rs verifies exact base STEP bytes, semantic readback and resave; rule_defaults_oracle.json.gz pins this exact question/default field.
 
 - **answered controls report the datum frame awaiting acceptance (issue #20)** (5 entries, 5 case globs)
 

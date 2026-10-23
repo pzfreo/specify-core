@@ -252,6 +252,44 @@ pub(crate) fn hole_questions(
         )
     }];
     let function = answers.get(&qid).unwrap_or(&default);
+    if let (Some(drill), Some(function)) = (depth, function.as_str()) {
+        let (kind, size, inline) = choices::split(function);
+        if kind == "tapped" && standards::lookup(&PITCH, size).is_some() {
+            let id = format!("hole.full_thread:{}", target.id);
+            if let Some(value) = answers.get(&id) {
+                let text = value.as_str().ok_or_else(|| {
+                    Error::Invalid(format!("{id}: a full-thread depth must be text in mm"))
+                })?;
+                choices::full_thread_depth(text, size, drill)?;
+            }
+            let full = inline.unwrap_or_else(|| standards::full_thread(drill, size));
+            out.push(Question {
+                default: Some(Value::from(full.to_string())),
+                title: Some(label.clone()),
+                feature: Some(target.id.to_string()),
+                parts: parts.clone(),
+                depth,
+                why: "Set the minimum full-thread depth in mm. It must be positive and leave \
+                      3 pitches for the tap lead and drill point. An edited value is kept \
+                      without rounding and takes precedence over the depth in a tapped answer."
+                    .into(),
+                basis: if inline.is_some() {
+                    "The depth explicitly given in the tapped-hole answer.".into()
+                } else {
+                    "Drill depth minus 3 pitches, rounded down to 0.5 mm (at least one pitch)."
+                        .into()
+                },
+                ..Question::new(
+                    id,
+                    "text",
+                    format!(
+                        "What minimum full-thread depth (mm) does the {size} tapped {label} need?"
+                    ),
+                    bores.clone(),
+                )
+            });
+        }
+    }
     if !py::is_str(Some(function), GENERAL) && !frames.is_empty() {
         // Python reads the answer as text here, before any answer is checked: one that is
         // not text (or names no thread it knows) is refused now, as the check would.

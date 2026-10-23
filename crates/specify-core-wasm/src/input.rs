@@ -88,6 +88,7 @@ pub fn answers_shape(answers: &Map<String, Value>) -> Result<(), Error> {
         } else if let Some((kind, feature)) = id.split_once(':') {
             if ![
                 "hole.function",
+                "hole.full_thread",
                 "hole.frame",
                 "hole.position",
                 "hole.location",

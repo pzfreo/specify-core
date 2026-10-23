@@ -325,6 +325,7 @@ fn answer_feature(id: &str) -> Option<(&str, &str)> {
     matches!(
         question,
         "hole.function"
+            | "hole.full_thread"
             | "hole.frame"
             | "hole.position"
             | "hole.location"

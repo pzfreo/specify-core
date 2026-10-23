@@ -21,12 +21,9 @@ fn browser_sessions_resume_all_87_alpha6_answers() {
         let snapshot = session.snapshot();
         assert_eq!(&snapshot["analysis"]["resume"]["answers"], expected);
         count += expected.as_object().unwrap().len();
-        assert!(
-            session.review(expected.as_object().unwrap()).unwrap()["open"]
-                .as_array()
-                .unwrap()
-                .is_empty()
-        );
+        // #21's optional depth override adds no review work to fully answered old files.
+        let review = session.review(expected.as_object().unwrap()).unwrap();
+        assert!(review["open"].as_array().unwrap().is_empty());
     }
     assert_eq!(count, 87);
 }
