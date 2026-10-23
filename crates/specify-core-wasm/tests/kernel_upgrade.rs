@@ -74,3 +74,32 @@ fn browser_reports_unmatched_values_and_leaves_current_question_open() {
             .any(|p| p["code"] == "saved_answer_unresolved")
     );
 }
+
+#[test]
+fn browser_exposes_real_alpha6_pattern_id_migration_and_new_questions() {
+    let bytes = saved("ftc10-reid");
+    let original = &resume::stored(&bytes)[&0]["answers"];
+    let session = Session::open("ftc10.step", &bytes).unwrap();
+    let snapshot = session.snapshot();
+    let resumed = &snapshot["analysis"]["resume"];
+    assert_eq!(resumed["answers"].as_object().unwrap().len(), 29);
+    assert_eq!(resumed["migrated"].as_array().unwrap().len(), 2);
+    assert!(resumed["unresolved"].is_null());
+    for pair in resumed["migrated"].as_array().unwrap() {
+        assert_ne!(pair[0], pair[1]);
+        assert_eq!(
+            resumed["answers"][pair[1].as_str().unwrap()],
+            original[pair[0].as_str().unwrap()]
+        );
+    }
+    let review = session
+        .review(resumed["answers"].as_object().unwrap())
+        .unwrap();
+    assert_eq!(
+        review["open"],
+        json!([
+            "hole.function:hole_patterns.linear:195.197.199",
+            "hole.position:hole_patterns.linear:195.197.199"
+        ])
+    );
+}

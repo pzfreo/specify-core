@@ -393,8 +393,9 @@ fn recess_planes(ctx: &Ctx<'_>) -> Result<HashSet<i64>> {
                         let centroid = p.centroid()?;
                         if ends.iter().any(|end| {
                             let offset = std::array::from_fn(|i| centroid[i] - end[i]);
-                            // Both aligned and framed endpoints use the recogniser's 0.001-mm grid.
-                            dot(&offset, &direction).abs() < 1e-3
+                            // Both aligned and framed endpoints are published on a 0.01-mm
+                            // grid: allow half a grid step plus the 1e-6-mm geometry floor.
+                            dot(&offset, &direction).abs() <= 0.005001
                         }) {
                             ids.insert(p.id);
                         }

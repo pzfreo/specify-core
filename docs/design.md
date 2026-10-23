@@ -240,7 +240,8 @@ axis-letter fields as `record._local` plus `record._frame`. They must never be i
 as file-axis coordinates. For slots/channels, the consumed `long_axis` and `lo`/`hi`
 end planes gain file-space `end_direction`, `end_lo` and `end_hi`. Datum exclusion
 compares source face centroids against those planes. Both aligned and framed checks
-use published end coordinates and a 0.001-mm distance tolerance. The interim use of
+use published end coordinates on the kernel's 0.01-mm grid: a half-grid distance
+tolerance plus the 1e-6-mm geometry floor. The interim use of
 `Placed::raw` has been removed; no second position representation is needed. For turned thread length,
 `hi - lo` is an invariant scalar, so no coordinate conversion is needed. Other local
 extents/planes are retained with metadata but are not consumed by Specify.

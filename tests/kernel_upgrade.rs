@@ -203,13 +203,24 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
         translation: [31., -17., 43.],
     };
     let mut placements_checked = 0;
-    for name in [
+    let mut inputs: Vec<_> = [
         "plate",
         "pin",
         "GRM-02_shaft",
         "four_corner_holes_are_quiddity_rectangle_with_members",
-    ] {
-        let bytes = std::fs::read(fixture(&format!("parts/{name}.step"))).unwrap();
+    ]
+    .into_iter()
+    .map(|name| (name.to_string(), fixture(&format!("parts/{name}.step"))))
+    .collect();
+    // Fractional slot/channel ends exercise the same published precision in both paths.
+    for case in ["corpus/mfcadpp/10047", "corpus/mfcadpp/10224"] {
+        if let Some(path) = common::case(case).input() {
+            inputs.push((case.into(), path));
+        }
+    }
+    for (name, path) in inputs {
+        let name = name.as_str();
+        let bytes = std::fs::read(path).unwrap();
         let a = part::File::of_bytes(Path::new(name), bytes.clone())
             .unwrap()
             .load(None)
@@ -277,19 +288,28 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
         let mut written_pmi = Vec::new();
         let mut written_parts = Vec::new();
         let mut readbacks = Vec::new();
+        let mut reports = Vec::new();
         for loaded in [&a, &b] {
             let analysis = api::analyse(loaded).unwrap();
             let intent = rules::apply(&analysis, &answers).unwrap();
-            let (written, _report) = writer::write_bytes(loaded, &intent, Some(&answers)).unwrap();
+            let (written, report) = writer::write_bytes(loaded, &intent, Some(&answers)).unwrap();
+            reports.push((report.written, report.not_written));
             let back = part::File::of_bytes(Path::new(name), written)
                 .unwrap()
                 .load(None)
                 .unwrap();
-            assert_eq!(
-                specify_core::existing::read_existing(&back).unwrap().len(),
-                intent.requirements.len() + intent.datums.len(),
-                "{name}"
-            );
+            let existing = specify_core::existing::read_existing(&back).unwrap();
+            if name.starts_with("corpus/") {
+                // Some generic dimensions on 10224 have no semantic writer mapping.
+                // The explicit write/refusal report must also be invariant under motion.
+                assert!(!existing.is_empty(), "{name}");
+            } else {
+                assert_eq!(
+                    existing.len(),
+                    intent.requirements.len() + intent.datums.len(),
+                    "{name}"
+                );
+            }
             readbacks.push(
                 serde_json::to_value(specify_core::existing::read_existing(&back).unwrap())
                     .unwrap(),
@@ -303,6 +323,7 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
             );
             written_parts.push(back);
         }
+        assert_eq!(reports[0], reports[1], "{name}: write and refusal reports");
         let differences = common::compare(
             name,
             &readbacks[0],
