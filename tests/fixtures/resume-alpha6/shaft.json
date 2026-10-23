@@ -1,0 +1,495 @@
+{
+  "writer": "specify-core 0.1.0-alpha.6",
+  "kernel": "v0.1.0-alpha.8 c62081c6",
+  "motion": null,
+  "features": [
+    {
+      "id": "chamfers:1",
+      "family": "chamfers",
+      "record": {
+        "axis": "x",
+        "leg1": 1.5,
+        "leg2": 1.5,
+        "angle": 45.0,
+        "at": [
+          36.85,
+          -0.0,
+          3.25
+        ],
+        "turned": true,
+        "corner": null
+      },
+      "faces": [
+        1
+      ]
+    },
+    {
+      "id": "bosses:0",
+      "family": "bosses",
+      "record": {
+        "axis": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "location": [
+          36.1,
+          0.0,
+          0.0
+        ],
+        "diameter": 8.0,
+        "height": 36.1
+      },
+      "faces": [
+        0
+      ]
+    },
+    {
+      "id": "flats:6",
+      "family": "flats",
+      "record": {
+        "axis": "x",
+        "across": 7.4,
+        "at": [
+          13.6,
+          -0.0,
+          -3.4
+        ],
+        "axis_line": [
+          0.0,
+          0.0
+        ],
+        "stock_span": [
+          0.0,
+          36.1
+        ],
+        "axis_direction": [
+          1.0,
+          0.0,
+          0.0
+        ]
+      },
+      "faces": [
+        6
+      ]
+    },
+    {
+      "id": "flats:2",
+      "family": "flats",
+      "record": {
+        "axis": "x",
+        "across": 7.4,
+        "at": [
+          35.052,
+          0.0,
+          -3.4
+        ],
+        "axis_line": [
+          0.0,
+          0.0
+        ],
+        "stock_span": [
+          0.0,
+          36.1
+        ],
+        "axis_direction": [
+          1.0,
+          0.0,
+          0.0
+        ]
+      },
+      "faces": [
+        2
+      ]
+    },
+    {
+      "id": "holes:15",
+      "family": "holes",
+      "record": {
+        "axis": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "location": [
+          1.5,
+          0.0,
+          0.0
+        ],
+        "diameter": 1.6,
+        "depth": 3.5,
+        "bottom": "flat",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        15
+      ]
+    },
+    {
+      "id": "holes:14",
+      "family": "holes",
+      "record": {
+        "axis": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "location": [
+          37.6,
+          0.0,
+          0.0
+        ],
+        "diameter": 3.3,
+        "depth": 4.0,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        14
+      ]
+    },
+    {
+      "id": "slots:4.12",
+      "family": "slots",
+      "record": {
+        "width_axis": "y",
+        "long_axis": "x",
+        "width": 4.75,
+        "length": 6.4,
+        "w_center": 0.0,
+        "lo": 27.2,
+        "hi": 33.6,
+        "d_lo": -3.22,
+        "d_hi": 3.22,
+        "body_key": [
+          0.0,
+          -4.0,
+          -3.4,
+          37.6,
+          4.0,
+          4.0,
+          1509.54376891,
+          1151.48917695
+        ],
+        "end_radius": null,
+        "corner_radius": null
+      },
+      "faces": [
+        4,
+        12
+      ]
+    },
+    {
+      "id": "channels:8.10",
+      "family": "channels",
+      "record": {
+        "width_axis": "z",
+        "long_axis": "y",
+        "width": 3.0,
+        "w_center": 0.0,
+        "lo": -3.71,
+        "hi": 3.71,
+        "d_lo": 0.0,
+        "d_hi": 1.5,
+        "open_sign": -1,
+        "body_key": [
+          0.0,
+          -4.0,
+          -3.4,
+          37.6,
+          4.0,
+          4.0,
+          1509.54376891,
+          1151.48917695
+        ]
+      },
+      "faces": [
+        8,
+        10
+      ]
+    },
+    {
+      "id": "step_levels:8",
+      "family": "step_levels",
+      "record": {
+        "z": -1.5,
+        "x_span": [
+          3.330669073875e-16,
+          1.5
+        ],
+        "y_span": [
+          -3.708099243548,
+          3.708099243548
+        ],
+        "body_key": [
+          0.0,
+          -4.0,
+          -3.4,
+          37.6,
+          4.0,
+          4.0,
+          1509.54376891,
+          1151.48917695
+        ]
+      },
+      "faces": [
+        8
+      ]
+    },
+    {
+      "id": "step_levels:10",
+      "family": "step_levels",
+      "record": {
+        "z": 1.5,
+        "x_span": [
+          -3.330669073875e-16,
+          1.5
+        ],
+        "y_span": [
+          -3.708099243548,
+          3.708099243548
+        ],
+        "body_key": [
+          0.0,
+          -4.0,
+          -3.4,
+          37.6,
+          4.0,
+          4.0,
+          1509.54376891,
+          1151.48917695
+        ]
+      },
+      "faces": [
+        10
+      ]
+    },
+    {
+      "id": "risers:9",
+      "family": "risers",
+      "record": {
+        "vertical": true,
+        "axis": "x",
+        "positions": [
+          1.5
+        ],
+        "other_axis": "y",
+        "other_positions": [],
+        "z_lo": -1.5,
+        "z_hi": 1.5,
+        "lo_at_envelope": false,
+        "hi_at_envelope": false,
+        "tol": 0.5,
+        "body_levels": [
+          {
+            "z": -1.5,
+            "x_span": [
+              3.330669073875e-16,
+              1.5
+            ],
+            "y_span": [
+              -3.708099243548,
+              3.708099243548
+            ],
+            "body_key": [
+              0.0,
+              -4.0,
+              -3.4,
+              37.6,
+              4.0,
+              4.0,
+              1509.54376891,
+              1151.48917695
+            ]
+          },
+          {
+            "z": 1.5,
+            "x_span": [
+              -3.330669073875e-16,
+              1.5
+            ],
+            "y_span": [
+              -3.708099243548,
+              3.708099243548
+            ],
+            "body_key": [
+              0.0,
+              -4.0,
+              -3.4,
+              37.6,
+              4.0,
+              4.0,
+              1509.54376891,
+              1151.48917695
+            ]
+          }
+        ],
+        "body_key": [
+          0.0,
+          -4.0,
+          -3.4,
+          37.6,
+          4.0,
+          4.0,
+          1509.54376891,
+          1151.48917695
+        ]
+      },
+      "faces": [
+        9
+      ]
+    },
+    {
+      "id": "section_recesses:8.10",
+      "family": "section_recesses",
+      "record": {
+        "index": 0,
+        "body": 0,
+        "geometry": {
+          "type": "section_recess",
+          "frame": {
+            "origin": [
+              0.75,
+              0.0,
+              0.0
+            ],
+            "run": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "u": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "v": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "run_interval": [
+            -3.708,
+            3.708
+          ],
+          "profile": {
+            "closure": "open",
+            "boundary": [
+              {
+                "point": [
+                  -1.5,
+                  -0.75
+                ],
+                "bulge": 0.0
+              },
+              {
+                "point": [
+                  -1.5,
+                  0.75
+                ],
+                "bulge": 0.0
+              },
+              {
+                "point": [
+                  1.5,
+                  0.75
+                ],
+                "bulge": 0.0
+              },
+              {
+                "point": [
+                  1.5,
+                  -0.75
+                ],
+                "bulge": 0.0
+              }
+            ],
+            "opening": [
+              [
+                1.5,
+                -0.75
+              ],
+              [
+                -1.5,
+                -0.75
+              ]
+            ],
+            "material_side": "left"
+          },
+          "ends": {
+            "low": {
+              "condition": "open",
+              "surface": {
+                "type": "plane",
+                "gradient": [
+                  0.0,
+                  0.0
+                ]
+              }
+            },
+            "high": {
+              "condition": "open",
+              "surface": {
+                "type": "plane",
+                "gradient": [
+                  0.0,
+                  0.0
+                ]
+              }
+            }
+          }
+        },
+        "classification": {
+          "feature_kind": "channel",
+          "section_shape": "rectangular"
+        },
+        "evidence": {
+          "defining_faces": [
+            8,
+            10
+          ],
+          "constituent_faces": [
+            8,
+            9,
+            10,
+            15
+          ]
+        }
+      },
+      "faces": [
+        8,
+        10
+      ]
+    }
+  ],
+  "answers": {
+    "part.material": "steel",
+    "part.notes": [
+      "alpha.6: café 'quoted' \\X2\\ literal"
+    ],
+    "part.general_tolerance": "ISO 2768-m",
+    "part.surface_finish": "Ra 3.2",
+    "part.coating": "None (as machined)",
+    "part.heat_treatment": "None",
+    "part.edges": "Break sharp edges 0.2 max",
+    "part.locating": "position tolerances",
+    "hole.function:holes:15": "tapped:M2",
+    "hole.position:holes:15": "0.2",
+    "hole.function:holes:14": "clearance:M3",
+    "hole.position:holes:14": "0.3",
+    "datum.A": [
+      0
+    ],
+    "datum.B": [
+      7,
+      11
+    ],
+    "datum.C": [],
+    "datum.B.control": "none"
+  }
+}

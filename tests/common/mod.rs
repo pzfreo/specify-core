@@ -41,12 +41,13 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
 /// The verdicts a known difference may carry.
-pub const VERDICTS: [&str; 5] = [
+pub const VERDICTS: [&str; 6] = [
     "rust-correct",
     "rust-wrong",
     "equivalent",
     "undetermined",
     "not-applicable",
+    "resolved",
 ];
 
 /// `tests/fixtures`.
@@ -720,7 +721,10 @@ pub fn check_known_with(source: &str, entries: &[KnownDifference], differences: 
     let mut tally: BTreeMap<&str, usize> = BTreeMap::new();
     let mut unmatched = Vec::new();
     for difference in differences {
-        match entries.iter().position(|e| e.matches(difference)) {
+        match entries
+            .iter()
+            .position(|e| e.verdict != "resolved" && e.matches(difference))
+        {
             Some(i) => {
                 used[i] += 1;
                 *tally.entry(entries[i].verdict.as_str()).or_default() += 1;
@@ -731,10 +735,21 @@ pub fn check_known_with(source: &str, entries: &[KnownDifference], differences: 
     let stale: Vec<String> = entries
         .iter()
         .zip(&used)
-        .filter(|(_, n)| **n == 0)
+        .filter(|(e, n)| e.verdict != "resolved" && **n == 0)
         .map(|(e, _)| format!("  case {} path {} ({})", e.case, e.path, e.pattern))
         .collect();
     let mut problems = Vec::new();
+    // Preserve corrected entries as negative regression assertions, rather than deleting
+    // stale history. They never explain a departure and fail even if an active entry also
+    // covers the returning difference.
+    for entry in entries.iter().filter(|e| e.verdict == "resolved") {
+        if let Some(difference) = differences.iter().find(|d| entry.matches(d)) {
+            problems.push(format!(
+                "resolved difference returned in {source}: {difference}; {}",
+                entry.evidence
+            ));
+        }
+    }
     if !unmatched.is_empty() {
         problems.push(format!(
             "{} difference(s) with no entry in {source}:\n{}",
@@ -776,7 +791,11 @@ pub fn explained(areas: &[&str], differences: &[Difference]) -> Vec<Difference> 
 pub fn explained_with(entries: &[KnownDifference], differences: &[Difference]) -> Vec<Difference> {
     differences
         .iter()
-        .filter(|d| !entries.iter().any(|e| e.matches(d)))
+        .filter(|d| {
+            !entries
+                .iter()
+                .any(|e| e.verdict != "resolved" && e.matches(d))
+        })
         .cloned()
         .collect()
 }

@@ -81,24 +81,25 @@ known difference whose analyses must not cross engines (question Q1).
 faces only); Python reports `step_levels` and suppresses `bosses` on a turned part (its
 cross-family reconciliation), Rust reports `bosses` and no `step_levels`. Feature ids in this
 crate are specify-core's (`family:faces`, from the faces the port uses), so ids for the same
-feature can differ between engines. That is safe: an analysis is stored and never re-derived,
-and answers are always used with the analysis they were given against.
+feature can differ between engines. An analysis is a stored snapshot, but saved STEP answers are re-recognised on reopening;
+the resume correspondence rule below handles feature-ID changes.
 
 ## Dependency plan
 
 - `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity-rust`,
-  pinned to tag `v0.1.0-alpha.8` (`c62081c6`) in both manifests and Cargo.lock.
+  pinned to tag `v0.1.1` (`a27b7064`) in both manifests and Cargo.lock.
   Update only these packages with `cargo update -p quiddity -p haecceity`, then run
-  the whole suite and rejudge any departures from the frozen Python captures with
-  independent evidence. Recognition stays caller-space (`correspondence::recognise`),
-  as Python's entry points, not framed `recognise_placed` (Q2).
+  the named local profile below and the full suite in CI, and rejudge any departures from the frozen Python captures with
+  independent evidence. `correspondence::recognise` returns framed records (#61);
+  Specify maps consumed local coordinates through the inferred frame (see below).
   Specify consumes typed features, not the upstream recognition document: modelled
   threads are additive features; their claimed freeforms become thread faces. The
-  upstream document uses recognition/4 only for thread measurements/refusals, otherwise
-  recognition/3. Specify keeps its own analysis schema and binding because face numbering
+  upstream document is recognition/5 with complete face accounting (#66). Specify has no
+  unclaimed/unrecognised-face display, so it does not add a new UI for that accounting.
+  Specify keeps its own analysis schema and binding because face numbering
   is unchanged. Derived PMI geometry is followed through its deriving faces by
   `existing::faces_of`; Specify reads PMI anew from STEP, never persists the upstream
-  PMI JSON (version 2, now reader binding `haecceity-pmi-read/8`; /7 must be reread).
+  PMI JSON (version 2, now reader binding `haecceity-pmi-read/11`; older readings must be reread).
   It builds its own write report, so upstream parts/write-report version 2 and the
   graphic-only `Accounting::presentation` do not change that report's shape.
 - **Cargo.toml and Cargo.lock across parallel streams.** A stream that adds a crate adds its
@@ -178,6 +179,98 @@ except where a hash is taken (resume fingerprint, `pyjson.rs`).
   `==` compares: `1.0` and `true` are schema 1), any other is passed over. A payload resumes
   when its `face_count` is the part's and its `faces` is the part's fingerprint *of the
   payload's own schema* (Q14).
+
+### Saved answers across kernel upgrades
+
+Specify's payload schema remains 2 (schema 1 still reads); it is independent of
+quiddity's fingerprint v3. Alpha.6 saved no quiddity feature fingerprints. Do not feed
+its data to quiddity's v3 correspondence or assume positional record IDs survive.
+
+On opening a Specify-written STEP, `resume::report_for_parsed` first checks the
+payload's part, face count and **ordered geometric face fingerprint**, using its
+original schema. This proves the saved face indices still denote the same ordered
+surface kinds and rounded centroids. No face-index correspondence is inferred when
+that check fails: the file opens as a foreign file, retaining its existing PMI and
+part settings, as before this migration. This legacy evidence is deliberately
+conservative: it does not migrate topology edits or reordered faces, and cannot distinguish
+geometry edits that preserve all the legacy fingerprint's rounded surface kinds/centroids.
+
+For a feature question `question:family:faces`, an exact same-family face support is
+preferred. If it disappeared, carry the answer only to a **unique same-family feature
+containing all the original geometric support faces**. This permits a recogniser to add
+supporting faces (such as a floor) without guessing by dimensions, proximity, family
+changes or partial overlap. Hole-pattern kinds must also agree. Multiple candidates,
+no candidate, malformed support, multiple old features mapping to one new feature
+(even across different question types), or multiple old answers mapping to one new question
+are unresolved; colliding answers are never merged, even if their values agree.
+Non-feature answers and literal notes keep their values and insertion order. Current
+IDs are rederived on every reopening, never reused as quiddity positional IDs.
+
+Low-level `answers_for` remain payload readers: they retain the
+original keys for clients holding the original analysis and byte-preserving round trips.
+Use `api::analyse`/the session, or `report_for_parsed`, to resume against new recognition.
+
+`analysis.resume` contains `answers`, optional `migrated` old/new question pairs and
+optional `unresolved` records (`id`, `feature`, `answer`, `reason`). Only `answers` are
+applied. CLI/serve warnings and the existing review/session `problems` list also name
+each unresolved old ID and reason (`saved_answer_unresolved`). The analysis carries
+`existing: []` for a saved session, so old written PMI cannot mask unanswered questions.
+Editor users should review these warnings and answer the open questions before saving;
+original unresolved values remain available in the resume report for manual recovery.
+No defaults are automatically accepted by migration. Rewriting stores the user's
+current answers through the existing schema-2 payload. **Unresolved old answers are not
+persisted when saving again**; recover their values from the resume report before saving.
+Unchanged answer payloads retain
+the same compact JSON/base64 bytes.
+
+Compatibility inputs in `tests/fixtures/resume-alpha6` were written and committed with
+the alpha.6/alpha.8 build before the dependency bump: five files, 87 accepted answers,
+including a genuinely rotated/translated plate. Those 87 answers retain their IDs.
+Two additional fixtures were written from the exact alpha.6 tag: FTC-10 keeps all
+29 answers (27 exact, two migrated to an expanded linear pattern); CTC-02 keeps 32
+of 34 answers and reports two unmatched linear-pattern answers. FTC-10 also opens
+two newly recognised-pattern questions, without accepting their defaults. The original
+fixtures cover literal Unicode, quotes and STEP-escape-looking backslashes too.
+
+### Recognition coordinates at the Specify boundary
+
+Quiddity #61 already maps vector axes, normals, points and positions back into file
+coordinates. `features::recognise` keeps that mapping and labels any remaining local
+axis-letter fields as `record._local` plus `record._frame`. They must never be interpreted
+as file-axis coordinates. For slots/channels, the consumed `long_axis` and `lo`/`hi`
+end planes gain file-space `end_direction`, `end_lo` and `end_hi`. Datum exclusion
+compares source face centroids against those planes. Both aligned and framed checks
+use published end coordinates on the kernel's 0.01-mm grid: a half-grid distance
+tolerance plus the 1e-6-mm geometry floor. The interim use of
+`Placed::raw` has been removed; no second position representation is needed. For turned thread length,
+`hi - lo` is an invariant scalar, so no coordinate conversion is needed. Other local
+extents/planes are retained with metadata but are not consumed by Specify.
+
+The v0.1.1 kernel owns one-time file-grid publication and near-axis handling (#79,
+fixing #69/#70/#71). Specify does not re-round or snap published record positions,
+and does not infer an epsilon frame. The earlier origin-plus-rounded-end comparison
+uses the published end-plane mapping above; no approximation for off-grid
+positions or nearly aligned record axes remains. `Placed` serialises as the published
+value, so Specify's JSON boundary needs no wrapper-specific decoding. Native callers
+reading a typed position use `*position` for a plain vector.
+
+Audit: hole grouping and hole questions consume mapped `axis` and scalar dimensions;
+`locations` consumes mapped `axis`/`location`; datum blind-floor exclusion uses those
+same mapped values; turned detection/datum planes use `describe_faces` (file-space
+kernel surfaces), with slot end planes handled above. Anchors and sightlines inspect
+the original kernel part directly; mates likewise use original surfaces, not records.
+Writer placement uses source faces/surfaces and requirement dimensions, never raw local
+record fields. Split/symmetric datum faces within max(1e-6 mm², 1e-6 times the larger area) keep face order so
+integration noise under motion does not switch the proposed datum. The moved named-part
+tests compare questions/defaults, location dimensions, geometry and verified PMI writes.
+Local checks for this upgrade use `cargo nextest run --workspace --release --locked
+-E <explicit filter> --test-threads 6 --no-fail-fast`; the expression selects touched
+binaries, cross-engine, resume/answers and WASM session tests. No repository nextest
+profile changes the default selection. Export both corpus paths
+and `QUIDDITY_CORPUS_REQUIRED=1`. The full workspace suite remains CI's check.
+
+Part-21 strings are decoded text in step-io 0.3 (#62): do not decode an attribute twice;
+haecceity's `Document::span` continues to provide checked `usize` slices of its own bytes.
 
 ### The fingerprint (both engines, byte for byte)
 
@@ -515,7 +608,7 @@ The remaining questions and interim behaviour are recorded in [questions.md](que
 - **What is written:** Q6 (an assembly with foreign PMI written by add mode), Q17
   (requirements on no faces listed in `not_written`, the rest written), Q18 (bare parts by `Mode::Replace`; a second material in
   add mode refused).
-- **Engine behaviour:** Q2 (moved to `prototype/rust-port`; recognition kept caller-space),
+- **Engine behaviour:** Q2 (historical branch move; superseded by the public framed API in v0.1.1),
   Q7 (a product with surface models: one part), Q8 (ISO 286 extended to 3150 mm, in both engines, compared), Q9
   (malformed input refused as invalid), Q11 (an undecided sightline sample blocks), Q12 (mesh
   density, about 1.8 times Python's triangles), Q19 (unmeasurable contacts as warnings).

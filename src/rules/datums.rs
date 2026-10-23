@@ -115,6 +115,24 @@ pub(crate) fn perpendicular(a: &[f64; 3], b: &[f64; 3]) -> bool {
     dot(a, b).abs() < 1e-6
 }
 
+/// Stable descending area order. Integration noise must not choose between equal faces.
+fn sort_by_area<T>(items: &mut [(T, f64)]) {
+    // An approximate comparison is not transitive. Insertion sort preserves input order
+    // for ties without asking the standard sort to assume a total order.
+    for i in 1..items.len() {
+        let mut j = i;
+        while j > 0 {
+            let (previous, next) = (items[j - 1].1, items[j].1);
+            let tolerance = 1e-6_f64.max(1e-6 * previous.abs().max(next.abs()));
+            if next - previous <= tolerance {
+                break;
+            }
+            items.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+}
+
 /// The planes by area, largest first (a stable sort, as Python's `sorted(key=-area)`).
 fn planes_by_area(faces: &Faces) -> Result<Vec<&Face>> {
     let mut planes: Vec<(&Face, f64)> = faces
@@ -122,7 +140,7 @@ fn planes_by_area(faces: &Faces) -> Result<Vec<&Face>> {
         .filter(|f| f.is_plane())
         .map(|f| Ok((f, f.area()?)))
         .collect::<Result<_>>()?;
-    py::sort_by_float(&mut planes, |(_, area)| -area);
+    sort_by_area(&mut planes);
     Ok(planes.into_iter().map(|(f, _)| f).collect())
 }
 
@@ -349,18 +367,38 @@ fn recess_planes(ctx: &Ctx<'_>) -> Result<HashSet<i64>> {
                 }
             }
         }
-        if matches!(f.family, "slots" | "channels")
-            && let Some(axis) = f.get("long_axis")?.and_then(Value::as_str)
-            && let Some(component) = ["x", "y", "z"].iter().position(|&a| a == axis)
-        {
-            for p in ctx.faces.iter().filter(|p| p.is_plane()) {
-                if p.direction()?[component].abs() > 1.0 - 1e-6 {
-                    let level = p.centroid()?[component];
-                    if [f.number("lo")?, f.number("hi")?]
-                        .iter()
-                        .any(|end| (level - end).abs() < 1e-4)
-                    {
-                        ids.insert(p.id);
+        if matches!(f.family, "slots" | "channels") {
+            let end_frame = if f.get("end_direction")?.is_some() {
+                Some((
+                    f.vector("end_direction")?,
+                    [f.vector("end_lo")?, f.vector("end_hi")?],
+                ))
+            } else {
+                f.get("long_axis")?
+                    .and_then(Value::as_str)
+                    .and_then(|axis| ["x", "y", "z"].iter().position(|&a| a == axis))
+                    .map(|component| -> Result<_> {
+                        let direction =
+                            std::array::from_fn(|i| if i == component { 1.0 } else { 0.0 });
+                        let point = |level| {
+                            std::array::from_fn(|i| if i == component { level } else { 0.0 })
+                        };
+                        Ok((direction, [point(f.number("lo")?), point(f.number("hi")?)]))
+                    })
+                    .transpose()?
+            };
+            if let Some((direction, ends)) = end_frame {
+                for p in ctx.faces.iter().filter(|p| p.is_plane()) {
+                    if parallel(&p.direction()?, &direction) {
+                        let centroid = p.centroid()?;
+                        if ends.iter().any(|end| {
+                            let offset = std::array::from_fn(|i| centroid[i] - end[i]);
+                            // Both aligned and framed endpoints are published on a 0.01-mm
+                            // grid: allow half a grid step plus the 1e-6-mm geometry floor.
+                            dot(&offset, &direction).abs() <= 0.005001
+                        }) {
+                            ids.insert(p.id);
+                        }
                     }
                 }
             }
@@ -498,7 +536,7 @@ pub(crate) fn datum_a_doubt(faces: &Faces) -> Result<String> {
             groups.push((f, f.area()?));
         }
     }
-    py::sort_by_float(&mut groups, |(_, area)| -area);
+    sort_by_area(&mut groups);
     // Both group indices are guarded by len() > 1.
     if groups.len() > 1 && groups[1].1 >= 0.8 * groups[0].1 {
         return Ok(format!(
@@ -911,4 +949,25 @@ pub(crate) fn hole_frames(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod area_tests {
+    use super::sort_by_area;
+
+    #[test]
+    fn area_ties_cross_rounding_boundaries_and_scale_with_area() {
+        for (a, b) in [
+            (1.00000049, 1.00000051),
+            (1000.0, 1000.0009),
+            (0.0, 0.0000009),
+        ] {
+            let mut faces = [(0, a), (1, b)];
+            sort_by_area(&mut faces);
+            assert_eq!(faces.map(|(id, _)| id), [0, 1]);
+        }
+        let mut faces = [(0, 1.0), (1, 1.000002)];
+        sort_by_area(&mut faces);
+        assert_eq!(faces.map(|(id, _)| id), [1, 0]);
+    }
 }

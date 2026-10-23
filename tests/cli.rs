@@ -1366,10 +1366,21 @@ fn check_datum_origin_departures(differences: &[Difference]) {
         .into_iter()
         .filter(|e| e.pattern != PATTERN)
         .collect();
+    let ties: Vec<_> = load_known(&common::known_differences_file("cli"))
+        .into_iter()
+        .filter(|entry| entry.pattern == PATTERN && entry.verdict == "equivalent")
+        .collect();
     let mut departures: Vec<Value> = differences
         .iter()
         .filter(|d| !prior.iter().any(|e| e.matches(d)))
-        .map(|d| json!({"case": d.case, "path": d.path, "python": d.python, "rust": d.rust}))
+        .map(|d| {
+            let mut row =
+                json!({"case": d.case, "path": d.path, "python": d.python, "rust": d.rust});
+            if ties.iter().any(|entry| entry.matches(d)) {
+                row["verdict"] = json!("equivalent");
+            }
+            row
+        })
         .collect();
     let on_corpus: BTreeSet<String> = scenarios()
         .into_iter()

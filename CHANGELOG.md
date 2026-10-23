@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.0-alpha.7 (2026-10-23)
+
 ### Added
 
 - For #22, STEP-only provenance on every Specify-written semantic PMI requirement, using
@@ -16,6 +18,34 @@ All notable changes to specify-core-rust. The format follows
   `provenance: None` when constructing an unmarked row. See `docs/pmi-provenance.md`.
 
 ### Changed
+
+- Pin quiddity/haecceity to **v0.1.1** (a27b7064), including the WASM crate. Specify's
+  version is unchanged. Draftwright's released kernel pin temporarily differs; the
+  advisory pin checker continues to warn.
+- Adopt the kernel's file-grid/near-axis publication and support-plane plate boundaries
+  (#79), and remove CTC-04's false quarter-cone countersink features (#80). Hidden-line
+  drawing corrections are upstream; Specify does not consume that drawing API.
+- Read framed recognition correctly: file-space vectors/positions stay in file space,
+  local slot/channel end planes are projected through the inferred frame, and remaining
+  local record coordinates carry explicit frame metadata. Equal-area datum proposals
+  keep face order across rigid motion within max(1e-6 mm², 1e-6 times the larger area).
+  Aligned and framed slot/channel end-plane checks use the same published precision.
+- Migrate saved feature answers by unique same-family geometric face support after
+  validating the legacy ordered face fingerprint. Unmatched, ambiguous or colliding
+  answers retain their old ID/value/reason in `analysis.resume.unresolved` and appear in
+  the existing review warnings; affected questions stay open. **Editor upgrading note:**
+  review these warnings and answer the open questions before saving; recover old values
+  from the resume report: unresolved old values are not persisted when saving again.
+  Files whose geometry no longer matches open as foreign files, retaining existing PMI
+  and part settings. Alpha.6 STEP files and unchanged schema-2 payload bytes remain
+  supported. See `docs/design.md`, "Saved answers across kernel upgrades".
+- **Fewer features on four parts.** Under quiddity v0.1.x, 44 features that alpha.6 recognised are not
+  recognised and their faces are unexplained in quiddity's face accounting (no named refusal): 24 fillets
+  on cgb202, 18 on the NIST CTC-02 AP242 file, one on cgb207 and an oriented chamfer on mfcadpp/10252.
+  Their questions no longer appear. They are recorded as `undetermined` in the known differences
+  pending a quiddity fix.
+- Adapt PMI to the v0.1.x model and step-io 0.3 decoded strings; keep stored answers,
+  literal note text and the STEP-only provenance token round-tripping.
 
 - CI: run the full workspace tests on Ubuntu and macOS with Quiddity's pinned STEP corpus;
   require the corpus and its captured inputs instead of silently skipping them.
@@ -32,6 +62,10 @@ All notable changes to specify-core-rust. The format follows
   Reuse core choice validation and the settled review to avoid redundant rule passes.
 
 ### WASM API
+
+- No JS/TypeScript signatures change for the kernel pin. Session analysis can additionally
+  report `resume.migrated` and `resume.unresolved`; review problems expose unresolved
+  saved-answer warnings using `code: "saved_answer_unresolved"`.
 
 - No JavaScript/TypeScript signature changes (#26). Invalid answer IDs, contradictory choices,
   invalid choice/note types and malformed state now refuse explicitly. Inputs are

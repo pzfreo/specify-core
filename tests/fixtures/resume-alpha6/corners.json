@@ -1,0 +1,234 @@
+{
+  "writer": "specify-core 0.1.0-alpha.6",
+  "kernel": "v0.1.0-alpha.8 c62081c6",
+  "motion": null,
+  "features": [
+    {
+      "id": "holes:6",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        "location": [
+          -40.0,
+          -20.0,
+          5.0
+        ],
+        "diameter": 5.5,
+        "depth": 10.0,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        6
+      ]
+    },
+    {
+      "id": "holes:7",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        "location": [
+          40.0,
+          -20.0,
+          5.0
+        ],
+        "diameter": 5.5,
+        "depth": 10.0,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        7
+      ]
+    },
+    {
+      "id": "holes:8",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        "location": [
+          -40.0,
+          20.0,
+          5.0
+        ],
+        "diameter": 5.5,
+        "depth": 10.0,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        8
+      ]
+    },
+    {
+      "id": "holes:9",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        "location": [
+          40.0,
+          20.0,
+          5.0
+        ],
+        "diameter": 5.5,
+        "depth": 10.0,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        9
+      ]
+    },
+    {
+      "id": "hole_patterns.rectangle:6.7.8.9",
+      "family": "hole_patterns",
+      "record": {
+        "holes": [
+          {
+            "axis": [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            "location": [
+              -40.0,
+              -20.0,
+              5.0
+            ],
+            "diameter": 5.5,
+            "depth": 10.0,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            "location": [
+              40.0,
+              -20.0,
+              5.0
+            ],
+            "diameter": 5.5,
+            "depth": 10.0,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            "location": [
+              40.0,
+              20.0,
+              5.0
+            ],
+            "diameter": 5.5,
+            "depth": 10.0,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            "location": [
+              -40.0,
+              20.0,
+              5.0
+            ],
+            "diameter": 5.5,
+            "depth": 10.0,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          }
+        ],
+        "center": [
+          0.0,
+          0.0,
+          5.0
+        ],
+        "width": 80.0,
+        "height": 40.0,
+        "angle": 0.0,
+        "kind": "rectangle"
+      },
+      "faces": [
+        6,
+        7,
+        8,
+        9
+      ],
+      "members": [
+        "holes:6",
+        "holes:7",
+        "holes:9",
+        "holes:8"
+      ]
+    }
+  ],
+  "answers": {
+    "part.material": "steel",
+    "part.notes": [
+      "alpha.6: café 'quoted' \\X2\\ literal"
+    ],
+    "part.general_tolerance": "ISO 2768-m",
+    "part.surface_finish": "Ra 3.2",
+    "part.coating": "None (as machined)",
+    "part.heat_treatment": "None",
+    "part.edges": "Break sharp edges 0.2 max",
+    "part.locating": "position tolerances",
+    "hole.function:hole_patterns.rectangle:6.7.8.9": "clearance:M5",
+    "hole.position:hole_patterns.rectangle:6.7.8.9": "0.5",
+    "datum.A": [
+      2
+    ],
+    "datum.B": [
+      1
+    ],
+    "datum.C": [
+      0
+    ],
+    "datum.A.flatness": "none",
+    "datum.B.control": "none",
+    "datum.C.control": "none"
+  }
+}

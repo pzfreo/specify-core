@@ -21,7 +21,7 @@
 //! In an assembly each part's answers are stored on that part and say which part they are for;
 //! a part with none stored has not been written by specify-core.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -242,17 +242,12 @@ fn schema_of(payload: &Map<String, Value>) -> Option<i64> {
 /// they were given for (same face count, same fingerprint of the payload's schema: [`fingerprint`]
 /// for 2, [`fingerprint_v1`] for 1); `None` otherwise. An error when
 /// the part's faces cannot be described, so the fingerprint cannot be checked.
+///
+/// This low-level payload reader preserves the original keys for callers holding the saved
+/// analysis (and for byte-for-byte round trips). To resume against newly recognised geometry,
+/// use [`report_for_parsed`] or [`crate::api::analyse`], which migrate and report unresolved keys.
 pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, FeatureError> {
     answers_in(loaded, stored(&loaded.bytes))
-}
-
-/// [`answers_for`] from the file already parsed: `doc` is `loaded.bytes` as a Part 21 document,
-/// or `None` when they do not parse (nothing is stored then).
-pub fn answers_for_parsed(
-    loaded: &LoadedPart,
-    doc: Option<&Document>,
-) -> Result<Option<Map<String, Value>>, FeatureError> {
-    answers_in(loaded, doc.map(stored_in).unwrap_or_default())
 }
 
 /// The answers for `loaded` among `stored`, the file's stored answers by part.
@@ -273,6 +268,166 @@ fn answers_in(
         return Ok(None);
     }
     Ok(payload.get("answers").and_then(Value::as_object).cloned())
+}
+
+/// One stored answer that needs a human decision. Keep the original value for recovery.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct UnresolvedAnswer {
+    pub id: String,
+    pub feature: Option<String>,
+    pub answer: Value,
+    pub reason: String,
+}
+
+/// The result shown in the resume/session report. Only `answers` are applied; unresolved
+/// values remain available for review and their current questions remain unanswered.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct Resumed {
+    pub answers: Map<String, Value>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unresolved: Vec<UnresolvedAnswer>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub migrated: Vec<(String, String)>,
+}
+
+/// Read saved answers with correspondence and diagnostics, using the already recognised
+/// features. Legacy schemas contain no quiddity fingerprint: their ordered whole-part
+/// geometry fingerprint is the evidence tying each old face index to this geometry.
+pub fn report_for_parsed(
+    loaded: &LoadedPart,
+    doc: Option<&Document>,
+    features: &[crate::features::Feature],
+) -> Result<Option<Resumed>, FeatureError> {
+    let Some(payload) = doc
+        .map(stored_in)
+        .unwrap_or_default()
+        .remove(&loaded.binding.part)
+    else {
+        return Ok(None);
+    };
+    let Some(answers) = payload.get("answers").and_then(Value::as_object) else {
+        return Ok(None);
+    };
+    if payload.get("face_count") != Some(&json!(loaded.binding.face_count)) {
+        return Ok(None);
+    }
+    let schema = schema_of(&payload).unwrap_or(SCHEMA);
+    let faces = fingerprint_of(&rounded_faces(loaded)?, schema);
+    if payload.get("faces") != Some(&Value::String(faces)) {
+        return Ok(None);
+    }
+    Ok(Some(rematch(answers, features)))
+}
+
+fn answer_feature(id: &str) -> Option<(&str, &str)> {
+    let (question, feature) = id.split_once(':')?;
+    // Only feature-question keys, never colon-containing literal text or part notes.
+    matches!(
+        question,
+        "hole.function"
+            | "hole.frame"
+            | "hole.position"
+            | "hole.location"
+            | "diameter.fit"
+            | "diameter.runout"
+    )
+    .then_some((question, feature))
+}
+
+/// Match geometric supports, never feature list positions or dimensions. Defining faces
+/// can grow (e.g. a bore gaining its floor): allow a unique same-family superset, but never
+/// partial overlap, a family change or a choice between candidates. Collisions, even with
+/// equal values, require review rather than silently merging independently saved answers.
+pub fn rematch(answers: &Map<String, Value>, features: &[crate::features::Feature]) -> Resumed {
+    let mut out = Resumed::default();
+    let mut proposals: BTreeMap<String, Vec<(&str, &Value)>> = BTreeMap::new();
+    let mut sources: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for (id, answer) in answers {
+        let Some((question, old)) = answer_feature(id) else {
+            proposals.entry(id.clone()).or_default().push((id, answer));
+            continue;
+        };
+        let Some((family, support)) = old.split_once(':') else {
+            out.unresolved.push(UnresolvedAnswer {
+                id: id.clone(),
+                feature: Some(old.into()),
+                answer: answer.clone(),
+                reason: "malformed saved feature ID; expected family:faces".into(),
+            });
+            continue;
+        };
+        let support: Option<Vec<usize>> = support.split('.').map(|s| s.parse().ok()).collect();
+        let candidates: Vec<_> = support
+            .as_ref()
+            .filter(|s| !s.is_empty())
+            .map(|support| {
+                features
+                    .iter()
+                    .filter(|f| {
+                        let id_family = f.id.split_once(':').map(|(family, _)| family);
+                        id_family == Some(family)
+                            && family.split('.').next() == Some(f.family.as_str())
+                            && support.iter().all(|i| f.faces.contains(i))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let exact: Vec<_> = candidates.iter().copied().filter(|f| f.id == old).collect();
+        let candidates = if exact.is_empty() { candidates } else { exact };
+        if let [feature] = candidates.as_slice() {
+            sources.entry(&feature.id).or_default().insert(old);
+            proposals
+                .entry(format!("{question}:{}", feature.id))
+                .or_default()
+                .push((id, answer));
+        } else {
+            out.unresolved.push(UnresolvedAnswer {
+                id: id.clone(),
+                feature: Some(old.into()),
+                answer: answer.clone(),
+                reason: if candidates.is_empty() {
+                    "no same-family feature contains the saved geometric faces".into()
+                } else {
+                    format!(
+                        "ambiguous geometric support: {} same-family features match",
+                        candidates.len()
+                    )
+                },
+            });
+        }
+    }
+    let mut proposals: Vec<_> = proposals.into_iter().collect();
+    // Payload encoding is byte-sensitive: preserve the original answer insertion order.
+    proposals.sort_by_key(|(_, old)| answers.keys().position(|id| id == old[0].0));
+    for (new, old) in proposals {
+        let merged_features = answer_feature(&new)
+            .and_then(|(_, feature)| sources.get(feature))
+            .is_some_and(|sources| sources.len() > 1);
+        if old.len() == 1 && !merged_features {
+            let (id, answer) = old[0];
+            out.answers.insert(new.clone(), answer.clone());
+            if id != new {
+                out.migrated.push((id.into(), new));
+            }
+        } else {
+            for (id, answer) in old {
+                out.unresolved.push(UnresolvedAnswer {
+                    id: id.into(),
+                    feature: answer_feature(id).map(|(_, f)| f.into()),
+                    answer: answer.clone(),
+                    reason: if merged_features {
+                        format!(
+                            "multiple saved features map to {}; review required",
+                            answer_feature(&new).map_or(new.as_str(), |(_, feature)| feature)
+                        )
+                    } else {
+                        format!("multiple saved answers map to {new}; review required")
+                    },
+                });
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]

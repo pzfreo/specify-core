@@ -616,11 +616,10 @@ fn notes(
         else {
             continue;
         };
-        let kind = haecceity::p21::decode(kind).unwrap_or_else(|_| kind.clone());
         if NOTE_KINDS.contains(&kind.as_str())
             && let Some(index) = loaded.definition.face_index(*face)
         {
-            add(&kind, &[index], false);
+            add(kind, &[index], false);
         }
     }
     for (i, thread) in pmi.threads.iter().enumerate() {

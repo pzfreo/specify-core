@@ -1,0 +1,191 @@
+{
+  "writer": "specify-core 0.1.0-alpha.6",
+  "kernel": "v0.1.0-alpha.8 c62081c6",
+  "motion": null,
+  "features": [
+    {
+      "id": "holes:3",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        "location": [
+          0.0,
+          0.0,
+          32.0
+        ],
+        "diameter": 4.2,
+        "depth": 8.0,
+        "bottom": "flat",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        3
+      ]
+    },
+    {
+      "id": "turned_steps:4",
+      "family": "turned_steps",
+      "record": {
+        "axis": "z",
+        "lo": 0.0,
+        "hi": 12.0,
+        "diameter": 6.0,
+        "profile": {
+          "axis": "z",
+          "axis_origin": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "body_bounds": [
+            -5.0,
+            5.0,
+            -5.0,
+            5.0,
+            0.0,
+            32.0
+          ],
+          "body_key": [
+            -5.0,
+            -5.0,
+            0.0,
+            5.0,
+            5.0,
+            32.0,
+            1799.25294456,
+            1117.15034762
+          ]
+        }
+      },
+      "faces": [
+        4
+      ]
+    },
+    {
+      "id": "turned_steps:0",
+      "family": "turned_steps",
+      "record": {
+        "axis": "z",
+        "lo": 12.0,
+        "hi": 32.0,
+        "diameter": 10.0,
+        "profile": {
+          "axis": "z",
+          "axis_origin": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "body_bounds": [
+            -5.0,
+            5.0,
+            -5.0,
+            5.0,
+            0.0,
+            32.0
+          ],
+          "body_key": [
+            -5.0,
+            -5.0,
+            0.0,
+            5.0,
+            5.0,
+            32.0,
+            1799.25294456,
+            1117.15034762
+          ]
+        }
+      },
+      "faces": [
+        0
+      ]
+    },
+    {
+      "id": "step_levels:2",
+      "family": "step_levels",
+      "record": {
+        "z": 12.0,
+        "x_span": [
+          -5.0,
+          5.0
+        ],
+        "y_span": [
+          -5.0,
+          5.0
+        ],
+        "body_key": [
+          -5.0,
+          -5.0,
+          0.0,
+          5.0,
+          5.0,
+          32.0,
+          1799.25294456,
+          1117.15034762
+        ]
+      },
+      "faces": [
+        2
+      ]
+    },
+    {
+      "id": "step_levels:5",
+      "family": "step_levels",
+      "record": {
+        "z": 24.0,
+        "x_span": [
+          -2.1,
+          2.1
+        ],
+        "y_span": [
+          -2.1,
+          2.1
+        ],
+        "body_key": [
+          -5.0,
+          -5.0,
+          0.0,
+          5.0,
+          5.0,
+          32.0,
+          1799.25294456,
+          1117.15034762
+        ]
+      },
+      "faces": [
+        5
+      ]
+    }
+  ],
+  "answers": {
+    "part.material": "steel",
+    "part.notes": [
+      "alpha.6: café 'quoted' \\X2\\ literal"
+    ],
+    "part.general_tolerance": "ISO 2768-m",
+    "part.surface_finish": "Ra 3.2",
+    "part.coating": "None (as machined)",
+    "part.heat_treatment": "None",
+    "part.edges": "Break sharp edges 0.2 max",
+    "part.locating": "position tolerances",
+    "hole.function:holes:3": "tapped:M5",
+    "hole.position:holes:3": "0.25",
+    "diameter.fit:turned_steps:4": "general",
+    "diameter.runout:turned_steps:4": "none",
+    "diameter.fit:turned_steps:0": "general",
+    "datum.A": [
+      0
+    ],
+    "datum.B": [
+      1
+    ],
+    "datum.C": [],
+    "datum.B.control": "none"
+  }
+}

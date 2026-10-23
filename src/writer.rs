@@ -1373,6 +1373,7 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
                         non_uniform: None,
                         runout_angle: None,
                         affected_plane: None,
+                        affected_plane_kind: None,
                     }),
                     modifiers: if mmc {
                         vec![ToleranceModifier::MaximumMaterialRequirement]
