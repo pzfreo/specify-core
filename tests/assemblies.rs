@@ -116,6 +116,34 @@ fn parts_are_listed_by_index_with_name_and_product_id() {
     assert_eq!(cli, Value::Array(api));
 }
 
+/// `got` equals `want` field for field, numbers within 1e-12 mm: the base was captured on
+/// macOS, and other platforms' libm can move a frame origin by a few 1e-17.
+fn assert_same(got: &Value, want: &Value, at: &str) {
+    match (got, want) {
+        (Value::Number(a), Value::Number(b)) => {
+            let (a, b) = (a.as_f64().unwrap(), b.as_f64().unwrap());
+            assert!((a - b).abs() <= 1e-12, "{at}: {a} != {b}");
+        }
+        (Value::Array(a), Value::Array(b)) => {
+            assert_eq!(a.len(), b.len(), "{at}: length");
+            for (i, (x, y)) in a.iter().zip(b).enumerate() {
+                assert_same(x, y, &format!("{at}[{i}]"));
+            }
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            assert_eq!(
+                a.keys().collect::<Vec<_>>(),
+                b.keys().collect::<Vec<_>>(),
+                "{at}: keys"
+            );
+            for (k, x) in a {
+                assert_same(x, &b[k], &format!("{at}.{k}"));
+            }
+        }
+        _ => assert_eq!(got, want, "{at}"),
+    }
+}
+
 /// A part's analysis is the base commit's, field for field (faces, features, mates, existing,
 /// binding), whether the part comes from a path, from a `File` whose path has since gone (the
 /// other parts the mates need are loaded from the same read, not from disk), or from bytes held
@@ -143,24 +171,24 @@ fn a_part_is_analysed_as_before_from_one_read() {
     .unwrap();
     for k in [PLATE, PIN] {
         let want = &base[k.to_string()];
-        assert_eq!(
+        assert_same(
             &api::analyse_file(&assembly(), Some(k)).unwrap(),
             want,
-            "part {k}"
+            &format!("part {k}"),
         );
 
         let loaded = file.load(Some(k)).unwrap();
         assert!(!loaded.rebuilt && loaded.degraded().is_none());
         assert_eq!(loaded.unresolved_faces, loaded.part.unresolved_faces());
         let (analysis, warnings) = api::analyse_reporting_in(&file, &loaded).unwrap();
-        assert_eq!(&analysis, want, "part {k}, its file gone");
+        assert_same(&analysis, want, &format!("part {k}, its file gone"));
         assert!(warnings.is_empty(), "{warnings:?}");
 
         let loaded = in_memory.load(Some(k)).unwrap();
-        assert_eq!(
+        assert_same(
             &api::analyse(&loaded).unwrap(),
             want,
-            "part {k} from memory"
+            &format!("part {k} from memory"),
         );
     }
     // A part is analysed only against its own file.
