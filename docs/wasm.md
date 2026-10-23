@@ -110,7 +110,11 @@ either way read either way. A name must not be empty, `pmi-assist answers` or
 `{schema: 1, sha256, header, from}`, from which `original()` gives back the part: it takes out
 every instance numbered `from` or more, restores the `FILE_SCHEMA` statement, and returns the
 bytes only if they hash to `sha256`. Rewriting a file that records its original carries the
-record forward, so `original()` remains the part first opened. A part that came with PMI or presentation the
+record forward, so `original()` remains the part first opened. `writePmi` without a project or
+payload drops what the opened file carried: the written file has no project, payload or
+original record, so resupply the project or payload on every write that should keep them.
+The core sets no payload size limit (`carried` leaves limits to callers); `writePmi` refuses
+payload JSON over 8 MiB, its JSON input limit. A part that came with PMI or presentation the
 writer replaced, or a file written without a project or payload, gives `undefined`. Core
 callers use `specify_core::carried::{attributes, payload, original}` with
 `writer::write_bytes_with`.
@@ -126,17 +130,22 @@ setting aside answers by a list of answer kinds. The result is `resume::Resumed`
 - With evidence whose face count and fingerprint match the part, feature answers move to
   a unique same-family feature containing their saved faces (`migrated` lists old/new IDs),
   exactly as on reopening a STEP (docs/design.md, "Saved answers across kernel upgrades").
-- Without evidence, or with evidence that does not match, no face correspondence is inferred:
-  feature answers are kept only on feature IDs this part has, datum answers only when their
-  faces exist, and `unverified` says why.
-- Everything not kept is in `unresolved` (`id`, `feature`, `answer`, `reason`), never dropped.
+- Without evidence, or with evidence that does not match (another part's, or the part before
+  an edit), no face correspondence is inferred. A feature ID or face index that still exists
+  is no evidence of the same feature: IDs renumber between kernels. So every answer on a
+  feature (`hole.*`, `diameter.*`) or a datum (`datum.X` and its settings such as
+  `datum.A.flatness`, `datum.B.control`) is left in `unresolved`, each with a reason, and
+  `unverified` says why. Only the part's own answers (`part.*`) are kept.
+- Everything not kept is in `unresolved` (`id`, `feature`, `answer`, `reason`), never dropped
+  or applied. Show these to the person to confirm on the feature's current question; nothing
+  in `unresolved` is settled.
   Those the default path gave (`automatic`) are marked `automatic: true`: the default path
   answers them again on the current ID, so they need not be reported to the person.
   `automatic` is the given list with migrated IDs renamed and unresolved ones left out; store
   it as `state.auto`.
 
 Use `answers` for review, settle and write. A project saved before it kept evidence opens
-without it.
+without it, so its feature and datum answers open as `unresolved` for the person to confirm.
 
 ## Errors
 

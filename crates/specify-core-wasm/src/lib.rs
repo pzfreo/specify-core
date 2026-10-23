@@ -75,6 +75,8 @@ mod wasm {
         }
 
         /// `project` is the editor's base64 project; `payload` is `{name, value}` JSON. At most one.
+        /// Rewriting replaces what a previous write carried: without either, the written file
+        /// carries no project, payload or original record, even if the opened one did.
         #[wasm_bindgen(js_name = writePmi)]
         pub fn write_pmi(
             &self,
@@ -103,7 +105,8 @@ mod wasm {
 
         /// Saved answers matched to this part: `{answers, unresolved?, migrated?, unverified?,
         /// automatic?}`. `evidence` is what `evidence()` gave when they were saved; `automatic`
-        /// a JSON list of the IDs the default path answered.
+        /// a JSON list of the IDs the default path answered. Without matching evidence every
+        /// answer on a feature or a datum is in `unresolved`, with its value.
         #[wasm_bindgen(js_name = rematchAnswers)]
         pub fn rematch_answers(
             &self,

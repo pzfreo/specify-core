@@ -83,7 +83,8 @@ impl Session {
     /// Write and verify the answered PMI, with the answers stored. `project` is the editor's
     /// project already in base64 (stored as `draftwright editor project`); `payload` is any
     /// application's `{name, value}`, stored as base64 JSON under `name` (`carried`). Either
-    /// also records the original part, which [`Session::original`] gives back.
+    /// also records the original part, which [`Session::original`] gives back. Without either,
+    /// the written file carries no project, payload or original, even if the opened one did.
     pub fn write_pmi(
         &self,
         answers: &Map<String, Value>,

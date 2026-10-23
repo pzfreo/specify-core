@@ -205,7 +205,7 @@ fn stored_with_form(doc: &Document) -> BTreeMap<usize, (Map<String, Value>, bool
 /// Whether the item `id` is held by a representation of a `PROPERTY_DEFINITION` described as a
 /// `'user defined attribute'`: the form haecceity writes ([`attribute_set`]), not Python's
 /// `PROPERTY_DEFINITION('pmi-assist answers','schema 1',...)`.
-fn is_attribute_item(doc: &Document, id: u64) -> bool {
+pub(crate) fn is_attribute_item(doc: &Document, id: u64) -> bool {
     let simple = |id: u64| match doc.get(id) {
         Some(RawEntity::Simple {
             name, attributes, ..
@@ -278,8 +278,11 @@ fn schema_of(payload: &Map<String, Value>) -> Option<i64> {
 /// cannot be described, so the fingerprint cannot be checked.
 ///
 /// This low-level payload reader preserves the original keys for callers holding the saved
-/// analysis (and for byte-for-byte round trips). To resume against newly recognised geometry,
-/// use [`report_for_parsed`] or [`crate::api::analyse`], which migrate and report unresolved keys.
+/// analysis (and for byte-for-byte round trips), and says whether the file's answers are
+/// specify-core's: for a [`Check::Legacy`] payload they are returned as stored, although their
+/// face indices are not verified. To resume against newly recognised geometry, use
+/// [`report_for_parsed`] or [`crate::api::analyse`], which migrate and report unresolved keys
+/// and leave the answers of an unverified payload on features and datums open.
 pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, FeatureError> {
     let Ok(doc) = Document::parse(loaded.bytes.to_vec()) else {
         return Ok(None);
@@ -306,7 +309,8 @@ enum Check {
     /// mounting plate's face 1 `[0.0, -30.0, 0.0]` where alpha.6 gave `[-0.0, -30.0, 0.0]`),
     /// and the stored hash cannot be searched for every sign. Its answers are read as answers
     /// without face evidence ([`rematch_answers`] without evidence): no face correspondence is
-    /// inferred, and `Resumed::unverified` says so.
+    /// inferred, answers on features and datums are left open, and `Resumed::unverified` says
+    /// so.
     Legacy,
     /// Anything else: no correspondence.
     Mismatch,
@@ -354,7 +358,7 @@ pub struct Resumed {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub migrated: Vec<(String, String)>,
     /// Why no face correspondence was inferred, when the answers were matched without verified
-    /// face evidence: feature answers were then kept only on their unchanged IDs.
+    /// face evidence: every answer on a feature or a datum is then in `unresolved`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unverified: Option<String>,
     /// The automatic answers' IDs given to [`rematch_answers`], as they now are: migrated ones
@@ -363,13 +367,15 @@ pub struct Resumed {
     pub automatic: Option<Vec<String>>,
 }
 
+// Why answers have no verified face evidence. `unverified` adds UNVERIFIED_ALL to the whole and
+// UNVERIFIED_EACH to each answer it leaves open.
 const LEGACY: &str = "the stored schema 1 face fingerprint keeps the signs of zero, which this \
-     kernel computes differently, so it cannot be checked; feature answers are kept only where \
-     their feature ID is unchanged";
-const NO_EVIDENCE: &str = "no saved face fingerprint was given; feature answers are kept only \
-     where their feature ID is unchanged";
-const MISMATCH: &str = "the saved face fingerprint does not match this part's faces; feature \
-     answers are kept only where their feature ID is unchanged";
+     kernel computes differently, so it cannot be checked";
+const NO_EVIDENCE: &str = "no saved face fingerprint was given";
+const MISMATCH: &str = "the saved face fingerprint does not match this part's faces";
+const UNVERIFIED_ALL: &str = "answers on features and datums are left open";
+const UNVERIFIED_EACH: &str = "the faces it was given for cannot be matched to this part's, even \
+     where the feature ID or face is unchanged";
 
 /// Read saved answers with correspondence and diagnostics, using the already recognised
 /// features. Legacy schemas contain no quiddity fingerprint: their ordered whole-part
@@ -391,7 +397,7 @@ pub fn report_for_parsed(
     };
     Ok(match check(loaded, &payload, form)? {
         Check::Verified => Some(rematch(answers, features)),
-        Check::Legacy => Some(unverified(answers, features, loaded, LEGACY)),
+        Check::Legacy => Some(unverified(answers, LEGACY)),
         Check::Mismatch => None,
     })
 }
@@ -430,10 +436,11 @@ impl std::error::Error for RematchError {}
 /// With `evidence` ([`evidence`] of the part when the answers were saved, or a stored
 /// payload) whose face count and fingerprint match this part, feature answers move to a
 /// unique same-family feature containing their saved faces ([`rematch`]). Without evidence,
-/// or with evidence that does not match, no face correspondence is inferred: a feature answer
-/// is kept only when its feature ID is one this part has, and a datum only when its faces
-/// exist; the rest are `unresolved` with their values, never dropped or guessed, and
-/// `unverified` says why. Other answers are kept as they are.
+/// or with evidence that does not match, no face correspondence is inferred: an ID that still
+/// exists is no evidence of the same feature (IDs renumber between kernels), so every answer on
+/// a feature or a datum (`datum.X` and its settings) is `unresolved` with its value and a
+/// reason, never dropped, guessed or applied, and `unverified` says why. Answers on the part
+/// as a whole are kept as they are.
 ///
 /// `automatic` are the IDs the default path answered (the editor's `auto`): unresolved ones
 /// are marked `automatic`, and `Resumed::automatic` gives the list with migrated IDs renamed.
@@ -445,7 +452,7 @@ pub fn rematch_answers(
     automatic: Option<&[String]>,
 ) -> Result<Resumed, RematchError> {
     let mut out = match evidence {
-        None => unverified(answers, features, loaded, NO_EVIDENCE),
+        None => unverified(answers, NO_EVIDENCE),
         Some(evidence) => {
             let payload = evidence
                 .as_object()
@@ -464,7 +471,7 @@ pub fn rematch_answers(
             }
             match check(loaded, payload, false).map_err(RematchError::Faces)? {
                 Check::Verified => rematch(answers, features),
-                _ => unverified(answers, features, loaded, MISMATCH),
+                _ => unverified(answers, MISMATCH),
             }
         }
     };
@@ -489,22 +496,33 @@ pub fn rematch_answers(
     Ok(out)
 }
 
-/// Answers matched without face evidence, with the reason.
-fn unverified(
-    answers: &Map<String, Value>,
-    features: &[crate::features::Feature],
-    loaded: &LoadedPart,
-    why: &str,
-) -> Resumed {
-    let mut out = rematch_by(
-        answers,
-        features,
-        Matching::Exact {
-            face_count: loaded.binding.face_count,
-        },
-    );
-    out.unverified = Some(why.into());
+/// Answers without verified face evidence, `why`: those on features or datums
+/// ([`is_geometric`]) are left open with their values, the rest kept.
+fn unverified(answers: &Map<String, Value>, why: &str) -> Resumed {
+    let mut out = Resumed {
+        unverified: Some(format!("{why}; {UNVERIFIED_ALL}")),
+        ..Resumed::default()
+    };
+    for (id, answer) in answers {
+        if is_geometric(id) {
+            out.unresolved.push(UnresolvedAnswer {
+                id: id.clone(),
+                feature: answer_feature(id).map(|(_, f)| f.into()),
+                answer: answer.clone(),
+                reason: format!("{why}; {UNVERIFIED_EACH}"),
+                automatic: false,
+            });
+        } else {
+            out.answers.insert(id.clone(), answer.clone());
+        }
+    }
     out
+}
+
+/// Whether the answer `id` is given for faces of the part: a feature question's, or a datum's
+/// faces and the settings that follow its datum (`datum.A.flatness`, `datum.B.control`).
+fn is_geometric(id: &str) -> bool {
+    answer_feature(id).is_some() || id.starts_with("datum.")
 }
 
 fn answer_feature(id: &str) -> Option<(&str, &str)> {
@@ -523,50 +541,16 @@ fn answer_feature(id: &str) -> Option<(&str, &str)> {
     .then_some((question, feature))
 }
 
-/// How saved feature IDs are matched to this part's features.
-#[derive(Clone, Copy)]
-enum Matching {
-    /// By geometric face support: the saved face indices are proven to be this part's.
-    Support,
-    /// Only to the feature with the same ID; face indices are not proven, so a datum's faces
-    /// must at least exist on the part.
-    Exact { face_count: usize },
-}
-
 /// Match geometric supports, never feature list positions or dimensions. Defining faces
 /// can grow (e.g. a bore gaining its floor): allow a unique same-family superset, but never
 /// partial overlap, a family change or a choice between candidates. Collisions, even with
 /// equal values, require review rather than silently merging independently saved answers.
 pub fn rematch(answers: &Map<String, Value>, features: &[crate::features::Feature]) -> Resumed {
-    rematch_by(answers, features, Matching::Support)
-}
-
-fn rematch_by(
-    answers: &Map<String, Value>,
-    features: &[crate::features::Feature],
-    matching: Matching,
-) -> Resumed {
     let mut out = Resumed::default();
     let mut proposals: BTreeMap<String, Vec<(&str, &Value)>> = BTreeMap::new();
     let mut sources: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
     for (id, answer) in answers {
         let Some((question, old)) = answer_feature(id) else {
-            if let Matching::Exact { face_count } = matching
-                && id.starts_with("datum.")
-                && let Some(faces) = answer.as_array()
-                && faces
-                    .iter()
-                    .any(|face| face.as_u64().is_none_or(|i| i as usize >= face_count))
-            {
-                out.unresolved.push(UnresolvedAnswer {
-                    id: id.clone(),
-                    feature: None,
-                    answer: answer.clone(),
-                    reason: format!("names a face this part does not have ({face_count} faces)"),
-                    automatic: false,
-                });
-                continue;
-            }
             proposals.entry(id.clone()).or_default().push((id, answer));
             continue;
         };
@@ -597,11 +581,7 @@ fn rematch_by(
             })
             .unwrap_or_default();
         let exact: Vec<_> = candidates.iter().copied().filter(|f| f.id == old).collect();
-        let candidates = match matching {
-            Matching::Exact { .. } => exact,
-            Matching::Support if exact.is_empty() => candidates,
-            Matching::Support => exact,
-        };
+        let candidates = if exact.is_empty() { candidates } else { exact };
         if let [feature] = candidates.as_slice() {
             sources.entry(&feature.id).or_default().insert(old);
             proposals
@@ -613,11 +593,7 @@ fn rematch_by(
                 id: id.clone(),
                 feature: Some(old.into()),
                 answer: answer.clone(),
-                reason: if let Matching::Exact { .. } = matching {
-                    "this part has no feature with the saved ID, and without verified face \
-                     evidence its faces cannot be matched"
-                        .into()
-                } else if candidates.is_empty() {
+                reason: if candidates.is_empty() {
                     "no same-family feature contains the saved geometric faces".into()
                 } else {
                     format!(

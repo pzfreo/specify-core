@@ -66,30 +66,37 @@ fn answers_with_their_evidence_migrate_as_answers_stored_in_the_step_do() {
     assert_eq!(review["open"].as_array().unwrap().len(), 2);
 }
 
-#[test]
-fn without_evidence_unknown_feature_ids_are_unresolved_with_their_values() {
-    let (loaded, analysis, answers, _) = ftc10();
-    let out = resume::rematch_answers(&loaded, &features(&analysis), &answers, None, None).unwrap();
+/// Whether `id` is an answer on a feature or a datum (and the datum's settings).
+fn geometric(id: &str) -> bool {
+    id.starts_with("hole.") || id.starts_with("diameter.") || id.starts_with("datum.")
+}
+
+/// `out` left every answer on a feature or a datum open, with its value and a reason saying
+/// `why`, and kept the rest of `answers` as they were, in order: nothing dropped or applied.
+fn left_open(out: &resume::Resumed, answers: &Map<String, Value>, why: &str) {
+    assert!(out.unverified.as_deref().unwrap().contains(why), "{out:?}");
     assert!(out.migrated.is_empty());
-    assert!(
-        out.unverified
-            .as_deref()
-            .unwrap()
-            .contains("no saved face fingerprint")
-    );
-    assert_eq!(out.unresolved.len(), 2);
+    let open: Vec<_> = out.unresolved.iter().map(|u| &u.id).collect();
+    let geometric_ids: Vec<_> = answers.keys().filter(|id| geometric(id)).collect();
+    assert_eq!(open, geometric_ids);
     for unresolved in &out.unresolved {
-        assert!(unresolved.id.contains("hole_patterns.linear:138.140"));
         assert_eq!(unresolved.answer, answers[&unresolved.id]);
+        assert!(unresolved.reason.contains(why), "{}", unresolved.reason);
         assert!(!unresolved.automatic);
     }
-    // Every other answer is kept as it was, in order; nothing is dropped.
-    assert_eq!(out.answers.len() + out.unresolved.len(), answers.len());
-    let kept: Vec<_> = answers
-        .keys()
-        .filter(|id| !out.unresolved.iter().any(|u| &u.id == *id))
-        .collect();
+    let kept: Vec<_> = answers.keys().filter(|id| !geometric(id)).collect();
+    assert!(!kept.is_empty());
     assert_eq!(out.answers.keys().collect::<Vec<_>>(), kept);
+}
+
+// An ID that still exists is no evidence of the same feature (IDs renumber between kernels):
+// without evidence that the saved faces are this part's, every answer on a feature or a datum is
+// left open with its value, even where its ID is unchanged; only the part's own answers are kept.
+#[test]
+fn without_evidence_answers_on_features_and_datums_are_left_open() {
+    let (loaded, analysis, answers, _) = ftc10();
+    let out = resume::rematch_answers(&loaded, &features(&analysis), &answers, None, None).unwrap();
+    left_open(&out, &answers, "no saved face fingerprint");
     // The kept answers are valid for this part: a review takes them.
     api::review(&analysis, &out.answers).unwrap();
 
@@ -99,15 +106,34 @@ fn without_evidence_unknown_feature_ids_are_unresolved_with_their_values() {
     let mismatched =
         resume::rematch_answers(&loaded, &features(&analysis), &answers, Some(&other), None)
             .unwrap();
-    assert!(
-        mismatched
-            .unverified
-            .as_deref()
-            .unwrap()
-            .contains("does not match")
-    );
-    assert_eq!(mismatched.answers, out.answers);
-    assert_eq!(mismatched.unresolved.len(), 2);
+    left_open(&mismatched, &answers, "does not match");
+}
+
+// Another part's answers with that part's evidence: the mounting plate's (alpha.6) on a part
+// whose hole and datum faces happen to carry the same IDs attach nothing to its features or faces.
+#[test]
+fn another_parts_answers_and_evidence_attach_to_no_feature_or_datum() {
+    let base: Value =
+        serde_json::from_slice(&std::fs::read(fixture("resume-alpha6/plate.json")).unwrap())
+            .unwrap();
+    let answers = object(base["answers"].clone());
+    let plate = part::load(&fixture("resume-alpha6/plate.step.gz"), None).unwrap();
+    let evidence = resume::evidence(&plate).unwrap();
+    let loaded = part::load(
+        &fixture("parts/four_corner_holes_are_quiddity_rectangle_with_members.step"),
+        None,
+    )
+    .unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let out = resume::rematch_answers(
+        &loaded,
+        &features(&analysis),
+        &answers,
+        Some(&evidence),
+        None,
+    )
+    .unwrap();
+    left_open(&out, &answers, "does not match");
 }
 
 #[test]
@@ -154,30 +180,43 @@ fn automatic_answers_are_marked_and_their_ids_follow_migration() {
         Some(&automatic),
     )
     .unwrap();
-    assert!(unmatched.unresolved.iter().all(|u| u.automatic));
+    for unresolved in &unmatched.unresolved {
+        assert_eq!(unresolved.automatic, automatic.contains(&unresolved.id));
+    }
     let value = serde_json::to_value(&unmatched).unwrap();
-    assert_eq!(value["unresolved"][0]["automatic"], json!(true));
-    assert!(
-        unmatched
-            .automatic
-            .unwrap()
-            .iter()
-            .all(|id| !moved.contains(id))
+    let first = value["unresolved"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["id"] == json!(moved[0]))
+        .unwrap();
+    assert_eq!(first["automatic"], json!(true));
+    // Only the part's own automatic answer is kept.
+    assert_eq!(
+        unmatched.automatic.unwrap(),
+        answers
+            .contains_key(&material)
+            .then(|| material.clone())
+            .into_iter()
+            .collect::<Vec<_>>()
     );
 }
 
+// A datum's settings follow it: left open with it, never kept for a datum that is open.
 #[test]
-fn without_evidence_a_datum_on_a_face_the_part_lacks_is_unresolved() {
+fn without_evidence_datums_and_their_settings_are_left_open() {
     let loaded = part::load(&fixture("parts/plate.step"), None).unwrap();
     let analysis = api::analyse(&loaded).unwrap();
-    let answers = object(json!({"datum.A": [0], "datum.B": [999], "part.material": "steel"}));
+    let answers = object(json!({
+        "datum.A": [0], "datum.B": [999], "datum.A.flatness": "0.05", "datum.B.control": "none",
+        "part.material": "steel"
+    }));
     let out = resume::rematch_answers(&loaded, &features(&analysis), &answers, None, None).unwrap();
+    left_open(&out, &answers, "no saved face fingerprint");
     assert_eq!(
         Value::Object(out.answers),
-        json!({"datum.A": [0], "part.material": "steel"})
+        json!({"part.material": "steel"})
     );
-    assert_eq!(out.unresolved[0].id, "datum.B");
-    assert_eq!(out.unresolved[0].answer, json!([999]));
 }
 
 #[test]
@@ -200,8 +239,9 @@ fn malformed_evidence_is_refused() {
 
 // tests/fixtures/legacy-schema1/README.md: written by Specify 42ff22c0 under the kernel of the
 // time, whose signs of zero differ from quiddity v0.1.1's, so its schema 1 hash cannot be
-// reproduced. Its answers resume by unchanged feature ID, with a warning, and rewriting stores
-// them as schema 2.
+// reproduced. Its part answers resume; its feature answer is left open with its value for the
+// person to confirm, with warnings and review problems. A rewrite stores, as schema 2, only the
+// answers it is given: a feature answer is verified there only once the person has given it.
 #[test]
 fn a_pre_alpha_browser_export_resumes_its_answers() {
     let path = fixture("legacy-schema1/legacy_specify.step");
@@ -218,38 +258,52 @@ fn a_pre_alpha_browser_export_resumes_its_answers() {
         Some(expected.clone())
     );
     let (analysis, warnings) = api::analyse_reporting(&loaded).unwrap();
-    assert_eq!(analysis["resume"]["answers"], expected);
-    assert!(analysis["resume"]["unresolved"].is_null());
-    assert!(
-        analysis["resume"]["unverified"]
-            .as_str()
-            .unwrap()
-            .contains("schema 1")
-    );
+    let resume = &analysis["resume"];
+    assert_eq!(resume["answers"], json!({"part.material": "6082-T6"}));
+    // The feature answer is not lost: it is open, with its value, for the person to confirm.
+    let open = resume["unresolved"].as_array().unwrap();
+    assert_eq!(open.len(), 1, "{resume}");
+    assert_eq!(open[0]["id"], "hole.function:holes:9");
+    assert_eq!(open[0]["answer"], "fit:H7");
+    assert!(open[0]["reason"].as_str().unwrap().contains("schema 1"));
+    assert!(resume["unverified"].as_str().unwrap().contains("schema 1"));
     assert_eq!(analysis["existing"], json!([]));
-    assert_eq!(warnings.len(), 1, "{warnings:?}");
-    let review = api::review(
-        &analysis,
-        analysis["resume"]["answers"].as_object().unwrap(),
-    )
-    .unwrap();
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    let resumed = resume["answers"].as_object().unwrap();
+    let review = api::review(&analysis, resumed).unwrap();
+    let codes: Vec<_> = review["problems"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["code"].clone())
+        .collect();
     assert!(
-        review["problems"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|p| p["code"] == "saved_answers_unverified")
+        codes.contains(&json!("saved_answers_unverified")),
+        "{codes:?}"
+    );
+    assert!(
+        codes.contains(&json!("saved_answer_unresolved")),
+        "{codes:?}"
     );
 
-    // Rewriting replaces its PMI (it is the writer's own) and stores schema 2, which verifies.
-    let answers = object(expected.clone());
-    let intent = api::preview(&analysis, &answers).unwrap();
-    let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
-    let back = part::load_bytes("again.step", bytes).unwrap();
-    assert_eq!(resume::stored(&back.bytes)[&0]["schema"], json!(2));
-    let again = api::analyse(&back).unwrap();
-    assert_eq!(again["resume"]["answers"], expected);
-    assert!(again["resume"]["unverified"].is_null());
+    // Rewriting replaces its PMI (it is the writer's own) and stores schema 2 with the answers
+    // it is given. Written with the resumed answers alone, the unconfirmed feature answer is not
+    // stored as verified (it is not stored: docs/design.md, "Saved answers across kernel
+    // upgrades"); the file opens verified with the part's answers.
+    let rewrite = |answers: &Map<String, Value>| {
+        let intent = api::preview(&analysis, answers).unwrap();
+        let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(answers)).unwrap();
+        let back = part::load_bytes("again.step", bytes).unwrap();
+        assert_eq!(resume::stored(&back.bytes)[&0]["schema"], json!(2));
+        api::analyse(&back).unwrap()["resume"].clone()
+    };
+    let again = rewrite(resumed);
+    assert_eq!(again["answers"], json!({"part.material": "6082-T6"}));
+    assert!(again["unverified"].is_null() && again["unresolved"].is_null());
+    // Once the person confirms the open answer, it is stored and verified.
+    let again = rewrite(&object(expected.clone()));
+    assert_eq!(again["answers"], expected);
+    assert!(again["unverified"].is_null() && again["unresolved"].is_null());
 }
 
 // --- the application payload and the original part ----------------------------------------------
@@ -392,6 +446,29 @@ fn rewriting_a_written_file_keeps_its_first_original() {
     assert_eq!(
         carried::original(&write(&loaded, &json!({"part.material": "steel"}), &[])),
         None
+    );
+}
+
+// Only an item the writer stores, in a user defined attribute, is the payload: an item of the
+// same name elsewhere in the file is not.
+#[test]
+fn a_payload_is_only_an_item_of_a_user_defined_attribute() {
+    let source = std::fs::read_to_string(fixture("parts/plate.step")).unwrap();
+    let encoded = STANDARD.encode(json!({"revision": 1}).to_string());
+    let end = source.rfind("ENDSEC;").unwrap();
+    let stray = format!(
+        "{}#999999=DESCRIPTIVE_REPRESENTATION_ITEM('an app','{encoded}');\n{}",
+        &source[..end],
+        &source[end..]
+    );
+    assert!(haecceity::p21::Document::parse(stray.clone().into_bytes()).is_ok());
+    assert_eq!(carried::payload(stray.as_bytes(), "an app"), None);
+    let loaded = part::load_bytes("plate.step", stray.clone().into_bytes()).unwrap();
+    let extra = carried::attributes(stray.as_bytes(), "an app", &json!({"revision": 2})).unwrap();
+    let written = write(&loaded, &json!({"part.material": "steel"}), &extra);
+    assert_eq!(
+        carried::payload(&written, "an app"),
+        Some(json!({"revision": 2}))
     );
 }
 

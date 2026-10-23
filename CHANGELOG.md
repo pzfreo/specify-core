@@ -19,24 +19,30 @@ All notable changes to specify-core-rust. The format follows
 - For #35, `resume::rematch_answers(loaded, features, answers, evidence, automatic)` matches
   answers held outside the STEP (a saved project's) to the part as now recognised, with the
   same face-support rule as answers stored in a STEP. Callers keep `resume::evidence(loaded)`
-  (`{schema: 2, face_count, faces}`) with their answers. Without matching evidence, feature
-  answers are kept only on unchanged feature IDs; the rest are `unresolved` with their values.
-  `automatic` marks answers the default path gave and returns their IDs renamed. New public
+  (`{schema: 2, face_count, faces}`) with their answers. Without matching evidence, no answer
+  on a feature or a datum (including `datum.X.flatness`/`.control`) is applied, even on an
+  unchanged ID: each is `unresolved` with its value and a reason, and only `part.*` answers
+  are kept. `automatic` marks answers the default path gave and returns their IDs renamed.
+  New public
   fields `UnresolvedAnswer.automatic`, `Resumed.unverified` and `Resumed.automatic` break Rust
   struct-literal callers. See `docs/design.md`, "Saved answers across kernel upgrades".
 - For #35, `carried::attributes(source, name, value)` stores an application's named JSON
   payload in the STEP for `writer::write_bytes_with`, with a `specify-core original` record.
   `carried::payload(bytes, name)` reads it back, and `carried::original(bytes)` gives back the
   part first written from, verified by its sha256. The payload's encoding is the editor
-  project's, so files written either way are read either way.
+  project's, so files written either way are read either way. Only an item in a user defined
+  attribute is read as a payload. The core sets no payload size limit; callers set their own.
 
 ### Fixed
 
 - For #35, schema 1 answers saved by the pre-alpha browser writer resume again under
   quiddity v0.1.1. That kernel gives some zero centroid components the other sign, so their
   schema 1 hash cannot be reproduced. Such payloads in this port's attribute form now resume
-  without face evidence, by unchanged feature ID, with an `analysis.resume.unverified` reason,
-  a warning and a `saved_answers_unverified` review problem. Rewriting stores schema 2.
+  without face evidence: `part.*` answers are applied, and answers on features and datums are
+  `unresolved` with their values for the person to confirm, with an
+  `analysis.resume.unverified` reason, warnings, and `saved_answers_unverified` and
+  `saved_answer_unresolved` review problems. A rewrite stores schema 2 with only the answers it
+  is given, so an unconfirmed answer is never stored as verified.
   Python-written schema 1 files still open as foreign files (Q14).
 
 ### WASM API
@@ -51,13 +57,16 @@ All notable changes to specify-core-rust. The format follows
 - For #35, add `IntentEngine.rematchAnswers(answers: string, evidence?: string | null,
   automatic?: string | null): string` and `IntentEngine.evidence(): string`. Editors keep
   `evidence()` with saved answers and use `rematchAnswers` instead of setting aside answers
-  by a list of answer kinds. See docs/wasm.md, "Answers saved outside the STEP".
+  by a list of answer kinds. Without matching evidence every answer on a feature or a datum
+  is returned in `unresolved` with its value, not in `answers`. See docs/wasm.md, "Answers
+  saved outside the STEP".
 - For #35, `IntentEngine.writePmi(answers, project?, payload?)` takes an optional third
   argument, `{name, value}` JSON, carried in the STEP as base64 JSON under `name`. Give the
   project or the payload, not both. Either now also records the original part. Add
   `IntentEngine.payload(name: string): string | undefined` and
-  `IntentEngine.original(): Uint8Array | undefined`. Existing calls are unchanged. Written bytes
-  with a project gain the `specify-core original` attribute. Analysis can report
+  `IntentEngine.original(): Uint8Array | undefined`. Existing calls are unchanged; a
+  `writePmi` without a project or payload writes none, dropping any the opened file carried,
+  and no original record. Written bytes with a project gain the `specify-core original` attribute. Analysis can report
   `resume.unverified`; review can report `code: "saved_answers_unverified"`. The Rust
   `session::Session::write_pmi` gains the `payload` argument (pass `None`).
 

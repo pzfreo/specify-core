@@ -161,8 +161,14 @@ for (const [part, path] of parts) {
       const rematched = JSON.parse(carrying.rematchAnswers(answersJson, evidence, '[]'));
       assert.deepEqual(rematched.answers, answers);
       assert.deepEqual(rematched.automatic, []);
-      const unknown = JSON.parse(carrying.rematchAnswers(JSON.stringify({ ...answers, 'hole.function:holes:9999': 'fit:H7' })));
-      assert.deepEqual(unknown.unresolved.map(u => [u.id, u.answer]), [['hole.function:holes:9999', 'fit:H7']]);
+      // Without evidence no answer on a feature or a datum is applied, even on an unchanged ID:
+      // each is left open with its value; the part's own answers are kept.
+      const given = { ...answers, 'hole.function:holes:9999': 'fit:H7' };
+      const unknown = JSON.parse(carrying.rematchAnswers(JSON.stringify(given)));
+      const geometric = id => /^(hole|diameter|datum)\./.test(id);
+      assert.deepEqual(unknown.unresolved.map(u => [u.id, u.answer]),
+        Object.entries(given).filter(([id]) => geometric(id)));
+      assert.deepEqual(Object.keys(unknown.answers), Object.keys(given).filter(id => !geometric(id)));
       assert.ok(unknown.unverified);
     } finally { carrying.free(); }
     assert.equal(engine.original(), undefined, 'a bare part records no original');

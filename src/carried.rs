@@ -10,7 +10,9 @@
 //! JSON (UTF-8). In Part 21 that is `DESCRIPTIVE_REPRESENTATION_ITEM('<name>','<base64>')`,
 //! which is what the editor's `readProject` (draftwright-editor `src/model/step-project.ts`) and
 //! draftwright-mcp's `project::read` match for `draftwright editor project`, so files written
-//! either way are read either way. [`payload`] reads the last item of that name, as they do.
+//! either way are read either way. [`payload`] reads the last item of that name held by a user
+//! defined attribute, as the writer stores it; an item of that name anywhere else in the file is
+//! not the payload.
 //!
 //! **The original** is recorded beside it, in a second attribute named [`ORIGINAL`]:
 //! `{schema: 1, sha256, header, from}`, the original's sha256, its `FILE_SCHEMA` statement
@@ -21,6 +23,9 @@
 //! the part first given, not the last written file. A part that came with PMI the writer
 //! replaced has no original to give back (its bytes no longer hash to the record), and
 //! [`original`] says so with `None`.
+//!
+//! **Size.** The core sets no limit on a payload's size: callers that take payloads from
+//! elsewhere set their own (the WASM build refuses one over 8 MiB).
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use haecceity::p21::{Attribute, Document, RawEntity};
@@ -47,7 +52,7 @@ impl std::error::Error for PayloadError {}
 /// The attribute sets that carry `value` as the payload `name` in a file written from
 /// `source` (the bytes being written), with the record of its original: pass them to
 /// `writer::write_bytes_with` as its extras. `name` must not be empty or a name Specify uses
-/// ([`resume::NAME`], [`ORIGINAL`]).
+/// ([`resume::NAME`], [`ORIGINAL`]). Any size is carried: limits are the caller's.
 pub fn attributes(
     source: &[u8],
     name: &str,
@@ -117,13 +122,21 @@ fn record(source: &[u8]) -> Value {
 }
 
 /// The payload named `name` that the STEP `bytes` carries, if any: the last item of that name
-/// whose text is base64 of JSON, as the editor reads it.
+/// held by a user defined attribute (as the writer stores it) whose text is base64 of JSON.
 pub fn payload(bytes: &[u8], name: &str) -> Option<Value> {
     let doc = Document::parse(bytes.to_vec()).ok()?;
-    resume::items_in_file_order(&doc, name)
+    carried_items(&doc, name)
         .into_iter()
         .rev()
         .find_map(|id| decode(&text_of(&doc, id)?))
+}
+
+/// The items named `name` held by user defined attributes, in file order.
+fn carried_items(doc: &Document, name: &str) -> Vec<u64> {
+    resume::items_in_file_order(doc, name)
+        .into_iter()
+        .filter(|&id| resume::is_attribute_item(doc, id))
+        .collect()
 }
 
 /// The bytes of the part the STEP `bytes` was first written from, without what the writer
@@ -166,7 +179,7 @@ fn restored(bytes: &[u8], doc: &Document, record: &Value) -> Option<Vec<u8>> {
 }
 
 fn last_text(doc: &Document, name: &str) -> Option<String> {
-    let id = *resume::items_in_file_order(doc, name).last()?;
+    let id = *carried_items(doc, name).last()?;
     text_of(doc, id)
 }
 
