@@ -257,11 +257,20 @@ fn rules_match_the_oracle() {
     // are intact. Keep the
     // complete before/after values, including ordering, under an exact regression guard;
     // the known-difference entries below document the verdict, not a blanket exemption.
+    let tie_entries: Vec<_> = common::load_known(&common::known_differences_file("rules"))
+        .into_iter()
+        .filter(|entry| entry.pattern == "Equivalent equal-area datum choice and dependent values")
+        .collect();
     let departures = json!(
         all.iter()
-            .map(|d| json!({
-                "case": d.case, "path": d.path, "python": d.python, "rust": d.rust,
-            }))
+            .map(|d| {
+                let mut row =
+                    json!({"case": d.case, "path": d.path, "python": d.python, "rust": d.rust});
+                if tie_entries.iter().any(|entry| entry.matches(d)) {
+                    row["verdict"] = json!("equivalent");
+                }
+                row
+            })
             .collect::<Vec<_>>()
     );
     let snapshot = common::fixtures().join("rule_defaults_oracle.json.gz");
