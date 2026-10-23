@@ -1,0 +1,3682 @@
+{
+  "writer": "specify-core v0.1.0-alpha.6 (tag f045e4e)",
+  "kernel": "v0.1.0-alpha.8 c62081c6",
+  "case": "corpus/nist/nist_ftc_10_asme1_rb",
+  "features": [
+    {
+      "id": "fillets:39",
+      "family": "fillets",
+      "record": {
+        "axis": "x",
+        "radius": 1.0,
+        "at": [
+          -66.75,
+          7.707,
+          -37.207
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        39
+      ]
+    },
+    {
+      "id": "fillets:37",
+      "family": "fillets",
+      "record": {
+        "axis": "x",
+        "radius": 1.0,
+        "at": [
+          -66.75,
+          7.707,
+          37.207
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        37
+      ]
+    },
+    {
+      "id": "fillets:83",
+      "family": "fillets",
+      "record": {
+        "axis": "x",
+        "radius": 1.0,
+        "at": [
+          -61.222,
+          22.707,
+          -37.207
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        83
+      ]
+    },
+    {
+      "id": "fillets:44",
+      "family": "fillets",
+      "record": {
+        "axis": "x",
+        "radius": 1.0,
+        "at": [
+          -61.222,
+          22.707,
+          37.207
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        44
+      ]
+    },
+    {
+      "id": "fillets:54",
+      "family": "fillets",
+      "record": {
+        "axis": "x",
+        "radius": 1.0,
+        "at": [
+          31.472,
+          22.707,
+          37.207
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        54
+      ]
+    },
+    {
+      "id": "fillets:73",
+      "family": "fillets",
+      "record": {
+        "axis": "x",
+        "radius": 1.0,
+        "at": [
+          42.222,
+          22.707,
+          -37.207
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        73
+      ]
+    },
+    {
+      "id": "fillets:90",
+      "family": "fillets",
+      "record": {
+        "axis": "x",
+        "radius": 1.0,
+        "at": [
+          58.25,
+          22.707,
+          37.207
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        90
+      ]
+    },
+    {
+      "id": "fillets:86",
+      "family": "fillets",
+      "record": {
+        "axis": "x",
+        "radius": 1.0,
+        "at": [
+          62.207,
+          28.707,
+          0.0
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        86
+      ]
+    },
+    {
+      "id": "fillets:67",
+      "family": "fillets",
+      "record": {
+        "axis": "x",
+        "radius": 1.0,
+        "at": [
+          66.75,
+          7.707,
+          -37.207
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        67
+      ]
+    },
+    {
+      "id": "fillets:63",
+      "family": "fillets",
+      "record": {
+        "axis": "x",
+        "radius": 1.0,
+        "at": [
+          66.75,
+          7.707,
+          37.207
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        63
+      ]
+    },
+    {
+      "id": "fillets:40",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          -78.696,
+          7.707,
+          -28.936
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        40
+      ]
+    },
+    {
+      "id": "fillets:36",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          -78.696,
+          7.707,
+          28.936
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        36
+      ]
+    },
+    {
+      "id": "fillets:56",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          -62.207,
+          15.5,
+          -37.207
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        56
+      ]
+    },
+    {
+      "id": "fillets:43",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          -62.207,
+          15.5,
+          37.207
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        43
+      ]
+    },
+    {
+      "id": "fillets:10",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          29.586,
+          23.293,
+          -32.414
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        10
+      ]
+    },
+    {
+      "id": "fillets:12",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          29.586,
+          23.293,
+          -17.586
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        12
+      ]
+    },
+    {
+      "id": "fillets:16",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          29.793,
+          25.5,
+          -32.207
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        16
+      ]
+    },
+    {
+      "id": "fillets:14",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          29.793,
+          25.5,
+          -17.793
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        14
+      ]
+    },
+    {
+      "id": "fillets:26",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          35.207,
+          23.293,
+          23.5
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        26
+      ]
+    },
+    {
+      "id": "fillets:19",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          59.207,
+          25.5,
+          -32.207
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        19
+      ]
+    },
+    {
+      "id": "fillets:18",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          59.207,
+          25.5,
+          -17.793
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        18
+      ]
+    },
+    {
+      "id": "fillets:8",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          59.414,
+          23.293,
+          -32.414
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        8
+      ]
+    },
+    {
+      "id": "fillets:9",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          59.414,
+          23.293,
+          -17.586
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        9
+      ]
+    },
+    {
+      "id": "fillets:28",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          59.793,
+          23.293,
+          23.5
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        28
+      ]
+    },
+    {
+      "id": "fillets:68",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          62.207,
+          15.5,
+          -37.207
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        68
+      ]
+    },
+    {
+      "id": "fillets:70",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          62.207,
+          15.5,
+          37.207
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        70
+      ]
+    },
+    {
+      "id": "fillets:66",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          78.696,
+          7.707,
+          -28.936
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        66
+      ]
+    },
+    {
+      "id": "fillets:64",
+      "family": "fillets",
+      "record": {
+        "axis": "y",
+        "radius": 1.0,
+        "at": [
+          78.696,
+          7.707,
+          28.936
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        64
+      ]
+    },
+    {
+      "id": "fillets:34",
+      "family": "fillets",
+      "record": {
+        "axis": "z",
+        "radius": 1.0,
+        "at": [
+          -69.707,
+          7.707,
+          -0.0
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        34
+      ]
+    },
+    {
+      "id": "fillets:57",
+      "family": "fillets",
+      "record": {
+        "axis": "z",
+        "radius": 1.0,
+        "at": [
+          -62.207,
+          22.707,
+          0.0
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        57
+      ]
+    },
+    {
+      "id": "fillets:81",
+      "family": "fillets",
+      "record": {
+        "axis": "z",
+        "radius": 1.0,
+        "at": [
+          -55.328,
+          29.951,
+          -37.207
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        81
+      ]
+    },
+    {
+      "id": "fillets:46",
+      "family": "fillets",
+      "record": {
+        "axis": "z",
+        "radius": 1.0,
+        "at": [
+          -55.328,
+          29.951,
+          37.207
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        46
+      ]
+    },
+    {
+      "id": "fillets:79",
+      "family": "fillets",
+      "record": {
+        "axis": "z",
+        "radius": 1.0,
+        "at": [
+          -30.0,
+          30.707,
+          -37.207
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        79
+      ]
+    },
+    {
+      "id": "fillets:48",
+      "family": "fillets",
+      "record": {
+        "axis": "z",
+        "radius": 1.0,
+        "at": [
+          -30.0,
+          30.707,
+          37.207
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        48
+      ]
+    },
+    {
+      "id": "fillets:77",
+      "family": "fillets",
+      "record": {
+        "axis": "z",
+        "radius": 1.0,
+        "at": [
+          -8.0,
+          30.707,
+          -37.207
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        77
+      ]
+    },
+    {
+      "id": "fillets:50",
+      "family": "fillets",
+      "record": {
+        "axis": "z",
+        "radius": 1.0,
+        "at": [
+          -8.0,
+          30.707,
+          37.207
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        50
+      ]
+    },
+    {
+      "id": "fillets:75",
+      "family": "fillets",
+      "record": {
+        "axis": "z",
+        "radius": 1.0,
+        "at": [
+          17.328,
+          29.951,
+          -37.207
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        75
+      ]
+    },
+    {
+      "id": "fillets:52",
+      "family": "fillets",
+      "record": {
+        "axis": "z",
+        "radius": 1.0,
+        "at": [
+          17.328,
+          29.951,
+          37.207
+        ],
+        "turned": true,
+        "side": "convex"
+      },
+      "faces": [
+        52
+      ]
+    },
+    {
+      "id": "fillets:88",
+      "family": "fillets",
+      "record": {
+        "axis": "z",
+        "radius": 1.0,
+        "at": [
+          62.207,
+          22.707,
+          -21.714
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        88
+      ]
+    },
+    {
+      "id": "fillets:84",
+      "family": "fillets",
+      "record": {
+        "axis": "z",
+        "radius": 1.0,
+        "at": [
+          62.207,
+          22.707,
+          21.714
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        84
+      ]
+    },
+    {
+      "id": "fillets:71",
+      "family": "fillets",
+      "record": {
+        "axis": "z",
+        "radius": 1.0,
+        "at": [
+          69.707,
+          7.707,
+          0.0
+        ],
+        "turned": false,
+        "side": "convex"
+      },
+      "faces": [
+        71
+      ]
+    },
+    {
+      "id": "holes:138.148",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        "location": [
+          -30.0,
+          23.0,
+          37.5
+        ],
+        "diameter": 7.0,
+        "depth": 55.0,
+        "bottom": "through",
+        "cbore": {
+          "diameter": 10.0,
+          "depth": 10.0
+        },
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        138,
+        148
+      ]
+    },
+    {
+      "id": "holes:144.149",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        "location": [
+          14.0,
+          23.0,
+          37.5
+        ],
+        "diameter": 7.0,
+        "depth": 55.0,
+        "bottom": "through",
+        "cbore": {
+          "diameter": 10.0,
+          "depth": 10.0
+        },
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        144,
+        149
+      ]
+    },
+    {
+      "id": "holes:142.146",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        "location": [
+          -8.0,
+          23.0,
+          37.5
+        ],
+        "diameter": 7.0,
+        "depth": 55.0,
+        "bottom": "through",
+        "cbore": {
+          "diameter": 10.0,
+          "depth": 10.0
+        },
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        142,
+        146
+      ]
+    },
+    {
+      "id": "holes:140.147",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        "location": [
+          -52.0,
+          23.0,
+          37.5
+        ],
+        "diameter": 7.0,
+        "depth": 55.0,
+        "bottom": "through",
+        "cbore": {
+          "diameter": 10.0,
+          "depth": 10.0
+        },
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        140,
+        147
+      ]
+    },
+    {
+      "id": "holes:0",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          -8.0,
+          19.730825792,
+          15.5
+        ],
+        "diameter": 2.5,
+        "depth": 2.73,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        0
+      ]
+    },
+    {
+      "id": "holes:1",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          -52.0,
+          19.730825792,
+          15.5
+        ],
+        "diameter": 2.5,
+        "depth": 2.73,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        1
+      ]
+    },
+    {
+      "id": "holes:2",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          -8.0,
+          19.730825792,
+          -15.5
+        ],
+        "diameter": 2.5,
+        "depth": 2.73,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        2
+      ]
+    },
+    {
+      "id": "holes:3",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          -52.0,
+          19.730825792,
+          -15.5
+        ],
+        "diameter": 2.5,
+        "depth": 2.73,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        3
+      ]
+    },
+    {
+      "id": "holes:4",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          -30.0,
+          19.730825792,
+          -15.5
+        ],
+        "diameter": 2.5,
+        "depth": 2.73,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        4
+      ]
+    },
+    {
+      "id": "holes:5",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          14.0,
+          19.730825792,
+          -15.5
+        ],
+        "diameter": 2.5,
+        "depth": 2.73,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        5
+      ]
+    },
+    {
+      "id": "holes:6",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          -30.0,
+          19.730825792,
+          15.5
+        ],
+        "diameter": 2.5,
+        "depth": 2.73,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        6
+      ]
+    },
+    {
+      "id": "holes:7",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          14.0,
+          19.730825792,
+          15.5
+        ],
+        "diameter": 2.5,
+        "depth": 2.73,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        7
+      ]
+    },
+    {
+      "id": "holes:115.116",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          -70.0,
+          8.0,
+          -28.5
+        ],
+        "diameter": 6.0,
+        "depth": 6.0,
+        "bottom": "through",
+        "cbore": {
+          "diameter": 10.0,
+          "depth": 2.0
+        },
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        115,
+        116
+      ]
+    },
+    {
+      "id": "holes:118.119",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          70.0,
+          8.0,
+          28.5
+        ],
+        "diameter": 6.0,
+        "depth": 6.0,
+        "bottom": "through",
+        "cbore": {
+          "diameter": 10.0,
+          "depth": 2.0
+        },
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        118,
+        119
+      ]
+    },
+    {
+      "id": "holes:121.122",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          70.0,
+          8.0,
+          -28.5
+        ],
+        "diameter": 6.0,
+        "depth": 6.0,
+        "bottom": "through",
+        "cbore": {
+          "diameter": 10.0,
+          "depth": 2.0
+        },
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        121,
+        122
+      ]
+    },
+    {
+      "id": "holes:124.125",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          -70.0,
+          8.0,
+          28.5
+        ],
+        "diameter": 6.0,
+        "depth": 6.0,
+        "bottom": "through",
+        "cbore": {
+          "diameter": 10.0,
+          "depth": 2.0
+        },
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        124,
+        125
+      ]
+    },
+    {
+      "id": "holes:175",
+      "family": "holes",
+      "record": {
+        "axis": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "location": [
+          62.5,
+          15.0,
+          -25.0
+        ],
+        "diameter": 5.5,
+        "depth": 35.0,
+        "bottom": "drill_point",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        175
+      ]
+    },
+    {
+      "id": "holes:177",
+      "family": "holes",
+      "record": {
+        "axis": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "location": [
+          62.5,
+          18.0,
+          23.5
+        ],
+        "diameter": 5.5,
+        "depth": 27.5,
+        "bottom": "drill_point",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        177
+      ]
+    },
+    {
+      "id": "holes:178",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          47.5,
+          31.0,
+          23.5
+        ],
+        "diameter": 3.5,
+        "depth": 10.88,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        178
+      ]
+    },
+    {
+      "id": "holes:179",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          40.5,
+          31.0,
+          23.5
+        ],
+        "diameter": 3.5,
+        "depth": 10.88,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        179
+      ]
+    },
+    {
+      "id": "holes:180",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          54.5,
+          31.0,
+          23.5
+        ],
+        "diameter": 3.5,
+        "depth": 10.88,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        180
+      ]
+    },
+    {
+      "id": "holes:189",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          53.9,
+          27.0,
+          -30.0
+        ],
+        "diameter": 2.459,
+        "depth": 12.0,
+        "bottom": "drill_point",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        189
+      ]
+    },
+    {
+      "id": "holes:191",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          42.9,
+          27.0,
+          -30.0
+        ],
+        "diameter": 2.459,
+        "depth": 12.0,
+        "bottom": "drill_point",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        191
+      ]
+    },
+    {
+      "id": "holes:193",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          31.9,
+          27.0,
+          -30.0
+        ],
+        "diameter": 2.459,
+        "depth": 12.0,
+        "bottom": "drill_point",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        193
+      ]
+    },
+    {
+      "id": "holes:195",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          35.1,
+          27.0,
+          -20.0
+        ],
+        "diameter": 2.459,
+        "depth": 12.0,
+        "bottom": "drill_point",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        195
+      ]
+    },
+    {
+      "id": "holes:197",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          46.1,
+          27.0,
+          -20.0
+        ],
+        "diameter": 2.459,
+        "depth": 12.0,
+        "bottom": "drill_point",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        197
+      ]
+    },
+    {
+      "id": "holes:199",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          57.1,
+          27.0,
+          -20.0
+        ],
+        "diameter": 2.459,
+        "depth": 12.0,
+        "bottom": "drill_point",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        199
+      ]
+    },
+    {
+      "id": "holes:200",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          44.5,
+          27.0,
+          -25.0
+        ],
+        "diameter": 3.5,
+        "depth": 9.88,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        200
+      ]
+    },
+    {
+      "id": "holes:201",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          33.5,
+          27.0,
+          -25.0
+        ],
+        "diameter": 3.5,
+        "depth": 9.88,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        201
+      ]
+    },
+    {
+      "id": "holes:202",
+      "family": "holes",
+      "record": {
+        "axis": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "location": [
+          55.5,
+          27.0,
+          -25.0
+        ],
+        "diameter": 3.5,
+        "depth": 9.88,
+        "bottom": "through",
+        "cbore": null,
+        "spotface": null,
+        "csink": null
+      },
+      "faces": [
+        202
+      ]
+    },
+    {
+      "id": "slots:163.165",
+      "family": "slots",
+      "record": {
+        "width_axis": "z",
+        "long_axis": "x",
+        "width": 50.0,
+        "length": 78.0,
+        "w_center": 0.0,
+        "lo": -58.0,
+        "hi": 20.0,
+        "d_lo": 0.0,
+        "d_hi": 15.0,
+        "body_key": [
+          -79.0,
+          0.0,
+          -37.5,
+          79.0,
+          31.0,
+          37.5,
+          188318.053036,
+          48531.2401776
+        ],
+        "end_radius": null,
+        "corner_radius": 2.0
+      },
+      "faces": [
+        163,
+        165
+      ]
+    },
+    {
+      "id": "pockets:187.206",
+      "family": "pockets",
+      "record": {
+        "width_axis": "x",
+        "long_axis": "z",
+        "width": 3.0,
+        "length": 15.0,
+        "depth": 1.5,
+        "w_center": 39.0,
+        "lo": -32.5,
+        "hi": -17.5,
+        "d_lo": 25.5,
+        "d_hi": 27.0,
+        "open_sign": 1,
+        "edge_anchored": false,
+        "body_key": [
+          -79.0,
+          0.0,
+          -37.5,
+          79.0,
+          31.0,
+          37.5,
+          188318.053036,
+          48531.2401776
+        ],
+        "end_radius": null,
+        "corner_radius": null
+      },
+      "faces": [
+        187,
+        206
+      ]
+    },
+    {
+      "id": "pockets:186.203",
+      "family": "pockets",
+      "record": {
+        "width_axis": "x",
+        "long_axis": "z",
+        "width": 3.0,
+        "length": 15.0,
+        "depth": 1.5,
+        "w_center": 50.0,
+        "lo": -32.5,
+        "hi": -17.5,
+        "d_lo": 25.5,
+        "d_hi": 27.0,
+        "open_sign": 1,
+        "edge_anchored": false,
+        "body_key": [
+          -79.0,
+          0.0,
+          -37.5,
+          79.0,
+          31.0,
+          37.5,
+          188318.053036,
+          48531.2401776
+        ],
+        "end_radius": null,
+        "corner_radius": null
+      },
+      "faces": [
+        186,
+        203
+      ]
+    },
+    {
+      "id": "pockets:107.170",
+      "family": "pockets",
+      "record": {
+        "width_axis": "x",
+        "long_axis": "y",
+        "width": 5.0,
+        "length": 23.0,
+        "depth": 2.0,
+        "w_center": 42.5,
+        "lo": 0.0,
+        "hi": 23.0,
+        "d_lo": 34.5,
+        "d_hi": 36.5,
+        "open_sign": 1,
+        "edge_anchored": false,
+        "body_key": [
+          -79.0,
+          0.0,
+          -37.5,
+          79.0,
+          31.0,
+          37.5,
+          188318.053036,
+          48531.2401776
+        ],
+        "end_radius": null,
+        "corner_radius": null
+      },
+      "faces": [
+        107,
+        170
+      ]
+    },
+    {
+      "id": "pockets:167.168",
+      "family": "pockets",
+      "record": {
+        "width_axis": "x",
+        "long_axis": "y",
+        "width": 5.0,
+        "length": 23.0,
+        "depth": 2.0,
+        "w_center": 52.5,
+        "lo": 0.0,
+        "hi": 23.0,
+        "d_lo": 34.5,
+        "d_hi": 36.5,
+        "open_sign": 1,
+        "edge_anchored": false,
+        "body_key": [
+          -79.0,
+          0.0,
+          -37.5,
+          79.0,
+          31.0,
+          37.5,
+          188318.053036,
+          48531.2401776
+        ],
+        "end_radius": null,
+        "corner_radius": null
+      },
+      "faces": [
+        167,
+        168
+      ]
+    },
+    {
+      "id": "freeform_surfaces:183",
+      "family": "freeform_surfaces",
+      "record": {
+        "face": 183,
+        "support_kind": "bspline",
+        "support": {
+          "u_degree": 3,
+          "v_degree": 3,
+          "poles": [
+            [
+              [
+                21.950463919999528,
+                23.888888888886463,
+                6.92820323027592
+              ],
+              [
+                21.851819310886697,
+                24.771193095249643,
+                6.784934882168247
+              ],
+              [
+                21.35402016196723,
+                26.430178349902338,
+                6.06640675083902
+              ],
+              [
+                20.175865089246336,
+                28.199074224047806,
+                4.147938277213973
+              ],
+              [
+                19.22102987951745,
+                29.07128566648227,
+                2.017201292620861
+              ],
+              [
+                18.962713527410404,
+                29.272964921717104,
+                -0.001210296729681
+              ],
+              [
+                19.155617253710723,
+                29.122101087072387,
+                -1.510860594096128
+              ],
+              [
+                19.609512796249554,
+                28.719323329866512,
+                -2.873028878602984
+              ],
+              [
+                20.366659704081492,
+                27.907316727363547,
+                -4.466969360922106
+              ],
+              [
+                21.35780723181083,
+                26.428256553219498,
+                -6.066016516739365
+              ],
+              [
+                21.851819310886693,
+                24.771193095249664,
+                -6.784934882168208
+              ],
+              [
+                21.950463919999525,
+                23.888888888886473,
+                -6.928203230275885
+              ]
+            ],
+            [
+              [
+                21.95513660104274,
+                23.847095159087168,
+                6.635028333301852
+              ],
+              [
+                21.86593106307786,
+                24.689315576678744,
+                6.503766153595944
+              ],
+              [
+                21.41096932544933,
+                26.2982777316911,
+                5.842155568349662
+              ],
+              [
+                20.27468907047069,
+                28.085916729957155,
+                4.017961313959086
+              ],
+              [
+                19.322560230425715,
+                28.98475933292044,
+                1.957812021886878
+              ],
+              [
+                19.06371387019863,
+                29.19368072240745,
+                -0.001116245288188
+              ],
+              [
+                19.257119590489687,
+                29.037495696181622,
+                -1.466480406563419
+              ],
+              [
+                19.70975580145887,
+                28.621827602241353,
+                -2.78517503628739
+              ],
+              [
+                20.457845420073347,
+                27.79076024758558,
+                -4.320974224324782
+              ],
+              [
+                21.41503951953059,
+                26.296473902917693,
+                -5.841954676420432
+              ],
+              [
+                21.86593106307786,
+                24.689315576678766,
+                -6.503766153595906
+              ],
+              [
+                21.95513660104274,
+                23.847095159087175,
+                -6.635028333301818
+              ]
+            ],
+            [
+              [
+                22.207546726191584,
+                23.802032701592598,
+                6.127310427499805
+              ],
+              [
+                22.120229144671235,
+                24.602119273324156,
+                6.015952524721376
+              ],
+              [
+                21.67414883623183,
+                26.157155744470902,
+                5.451303395179802
+              ],
+              [
+                20.516033577368127,
+                27.955529950131407,
+                3.789623167531464
+              ],
+              [
+                19.533025789914745,
+                28.873084972498916,
+                1.853893789636294
+              ],
+              [
+                19.265008509861307,
+                29.087155657486715,
+                -0.001029672265158
+              ],
+              [
+                19.465226857209977,
+                28.927192709592553,
+                -1.388619354564279
+              ],
+              [
+                19.932852688948433,
+                28.502310794325062,
+                -2.631184704688925
+              ],
+              [
+                20.70310155292811,
+                27.65843914006956,
+                -4.065561022842678
+              ],
+              [
+                21.678482463358865,
+                26.155731411912644,
+                -5.451435386911787
+              ],
+              [
+                22.120229144671235,
+                24.60211927332417,
+                -6.015952524721344
+              ],
+              [
+                22.207546726191584,
+                23.8020327015926,
+                -6.127310427499775
+              ]
+            ],
+            [
+              [
+                22.72348773070652,
+                23.832962199185207,
+                5.941950089009983
+              ],
+              [
+                22.619573364419267,
+                24.661175060865922,
+                5.82601612352253
+              ],
+              [
+                22.09365136421564,
+                26.237958780423213,
+                5.241710898355619
+              ],
+              [
+                20.818271140465132,
+                27.97672746355525,
+                3.614891341343048
+              ],
+              [
+                19.771453862284915,
+                28.84856668144433,
+                1.763614159698118
+              ],
+              [
+                19.48761491332808,
+                29.051024942867507,
+                -0.001006972486469
+              ],
+              [
+                19.699595591562897,
+                28.899638510601502,
+                -1.321005847033407
+              ],
+              [
+                20.19733283154646,
+                28.496584222236763,
+                -2.507103130377372
+              ],
+              [
+                21.024693573795577,
+                27.689760142581356,
+                -3.885060419906857
+              ],
+              [
+                22.097934719723447,
+                26.23622395504669,
+                -5.241616545240105
+              ],
+              [
+                22.619573364419256,
+                24.661175060865943,
+                -5.826016123522497
+              ],
+              [
+                22.723487730706516,
+                23.832962199185218,
+                -5.941950089009954
+              ]
+            ],
+            [
+              [
+                22.944271909999472,
+                23.857142857140516,
+                5.938459911665072
+              ],
+              [
+                22.833296724747537,
+                24.707936198990726,
+                5.815658470429924
+              ],
+              [
+                22.27327268221313,
+                26.307671980262974,
+                5.199777215004877
+              ],
+              [
+                20.947848225402133,
+                28.013393001760384,
+                3.555375666183405
+              ],
+              [
+                19.87365861445713,
+                28.85445403553647,
+                1.72902967938931
+              ],
+              [
+                19.58305271833671,
+                29.048930460227204,
+                -0.001037397196868
+              ],
+              [
+                19.800069410424566,
+                28.903454619676943,
+                -1.295023366368107
+              ],
+              [
+                20.310701895780753,
+                28.515061782371273,
+                -2.462596181659699
+              ],
+              [
+                21.16249216709168,
+                27.73205541567198,
+                -3.828830880790373
+              ],
+              [
+                22.277533135787184,
+                26.305818819175943,
+                -5.19944272863374
+              ],
+              [
+                22.83329672474753,
+                24.707936198990748,
+                -5.815658470429892
+              ],
+              [
+                22.94427190999947,
+                23.857142857140524,
+                -5.938459911665043
+              ]
+            ]
+          ],
+          "weights": [
+            [
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            [
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            [
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            [
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            [
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ]
+          ],
+          "u_knots": [
+            0.0,
+            0.571428571428571,
+            1.0
+          ],
+          "v_knots": [
+            0.353492535733496,
+            0.656136366205267,
+            0.958780196677038,
+            1.261424027148809,
+            1.412745942384694,
+            1.56406785762058,
+            1.715389772856465,
+            1.86671168809235,
+            2.169355518564121,
+            2.471999349035892
+          ],
+          "u_multiplicities": [
+            4,
+            1,
+            4
+          ],
+          "v_multiplicities": [
+            4,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            4
+          ],
+          "u_periodic": false,
+          "v_periodic": false
+        },
+        "construction_kind": null,
+        "construction_axis": null,
+        "construction_vector": null,
+        "continuity_group": [
+          183
+        ],
+        "continuity_links": [],
+        "offset_partner": null,
+        "offset_distance": null,
+        "offset_basis": null
+      },
+      "faces": [
+        183
+      ]
+    },
+    {
+      "id": "step_levels:204",
+      "family": "step_levels",
+      "record": {
+        "z": -32.50000000000007,
+        "x_span": [
+          30.500000000000004,
+          58.50000000000001
+        ],
+        "y_span": [
+          23.999999999999993,
+          26.999999999999996
+        ],
+        "body_key": [
+          -79.0,
+          0.0,
+          -37.5,
+          79.0,
+          31.0,
+          37.5,
+          188318.053036,
+          48531.2401776
+        ]
+      },
+      "faces": [
+        204
+      ]
+    },
+    {
+      "id": "step_levels:131.133.135.137",
+      "family": "step_levels",
+      "record": {
+        "z": -27.499999999999996,
+        "x_span": [
+          -57.000000000000014,
+          19.000000000000004
+        ],
+        "y_span": [
+          18.0,
+          28.0
+        ],
+        "body_key": [
+          -79.0,
+          0.0,
+          -37.5,
+          79.0,
+          31.0,
+          37.5,
+          188318.053036,
+          48531.2401776
+        ]
+      },
+      "faces": [
+        131,
+        133,
+        135,
+        137
+      ]
+    },
+    {
+      "id": "step_levels:165",
+      "family": "step_levels",
+      "record": {
+        "z": -25.0,
+        "x_span": [
+          -56.0,
+          18.00000000000001
+        ],
+        "y_span": [
+          0.0,
+          15.000000000000007
+        ],
+        "body_key": [
+          -79.0,
+          0.0,
+          -37.5,
+          79.0,
+          31.0,
+          37.5,
+          188318.053036,
+          48531.2401776
+        ]
+      },
+      "faces": [
+        165
+      ]
+    },
+    {
+      "id": "step_levels:21",
+      "family": "step_levels",
+      "record": {
+        "z": -17.50000000000001,
+        "x_span": [
+          30.50000000000001,
+          58.500000000000014
+        ],
+        "y_span": [
+          23.999999999999993,
+          26.999999999999996
+        ],
+        "body_key": [
+          -79.0,
+          0.0,
+          -37.5,
+          79.0,
+          31.0,
+          37.5,
+          188318.053036,
+          48531.2401776
+        ]
+      },
+      "faces": [
+        21
+      ]
+    },
+    {
+      "id": "step_levels:209",
+      "family": "step_levels",
+      "record": {
+        "z": 15.999999999999995,
+        "x_span": [
+          43.0,
+          52.0
+        ],
+        "y_span": [
+          23.999999999999993,
+          30.999999999999996
+        ],
+        "body_key": [
+          -79.0,
+          0.0,
+          -37.5,
+          79.0,
+          31.0,
+          37.5,
+          188318.053036,
+          48531.2401776
+        ]
+      },
+      "faces": [
+        209
+      ]
+    },
+    {
+      "id": "step_levels:163",
+      "family": "step_levels",
+      "record": {
+        "z": 25.0,
+        "x_span": [
+          -56.0,
+          18.00000000000001
+        ],
+        "y_span": [
+          0.0,
+          15.000000000000007
+        ],
+        "body_key": [
+          -79.0,
+          0.0,
+          -37.5,
+          79.0,
+          31.0,
+          37.5,
+          188318.053036,
+          48531.2401776
+        ]
+      },
+      "faces": [
+        163
+      ]
+    },
+    {
+      "id": "step_levels:139.141.143.145",
+      "family": "step_levels",
+      "record": {
+        "z": 27.500000000000004,
+        "x_span": [
+          -57.0,
+          19.000000000000004
+        ],
+        "y_span": [
+          18.0,
+          28.0
+        ],
+        "body_key": [
+          -79.0,
+          0.0,
+          -37.5,
+          79.0,
+          31.0,
+          37.5,
+          188318.053036,
+          48531.2401776
+        ]
+      },
+      "faces": [
+        139,
+        141,
+        143,
+        145
+      ]
+    },
+    {
+      "id": "step_levels:30",
+      "family": "step_levels",
+      "record": {
+        "z": 30.999999999999993,
+        "x_span": [
+          43.0,
+          52.0
+        ],
+        "y_span": [
+          23.999999999999993,
+          30.999999999999996
+        ],
+        "body_key": [
+          -79.0,
+          0.0,
+          -37.5,
+          79.0,
+          31.0,
+          37.5,
+          188318.053036,
+          48531.2401776
+        ]
+      },
+      "faces": [
+        30
+      ]
+    },
+    {
+      "id": "step_levels:169.171",
+      "family": "step_levels",
+      "record": {
+        "z": 34.5,
+        "x_span": [
+          40.0,
+          55.0
+        ],
+        "y_span": [
+          0.0,
+          23.0
+        ],
+        "body_key": [
+          -79.0,
+          0.0,
+          -37.5,
+          79.0,
+          31.0,
+          37.5,
+          188318.053036,
+          48531.2401776
+        ]
+      },
+      "faces": [
+        169,
+        171
+      ]
+    },
+    {
+      "id": "step_levels:173",
+      "family": "step_levels",
+      "record": {
+        "z": 36.5,
+        "x_span": [
+          45.0,
+          50.0
+        ],
+        "y_span": [
+          0.0,
+          23.0
+        ],
+        "body_key": [
+          -79.0,
+          0.0,
+          -37.5,
+          79.0,
+          31.0,
+          37.5,
+          188318.053036,
+          48531.2401776
+        ]
+      },
+      "faces": [
+        173
+      ]
+    },
+    {
+      "id": "section_recesses:187.206",
+      "family": "section_recesses",
+      "record": {
+        "index": 0,
+        "body": 0,
+        "geometry": {
+          "type": "section_recess",
+          "frame": {
+            "origin": [
+              39.0,
+              26.25,
+              0.0
+            ],
+            "run": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "u": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "v": [
+              0.0,
+              1.0,
+              0.0
+            ]
+          },
+          "run_interval": [
+            -32.5,
+            -17.5
+          ],
+          "profile": {
+            "closure": "open",
+            "boundary": [
+              {
+                "point": [
+                  -1.5,
+                  0.75
+                ],
+                "bulge": 0.0
+              },
+              {
+                "point": [
+                  -1.5,
+                  -0.75
+                ],
+                "bulge": 0.0
+              },
+              {
+                "point": [
+                  1.5,
+                  -0.75
+                ],
+                "bulge": 0.0
+              },
+              {
+                "point": [
+                  1.5,
+                  0.75
+                ],
+                "bulge": 0.0
+              }
+            ],
+            "opening": [
+              [
+                1.5,
+                0.75
+              ],
+              [
+                -1.5,
+                0.75
+              ]
+            ],
+            "material_side": "right"
+          },
+          "ends": {
+            "low": {
+              "condition": "open",
+              "surface": {
+                "type": "plane",
+                "gradient": [
+                  0.0,
+                  0.0
+                ]
+              }
+            },
+            "high": {
+              "condition": "open",
+              "surface": {
+                "type": "plane",
+                "gradient": [
+                  0.0,
+                  0.0
+                ]
+              }
+            }
+          }
+        },
+        "classification": {
+          "feature_kind": "channel",
+          "section_shape": "rectangular"
+        },
+        "evidence": {
+          "defining_faces": [
+            187,
+            206
+          ],
+          "constituent_faces": [
+            185,
+            187,
+            206
+          ]
+        }
+      },
+      "faces": [
+        187,
+        206
+      ]
+    },
+    {
+      "id": "section_recesses:186.203",
+      "family": "section_recesses",
+      "record": {
+        "index": 1,
+        "body": 0,
+        "geometry": {
+          "type": "section_recess",
+          "frame": {
+            "origin": [
+              50.0,
+              26.25,
+              0.0
+            ],
+            "run": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "u": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "v": [
+              0.0,
+              1.0,
+              0.0
+            ]
+          },
+          "run_interval": [
+            -32.5,
+            -17.5
+          ],
+          "profile": {
+            "closure": "open",
+            "boundary": [
+              {
+                "point": [
+                  -1.5,
+                  0.75
+                ],
+                "bulge": 0.0
+              },
+              {
+                "point": [
+                  -1.5,
+                  -0.75
+                ],
+                "bulge": 0.0
+              },
+              {
+                "point": [
+                  1.5,
+                  -0.75
+                ],
+                "bulge": 0.0
+              },
+              {
+                "point": [
+                  1.5,
+                  0.75
+                ],
+                "bulge": 0.0
+              }
+            ],
+            "opening": [
+              [
+                1.5,
+                0.75
+              ],
+              [
+                -1.5,
+                0.75
+              ]
+            ],
+            "material_side": "right"
+          },
+          "ends": {
+            "low": {
+              "condition": "open",
+              "surface": {
+                "type": "plane",
+                "gradient": [
+                  0.0,
+                  0.0
+                ]
+              }
+            },
+            "high": {
+              "condition": "open",
+              "surface": {
+                "type": "plane",
+                "gradient": [
+                  0.0,
+                  0.0
+                ]
+              }
+            }
+          }
+        },
+        "classification": {
+          "feature_kind": "channel",
+          "section_shape": "rectangular"
+        },
+        "evidence": {
+          "defining_faces": [
+            186,
+            203
+          ],
+          "constituent_faces": [
+            184,
+            186,
+            203
+          ]
+        }
+      },
+      "faces": [
+        186,
+        203
+      ]
+    },
+    {
+      "id": "section_recesses:107.170",
+      "family": "section_recesses",
+      "record": {
+        "index": 2,
+        "body": 0,
+        "geometry": {
+          "type": "section_recess",
+          "frame": {
+            "origin": [
+              42.5,
+              0.0,
+              35.5
+            ],
+            "run": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "u": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "v": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "run_interval": [
+            0.0,
+            23.0
+          ],
+          "profile": {
+            "closure": "open",
+            "boundary": [
+              {
+                "point": [
+                  1.0,
+                  -2.5
+                ],
+                "bulge": 0.0
+              },
+              {
+                "point": [
+                  -1.0,
+                  -2.5
+                ],
+                "bulge": 0.0
+              },
+              {
+                "point": [
+                  -1.0,
+                  2.5
+                ],
+                "bulge": 0.0
+              },
+              {
+                "point": [
+                  1.0,
+                  2.5
+                ],
+                "bulge": 0.0
+              }
+            ],
+            "opening": [
+              [
+                1.0,
+                2.5
+              ],
+              [
+                1.0,
+                -2.5
+              ]
+            ],
+            "material_side": "left"
+          },
+          "ends": {
+            "low": {
+              "condition": "open",
+              "surface": {
+                "type": "plane",
+                "gradient": [
+                  0.0,
+                  0.0
+                ]
+              }
+            },
+            "high": {
+              "condition": "open",
+              "surface": {
+                "type": "plane",
+                "gradient": [
+                  0.0,
+                  0.0
+                ]
+              }
+            }
+          }
+        },
+        "classification": {
+          "feature_kind": "channel",
+          "section_shape": "rectangular"
+        },
+        "evidence": {
+          "defining_faces": [
+            107,
+            170
+          ],
+          "constituent_faces": [
+            107,
+            170,
+            171
+          ]
+        }
+      },
+      "faces": [
+        107,
+        170
+      ]
+    },
+    {
+      "id": "section_recesses:167.168",
+      "family": "section_recesses",
+      "record": {
+        "index": 3,
+        "body": 0,
+        "geometry": {
+          "type": "section_recess",
+          "frame": {
+            "origin": [
+              52.5,
+              0.0,
+              35.5
+            ],
+            "run": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "u": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "v": [
+              1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "run_interval": [
+            0.0,
+            23.0
+          ],
+          "profile": {
+            "closure": "open",
+            "boundary": [
+              {
+                "point": [
+                  1.0,
+                  -2.5
+                ],
+                "bulge": 0.0
+              },
+              {
+                "point": [
+                  -1.0,
+                  -2.5
+                ],
+                "bulge": 0.0
+              },
+              {
+                "point": [
+                  -1.0,
+                  2.5
+                ],
+                "bulge": 0.0
+              },
+              {
+                "point": [
+                  1.0,
+                  2.5
+                ],
+                "bulge": 0.0
+              }
+            ],
+            "opening": [
+              [
+                1.0,
+                2.5
+              ],
+              [
+                1.0,
+                -2.5
+              ]
+            ],
+            "material_side": "left"
+          },
+          "ends": {
+            "low": {
+              "condition": "open",
+              "surface": {
+                "type": "plane",
+                "gradient": [
+                  0.0,
+                  0.0
+                ]
+              }
+            },
+            "high": {
+              "condition": "open",
+              "surface": {
+                "type": "plane",
+                "gradient": [
+                  0.0,
+                  0.0
+                ]
+              }
+            }
+          }
+        },
+        "classification": {
+          "feature_kind": "channel",
+          "section_shape": "rectangular"
+        },
+        "evidence": {
+          "defining_faces": [
+            167,
+            168
+          ],
+          "constituent_faces": [
+            167,
+            168,
+            169
+          ]
+        }
+      },
+      "faces": [
+        167,
+        168
+      ]
+    },
+    {
+      "id": "hole_patterns.linear:138.140.142.144.146.147.148.149",
+      "family": "hole_patterns",
+      "record": {
+        "holes": [
+          {
+            "axis": [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            "location": [
+              -52.0,
+              23.0,
+              37.5
+            ],
+            "diameter": 7.0,
+            "depth": 55.0,
+            "bottom": "through",
+            "cbore": {
+              "diameter": 10.0,
+              "depth": 10.0
+            },
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            "location": [
+              -30.0,
+              23.0,
+              37.5
+            ],
+            "diameter": 7.0,
+            "depth": 55.0,
+            "bottom": "through",
+            "cbore": {
+              "diameter": 10.0,
+              "depth": 10.0
+            },
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            "location": [
+              -8.0,
+              23.0,
+              37.5
+            ],
+            "diameter": 7.0,
+            "depth": 55.0,
+            "bottom": "through",
+            "cbore": {
+              "diameter": 10.0,
+              "depth": 10.0
+            },
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            "location": [
+              14.0,
+              23.0,
+              37.5
+            ],
+            "diameter": 7.0,
+            "depth": 55.0,
+            "bottom": "through",
+            "cbore": {
+              "diameter": 10.0,
+              "depth": 10.0
+            },
+            "spotface": null,
+            "csink": null
+          }
+        ],
+        "pitch": 22.0,
+        "direction": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "kind": "linear"
+      },
+      "faces": [
+        138,
+        140,
+        142,
+        144,
+        146,
+        147,
+        148,
+        149
+      ],
+      "members": [
+        "holes:140.147",
+        "holes:138.148",
+        "holes:142.146",
+        "holes:144.149"
+      ]
+    },
+    {
+      "id": "hole_patterns.grid:0.1.2.3.4.5.6.7",
+      "family": "hole_patterns",
+      "record": {
+        "holes": [
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              -8.0,
+              19.730825792,
+              15.5
+            ],
+            "diameter": 2.5,
+            "depth": 2.73,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              -52.0,
+              19.730825792,
+              15.5
+            ],
+            "diameter": 2.5,
+            "depth": 2.73,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              -8.0,
+              19.730825792,
+              -15.5
+            ],
+            "diameter": 2.5,
+            "depth": 2.73,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              -52.0,
+              19.730825792,
+              -15.5
+            ],
+            "diameter": 2.5,
+            "depth": 2.73,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              -30.0,
+              19.730825792,
+              -15.5
+            ],
+            "diameter": 2.5,
+            "depth": 2.73,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              14.0,
+              19.730825792,
+              -15.5
+            ],
+            "diameter": 2.5,
+            "depth": 2.73,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              -30.0,
+              19.730825792,
+              15.5
+            ],
+            "diameter": 2.5,
+            "depth": 2.73,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              14.0,
+              19.730825792,
+              15.5
+            ],
+            "diameter": 2.5,
+            "depth": 2.73,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          }
+        ],
+        "rows": 2,
+        "cols": 4,
+        "row_pitch": 31.0,
+        "col_pitch": 22.0,
+        "angle": 90.0,
+        "center": [
+          -19.0,
+          19.730825792,
+          0.0
+        ],
+        "kind": "grid"
+      },
+      "faces": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "members": [
+        "holes:0",
+        "holes:1",
+        "holes:2",
+        "holes:3",
+        "holes:4",
+        "holes:5",
+        "holes:6",
+        "holes:7"
+      ]
+    },
+    {
+      "id": "hole_patterns.rectangle:115.116.118.119.121.122.124.125",
+      "family": "hole_patterns",
+      "record": {
+        "holes": [
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              -70.0,
+              8.0,
+              -28.5
+            ],
+            "diameter": 6.0,
+            "depth": 6.0,
+            "bottom": "through",
+            "cbore": {
+              "diameter": 10.0,
+              "depth": 2.0
+            },
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              -70.0,
+              8.0,
+              28.5
+            ],
+            "diameter": 6.0,
+            "depth": 6.0,
+            "bottom": "through",
+            "cbore": {
+              "diameter": 10.0,
+              "depth": 2.0
+            },
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              70.0,
+              8.0,
+              28.5
+            ],
+            "diameter": 6.0,
+            "depth": 6.0,
+            "bottom": "through",
+            "cbore": {
+              "diameter": 10.0,
+              "depth": 2.0
+            },
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              70.0,
+              8.0,
+              -28.5
+            ],
+            "diameter": 6.0,
+            "depth": 6.0,
+            "bottom": "through",
+            "cbore": {
+              "diameter": 10.0,
+              "depth": 2.0
+            },
+            "spotface": null,
+            "csink": null
+          }
+        ],
+        "center": [
+          0.0,
+          8.0,
+          0.0
+        ],
+        "width": 140.0,
+        "height": 57.0,
+        "angle": 90.0,
+        "kind": "rectangle"
+      },
+      "faces": [
+        115,
+        116,
+        118,
+        119,
+        121,
+        122,
+        124,
+        125
+      ],
+      "members": [
+        "holes:115.116",
+        "holes:124.125",
+        "holes:118.119",
+        "holes:121.122"
+      ]
+    },
+    {
+      "id": "hole_patterns.linear:178.179.180",
+      "family": "hole_patterns",
+      "record": {
+        "holes": [
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              54.5,
+              31.0,
+              23.5
+            ],
+            "diameter": 3.5,
+            "depth": 10.88,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              47.5,
+              31.0,
+              23.5
+            ],
+            "diameter": 3.5,
+            "depth": 10.88,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              40.5,
+              31.0,
+              23.5
+            ],
+            "diameter": 3.5,
+            "depth": 10.88,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          }
+        ],
+        "pitch": 7.0,
+        "direction": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "kind": "linear"
+      },
+      "faces": [
+        178,
+        179,
+        180
+      ],
+      "members": [
+        "holes:180",
+        "holes:178",
+        "holes:179"
+      ]
+    },
+    {
+      "id": "hole_patterns.linear:200.201.202",
+      "family": "hole_patterns",
+      "record": {
+        "holes": [
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              55.5,
+              27.0,
+              -25.0
+            ],
+            "diameter": 3.5,
+            "depth": 9.88,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              44.5,
+              27.0,
+              -25.0
+            ],
+            "diameter": 3.5,
+            "depth": 9.88,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              33.5,
+              27.0,
+              -25.0
+            ],
+            "diameter": 3.5,
+            "depth": 9.88,
+            "bottom": "through",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          }
+        ],
+        "pitch": 11.0,
+        "direction": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "kind": "linear"
+      },
+      "faces": [
+        200,
+        201,
+        202
+      ],
+      "members": [
+        "holes:202",
+        "holes:200",
+        "holes:201"
+      ]
+    },
+    {
+      "id": "hole_patterns.linear:189.191.193",
+      "family": "hole_patterns",
+      "record": {
+        "holes": [
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              53.9,
+              27.0,
+              -30.0
+            ],
+            "diameter": 2.459,
+            "depth": 12.0,
+            "bottom": "drill_point",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              42.9,
+              27.0,
+              -30.0
+            ],
+            "diameter": 2.459,
+            "depth": 12.0,
+            "bottom": "drill_point",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              31.9,
+              27.0,
+              -30.0
+            ],
+            "diameter": 2.459,
+            "depth": 12.0,
+            "bottom": "drill_point",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          }
+        ],
+        "pitch": 11.0,
+        "direction": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "kind": "linear"
+      },
+      "faces": [
+        189,
+        191,
+        193
+      ],
+      "members": [
+        "holes:189",
+        "holes:191",
+        "holes:193"
+      ]
+    },
+    {
+      "id": "hole_patterns.linear:195.197.199",
+      "family": "hole_patterns",
+      "record": {
+        "holes": [
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              35.1,
+              27.0,
+              -20.0
+            ],
+            "diameter": 2.459,
+            "depth": 12.0,
+            "bottom": "drill_point",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              46.1,
+              27.0,
+              -20.0
+            ],
+            "diameter": 2.459,
+            "depth": 12.0,
+            "bottom": "drill_point",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          },
+          {
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "location": [
+              57.1,
+              27.0,
+              -20.0
+            ],
+            "diameter": 2.459,
+            "depth": 12.0,
+            "bottom": "drill_point",
+            "cbore": null,
+            "spotface": null,
+            "csink": null
+          }
+        ],
+        "pitch": 11.0,
+        "direction": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "kind": "linear"
+      },
+      "faces": [
+        195,
+        197,
+        199
+      ],
+      "members": [
+        "holes:195",
+        "holes:197",
+        "holes:199"
+      ]
+    }
+  ],
+  "answers": {
+    "part.material": "steel",
+    "part.general_tolerance": "ISO 2768-m",
+    "part.surface_finish": "Ra 3.2",
+    "part.coating": "None (as machined)",
+    "part.heat_treatment": "None",
+    "part.edges": "Break sharp edges 0.2 max",
+    "part.notes": [],
+    "part.locating": "position tolerances",
+    "hole.function:holes:175": "clearance:M5",
+    "hole.position:holes:175": "0.5",
+    "hole.function:holes:177": "clearance:M5",
+    "hole.position:holes:177": "0.5",
+    "hole.function:hole_patterns.linear:138.140.142.144.146.147.148.149": "clearance:M6",
+    "hole.position:hole_patterns.linear:138.140.142.144.146.147.148.149": "1",
+    "hole.function:hole_patterns.grid:0.1.2.3.4.5.6.7": "clearance:M2",
+    "hole.position:hole_patterns.grid:0.1.2.3.4.5.6.7": "0.5",
+    "hole.function:hole_patterns.rectangle:115.116.118.119.121.122.124.125": "general",
+    "hole.function:hole_patterns.linear:178.179.180": "clearance:M3",
+    "hole.position:hole_patterns.linear:178.179.180": "0.5",
+    "hole.function:hole_patterns.linear:200.201.202": "clearance:M3",
+    "hole.position:hole_patterns.linear:200.201.202": "0.5",
+    "hole.function:hole_patterns.linear:189.191.193": "clearance:M2",
+    "hole.position:hole_patterns.linear:189.191.193": "0.46",
+    "datum.A": [
+      172
+    ],
+    "datum.B": [
+      213
+    ],
+    "datum.C": [
+      113
+    ],
+    "datum.A.flatness": "none",
+    "datum.B.control": "none",
+    "datum.C.control": "none"
+  }
+}
