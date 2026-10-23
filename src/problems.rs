@@ -35,6 +35,16 @@ pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Va
     let faces = &ctx.faces;
     let asked: HashSet<&str> = qs.iter().map(|q| q.id.as_str()).collect();
     let mut out = awaiting_datum_frames(&ctx, answers, &intent)?;
+    if let Some(why) = analysis["resume"]["unverified"].as_str() {
+        let mut diagnostic = problem(
+            "warning",
+            format!("Saved answers: {why}; review the open questions."),
+            Value::Array(vec![]),
+            "",
+        );
+        diagnostic["code"] = Value::from("saved_answers_unverified");
+        out.push(diagnostic);
+    }
     for saved in analysis["resume"]["unresolved"]
         .as_array()
         .into_iter()

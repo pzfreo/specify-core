@@ -74,13 +74,70 @@ mod wasm {
             self.0.snapshot().to_string()
         }
 
+        /// `project` is the editor's base64 project; `payload` is `{name, value}` JSON. At most one.
         #[wasm_bindgen(js_name = writePmi)]
-        pub fn write_pmi(&self, answers: &str, project: Option<String>) -> Result<String, JsValue> {
+        pub fn write_pmi(
+            &self,
+            answers: &str,
+            project: Option<String>,
+            payload: Option<String>,
+        ) -> Result<String, JsValue> {
             let answers = self::answers(answers)?;
+            let payload = payload
+                .as_deref()
+                .map(|text| json("Payload", text))
+                .transpose()?;
             self.0
-                .write_pmi(&answers, project.as_deref())
+                .write_pmi(&answers, project.as_deref(), payload.as_ref())
                 .map(|value| value.to_string())
                 .map_err(|error| JsValue::from_str(&error))
+        }
+
+        /// `{schema, face_count, faces}`: keep it with answers saved outside the STEP.
+        pub fn evidence(&self) -> Result<String, JsValue> {
+            self.0
+                .evidence()
+                .map(|value| value.to_string())
+                .map_err(|error| JsValue::from_str(&error))
+        }
+
+        /// Saved answers matched to this part: `{answers, unresolved?, migrated?, unverified?,
+        /// automatic?}`. `evidence` is what `evidence()` gave when they were saved; `automatic`
+        /// a JSON list of the IDs the default path answered.
+        #[wasm_bindgen(js_name = rematchAnswers)]
+        pub fn rematch_answers(
+            &self,
+            answers: &str,
+            evidence: Option<String>,
+            automatic: Option<String>,
+        ) -> Result<String, JsValue> {
+            let answers = self::answers(answers)?;
+            let evidence = evidence
+                .as_deref()
+                .map(|text| json("Evidence", text))
+                .transpose()?;
+            let automatic: Option<Vec<String>> = automatic
+                .as_deref()
+                .map(|text| {
+                    serde_json::from_value(json("Automatic", text)?)
+                        .map_err(|error| JsValue::from_str(&format!("Invalid automatic: {error}")))
+                })
+                .transpose()?;
+            self.0
+                .rematch_answers(&answers, evidence.as_ref(), automatic.as_deref())
+                .map(|value| value.to_string())
+                .map_err(|error| JsValue::from_str(&error))
+        }
+
+        /// The JSON payload `name` the opened STEP carries, if any.
+        pub fn payload(&self, name: &str) -> Result<Option<String>, JsValue> {
+            limit("Payload name", name, input::TEXT_LIMIT)?;
+            Ok(self.0.payload(name).map(|value| value.to_string()))
+        }
+
+        /// The part the opened STEP was first written from, if it records it.
+        pub fn original(&self) -> Option<Vec<u8>> {
+            self.0.original()
         }
         /// The review settled to the default path, and the settled `{answers, auto, gdt}`.
         pub fn settle(&self, state: &str) -> Result<String, JsValue> {
@@ -150,6 +207,12 @@ mod wasm {
         // Saved auto IDs may be stale or repeated; core transforms handle them safely.
         input::answers_shape(&state.answers).map_err(js_error)?;
         Ok(state)
+    }
+    fn json(field: &'static str, text: &str) -> Result<Value, JsValue> {
+        limit(field, text, input::JSON_LIMIT)?;
+        serde_json::from_str(text).map_err(|error| {
+            JsValue::from_str(&format!("Invalid {}: {error}", field.to_lowercase()))
+        })
     }
     fn answers(json: &str) -> Result<Map<String, Value>, JsValue> {
         limit("Answers", json, input::JSON_LIMIT)?;

@@ -34,7 +34,7 @@ fn text_answers_keep_core_truthiness_and_json_values() {
             );
             let intent = api::preview(&analysis, &answers).unwrap();
             let (bytes, report) = writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
-            let written = session.write_pmi(&answers, None).unwrap();
+            let written = session.write_pmi(&answers, None, None).unwrap();
             assert_eq!(written["bytes"], json!(bytes));
             assert_eq!(written["report"], report.to_dict());
         }

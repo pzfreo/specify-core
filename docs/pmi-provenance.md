@@ -23,7 +23,7 @@ Slots below are zero-based Part 21 attribute positions.
 | Knurl | Inherited `CHARACTERIZED_OBJECT.name` = token (`TURNED_KNURL` slot 0); description retains the pattern | `provenance.parts[p].knurls[i]` + raw root slot |
 | General tolerance | D(its `PROPERTY_DEFINITION_REPRESENTATION`, whose slot 0 references `PROPERTY_DEFINITION('default tolerances', '', ...)`) | `provenance.parts[p].general[i]` + raw Document / inverse references |
 | Face / default surface finish (texture) | D(its root `PROPERTY_DEFINITION_REPRESENTATION`, whose slot 0 references `PROPERTY_DEFINITION('surface texture', '', ...)`) | `provenance.parts[p].surface_textures[i]` + raw Document / inverse references |
-| Part notes, coating, heat treatment, edges; thread manufacturing; caller UDAs; stored answers | D(each set's `PROPERTY_DEFINITION_REPRESENTATION`, whose slot 0 references that set's `PROPERTY_DEFINITION`) | `provenance.parts[p].attributes[i]` + raw Document / inverse references |
+| Part notes, coating, heat treatment, edges; thread manufacturing; caller UDAs (including carried payloads and the `specify-core original` record); stored answers | D(each set's `PROPERTY_DEFINITION_REPRESENTATION`, whose slot 0 references that set's `PROPERTY_DEFINITION`) | `provenance.parts[p].attributes[i]` + raw Document / inverse references |
 | Material | D(its `PROPERTY_DEFINITION_REPRESENTATION`, whose slot 0 references `PROPERTY_DEFINITION('material property', 'material name', ...)`) | `provenance.parts[p].material` (one ID list) + raw Document / inverse references |
 | New ordinary feature / datum feature | Empty inherited `SHAPE_ASPECT.description` becomes the token (slot 1) | `provenance.parts[p].features[i]` + raw root slot |
 

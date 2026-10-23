@@ -234,6 +234,9 @@ fn analyse_with(
             // the file's to keep, and the answers come back to be edited.
             analysis.insert("existing".into(), json!([]));
             analysis.insert("part".into(), json!({}));
+            if let Some(why) = &resumed.unverified {
+                warnings.push(format!("saved answers: {why}"));
+            }
             for unresolved in &resumed.unresolved {
                 warnings.push(format!(
                     "saved answer {}: {}; left open",

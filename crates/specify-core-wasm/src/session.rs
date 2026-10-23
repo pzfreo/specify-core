@@ -3,9 +3,10 @@ use haecceity::step;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use specify_core::{
-    api,
+    api, carried,
+    features::Feature,
     part::{Binding, LOADER_VERSION, LoadedPart},
-    tolerancing,
+    resume, tolerancing,
 };
 use std::{path::PathBuf, sync::Arc};
 
@@ -79,20 +80,58 @@ impl Session {
             "provenance": {"source_sha256": self.loaded.binding.source_sha256, "face_entities": self.loaded.definition.faces, "part": 0}})
     }
 
+    /// Write and verify the answered PMI, with the answers stored. `project` is the editor's
+    /// project already in base64 (stored as `draftwright editor project`); `payload` is any
+    /// application's `{name, value}`, stored as base64 JSON under `name` (`carried`). Either
+    /// also records the original part, which [`Session::original`] gives back.
     pub fn write_pmi(
         &self,
         answers: &Map<String, Value>,
         project: Option<&str>,
+        payload: Option<&Value>,
     ) -> Result<Value, String> {
         input::answers(&self.analysis, answers).map_err(|e| e.to_string())?;
         let intent = api::preview(&self.analysis, answers).map_err(|error| error.to_string())?;
-        let extra = project_attribute(project)?;
+        let extra = carried_attributes(&self.loaded.bytes, project, payload)?;
         let (bytes, report) =
             specify_core::writer::write_bytes_with(&self.loaded, &intent, Some(answers), &extra)
                 .map_err(|error| error.to_string())?;
         Ok(
             json!({"bytes": bytes, "source_sha256": self.loaded.binding.source_sha256, "report": report.to_dict()}),
         )
+    }
+
+    /// The face evidence to keep with answers held outside the STEP, for
+    /// [`Session::rematch_answers`]: `{schema, face_count, faces}` (`resume::evidence`).
+    pub fn evidence(&self) -> Result<Value, String> {
+        resume::evidence(&self.loaded).map_err(|error| error.to_string())
+    }
+
+    /// Answers held outside the STEP matched to this part's features (`resume::rematch_answers`):
+    /// `{answers, unresolved?, migrated?, unverified?, automatic?}`. Does not change the session.
+    pub fn rematch_answers(
+        &self,
+        answers: &Map<String, Value>,
+        evidence: Option<&Value>,
+        automatic: Option<&[String]>,
+    ) -> Result<Value, String> {
+        let features: Vec<Feature> = serde_json::from_value(self.analysis["features"].clone())
+            .map_err(|error| error.to_string())?;
+        let resumed =
+            resume::rematch_answers(&self.loaded, &features, answers, evidence, automatic)
+                .map_err(|error| error.to_string())?;
+        serde_json::to_value(resumed).map_err(|error| error.to_string())
+    }
+
+    /// The payload `name` the opened STEP carries, if any (`carried::payload`).
+    pub fn payload(&self, name: &str) -> Option<Value> {
+        carried::payload(&self.loaded.bytes, name)
+    }
+
+    /// The part the opened STEP was first written from, if it records it and the bytes
+    /// verify (`carried::original`).
+    pub fn original(&self) -> Option<Vec<u8>> {
+        carried::original(&self.loaded.bytes)
     }
 
     /// Return ordinary editable answers, preserving supplied values and leaving questions
@@ -145,29 +184,29 @@ impl Session {
     }
 }
 
-/// Match the editor's alphabet check and part-owned attribute exactly.
-fn project_attribute(project: Option<&str>) -> Result<Vec<haecceity::pmi::AttributeSet>, String> {
-    use haecceity::pmi::{AttributeSet, AttributeValue};
-    const NAME: &str = "draftwright editor project";
+/// The editor's base64 `project`, or an application's `{name, value}` `payload`, as the
+/// attributes the writer adds; at most one of them.
+fn carried_attributes(
+    source: &[u8],
+    project: Option<&str>,
+    payload: Option<&Value>,
+) -> Result<Vec<haecceity::pmi::AttributeSet>, String> {
+    const PROJECT: &str = "draftwright editor project";
     if let Some(text) = project {
         input::size("Project", text.len(), input::JSON_LIMIT).map_err(|e| e.to_string())?;
     }
-    match project {
-        Some(text)
-            if text.is_empty()
-                || !text
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"+/=".contains(&b)) =>
-        {
-            Err("the project to store is not base64".into())
+    match (project, payload) {
+        (Some(_), Some(_)) => Err("give a project or a payload, not both".into()),
+        (Some(text), None) => carried::attributes_encoded(source, PROJECT, text)
+            .map_err(|_| "the project to store is not base64".to_string()),
+        (None, Some(payload)) => {
+            let (Some(name), Some(value)) = (payload["name"].as_str(), payload.get("value")) else {
+                return Err("Invalid payload: expected {name, value}".into());
+            };
+            input::size("Payload name", name.len(), input::TEXT_LIMIT)
+                .map_err(|e| e.to_string())?;
+            carried::attributes(source, name, value).map_err(|e| e.to_string())
         }
-        Some(text) => Ok(vec![AttributeSet {
-            name: NAME.into(),
-            on: None,
-            items: vec![(NAME.into(), AttributeValue::Text(text.into()))],
-            description: None,
-            general_property: None,
-        }]),
-        None => Ok(vec![]),
+        (None, None) => Ok(vec![]),
     }
 }
