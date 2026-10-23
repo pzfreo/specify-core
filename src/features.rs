@@ -341,28 +341,23 @@ fn framed_record(
     n: usize,
     mut record: Map<String, Value>,
 ) -> Result<Map<String, Value>, FeatureError> {
-    let local = recognition.local.get(&format!("{family}/{n}"));
-    if let Some(local) = local {
-        record.insert("_local".into(), serde_json::json!(local));
-        record.insert(
-            "_frame".into(),
-            serde_json::to_value(&recognition.frame).map_err(|e| FeatureError::Records {
+    let Some(local) = recognition.local.get(&format!("{family}/{n}")) else {
+        return Ok(record);
+    };
+    record.insert("_local".into(), serde_json::json!(local));
+    record.insert(
+        "_frame".into(),
+        serde_json::to_value(&recognition.frame).map_err(|e| FeatureError::Records {
+            family: family.into(),
+            reason: e.to_string(),
+        })?,
+    );
+    if matches!(family, "slots" | "channels") && local.iter().any(|p| p == "long_axis") {
+        let quiddity::frames::RecordFrame::Inferred(frame) = &recognition.frame else {
+            return Err(FeatureError::Records {
                 family: family.into(),
-                reason: e.to_string(),
-            })?,
-        );
-    }
-    if matches!(family, "slots" | "channels") {
-        let frame = if local.is_some_and(|fields| fields.iter().any(|p| p == "long_axis")) {
-            let quiddity::frames::RecordFrame::Inferred(frame) = &recognition.frame else {
-                return Err(FeatureError::Records {
-                    family: family.into(),
-                    reason: "local end planes without an inferred frame".into(),
-                });
-            };
-            Some(frame)
-        } else {
-            None
+                reason: "local end planes without an inferred frame".into(),
+            });
         };
         let axis = match record.get("long_axis").and_then(Value::as_str) {
             Some("x") => 0,
@@ -371,27 +366,25 @@ fn framed_record(
             _ => {
                 return Err(FeatureError::Records {
                     family: family.into(),
-                    reason: "invalid long_axis".into(),
+                    reason: "invalid local long_axis".into(),
                 });
             }
         };
         let (lo, hi) = if family == "slots" {
             let slot = &recognition.features.slots[n];
-            (*slot.lo.raw(), *slot.hi.raw())
+            (*slot.lo, *slot.hi)
         } else {
             let channel = &recognition.features.channels[n];
-            (*channel.lo.raw(), *channel.hi.raw())
+            (*channel.lo, *channel.hi)
         };
-        // Datum eligibility needs the actual supporting planes, not their rounded nominal
-        // coordinates. Carry Placed's geometric source through the frame, leaving its public
-        // lo/hi untouched on their grid (#69/#79). No snapping or epsilon frame is used here.
-        let direction = std::array::from_fn::<_, 3, _>(|i| if i == axis { 1.0 } else { 0.0 });
-        let point = |level| {
-            let p = std::array::from_fn(|i| if i == axis { level } else { 0.0 });
-            frame.map_or(p, |frame| frame.to_world(p))
-        };
-        let direction = frame.map_or(direction, |frame| [frame.x, frame.y, frame.z][axis]);
-        record.insert("end_direction".into(), serde_json::json!(direction));
+        // Use published end coordinates in both branches of the datum check. Fields left
+        // local by the public API need this frame; aligned records already name file axes.
+        let point =
+            |level| frame.to_world(std::array::from_fn(|i| if i == axis { level } else { 0.0 }));
+        record.insert(
+            "end_direction".into(),
+            serde_json::json!([frame.x, frame.y, frame.z][axis]),
+        );
         record.insert("end_lo".into(), serde_json::json!(point(lo)));
         record.insert("end_hi".into(), serde_json::json!(point(hi)));
     }

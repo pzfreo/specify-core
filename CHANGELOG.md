@@ -26,13 +26,16 @@ All notable changes to specify-core-rust. The format follows
 - Read framed recognition correctly: file-space vectors/positions stay in file space,
   local slot/channel end planes are projected through the inferred frame, and remaining
   local record coordinates carry explicit frame metadata. Equal-area datum proposals
-  keep face order across rigid motion below a square-micron area grid.
+  keep face order across rigid motion within max(1e-6 mm², 1e-6 times the larger area).
+  Aligned and framed slot/channel end-plane checks use the same published precision.
 - Migrate saved feature answers by unique same-family geometric face support after
   validating the legacy ordered face fingerprint. Unmatched, ambiguous or colliding
   answers retain their old ID/value/reason in `analysis.resume.unresolved` and appear in
   the existing review warnings; affected questions stay open. **Editor upgrading note:**
   review these warnings and answer the open questions before saving; recover old values
-  from the resume report. Alpha.6 STEP files and unchanged schema-2 payload bytes remain
+  from the resume report: unresolved old values are not persisted when saving again.
+  Files whose geometry no longer matches open as foreign files, retaining existing PMI
+  and part settings. Alpha.6 STEP files and unchanged schema-2 payload bytes remain
   supported. See `docs/design.md`, "Saved answers across kernel upgrades".
 - Adapt PMI to the v0.1.x model and step-io 0.3 decoded strings; keep stored answers,
   literal note text and the STEP-only provenance token round-tripping.

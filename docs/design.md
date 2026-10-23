@@ -225,8 +225,12 @@ the same compact JSON/base64 bytes.
 
 Compatibility inputs in `tests/fixtures/resume-alpha6` were written and committed with
 the alpha.6/alpha.8 build before the dependency bump: five files, 87 accepted answers,
-including a genuinely rotated/translated plate and two parts whose feature IDs change.
-They cover literal Unicode, quotes and STEP-escape-looking backslashes too.
+including a genuinely rotated/translated plate. Those 87 answers retain their IDs.
+Two additional fixtures were written from the exact alpha.6 tag: FTC-10 keeps all
+29 answers (27 exact, two migrated to an expanded linear pattern); CTC-02 keeps 32
+of 34 answers and reports two unmatched linear-pattern answers. FTC-10 also opens
+two newly recognised-pattern questions, without accepting their defaults. The original
+fixtures cover literal Unicode, quotes and STEP-escape-looking backslashes too.
 
 ### Recognition coordinates at the Specify boundary
 
@@ -235,17 +239,16 @@ coordinates. `features::recognise` keeps that mapping and labels any remaining l
 axis-letter fields as `record._local` plus `record._frame`. They must never be interpreted
 as file-axis coordinates. For slots/channels, the consumed `long_axis` and `lo`/`hi`
 end planes gain file-space `end_direction`, `end_lo` and `end_hi`. Datum exclusion
-compares source face centroids against those planes. Their precise geometric source
-comes from `Placed::raw`, carried through the inferred frame; the public `lo`/`hi`
-values remain on their kernel grid. This compares actual supporting planes rather
-than confusing rounded nominal coordinates with the source planes. For turned thread length,
+compares source face centroids against those planes. Both aligned and framed checks
+use published end coordinates and a 0.001-mm distance tolerance. The interim use of
+`Placed::raw` has been removed; no second position representation is needed. For turned thread length,
 `hi - lo` is an invariant scalar, so no coordinate conversion is needed. Other local
 extents/planes are retained with metadata but are not consumed by Specify.
 
 The v0.1.1 kernel owns one-time file-grid publication and near-axis handling (#79,
 fixing #69/#70/#71). Specify does not re-round or snap published record positions,
 and does not infer an epsilon frame. The earlier origin-plus-rounded-end comparison
-was replaced by the actual end-plane mapping above; no approximation for off-grid
+uses the published end-plane mapping above; no approximation for off-grid
 positions or nearly aligned record axes remains. `Placed` serialises as the published
 value, so Specify's JSON boundary needs no wrapper-specific decoding. Native callers
 reading a typed position use `*position` for a plain vector.
@@ -256,12 +259,13 @@ same mapped values; turned detection/datum planes use `describe_faces` (file-spa
 kernel surfaces), with slot end planes handled above. Anchors and sightlines inspect
 the original kernel part directly; mates likewise use original surfaces, not records.
 Writer placement uses source faces/surfaces and requirement dimensions, never raw local
-record fields. Split/symmetric datum faces tied below 1e-6 mm² keep face order so
+record fields. Split/symmetric datum faces within max(1e-6 mm², 1e-6 times the larger area) keep face order so
 integration noise under motion does not switch the proposed datum. The moved named-part
 tests compare questions/defaults, location dimensions, geometry and verified PMI writes.
 Local checks for this upgrade use `cargo nextest run --workspace --release --locked
---profile quiddity-upgrade`; the named profile selects the touched binaries, cross-engine,
-resume/answers and WASM session tests, with six test processes. Export both corpus paths
+-E <explicit filter> --test-threads 6 --no-fail-fast`; the expression selects touched
+binaries, cross-engine, resume/answers and WASM session tests. No repository nextest
+profile changes the default selection. Export both corpus paths
 and `QUIDDITY_CORPUS_REQUIRED=1`. The full workspace suite remains CI's check.
 
 Part-21 strings are decoded text in step-io 0.3 (#62): do not decode an attribute twice;

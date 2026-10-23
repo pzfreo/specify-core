@@ -456,3 +456,72 @@ fn unresolved_saved_answers_reach_review_and_leave_questions_open() {
         );
     }
 }
+
+#[test]
+fn real_alpha6_ctc02_answers_exercise_changed_ids_and_explicit_refusals() {
+    let base: Value =
+        serde_json::from_slice(&std::fs::read(fixture("resume-alpha6/ctc02-reid.json")).unwrap())
+            .unwrap();
+    assert_eq!(base["answers"].as_object().unwrap().len(), 34);
+    let loaded = part::load(&fixture("resume-alpha6/ctc02-reid.step.gz"), Some(0)).unwrap();
+    let (analysis, warnings) = api::analyse_reporting(&loaded).unwrap();
+    let resumed = &analysis["resume"];
+
+    assert_eq!(resumed["answers"].as_object().unwrap().len(), 32);
+    assert!(resumed["migrated"].is_null());
+    assert_eq!(resumed["unresolved"].as_array().unwrap().len(), 2);
+    assert_eq!(warnings.len(), 2);
+    for unresolved in resumed["unresolved"].as_array().unwrap() {
+        assert!(
+            unresolved["id"]
+                .as_str()
+                .unwrap()
+                .contains("hole_patterns.linear:462.463.466.467.502.503")
+        );
+        assert_eq!(
+            unresolved["answer"],
+            base["answers"][unresolved["id"].as_str().unwrap()]
+        );
+        assert!(
+            unresolved["reason"]
+                .as_str()
+                .unwrap()
+                .contains("no same-family")
+        );
+    }
+}
+
+#[test]
+fn real_alpha6_ftc10_answers_migrate_to_larger_geometric_supports() {
+    let base: Value =
+        serde_json::from_slice(&std::fs::read(fixture("resume-alpha6/ftc10-reid.json")).unwrap())
+            .unwrap();
+    assert_eq!(base["answers"].as_object().unwrap().len(), 29);
+    let loaded = part::load(&fixture("resume-alpha6/ftc10-reid.step.gz"), Some(0)).unwrap();
+    let (analysis, warnings) = api::analyse_reporting(&loaded).unwrap();
+    let resumed = &analysis["resume"];
+    assert!(warnings.is_empty());
+    assert_eq!(resumed["answers"].as_object().unwrap().len(), 29);
+    assert_eq!(resumed["migrated"].as_array().unwrap().len(), 2);
+    assert!(resumed["unresolved"].is_null());
+    for pair in resumed["migrated"].as_array().unwrap() {
+        let old = pair[0].as_str().unwrap();
+        let new = pair[1].as_str().unwrap();
+        assert!(old.contains("hole_patterns.linear:138.140.142.144.146.147.148.149"));
+        assert!(
+            new.contains("hole_patterns.linear:130.132.134.136.138.140.142.144.146.147.148.149")
+        );
+        assert_eq!(resumed["answers"][new], base["answers"][old]);
+    }
+    let review = api::review(&analysis, resumed["answers"].as_object().unwrap()).unwrap();
+    assert_eq!(
+        review["open"],
+        json!([
+            "hole.function:hole_patterns.linear:195.197.199",
+            "hole.position:hole_patterns.linear:195.197.199"
+        ])
+    );
+    for pair in resumed["migrated"].as_array().unwrap() {
+        assert!(!review["open"].as_array().unwrap().contains(&pair[1]));
+    }
+}
