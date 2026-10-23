@@ -11,7 +11,7 @@ meshing input and PMI reading and writing from its haecceity kernel.
 
 ## Status
 
-**0.1.0-alpha.6 (2026-10-20)**; see [CHANGELOG.md](CHANGELOG.md).
+**0.1.0-alpha.7 (2026-10-23)**; see [CHANGELOG.md](CHANGELOG.md).
 
 Every module of specify-core is ported (part loading, features, existing PMI, the rules,
 mates, meshing, anchors, the writer with resume and assemblies, the API, the command line and

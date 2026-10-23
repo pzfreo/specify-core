@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.0-alpha.7 (2026-10-23)
+
 ### Added
 
 - For #22, STEP-only provenance on every Specify-written semantic PMI requirement, using
@@ -37,6 +39,11 @@ All notable changes to specify-core-rust. The format follows
   Files whose geometry no longer matches open as foreign files, retaining existing PMI
   and part settings. Alpha.6 STEP files and unchanged schema-2 payload bytes remain
   supported. See `docs/design.md`, "Saved answers across kernel upgrades".
+- **Fewer features on four parts.** Under quiddity v0.1.x, 44 features that alpha.6 recognised are not
+  recognised and their faces are unexplained in quiddity's face accounting (no named refusal): 24 fillets
+  on cgb202, 18 on the NIST CTC-02 AP242 file, one on cgb207 and an oriented chamfer on mfcadpp/10252.
+  Their questions no longer appear. They are recorded as `undetermined` in the known differences
+  pending a quiddity fix.
 - Adapt PMI to the v0.1.x model and step-io 0.3 decoded strings; keep stored answers,
   literal note text and the STEP-only provenance token round-tripping.
 
