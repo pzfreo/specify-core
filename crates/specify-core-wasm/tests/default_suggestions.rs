@@ -3,7 +3,52 @@ use serde_json::{Map, Value, json};
 use specify_core_wasm::session::Session;
 
 #[test]
-fn full_thread_edit_is_open_until_accepted_and_survives_a_session_write() {
+fn alpha7_answered_tap_keeps_computed_depth_in_write_pmi_and_resave() {
+    use haecceity::{p21::Document, pmi, step::read_part_definitions};
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+    let baseline =
+        specify_core::part::load(&root.join("thread-depth-alpha7.step.gz"), None).unwrap();
+    let saved = Session::open("shaft.step", &baseline.bytes).unwrap();
+    let given = saved.snapshot()["analysis"]["resume"]["answers"]
+        .as_object()
+        .unwrap()
+        .clone();
+    for bytes in [
+        std::fs::read(root.join("parts/GRM-02_shaft.step")).unwrap(),
+        baseline.bytes.to_vec(),
+    ] {
+        let session = Session::open("shaft.step", &bytes).unwrap();
+        let review = session.review(&given).unwrap();
+        let q = review["questions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|q| q["id"].as_str().unwrap().starts_with("hole.full_thread:"))
+            .unwrap();
+        assert_eq!(q["attention"], "refine");
+        assert!(!review["open"].as_array().unwrap().contains(&q["id"]));
+        assert!(!given.contains_key(q["id"].as_str().unwrap()));
+        assert_eq!(
+            review["intent"]["requirements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["kind"] == "thread")
+                .unwrap()["full_thread"],
+            2.0
+        );
+        let out = session.write_pmi(&given, None).unwrap();
+        let bytes: Vec<u8> = serde_json::from_value(out["bytes"].clone()).unwrap();
+        let defs = read_part_definitions(&bytes).unwrap();
+        let doc = Document::parse(bytes).unwrap();
+        let read = pmi::read(&doc, &defs).unwrap();
+        assert_eq!(read.parts[0].threads.len(), 1);
+        assert!(read.parts[0].attributes.iter().flat_map(|a| &a.items).any(|(n,v)| n == "minimum full thread" && matches!(v, pmi::AttributeValue::Measure(m) if matches!(&m.quantity, pmi::Quantity::Length(l) if l.mm() == 2.0))));
+    }
+}
+
+#[test]
+fn full_thread_edit_is_optional_and_survives_a_session_write() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/parts/GRM-02_shaft.step");
     let session = Session::open("shaft.step", &std::fs::read(path).unwrap()).unwrap();
@@ -18,7 +63,8 @@ fn full_thread_edit_is_open_until_accepted_and_survives_a_session_write() {
     let id = q["id"].as_str().unwrap();
     assert_eq!(q["kind"], "text");
     assert_eq!(q["default"], "2");
-    assert!(review["open"].as_array().unwrap().contains(&json!(id)));
+    assert_eq!(q["attention"], "refine");
+    assert!(!review["open"].as_array().unwrap().contains(&json!(id)));
     let function = id.replace("hole.full_thread:", "hole.function:");
     let given = json!({"part.material":"steel", function.as_str():"tapped:M2", id:"1.8"})
         .as_object()

@@ -143,6 +143,43 @@ fn full_thread_depth_uses_the_existing_questions_and_answers_cli() {
     assert_eq!(reopened["resume"]["answers"][id], "1.8");
 }
 
+#[test]
+fn alpha7_tap_survives_cli_resave_without_a_depth_answer() {
+    use haecceity::{p21::Document, pmi, step::read_part_definitions};
+    let dir = scratch("alpha7-tap");
+    let loaded = specify_core::part::load(
+        &common::fixtures().join("thread-depth-alpha7.step.gz"),
+        None,
+    )
+    .unwrap();
+    let input = dir.join("alpha7.step");
+    std::fs::write(&input, loaded.bytes.as_slice()).unwrap();
+    let a = api::analyse_file(&input, None).unwrap();
+    let saved = a["resume"]["answers"].as_object().unwrap();
+    let mut given = rules::with_all_defaults(&a, saved).unwrap();
+    given.retain(|id, _| !id.starts_with("hole.full_thread:"));
+    let analysis = dir.join("analysis.json");
+    let answers = dir.join("answers.json");
+    save(&analysis, &a);
+    save(&answers, &json!(given));
+    let output = dir.join("resaved.step");
+    let ran = run(&[
+        "write",
+        &s(&input),
+        &s(&analysis),
+        &s(&answers),
+        "-o",
+        &s(&output),
+    ]);
+    assert_eq!(ran.code, 0, "{}", ran.stderr);
+    let bytes = std::fs::read(output).unwrap();
+    let defs = read_part_definitions(&bytes).unwrap();
+    let doc = Document::parse(bytes).unwrap();
+    let read = pmi::read(&doc, &defs).unwrap();
+    assert_eq!(read.parts[0].threads.len(), 1);
+    assert!(read.parts[0].attributes.iter().flat_map(|a| &a.items).any(|(n,v)| n == "minimum full thread" && matches!(v, pmi::AttributeValue::Measure(m) if matches!(&m.quantity, pmi::Quantity::Length(l) if l.mm() == 2.0))));
+}
+
 /// A `specify-core serve` child, asked one line at a time.
 struct Session {
     child: Child,

@@ -63,15 +63,7 @@ fn blind_tap_help_gives_valid_syntax_and_the_summary_shows_the_computed_depth() 
             .is_empty()
     );
     let given = Map::from_iter([(q.id.clone(), q.default.clone().unwrap())]);
-    // #21: the tap alone does not accept the computed depth.
-    assert!(
-        rules::preview(&a, &given)
-            .unwrap()
-            .requirements
-            .iter()
-            .all(|r| r["kind"] != "thread")
-    );
-    let given = rules::with_all_defaults(&a, &given).unwrap();
+    // An answered tap keeps alpha.7's derived manufacturing depth without a depth answer.
     let intent = rules::preview(&a, &given).unwrap();
     assert_eq!(
         intent
@@ -94,7 +86,8 @@ fn full_thread_is_a_text_edit_and_defaults_stay_suggestions() {
         .unwrap();
     assert_eq!(q.kind, "text");
     assert_eq!(q.default, Some(json!("2.5")));
-    assert!(rules::open_questions(&[q], &Map::new()).len() == 1);
+    assert_eq!(q.attention, "refine");
+    assert!(rules::open_questions(&[q], &Map::new()).is_empty());
     for text in [
         json!("0"),
         json!("-1"),
@@ -130,6 +123,85 @@ fn full_thread_is_a_text_edit_and_defaults_stay_suggestions() {
                 .iter()
                 .all(|q| q.id != id)
         );
+    }
+}
+
+/// Frozen by cx/quiddity-010 (9c16b407), using its native parity_reference example:
+/// GRM-02_shaft.step, name shaft.step, material steel and the M2 tap answered, no depth
+/// answer or accept-defaults. Preserve the exact STEP bytes as well as semantic readback.
+#[test]
+fn answered_m2_without_depth_writes_the_exact_alpha7_thread_and_resaves_it() {
+    use haecceity::{p21::Document, pmi, step::read_part_definitions};
+    use specify_core::{part, writer};
+    let loaded = part::load_bytes(
+        "shaft.step",
+        std::fs::read(common::fixtures().join("parts/GRM-02_shaft.step")).unwrap(),
+    )
+    .unwrap();
+    let a = api::analyse(&loaded).unwrap();
+    let q = rules::questions(&a, &Map::new())
+        .unwrap()
+        .into_iter()
+        .find(|q| q.id.starts_with("hole.full_thread:"))
+        .unwrap();
+    let function = q.id.replace("hole.full_thread:", "hole.function:");
+    let given = Map::from_iter([
+        ("part.material".into(), json!("steel")),
+        (function, json!("tapped:M2")),
+    ]);
+    assert!(!given.contains_key(&q.id));
+    let intent = api::preview(&a, &given).unwrap();
+    assert_eq!(
+        intent
+            .requirements
+            .iter()
+            .find(|r| r["kind"] == "thread")
+            .unwrap()["full_thread"],
+        2.0
+    );
+    let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
+    let baseline = part::load(
+        &common::fixtures().join("thread-depth-alpha7.step.gz"),
+        None,
+    )
+    .unwrap();
+    assert_eq!(bytes.as_slice(), baseline.bytes.as_slice());
+    for (source, answers) in [(loaded, given.clone()), (baseline, given)] {
+        let analysis = api::analyse(&source).unwrap();
+        let mut complete = rules::with_all_defaults(&analysis, &answers).unwrap();
+        complete.remove(&q.id);
+        let review = api::review(&analysis, &complete).unwrap();
+        assert!(review["open"].as_array().unwrap().is_empty());
+        assert_eq!(
+            review["problems"],
+            api::review(
+                &analysis,
+                &rules::with_all_defaults(&analysis, &complete).unwrap()
+            )
+            .unwrap()["problems"]
+        );
+        assert!(!complete.contains_key(&q.id));
+        // Strict apply also accepts the old complete answer set without a new answer.
+        api::apply(&analysis, &complete, false).unwrap();
+        let intent = api::preview(&analysis, &answers).unwrap();
+        let (written, _) = writer::write_bytes(&source, &intent, Some(&answers)).unwrap();
+        let defs = read_part_definitions(&written).unwrap();
+        let doc = Document::parse(written).unwrap();
+        let read = pmi::read(&doc, &defs).unwrap();
+        assert_eq!(read.parts[0].threads.len(), 1);
+        let (_, attr) = read.parts[0]
+            .attributes
+            .iter()
+            .flat_map(|a| &a.items)
+            .find(|(n, _)| n == "minimum full thread")
+            .unwrap();
+        let pmi::AttributeValue::Measure(m) = attr else {
+            panic!("a measure")
+        };
+        let pmi::Quantity::Length(l) = &m.quantity else {
+            panic!("a length")
+        };
+        assert_eq!(l.mm(), 2.0);
     }
 }
 

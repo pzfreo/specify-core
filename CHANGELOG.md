@@ -13,8 +13,8 @@ All notable changes to specify-core-rust. The format follows
   point subtraction noise. Otherwise no thread choice is offered. Verify typed/selected
   STEP equivalence and native/WASM exposure.
 - For #21, expose blind tapped holes' minimum full-thread depth as an editable text
-  question in mm, with the computed default visible. Defaults remain suggestions until
-  accepted; explicit edits override inline depths, remain unrounded, reach STEP PMI and
+  question in mm, with the computed default visible. An answered tap retains its inline
+  or computed manufacturing depth; optional edits override it, remain unrounded, reach STEP PMI and
   resume from saved answers. Through holes and unknown drill depths have no depth question.
 
 ### WASM API
@@ -23,8 +23,9 @@ All notable changes to specify-core-rust. The format follows
   JS/TypeScript signatures. Render `hole.full_thread:<feature>` as a text question; its
   string default is drill depth minus three pitches, rounded down to 0.5 mm (at least one
   pitch), or the inline depth. Submit a positive mm value that leaves three pitches, or
-  use `acceptDefaults`. A blind thread with an implicit depth contributes no preview PMI
-  until the depth is accepted. Older saved answers can therefore have a new open question.
+  use `acceptDefaults`. The depth is an optional `refine` question, excluded from `open`:
+  an answered tap keeps its inline or computed depth in preview and written PMI even
+  without a depth answer. Merely showing the depth question adds no accepted answer.
 
 ## 0.1.0-alpha.7 (2026-10-23)
 

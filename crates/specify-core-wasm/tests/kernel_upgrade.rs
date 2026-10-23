@@ -21,16 +21,9 @@ fn browser_sessions_resume_all_87_alpha6_answers() {
         let snapshot = session.snapshot();
         assert_eq!(&snapshot["analysis"]["resume"]["answers"], expected);
         count += expected.as_object().unwrap().len();
-        // #21 adds a depth question that alpha.6 never stored. Old answers still resume
-        // exactly; the new depth remains a suggestion until explicitly accepted.
+        // #21's optional depth override adds no review work to fully answered old files.
         let review = session.review(expected.as_object().unwrap()).unwrap();
-        assert!(
-            review["open"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|id| id.as_str().unwrap().starts_with("hole.full_thread:"))
-        );
+        assert!(review["open"].as_array().unwrap().is_empty());
     }
     assert_eq!(count, 87);
 }

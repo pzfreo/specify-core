@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { brotliCompressSync, gzipSync, constants } from 'node:zlib';
+import { brotliCompressSync, gzipSync, gunzipSync, constants } from 'node:zlib';
 import init, { IntentEngine, review, acceptDefaults, interpret, start } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
 
 const root = new URL('../', import.meta.url);
@@ -86,7 +86,8 @@ for (const [part, path] of parts) {
       // This pinned GRM-03 has a 3.8 mm drill (2.5 mm full thread); #21's
       // reported 8 mm drill is covered as an explicit core rules input.
       assert.equal(Number(depth.default), part.startsWith('GRM-03') ? 2.5 : 2);
-      assert.ok(initial.open.includes(depth.id));
+      assert.equal(depth.attention, 'refine');
+      assert.ok(!initial.open.includes(depth.id), 'depth is an optional override');
       answers[depth.id] = part.startsWith('GRM-03') ? '2.3' : '1.8';
     }
     const answersJson = JSON.stringify(answers);
@@ -156,6 +157,28 @@ for (const [part, path] of parts) {
   } finally { engine.free(); }
   throwsString(() => new IntentEngine(name, gzipSync(bytes)), /Decompress/);
 }
+// #21: the accepted tap's derived depth must survive without a new depth answer,
+// including a save of an alpha.7 file. The first write must equal the base bytes exactly.
+const alpha7 = gunzipSync(readFileSync(new URL('tests/fixtures/thread-depth-alpha7.step.gz', root)));
+const savedTap = new IntentEngine('shaft.step', alpha7);
+let tapAnswers;
+try { tapAnswers = JSON.parse(savedTap.snapshot()).analysis.resume.answers; }
+finally { savedTap.free(); }
+for (const [index, bytes] of [readFileSync(new URL('tests/fixtures/parts/GRM-02_shaft.step', root)), alpha7].entries()) {
+  const engine = new IntentEngine('shaft.step', bytes);
+  try {
+    const reviewed = JSON.parse(engine.review(JSON.stringify(tapAnswers)));
+    const depth = reviewed.questions.find(q => q.id.startsWith('hole.full_thread:'));
+    assert.equal(depth.attention, 'refine');
+    assert.ok(!reviewed.open.includes(depth.id));
+    assert.ok(!Object.hasOwn(tapAnswers, depth.id));
+    assert.equal(reviewed.intent.requirements.find(r => r.kind === 'thread').full_thread, 2);
+    const written = Buffer.from(JSON.parse(engine.writePmi(JSON.stringify(tapAnswers))).bytes);
+    if (index === 0) assert.deepEqual(written, alpha7, 'implicit M2 tap writes exact cx/quiddity-010 STEP bytes');
+    assert.match(written.toString(), /MEASURE_WITH_UNIT\(LENGTH_MEASURE\(2(?:\.0*)?\),#\d+\)REPRESENTATION_ITEM\('minimum full thread'\)/);
+  } finally { engine.free(); }
+}
+console.log('alpha.7 M2 tap: implicit depth, exact base STEP bytes and resave passed');
 for (const [part, pattern] of [['assembly', /one distinct part/]]) {
   throwsString(() => new IntentEngine(`${part}.step`, readFileSync(new URL(`tests/fixtures/parts/${part}.step`, root))), pattern);
 }
