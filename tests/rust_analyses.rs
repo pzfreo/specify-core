@@ -223,13 +223,14 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
         .join(std::process::id().to_string());
     std::fs::create_dir_all(&dir).unwrap();
     // Counts below are from origin/main's alpha.4 build. Before/after CLI comparisons
-    // also give identical questions, intent, reports and STEP bytes on both inputs.
+    // also give identical questions, intent, reports and STEP bytes on both inputs. #21 adds
+    // cgb243's one question: the full-thread depth of its blind tapped hole pattern.
     for (file, count, freeforms, question_count, requirements, general, datums, written) in [
         (
             "cadgenbench_inputs/cgb243.step.gz",
             4,
             66,
-            38,
+            39,
             110,
             57,
             3,
