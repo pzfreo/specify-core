@@ -65,10 +65,22 @@ fn golden_oriented_slots_end_planes_questions_defaults_and_written_pmi_move_rigi
         [0.8 * s, c, 0.6 * s, -19.0],
         [-0.6, 0.0, 0.8, 11.0],
     ];
+    // A partially aligned converted frame: long_axis is a letter, transverse axes vectors.
+    let (b, a) = 37_f64.to_radians().sin_cos();
+    let mixed = [
+        [-c, -s, 0.0, 37.0],
+        [a * s, -a * c, -b, -19.0],
+        [b * s, -b * c, a, 11.0],
+    ];
     let scratch = std::env::temp_dir().join(format!("specify-schema6-{}", std::process::id()));
     std::fs::create_dir_all(&scratch).unwrap();
     let mut reference: Option<(Value, Value, Map<String, Value>, Value)> = None;
-    for (name, at) in [("base", IDENTITY), ("z30", z30), ("generic", generic)] {
+    for (name, at) in [
+        ("base", IDENTITY),
+        ("z30", z30),
+        ("generic", generic),
+        ("mixed", mixed),
+    ] {
         let moved = source.part.transformed(&at).unwrap();
         let (bytes, report) = write_step(
             &moved,

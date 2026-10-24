@@ -405,11 +405,14 @@ pub(crate) fn end_planes(
         )
     } else {
         let direction = vector("long_axis")?;
-        let origin = if record.get("long_axis").is_some_and(Value::is_string) {
-            // File-axis records retain absolute coordinates, including legacy analyses.
+        let origin = if record.contains_key("origin") {
+            // Converted records can mix letters and vectors; every scalar shares this origin.
+            vector("origin")?
+        } else if record.get("long_axis").is_some_and(Value::is_string) {
+            // Ordinary file-axis records retain absolute coordinates, including legacy analyses.
             [0.0; 3]
         } else {
-            vector("origin")?
+            return Err(bad("origin"));
         };
         (direction, origin, [number("lo")?, number("hi")?])
     };
@@ -424,7 +427,7 @@ fn published_record(
     mut record: Map<String, Value>,
 ) -> Result<Map<String, Value>, FeatureError> {
     if let Some((direction, [lo, hi])) = end_planes(family, &record)?
-        && !record.get("long_axis").is_some_and(Value::is_string)
+        && (record.contains_key("origin") || !record.get("long_axis").is_some_and(Value::is_string))
     {
         // Keep ordinary file-axis payloads unchanged; the datum rule decodes them directly.
         record.insert("end_direction".into(), serde_json::json!(direction));
@@ -580,6 +583,12 @@ mod tests {
             end_planes("channels", converted.as_object().unwrap()).unwrap(),
             Some(([0.6, 0.8, 0.0], [[7.0, 16.0, 30.0], [13.0, 24.0, 30.0]]))
         );
+        converted["long_axis"] = json!("z");
+        assert_eq!(
+            end_planes("slots", converted.as_object().unwrap()).unwrap(),
+            Some(([0.0, 0.0, 1.0], [[10.0, 20.0, 25.0], [10.0, 20.0, 35.0]]))
+        );
+        converted["long_axis"] = json!([0.6, 0.8, 0.0]);
         converted.as_object_mut().unwrap().remove("origin");
         assert!(
             end_planes("slots", converted.as_object().unwrap())

@@ -293,7 +293,8 @@ Fingerprints remain `quiddity-rust/fingerprint/3`; re-recognise on upgrade.
 Axis/coordinate consumer audit (native and `crates/specify-core-wasm/src`):
 
 - `features::end_planes` reads slot/channel `long_axis`, `lo`, `hi` and `origin`.
-  Letters mean absolute positive file axes; vectors mean `origin + distance * direction`.
+  Without `origin`, letters mean absolute positive file axes. Converted records
+  (including mixed letter/vector axes) mean `origin + distance * direction`.
   Missing/invalid axes or origins return `FeatureError::Records`, never omit an end plane.
   The already explicit oriented-slot family uses `long_direction`, `center`, `length`.
   Its derived `end_direction`, `end_lo`, `end_hi` are also in file coordinates.
