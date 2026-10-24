@@ -464,8 +464,8 @@ fn the_writer_stores_schema_two() {
 // Each schema is checked against its own fingerprint: a schema 1 payload is verified on the
 // schema 1 fingerprint and not on schema 2's, and the reverse. A schema 1 payload in this
 // port's attribute form whose hash is not reproduced (another kernel's signs of zero) still
-// resumes, without face evidence (#35): `unverified` says so, and its answers on faces (here a
-// datum) are left open with their values rather than applied.
+// resumes, without face evidence (#35): `unverified` says so, and its answers are matched by
+// ID (here a datum on a face the part has, applied either way).
 #[test]
 fn each_schema_is_checked_against_its_own_fingerprint() {
     let dir = temp("schemas");
@@ -497,9 +497,9 @@ fn each_schema_is_checked_against_its_own_fingerprint() {
         );
         assert_eq!(resume.is_object(), resumes, "schema {schema}: {resume}");
         if resumes {
-            // Verified, the datum is applied; unverified, it is open with its value.
-            assert_eq!(resume["answers"].get("datum.A").is_some(), verified);
-            assert_eq!(resume["unresolved"][0]["id"] == "datum.A", !verified);
+            // Verified or matched by ID, the datum is applied.
+            assert_eq!(resume["answers"]["datum.A"], json!([0]));
+            assert!(resume["unresolved"].is_null(), "schema {schema}: {resume}");
             assert_eq!(resume["answers"]["part.material"], "steel");
         }
         assert_eq!(

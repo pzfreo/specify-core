@@ -161,15 +161,21 @@ for (const [part, path] of parts) {
       const rematched = JSON.parse(carrying.rematchAnswers(answersJson, evidence, '[]'));
       assert.deepEqual(rematched.answers, answers);
       assert.deepEqual(rematched.automatic, []);
-      // Without evidence no answer on a feature or a datum is applied, even on an unchanged ID:
-      // each is left open with its value; the part's own answers are kept.
+      // Without evidence (a legacy project) answers are trusted by feature ID: those on this
+      // part's IDs are kept, and an ID the part lacks is left open with its value.
       const given = { ...answers, 'hole.function:holes:9999': 'fit:H7' };
       const unknown = JSON.parse(carrying.rematchAnswers(JSON.stringify(given)));
-      const geometric = id => /^(hole|diameter|datum)\./.test(id);
-      assert.deepEqual(unknown.unresolved.map(u => [u.id, u.answer]),
-        Object.entries(given).filter(([id]) => geometric(id)));
-      assert.deepEqual(Object.keys(unknown.answers), Object.keys(given).filter(id => !geometric(id)));
+      assert.deepEqual(unknown.unresolved.map(u => [u.id, u.answer]), [['hole.function:holes:9999', 'fit:H7']]);
+      assert.deepEqual(unknown.answers, answers);
       assert.ok(unknown.unverified);
+      // Evidence that contradicts the part leaves every answer on a feature or a datum open.
+      const other = JSON.stringify({ ...JSON.parse(evidence), faces: '0'.repeat(64) });
+      const mismatched = JSON.parse(carrying.rematchAnswers(JSON.stringify(given), other));
+      const geometric = id => /^(hole|diameter|datum)\./.test(id);
+      assert.deepEqual(mismatched.unresolved.map(u => [u.id, u.answer]),
+        Object.entries(given).filter(([id]) => geometric(id)));
+      assert.deepEqual(Object.keys(mismatched.answers), Object.keys(given).filter(id => !geometric(id)));
+      assert.ok(mismatched.unverified);
     } finally { carrying.free(); }
     assert.equal(engine.original(), undefined, 'a bare part records no original');
     throwsString(() => engine.writePmi('{}', project, JSON.stringify(payload)), /not both/);

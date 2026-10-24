@@ -19,10 +19,12 @@ All notable changes to specify-core-rust. The format follows
 - For #35, `resume::rematch_answers(loaded, features, answers, evidence, automatic)` matches
   answers held outside the STEP (a saved project's) to the part as now recognised, with the
   same face-support rule as answers stored in a STEP. Callers keep `resume::evidence(loaded)`
-  (`{schema: 2, face_count, faces}`) with their answers. Without matching evidence, no answer
-  on a feature or a datum (including `datum.X.flatness`/`.control`) is applied, even on an
-  unchanged ID: each is `unresolved` with its value and a reason, and only `part.*` answers
-  are kept. `automatic` marks answers the default path gave and returns their IDs renamed.
+  (`{schema: 2, face_count, faces}`) with their answers. Legacy projects without saved face
+  evidence (and schema 1 exports whose fingerprint can't be reproduced) resume with their
+  answers matched by feature ID (a datum kept when its faces exist), the rest `unresolved` with their values, and `unverified` says so. Evidence that
+  contradicts the part still leaves every answer on a feature or a datum (including
+  `datum.X.flatness`/`.control`) `unresolved` with its value; only `part.*` answers are kept
+  then. `automatic` marks answers the default path gave and returns their IDs renamed.
   New public
   fields `UnresolvedAnswer.automatic`, `Resumed.unverified` and `Resumed.automatic` break Rust
   struct-literal callers. See `docs/design.md`, "Saved answers across kernel upgrades".
@@ -38,11 +40,9 @@ All notable changes to specify-core-rust. The format follows
 - For #35, schema 1 answers saved by the pre-alpha browser writer resume again under
   quiddity v0.1.1. That kernel gives some zero centroid components the other sign, so their
   schema 1 hash cannot be reproduced. Such payloads in this port's attribute form now resume
-  without face evidence: `part.*` answers are applied, and answers on features and datums are
-  `unresolved` with their values for the person to confirm, with an
-  `analysis.resume.unverified` reason, warnings, and `saved_answers_unverified` and
-  `saved_answer_unresolved` review problems. A rewrite stores schema 2 with only the answers it
-  is given, so an unconfirmed answer is never stored as verified.
+  without face evidence, with their answers matched by feature ID, an
+  `analysis.resume.unverified` reason, a warning and a `saved_answers_unverified` review
+  problem. Rewriting stores schema 2.
   Python-written schema 1 files still open as foreign files (Q14).
 
 ### WASM API
@@ -57,8 +57,9 @@ All notable changes to specify-core-rust. The format follows
 - For #35, add `IntentEngine.rematchAnswers(answers: string, evidence?: string | null,
   automatic?: string | null): string` and `IntentEngine.evidence(): string`. Editors keep
   `evidence()` with saved answers and use `rematchAnswers` instead of setting aside answers
-  by a list of answer kinds. Without matching evidence every answer on a feature or a datum
-  is returned in `unresolved` with its value, not in `answers`. See docs/wasm.md, "Answers
+  by a list of answer kinds. Without evidence answers are matched by feature ID; with
+  evidence that does not match every answer on a feature or a datum is returned in
+  `unresolved` with its value, not in `answers`. See docs/wasm.md, "Answers
   saved outside the STEP".
 - For #35, `IntentEngine.writePmi(answers, project?, payload?)` takes an optional third
   argument, `{name, value}` JSON, carried in the STEP as base64 JSON under `name`. Give the

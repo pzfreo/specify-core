@@ -105,8 +105,9 @@ mod wasm {
 
         /// Saved answers matched to this part: `{answers, unresolved?, migrated?, unverified?,
         /// automatic?}`. `evidence` is what `evidence()` gave when they were saved; `automatic`
-        /// a JSON list of the IDs the default path answered. Without matching evidence every
-        /// answer on a feature or a datum is in `unresolved`, with its value.
+        /// a JSON list of the IDs the default path answered. Without evidence answers are
+        /// matched by feature ID; with evidence that does not match every answer on a feature
+        /// or a datum is in `unresolved`, with its value.
         #[wasm_bindgen(js_name = rematchAnswers)]
         pub fn rematch_answers(
             &self,

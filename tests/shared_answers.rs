@@ -89,18 +89,42 @@ fn left_open(out: &resume::Resumed, answers: &Map<String, Value>, why: &str) {
     assert_eq!(out.answers.keys().collect::<Vec<_>>(), kept);
 }
 
-// An ID that still exists is no evidence of the same feature (IDs renumber between kernels):
-// without evidence that the saved faces are this part's, every answer on a feature or a datum is
-// left open with its value, even where its ID is unchanged; only the part's own answers are kept.
+// A legacy project, saved without evidence, is trusted by feature ID (the maintainer's
+// decision, #35): answers on IDs this part has are kept; the two on a linear pattern whose ID
+// has changed are unresolved with their values; `unverified` says the match was by ID.
 #[test]
-fn without_evidence_answers_on_features_and_datums_are_left_open() {
+fn without_evidence_answers_are_matched_by_feature_id() {
     let (loaded, analysis, answers, _) = ftc10();
     let out = resume::rematch_answers(&loaded, &features(&analysis), &answers, None, None).unwrap();
-    left_open(&out, &answers, "no saved face fingerprint");
+    assert!(out.migrated.is_empty());
+    let why = out.unverified.as_deref().unwrap();
+    assert!(why.contains("no saved face fingerprint"), "{why}");
+    assert!(why.contains("matched by feature ID"), "{why}");
+    assert_eq!(out.unresolved.len(), 2);
+    for unresolved in &out.unresolved {
+        assert!(unresolved.id.contains("hole_patterns.linear:138.140"));
+        assert_eq!(unresolved.answer, answers[&unresolved.id]);
+        assert!(unresolved.reason.contains("no feature with the saved ID"));
+        assert!(!unresolved.automatic);
+    }
+    // Every other answer is kept as it was, in order, feature answers included; nothing is
+    // dropped.
+    let kept: Vec<_> = answers
+        .keys()
+        .filter(|id| !out.unresolved.iter().any(|u| &u.id == *id))
+        .collect();
+    assert_eq!(out.answers.keys().collect::<Vec<_>>(), kept);
+    assert!(kept.iter().any(|id| id.starts_with("hole.")));
     // The kept answers are valid for this part: a review takes them.
     api::review(&analysis, &out.answers).unwrap();
+}
 
-    // Evidence for other faces is no evidence: the same, saying why.
+// Evidence that contradicts the part is not a legacy project: every answer on a feature or a
+// datum is left open with its value, even where its ID is unchanged (IDs renumber between
+// kernels); only the part's own answers are kept.
+#[test]
+fn with_evidence_that_does_not_match_answers_on_features_and_datums_are_left_open() {
+    let (loaded, analysis, answers, _) = ftc10();
     let other =
         json!({"schema": 2, "face_count": loaded.binding.face_count, "faces": "0".repeat(64)});
     let mismatched =
@@ -180,43 +204,55 @@ fn automatic_answers_are_marked_and_their_ids_follow_migration() {
         Some(&automatic),
     )
     .unwrap();
-    for unresolved in &unmatched.unresolved {
-        assert_eq!(unresolved.automatic, automatic.contains(&unresolved.id));
-    }
+    // Matched by ID, the unresolved answers are the moved ones, which were automatic.
+    assert!(unmatched.unresolved.iter().all(|u| u.automatic));
     let value = serde_json::to_value(&unmatched).unwrap();
-    let first = value["unresolved"]
-        .as_array()
-        .unwrap()
+    assert_eq!(value["unresolved"][0]["automatic"], json!(true));
+    // The automatic answers kept by ID stay automatic; the unresolved ones are left out.
+    let kept: Vec<String> = automatic
         .iter()
-        .find(|u| u["id"] == json!(moved[0]))
-        .unwrap();
-    assert_eq!(first["automatic"], json!(true));
-    // Only the part's own automatic answer is kept.
-    assert_eq!(
-        unmatched.automatic.unwrap(),
-        answers
-            .contains_key(&material)
-            .then(|| material.clone())
-            .into_iter()
-            .collect::<Vec<_>>()
-    );
+        .filter(|id| unmatched.answers.contains_key(*id))
+        .cloned()
+        .collect();
+    assert!(kept.iter().all(|id| !moved.contains(id)));
+    assert_eq!(unmatched.automatic.unwrap(), kept);
 }
 
-// A datum's settings follow it: left open with it, never kept for a datum that is open.
+// Without evidence a datum is kept when its faces exist on the part; one on a face the part
+// lacks is unresolved with its value.
 #[test]
-fn without_evidence_datums_and_their_settings_are_left_open() {
+fn without_evidence_a_datum_on_a_face_the_part_lacks_is_unresolved() {
     let loaded = part::load(&fixture("parts/plate.step"), None).unwrap();
     let analysis = api::analyse(&loaded).unwrap();
     let answers = object(json!({
-        "datum.A": [0], "datum.B": [999], "datum.A.flatness": "0.05", "datum.B.control": "none",
-        "part.material": "steel"
+        "datum.A": [0], "datum.B": [999], "datum.A.flatness": "0.05",
+        "datum.B.control": "flatness", "part.material": "steel"
     }));
     let out = resume::rematch_answers(&loaded, &features(&analysis), &answers, None, None).unwrap();
-    left_open(&out, &answers, "no saved face fingerprint");
     assert_eq!(
         Value::Object(out.answers),
-        json!({"part.material": "steel"})
+        json!({"datum.A": [0], "datum.A.flatness": "0.05", "part.material": "steel"})
     );
+    assert_eq!(out.unresolved.len(), 2);
+    assert_eq!(out.unresolved[0].id, "datum.B");
+    assert_eq!(out.unresolved[0].answer, json!([999]));
+    assert!(
+        out.unresolved[0]
+            .reason
+            .contains("a face this part does not have")
+    );
+    // Its setting follows the open datum rather than being kept on its own.
+    assert_eq!(out.unresolved[1].id, "datum.B.control");
+    assert_eq!(out.unresolved[1].answer, json!("flatness"));
+    assert!(out.unresolved[1].reason.contains("datum.B is unresolved"));
+
+    // With evidence that does not match, datums and their settings are left open.
+    let other =
+        json!({"schema": 2, "face_count": loaded.binding.face_count, "faces": "0".repeat(64)});
+    let mismatched =
+        resume::rematch_answers(&loaded, &features(&analysis), &answers, Some(&other), None)
+            .unwrap();
+    left_open(&mismatched, &answers, "does not match");
 }
 
 #[test]
@@ -239,9 +275,8 @@ fn malformed_evidence_is_refused() {
 
 // tests/fixtures/legacy-schema1/README.md: written by Specify 42ff22c0 under the kernel of the
 // time, whose signs of zero differ from quiddity v0.1.1's, so its schema 1 hash cannot be
-// reproduced. Its part answers resume; its feature answer is left open with its value for the
-// person to confirm, with warnings and review problems. A rewrite stores, as schema 2, only the
-// answers it is given: a feature answer is verified there only once the person has given it.
+// reproduced. Its answers resume by feature ID (the maintainer's decision for legacy files,
+// #35), with a warning and a review problem, and rewriting stores them as schema 2.
 #[test]
 fn a_pre_alpha_browser_export_resumes_its_answers() {
     let path = fixture("legacy-schema1/legacy_specify.step");
@@ -259,16 +294,11 @@ fn a_pre_alpha_browser_export_resumes_its_answers() {
     );
     let (analysis, warnings) = api::analyse_reporting(&loaded).unwrap();
     let resume = &analysis["resume"];
-    assert_eq!(resume["answers"], json!({"part.material": "6082-T6"}));
-    // The feature answer is not lost: it is open, with its value, for the person to confirm.
-    let open = resume["unresolved"].as_array().unwrap();
-    assert_eq!(open.len(), 1, "{resume}");
-    assert_eq!(open[0]["id"], "hole.function:holes:9");
-    assert_eq!(open[0]["answer"], "fit:H7");
-    assert!(open[0]["reason"].as_str().unwrap().contains("schema 1"));
+    assert_eq!(resume["answers"], expected);
+    assert!(resume["unresolved"].is_null(), "{resume}");
     assert!(resume["unverified"].as_str().unwrap().contains("schema 1"));
     assert_eq!(analysis["existing"], json!([]));
-    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
     let resumed = resume["answers"].as_object().unwrap();
     let review = api::review(&analysis, resumed).unwrap();
     let codes: Vec<_> = review["problems"]
@@ -282,26 +312,16 @@ fn a_pre_alpha_browser_export_resumes_its_answers() {
         "{codes:?}"
     );
     assert!(
-        codes.contains(&json!("saved_answer_unresolved")),
+        !codes.contains(&json!("saved_answer_unresolved")),
         "{codes:?}"
     );
 
-    // Rewriting replaces its PMI (it is the writer's own) and stores schema 2 with the answers
-    // it is given. Written with the resumed answers alone, the unconfirmed feature answer is not
-    // stored as verified (it is not stored: docs/design.md, "Saved answers across kernel
-    // upgrades"); the file opens verified with the part's answers.
-    let rewrite = |answers: &Map<String, Value>| {
-        let intent = api::preview(&analysis, answers).unwrap();
-        let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(answers)).unwrap();
-        let back = part::load_bytes("again.step", bytes).unwrap();
-        assert_eq!(resume::stored(&back.bytes)[&0]["schema"], json!(2));
-        api::analyse(&back).unwrap()["resume"].clone()
-    };
-    let again = rewrite(resumed);
-    assert_eq!(again["answers"], json!({"part.material": "6082-T6"}));
-    assert!(again["unverified"].is_null() && again["unresolved"].is_null());
-    // Once the person confirms the open answer, it is stored and verified.
-    let again = rewrite(&object(expected.clone()));
+    // Rewriting replaces its PMI (it is the writer's own) and stores schema 2, which verifies.
+    let intent = api::preview(&analysis, resumed).unwrap();
+    let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(resumed)).unwrap();
+    let back = part::load_bytes("again.step", bytes).unwrap();
+    assert_eq!(resume::stored(&back.bytes)[&0]["schema"], json!(2));
+    let again = &api::analyse(&back).unwrap()["resume"];
     assert_eq!(again["answers"], expected);
     assert!(again["unverified"].is_null() && again["unresolved"].is_null());
 }
