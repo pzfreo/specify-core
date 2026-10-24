@@ -328,6 +328,14 @@ max(1e-6 mm², 1e-6 times the larger area) keep face order under rigid motion.
 `tests/schema6.rs` checks all three golden 30° slots against actual end walls, rotates
 by 30° about Z plus translation and by a generic rotation, and compares questions,
 accepted defaults, written/read-back PMI and its face geometry under the same motion.
+Converted golden endpoints agree with actual end-wall planes within 3e-6 mm; its published
+slot-pattern direction is exactly −X. The same tests check the 18.694-mm, 45° chamfer on
+mfcadpp/10252 face 2 against its two overlapping support-edge intervals, and compare all
+20 formerly oriented supports in the frozen capture across the family merge. Body integral
+uncertainties remain independent of that support-geometry proof. Of the earlier 319
+undetermined schema-6 additions, physical support/extent checks reclassify 256 additive
+body-level frame fields and 14 oriented boxes as not applicable, and ten 3e-9-mm axis-origin
+differences as equivalent; 39 axis/level-selection and body-integral comparisons stay open.
 
 Local upgrade checks select the touched binaries plus features, resume, cross-engine and
 WASM, with both corpus paths exported, `CARGO_BUILD_JOBS=6`, `RUST_TEST_THREADS=6`.

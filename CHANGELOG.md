@@ -47,7 +47,10 @@ All notable changes to specify-core-rust. The format follows
   vector axes and exact converted extents replace the old direction fields. Remove the
   typed view and `_local`/`_frame`; recognition provenance is never geometry.
   All three golden 30° slots and their six end planes retain questions, defaults and
-  written PMI through a 30° Z rotation/translation and a generic rigid rotation.
+  written PMI through a 30° Z rotation/translation and a generic rigid rotation; end-wall
+  agreement is within 0.000003 mm. Golden's slot-pattern direction is exactly −X.
+  The formerly oriented mfcadpp/10252 chamfer remains one feature on face 2, with its
+  18.694-mm overlapping run, 0.54-mm legs and 45° angle.
 - Kernel frame-vote corrections (#81) recover fillets: cgb217 **6 → 14**, CTC-02 AP242
   **3 → 20**. With the concavity correction (#89), cgb202 is **272 → 279** (16 recovered
   convex fillets, nine previously reported concave fillets removed). CTC-02 AP242 gains
@@ -74,7 +77,9 @@ All notable changes to specify-core-rust. The format follows
 - For the kernel upgrade (#92), `snapshot().analysis.features[*].record` uses schema-6
   file-coordinate measurements. Axis fields accept letters or unit vectors. Converted
   records carry a shared `origin`, including when their axes mix letters and vectors;
-  `_local` and `_frame` are removed. Method signatures do not change.
+  `_local` and `_frame` are removed. Oriented families merge into `slots`, `chamfers`
+  and `slot_patterns`; formerly oriented IDs change to those families, and optional
+  plain-record fields can be null. Method signatures do not change.
 
 - For #3 and #21, editors use the existing question/choice/default structures and unchanged
   JS/TypeScript signatures. Render `hole.full_thread:<feature>` as a text question; its

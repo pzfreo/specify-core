@@ -551,11 +551,58 @@ fn alpha7_saved_answers_survive_the_schema6_upgrade() {
         let meta: Value =
             serde_json::from_slice(&std::fs::read(dir.join(format!("{name}.json"))).unwrap())
                 .unwrap();
+        if name == "golden_oriented_slots" {
+            // These are the actual 0.1.1 answers: all 13 are part/datum settings,
+            // not feature-answer IDs. Do not invent an oriented_slots answer migration.
+            assert!(
+                meta["answers"]
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .all(|id| !id.contains(':'))
+            );
+            assert_eq!(
+                meta["features"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|f| f["family"] == "oriented_slots")
+                    .count(),
+                3
+            );
+        }
         let path = dir.join(format!("{name}.step.gz"));
         let loaded = load(&path, None).unwrap();
         let saved = stored(&loaded.bytes).remove(&0).unwrap();
         assert_eq!(saved["answers"], meta["answers"]);
         let (analysis, warnings) = specify_core::api::analyse_reporting(&loaded).unwrap();
+        if name == "golden_oriented_slots" {
+            for old in meta["features"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|f| f["family"] == "oriented_slots")
+            {
+                // Frame-vote #81 changes defining support from four walls to two long walls;
+                // family merge #92 renames the published family. Each pair belongs uniquely
+                // to the old slot. schema6 checks the actual end walls and rigid motions.
+                let matches: Vec<_> = analysis["features"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|f| {
+                        f["family"] == "slots"
+                            && f["faces"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .all(|face| old["faces"].as_array().unwrap().contains(face))
+                    })
+                    .collect();
+                assert_eq!(matches.len(), 1, "old support {}", old["id"]);
+                assert_eq!(matches[0]["faces"].as_array().unwrap().len(), 2);
+            }
+        }
         let resumed = &analysis["resume"];
         assert!(resumed.is_object(), "{name}: saved answers disappeared");
         let applied = resumed["answers"].as_object().unwrap();
