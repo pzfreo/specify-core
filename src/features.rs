@@ -423,7 +423,10 @@ fn published_record(
     family: &str,
     mut record: Map<String, Value>,
 ) -> Result<Map<String, Value>, FeatureError> {
-    if let Some((direction, [lo, hi])) = end_planes(family, &record)? {
+    if let Some((direction, [lo, hi])) = end_planes(family, &record)?
+        && !record.get("long_axis").is_some_and(Value::is_string)
+    {
+        // Keep ordinary file-axis payloads unchanged; the datum rule decodes them directly.
         record.insert("end_direction".into(), serde_json::json!(direction));
         record.insert("end_lo".into(), serde_json::json!(lo));
         record.insert("end_hi".into(), serde_json::json!(hi));
