@@ -47,9 +47,9 @@ All notable changes to specify-core-rust. The format follows
   All three golden 30° slots and their six end planes retain questions, defaults and
   written PMI through a 30° Z rotation/translation and a generic rigid rotation.
 - Kernel frame-vote corrections (#81) recover fillets: cgb217 **6 → 14**, CTC-02 AP242
-  **3 → 20**. With the concavity correction (#89), cgb202 is **272 → 279** (24 recovered
-  convex fillets, 17 false concave fillets removed). CTC-02 AP242 gains **4 pockets** and
-  step levels **2 → 13**; its four former risers disappear. Ambiguous 49.5-mm hole rows
+  **3 → 20**. With the concavity correction (#89), cgb202 is **272 → 279** (16 recovered
+  convex fillets, nine previously reported concave fillets removed). CTC-02 AP242 gains
+  **4 pockets** and step levels **2 → 13**; its four former risers disappear. Ambiguous 49.5-mm hole rows
   are no longer patterns (#82). Symmetric countersink seats stay linked (#83), and plate
   boundaries retain their original planes (#84/#85). Fingerprints remain version 3.
 - Preserve old-kernel saved-answer fixtures with **13 / 37 / 34 answers** for oriented
@@ -67,6 +67,11 @@ All notable changes to specify-core-rust. The format follows
   Python-written schema 1 files still open as foreign files (Q14).
 
 ### WASM API
+
+- For the kernel upgrade (#92), `snapshot().analysis.features[*].record` uses schema-6
+  file-coordinate measurements. Axis fields accept letters or unit vectors. Converted
+  records carry a shared `origin`, including when their axes mix letters and vectors;
+  `_local` and `_frame` are removed. Method signatures do not change.
 
 - For #3 and #21, editors use the existing question/choice/default structures and unchanged
   JS/TypeScript signatures. Render `hole.full_thread:<feature>` as a text question; its

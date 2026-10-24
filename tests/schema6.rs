@@ -192,3 +192,99 @@ fn golden_oriented_slots_end_planes_questions_defaults_and_written_pmi_move_rigi
     }
     std::fs::remove_dir_all(scratch).unwrap();
 }
+
+/// Independent material-side evidence for the #81 recoveries and #89 corrections used
+/// in the oracle ledger: labels must agree with the actual cylinder's outward sense.
+#[test]
+fn corrected_round_inventory_agrees_with_material_side() {
+    let Some(corpus) = common::corpus_dir() else {
+        return;
+    };
+    for (name, convex, concave, count) in [
+        (
+            "cgb202",
+            vec![
+                1248, 1250, 1252, 1254, 1256, 1258, 1450, 1453, 1464, 1473, 1475, 1477, 1623, 1631,
+                2056, 2057,
+            ],
+            vec![2, 3, 11, 44, 46, 692, 697, 1215, 1219],
+            279,
+        ),
+        (
+            "cgb217",
+            vec![177, 182, 205, 210, 233, 238, 261, 266],
+            vec![],
+            14,
+        ),
+        ("cgb241", vec![47], vec![27], 1),
+    ] {
+        let path = corpus.join(format!("cadgenbench_inputs/{name}.step"));
+        let path = if path.is_file() {
+            path
+        } else {
+            path.with_extension("step.gz")
+        };
+        let loaded = part::load(&path, None).unwrap();
+        let features = specify_core::features::recognise(&loaded).unwrap();
+        let fillets: Vec<_> = features.iter().filter(|f| f.family == "fillets").collect();
+        assert_eq!(fillets.len(), count, "{name}");
+        for face in convex {
+            assert_eq!(
+                loaded.part.frame_points_outward(face),
+                Some(true),
+                "{name}:{face}"
+            );
+            assert!(
+                fillets.iter().any(|f| f.faces.contains(&face)),
+                "{name}:{face}"
+            );
+        }
+        for face in concave {
+            assert_eq!(
+                loaded.part.frame_points_outward(face),
+                Some(false),
+                "{name}:{face}"
+            );
+            assert!(
+                !fillets.iter().any(|f| f.faces.contains(&face)),
+                "{name}:{face}"
+            );
+        }
+    }
+    // Exact Python convex claims removed by #89 in this capture, checked against material.
+    for (case, faces) in [
+        ("corpus/mfcadpp/1000", vec![22]),
+        ("corpus/mfcadpp/10033", vec![7]),
+        ("corpus/mfcadpp/10103", vec![24]),
+        ("corpus/mfcadpp/10127", vec![18]),
+        ("corpus/mfcadpp/10156", vec![2]),
+        ("corpus/mfcadpp/10163", vec![9]),
+        ("corpus/mfcadpp_holdout/18016", vec![4]),
+        ("corpus/mfcadpp_holdout/275", vec![15]),
+        ("corpus/mfcadpp_holdout/363", vec![14, 25]),
+        (
+            "corpus/nist/nist_ctc_03_asme1_rc",
+            vec![15, 21, 25, 31, 35, 38],
+        ),
+        ("nist/nist_ctc_03_asme1_ap242", vec![4, 59, 63, 67, 69, 8]),
+    ] {
+        let path = common::case(case)
+            .input()
+            .expect("the configured corpus/fixture");
+        let loaded = part::load(&path, None).unwrap();
+        let features = specify_core::features::recognise(&loaded).unwrap();
+        for face in faces {
+            assert_eq!(
+                loaded.part.frame_points_outward(face),
+                Some(false),
+                "{case}:{face}"
+            );
+            assert!(
+                !features
+                    .iter()
+                    .any(|f| f.family == "fillets" && f.faces.contains(&face)),
+                "{case}:{face}"
+            );
+        }
+    }
+}
