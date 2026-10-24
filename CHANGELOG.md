@@ -35,6 +35,27 @@ All notable changes to specify-core-rust. The format follows
   project's, so files written either way are read either way. Only an item in a user defined
   attribute is read as a payload. The core sets no payload size limit; callers set their own.
 
+### Changed
+
+- Pin quiddity and haecceity, including WASM, to the **0.2.0-alpha.1** release commit
+  `fb84622b4ff9d9e1e30724559df93cfed1d6fc91` until its tag is available. Specify's
+  version remains alpha.7. Draftwright's older v0.1.1 pin still produces the expected
+  advisory warning.
+- Adopt recognition schema 6 (#92): publish file-coordinate records, accept measuring
+  axes as letters or vectors, and derive slot/channel end planes from the record's own
+  origin and distances. Remove `_local`/`_frame`; recognition provenance is never geometry.
+  All three golden 30° slots and their six end planes retain questions, defaults and
+  written PMI through a 30° Z rotation/translation and a generic rigid rotation.
+- Kernel frame-vote corrections (#81) recover fillets: cgb217 **6 → 14**, CTC-02 AP242
+  **3 → 20**. With the concavity correction (#89), cgb202 is **272 → 279** (24 recovered
+  convex fillets, 17 false concave fillets removed). CTC-02 AP242 gains **4 pockets** and
+  step levels **2 → 13**; its four former risers disappear. Ambiguous 49.5-mm hole rows
+  are no longer patterns (#82). Symmetric countersink seats stay linked (#83), and plate
+  boundaries retain their original planes (#84/#85). Fingerprints remain version 3.
+- Preserve old-kernel saved-answer fixtures with **13 / 37 / 34 answers** for oriented
+  slots, cgb217 and CTC-02 AP242. Resume checks require each value to reattach by geometric
+  support or remain open with its original ID and reason, never disappear.
+
 ### Fixed
 
 - For #35, schema 1 answers saved by the pre-alpha browser writer resume again under

@@ -53,7 +53,7 @@ quiddity-rust is used as a library (Rust to Rust), not through its `quiddity` co
 | Load, parts, names, placements, face `#N` | `haecceity::step::read_part_definitions(&bytes) -> Vec<PartDefinition>` (`product_definition`, `shape`, `name`, `faces: Vec<u64>` in specify-core's numbering, `edges`, `placements`, `face_index(#N)`) |
 | The part's B-rep | `haecceity::read_step(&bytes) -> Part` (every placed instance; faces carry `face_source(i) -> Source { entity, instance }`) |
 | Face geometry | `Part.faces[i].surface` (`Surface::{Plane, Cylinder, Cone, Sphere, Torus, ..}` with `Frame`), `Face.reversed`, `Part::face_moments(i) -> FaceMoments { area, centroid, area_vector }`, `face_normal`, `uv_bounds`, `face_centre`, `bounds`, `face_edges`, `edge_faces`, `neighbours` |
-| Features | `quiddity::correspondence::recognise(&Part) -> Recognition { features: Features, fingerprints }`; `Features.defining` (defining faces per record); `HolePattern` variants with their member `HoleRecord`s |
+| Features | `quiddity::correspondence::recognise(&Part) -> Recognition { features: PublishedFeatures, fingerprints }`; `Features.defining` (defining faces per record); `HolePattern` variants with their member `HoleRecord`s |
 | Point classification for sightlines | `haecceity::classify::Classifier::new(&part).classify(p) -> State` |
 | Edge polylines | `Part.edges[e].samples`, `Part::edge_faces()` (a seam lists its face once) |
 | Existing PMI | `haecceity::p21::Document`, `haecceity::pmi::read(&doc, &parts) -> PmiRead { parts: Vec<PartPmi>, findings, provenance, accounting }` (anchors are face indices of the part) |
@@ -87,14 +87,15 @@ the resume correspondence rule below handles feature-ID changes.
 ## Dependency plan
 
 - `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity-rust`,
-  pinned to tag `v0.1.1` (`a27b7064`) in both manifests and Cargo.lock.
+  pinned to release commit `fb84622b4ff9d9e1e30724559df93cfed1d6fc91`
+  (`v0.2.0-alpha.1`) in both manifests and Cargo.lock until its tag is available.
   Update only these packages with `cargo update -p quiddity -p haecceity`, then run
   the named local profile below and the full suite in CI, and rejudge any departures from the frozen Python captures with
-  independent evidence. `correspondence::recognise` returns framed records (#61);
-  Specify maps consumed local coordinates through the inferred frame (see below).
-  Specify consumes typed features, not the upstream recognition document: modelled
+  independent evidence. `correspondence::recognise` returns published file-coordinate records (#92);
+  Specify serialises `PublishedFeatures` (see the axis consumer audit below).
+  Specify does not consume the upstream recognition document: modelled
   threads are additive features; their claimed freeforms become thread faces. The
-  upstream document is recognition/5 with complete face accounting (#66). Specify has no
+  upstream document is recognition/6 with complete face accounting (#66). Specify has no
   unclaimed/unrecognised-face display, so it does not add a new UI for that accounting.
   Specify keeps its own analysis schema and binding because face numbering
   is unchanged. Derived PMI geometry is followed through its deriving faces by
@@ -283,40 +284,48 @@ fixtures cover literal Unicode, quotes and STEP-escape-looking backslashes too.
 
 ### Recognition coordinates at the Specify boundary
 
-Quiddity #61 already maps vector axes, normals, points and positions back into file
-coordinates. `features::recognise` keeps that mapping and labels any remaining local
-axis-letter fields as `record._local` plus `record._frame`. They must never be interpreted
-as file-axis coordinates. For slots/channels, the consumed `long_axis` and `lo`/`hi`
-end planes gain file-space `end_direction`, `end_lo` and `end_hi`. Datum exclusion
-compares source face centroids against those planes. Both aligned and framed checks
-use published end coordinates on the kernel's 0.01-mm grid: a half-grid distance
-tolerance plus the 1e-6-mm geometry floor. The interim use of
-`Placed::raw` has been removed; no second position representation is needed. For turned thread length,
-`hi - lo` is an invariant scalar, so no coordinate conversion is needed. Other local
-extents/planes are retained with metadata but are not consumed by Specify.
+Quiddity 0.2.0-alpha.1 publishes recognition schema 6 (#92). Specify serialises
+`PublishedFeatures` for its record payload; the typed `Deref` view is used only for
+non-coordinate information (defining faces and hole-pattern variant names). No geometry
+reads recognition's top-level `frame`. `_local` and `_frame` are no longer emitted.
+Fingerprints remain `quiddity-rust/fingerprint/3`; re-recognise on upgrade.
 
-The v0.1.1 kernel owns one-time file-grid publication and near-axis handling (#79,
-fixing #69/#70/#71). Specify does not re-round or snap published record positions,
-and does not infer an epsilon frame. The earlier origin-plus-rounded-end comparison
-uses the published end-plane mapping above; no approximation for off-grid
-positions or nearly aligned record axes remains. `Placed` serialises as the published
-value, so Specify's JSON boundary needs no wrapper-specific decoding. Native callers
-reading a typed position use `*position` for a plain vector.
+Axis/coordinate consumer audit (native and `crates/specify-core-wasm/src`):
 
-Audit: hole grouping and hole questions consume mapped `axis` and scalar dimensions;
-`locations` consumes mapped `axis`/`location`; datum blind-floor exclusion uses those
-same mapped values; turned detection/datum planes use `describe_faces` (file-space
-kernel surfaces), with slot end planes handled above. Anchors and sightlines inspect
-the original kernel part directly; mates likewise use original surfaces, not records.
-Writer placement uses source faces/surfaces and requirement dimensions, never raw local
-record fields. Split/symmetric datum faces within max(1e-6 mm², 1e-6 times the larger area) keep face order so
-integration noise under motion does not switch the proposed datum. The moved named-part
-tests compare questions/defaults, location dimensions, geometry and verified PMI writes.
-Local checks for this upgrade use `cargo nextest run --workspace --release --locked
--E <explicit filter> --test-threads 6 --no-fail-fast`; the expression selects touched
-binaries, cross-engine, resume/answers and WASM session tests. No repository nextest
-profile changes the default selection. Export both corpus paths
-and `QUIDDITY_CORPUS_REQUIRED=1`. The full workspace suite remains CI's check.
+- `features::end_planes` reads slot/channel `long_axis`, `lo`, `hi` and `origin`.
+  Letters mean absolute positive file axes; vectors mean `origin + distance * direction`.
+  Missing/invalid axes or origins return `FeatureError::Records`, never omit an end plane.
+  The already explicit oriented-slot family uses `long_direction`, `center`, `length`.
+  Its derived `end_direction`, `end_lo`, `end_hi` are also in file coordinates.
+- `rules::datums::recess_planes` uses those published end planes, including when reading
+  older analysis JSON without derived fields. Blind-hole floors use file `axis`, `location`
+  and scalar `depth`. Both letter and vector axes are accepted. End-plane comparisons allow
+  half the published 0.01-mm step plus the geometry floor (0.005001 mm).
+- `features::hole_sets`, `rules::holes::hole_key`, `rules::records::Feature::vector`,
+  `rules::holes` and `locations` accept letters and vectors for hole `axis`. Hole `location`
+  is a file point; grouping and questions read scalar sizes/depths unchanged.
+- `rules::turned` reads `hi - lo` only for thread length: a distance invariant under the
+  common origin and unit direction. It does not interpret either endpoint as file Z.
+- `rules::datums` turned detection, `extras`, `general`, `anchors`, `sightlines`, `mates`
+  and the writer use file-space face centroids, normals, cylinder axes/origins or the
+  original kernel geometry. They do not decode recognition-frame coordinates.
+- `width_axis`, `depth_axis`, `other_axis`, `height_axis`, `thickness_axis`, `x_axis`,
+  `y_axis`, `section_axes`, `basis_axes`, nested profile/support/mirror axes, `w_center`,
+  `d_lo`/`d_hi`, `z_lo`/`z_hi`, riser positions, levels, spans and body bounds are opaque
+  published record data in Specify. They are serialised intact (vectors included), not
+  interpreted geometrically. The WASM session/input boundary delegates all recognition
+  and rules to these same functions and has no independent axis decoder.
+
+The kernel owns one-time publication, grid rounding and near-axis handling. Specify does
+not re-round positions or infer an epsilon frame. Equal-area datum candidates within
+max(1e-6 mm², 1e-6 times the larger area) keep face order under rigid motion.
+`tests/schema6.rs` checks all three golden 30° slots against actual end walls, rotates
+by 30° about Z plus translation and by a generic rotation, and compares questions,
+accepted defaults, written/read-back PMI and its face geometry under the same motion.
+
+Local upgrade checks select the touched binaries plus features, resume, cross-engine and
+WASM, with both corpus paths exported, `CARGO_BUILD_JOBS=6`, `RUST_TEST_THREADS=6`.
+The full workspace suite remains CI's check.
 
 Part-21 strings are decoded text in step-io 0.3 (#62): do not decode an attribute twice;
 haecceity's `Document::span` continues to provide checked `usize` slices of its own bytes.

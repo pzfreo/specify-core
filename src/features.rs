@@ -239,7 +239,7 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
             ));
         }
         let mut family_ids = Vec::with_capacity(list.len());
-        for (n, (record, faces)) in list.iter().zip(defining).enumerate() {
+        for (record, faces) in list.iter().zip(defining) {
             let mut faces = faces.clone();
             faces.sort_unstable();
             faces.dedup();
@@ -251,7 +251,7 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
             let feature = Feature {
                 id: feature_id(family, &faces),
                 family: family.clone(),
-                record: framed_record(&recognition, family, n, object(family, record)?)?,
+                record: published_record(family, object(family, record)?)?,
                 faces,
                 members: Vec::new(),
                 notes: Vec::new(),
@@ -315,7 +315,7 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
                 continue;
             }
             record.insert("kind".into(), Value::String(kind.to_string()));
-            let record = framed_record(&recognition, family, n, record)?;
+            let record = published_record(family, record)?;
             features.push(Feature {
                 id: feature_id(&format!("{family}.{kind}"), &faces),
                 family: family.to_string(),
@@ -331,62 +331,102 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
     Ok(features)
 }
 
-/// Quiddity already maps points/vectors to file coordinates. Preserve explicit metadata
-/// for axis-letter coordinates which cannot be represented along a file axis. The only
-/// positional consumer of those fields is the slot/channel end-plane datum exclusion;
-/// publish its direction and actual plane points in file space. Turned hi-lo is a length, frame invariant.
-fn framed_record(
-    recognition: &quiddity::correspondence::Recognition,
+/// Decode a schema-6 measuring direction, or a legacy file-axis letter. No provenance
+/// frame participates in geometry. Existing vector-valued directions use this decoder too.
+pub(crate) fn axis_direction(value: &Value) -> Option<V3> {
+    match value {
+        Value::String(axis) => match axis.as_str() {
+            "x" => Some([1.0, 0.0, 0.0]),
+            "y" => Some([0.0, 1.0, 0.0]),
+            "z" => Some([0.0, 0.0, 1.0]),
+            _ => None,
+        },
+        Value::Array(items) if items.len() == 3 => {
+            let mut out = [0.0; 3];
+            for (slot, item) in out.iter_mut().zip(items) {
+                *slot = item.as_f64().filter(|x| x.is_finite())?;
+            }
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+type EndPlanes = (V3, [V3; 2]);
+
+/// File-coordinate end planes from the published record alone. Also used on saved analysis
+/// JSON, which can predate the derived end_* fields. A bad coordinate is a named refusal.
+pub(crate) fn end_planes(
     family: &str,
-    n: usize,
+    record: &Map<String, Value>,
+) -> Result<Option<EndPlanes>, FeatureError> {
+    if !matches!(family, "slots" | "channels" | "oriented_slots") {
+        return Ok(None);
+    }
+    let bad = |field: &str| FeatureError::Records {
+        family: family.into(),
+        reason: format!("invalid or missing published {field} for end planes"),
+    };
+    if record
+        .get("_local")
+        .and_then(Value::as_array)
+        .is_some_and(|fields| fields.iter().any(|field| field == "long_axis"))
+    {
+        return Err(FeatureError::Records {
+            family: family.into(),
+            reason: "legacy frame-local end planes need reanalysis with recognition schema 6"
+                .into(),
+        });
+    }
+    let vector = |field: &str| {
+        record
+            .get(field)
+            .and_then(axis_direction)
+            .ok_or_else(|| bad(field))
+    };
+    let number = |field: &str| {
+        record
+            .get(field)
+            .and_then(Value::as_f64)
+            .filter(|x| x.is_finite())
+            .ok_or_else(|| bad(field))
+    };
+    let (direction, origin, levels) = if family == "oriented_slots" {
+        // The oriented family already publishes an explicit centre and long direction.
+        let direction = vector("long_direction")?;
+        let norm = haecceity::geom::dot(direction, direction).sqrt();
+        if (norm - 1.0).abs() > 1e-5 {
+            return Err(bad("long_direction (unit vector)"));
+        }
+        (
+            direction.map(|x| x / norm),
+            vector("center")?,
+            [-number("length")? / 2.0, number("length")? / 2.0],
+        )
+    } else {
+        let direction = vector("long_axis")?;
+        let origin = if record.get("long_axis").is_some_and(Value::is_string) {
+            // File-axis records retain absolute coordinates, including legacy analyses.
+            [0.0; 3]
+        } else {
+            vector("origin")?
+        };
+        (direction, origin, [number("lo")?, number("hi")?])
+    };
+    Ok(Some((
+        direction,
+        levels.map(|level| std::array::from_fn(|i| origin[i] + level * direction[i])),
+    )))
+}
+
+fn published_record(
+    family: &str,
     mut record: Map<String, Value>,
 ) -> Result<Map<String, Value>, FeatureError> {
-    let Some(local) = recognition.local.get(&format!("{family}/{n}")) else {
-        return Ok(record);
-    };
-    record.insert("_local".into(), serde_json::json!(local));
-    record.insert(
-        "_frame".into(),
-        serde_json::to_value(&recognition.frame).map_err(|e| FeatureError::Records {
-            family: family.into(),
-            reason: e.to_string(),
-        })?,
-    );
-    if matches!(family, "slots" | "channels") && local.iter().any(|p| p == "long_axis") {
-        let quiddity::frames::RecordFrame::Inferred(frame) = &recognition.frame else {
-            return Err(FeatureError::Records {
-                family: family.into(),
-                reason: "local end planes without an inferred frame".into(),
-            });
-        };
-        let axis = match record.get("long_axis").and_then(Value::as_str) {
-            Some("x") => 0,
-            Some("y") => 1,
-            Some("z") => 2,
-            _ => {
-                return Err(FeatureError::Records {
-                    family: family.into(),
-                    reason: "invalid local long_axis".into(),
-                });
-            }
-        };
-        let (lo, hi) = if family == "slots" {
-            let slot = &recognition.features.slots[n];
-            (*slot.lo, *slot.hi)
-        } else {
-            let channel = &recognition.features.channels[n];
-            (*channel.lo, *channel.hi)
-        };
-        // Use published end coordinates in both branches of the datum check. Fields left
-        // local by the public API need this frame; aligned records already name file axes.
-        let point =
-            |level| frame.to_world(std::array::from_fn(|i| if i == axis { level } else { 0.0 }));
-        record.insert(
-            "end_direction".into(),
-            serde_json::json!([frame.x, frame.y, frame.z][axis]),
-        );
-        record.insert("end_lo".into(), serde_json::json!(point(lo)));
-        record.insert("end_hi".into(), serde_json::json!(point(hi)));
+    if let Some((direction, [lo, hi])) = end_planes(family, &record)? {
+        record.insert("end_direction".into(), serde_json::json!(direction));
+        record.insert("end_lo".into(), serde_json::json!(lo));
+        record.insert("end_hi".into(), serde_json::json!(hi));
     }
     Ok(record)
 }
@@ -436,10 +476,15 @@ fn hole_sets(features: &[Feature]) -> Vec<Feature> {
             continue;
         }
         let r = &hole.record;
-        let axis: Vec<Value> = match r.get("axis") {
-            Some(Value::Array(items)) => items.iter().map(rounded_value).collect(),
-            _ => Vec::new(),
-        };
+        let axis: Vec<Value> = r
+            .get("axis")
+            .and_then(axis_direction)
+            .map(|axis| {
+                axis.into_iter()
+                    .map(|x| rounded_value(&serde_json::json!(x)))
+                    .collect()
+            })
+            .unwrap_or_default();
         let key = serde_json::json!([
             rounded_value(r.get("diameter").unwrap_or(&Value::Null)),
             rounded_value(r.get("depth").unwrap_or(&Value::Null)),
@@ -518,6 +563,35 @@ fn truthy(value: Option<&Value>) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn published_end_planes_decode_letters_vectors_and_refuse_missing_origins() {
+        let aligned = json!({"long_axis":"y", "lo":2.0, "hi":8.0});
+        assert_eq!(
+            end_planes("slots", aligned.as_object().unwrap()).unwrap(),
+            Some(([0.0, 1.0, 0.0], [[0.0, 2.0, 0.0], [0.0, 8.0, 0.0]]))
+        );
+        let mut converted =
+            json!({"long_axis":[0.6,0.8,0.0], "origin":[10.0,20.0,30.0], "lo":-5.0, "hi":5.0});
+        assert_eq!(
+            end_planes("channels", converted.as_object().unwrap()).unwrap(),
+            Some(([0.6, 0.8, 0.0], [[7.0, 16.0, 30.0], [13.0, 24.0, 30.0]]))
+        );
+        converted.as_object_mut().unwrap().remove("origin");
+        assert!(
+            end_planes("slots", converted.as_object().unwrap())
+                .unwrap_err()
+                .to_string()
+                .contains("origin")
+        );
+        converted["long_axis"] = json!("a");
+        assert!(
+            end_planes("slots", converted.as_object().unwrap())
+                .unwrap_err()
+                .to_string()
+                .contains("long_axis")
+        );
+    }
 
     fn hole(id: &str, diameter: f64, axis: [f64; 3]) -> Feature {
         Feature {

@@ -100,3 +100,36 @@ fn browser_exposes_real_alpha6_pattern_id_migration_and_new_questions() {
         ])
     );
 }
+
+#[test]
+fn browser_sessions_resume_all_84_alpha7_answers_after_schema6_upgrade() {
+    let mut total = 0;
+    for (name, count) in [
+        ("golden_oriented_slots", 13),
+        ("cgb217", 37),
+        ("ctc02_ap242", 34),
+    ] {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("../../tests/fixtures/resume_alpha7/{name}.step.gz"));
+        let loaded = part::load(&path, None).unwrap();
+        let expected = &resume::stored(&loaded.bytes)[&0]["answers"];
+        let session = Session::open(name, &loaded.bytes).unwrap();
+        let snapshot = session.snapshot();
+        let resumed = &snapshot["analysis"]["resume"];
+        assert_eq!(&resumed["answers"], expected, "{name}");
+        assert_eq!(expected.as_object().unwrap().len(), count);
+        assert!(resumed["unresolved"].is_null(), "{name}: {resumed}");
+        assert!(resumed["unverified"].is_null(), "{name}: {resumed}");
+        let review = session.review(expected.as_object().unwrap()).unwrap();
+        assert!(
+            !review["problems"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p["code"] == "saved_answer_unresolved"
+                    || p["code"] == "saved_answers_unverified")
+        );
+        total += count;
+    }
+    assert_eq!(total, 84);
+}

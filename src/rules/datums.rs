@@ -349,7 +349,7 @@ fn recess_planes(ctx: &Ctx<'_>) -> Result<HashSet<i64>> {
     for f in &ctx.features {
         if matches!(
             f.family,
-            "slots" | "channels" | "pockets" | "section_recesses" | "holes"
+            "slots" | "channels" | "oriented_slots" | "pockets" | "section_recesses" | "holes"
         ) {
             for &id in f.faces()? {
                 if ctx.faces.at(id)?.is_plane() {
@@ -367,25 +367,15 @@ fn recess_planes(ctx: &Ctx<'_>) -> Result<HashSet<i64>> {
                 }
             }
         }
-        if matches!(f.family, "slots" | "channels") {
+        if matches!(f.family, "slots" | "channels" | "oriented_slots") {
             let end_frame = if f.get("end_direction")?.is_some() {
                 Some((
                     f.vector("end_direction")?,
                     [f.vector("end_lo")?, f.vector("end_hi")?],
                 ))
             } else {
-                f.get("long_axis")?
-                    .and_then(Value::as_str)
-                    .and_then(|axis| ["x", "y", "z"].iter().position(|&a| a == axis))
-                    .map(|component| -> Result<_> {
-                        let direction =
-                            std::array::from_fn(|i| if i == component { 1.0 } else { 0.0 });
-                        let point = |level| {
-                            std::array::from_fn(|i| if i == component { level } else { 0.0 })
-                        };
-                        Ok((direction, [point(f.number("lo")?), point(f.number("hi")?)]))
-                    })
-                    .transpose()?
+                crate::features::end_planes(f.family, f.record()?)
+                    .map_err(|e| super::Error::Invalid(e.to_string()))?
             };
             if let Some((direction, ends)) = end_frame {
                 for p in ctx.faces.iter().filter(|p| p.is_plane()) {
