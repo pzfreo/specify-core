@@ -349,7 +349,7 @@ fn recess_planes(ctx: &Ctx<'_>) -> Result<HashSet<i64>> {
     for f in &ctx.features {
         if matches!(
             f.family,
-            "slots" | "channels" | "oriented_slots" | "pockets" | "section_recesses" | "holes"
+            "slots" | "channels" | "pockets" | "section_recesses" | "holes"
         ) {
             for &id in f.faces()? {
                 if ctx.faces.at(id)?.is_plane() {
@@ -367,7 +367,7 @@ fn recess_planes(ctx: &Ctx<'_>) -> Result<HashSet<i64>> {
                 }
             }
         }
-        if matches!(f.family, "slots" | "channels" | "oriented_slots") {
+        if matches!(f.family, "slots" | "channels") {
             let end_frame = if f.get("end_direction")?.is_some() {
                 Some((
                     f.vector("end_direction")?,

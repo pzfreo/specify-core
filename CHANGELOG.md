@@ -37,12 +37,15 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
-- Pin quiddity and haecceity, including WASM, to tagged **v0.2.0-alpha.1**. Specify's
+- Pin quiddity and haecceity, including WASM, to the **0.2.0-alpha.2** candidate
+  `ada4a044` on `cx/oriented-merge` (tag switch before merge). Specify's
   version remains alpha.7. Draftwright's older v0.1.1 pin still produces the expected
   advisory warning.
 - Adopt recognition schema 6 (#92): publish file-coordinate records, accept measuring
   axes as letters or vectors, and derive slot/channel end planes from the record's own
-  origin and distances. Remove `_local`/`_frame`; recognition provenance is never geometry.
+  origin and distances. Merge oriented slots/chamfers/patterns into the ordinary families;
+  vector axes and exact converted extents replace the old direction fields. Remove the
+  typed view and `_local`/`_frame`; recognition provenance is never geometry.
   All three golden 30° slots and their six end planes retain questions, defaults and
   written PMI through a 30° Z rotation/translation and a generic rigid rotation.
 - Kernel frame-vote corrections (#81) recover fillets: cgb217 **6 → 14**, CTC-02 AP242
@@ -53,7 +56,8 @@ All notable changes to specify-core-rust. The format follows
   boundaries retain their original planes (#84/#85). Fingerprints remain version 3.
 - Preserve old-kernel saved-answer fixtures with **13 / 37 / 34 answers** for oriented
   slots, cgb217 and CTC-02 AP242. Resume checks require each value to reattach by geometric
-  support or remain open with its original ID and reason, never disappear.
+  support or remain open with its original ID and reason, never disappear. Golden's 13
+  answers are part/datum settings and resume unchanged; none is keyed to an oriented slot.
 
 ### Fixed
 

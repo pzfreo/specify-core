@@ -8,7 +8,7 @@
 //!
 //! - Features come from quiddity-rust (`quiddity::correspondence::recognise`, framed
 //!   records converted/labelled at this boundary), not Python quiddity's evidence view. A feature's faces are its
-//!   *defining* faces (`Features::defining`), not its constituent faces (upstream need U2): a
+//!   *defining* faces (the published recognition document), not its constituent faces (upstream need U2): a
 //!   blind hole is its bore, without its floor, so ids for the same feature can differ between
 //!   the engines. The families are quiddity-rust's: Python's cross-family reconciliation
 //!   (`step_levels`, `bosses` dropped on turned parts) is not there.
@@ -27,7 +27,6 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use haecceity::geom::{Surface, V3};
-use quiddity::features::hole_patterns::HolePattern;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -185,15 +184,10 @@ fn rounded(v: V3, digits: i32) -> V3 {
 const DERIVED: [(&str, &str, &str); 1] = [("hole_patterns", "holes", "holes")];
 
 /// Derived families that are not features: Python's evidence view lists physical families and
-/// hole patterns only, so a gusset rib, slot, pocket or oriented slot pattern (derived, like a
+/// hole patterns only, so a gusset rib, slot or pocket pattern (derived, like a
 /// hole pattern, with no defining faces of its own, but never in Python's analysis) is left out
 /// to keep the analysis JSON specify-core's. Its members remain, each a feature of its family.
-const NOT_FEATURES: [&str; 4] = [
-    "gusset_rib_patterns",
-    "slot_patterns",
-    "pocket_patterns",
-    "oriented_slot_patterns",
-];
+const NOT_FEATURES: [&str; 3] = ["gusset_rib_patterns", "slot_patterns", "pocket_patterns"];
 
 /// The part's features (Python's `recognise`): every family's records from quiddity with their
 /// defining faces, hole patterns with their members, and sets of identical holes no pattern
@@ -204,6 +198,13 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
     }
     let recognition = quiddity::correspondence::recognise(&loaded.part);
     let found = &recognition.features;
+    // Published IDs and defining faces follow the same merge, without a working typed view.
+    let document = quiddity::recognition::document(&recognition, loaded.part.faces.len());
+    let published: std::collections::BTreeMap<_, _> = document
+        .records
+        .iter()
+        .map(|record| (record.id.as_str(), record))
+        .collect();
     let records = |family: &str, reason: String| FeatureError::Records {
         family: family.to_string(),
         reason,
@@ -224,22 +225,13 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
         let list = list
             .as_array()
             .ok_or_else(|| records(family, "not a list of records".into()))?;
-        let defining = found
-            .defining
-            .get(family.as_str())
-            .ok_or_else(|| records(family, "no defining faces".into()))?;
-        if defining.len() != list.len() {
-            return Err(records(
-                family,
-                format!(
-                    "{} records, {} defining face lists",
-                    list.len(),
-                    defining.len()
-                ),
-            ));
-        }
         let mut family_ids = Vec::with_capacity(list.len());
-        for (record, faces) in list.iter().zip(defining) {
+        for (n, record) in list.iter().enumerate() {
+            let id = format!("{family}/{n}");
+            let faces = &published
+                .get(id.as_str())
+                .ok_or_else(|| records(family, format!("no published defining faces for {id}")))?
+                .faces;
             let mut faces = faces.clone();
             faces.sort_unstable();
             faces.dedup();
@@ -263,10 +255,6 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
     }
 
     // Patterns after their members, with the kind the variant names.
-    let kinds: Vec<(&str, Vec<&str>)> = vec![(
-        "hole_patterns",
-        found.hole_patterns.iter().map(hole_pattern_kind).collect(),
-    )];
     for (family, field, base) in DERIVED {
         let list = families
             .get(family)
@@ -281,12 +269,25 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
             .find(|(b, _)| *b == base)
             .map(|(_, v)| v.as_slice())
             .unwrap_or_default();
-        // DERIVED contains only hole_patterns, the family constructed in kinds immediately above.
-        let family_kinds = &kinds.iter().find(|(f, _)| *f == family).expect("listed").1;
         let mut taken = vec![false; pool.len()];
         for (n, record) in list.iter().enumerate() {
             let mut record = object(family, record)?;
-            let kind = family_kinds.get(n).copied().unwrap_or_default();
+            let id = format!("{family}/{n}");
+            let record_type = published
+                .get(id.as_str())
+                .ok_or_else(|| records(family, format!("no published type for {id}")))?
+                .record_type
+                .as_str();
+            let kind = HOLE_PATTERN_KINDS
+                .iter()
+                .find(|(variant, _)| *variant == record_type)
+                .map(|(_, kind)| *kind)
+                .ok_or_else(|| {
+                    records(
+                        family,
+                        format!("unknown published pattern type {record_type}"),
+                    )
+                })?;
             let mut members = Vec::new();
             let mut notes = Vec::new();
             let listed = record.get(field).and_then(Value::as_array);
@@ -360,7 +361,7 @@ pub(crate) fn end_planes(
     family: &str,
     record: &Map<String, Value>,
 ) -> Result<Option<EndPlanes>, FeatureError> {
-    if !matches!(family, "slots" | "channels" | "oriented_slots") {
+    if !matches!(family, "slots" | "channels") {
         return Ok(None);
     }
     let bad = |field: &str| FeatureError::Records {
@@ -391,31 +392,16 @@ pub(crate) fn end_planes(
             .filter(|x| x.is_finite())
             .ok_or_else(|| bad(field))
     };
-    let (direction, origin, levels) = if family == "oriented_slots" {
-        // The oriented family already publishes an explicit centre and long direction.
-        let direction = vector("long_direction")?;
-        let norm = haecceity::geom::dot(direction, direction).sqrt();
-        if (norm - 1.0).abs() > 1e-5 {
-            return Err(bad("long_direction (unit vector)"));
-        }
-        (
-            direction.map(|x| x / norm),
-            vector("center")?,
-            [-number("length")? / 2.0, number("length")? / 2.0],
-        )
+    let direction = vector("long_axis")?;
+    let origin = if record.contains_key("origin") {
+        // Converted records can mix letters and vectors; every scalar shares this origin.
+        vector("origin")?
+    } else if record.get("long_axis").is_some_and(Value::is_string) {
+        [0.0; 3]
     } else {
-        let direction = vector("long_axis")?;
-        let origin = if record.contains_key("origin") {
-            // Converted records can mix letters and vectors; every scalar shares this origin.
-            vector("origin")?
-        } else if record.get("long_axis").is_some_and(Value::is_string) {
-            // Ordinary file-axis records retain absolute coordinates, including legacy analyses.
-            [0.0; 3]
-        } else {
-            return Err(bad("origin"));
-        };
-        (direction, origin, [number("lo")?, number("hi")?])
+        return Err(bad("origin"));
     };
+    let levels = [number("lo")?, number("hi")?];
     Ok(Some((
         direction,
         levels.map(|level| std::array::from_fn(|i| origin[i] + level * direction[i])),
@@ -446,20 +432,6 @@ fn object(family: &str, record: &Value) -> Result<Map<String, Value>, FeatureErr
             reason: format!("a record is not an object: {other}"),
         }),
     }
-}
-
-/// The short kind of a hole pattern, from its variant (Python's `HOLE_PATTERN_KINDS`).
-fn hole_pattern_kind(pattern: &HolePattern) -> &'static str {
-    let variant = match pattern {
-        HolePattern::BoltCircle { .. } => "BoltCircle",
-        HolePattern::LinearArray { .. } => "LinearArray",
-        HolePattern::RectGrid { .. } => "RectGrid",
-        HolePattern::RectangularHoleSet { .. } => "RectangularHoleSet",
-    };
-    HOLE_PATTERN_KINDS
-        .iter()
-        .find(|(v, _)| *v == variant)
-        .map_or(variant, |(_, k)| k)
 }
 
 /// Groups of identical holes that no recognised pattern claims (Python's `_hole_sets`).

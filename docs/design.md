@@ -53,7 +53,7 @@ quiddity-rust is used as a library (Rust to Rust), not through its `quiddity` co
 | Load, parts, names, placements, face `#N` | `haecceity::step::read_part_definitions(&bytes) -> Vec<PartDefinition>` (`product_definition`, `shape`, `name`, `faces: Vec<u64>` in specify-core's numbering, `edges`, `placements`, `face_index(#N)`) |
 | The part's B-rep | `haecceity::read_step(&bytes) -> Part` (every placed instance; faces carry `face_source(i) -> Source { entity, instance }`) |
 | Face geometry | `Part.faces[i].surface` (`Surface::{Plane, Cylinder, Cone, Sphere, Torus, ..}` with `Frame`), `Face.reversed`, `Part::face_moments(i) -> FaceMoments { area, centroid, area_vector }`, `face_normal`, `uv_bounds`, `face_centre`, `bounds`, `face_edges`, `edge_faces`, `neighbours` |
-| Features | `quiddity::correspondence::recognise(&Part) -> Recognition { features: PublishedFeatures, fingerprints }`; `Features.defining` (defining faces per record); `HolePattern` variants with their member `HoleRecord`s |
+| Features | `quiddity::correspondence::recognise(&Part) -> Recognition { features: PublishedFeatures, fingerprints }`; `recognition::document` records (published defining faces and hole-pattern record types) |
 | Point classification for sightlines | `haecceity::classify::Classifier::new(&part).classify(p) -> State` |
 | Edge polylines | `Part.edges[e].samples`, `Part::edge_faces()` (a seam lists its face once) |
 | Existing PMI | `haecceity::p21::Document`, `haecceity::pmi::read(&doc, &parts) -> PmiRead { parts: Vec<PartPmi>, findings, provenance, accounting }` (anchors are face indices of the part) |
@@ -87,12 +87,12 @@ the resume correspondence rule below handles feature-ID changes.
 ## Dependency plan
 
 - `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity-rust`,
-  pinned to tag `v0.2.0-alpha.1` in both manifests and Cargo.lock.
+  pinned to the 0.2.0-alpha.2 candidate `ada4a044cdcbd52cc2aa956a085aa6c7446fe174` on `cx/oriented-merge` (the maintainer switches to the tag before merge) in both manifests and Cargo.lock.
   Update only these packages with `cargo update -p quiddity -p haecceity`, then run
   the named local profile below and the full suite in CI, and rejudge any departures from the frozen Python captures with
   independent evidence. `correspondence::recognise` returns published file-coordinate records (#92);
   Specify serialises `PublishedFeatures` (see the axis consumer audit below).
-  Specify does not consume the upstream recognition document: modelled
+  Specify consumes the document for defining faces and pattern types only: modelled
   threads are additive features; their claimed freeforms become thread faces. The
   upstream document is recognition/6 with complete face accounting (#66). Specify has no
   unclaimed/unrecognised-face display, so it does not add a new UI for that accounting.
@@ -283,11 +283,18 @@ fixtures cover literal Unicode, quotes and STEP-escape-looking backslashes too.
 
 ### Recognition coordinates at the Specify boundary
 
-Quiddity 0.2.0-alpha.1 publishes recognition schema 6 (#92). Specify serialises
-`PublishedFeatures` for its record payload; the typed `Deref` view is used only for
-non-coordinate information (defining faces and hole-pattern variant names). No geometry
+Quiddity 0.2.0-alpha.2 publishes recognition schema 6 (#92). Specify serialises
+`PublishedFeatures` for its record payload and reads the published document for defining
+faces and hole-pattern variant names; there is no typed `Deref` view. The formerly
+oriented slot, chamfer and slot-pattern families are merged into `slots`, `chamfers`
+and `slot_patterns` (#92), with file-coordinate letter/vector axes. Plain records come
+first. Specify has no separate oriented-family readers. No geometry
 reads recognition's top-level `frame`. `_local` and `_frame` are no longer emitted.
-Fingerprints remain `quiddity-rust/fingerprint/3`; re-recognise on upgrade.
+Fingerprints remain `quiddity-rust/fingerprint/3`; merged records change fingerprint
+values, so re-recognise on upgrade. Golden's 13 pre-upgrade saved answers are all part/datum
+settings, not `oriented_slots:*` answers: they resume unchanged by part/face evidence.
+Its three old oriented-slot supports are checked against the merged slots by face support
+and end-wall geometry; no dimension/order-based answer migration is introduced.
 
 Axis/coordinate consumer audit (native and `crates/specify-core-wasm/src`):
 
@@ -295,8 +302,7 @@ Axis/coordinate consumer audit (native and `crates/specify-core-wasm/src`):
   Without `origin`, letters mean absolute positive file axes. Converted records
   (including mixed letter/vector axes) mean `origin + distance * direction`.
   Missing/invalid axes or origins return `FeatureError::Records`, never omit an end plane.
-  The already explicit oriented-slot family uses `long_direction`, `center`, `length`.
-  Its derived `end_direction`, `end_lo`, `end_hi` are also in file coordinates.
+  Derived `end_direction`, `end_lo`, `end_hi` are also in file coordinates.
 - `rules::datums::recess_planes` uses those published end planes, including when reading
   older analysis JSON without derived fields. Blind-hole floors use file `axis`, `location`
   and scalar `depth`. Both letter and vector axes are accepted. End-plane comparisons allow
