@@ -1,6 +1,6 @@
 {
   "writer": "specify-core 0.1.0-alpha.7 on quiddity/haecceity v0.1.1 (a27b7064)",
-  "input": "tests/fixtures/nist/nist_ctc_02_asme1_ap242.stp.gz",
+  "input": "Specify NIST nist_ctc_02_asme1_ap242.stp.gz; foreign PMI removed using haecceity v0.1.1 brep_write, preserving geometry and face order",
   "answers": {
     "part.general_tolerance": "ISO 2768-m",
     "part.surface_finish": "Ra 3.2",
@@ -8,16 +8,39 @@
     "part.heat_treatment": "None",
     "part.edges": "Break sharp edges 0.2 max",
     "part.notes": [],
-    "hole.function:holes:205.206.301.302": "general",
+    "part.locating": "position tolerances",
+    "hole.function:holes:98.99.101.102": "general",
+    "hole.function:holes:231.232.299.300": "general",
     "hole.function:holes:469.473": "general",
     "hole.function:hole_patterns.bolt_circle:167.168.173.174.179.180": "clearance:M8",
+    "hole.position:hole_patterns.bolt_circle:167.168.173.174.179.180": "0.38",
     "hole.function:hole_patterns.linear:317.318.319.320.321.322.323.324.347.348": "clearance:M8",
+    "hole.position:hole_patterns.linear:317.318.319.320.321.322.323.324.347.348": "0.38",
     "hole.function:hole_patterns.linear:309.310.315.316.325.326.327.328": "clearance:M8",
+    "hole.position:hole_patterns.linear:309.310.315.316.325.326.327.328": "0.38",
     "hole.function:hole_patterns.linear:597.598.599.600.601.602.603.604.605.606": "general",
     "hole.function:hole_patterns.linear:561.562.563.564.565.566": "general",
     "hole.function:hole_patterns.set:169.170.175.176.177.178.183.184": "clearance:M8",
+    "hole.position:hole_patterns.set:169.170.175.176.177.178.183.184": "0.38",
+    "hole.function:hole_patterns.set:55.56.65.66.67.68.80.86.88.90.136.388.389.390.458.461.464.474.493.494.495.496.503.504": "clearance:M20",
+    "hole.position:hole_patterns.set:55.56.65.66.67.68.80.86.88.90.136.388.389.390.458.461.464.474.493.494.495.496.503.504": "2",
     "hole.function:hole_patterns.set:305.306.307.308.311.312.313.314.339.340.341.342.343.344.345.346": "clearance:M8",
+    "hole.position:hole_patterns.set:305.306.307.308.311.312.313.314.339.340.341.342.343.344.345.346": "0.38",
     "hole.function:hole_patterns.set:553.554.555.556.557.558.559.560.583.584.585.586.587.588.589.590": "general",
+    "hole.function:hole_patterns.set:620.621.632.633": "clearance:M10",
+    "hole.position:hole_patterns.set:620.621.632.633": "2",
+    "datum.A": [
+      74
+    ],
+    "datum.B": [
+      362
+    ],
+    "datum.C": [
+      363
+    ],
+    "datum.A.flatness": "none",
+    "datum.B.control": "none",
+    "datum.C.control": "none",
     "part.material": "steel"
   },
   "features": [
