@@ -1,0 +1,99 @@
+{
+  "writer": "specify-core 0.1.0-alpha.7 on quiddity/haecceity v0.1.1 (a27b7064)",
+  "input": "fixtures/golden_oriented_slots.step",
+  "answers": {
+    "part.general_tolerance": "ISO 2768-m",
+    "part.surface_finish": "Ra 3.2",
+    "part.coating": "None (as machined)",
+    "part.heat_treatment": "None",
+    "part.edges": "Break sharp edges 0.2 max",
+    "part.notes": [],
+    "datum.A": [
+      2
+    ],
+    "datum.B": [
+      1
+    ],
+    "datum.C": [
+      0
+    ],
+    "datum.A.flatness": "none",
+    "datum.B.control": "none",
+    "datum.C.control": "none",
+    "part.material": "steel"
+  },
+  "features": [
+    {
+      "id": "oriented_slots:14.15.16.17",
+      "family": "oriented_slots",
+      "faces": [
+        14,
+        15,
+        16,
+        17
+      ]
+    },
+    {
+      "id": "oriented_slots:10.11.12.13",
+      "family": "oriented_slots",
+      "faces": [
+        10,
+        11,
+        12,
+        13
+      ]
+    },
+    {
+      "id": "oriented_slots:6.7.8.9",
+      "family": "oriented_slots",
+      "faces": [
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "id": "risers:14",
+      "family": "risers",
+      "faces": [
+        14
+      ]
+    },
+    {
+      "id": "risers:10",
+      "family": "risers",
+      "faces": [
+        10
+      ]
+    },
+    {
+      "id": "risers:6",
+      "family": "risers",
+      "faces": [
+        6
+      ]
+    },
+    {
+      "id": "risers:16",
+      "family": "risers",
+      "faces": [
+        16
+      ]
+    },
+    {
+      "id": "risers:13",
+      "family": "risers",
+      "faces": [
+        13
+      ]
+    },
+    {
+      "id": "risers:9",
+      "family": "risers",
+      "faces": [
+        9
+      ]
+    }
+  ]
+}
