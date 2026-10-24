@@ -623,6 +623,12 @@ fn alpha7_saved_answers_survive_the_schema6_upgrade() {
                 assert!(!applied.contains_key(u["id"].as_str().unwrap()));
             }
         }
+        // Saving again uses current recognition, and the exact old answers remain readable.
+        let intent = specify_core::api::apply(&analysis, applied, true).unwrap();
+        let (bytes, _) =
+            specify_core::writer::write_bytes(&loaded, &intent, Some(applied)).unwrap();
+        let rewritten = specify_core::part::load_bytes(name, bytes).unwrap();
+        assert_eq!(answers_for(&rewritten).unwrap().as_ref(), Some(applied));
         eprintln!(
             "{name}: {} reattached, {} unresolved with old ID, {} migrated",
             applied.len(),
