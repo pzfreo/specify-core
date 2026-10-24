@@ -37,8 +37,7 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
-- Pin quiddity and haecceity, including WASM, to the **0.2.0-alpha.1** release commit
-  `fb84622b4ff9d9e1e30724559df93cfed1d6fc91` until its tag is available. Specify's
+- Pin quiddity and haecceity, including WASM, to tagged **v0.2.0-alpha.1**. Specify's
   version remains alpha.7. Draftwright's older v0.1.1 pin still produces the expected
   advisory warning.
 - Adopt recognition schema 6 (#92): publish file-coordinate records, accept measuring
