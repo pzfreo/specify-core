@@ -144,7 +144,8 @@ fn assert_same(got: &Value, want: &Value, at: &str) {
     }
 }
 
-/// A part's analysis is the base commit's, field for field (faces, features, mates, existing,
+/// The base includes quiddity #92 schema-6 file coordinates, checked against the face below.
+/// A part's analysis agrees field for field (faces, features, mates, existing,
 /// binding), whether the part comes from a path, from a `File` whose path has since gone (the
 /// other parts the mates need are loaded from the same read, not from disk), or from bytes held
 /// in memory under another name.
@@ -183,6 +184,25 @@ fn a_part_is_analysed_as_before_from_one_read() {
         let (analysis, warnings) = api::analyse_reporting_in(&file, &loaded).unwrap();
         assert_same(&analysis, want, &format!("part {k}, its file gone"));
         assert!(warnings.is_empty(), "{warnings:?}");
+        // #92: the old working X was -file Z. The converted station must still be on
+        // riser face 2; its height interval must still span that face in file Y.
+        if k == PIN {
+            let record = &analysis["features"][3]["record"];
+            assert_eq!(record["axis"], "z");
+            assert_eq!(record["height_axis"], "y");
+            let station =
+                record["origin"][2].as_f64().unwrap() + record["positions"][0].as_f64().unwrap();
+            let bounds = loaded.part.face_bounds(2);
+            assert!((station - bounds.min[2]).abs() < 0.000501);
+            assert!((station - bounds.max[2]).abs() < 0.000501);
+            for (key, y) in [("z_lo", bounds.min[1]), ("z_hi", bounds.max[1])] {
+                assert!(
+                    (record["origin"][1].as_f64().unwrap() + record[key].as_f64().unwrap() - y)
+                        .abs()
+                        < 1e-9
+                );
+            }
+        }
 
         let loaded = in_memory.load(Some(k)).unwrap();
         assert_same(

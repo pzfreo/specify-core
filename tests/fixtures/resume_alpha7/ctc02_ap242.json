@@ -1,0 +1,1587 @@
+{
+  "writer": "specify-core 0.1.0-alpha.7 on quiddity/haecceity v0.1.1 (a27b7064)",
+  "input": "Specify NIST nist_ctc_02_asme1_ap242.stp.gz; foreign PMI removed using haecceity v0.1.1 brep_write, preserving geometry and face order",
+  "answers": {
+    "part.general_tolerance": "ISO 2768-m",
+    "part.surface_finish": "Ra 3.2",
+    "part.coating": "None (as machined)",
+    "part.heat_treatment": "None",
+    "part.edges": "Break sharp edges 0.2 max",
+    "part.notes": [],
+    "part.locating": "position tolerances",
+    "hole.function:holes:98.99.101.102": "general",
+    "hole.function:holes:231.232.299.300": "general",
+    "hole.function:holes:469.473": "general",
+    "hole.function:hole_patterns.bolt_circle:167.168.173.174.179.180": "clearance:M8",
+    "hole.position:hole_patterns.bolt_circle:167.168.173.174.179.180": "0.38",
+    "hole.function:hole_patterns.linear:317.318.319.320.321.322.323.324.347.348": "clearance:M8",
+    "hole.position:hole_patterns.linear:317.318.319.320.321.322.323.324.347.348": "0.38",
+    "hole.function:hole_patterns.linear:309.310.315.316.325.326.327.328": "clearance:M8",
+    "hole.position:hole_patterns.linear:309.310.315.316.325.326.327.328": "0.38",
+    "hole.function:hole_patterns.linear:597.598.599.600.601.602.603.604.605.606": "general",
+    "hole.function:hole_patterns.linear:561.562.563.564.565.566": "general",
+    "hole.function:hole_patterns.set:169.170.175.176.177.178.183.184": "clearance:M8",
+    "hole.position:hole_patterns.set:169.170.175.176.177.178.183.184": "0.38",
+    "hole.function:hole_patterns.set:55.56.65.66.67.68.80.86.88.90.136.388.389.390.458.461.464.474.493.494.495.496.503.504": "clearance:M20",
+    "hole.position:hole_patterns.set:55.56.65.66.67.68.80.86.88.90.136.388.389.390.458.461.464.474.493.494.495.496.503.504": "2",
+    "hole.function:hole_patterns.set:305.306.307.308.311.312.313.314.339.340.341.342.343.344.345.346": "clearance:M8",
+    "hole.position:hole_patterns.set:305.306.307.308.311.312.313.314.339.340.341.342.343.344.345.346": "0.38",
+    "hole.function:hole_patterns.set:553.554.555.556.557.558.559.560.583.584.585.586.587.588.589.590": "general",
+    "hole.function:hole_patterns.set:620.621.632.633": "clearance:M10",
+    "hole.position:hole_patterns.set:620.621.632.633": "2",
+    "datum.A": [
+      74
+    ],
+    "datum.B": [
+      362
+    ],
+    "datum.C": [
+      363
+    ],
+    "datum.A.flatness": "none",
+    "datum.B.control": "none",
+    "datum.C.control": "none",
+    "part.material": "steel"
+  },
+  "features": [
+    {
+      "id": "fillets:140",
+      "family": "fillets",
+      "faces": [
+        140
+      ]
+    },
+    {
+      "id": "fillets:150",
+      "family": "fillets",
+      "faces": [
+        150
+      ]
+    },
+    {
+      "id": "fillets:509",
+      "family": "fillets",
+      "faces": [
+        509
+      ]
+    },
+    {
+      "id": "holes:98.99.101.102",
+      "family": "holes",
+      "faces": [
+        98,
+        99,
+        101,
+        102
+      ]
+    },
+    {
+      "id": "holes:303.304.445.446",
+      "family": "holes",
+      "faces": [
+        303,
+        304,
+        445,
+        446
+      ]
+    },
+    {
+      "id": "holes:165.166",
+      "family": "holes",
+      "faces": [
+        165,
+        166
+      ]
+    },
+    {
+      "id": "holes:297.298",
+      "family": "holes",
+      "faces": [
+        297,
+        298
+      ]
+    },
+    {
+      "id": "holes:167.168",
+      "family": "holes",
+      "faces": [
+        167,
+        168
+      ]
+    },
+    {
+      "id": "holes:293.294",
+      "family": "holes",
+      "faces": [
+        293,
+        294
+      ]
+    },
+    {
+      "id": "holes:169.170",
+      "family": "holes",
+      "faces": [
+        169,
+        170
+      ]
+    },
+    {
+      "id": "holes:291.292",
+      "family": "holes",
+      "faces": [
+        291,
+        292
+      ]
+    },
+    {
+      "id": "holes:171.172",
+      "family": "holes",
+      "faces": [
+        171,
+        172
+      ]
+    },
+    {
+      "id": "holes:289.290",
+      "family": "holes",
+      "faces": [
+        289,
+        290
+      ]
+    },
+    {
+      "id": "holes:173.174",
+      "family": "holes",
+      "faces": [
+        173,
+        174
+      ]
+    },
+    {
+      "id": "holes:287.288",
+      "family": "holes",
+      "faces": [
+        287,
+        288
+      ]
+    },
+    {
+      "id": "holes:175.176",
+      "family": "holes",
+      "faces": [
+        175,
+        176
+      ]
+    },
+    {
+      "id": "holes:285.286",
+      "family": "holes",
+      "faces": [
+        285,
+        286
+      ]
+    },
+    {
+      "id": "holes:177.178",
+      "family": "holes",
+      "faces": [
+        177,
+        178
+      ]
+    },
+    {
+      "id": "holes:283.284",
+      "family": "holes",
+      "faces": [
+        283,
+        284
+      ]
+    },
+    {
+      "id": "holes:179.180",
+      "family": "holes",
+      "faces": [
+        179,
+        180
+      ]
+    },
+    {
+      "id": "holes:281.282",
+      "family": "holes",
+      "faces": [
+        281,
+        282
+      ]
+    },
+    {
+      "id": "holes:181.182",
+      "family": "holes",
+      "faces": [
+        181,
+        182
+      ]
+    },
+    {
+      "id": "holes:279.280",
+      "family": "holes",
+      "faces": [
+        279,
+        280
+      ]
+    },
+    {
+      "id": "holes:183.184",
+      "family": "holes",
+      "faces": [
+        183,
+        184
+      ]
+    },
+    {
+      "id": "holes:277.278",
+      "family": "holes",
+      "faces": [
+        277,
+        278
+      ]
+    },
+    {
+      "id": "holes:55.56.80.474",
+      "family": "holes",
+      "faces": [
+        55,
+        56,
+        80,
+        474
+      ]
+    },
+    {
+      "id": "holes:65.66.389.390",
+      "family": "holes",
+      "faces": [
+        65,
+        66,
+        389,
+        390
+      ]
+    },
+    {
+      "id": "holes:67.68.90.458",
+      "family": "holes",
+      "faces": [
+        67,
+        68,
+        90,
+        458
+      ]
+    },
+    {
+      "id": "holes:86.464.503.504",
+      "family": "holes",
+      "faces": [
+        86,
+        464,
+        503,
+        504
+      ]
+    },
+    {
+      "id": "holes:88.461.495.496",
+      "family": "holes",
+      "faces": [
+        88,
+        461,
+        495,
+        496
+      ]
+    },
+    {
+      "id": "holes:231.232.299.300",
+      "family": "holes",
+      "faces": [
+        231,
+        232,
+        299,
+        300
+      ]
+    },
+    {
+      "id": "holes:205.206.301.302",
+      "family": "holes",
+      "faces": [
+        205,
+        206,
+        301,
+        302
+      ]
+    },
+    {
+      "id": "holes:136.388.493.494",
+      "family": "holes",
+      "faces": [
+        136,
+        388,
+        493,
+        494
+      ]
+    },
+    {
+      "id": "holes:305.306",
+      "family": "holes",
+      "faces": [
+        305,
+        306
+      ]
+    },
+    {
+      "id": "holes:307.308",
+      "family": "holes",
+      "faces": [
+        307,
+        308
+      ]
+    },
+    {
+      "id": "holes:309.310",
+      "family": "holes",
+      "faces": [
+        309,
+        310
+      ]
+    },
+    {
+      "id": "holes:311.312",
+      "family": "holes",
+      "faces": [
+        311,
+        312
+      ]
+    },
+    {
+      "id": "holes:313.314",
+      "family": "holes",
+      "faces": [
+        313,
+        314
+      ]
+    },
+    {
+      "id": "holes:315.316",
+      "family": "holes",
+      "faces": [
+        315,
+        316
+      ]
+    },
+    {
+      "id": "holes:317.318",
+      "family": "holes",
+      "faces": [
+        317,
+        318
+      ]
+    },
+    {
+      "id": "holes:319.320",
+      "family": "holes",
+      "faces": [
+        319,
+        320
+      ]
+    },
+    {
+      "id": "holes:321.322",
+      "family": "holes",
+      "faces": [
+        321,
+        322
+      ]
+    },
+    {
+      "id": "holes:323.324",
+      "family": "holes",
+      "faces": [
+        323,
+        324
+      ]
+    },
+    {
+      "id": "holes:325.326",
+      "family": "holes",
+      "faces": [
+        325,
+        326
+      ]
+    },
+    {
+      "id": "holes:327.328",
+      "family": "holes",
+      "faces": [
+        327,
+        328
+      ]
+    },
+    {
+      "id": "holes:329.330",
+      "family": "holes",
+      "faces": [
+        329,
+        330
+      ]
+    },
+    {
+      "id": "holes:331.332",
+      "family": "holes",
+      "faces": [
+        331,
+        332
+      ]
+    },
+    {
+      "id": "holes:333.334",
+      "family": "holes",
+      "faces": [
+        333,
+        334
+      ]
+    },
+    {
+      "id": "holes:335.336",
+      "family": "holes",
+      "faces": [
+        335,
+        336
+      ]
+    },
+    {
+      "id": "holes:337.338",
+      "family": "holes",
+      "faces": [
+        337,
+        338
+      ]
+    },
+    {
+      "id": "holes:339.340",
+      "family": "holes",
+      "faces": [
+        339,
+        340
+      ]
+    },
+    {
+      "id": "holes:341.342",
+      "family": "holes",
+      "faces": [
+        341,
+        342
+      ]
+    },
+    {
+      "id": "holes:343.344",
+      "family": "holes",
+      "faces": [
+        343,
+        344
+      ]
+    },
+    {
+      "id": "holes:345.346",
+      "family": "holes",
+      "faces": [
+        345,
+        346
+      ]
+    },
+    {
+      "id": "holes:347.348",
+      "family": "holes",
+      "faces": [
+        347,
+        348
+      ]
+    },
+    {
+      "id": "holes:469.473",
+      "family": "holes",
+      "faces": [
+        469,
+        473
+      ]
+    },
+    {
+      "id": "holes:553.554",
+      "family": "holes",
+      "faces": [
+        553,
+        554
+      ]
+    },
+    {
+      "id": "holes:555.556",
+      "family": "holes",
+      "faces": [
+        555,
+        556
+      ]
+    },
+    {
+      "id": "holes:557.558",
+      "family": "holes",
+      "faces": [
+        557,
+        558
+      ]
+    },
+    {
+      "id": "holes:559.560",
+      "family": "holes",
+      "faces": [
+        559,
+        560
+      ]
+    },
+    {
+      "id": "holes:561.562",
+      "family": "holes",
+      "faces": [
+        561,
+        562
+      ]
+    },
+    {
+      "id": "holes:563.564",
+      "family": "holes",
+      "faces": [
+        563,
+        564
+      ]
+    },
+    {
+      "id": "holes:565.566",
+      "family": "holes",
+      "faces": [
+        565,
+        566
+      ]
+    },
+    {
+      "id": "holes:567.568",
+      "family": "holes",
+      "faces": [
+        567,
+        568
+      ]
+    },
+    {
+      "id": "holes:569.570",
+      "family": "holes",
+      "faces": [
+        569,
+        570
+      ]
+    },
+    {
+      "id": "holes:571.572",
+      "family": "holes",
+      "faces": [
+        571,
+        572
+      ]
+    },
+    {
+      "id": "holes:573.574",
+      "family": "holes",
+      "faces": [
+        573,
+        574
+      ]
+    },
+    {
+      "id": "holes:575.576",
+      "family": "holes",
+      "faces": [
+        575,
+        576
+      ]
+    },
+    {
+      "id": "holes:577.578",
+      "family": "holes",
+      "faces": [
+        577,
+        578
+      ]
+    },
+    {
+      "id": "holes:579.580",
+      "family": "holes",
+      "faces": [
+        579,
+        580
+      ]
+    },
+    {
+      "id": "holes:581.582",
+      "family": "holes",
+      "faces": [
+        581,
+        582
+      ]
+    },
+    {
+      "id": "holes:583.584",
+      "family": "holes",
+      "faces": [
+        583,
+        584
+      ]
+    },
+    {
+      "id": "holes:585.586",
+      "family": "holes",
+      "faces": [
+        585,
+        586
+      ]
+    },
+    {
+      "id": "holes:587.588",
+      "family": "holes",
+      "faces": [
+        587,
+        588
+      ]
+    },
+    {
+      "id": "holes:589.590",
+      "family": "holes",
+      "faces": [
+        589,
+        590
+      ]
+    },
+    {
+      "id": "holes:591.592",
+      "family": "holes",
+      "faces": [
+        591,
+        592
+      ]
+    },
+    {
+      "id": "holes:593.594",
+      "family": "holes",
+      "faces": [
+        593,
+        594
+      ]
+    },
+    {
+      "id": "holes:595.596",
+      "family": "holes",
+      "faces": [
+        595,
+        596
+      ]
+    },
+    {
+      "id": "holes:597.598",
+      "family": "holes",
+      "faces": [
+        597,
+        598
+      ]
+    },
+    {
+      "id": "holes:599.600",
+      "family": "holes",
+      "faces": [
+        599,
+        600
+      ]
+    },
+    {
+      "id": "holes:601.602",
+      "family": "holes",
+      "faces": [
+        601,
+        602
+      ]
+    },
+    {
+      "id": "holes:603.604",
+      "family": "holes",
+      "faces": [
+        603,
+        604
+      ]
+    },
+    {
+      "id": "holes:605.606",
+      "family": "holes",
+      "faces": [
+        605,
+        606
+      ]
+    },
+    {
+      "id": "holes:607.608",
+      "family": "holes",
+      "faces": [
+        607,
+        608
+      ]
+    },
+    {
+      "id": "holes:609.610",
+      "family": "holes",
+      "faces": [
+        609,
+        610
+      ]
+    },
+    {
+      "id": "holes:611.612",
+      "family": "holes",
+      "faces": [
+        611,
+        612
+      ]
+    },
+    {
+      "id": "holes:620.621",
+      "family": "holes",
+      "faces": [
+        620,
+        621
+      ]
+    },
+    {
+      "id": "holes:632.633",
+      "family": "holes",
+      "faces": [
+        632,
+        633
+      ]
+    },
+    {
+      "id": "blends:144",
+      "family": "blends",
+      "faces": [
+        144
+      ]
+    },
+    {
+      "id": "blends:157",
+      "family": "blends",
+      "faces": [
+        157
+      ]
+    },
+    {
+      "id": "blends:142",
+      "family": "blends",
+      "faces": [
+        142
+      ]
+    },
+    {
+      "id": "blends:155",
+      "family": "blends",
+      "faces": [
+        155
+      ]
+    },
+    {
+      "id": "blends:146",
+      "family": "blends",
+      "faces": [
+        146
+      ]
+    },
+    {
+      "id": "blends:159",
+      "family": "blends",
+      "faces": [
+        159
+      ]
+    },
+    {
+      "id": "blends:148",
+      "family": "blends",
+      "faces": [
+        148
+      ]
+    },
+    {
+      "id": "blends:161",
+      "family": "blends",
+      "faces": [
+        161
+      ]
+    },
+    {
+      "id": "blends:153",
+      "family": "blends",
+      "faces": [
+        153
+      ]
+    },
+    {
+      "id": "blends:163",
+      "family": "blends",
+      "faces": [
+        163
+      ]
+    },
+    {
+      "id": "blends:368",
+      "family": "blends",
+      "faces": [
+        368
+      ]
+    },
+    {
+      "id": "blends:367",
+      "family": "blends",
+      "faces": [
+        367
+      ]
+    },
+    {
+      "id": "blends:366",
+      "family": "blends",
+      "faces": [
+        366
+      ]
+    },
+    {
+      "id": "blends:369",
+      "family": "blends",
+      "faces": [
+        369
+      ]
+    },
+    {
+      "id": "blends:371",
+      "family": "blends",
+      "faces": [
+        371
+      ]
+    },
+    {
+      "id": "blends:370",
+      "family": "blends",
+      "faces": [
+        370
+      ]
+    },
+    {
+      "id": "blends:453",
+      "family": "blends",
+      "faces": [
+        453
+      ]
+    },
+    {
+      "id": "blends:454",
+      "family": "blends",
+      "faces": [
+        454
+      ]
+    },
+    {
+      "id": "blends:455",
+      "family": "blends",
+      "faces": [
+        455
+      ]
+    },
+    {
+      "id": "blends:452",
+      "family": "blends",
+      "faces": [
+        452
+      ]
+    },
+    {
+      "id": "blends:456",
+      "family": "blends",
+      "faces": [
+        456
+      ]
+    },
+    {
+      "id": "blends:457",
+      "family": "blends",
+      "faces": [
+        457
+      ]
+    },
+    {
+      "id": "blends:468",
+      "family": "blends",
+      "faces": [
+        468
+      ]
+    },
+    {
+      "id": "blends:466",
+      "family": "blends",
+      "faces": [
+        466
+      ]
+    },
+    {
+      "id": "blends:470",
+      "family": "blends",
+      "faces": [
+        470
+      ]
+    },
+    {
+      "id": "blends:472",
+      "family": "blends",
+      "faces": [
+        472
+      ]
+    },
+    {
+      "id": "blends:61",
+      "family": "blends",
+      "faces": [
+        61
+      ]
+    },
+    {
+      "id": "blends:62",
+      "family": "blends",
+      "faces": [
+        62
+      ]
+    },
+    {
+      "id": "blends:64",
+      "family": "blends",
+      "faces": [
+        64
+      ]
+    },
+    {
+      "id": "blends:63",
+      "family": "blends",
+      "faces": [
+        63
+      ]
+    },
+    {
+      "id": "blends:629",
+      "family": "blends",
+      "faces": [
+        629
+      ]
+    },
+    {
+      "id": "blends:622",
+      "family": "blends",
+      "faces": [
+        622
+      ]
+    },
+    {
+      "id": "blends:627",
+      "family": "blends",
+      "faces": [
+        627
+      ]
+    },
+    {
+      "id": "blends:624",
+      "family": "blends",
+      "faces": [
+        624
+      ]
+    },
+    {
+      "id": "freeform_surfaces:73",
+      "family": "freeform_surfaces",
+      "faces": [
+        73
+      ]
+    },
+    {
+      "id": "freeform_surfaces:137",
+      "family": "freeform_surfaces",
+      "faces": [
+        137
+      ]
+    },
+    {
+      "id": "freeform_surfaces:378",
+      "family": "freeform_surfaces",
+      "faces": [
+        378
+      ]
+    },
+    {
+      "id": "freeform_surfaces:380",
+      "family": "freeform_surfaces",
+      "faces": [
+        380
+      ]
+    },
+    {
+      "id": "freeform_surfaces:382",
+      "family": "freeform_surfaces",
+      "faces": [
+        382
+      ]
+    },
+    {
+      "id": "freeform_surfaces:384",
+      "family": "freeform_surfaces",
+      "faces": [
+        384
+      ]
+    },
+    {
+      "id": "freeform_surfaces:387",
+      "family": "freeform_surfaces",
+      "faces": [
+        387
+      ]
+    },
+    {
+      "id": "freeform_surfaces:402",
+      "family": "freeform_surfaces",
+      "faces": [
+        402
+      ]
+    },
+    {
+      "id": "freeform_surfaces:403",
+      "family": "freeform_surfaces",
+      "faces": [
+        403
+      ]
+    },
+    {
+      "id": "freeform_surfaces:407",
+      "family": "freeform_surfaces",
+      "faces": [
+        407
+      ]
+    },
+    {
+      "id": "freeform_surfaces:408",
+      "family": "freeform_surfaces",
+      "faces": [
+        408
+      ]
+    },
+    {
+      "id": "freeform_surfaces:478",
+      "family": "freeform_surfaces",
+      "faces": [
+        478
+      ]
+    },
+    {
+      "id": "freeform_surfaces:479",
+      "family": "freeform_surfaces",
+      "faces": [
+        479
+      ]
+    },
+    {
+      "id": "freeform_surfaces:480",
+      "family": "freeform_surfaces",
+      "faces": [
+        480
+      ]
+    },
+    {
+      "id": "freeform_surfaces:481",
+      "family": "freeform_surfaces",
+      "faces": [
+        481
+      ]
+    },
+    {
+      "id": "freeform_surfaces:483",
+      "family": "freeform_surfaces",
+      "faces": [
+        483
+      ]
+    },
+    {
+      "id": "freeform_surfaces:508",
+      "family": "freeform_surfaces",
+      "faces": [
+        508
+      ]
+    },
+    {
+      "id": "freeform_surfaces:514",
+      "family": "freeform_surfaces",
+      "faces": [
+        514
+      ]
+    },
+    {
+      "id": "freeform_surfaces:515",
+      "family": "freeform_surfaces",
+      "faces": [
+        515
+      ]
+    },
+    {
+      "id": "freeform_surfaces:516",
+      "family": "freeform_surfaces",
+      "faces": [
+        516
+      ]
+    },
+    {
+      "id": "freeform_surfaces:518",
+      "family": "freeform_surfaces",
+      "faces": [
+        518
+      ]
+    },
+    {
+      "id": "freeform_surfaces:520",
+      "family": "freeform_surfaces",
+      "faces": [
+        520
+      ]
+    },
+    {
+      "id": "freeform_surfaces:521",
+      "family": "freeform_surfaces",
+      "faces": [
+        521
+      ]
+    },
+    {
+      "id": "freeform_surfaces:527",
+      "family": "freeform_surfaces",
+      "faces": [
+        527
+      ]
+    },
+    {
+      "id": "freeform_surfaces:528",
+      "family": "freeform_surfaces",
+      "faces": [
+        528
+      ]
+    },
+    {
+      "id": "freeform_surfaces:529",
+      "family": "freeform_surfaces",
+      "faces": [
+        529
+      ]
+    },
+    {
+      "id": "freeform_surfaces:531",
+      "family": "freeform_surfaces",
+      "faces": [
+        531
+      ]
+    },
+    {
+      "id": "freeform_surfaces:534",
+      "family": "freeform_surfaces",
+      "faces": [
+        534
+      ]
+    },
+    {
+      "id": "freeform_surfaces:539",
+      "family": "freeform_surfaces",
+      "faces": [
+        539
+      ]
+    },
+    {
+      "id": "freeform_surfaces:541",
+      "family": "freeform_surfaces",
+      "faces": [
+        541
+      ]
+    },
+    {
+      "id": "freeform_surfaces:543",
+      "family": "freeform_surfaces",
+      "faces": [
+        543
+      ]
+    },
+    {
+      "id": "freeform_surfaces:544",
+      "family": "freeform_surfaces",
+      "faces": [
+        544
+      ]
+    },
+    {
+      "id": "freeform_surfaces:546",
+      "family": "freeform_surfaces",
+      "faces": [
+        546
+      ]
+    },
+    {
+      "id": "freeform_surfaces:549",
+      "family": "freeform_surfaces",
+      "faces": [
+        549
+      ]
+    },
+    {
+      "id": "step_levels:34",
+      "family": "step_levels",
+      "faces": [
+        34
+      ]
+    },
+    {
+      "id": "step_levels:24",
+      "family": "step_levels",
+      "faces": [
+        24
+      ]
+    },
+    {
+      "id": "risers:365",
+      "family": "risers",
+      "faces": [
+        365
+      ]
+    },
+    {
+      "id": "risers:364",
+      "family": "risers",
+      "faces": [
+        364
+      ]
+    },
+    {
+      "id": "risers:362",
+      "family": "risers",
+      "faces": [
+        362
+      ]
+    },
+    {
+      "id": "risers:363",
+      "family": "risers",
+      "faces": [
+        363
+      ]
+    },
+    {
+      "id": "section_recesses:469",
+      "family": "section_recesses",
+      "faces": [
+        469
+      ]
+    },
+    {
+      "id": "section_recesses:473",
+      "family": "section_recesses",
+      "faces": [
+        473
+      ]
+    },
+    {
+      "id": "hole_patterns.bolt_circle:167.168.173.174.179.180",
+      "family": "hole_patterns",
+      "faces": [
+        167,
+        168,
+        173,
+        174,
+        179,
+        180
+      ]
+    },
+    {
+      "id": "hole_patterns.bolt_circle:165.166.171.172.181.182",
+      "family": "hole_patterns",
+      "faces": [
+        165,
+        166,
+        171,
+        172,
+        181,
+        182
+      ]
+    },
+    {
+      "id": "hole_patterns.bolt_circle:279.280.289.290.297.298",
+      "family": "hole_patterns",
+      "faces": [
+        279,
+        280,
+        289,
+        290,
+        297,
+        298
+      ]
+    },
+    {
+      "id": "hole_patterns.bolt_circle:281.282.287.288.293.294",
+      "family": "hole_patterns",
+      "faces": [
+        281,
+        282,
+        287,
+        288,
+        293,
+        294
+      ]
+    },
+    {
+      "id": "hole_patterns.linear:317.318.319.320.321.322.323.324.347.348",
+      "family": "hole_patterns",
+      "faces": [
+        317,
+        318,
+        319,
+        320,
+        321,
+        322,
+        323,
+        324,
+        347,
+        348
+      ]
+    },
+    {
+      "id": "hole_patterns.linear:329.330.331.332.333.334.335.336.337.338",
+      "family": "hole_patterns",
+      "faces": [
+        329,
+        330,
+        331,
+        332,
+        333,
+        334,
+        335,
+        336,
+        337,
+        338
+      ]
+    },
+    {
+      "id": "hole_patterns.linear:309.310.315.316.325.326.327.328",
+      "family": "hole_patterns",
+      "faces": [
+        309,
+        310,
+        315,
+        316,
+        325,
+        326,
+        327,
+        328
+      ]
+    },
+    {
+      "id": "hole_patterns.linear:597.598.599.600.601.602.603.604.605.606",
+      "family": "hole_patterns",
+      "faces": [
+        597,
+        598,
+        599,
+        600,
+        601,
+        602,
+        603,
+        604,
+        605,
+        606
+      ]
+    },
+    {
+      "id": "hole_patterns.linear:567.568.569.570.571.572.573.574.575.576",
+      "family": "hole_patterns",
+      "faces": [
+        567,
+        568,
+        569,
+        570,
+        571,
+        572,
+        573,
+        574,
+        575,
+        576
+      ]
+    },
+    {
+      "id": "hole_patterns.linear:561.562.563.564.565.566",
+      "family": "hole_patterns",
+      "faces": [
+        561,
+        562,
+        563,
+        564,
+        565,
+        566
+      ]
+    },
+    {
+      "id": "hole_patterns.linear:591.592.593.594.595.596",
+      "family": "hole_patterns",
+      "faces": [
+        591,
+        592,
+        593,
+        594,
+        595,
+        596
+      ]
+    },
+    {
+      "id": "hole_patterns.linear:607.608.609.610.611.612",
+      "family": "hole_patterns",
+      "faces": [
+        607,
+        608,
+        609,
+        610,
+        611,
+        612
+      ]
+    },
+    {
+      "id": "hole_patterns.linear:577.578.579.580.581.582",
+      "family": "hole_patterns",
+      "faces": [
+        577,
+        578,
+        579,
+        580,
+        581,
+        582
+      ]
+    },
+    {
+      "id": "hole_patterns.set:169.170.175.176.177.178.183.184",
+      "family": "hole_patterns",
+      "faces": [
+        169,
+        170,
+        175,
+        176,
+        177,
+        178,
+        183,
+        184
+      ]
+    },
+    {
+      "id": "hole_patterns.set:277.278.283.284.285.286.291.292",
+      "family": "hole_patterns",
+      "faces": [
+        277,
+        278,
+        283,
+        284,
+        285,
+        286,
+        291,
+        292
+      ]
+    },
+    {
+      "id": "hole_patterns.set:55.56.65.66.67.68.80.86.88.90.136.388.389.390.458.461.464.474.493.494.495.496.503.504",
+      "family": "hole_patterns",
+      "faces": [
+        55,
+        56,
+        65,
+        66,
+        67,
+        68,
+        80,
+        86,
+        88,
+        90,
+        136,
+        388,
+        389,
+        390,
+        458,
+        461,
+        464,
+        474,
+        493,
+        494,
+        495,
+        496,
+        503,
+        504
+      ]
+    },
+    {
+      "id": "hole_patterns.set:305.306.307.308.311.312.313.314.339.340.341.342.343.344.345.346",
+      "family": "hole_patterns",
+      "faces": [
+        305,
+        306,
+        307,
+        308,
+        311,
+        312,
+        313,
+        314,
+        339,
+        340,
+        341,
+        342,
+        343,
+        344,
+        345,
+        346
+      ]
+    },
+    {
+      "id": "hole_patterns.set:553.554.555.556.557.558.559.560.583.584.585.586.587.588.589.590",
+      "family": "hole_patterns",
+      "faces": [
+        553,
+        554,
+        555,
+        556,
+        557,
+        558,
+        559,
+        560,
+        583,
+        584,
+        585,
+        586,
+        587,
+        588,
+        589,
+        590
+      ]
+    },
+    {
+      "id": "hole_patterns.set:620.621.632.633",
+      "family": "hole_patterns",
+      "faces": [
+        620,
+        621,
+        632,
+        633
+      ]
+    }
+  ]
+}

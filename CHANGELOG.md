@@ -35,6 +35,32 @@ All notable changes to specify-core-rust. The format follows
   project's, so files written either way are read either way. Only an item in a user defined
   attribute is read as a payload. The core sets no payload size limit; callers set their own.
 
+### Changed
+
+- Pin quiddity and haecceity, including WASM, to tagged **v0.2.0-alpha.2**. Specify's
+  version remains alpha.7. Draftwright's older v0.1.1 pin still produces the expected
+  advisory warning.
+- Adopt recognition schema 6 (#92): publish file-coordinate records, accept measuring
+  axes as letters or vectors, and derive slot/channel end planes from the record's own
+  origin and distances. Merge oriented slots/chamfers/patterns into the ordinary families;
+  vector axes and exact converted extents replace the old direction fields. Remove the
+  typed view and `_local`/`_frame`; recognition provenance is never geometry.
+  All three golden 30° slots and their six end planes retain questions, defaults and
+  written PMI through a 30° Z rotation/translation and a generic rigid rotation; end-wall
+  agreement is within 0.000003 mm. Golden's slot-pattern direction is exactly −X.
+  The formerly oriented mfcadpp/10252 chamfer remains one feature on face 2, with its
+  18.694-mm overlapping run, 0.54-mm legs and 45° angle.
+- Kernel frame-vote corrections (#81) recover fillets: cgb217 **6 → 14**, CTC-02 AP242
+  **3 → 20**. With the concavity correction (#89), cgb202 is **272 → 279** (16 recovered
+  convex fillets, nine previously reported concave fillets removed). CTC-02 AP242 gains
+  **4 pockets** and step levels **2 → 13**; its four former risers disappear. Ambiguous 49.5-mm hole rows
+  are no longer patterns (#82). Symmetric countersink seats stay linked (#83), and plate
+  boundaries retain their original planes (#84/#85). Fingerprints remain version 3.
+- Preserve old-kernel saved-answer fixtures with **13 / 37 / 34 answers** for oriented
+  slots, cgb217 and CTC-02 AP242. Resume checks require each value to reattach by geometric
+  support or remain open with its original ID and reason, never disappear. Golden's 13
+  answers are part/datum settings and resume unchanged; none is keyed to an oriented slot.
+
 ### Fixed
 
 - For #35, schema 1 answers saved by the pre-alpha browser writer resume again under
@@ -46,6 +72,13 @@ All notable changes to specify-core-rust. The format follows
   Python-written schema 1 files still open as foreign files (Q14).
 
 ### WASM API
+
+- For the kernel upgrade (#92), `snapshot().analysis.features[*].record` uses schema-6
+  file-coordinate measurements. Axis fields accept letters or unit vectors. Converted
+  records carry a shared `origin`, including when their axes mix letters and vectors;
+  `_local` and `_frame` are removed. Oriented families merge into `slots`, `chamfers`
+  and `slot_patterns`; formerly oriented IDs change to those families, and optional
+  plain-record fields can be null. Method signatures do not change.
 
 - For #3 and #21, editors use the existing question/choice/default structures and unchanged
   JS/TypeScript signatures. Render `hole.full_thread:<feature>` as a text question; its

@@ -282,6 +282,9 @@ impl<'a> Feature<'a> {
             ))
         };
         match self.get(key)? {
+            Some(value @ Value::String(_)) if key == "axis" || key.ends_with("_axis") => {
+                crate::features::axis_direction(value).ok_or_else(bad)
+            }
             Some(Value::Array(items)) if items.len() == 3 => {
                 let mut out = [0.0; 3];
                 for (slot, item) in out.iter_mut().zip(items) {

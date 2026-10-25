@@ -8,7 +8,7 @@
 //!
 //! - Features come from quiddity-rust (`quiddity::correspondence::recognise`, framed
 //!   records converted/labelled at this boundary), not Python quiddity's evidence view. A feature's faces are its
-//!   *defining* faces (`Features::defining`), not its constituent faces (upstream need U2): a
+//!   *defining* faces (the published recognition document), not its constituent faces (upstream need U2): a
 //!   blind hole is its bore, without its floor, so ids for the same feature can differ between
 //!   the engines. The families are quiddity-rust's: Python's cross-family reconciliation
 //!   (`step_levels`, `bosses` dropped on turned parts) is not there.
@@ -27,7 +27,6 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use haecceity::geom::{Surface, V3};
-use quiddity::features::hole_patterns::HolePattern;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -185,15 +184,10 @@ fn rounded(v: V3, digits: i32) -> V3 {
 const DERIVED: [(&str, &str, &str); 1] = [("hole_patterns", "holes", "holes")];
 
 /// Derived families that are not features: Python's evidence view lists physical families and
-/// hole patterns only, so a gusset rib, slot, pocket or oriented slot pattern (derived, like a
+/// hole patterns only, so a gusset rib, slot or pocket pattern (derived, like a
 /// hole pattern, with no defining faces of its own, but never in Python's analysis) is left out
 /// to keep the analysis JSON specify-core's. Its members remain, each a feature of its family.
-const NOT_FEATURES: [&str; 4] = [
-    "gusset_rib_patterns",
-    "slot_patterns",
-    "pocket_patterns",
-    "oriented_slot_patterns",
-];
+const NOT_FEATURES: [&str; 3] = ["gusset_rib_patterns", "slot_patterns", "pocket_patterns"];
 
 /// The part's features (Python's `recognise`): every family's records from quiddity with their
 /// defining faces, hole patterns with their members, and sets of identical holes no pattern
@@ -204,6 +198,13 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
     }
     let recognition = quiddity::correspondence::recognise(&loaded.part);
     let found = &recognition.features;
+    // Published IDs and defining faces follow the same merge, without a working typed view.
+    let document = quiddity::recognition::document(&recognition, loaded.part.faces.len());
+    let published: std::collections::BTreeMap<_, _> = document
+        .records
+        .iter()
+        .map(|record| (record.id.as_str(), record))
+        .collect();
     let records = |family: &str, reason: String| FeatureError::Records {
         family: family.to_string(),
         reason,
@@ -224,22 +225,13 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
         let list = list
             .as_array()
             .ok_or_else(|| records(family, "not a list of records".into()))?;
-        let defining = found
-            .defining
-            .get(family.as_str())
-            .ok_or_else(|| records(family, "no defining faces".into()))?;
-        if defining.len() != list.len() {
-            return Err(records(
-                family,
-                format!(
-                    "{} records, {} defining face lists",
-                    list.len(),
-                    defining.len()
-                ),
-            ));
-        }
         let mut family_ids = Vec::with_capacity(list.len());
-        for (n, (record, faces)) in list.iter().zip(defining).enumerate() {
+        for (n, record) in list.iter().enumerate() {
+            let id = format!("{family}/{n}");
+            let faces = &published
+                .get(id.as_str())
+                .ok_or_else(|| records(family, format!("no published defining faces for {id}")))?
+                .faces;
             let mut faces = faces.clone();
             faces.sort_unstable();
             faces.dedup();
@@ -251,7 +243,7 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
             let feature = Feature {
                 id: feature_id(family, &faces),
                 family: family.clone(),
-                record: framed_record(&recognition, family, n, object(family, record)?)?,
+                record: published_record(family, object(family, record)?)?,
                 faces,
                 members: Vec::new(),
                 notes: Vec::new(),
@@ -263,10 +255,6 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
     }
 
     // Patterns after their members, with the kind the variant names.
-    let kinds: Vec<(&str, Vec<&str>)> = vec![(
-        "hole_patterns",
-        found.hole_patterns.iter().map(hole_pattern_kind).collect(),
-    )];
     for (family, field, base) in DERIVED {
         let list = families
             .get(family)
@@ -281,12 +269,25 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
             .find(|(b, _)| *b == base)
             .map(|(_, v)| v.as_slice())
             .unwrap_or_default();
-        // DERIVED contains only hole_patterns, the family constructed in kinds immediately above.
-        let family_kinds = &kinds.iter().find(|(f, _)| *f == family).expect("listed").1;
         let mut taken = vec![false; pool.len()];
         for (n, record) in list.iter().enumerate() {
             let mut record = object(family, record)?;
-            let kind = family_kinds.get(n).copied().unwrap_or_default();
+            let id = format!("{family}/{n}");
+            let record_type = published
+                .get(id.as_str())
+                .ok_or_else(|| records(family, format!("no published type for {id}")))?
+                .record_type
+                .as_str();
+            let kind = HOLE_PATTERN_KINDS
+                .iter()
+                .find(|(variant, _)| *variant == record_type)
+                .map(|(_, kind)| *kind)
+                .ok_or_else(|| {
+                    records(
+                        family,
+                        format!("unknown published pattern type {record_type}"),
+                    )
+                })?;
             let mut members = Vec::new();
             let mut notes = Vec::new();
             let listed = record.get(field).and_then(Value::as_array);
@@ -315,7 +316,7 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
                 continue;
             }
             record.insert("kind".into(), Value::String(kind.to_string()));
-            let record = framed_record(&recognition, family, n, record)?;
+            let record = published_record(family, record)?;
             features.push(Feature {
                 id: feature_id(&format!("{family}.{kind}"), &faces),
                 family: family.to_string(),
@@ -331,62 +332,93 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
     Ok(features)
 }
 
-/// Quiddity already maps points/vectors to file coordinates. Preserve explicit metadata
-/// for axis-letter coordinates which cannot be represented along a file axis. The only
-/// positional consumer of those fields is the slot/channel end-plane datum exclusion;
-/// publish its direction and actual plane points in file space. Turned hi-lo is a length, frame invariant.
-fn framed_record(
-    recognition: &quiddity::correspondence::Recognition,
+/// Decode a schema-6 measuring direction, or a legacy file-axis letter. No provenance
+/// frame participates in geometry. Existing vector-valued directions use this decoder too.
+pub(crate) fn axis_direction(value: &Value) -> Option<V3> {
+    match value {
+        Value::String(axis) => match axis.as_str() {
+            "x" => Some([1.0, 0.0, 0.0]),
+            "y" => Some([0.0, 1.0, 0.0]),
+            "z" => Some([0.0, 0.0, 1.0]),
+            _ => None,
+        },
+        Value::Array(items) if items.len() == 3 => {
+            let mut out = [0.0; 3];
+            for (slot, item) in out.iter_mut().zip(items) {
+                *slot = item.as_f64().filter(|x| x.is_finite())?;
+            }
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+type EndPlanes = (V3, [V3; 2]);
+
+/// File-coordinate end planes from the published record alone. Also used on saved analysis
+/// JSON, which can predate the derived end_* fields. A bad coordinate is a named refusal.
+pub(crate) fn end_planes(
     family: &str,
-    n: usize,
+    record: &Map<String, Value>,
+) -> Result<Option<EndPlanes>, FeatureError> {
+    if !matches!(family, "slots" | "channels") {
+        return Ok(None);
+    }
+    let bad = |field: &str| FeatureError::Records {
+        family: family.into(),
+        reason: format!("invalid or missing published {field} for end planes"),
+    };
+    if record
+        .get("_local")
+        .and_then(Value::as_array)
+        .is_some_and(|fields| fields.iter().any(|field| field == "long_axis"))
+    {
+        return Err(FeatureError::Records {
+            family: family.into(),
+            reason: "legacy frame-local end planes need reanalysis with recognition schema 6"
+                .into(),
+        });
+    }
+    let vector = |field: &str| {
+        record
+            .get(field)
+            .and_then(axis_direction)
+            .ok_or_else(|| bad(field))
+    };
+    let number = |field: &str| {
+        record
+            .get(field)
+            .and_then(Value::as_f64)
+            .filter(|x| x.is_finite())
+            .ok_or_else(|| bad(field))
+    };
+    let direction = vector("long_axis")?;
+    let origin = if record.contains_key("origin") {
+        // Converted records can mix letters and vectors; every scalar shares this origin.
+        vector("origin")?
+    } else if record.get("long_axis").is_some_and(Value::is_string) {
+        [0.0; 3]
+    } else {
+        return Err(bad("origin"));
+    };
+    let levels = [number("lo")?, number("hi")?];
+    Ok(Some((
+        direction,
+        levels.map(|level| std::array::from_fn(|i| origin[i] + level * direction[i])),
+    )))
+}
+
+fn published_record(
+    family: &str,
     mut record: Map<String, Value>,
 ) -> Result<Map<String, Value>, FeatureError> {
-    let Some(local) = recognition.local.get(&format!("{family}/{n}")) else {
-        return Ok(record);
-    };
-    record.insert("_local".into(), serde_json::json!(local));
-    record.insert(
-        "_frame".into(),
-        serde_json::to_value(&recognition.frame).map_err(|e| FeatureError::Records {
-            family: family.into(),
-            reason: e.to_string(),
-        })?,
-    );
-    if matches!(family, "slots" | "channels") && local.iter().any(|p| p == "long_axis") {
-        let quiddity::frames::RecordFrame::Inferred(frame) = &recognition.frame else {
-            return Err(FeatureError::Records {
-                family: family.into(),
-                reason: "local end planes without an inferred frame".into(),
-            });
-        };
-        let axis = match record.get("long_axis").and_then(Value::as_str) {
-            Some("x") => 0,
-            Some("y") => 1,
-            Some("z") => 2,
-            _ => {
-                return Err(FeatureError::Records {
-                    family: family.into(),
-                    reason: "invalid local long_axis".into(),
-                });
-            }
-        };
-        let (lo, hi) = if family == "slots" {
-            let slot = &recognition.features.slots[n];
-            (*slot.lo, *slot.hi)
-        } else {
-            let channel = &recognition.features.channels[n];
-            (*channel.lo, *channel.hi)
-        };
-        // Use published end coordinates in both branches of the datum check. Fields left
-        // local by the public API need this frame; aligned records already name file axes.
-        let point =
-            |level| frame.to_world(std::array::from_fn(|i| if i == axis { level } else { 0.0 }));
-        record.insert(
-            "end_direction".into(),
-            serde_json::json!([frame.x, frame.y, frame.z][axis]),
-        );
-        record.insert("end_lo".into(), serde_json::json!(point(lo)));
-        record.insert("end_hi".into(), serde_json::json!(point(hi)));
+    if let Some((direction, [lo, hi])) = end_planes(family, &record)?
+        && (record.contains_key("origin") || !record.get("long_axis").is_some_and(Value::is_string))
+    {
+        // Keep ordinary file-axis payloads unchanged; the datum rule decodes them directly.
+        record.insert("end_direction".into(), serde_json::json!(direction));
+        record.insert("end_lo".into(), serde_json::json!(lo));
+        record.insert("end_hi".into(), serde_json::json!(hi));
     }
     Ok(record)
 }
@@ -400,20 +432,6 @@ fn object(family: &str, record: &Value) -> Result<Map<String, Value>, FeatureErr
             reason: format!("a record is not an object: {other}"),
         }),
     }
-}
-
-/// The short kind of a hole pattern, from its variant (Python's `HOLE_PATTERN_KINDS`).
-fn hole_pattern_kind(pattern: &HolePattern) -> &'static str {
-    let variant = match pattern {
-        HolePattern::BoltCircle { .. } => "BoltCircle",
-        HolePattern::LinearArray { .. } => "LinearArray",
-        HolePattern::RectGrid { .. } => "RectGrid",
-        HolePattern::RectangularHoleSet { .. } => "RectangularHoleSet",
-    };
-    HOLE_PATTERN_KINDS
-        .iter()
-        .find(|(v, _)| *v == variant)
-        .map_or(variant, |(_, k)| k)
 }
 
 /// Groups of identical holes that no recognised pattern claims (Python's `_hole_sets`).
@@ -436,10 +454,15 @@ fn hole_sets(features: &[Feature]) -> Vec<Feature> {
             continue;
         }
         let r = &hole.record;
-        let axis: Vec<Value> = match r.get("axis") {
-            Some(Value::Array(items)) => items.iter().map(rounded_value).collect(),
-            _ => Vec::new(),
-        };
+        let axis: Vec<Value> = r
+            .get("axis")
+            .and_then(axis_direction)
+            .map(|axis| {
+                axis.into_iter()
+                    .map(|x| rounded_value(&serde_json::json!(x)))
+                    .collect()
+            })
+            .unwrap_or_default();
         let key = serde_json::json!([
             rounded_value(r.get("diameter").unwrap_or(&Value::Null)),
             rounded_value(r.get("depth").unwrap_or(&Value::Null)),
@@ -518,6 +541,41 @@ fn truthy(value: Option<&Value>) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn published_end_planes_decode_letters_vectors_and_refuse_missing_origins() {
+        let aligned = json!({"long_axis":"y", "lo":2.0, "hi":8.0});
+        assert_eq!(
+            end_planes("slots", aligned.as_object().unwrap()).unwrap(),
+            Some(([0.0, 1.0, 0.0], [[0.0, 2.0, 0.0], [0.0, 8.0, 0.0]]))
+        );
+        let mut converted =
+            json!({"long_axis":[0.6,0.8,0.0], "origin":[10.0,20.0,30.0], "lo":-5.0, "hi":5.0});
+        assert_eq!(
+            end_planes("channels", converted.as_object().unwrap()).unwrap(),
+            Some(([0.6, 0.8, 0.0], [[7.0, 16.0, 30.0], [13.0, 24.0, 30.0]]))
+        );
+        converted["long_axis"] = json!("z");
+        assert_eq!(
+            end_planes("slots", converted.as_object().unwrap()).unwrap(),
+            Some(([0.0, 0.0, 1.0], [[10.0, 20.0, 25.0], [10.0, 20.0, 35.0]]))
+        );
+        converted["long_axis"] = json!([0.6, 0.8, 0.0]);
+        converted.as_object_mut().unwrap().remove("origin");
+        assert!(
+            end_planes("slots", converted.as_object().unwrap())
+                .unwrap_err()
+                .to_string()
+                .contains("origin")
+        );
+        converted["long_axis"] = json!("a");
+        assert!(
+            end_planes("slots", converted.as_object().unwrap())
+                .unwrap_err()
+                .to_string()
+                .contains("long_axis")
+        );
+    }
 
     fn hole(id: &str, diameter: f64, axis: [f64; 3]) -> Feature {
         Feature {

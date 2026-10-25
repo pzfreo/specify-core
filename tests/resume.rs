@@ -537,3 +537,150 @@ fn schema_two_fingerprints_pythons_faces_as_the_rust_engines() {
         sha(&PYTHON_PLATE.replace("-0.0", "0.0"))
     );
 }
+
+/// These files were committed on the old dependency before upgrading. In particular CTC-02's
+/// ambiguous rows change under quiddity #82 and cgb217's frame/fillets change under #81.
+#[test]
+fn alpha7_saved_answers_survive_the_schema6_upgrade() {
+    for (name, count) in [
+        ("golden_oriented_slots", 13),
+        ("cgb217", 37),
+        ("ctc02_ap242", 34),
+    ] {
+        let dir = common::fixtures().join("resume_alpha7");
+        let meta: Value =
+            serde_json::from_slice(&std::fs::read(dir.join(format!("{name}.json"))).unwrap())
+                .unwrap();
+        if name == "golden_oriented_slots" {
+            // These are the actual 0.1.1 answers: all 13 are part/datum settings,
+            // not feature-answer IDs. Do not invent an oriented_slots answer migration.
+            assert!(
+                meta["answers"]
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .all(|id| !id.contains(':'))
+            );
+            assert_eq!(
+                meta["features"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|f| f["family"] == "oriented_slots")
+                    .count(),
+                3
+            );
+        }
+        let path = dir.join(format!("{name}.step.gz"));
+        let loaded = load(&path, None).unwrap();
+        let saved = stored(&loaded.bytes).remove(&0).unwrap();
+        assert_eq!(saved["answers"], meta["answers"]);
+        let (analysis, warnings) = specify_core::api::analyse_reporting(&loaded).unwrap();
+        if name == "golden_oriented_slots" {
+            for old in meta["features"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|f| f["family"] == "oriented_slots")
+            {
+                // Frame-vote #81 changes defining support from four walls to two long walls;
+                // family merge #92 renames the published family. Each pair belongs uniquely
+                // to the old slot. schema6 checks the actual end walls and rigid motions.
+                let matches: Vec<_> = analysis["features"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|f| {
+                        f["family"] == "slots"
+                            && f["faces"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .all(|face| old["faces"].as_array().unwrap().contains(face))
+                    })
+                    .collect();
+                assert_eq!(matches.len(), 1, "old support {}", old["id"]);
+                assert_eq!(matches[0]["faces"].as_array().unwrap().len(), 2);
+            }
+        }
+        let resumed = &analysis["resume"];
+        assert!(resumed.is_object(), "{name}: saved answers disappeared");
+        let applied = resumed["answers"].as_object().unwrap();
+        assert_eq!(applied.len(), count, "{name}");
+        let unresolved = resumed["unresolved"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let migrated = resumed["migrated"].as_array().cloned().unwrap_or_default();
+        for (old, value) in meta["answers"].as_object().unwrap() {
+            let new = migrated
+                .iter()
+                .find(|pair| pair[0] == *old)
+                .and_then(|pair| pair[1].as_str())
+                .unwrap_or(old);
+            if let Some(answer) = applied.get(new) {
+                assert_eq!(answer, value, "{name}: {old}");
+                if let Some((_, old_feature)) = old.split_once(':') {
+                    let old_support = meta["features"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|f| f["id"] == old_feature)
+                        .unwrap();
+                    let new_feature = new.split_once(':').unwrap().1;
+                    let new_support = analysis["features"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|f| f["id"] == new_feature)
+                        .unwrap();
+                    assert_eq!(old_support["family"], new_support["family"]);
+                    // This is the geometric-support rule, never matching by dimension/order.
+                    for face in old_support["faces"].as_array().unwrap() {
+                        assert!(
+                            new_support["faces"].as_array().unwrap().contains(face),
+                            "{name}: {old} attached to wrong support {new}"
+                        );
+                    }
+                }
+            } else {
+                let report = unresolved
+                    .iter()
+                    .find(|u| u["id"] == *old)
+                    .unwrap_or_else(|| panic!("{name}: silently dropped {old}"));
+                assert_eq!(report["answer"], *value);
+                assert!(!report["reason"].as_str().unwrap().is_empty());
+                assert!(
+                    warnings
+                        .iter()
+                        .any(|w| w.contains(old) && w.contains("left open"))
+                );
+                assert!(!applied.contains_key(old));
+            }
+        }
+        assert_eq!(
+            applied.len() + unresolved.len(),
+            meta["answers"].as_object().unwrap().len()
+        );
+        // An unresolved old feature has no accepted answer in the current interview.
+        let qs = specify_core::api::questions(&analysis, applied).unwrap();
+        let open = specify_core::rules::open_questions(&qs, applied);
+        for u in &unresolved {
+            if open.iter().any(|q| q.id == u["id"].as_str().unwrap()) {
+                assert!(!applied.contains_key(u["id"].as_str().unwrap()));
+            }
+        }
+        // Saving again uses current recognition, and the exact old answers remain readable.
+        let intent = specify_core::api::apply(&analysis, applied, true).unwrap();
+        let (bytes, _) =
+            specify_core::writer::write_bytes(&loaded, &intent, Some(applied)).unwrap();
+        let rewritten = specify_core::part::load_bytes(name, bytes).unwrap();
+        assert_eq!(answers_for(&rewritten).unwrap().as_ref(), Some(applied));
+        eprintln!(
+            "{name}: {} reattached, {} unresolved with old ID, {} migrated",
+            applied.len(),
+            unresolved.len(),
+            migrated.len()
+        );
+    }
+}

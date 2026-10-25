@@ -108,19 +108,11 @@ pub(crate) fn hole_key<'a>(
     };
     let flag = |key: &str| -> Result<bool> { Ok(py::truthy_opt(hole.get(key)?)) };
     let axis = match hole.get("axis")? {
-        Some(v) if py::truthy(v) => {
-            let items = py::iter_of(v).ok_or_else(|| {
-                Error::Invalid(format!("feature {}: record 'axis' is not a list", hole.id))
-            })?;
-            items
-                .iter()
-                .map(|x| {
-                    py::float_of(x)
-                        .map(|x| py::round(x.abs(), 6))
-                        .map_err(|e| Error::Invalid(format!("feature {}: {e}", hole.id)))
-                })
-                .collect::<Result<Vec<f64>>>()?
-        }
+        Some(v) if py::truthy(v) => hole
+            .vector("axis")?
+            .into_iter()
+            .map(|x| py::round(x.abs(), 6))
+            .collect(),
         _ => Vec::new(),
     };
     Ok(HoleKey::Hole {

@@ -1,0 +1,1182 @@
+{
+  "writer": "specify-core 0.1.0-alpha.7 on quiddity/haecceity v0.1.1 (a27b7064)",
+  "input": "corpus/cadgenbench_inputs/cgb217.step.gz",
+  "answers": {
+    "part.general_tolerance": "ISO 2768-m",
+    "part.surface_finish": "Ra 3.2",
+    "part.coating": "None (as machined)",
+    "part.heat_treatment": "None",
+    "part.edges": "Break sharp edges 0.2 max",
+    "part.notes": [],
+    "part.locating": "position tolerances",
+    "hole.function:holes:26": "clearance:M8",
+    "hole.position:holes:26": "0.5",
+    "hole.function:holes:28": "clearance:M8",
+    "hole.position:holes:28": "0.5",
+    "hole.function:holes:319": "general",
+    "hole.function:holes:2": "clearance:M10",
+    "hole.position:holes:2": "2",
+    "hole.function:holes:23": "general",
+    "hole.function:holes:41": "tapped:M12",
+    "hole.position:holes:41": "0.75",
+    "hole.function:holes:352": "clearance:M8",
+    "hole.position:holes:352": "0.8",
+    "hole.function:hole_patterns.rectangle:10.13.16.19": "tapped:M6",
+    "hole.position:hole_patterns.rectangle:10.13.16.19": "0.3",
+    "hole.function:hole_patterns.set:106.108.110": "clearance:M8",
+    "hole.position:hole_patterns.set:106.108.110": "1",
+    "hole.function:hole_patterns.set:125.128.131.133.135": "general",
+    "diameter.fit:turned_steps:314": "general",
+    "diameter.runout:turned_steps:314": "none",
+    "diameter.fit:turned_steps:310.344.345.346": "general",
+    "diameter.runout:turned_steps:310.344.345.346": "none",
+    "diameter.fit:turned_steps:322": "general",
+    "diameter.runout:turned_steps:322": "none",
+    "diameter.fit:turned_steps:358": "general",
+    "datum.A": [
+      321,
+      330,
+      332,
+      334,
+      336,
+      338,
+      340,
+      342,
+      358
+    ],
+    "datum.B": [
+      309
+    ],
+    "datum.C": [],
+    "datum.B.control": "none",
+    "hole.full_thread:hole_patterns.rectangle:10.13.16.19": "4",
+    "part.material": "steel"
+  },
+  "features": [
+    {
+      "id": "fillets:139",
+      "family": "fillets",
+      "faces": [
+        139
+      ]
+    },
+    {
+      "id": "fillets:138",
+      "family": "fillets",
+      "faces": [
+        138
+      ]
+    },
+    {
+      "id": "fillets:3",
+      "family": "fillets",
+      "faces": [
+        3
+      ]
+    },
+    {
+      "id": "fillets:4",
+      "family": "fillets",
+      "faces": [
+        4
+      ]
+    },
+    {
+      "id": "fillets:6",
+      "family": "fillets",
+      "faces": [
+        6
+      ]
+    },
+    {
+      "id": "fillets:8",
+      "family": "fillets",
+      "faces": [
+        8
+      ]
+    },
+    {
+      "id": "bosses:37",
+      "family": "bosses",
+      "faces": [
+        37
+      ]
+    },
+    {
+      "id": "bosses:39",
+      "family": "bosses",
+      "faces": [
+        39
+      ]
+    },
+    {
+      "id": "bosses:51",
+      "family": "bosses",
+      "faces": [
+        51
+      ]
+    },
+    {
+      "id": "bosses:52",
+      "family": "bosses",
+      "faces": [
+        52
+      ]
+    },
+    {
+      "id": "bosses:321.330.332.334.336.338.340.342",
+      "family": "bosses",
+      "faces": [
+        321,
+        330,
+        332,
+        334,
+        336,
+        338,
+        340,
+        342
+      ]
+    },
+    {
+      "id": "holes:26",
+      "family": "holes",
+      "faces": [
+        26
+      ]
+    },
+    {
+      "id": "holes:28",
+      "family": "holes",
+      "faces": [
+        28
+      ]
+    },
+    {
+      "id": "holes:319",
+      "family": "holes",
+      "faces": [
+        319
+      ]
+    },
+    {
+      "id": "holes:2",
+      "family": "holes",
+      "faces": [
+        2
+      ]
+    },
+    {
+      "id": "holes:23",
+      "family": "holes",
+      "faces": [
+        23
+      ]
+    },
+    {
+      "id": "holes:10",
+      "family": "holes",
+      "faces": [
+        10
+      ]
+    },
+    {
+      "id": "holes:13",
+      "family": "holes",
+      "faces": [
+        13
+      ]
+    },
+    {
+      "id": "holes:16",
+      "family": "holes",
+      "faces": [
+        16
+      ]
+    },
+    {
+      "id": "holes:19",
+      "family": "holes",
+      "faces": [
+        19
+      ]
+    },
+    {
+      "id": "holes:41",
+      "family": "holes",
+      "faces": [
+        41
+      ]
+    },
+    {
+      "id": "holes:106",
+      "family": "holes",
+      "faces": [
+        106
+      ]
+    },
+    {
+      "id": "holes:108",
+      "family": "holes",
+      "faces": [
+        108
+      ]
+    },
+    {
+      "id": "holes:110",
+      "family": "holes",
+      "faces": [
+        110
+      ]
+    },
+    {
+      "id": "holes:125",
+      "family": "holes",
+      "faces": [
+        125
+      ]
+    },
+    {
+      "id": "holes:128",
+      "family": "holes",
+      "faces": [
+        128
+      ]
+    },
+    {
+      "id": "holes:131",
+      "family": "holes",
+      "faces": [
+        131
+      ]
+    },
+    {
+      "id": "holes:133",
+      "family": "holes",
+      "faces": [
+        133
+      ]
+    },
+    {
+      "id": "holes:135",
+      "family": "holes",
+      "faces": [
+        135
+      ]
+    },
+    {
+      "id": "holes:352",
+      "family": "holes",
+      "faces": [
+        352
+      ]
+    },
+    {
+      "id": "turned_steps:314",
+      "family": "turned_steps",
+      "faces": [
+        314
+      ]
+    },
+    {
+      "id": "turned_steps:310.344.345.346",
+      "family": "turned_steps",
+      "faces": [
+        310,
+        344,
+        345,
+        346
+      ]
+    },
+    {
+      "id": "turned_steps:322",
+      "family": "turned_steps",
+      "faces": [
+        322
+      ]
+    },
+    {
+      "id": "turned_steps:358",
+      "family": "turned_steps",
+      "faces": [
+        358
+      ]
+    },
+    {
+      "id": "blends:56",
+      "family": "blends",
+      "faces": [
+        56
+      ]
+    },
+    {
+      "id": "blends:21",
+      "family": "blends",
+      "faces": [
+        21
+      ]
+    },
+    {
+      "id": "blends:191",
+      "family": "blends",
+      "faces": [
+        191
+      ]
+    },
+    {
+      "id": "blends:196",
+      "family": "blends",
+      "faces": [
+        196
+      ]
+    },
+    {
+      "id": "blends:210",
+      "family": "blends",
+      "faces": [
+        210
+      ]
+    },
+    {
+      "id": "blends:205",
+      "family": "blends",
+      "faces": [
+        205
+      ]
+    },
+    {
+      "id": "blends:177",
+      "family": "blends",
+      "faces": [
+        177
+      ]
+    },
+    {
+      "id": "blends:182",
+      "family": "blends",
+      "faces": [
+        182
+      ]
+    },
+    {
+      "id": "blends:224",
+      "family": "blends",
+      "faces": [
+        224
+      ]
+    },
+    {
+      "id": "blends:219",
+      "family": "blends",
+      "faces": [
+        219
+      ]
+    },
+    {
+      "id": "blends:296",
+      "family": "blends",
+      "faces": [
+        296
+      ]
+    },
+    {
+      "id": "blends:301",
+      "family": "blends",
+      "faces": [
+        301
+      ]
+    },
+    {
+      "id": "blends:238",
+      "family": "blends",
+      "faces": [
+        238
+      ]
+    },
+    {
+      "id": "blends:233",
+      "family": "blends",
+      "faces": [
+        233
+      ]
+    },
+    {
+      "id": "blends:261",
+      "family": "blends",
+      "faces": [
+        261
+      ]
+    },
+    {
+      "id": "blends:266",
+      "family": "blends",
+      "faces": [
+        266
+      ]
+    },
+    {
+      "id": "blends:252",
+      "family": "blends",
+      "faces": [
+        252
+      ]
+    },
+    {
+      "id": "blends:247",
+      "family": "blends",
+      "faces": [
+        247
+      ]
+    },
+    {
+      "id": "blends:186",
+      "family": "blends",
+      "faces": [
+        186
+      ]
+    },
+    {
+      "id": "blends:199",
+      "family": "blends",
+      "faces": [
+        199
+      ]
+    },
+    {
+      "id": "blends:213",
+      "family": "blends",
+      "faces": [
+        213
+      ]
+    },
+    {
+      "id": "blends:200",
+      "family": "blends",
+      "faces": [
+        200
+      ]
+    },
+    {
+      "id": "blends:172",
+      "family": "blends",
+      "faces": [
+        172
+      ]
+    },
+    {
+      "id": "blends:185",
+      "family": "blends",
+      "faces": [
+        185
+      ]
+    },
+    {
+      "id": "blends:227",
+      "family": "blends",
+      "faces": [
+        227
+      ]
+    },
+    {
+      "id": "blends:214",
+      "family": "blends",
+      "faces": [
+        214
+      ]
+    },
+    {
+      "id": "blends:291",
+      "family": "blends",
+      "faces": [
+        291
+      ]
+    },
+    {
+      "id": "blends:304",
+      "family": "blends",
+      "faces": [
+        304
+      ]
+    },
+    {
+      "id": "blends:241",
+      "family": "blends",
+      "faces": [
+        241
+      ]
+    },
+    {
+      "id": "blends:228",
+      "family": "blends",
+      "faces": [
+        228
+      ]
+    },
+    {
+      "id": "blends:256",
+      "family": "blends",
+      "faces": [
+        256
+      ]
+    },
+    {
+      "id": "blends:269",
+      "family": "blends",
+      "faces": [
+        269
+      ]
+    },
+    {
+      "id": "blends:255",
+      "family": "blends",
+      "faces": [
+        255
+      ]
+    },
+    {
+      "id": "blends:242",
+      "family": "blends",
+      "faces": [
+        242
+      ]
+    },
+    {
+      "id": "blends:119",
+      "family": "blends",
+      "faces": [
+        119
+      ]
+    },
+    {
+      "id": "blends:127",
+      "family": "blends",
+      "faces": [
+        127
+      ]
+    },
+    {
+      "id": "blends:134",
+      "family": "blends",
+      "faces": [
+        134
+      ]
+    },
+    {
+      "id": "freeform_surfaces:29",
+      "family": "freeform_surfaces",
+      "faces": [
+        29
+      ]
+    },
+    {
+      "id": "freeform_surfaces:30",
+      "family": "freeform_surfaces",
+      "faces": [
+        30
+      ]
+    },
+    {
+      "id": "freeform_surfaces:32",
+      "family": "freeform_surfaces",
+      "faces": [
+        32
+      ]
+    },
+    {
+      "id": "freeform_surfaces:33",
+      "family": "freeform_surfaces",
+      "faces": [
+        33
+      ]
+    },
+    {
+      "id": "freeform_surfaces:34",
+      "family": "freeform_surfaces",
+      "faces": [
+        34
+      ]
+    },
+    {
+      "id": "freeform_surfaces:35",
+      "family": "freeform_surfaces",
+      "faces": [
+        35
+      ]
+    },
+    {
+      "id": "freeform_surfaces:42",
+      "family": "freeform_surfaces",
+      "faces": [
+        42
+      ]
+    },
+    {
+      "id": "freeform_surfaces:43",
+      "family": "freeform_surfaces",
+      "faces": [
+        43
+      ]
+    },
+    {
+      "id": "freeform_surfaces:44",
+      "family": "freeform_surfaces",
+      "faces": [
+        44
+      ]
+    },
+    {
+      "id": "freeform_surfaces:45",
+      "family": "freeform_surfaces",
+      "faces": [
+        45
+      ]
+    },
+    {
+      "id": "freeform_surfaces:46",
+      "family": "freeform_surfaces",
+      "faces": [
+        46
+      ]
+    },
+    {
+      "id": "freeform_surfaces:47",
+      "family": "freeform_surfaces",
+      "faces": [
+        47
+      ]
+    },
+    {
+      "id": "freeform_surfaces:48",
+      "family": "freeform_surfaces",
+      "faces": [
+        48
+      ]
+    },
+    {
+      "id": "freeform_surfaces:49",
+      "family": "freeform_surfaces",
+      "faces": [
+        49
+      ]
+    },
+    {
+      "id": "freeform_surfaces:57",
+      "family": "freeform_surfaces",
+      "faces": [
+        57
+      ]
+    },
+    {
+      "id": "freeform_surfaces:60",
+      "family": "freeform_surfaces",
+      "faces": [
+        60
+      ]
+    },
+    {
+      "id": "freeform_surfaces:61",
+      "family": "freeform_surfaces",
+      "faces": [
+        61
+      ]
+    },
+    {
+      "id": "freeform_surfaces:64",
+      "family": "freeform_surfaces",
+      "faces": [
+        64
+      ]
+    },
+    {
+      "id": "freeform_surfaces:65",
+      "family": "freeform_surfaces",
+      "faces": [
+        65
+      ]
+    },
+    {
+      "id": "freeform_surfaces:68",
+      "family": "freeform_surfaces",
+      "faces": [
+        68
+      ]
+    },
+    {
+      "id": "freeform_surfaces:69",
+      "family": "freeform_surfaces",
+      "faces": [
+        69
+      ]
+    },
+    {
+      "id": "freeform_surfaces:72",
+      "family": "freeform_surfaces",
+      "faces": [
+        72
+      ]
+    },
+    {
+      "id": "freeform_surfaces:73",
+      "family": "freeform_surfaces",
+      "faces": [
+        73
+      ]
+    },
+    {
+      "id": "freeform_surfaces:76",
+      "family": "freeform_surfaces",
+      "faces": [
+        76
+      ]
+    },
+    {
+      "id": "freeform_surfaces:77",
+      "family": "freeform_surfaces",
+      "faces": [
+        77
+      ]
+    },
+    {
+      "id": "freeform_surfaces:80",
+      "family": "freeform_surfaces",
+      "faces": [
+        80
+      ]
+    },
+    {
+      "id": "freeform_surfaces:81",
+      "family": "freeform_surfaces",
+      "faces": [
+        81
+      ]
+    },
+    {
+      "id": "freeform_surfaces:84",
+      "family": "freeform_surfaces",
+      "faces": [
+        84
+      ]
+    },
+    {
+      "id": "freeform_surfaces:85",
+      "family": "freeform_surfaces",
+      "faces": [
+        85
+      ]
+    },
+    {
+      "id": "freeform_surfaces:88",
+      "family": "freeform_surfaces",
+      "faces": [
+        88
+      ]
+    },
+    {
+      "id": "freeform_surfaces:97",
+      "family": "freeform_surfaces",
+      "faces": [
+        97
+      ]
+    },
+    {
+      "id": "freeform_surfaces:141",
+      "family": "freeform_surfaces",
+      "faces": [
+        141
+      ]
+    },
+    {
+      "id": "freeform_surfaces:142",
+      "family": "freeform_surfaces",
+      "faces": [
+        142
+      ]
+    },
+    {
+      "id": "freeform_surfaces:145",
+      "family": "freeform_surfaces",
+      "faces": [
+        145
+      ]
+    },
+    {
+      "id": "freeform_surfaces:146",
+      "family": "freeform_surfaces",
+      "faces": [
+        146
+      ]
+    },
+    {
+      "id": "freeform_surfaces:149",
+      "family": "freeform_surfaces",
+      "faces": [
+        149
+      ]
+    },
+    {
+      "id": "freeform_surfaces:150",
+      "family": "freeform_surfaces",
+      "faces": [
+        150
+      ]
+    },
+    {
+      "id": "freeform_surfaces:153",
+      "family": "freeform_surfaces",
+      "faces": [
+        153
+      ]
+    },
+    {
+      "id": "freeform_surfaces:154",
+      "family": "freeform_surfaces",
+      "faces": [
+        154
+      ]
+    },
+    {
+      "id": "freeform_surfaces:157",
+      "family": "freeform_surfaces",
+      "faces": [
+        157
+      ]
+    },
+    {
+      "id": "freeform_surfaces:158",
+      "family": "freeform_surfaces",
+      "faces": [
+        158
+      ]
+    },
+    {
+      "id": "freeform_surfaces:161",
+      "family": "freeform_surfaces",
+      "faces": [
+        161
+      ]
+    },
+    {
+      "id": "freeform_surfaces:162",
+      "family": "freeform_surfaces",
+      "faces": [
+        162
+      ]
+    },
+    {
+      "id": "freeform_surfaces:165",
+      "family": "freeform_surfaces",
+      "faces": [
+        165
+      ]
+    },
+    {
+      "id": "freeform_surfaces:166",
+      "family": "freeform_surfaces",
+      "faces": [
+        166
+      ]
+    },
+    {
+      "id": "freeform_surfaces:169",
+      "family": "freeform_surfaces",
+      "faces": [
+        169
+      ]
+    },
+    {
+      "id": "freeform_surfaces:170",
+      "family": "freeform_surfaces",
+      "faces": [
+        170
+      ]
+    },
+    {
+      "id": "freeform_surfaces:175",
+      "family": "freeform_surfaces",
+      "faces": [
+        175
+      ]
+    },
+    {
+      "id": "freeform_surfaces:176",
+      "family": "freeform_surfaces",
+      "faces": [
+        176
+      ]
+    },
+    {
+      "id": "freeform_surfaces:180",
+      "family": "freeform_surfaces",
+      "faces": [
+        180
+      ]
+    },
+    {
+      "id": "freeform_surfaces:181",
+      "family": "freeform_surfaces",
+      "faces": [
+        181
+      ]
+    },
+    {
+      "id": "freeform_surfaces:189",
+      "family": "freeform_surfaces",
+      "faces": [
+        189
+      ]
+    },
+    {
+      "id": "freeform_surfaces:190",
+      "family": "freeform_surfaces",
+      "faces": [
+        190
+      ]
+    },
+    {
+      "id": "freeform_surfaces:194",
+      "family": "freeform_surfaces",
+      "faces": [
+        194
+      ]
+    },
+    {
+      "id": "freeform_surfaces:195",
+      "family": "freeform_surfaces",
+      "faces": [
+        195
+      ]
+    },
+    {
+      "id": "freeform_surfaces:203",
+      "family": "freeform_surfaces",
+      "faces": [
+        203
+      ]
+    },
+    {
+      "id": "freeform_surfaces:204",
+      "family": "freeform_surfaces",
+      "faces": [
+        204
+      ]
+    },
+    {
+      "id": "freeform_surfaces:208",
+      "family": "freeform_surfaces",
+      "faces": [
+        208
+      ]
+    },
+    {
+      "id": "freeform_surfaces:209",
+      "family": "freeform_surfaces",
+      "faces": [
+        209
+      ]
+    },
+    {
+      "id": "freeform_surfaces:217",
+      "family": "freeform_surfaces",
+      "faces": [
+        217
+      ]
+    },
+    {
+      "id": "freeform_surfaces:218",
+      "family": "freeform_surfaces",
+      "faces": [
+        218
+      ]
+    },
+    {
+      "id": "freeform_surfaces:222",
+      "family": "freeform_surfaces",
+      "faces": [
+        222
+      ]
+    },
+    {
+      "id": "freeform_surfaces:223",
+      "family": "freeform_surfaces",
+      "faces": [
+        223
+      ]
+    },
+    {
+      "id": "freeform_surfaces:231",
+      "family": "freeform_surfaces",
+      "faces": [
+        231
+      ]
+    },
+    {
+      "id": "freeform_surfaces:232",
+      "family": "freeform_surfaces",
+      "faces": [
+        232
+      ]
+    },
+    {
+      "id": "freeform_surfaces:236",
+      "family": "freeform_surfaces",
+      "faces": [
+        236
+      ]
+    },
+    {
+      "id": "freeform_surfaces:237",
+      "family": "freeform_surfaces",
+      "faces": [
+        237
+      ]
+    },
+    {
+      "id": "freeform_surfaces:245",
+      "family": "freeform_surfaces",
+      "faces": [
+        245
+      ]
+    },
+    {
+      "id": "freeform_surfaces:246",
+      "family": "freeform_surfaces",
+      "faces": [
+        246
+      ]
+    },
+    {
+      "id": "freeform_surfaces:250",
+      "family": "freeform_surfaces",
+      "faces": [
+        250
+      ]
+    },
+    {
+      "id": "freeform_surfaces:251",
+      "family": "freeform_surfaces",
+      "faces": [
+        251
+      ]
+    },
+    {
+      "id": "freeform_surfaces:259",
+      "family": "freeform_surfaces",
+      "faces": [
+        259
+      ]
+    },
+    {
+      "id": "freeform_surfaces:260",
+      "family": "freeform_surfaces",
+      "faces": [
+        260
+      ]
+    },
+    {
+      "id": "freeform_surfaces:264",
+      "family": "freeform_surfaces",
+      "faces": [
+        264
+      ]
+    },
+    {
+      "id": "freeform_surfaces:265",
+      "family": "freeform_surfaces",
+      "faces": [
+        265
+      ]
+    },
+    {
+      "id": "freeform_surfaces:294",
+      "family": "freeform_surfaces",
+      "faces": [
+        294
+      ]
+    },
+    {
+      "id": "freeform_surfaces:295",
+      "family": "freeform_surfaces",
+      "faces": [
+        295
+      ]
+    },
+    {
+      "id": "freeform_surfaces:299",
+      "family": "freeform_surfaces",
+      "faces": [
+        299
+      ]
+    },
+    {
+      "id": "freeform_surfaces:300",
+      "family": "freeform_surfaces",
+      "faces": [
+        300
+      ]
+    },
+    {
+      "id": "freeform_surfaces:359",
+      "family": "freeform_surfaces",
+      "faces": [
+        359
+      ]
+    },
+    {
+      "id": "step_levels:38",
+      "family": "step_levels",
+      "faces": [
+        38
+      ]
+    },
+    {
+      "id": "risers:123",
+      "family": "risers",
+      "faces": [
+        123
+      ]
+    },
+    {
+      "id": "risers:308",
+      "family": "risers",
+      "faces": [
+        308
+      ]
+    },
+    {
+      "id": "risers:309",
+      "family": "risers",
+      "faces": [
+        309
+      ]
+    },
+    {
+      "id": "hole_patterns.rectangle:10.13.16.19",
+      "family": "hole_patterns",
+      "faces": [
+        10,
+        13,
+        16,
+        19
+      ]
+    },
+    {
+      "id": "hole_patterns.set:106.108.110",
+      "family": "hole_patterns",
+      "faces": [
+        106,
+        108,
+        110
+      ]
+    },
+    {
+      "id": "hole_patterns.set:125.128.131.133.135",
+      "family": "hole_patterns",
+      "faces": [
+        125,
+        128,
+        131,
+        133,
+        135
+      ]
+    }
+  ]
+}

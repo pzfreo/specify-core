@@ -820,11 +820,11 @@
     "family": "risers",
     "record": {
      "vertical": true,
-     "axis": "x",
+     "axis": "z",
      "positions": [
-      6.613
+      -6.613
      ],
-     "other_axis": "y",
+     "other_axis": "x",
      "other_positions": [],
      "z_lo": -5.0,
      "z_hi": 5.0,
@@ -842,40 +842,12 @@
       1799.25294456,
       1117.15034762
      ],
-     "_local": [
-      "axis",
-      "hi_at_envelope",
-      "lo_at_envelope",
-      "other_axis",
-      "other_positions",
-      "positions",
-      "z_hi",
-      "z_lo"
+     "origin": [
+      -3.4713131330485794e-17,
+      -2.801223467097147e-17,
+      18.613214136052523
      ],
-     "_frame": {
-      "status": "inferred",
-      "origin": [
-       -3.4713131330485794e-17,
-       -2.801223467097147e-17,
-       18.613214136052523
-      ],
-      "x": [
-       0.0,
-       0.0,
-       -1.0
-      ],
-      "y": [
-       1.0,
-       0.0,
-       0.0
-      ],
-      "z": [
-       0.0,
-       -1.0,
-       0.0
-      ],
-      "gauge": "axial"
-     }
+     "height_axis": "y"
     },
     "faces": [
      2
