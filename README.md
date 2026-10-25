@@ -32,8 +32,6 @@ fields as letters or unit vectors, and Specify reads geometry only from the publ
 records (the recognition frame is provenance). Saved STEP answers
 are re-matched on reopening, with unresolved old IDs and values reported for review; see
 [the upgrade rule](docs/design.md#saved-answers-across-kernel-upgrades).
-Draftwright's released kernel pin temporarily differs; `tools/check_quiddity_pin.py`
-checks the release pins and reports that expected mismatch as an advisory warning.
 This includes derived PMI geometry and measured modelled threads, turned-diameter thread
 choices and the editable full-thread depth of blind tapped holes.
 

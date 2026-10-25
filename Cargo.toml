@@ -18,8 +18,6 @@ path = "src/main.rs"
 [dependencies]
 # quiddity-rust: feature recognition (quiddity) and the geometry kernel with STEP import and
 # AP242 semantic PMI (haecceity). Both use tagged v0.2.0-alpha.2 (ff1975ef).
-# draftwright's latest release still pins v0.1.1; tools/check_quiddity_pin.py
-# warns until its next kernel pin (expected, advisory).
 # See docs/design.md, "Dependency plan".
 quiddity = { git = "https://github.com/pzfreo/quiddity-rust", tag = "v0.2.0-alpha.2" }
 haecceity = { git = "https://github.com/pzfreo/quiddity-rust", tag = "v0.2.0-alpha.2" }
