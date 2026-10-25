@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.0-alpha.8 (2026-10-25)
+
 ### Added
 
 - For #3, retain the existing turned-diameter ISO 261 thread choices (coarse and fine)
@@ -37,8 +39,7 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
-- Pin quiddity and haecceity, including WASM, to tagged **v0.2.0-alpha.2**. Specify's
-  version remains alpha.7. Draftwright's older v0.1.1 pin still produces the expected
+- Pin quiddity and haecceity, including WASM, to tagged **v0.2.0-alpha.2**. Draftwright's older v0.1.1 pin still produces the expected
   advisory warning.
 - Adopt recognition schema 6 (#92): publish file-coordinate records, accept measuring
   axes as letters or vectors, and derive slot/channel end planes from the record's own

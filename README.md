@@ -11,7 +11,7 @@ meshing input and PMI reading and writing from its haecceity kernel.
 
 ## Status
 
-**0.1.0-alpha.7 (2026-10-23)**; see [CHANGELOG.md](CHANGELOG.md).
+**0.1.0-alpha.8 (2026-10-25)**; see [CHANGELOG.md](CHANGELOG.md).
 
 Every module of specify-core is ported (part loading, features, existing PMI, the rules,
 mates, meshing, anchors, the writer with resume and assemblies, the API, the command line and
@@ -26,15 +26,16 @@ decisions waiting for the maintainer in [docs/questions.md](docs/questions.md).
 
 As of stage 5 (consolidation, 2026-10-09) all five planned stages are on `main`. The full suite
 (376 tests, with the quiddity corpus) passes, last on 2026-10-20 at quiddity-rust's alpha.8.
-quiddity and haecceity (including WASM) are pinned to quiddity-rust's `v0.1.1` tag
-(`a27b7064`). Recognition returns framed records; Specify carries consumed local fields
-through their frame and keeps file-space geometry in file coordinates. Saved STEP answers
+quiddity and haecceity (including WASM) are pinned to quiddity-rust's `v0.2.0-alpha.2` tag
+(`ff1975ef`). Recognition publishes schema 6: every record is in file coordinates, with axis
+fields as letters or unit vectors, and Specify reads geometry only from the published
+records (the recognition frame is provenance). Saved STEP answers
 are re-matched on reopening, with unresolved old IDs and values reported for review; see
 [the upgrade rule](docs/design.md#saved-answers-across-kernel-upgrades).
 Draftwright's released kernel pin temporarily differs; `tools/check_quiddity_pin.py`
 checks the release pins and reports that expected mismatch as an advisory warning.
-This includes derived PMI geometry and measured modelled threads; Specify's thread choices
-and editable full-thread depth remain separate work.
+This includes derived PMI geometry and measured modelled threads, turned-diameter thread
+choices and the editable full-thread depth of blind tapped holes.
 
 OpenCascade (and so specify-core's Python) opens every Rust-written file and reads its datums,
 sizes and tolerances, on one face or several (Q16, Q20; `tests/cross_engine.rs`); it reads a fit
