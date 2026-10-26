@@ -245,7 +245,7 @@ fn the_report_says_what_changed_in_words() {
         "{thickened}"
     );
     assert!(
-        thickened.contains("can't tell which is which in the new part"),
+        thickened.contains("still there, but alike, so the old and new can't be paired one to one"),
         "{thickened}"
     );
     // The whole part, before and after.

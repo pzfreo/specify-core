@@ -41,8 +41,9 @@ enum Bind {
 #[derive(Clone, Debug, Serialize)]
 pub struct Revised {
     /// `ok`: every answer carried and no new question or problem; `decide`: an answer is
-    /// unresolved, a match is ambiguous or the new part asks something new; `problems`: review
-    /// finds problems it did not on the old part.
+    /// unresolved or the new part asks something new (a feature matched ambiguously decides
+    /// nothing by itself: an answer on it is unresolved); `problems`: review finds problems it
+    /// did not on the old part.
     pub verdict: String,
     pub summary: String,
     /// The answers on the new part: carried, renamed where the feature's ID changed.
@@ -118,6 +119,10 @@ pub struct FeatureChange {
     /// The part's axis it lies along, if any: its move along it is its length changing.
     #[serde(skip)]
     pub axis: Option<usize>,
+    /// For an ambiguous one: its candidates in the same place on the new part, so that alike
+    /// features read as merged (`2× R3 fillets … are now one`), split or paired.
+    #[serde(skip)]
+    pub there: Vec<String>,
 }
 
 /// Where a feature is, in words a person can find it by: the side of the part it is on, what
@@ -751,6 +756,7 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
             axis: old_feature
                 .and_then(|f| along(&f.record))
                 .map(|(k, _, _)| k),
+            there: Vec::new(),
         });
     }
     for f in &new_features {
@@ -772,8 +778,28 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
                 at,
                 place,
                 axis: along(&f.record).map(|(k, _, _)| k),
+                there: Vec::new(),
             });
         }
+    }
+
+    // An ambiguous feature's candidates in its own place on the new part.
+    for f in feature_changes
+        .iter_mut()
+        .filter(|f| f.class == "ambiguous")
+    {
+        f.there = f
+            .candidates
+            .iter()
+            .filter(|c| {
+                f.place.on.is_empty()
+                    || new_features
+                        .iter()
+                        .find(|g| &&g.id == c)
+                        .is_some_and(|g| locate(g, &new_features, &new_size).on == f.place.on)
+            })
+            .cloned()
+            .collect();
     }
 
     // The answers.
@@ -992,11 +1018,7 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
     gone.sort_unstable();
     gone.dedup();
 
-    let ambiguous = feature_changes
-        .iter()
-        .filter(|f| f.class == "ambiguous")
-        .count();
-    let open_count = unresolved.len() + ambiguous + questions.len();
+    let open_count = unresolved.len() + questions.len();
     let verdict = if !problems.added.is_empty() {
         "problems"
     } else if open_count > 0 {
@@ -1066,12 +1088,6 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
                 parts.push(format!(
                     "{} not carried",
                     plural(unresolved.len(), "answer", "answers")
-                ));
-            }
-            if ambiguous > 0 {
-                parts.push(format!(
-                    "{} that can't be told apart",
-                    plural(ambiguous, "feature", "features")
                 ));
             }
             if !questions.is_empty() {
@@ -1302,17 +1318,30 @@ impl Revised {
                 let line = match *class {
                     "orphaned" => format!("{label} removed{}", place(": ")),
                     "new" => format!("{label} added{}", place(": ")),
-                    "ambiguous" if fs.len() > 1 => {
-                        format!(
-                            "{label}{}: can't tell which is which in the new part",
-                            place(", ")
-                        )
-                    }
                     "ambiguous" => {
-                        format!(
-                            "{label}{}: can't tell which it is in the new part",
-                            place(", ")
-                        )
+                        // What became of alike features that don't pair one to one.
+                        let mut there: Vec<&String> = fs.iter().flat_map(|f| &f.there).collect();
+                        there.sort();
+                        there.dedup();
+                        let (was, now) = (fs.len(), there.len());
+                        let are = if was > 1 { "are" } else { "is" };
+                        match now {
+                            0 => format!(
+                                "{label}{}: no longer one to one with the new part",
+                                place(", ")
+                            ),
+                            1 if was > 1 => format!("{label}{}, {are} now one", place(", ")),
+                            _ if now < was => format!("{label}{}, {are} now {now}", place(", ")),
+                            _ if now > was && was == 1 => {
+                                format!("{label}{}, is now split in {now}", place(", "))
+                            }
+                            _ if now > was => format!("{label}{}, are now {now}", place(", ")),
+                            _ => format!(
+                                "{label}{}: still there, but alike, so the old and new can't be \
+                                 paired one to one",
+                                place(", ")
+                            ),
+                        }
                     }
                     _ if sized.is_empty() && !moves.is_empty() && moves.len() <= 4 => {
                         format!("{label}{}: moved {}", place(", "), moves.join("; "))
