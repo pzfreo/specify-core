@@ -97,8 +97,11 @@ answer is never guessed: one whose face is gone, matches several faces (symmetri
 lands on no single feature is left unresolved with its value and reason. An answer carried to a
 feature that changed (a moved or resized hole) is applied and listed to check. `changes/`
 receives `answers.json` (the carried answers, to commit), `report.json`, `report.md` (written
-to be posted as a pull request comment: the features that changed, the answers not carried or
-to check, the questions the new part opens) and `model.png`, the new part drawn with its
+to be posted as a pull request comment: the part's volume, area, bounding box and face count
+before and after; the features that changed, named as a drawing names them and placed so a
+person can find them (`2× Ø5 × 30 through holes removed: on the −Y side, in the Ø70 boss around
+the Ø45 hole, at X +27, Z −10; X +27, Z +10 from its axis`); the answers not carried or to
+check, by their questions; the questions the new part opens) and `model.png`, the new part drawn with its
 changed faces orange, new faces green, faces that can't be told apart purple and the old
 part's gone or moved faces in translucent red. `revise` is this engine's own; Python's
 specify-core has no counterpart.

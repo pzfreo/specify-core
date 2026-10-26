@@ -217,10 +217,65 @@ fn the_command_line_writes_the_answers_report_and_picture() {
     let md = std::fs::read_to_string(dir.join("report.md")).unwrap();
     assert!(md.starts_with("### Plate: Specify\n\n⚠️"), "{md}");
     assert!(
-        md.contains("`hole.function:holes:7` = fit:H7 (orphaned)"),
+        md.contains(
+            "- What is the Ø7 hole for? **fit:H7** (`hole.function:holes:7`): the Ø7 × 10 \
+             through hole was removed"
+        ),
+        "{md}"
+    );
+    assert!(
+        md.contains(
+            "- Ø7 × 10 through hole removed: on the −Z side, at X 30, Y 30 from the −X, −Y corner"
+        ),
         "{md}"
     );
     assert!(dir.join("model.png").is_file() && dir.join("report.json").is_file());
+}
+
+#[test]
+fn the_report_says_what_changed_in_words() {
+    let md = |case: &str| revised(case, json!({})).markdown("Plate", None);
+    let thickened = md("plate_thickened");
+    // Alike holes changed alike read as one line, with where they are.
+    assert!(
+        thickened.contains(
+            "- 3× Ø4 × 10 through holes, through the part along Z, at X 30, Y 30; X 50, Y 30; \
+             X 70, Y 30 from the −X, −Y corner: depth 10 → 12"
+        ),
+        "{thickened}"
+    );
+    assert!(
+        thickened.contains("can't tell which is which in the new part"),
+        "{thickened}"
+    );
+    // The whole part, before and after.
+    for row in [
+        "| Volume | 58,494 mm³ | 70,193 mm³ | +11,699 mm³ (+20%) |",
+        "| Bounding box | 100 × 60 × 10 mm | 100 × 60 × 12 mm | Z +2 |",
+        "| Faces | 15 | 15 | unchanged |",
+    ] {
+        assert!(thickened.contains(row), "{thickened}");
+    }
+    let moved = md("hole_moved");
+    assert!(
+        moved.contains("✅ 1 hole moved. There are no answers to carry"),
+        "{moved}"
+    );
+    assert!(
+        moved.contains(
+            "- Ø6 × 10 through hole, on the −Z side, at X 40, Y 45 from the −X, −Y corner: \
+             moved X −15"
+        ),
+        "{moved}"
+    );
+    let resized = md("boss_resized");
+    assert!(
+        resized.contains(
+            "- Ø20 × 8 boss, on the +Z side, at X 70, Y 40 from the −X, −Y corner: \
+             diameter 20 → 26"
+        ),
+        "{resized}"
+    );
 }
 
 #[test]
