@@ -11,8 +11,8 @@
 //!    checked: not against Python's, because feature ids differ by design (U2) and every
 //!    question id, answer key, intent requirement and report line embedding one would differ.
 //!    In a composition difference, `python` holds the library's result and `rust` the binary's.
-//! 2. **Python's inputs**: given Python's analysis and the oracle's answers (each case's base
-//!    answers and defaults, every scenario), the binary's questions, open questions, intent
+//! 2. **Python's inputs**: given Python's analysis and the oracle's answers (selected cases'
+//!    questions, committed fixtures' base writes, every scenario), the binary's open questions, intent
 //!    (`write --intent`), write report and refusals are compared with Python's; and each
 //!    synthetic part's serve transcript is replayed reply by reply through `specify-core serve`
 //!    (an analyse reply by its envelope and mesh summary; questions, interpret, preview and
@@ -1333,9 +1333,9 @@ fn command_lines(dir: &Path) -> Vec<Difference> {
 // The sweep
 // ---------------------------------------------------------------------------------------------
 
-/// `check_known("cli")`, but without the corpus the entries for corpus cases and
-/// for scenarios on corpus cases are left out: their cases were skipped, so they cannot be
-/// stale. With the corpus, every entry must match.
+/// Stale checks cover the CLI operations exercised: selected questions, fixture base writes,
+/// and scenarios. Full corpus base-write history remains active with SPECIFY_CORPUS_ALL=1.
+/// Without corpus inputs, unavailable corpus operations are also left out.
 fn check_area(differences: &[Difference]) {
     let path = common::known_differences_file("cli");
     let entries: Vec<_> = load_known(&path)

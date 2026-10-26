@@ -118,7 +118,7 @@ frame even with every hole set to general. Their `.result.json.gz` files retain 
 original no-datum outputs as evidence. CLI/serve envelopes (including complete `--intent`
 text and refusal messages) are pinned separately in `../cli_datum_origins.json.gz`, with
 verdicts in `../known_differences/cli.json`. Regenerate with
-`UPDATE_CLI_DATUM_ORIGINS=1 cargo test --release --test cli the_command_line_matches_the_oracle`;
+`SPECIFY_CORPUS_ALL=1 UPDATE_CLI_DATUM_ORIGINS=1 cargo test --release --test cli the_command_line_matches_the_oracle`;
 set `QUIDDITY_CORPUS` to include corpus cases. Regeneration without a corpus retains their
 existing snapshot entries. The independent library/executable comparison must be empty.
 
