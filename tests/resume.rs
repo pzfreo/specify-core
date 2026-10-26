@@ -583,9 +583,9 @@ fn alpha7_saved_answers_survive_the_schema6_upgrade() {
                 .iter()
                 .filter(|f| f["family"] == "oriented_slots")
             {
-                // Frame-vote #81 changes defining support from four walls to two long walls;
-                // family merge #92 renames the published family. Each pair belongs uniquely
-                // to the old slot. schema6 checks the actual end walls and rigid motions.
+                // #91 restores the plate frame and #100 claims both end walls: the same
+                // four physical walls as alpha.7, with the #92 family rename.
+                // schema6 checks their actual end planes and rigid motions.
                 let matches: Vec<_> = analysis["features"]
                     .as_array()
                     .unwrap()
@@ -600,7 +600,7 @@ fn alpha7_saved_answers_survive_the_schema6_upgrade() {
                     })
                     .collect();
                 assert_eq!(matches.len(), 1, "old support {}", old["id"]);
-                assert_eq!(matches[0]["faces"].as_array().unwrap().len(), 2);
+                assert_eq!(matches[0]["faces"], old["faces"]);
             }
         }
         let resumed = &analysis["resume"];

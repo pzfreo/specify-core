@@ -226,9 +226,9 @@ fn corrected_round_inventory_agrees_with_material_side() {
             "cgb217",
             vec![177, 182, 205, 210, 233, 238, 261, 266],
             vec![],
-            14,
+            6,
         ),
-        ("cgb241", vec![47], vec![27], 1),
+        ("cgb241", vec![47], vec![27], 0),
     ] {
         let path = corpus.join(format!("cadgenbench_inputs/{name}.step"));
         let path = if path.is_file() {
@@ -239,6 +239,13 @@ fn corrected_round_inventory_agrees_with_material_side() {
         let loaded = part::load(&path, None).unwrap();
         let features = specify_core::features::recognise(&loaded).unwrap();
         let fillets: Vec<_> = features.iter().filter(|f| f.family == "fillets").collect();
+        // #91 restores cgb241's file axes and gives cgb217 its 13.07-degree roll.
+        // These convex rounds remain convex; off-axis rounds are now blends, not fillets.
+        let family = if name == "cgb202" {
+            "fillets"
+        } else {
+            "blends"
+        };
         assert_eq!(fillets.len(), count, "{name}");
         for face in convex {
             assert_eq!(
@@ -247,9 +254,35 @@ fn corrected_round_inventory_agrees_with_material_side() {
                 "{name}:{face}"
             );
             assert!(
-                fillets.iter().any(|f| f.faces.contains(&face)),
+                features
+                    .iter()
+                    .any(|f| f.family == family && f.faces.contains(&face)),
                 "{name}:{face}"
             );
+        }
+        if name == "cgb241" {
+            assert_eq!(
+                features
+                    .iter()
+                    .find(|f| f.id == "blends:47")
+                    .unwrap()
+                    .record["radius"],
+                23.0
+            );
+        }
+        if name == "cgb217" {
+            // #91: all sixteen R1 rounds, including the eight already generic blends.
+            for face in [
+                177, 182, 191, 196, 205, 210, 219, 224, 233, 238, 247, 252, 261, 266, 296, 301,
+            ] {
+                let blend = features
+                    .iter()
+                    .find(|f| f.family == "blends" && f.faces.contains(&face))
+                    .unwrap();
+                assert_eq!(blend.record["radius"], 1.0);
+                assert_eq!(loaded.part.frame_points_outward(face), Some(true));
+                assert!(!fillets.iter().any(|f| f.faces.contains(&face)));
+            }
         }
         for face in concave {
             assert_eq!(

@@ -850,3 +850,5 @@ pub fn without_threads_beyond_python(rust: &Value) -> Value {
         other => other.clone(),
     }
 }
+
+pub mod upgrade;

@@ -1,5 +1,7 @@
 //! Answers held outside the STEP (#35), the application payload the writer carries, the
 //! original part, and schema 1 files saved by the pre-alpha browser writer.
+mod common;
+
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use regex::bytes::{NoExpand, Regex};
@@ -31,7 +33,8 @@ fn object(value: Value) -> Map<String, Value> {
 
 // --- answers held outside the STEP ------------------------------------------------------------
 
-/// FTC-10 as alpha.6 wrote it: its 29 answers (two on a linear pattern whose support has grown)
+/// FTC-10 as alpha.6 wrote it: its 29 answers (eight now move as #100 adds tip cones
+/// and schema 6 completes a counterbore pattern)
 /// and the face evidence stored with them.
 fn ftc10() -> (part::LoadedPart, Value, Map<String, Value>, Value) {
     let base: Value =
@@ -60,7 +63,11 @@ fn answers_with_their_evidence_migrate_as_answers_stored_in_the_step_do() {
     let value = serde_json::to_value(&out).unwrap();
     // Exactly the report the file's own stored answers give on opening.
     assert_eq!(value, analysis["resume"]);
-    assert_eq!(out.migrated.len(), 2);
+    // #100 tip cones add six moves to the two schema-6 pattern moves.
+    let base = json!({"answers": answers, "features": serde_json::from_slice::<Value>(
+        &std::fs::read(fixture("resume-alpha6/ftc10-reid.json")).unwrap()).unwrap()["features"]});
+    common::upgrade::check(&loaded, &base, &analysis, common::upgrade::FTC10);
+    assert_eq!(out.migrated.len(), 8);
     assert!(out.unresolved.is_empty() && out.unverified.is_none());
     let review = api::review(&analysis, &out.answers).unwrap();
     assert_eq!(review["open"].as_array().unwrap().len(), 2);
@@ -90,8 +97,8 @@ fn left_open(out: &resume::Resumed, answers: &Map<String, Value>, why: &str) {
 }
 
 // A legacy project, saved without evidence, is trusted by feature ID (the maintainer's
-// decision, #35): answers on IDs this part has are kept; the two on a linear pattern whose ID
-// has changed are unresolved with their values; `unverified` says the match was by ID.
+// decision, #35): answers on IDs this part has are kept. #100 cone claims change six more
+// IDs in addition to the two schema-6 pattern moves: all eight stay unresolved without evidence.
 #[test]
 fn without_evidence_answers_are_matched_by_feature_id() {
     let (loaded, analysis, answers, _) = ftc10();
@@ -100,9 +107,21 @@ fn without_evidence_answers_are_matched_by_feature_id() {
     let why = out.unverified.as_deref().unwrap();
     assert!(why.contains("no saved face fingerprint"), "{why}");
     assert!(why.contains("matched by feature ID"), "{why}");
-    assert_eq!(out.unresolved.len(), 2);
+    assert_eq!(out.unresolved.len(), 8);
+    let moved: Vec<_> = analysis["resume"]["migrated"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|pair| pair[0].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        out.unresolved
+            .iter()
+            .map(|u| u.id.as_str())
+            .collect::<Vec<_>>(),
+        moved
+    );
     for unresolved in &out.unresolved {
-        assert!(unresolved.id.contains("hole_patterns.linear:138.140"));
         assert_eq!(unresolved.answer, answers[&unresolved.id]);
         assert!(unresolved.reason.contains("no feature with the saved ID"));
         assert!(!unresolved.automatic);
@@ -204,10 +223,26 @@ fn automatic_answers_are_marked_and_their_ids_follow_migration() {
         Some(&automatic),
     )
     .unwrap();
-    // Matched by ID, the unresolved answers are the moved ones, which were automatic.
-    assert!(unmatched.unresolved.iter().all(|u| u.automatic));
+    // #100 leaves six further answers unresolved by ID. Only the original two pattern
+    // answers were marked automatic; the newly moved bore/row answers remain manual.
+    assert_eq!(unmatched.unresolved.len(), 8);
+    assert_eq!(
+        unmatched.unresolved.iter().filter(|u| u.automatic).count(),
+        2
+    );
+    for u in &unmatched.unresolved {
+        assert_eq!(u.automatic, moved.contains(&u.id));
+    }
     let value = serde_json::to_value(&unmatched).unwrap();
-    assert_eq!(value["unresolved"][0]["automatic"], json!(true));
+    for u in value["unresolved"].as_array().unwrap() {
+        assert_eq!(
+            u.get("automatic"),
+            moved
+                .iter()
+                .any(|id| u["id"] == *id)
+                .then_some(&json!(true))
+        );
+    }
     // The automatic answers kept by ID stay automatic; the unresolved ones are left out.
     let kept: Vec<String> = automatic
         .iter()
