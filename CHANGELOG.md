@@ -26,6 +26,21 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Upgrade quiddity and haecceity (native and WASM) to **v0.2.1-alpha.1** (`7291435`),
+  retaining recognition schema 6 and fingerprint format 3. The feature picker gains
+  annular grooves, semicircular blind slots, sharp/rounded V-channels (`trough_radius`)
+  and rectangular through-notches. Drill-point holes include their tip cones, rectangular
+  slots their end walls, pockets more of their proved boundaries, and polygonal bosses
+  their free-end caps. Slot end planes use the actual claimed walls so questions, datum
+  defaults and written PMI remain correct under rigid motion.
+- Adopt quiddity #91's outline-based roll: `golden_oriented_slots` and its captures and the
+  17-degree slotted assembly return to the plate's file axes and four-wall slots; cgb241
+  returns to file axes with face 47 an R23 blend; cgb217 uses a 13.07-degree frame with
+  all sixteen R1 rounds classified as blends. Saved answers on verified unchanged geometry
+  follow unique same-family supports as cones/walls are added; ambiguous or missing supports
+  stay unresolved with their values. Without face evidence, changed IDs remain unresolved,
+  and automatic/manual provenance follows each answer. Malformed assembly cycles and
+  nesting deeper than 64 are refused as a whole by haecceity.
 - For #2, `writer::write_bytes` and `write_bytes_with` take a part of an assembly (from
   `part::File::load`), as `write_parts_bytes` does: the other parts, their placements, PMI and
   stored answers are kept. They no longer refuse a `LoadedPart` whose `part_count` is not 1.
