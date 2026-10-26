@@ -159,7 +159,7 @@ pub fn analyse_reporting(loaded: &LoadedPart) -> Result<(Value, Vec<String>)> {
         let file = part::File::of_shared(&loaded.path, std::sync::Arc::clone(&loaded.bytes))?;
         return analyse_reporting_in(&file, loaded);
     }
-    analyse_with(loaded, None, None)
+    analyse_with(loaded, None, None, None)
 }
 
 /// [`analyse_reporting`] of `loaded`, a part of `file`, the other parts of an assembly loaded
@@ -179,7 +179,27 @@ pub fn analyse_reporting_in(
     } else {
         None
     };
-    analyse_with(loaded, assembly.as_deref(), Some(file.definitions()))
+    analyse_with(loaded, assembly.as_deref(), Some(file.definitions()), None)
+}
+
+/// [`analyse`], from quiddity's recognition of `loaded`'s part already made, so a caller that
+/// also needs its fingerprints (a revision) recognises the part once.
+pub(crate) fn analyse_recognised(
+    loaded: &LoadedPart,
+    recognition: &quiddity::correspondence::Recognition,
+) -> Result<Value> {
+    if loaded.part_count > 1 {
+        let file = part::File::of_shared(&loaded.path, std::sync::Arc::clone(&loaded.bytes))?;
+        let assembly = file.load_all()?;
+        return analyse_with(
+            loaded,
+            Some(&assembly),
+            Some(file.definitions()),
+            Some(recognition),
+        )
+        .map(|(analysis, _)| analysis);
+    }
+    analyse_with(loaded, None, None, Some(recognition)).map(|(analysis, _)| analysis)
 }
 
 /// The analysis of `loaded`, with every part of its file (`assembly`) for a part of an
@@ -189,11 +209,16 @@ fn analyse_with(
     loaded: &LoadedPart,
     assembly: Option<&[LoadedPart]>,
     definitions: Option<&[haecceity::step::PartDefinition]>,
+    recognition: Option<&quiddity::correspondence::Recognition>,
 ) -> Result<(Value, Vec<String>)> {
     let refused = |e: &dyn fmt::Display| Error::Analysis(format!("{}: {e}", loaded.path.display()));
     // Features first: on a part rebuilt without its record of unresolved geometry (U1),
     // recognition's refusal names the part and why, which is the failure to pass on.
-    let features = features::recognise(loaded).map_err(|e| refused(&e))?;
+    let features = match recognition {
+        Some(r) => features::recognise_from(loaded, r),
+        None => features::recognise(loaded),
+    }
+    .map_err(|e| refused(&e))?;
     let faces = features::describe_faces(loaded).map_err(|e| refused(&e))?;
     let mut faces = serde_json::to_value(faces).map_err(|e| refused(&e))?;
     let mut analysis = Map::new();

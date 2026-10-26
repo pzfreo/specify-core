@@ -85,6 +85,24 @@ and verifies it by reading it back; the report (`output`, `written`, `not_writte
 `warnings`) is printed as JSON, and the answers are stored in the file so a later `analyse`
 resumes them.
 
+When the part's STEP file is revised, `revise` carries the answers to the new revision:
+
+```bash
+specify-core revise old.step new.step --answers a.json -o changes
+```
+
+quiddity's correspondence matches the two parts face by face. Each answer moves to the new
+part's feature of the same family holding its mapped faces, renamed where faces renumbered. An
+answer is never guessed: one whose face is gone, matches several faces (symmetric repeats), or
+lands on no single feature is left unresolved with its value and reason. An answer carried to a
+feature that changed (a moved or resized hole) is applied and listed to check. `changes/`
+receives `answers.json` (the carried answers, to commit), `report.json`, `report.md` (written
+to be posted as a pull request comment: the features that changed, the answers not carried or
+to check, the questions the new part opens) and `model.png`, the new part drawn with its
+changed faces orange, new faces green, faces that can't be told apart purple and the old
+part's gone or moved faces in translucent red. `revise` is this engine's own; Python's
+specify-core has no counterpart.
+
 An assembly is specified a part at a time. `specify-core parts asm.step` lists its distinct
 parts (a part placed twice is one part, with two placements); `analyse` and `mesh` take
 `--part N`; and `write` takes an analysis and answers for each part, writing them all into the

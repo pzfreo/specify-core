@@ -196,10 +196,21 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
     if let Some(why) = loaded.degraded() {
         return Err(FeatureError::Degraded(why));
     }
-    let recognition = quiddity::correspondence::recognise(&loaded.part);
+    recognise_from(loaded, &quiddity::correspondence::recognise(&loaded.part))
+}
+
+/// [`recognise`], from quiddity's recognition of `loaded`'s part already made (a revision
+/// matches the parts' fingerprints from the same recognition).
+pub fn recognise_from(
+    loaded: &LoadedPart,
+    recognition: &quiddity::correspondence::Recognition,
+) -> Result<Vec<Feature>, FeatureError> {
+    if let Some(why) = loaded.degraded() {
+        return Err(FeatureError::Degraded(why));
+    }
     let found = &recognition.features;
     // Published IDs and defining faces follow the same merge, without a working typed view.
-    let document = quiddity::recognition::document(&recognition, loaded.part.faces.len());
+    let document = quiddity::recognition::document(recognition, loaded.part.faces.len());
     let published: std::collections::BTreeMap<_, _> = document
         .records
         .iter()

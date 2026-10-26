@@ -22,6 +22,7 @@ mod provenance;
 pub mod pyfmt;
 pub mod pyjson;
 pub mod resume;
+pub mod revision;
 pub mod rules;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod serve;

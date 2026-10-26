@@ -8,6 +8,18 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- The `specify-core` command line for Linux (x86_64), macOS (Apple Silicon) and Windows
+  (x86_64), attached to each release (`.github/workflows/cli.yml`), each built, tried on a
+  revision and checksummed.
+- `specify-core revise OLD NEW --answers A -o DIR` (`revision::revise`, `revision::picture`):
+  answers carried to a new revision of the part through quiddity's correspondence, where
+  `resume::rematch_answers` leaves every feature and datum answer unresolved once the face
+  evidence differs. Each answer's faces are mapped and the answer moved to the feature of its
+  family holding them; orphaned, ambiguous, unmatched and stale answers are left unresolved
+  with their value and reason, never guessed. The report lists changed features, answers to
+  check (carried to a feature quiddity reports changed), new questions and new review problems,
+  as JSON and as Markdown for a pull request comment, and `model.png` draws the new part
+  coloured by what changed. A Rust-only command, left out of the Python-parity top-level help.
 - For #2, `api::parts_of(file)` lists a `part::File`'s parts as `api::parts` lists a path's
   (`api::parts` now goes through it), and `carried::part_payload(bytes, part, name)` reads a
   payload written on one part of an assembly.
