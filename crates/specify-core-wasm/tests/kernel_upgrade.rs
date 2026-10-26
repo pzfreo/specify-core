@@ -80,7 +80,33 @@ fn browser_exposes_real_alpha6_pattern_id_migration_and_new_questions() {
     let snapshot = session.snapshot();
     let resumed = &snapshot["analysis"]["resume"];
     assert_eq!(resumed["answers"].as_object().unwrap().len(), 29);
-    assert_eq!(resumed["migrated"].as_array().unwrap().len(), 2);
+    // #100 claims drill-point cones: six bore/row answers now move in addition to
+    // the two schema-6 counterbore-pattern answers. Native kernel_upgrade's exact
+    // support/adjacency checks prove these are the same physical features.
+    assert_eq!(resumed["migrated"].as_array().unwrap().len(), 8);
+    let moves = [
+        ("holes:175", "holes:174.175"),
+        ("holes:177", "holes:176.177"),
+        (
+            "hole_patterns.linear:138.140.142.144.146.147.148.149",
+            "hole_patterns.linear:130.132.134.136.138.140.142.144.146.147.148.149",
+        ),
+        (
+            "hole_patterns.linear:189.191.193",
+            "hole_patterns.linear:188.189.190.191.192.193",
+        ),
+    ];
+    let expected: Vec<_> = original
+        .as_object()
+        .unwrap()
+        .keys()
+        .filter_map(|id| {
+            let (question, old) = id.split_once(':')?;
+            let (_, new) = moves.iter().find(|(from, _)| *from == old)?;
+            Some(json!([id, format!("{question}:{new}")]))
+        })
+        .collect();
+    assert_eq!(resumed["migrated"], json!(expected));
     assert!(resumed["unresolved"].is_null());
     for pair in resumed["migrated"].as_array().unwrap() {
         assert_ne!(pair[0], pair[1]);
@@ -95,8 +121,8 @@ fn browser_exposes_real_alpha6_pattern_id_migration_and_new_questions() {
     assert_eq!(
         review["open"],
         json!([
-            "hole.function:hole_patterns.linear:195.197.199",
-            "hole.position:hole_patterns.linear:195.197.199"
+            "hole.function:hole_patterns.linear:194.195.196.197.198.199",
+            "hole.position:hole_patterns.linear:194.195.196.197.198.199"
         ])
     );
 }
