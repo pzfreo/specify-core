@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -32,9 +33,31 @@ jobs:
       # The toolchain comes from rust-toolchain.toml. quiddity-rust is a public git dependency,
       # pinned by Cargo.lock.
       - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --release -- -D warnings
-      - run: cargo test --workspace --release --locked --no-fail-fast
+      # Maintainer decision, 2026-10-26: macOS PRs build and run only float-sensitive
+      # expectations; five macOS runners are shared across repos, so reduce runner-minutes
+      # rather than add jobs/shards. Linux always runs everything. Main, dispatch and
+      # release* PR heads retain the full macOS suite.
+      - name: Build the workspace and every test
+        run: cargo test --workspace --release --locked --no-run
+      - name: Full suite
+        if: runner.os != 'macOS' || github.event_name != 'pull_request' || startsWith(github.head_ref, 'release')
+        run: cargo test --workspace --release --locked --no-fail-fast
+      - name: macOS PR floating-point checks
+        if: runner.os == 'macOS' && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release')
+        # features: libm-dependent frame/recognition and rounded face records.
+        # mesh: acos/sin, UV refinement, triangle winding/area and rounded bounds.
+        # anchors: geometric integration and six-decimal leader positions/directions.
+        # schema6: rotated slot end planes, frame roll and PMI coordinates.
+        # resume: rounded centroids, signed zero and persisted fingerprint hashes.
+        # revision: geometric correspondence, rounded report measurements and PNG projection.
+        # pyfmt: exact binary rounding/formatting used by all these expectations.
+        run: >-
+          cargo test --release --locked --no-fail-fast
+          --test features --test mesh --test anchors --test schema6
+          --test resume --test revision --test pyfmt
 
   wasm:
     runs-on: ubuntu-latest
