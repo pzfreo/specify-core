@@ -31,6 +31,8 @@
 // Each test crate uses a different part of this module.
 #![allow(dead_code)]
 
+mod corpus;
+
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::io::Read;
@@ -119,8 +121,35 @@ pub struct Case {
     pub meta: Value,
 }
 
-/// Every captured case, sorted by name.
+pub fn all_corpus() -> bool {
+    std::env::var("SPECIFY_CORPUS_ALL").as_deref() == Ok("1")
+}
+
+/// Also accepts ledger globs and rule-artifact suffixes, e.g. corpus/x/y#0/questions.
+pub fn case_selected(name: &str) -> bool {
+    if all_corpus() || !name.starts_with("corpus/") {
+        return true;
+    }
+    let stem = name
+        .strip_prefix("corpus/")
+        .unwrap()
+        .split('#')
+        .next()
+        .unwrap();
+    let stem = stem.split('/').take(2).collect::<Vec<_>>().join("/");
+    corpus::SUBSET.iter().any(|file| glob_match(&stem, file))
+}
+
+/// Selected captures, sorted by name. Synthetic and committed NIST fixtures always run.
 pub fn cases() -> Vec<Case> {
+    all_cases()
+        .into_iter()
+        .filter(|c| case_selected(&c.name))
+        .collect()
+}
+
+/// All captures, for explicit lookups and selection coverage checks.
+pub fn all_cases() -> Vec<Case> {
     let root = oracle_dir();
     let mut out = Vec::new();
     collect_cases(&root, &root, &mut out);
@@ -130,7 +159,11 @@ pub fn cases() -> Vec<Case> {
 
 /// The case named `name`; panics if it was not captured.
 pub fn case(name: &str) -> Case {
-    cases()
+    assert!(
+        case_selected(name),
+        "named regression {name} must be in tests/common/corpus.rs"
+    );
+    all_cases()
         .into_iter()
         .find(|c| c.name == name)
         .unwrap_or_else(|| panic!("no oracle case {name}"))
@@ -368,6 +401,7 @@ pub fn scenarios() -> Vec<Scenario> {
                 name,
             }
         })
+        .filter(|s| case_selected(&s.case))
         .collect()
 }
 
@@ -707,7 +741,9 @@ fn entry(item: &Value) -> Result<KnownDifference, String> {
 
 /// The asserting check, called once by `area`'s own full oracle sweep: every difference must
 /// match an entry of `known_differences/<area>.json`, and every entry must match some
-/// difference (else it is stale). Panics listing every unmatched difference and every stale
+/// difference (else it is stale), for selected corpus cases. Unselected history is retained
+/// for SPECIFY_CORPUS_ALL=1. Unknown and returning resolved differences always fail.
+/// Panics listing every unmatched difference and every stale
 /// entry; otherwise prints a tally of the differences by verdict.
 pub fn check_known(area: &str, differences: &[Difference]) {
     let path = known_differences_file(area);
@@ -735,7 +771,7 @@ pub fn check_known_with(source: &str, entries: &[KnownDifference], differences: 
     let stale: Vec<String> = entries
         .iter()
         .zip(&used)
-        .filter(|(e, n)| e.verdict != "resolved" && **n == 0)
+        .filter(|(e, n)| e.verdict != "resolved" && **n == 0 && case_selected(&e.case))
         .map(|(e, _)| format!("  case {} path {} ({})", e.case, e.path, e.pattern))
         .collect();
     let mut problems = Vec::new();

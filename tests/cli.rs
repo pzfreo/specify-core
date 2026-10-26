@@ -5,7 +5,7 @@
 //! "Feature ids cascade"), and every difference they find must have a verdict in
 //! `known_differences/cli.json`:
 //!
-//! 1. **Composition**, on every oracle case whose input is here: the binary's `analyse`, `mesh`,
+//! 1. **Composition**, on the named wrapper cases in `file_cases`: the binary's `analyse`, `mesh`,
 //!    `questions` and `write` outputs equal the library's own `api` results on the same inputs,
 //!    exactly (the analysis file byte for byte). This is where Rust-produced analyses are
 //!    checked: not against Python's, because feature ids differ by design (U2) and every
@@ -392,10 +392,33 @@ fn part_case(file: &str, k: Option<usize>) -> String {
     }
 }
 
-/// Each file case with its input here: (file case name, input, parts: None for a file of one).
+/// Wrapper contracts, rather than a second geometry corpus sweep. These cases cover plain
+/// and gzipped inputs, one/two/three parts, explicit part selection, placed geometry,
+/// through/blind holes and patterns, and foreign PMI. CLI errors/refusals also have
+/// direct coverage in exit_codes_say_what_happened and the captured command lines.
+/// Full-corpus geometry remains in features/mesh, Python-intent writes and read-back in
+/// write_oracle, and questions/defaults/intents in rules_oracle. `python_inputs` below still
+/// checks EVERY captured CLI question set, write and scenario; no CLI verdict is dropped.
 fn file_cases() -> Vec<(String, PathBuf, Vec<Option<usize>>)> {
-    cases()
-        .into_iter()
+    const WRAPPER_CASES: &[&str] = &[
+        "parts/plate",
+        "parts/pin",
+        "parts/wrapped",
+        "parts/assembly",
+        "parts/stack",
+        "parts/a_file_with_two_parts_must_say_which",
+        "parts/a_placed_part_is_meshed_in_the_frame_the_analysis_uses",
+        "nist/nist_ctc_01_asme1_ap242",
+    ];
+    let all = cases();
+    WRAPPER_CASES
+        .iter()
+        .map(|name| {
+            all.iter()
+                .find(|c| c.name == *name)
+                .unwrap_or_else(|| panic!("missing CLI wrapper case {name}"))
+                .clone()
+        })
         .filter(|c| c.part().is_none())
         .filter_map(|c| {
             let input = c.input()?;
@@ -411,6 +434,7 @@ fn file_cases() -> Vec<(String, PathBuf, Vec<Option<usize>>)> {
 }
 
 fn composition(dir: &Path) -> Vec<Difference> {
+    let started = std::time::Instant::now();
     let mut out = Vec::new();
     let base = json!({"part.material": "steel"});
     let answers_path = dir.join("base.json");
@@ -673,7 +697,10 @@ fn composition(dir: &Path) -> Vec<Difference> {
             std::fs::remove_file(p).ok();
         }
     }
-    println!("composition: {compared} files analysed, meshed, asked and written by both");
+    println!(
+        "composition: {compared} files analysed, meshed, asked and written by both in {:?}",
+        started.elapsed()
+    );
     out
 }
 
@@ -854,6 +881,7 @@ fn write_against(
 }
 
 fn python_inputs(dir: &Path) -> Vec<Difference> {
+    let started = std::time::Instant::now();
     let mut out = Vec::new();
     let all = cases();
     let (mut asked, mut writes, mut scenario_count) = (0, 0, 0);
@@ -963,7 +991,8 @@ fn python_inputs(dir: &Path) -> Vec<Difference> {
     }
     out.extend(serve_replays(dir));
     println!(
-        "python inputs: {asked} question sets, {writes} file writes, {scenario_count} scenarios"
+        "python inputs: {asked} question sets, {writes} file writes, {scenario_count} scenarios in {:?}",
+        started.elapsed()
     );
     out
 }
@@ -1463,6 +1492,9 @@ fn check_datum_origin_departures(differences: &[Difference]) {
     let available = |v: &Value| {
         let case = v["case"].as_str().unwrap();
         let path = v["path"].as_str().unwrap();
+        if !common::case_selected(case) {
+            return false;
+        }
         // Questions use captured analyses and are checked even without STEP inputs.
         corpus_dir().is_some()
             || path.starts_with("questions.")

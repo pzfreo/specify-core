@@ -26,8 +26,9 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
-- CI: cache Rust builds and check CLI/library composition on named wrapper cases; keep
-  full corpus oracle coverage. macOS PRs build all tests and run floating-point checks;
+- CI: cache Rust builds and check CLI/library composition on named wrapper cases; use
+  a shared named corpus subset (`SPECIFY_CORPUS_ALL=1` opts into the full sweep locally).
+  macOS PRs build all tests and run floating-point checks;
   main, manual runs and `release*` PRs keep the full suite, as Linux does on every run.
 - Upgrade quiddity and haecceity (native and WASM) to **v0.2.1-alpha.1** (`7291435`),
   retaining recognition schema 6 and fingerprint format 3. The feature picker gains

@@ -299,11 +299,17 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
     let mut out = Vec::new();
     let count = c.jobs.iter().map(|(k, _, _)| *k).max().map_or(1, |k| k + 1);
     // The file's part count, which decides whether a part is loaded by index.
-    let parts = specify_core::part::parts(&c.input).map_or(count, |p| p.len());
+    // Count and load jobs through one parsed file, including multi-part NIST cases.
+    let file = specify_core::part::File::read(&c.input).map_err(|e| e.to_string());
+    let parts = file.as_ref().map_or(count, |f| f.parts().len());
     let loaded: Vec<Result<LoadedPart, String>> = c
         .jobs
         .iter()
-        .map(|(k, _, _)| load(&c.input, (parts > 1).then_some(*k)).map_err(|e| e.to_string()))
+        .map(|(k, _, _)| {
+            file.as_ref()
+                .map_err(Clone::clone)
+                .and_then(|f| f.load((parts > 1).then_some(*k)).map_err(|e| e.to_string()))
+        })
         .collect();
     let intents: Vec<Result<Intent, String>> = c
         .jobs

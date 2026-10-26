@@ -58,6 +58,62 @@ fn globs_match_any_run_of_characters() {
     assert!(glob_match("exact", "exact") && !glob_match("exact", "exactly"));
 }
 
+/// The small CI corpus must retain every captured/ledger feature family and ledger area.
+/// This reads frozen JSON only; it does not recognise the unselected geometry.
+#[test]
+fn corpus_selection_covers_recorded_families_and_ledger_areas() {
+    use std::collections::BTreeSet;
+    let mut all_families = BTreeSet::new();
+    let mut selected_families = BTreeSet::new();
+    for c in common::all_cases() {
+        if let Some(a) = c.artifact("analysis") {
+            for f in a["features"].as_array().into_iter().flatten() {
+                let family = f["family"].as_str().unwrap().to_owned();
+                all_families.insert(family.clone());
+                if common::case_selected(&c.name) {
+                    selected_families.insert(family);
+                }
+            }
+        }
+    }
+    for file in std::fs::read_dir(common::fixtures().join("known_differences")).unwrap() {
+        let path = file.unwrap().path();
+        if path.extension().is_none_or(|e| e != "json") {
+            continue;
+        }
+        let entries = load_known(&path);
+        if entries.iter().any(|e| e.case.starts_with("corpus/")) {
+            assert!(
+                entries
+                    .iter()
+                    .any(|e| e.case.starts_with("corpus/") && common::case_selected(&e.case)),
+                "no selected case for {}",
+                path.display()
+            );
+        }
+        if path.file_stem().unwrap() == "features" {
+            for e in &entries {
+                let Some(family) = e
+                    .path
+                    .strip_prefix("features[id=")
+                    .and_then(|s| s.split([':', '.']).next())
+                else {
+                    continue;
+                };
+                if family.is_empty() || !family.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+                {
+                    continue;
+                }
+                all_families.insert(family.to_owned());
+                if common::case_selected(&e.case) {
+                    selected_families.insert(family.to_owned());
+                }
+            }
+        }
+    }
+    assert_eq!(selected_families, all_families);
+}
+
 #[test]
 fn equal_values_have_no_differences_whatever_their_key_order() {
     let python = json!({"a": 1, "b": [1.5, "x", null, true], "c": {"d": []}});
@@ -195,6 +251,28 @@ fn an_entry_that_matches_nothing_is_stale() {
     // With no differences at all, every entry is stale.
     let message = panics(|| check_known_with("test", &entries, &[]));
     assert!(message.contains("2 stale entr(ies)"), "{message}");
+}
+
+#[test]
+fn unselected_history_is_retained_without_hiding_unknown_differences() {
+    if common::all_corpus() {
+        return;
+    }
+    let unselected = "corpus/mfcadpp/10007";
+    assert!(!common::case_selected(unselected));
+    assert!(common::case_selected("corpus/mfcadpp/1000/questions"));
+    assert!(common::case_selected("corpus/nist/nist_ctc_0*#1"));
+    check_known_with("subset", &[known(unselected, "x", "equivalent")], &[]);
+    let message = panics(|| check_known_with("subset", &[], &[difference(unselected, "x")]));
+    assert!(message.contains("no entry"));
+    let message = panics(|| {
+        check_known_with(
+            "subset",
+            &[known("corpus/mfcadpp/1000", "x", "equivalent")],
+            &[],
+        )
+    });
+    assert!(message.contains("stale"));
 }
 
 #[test]
