@@ -28,6 +28,7 @@ use serde_json::{Map, Value};
 use crate::api::{self, Result};
 use crate::features::Feature;
 use crate::part::LoadedPart;
+use haecceity::Part;
 
 /// What one old face is in the new part.
 #[derive(Clone, Debug, PartialEq)]
@@ -40,8 +41,9 @@ enum Bind {
 #[derive(Clone, Debug, Serialize)]
 pub struct Revised {
     /// `ok`: every answer carried and no new question or problem; `decide`: an answer is
-    /// unresolved, a match is ambiguous or the new part asks something new; `problems`: review
-    /// finds problems it did not on the old part.
+    /// unresolved or the new part asks something new (a feature matched ambiguously decides
+    /// nothing by itself: an answer on it is unresolved); `problems`: review finds problems it
+    /// did not on the old part.
     pub verdict: String,
     pub summary: String,
     /// The answers on the new part: carried, renamed where the feature's ID changed.
@@ -52,6 +54,8 @@ pub struct Revised {
     /// Answers carried to a feature quiddity reports changed: still applied, to be checked.
     pub check: Vec<Check>,
     pub features: Vec<FeatureChange>,
+    /// The whole part's volume, area, box and face count, before and after.
+    pub measures: Measures,
     /// Questions open on the new part that were not open on the old one.
     pub questions: Vec<OpenQuestion>,
     pub problems: Problems,
@@ -75,6 +79,9 @@ pub struct Unresolved {
     pub reason: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub candidates: Vec<String>,
+    /// The question it answers, in words, where the old part asks it.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub question: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -83,6 +90,9 @@ pub struct Check {
     pub answer: Value,
     pub feature: String,
     pub changes: BTreeMap<String, qc::Change>,
+    /// The question it answers, in words.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub question: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -98,6 +108,92 @@ pub struct FeatureChange {
     pub candidates: Vec<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub changes: BTreeMap<String, qc::Change>,
+    /// The feature in words, as a drawing names it (`Ø5 × 30 through hole`): the old one's, or
+    /// the new one's when it is new.
+    pub what: String,
+    /// Where it is (the old one, or the new one when it is new), in the part's coordinates.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at: Option<[f64; 3]>,
+    /// Where it is, as a person finds it on the part.
+    pub place: Place,
+    /// The part's axis it lies along, if any: its move along it is its length changing.
+    #[serde(skip)]
+    pub axis: Option<usize>,
+    /// For an ambiguous one: its candidates in the same place on the new part, so that alike
+    /// features read as merged (`2× R3 fillets … are now one`), split or paired.
+    #[serde(skip)]
+    pub there: Vec<String>,
+}
+
+/// Where a feature is, in words a person can find it by: the side of the part it is on, what
+/// it sits in, and how far it is from an axis or corner they can see.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct Place {
+    /// `on the −Y side, in the Ø70 boss around the Ø45 hole`.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub on: String,
+    /// `X +27, Z −10`: along the part's axes, from `from`.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub offset: String,
+    /// `its axis`, `the Ø45 hole's axis` or `the −X, −Y corner`.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub from: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct Measures {
+    pub old: Size,
+    pub new: Size,
+}
+
+/// A part's size: its solids' volume (mm³) and area (mm²), `None` where a face's mass can't be
+/// computed, and the box around them (mm, in the part's own coordinates).
+#[derive(Clone, Debug, Serialize)]
+pub struct Size {
+    pub volume: Option<f64>,
+    pub area: Option<f64>,
+    pub min: [f64; 3],
+    pub max: [f64; 3],
+    pub faces: usize,
+}
+
+fn size(part: &Part) -> Size {
+    let solids = 0..part.solids.len();
+    let mass: Option<Vec<(f64, f64)>> = solids.clone().map(|i| part.solid_mass(i)).collect();
+    let (mut min, mut max) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+    for i in solids {
+        let b = part.solid_bounds(i);
+        for k in 0..3 {
+            min[k] = min[k].min(b.min[k]);
+            max[k] = max[k].max(b.max[k]);
+        }
+    }
+    if min.iter().any(|x| !x.is_finite()) {
+        (min, max) = ([0.0; 3], [0.0; 3]);
+    }
+    Size {
+        volume: mass.as_ref().map(|m| m.iter().map(|(v, _)| v).sum()),
+        area: mass.as_ref().map(|m| m.iter().map(|(_, a)| a).sum()),
+        min,
+        max,
+        faces: part.faces.len(),
+    }
+}
+
+/// A quantity with its thousands grouped, whole from 100 up: `438,357`, `5.01`.
+fn amount(x: f64) -> String {
+    if x.abs() < 100.0 {
+        return num(x);
+    }
+    let digits = format!("{:.0}", x.abs());
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    if x < 0.0 { format!("-{out}") } else { out }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -137,6 +233,302 @@ fn records(features: &[Feature], prints: &qc::Fingerprints) -> BTreeMap<String, 
         }
     }
     out
+}
+
+/// A length as a drawing writes it: to two decimals, without trailing zeros.
+fn num(x: f64) -> String {
+    let s = format!("{:.2}", x);
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    if s == "-0" { "0".into() } else { s.into() }
+}
+
+/// A point to a tenth of a millimetre: `(57.7, -85, 10)`.
+fn point(p: &[f64; 3]) -> String {
+    let c = |x: f64| {
+        let s = format!("{:.1}", x);
+        let s = s.trim_end_matches('0').trim_end_matches('.');
+        if s == "-0" {
+            "0".to_string()
+        } else {
+            s.to_string()
+        }
+    };
+    format!("({}, {}, {})", c(p[0]), c(p[1]), c(p[2]))
+}
+
+fn xyz(v: &Value) -> Option<[f64; 3]> {
+    match v.as_array()?.as_slice() {
+        [x, y, z] => Some([x.as_f64()?, y.as_f64()?, z.as_f64()?]),
+        _ => None,
+    }
+}
+
+/// One of a family, in words: `holes` → `hole`, `hole_patterns` → `hole pattern`.
+fn singular(family: &str) -> String {
+    let one = if family.ends_with("sses") {
+        &family[..family.len() - 2]
+    } else {
+        family.strip_suffix('s').unwrap_or(family)
+    };
+    one.replace('_', " ")
+}
+
+/// Several of a thing in words: `hole` → `holes`, `boss` → `bosses`.
+fn several(one: &str) -> String {
+    if let Some(rest) = one.strip_prefix("pattern of ") {
+        return format!("patterns of {rest}");
+    }
+    if one.ends_with('s') {
+        format!("{one}es")
+    } else {
+        format!("{one}s")
+    }
+}
+
+const AXES: [&str; 3] = ["X", "Y", "Z"];
+
+/// A signed length to a tenth: `+27`, `−10`.
+fn signed(x: f64) -> String {
+    let s = num((x * 10.0).round() / 10.0);
+    match s.strip_prefix('-') {
+        Some(rest) => format!("−{rest}"),
+        None => format!("+{s}"),
+    }
+}
+
+/// Where a feature's record puts it: its location, point, centre or its first hole's.
+fn position(r: &Map<String, Value>) -> Option<[f64; 3]> {
+    r.get("location")
+        .or_else(|| r.get("at"))
+        .or_else(|| r.get("center"))
+        .or_else(|| r.get("path").and_then(|p| p.get("center")))
+        .and_then(xyz)
+        .or_else(|| {
+            r.get("holes")
+                .and_then(|h| h.get(0))
+                .and_then(|h| h.get("location"))
+                .and_then(xyz)
+        })
+}
+
+/// A feature's axis, when it lies along one of the part's (`1` for Y), with its diameter and
+/// its length along it.
+fn along(r: &Map<String, Value>) -> Option<(usize, f64, f64)> {
+    let first = r
+        .get("holes")
+        .and_then(|h| h.get(0))
+        .and_then(Value::as_object);
+    let rec = |k: &str| r.get(k).or_else(|| first.and_then(|h| h.get(k)));
+    let axis = xyz(rec("axis")?)?;
+    let k = (0..3).find(|&k| axis[k].abs() > 0.999)?;
+    let n = |key: &str| rec(key).and_then(Value::as_f64);
+    let d = first
+        .and_then(|h| h.get("diameter"))
+        .and_then(Value::as_f64)
+        .or_else(|| n("diameter"))
+        .unwrap_or(0.0);
+    Some((k, d, n("depth").or_else(|| n("height")).unwrap_or(0.0)))
+}
+
+/// Where *f* is on its part (*all* its features, *box* its size), as a person finds it.
+fn locate(f: &Feature, all: &[Feature], size: &Size) -> Place {
+    // A round along one of the part's axes: the boss whose edge it rounds.
+    if let (Some(p), Some(k), Some(radius)) = (
+        position(&f.record),
+        f.record
+            .get("axis")
+            .and_then(Value::as_str)
+            .and_then(|a| AXES.iter().position(|x| x.eq_ignore_ascii_case(a))),
+        f.record.get("radius").and_then(Value::as_f64),
+    ) {
+        let round = all
+            .iter()
+            .filter(|g| g.family == "bosses")
+            .filter_map(|g| {
+                let (q, (j, db, _)) = (position(&g.record)?, along(&g.record)?);
+                let r = (0..3)
+                    .filter(|&i| i != k)
+                    .map(|i| (q[i] - p[i]).powi(2))
+                    .sum::<f64>()
+                    .sqrt();
+                (j == k && (r - db / 2.0).abs() <= radius + 0.5).then_some(db)
+            })
+            .min_by(f64::total_cmp);
+        return match round {
+            Some(db) => Place {
+                on: format!("round the Ø{} boss", num(db)),
+                ..Place::default()
+            },
+            None => Place::default(),
+        };
+    }
+    let (Some(p), Some((k, d, length))) = (position(&f.record), along(&f.record)) else {
+        return Place::default();
+    };
+    // Its side of the part: an end of it on a face of the part's box, or both.
+    let ends = [p[k], p[k] + length, p[k] - length];
+    let touches = |edge: f64| ends.iter().any(|x| (x - edge).abs() < 1.0);
+    let points = f.record.get("axis").and_then(xyz).map(|a| a[k]);
+    let side = match (touches(size.min[k]), touches(size.max[k])) {
+        _ if f.family == "bosses" => {
+            points.map(|a| format!("on the {}{} side", if a > 0.0 { "+" } else { "−" }, AXES[k]))
+        }
+        (true, true) => Some(format!("through the part along {}", AXES[k])),
+        (true, false) => Some(format!("on the −{} side", AXES[k])),
+        (false, true) => Some(format!("on the +{} side", AXES[k])),
+        _ => None,
+    };
+    let mut on = side.unwrap_or_default();
+    // Parallel features: their axis's distance from this one's.
+    let parallel = |family: &'static str| {
+        all.iter()
+            .filter(move |g| g.family == family && g.id != f.id)
+            .filter_map(move |g| {
+                let (q, (j, dg, _)) = (position(&g.record)?, along(&g.record)?);
+                let r = (0..3)
+                    .filter(|&i| i != k)
+                    .map(|i| (q[i] - p[i]).powi(2))
+                    .sum::<f64>()
+                    .sqrt();
+                (j == k).then_some((q, dg, r))
+            })
+    };
+    let offset = |from: [f64; 3], sign: bool| {
+        (0..3)
+            .filter(|&i| i != k && (p[i] - from[i]).abs() >= 0.05)
+            .map(|i| {
+                let d = p[i] - from[i];
+                let d = if sign {
+                    signed(d)
+                } else {
+                    num((d * 10.0).round() / 10.0)
+                };
+                format!("{} {d}", AXES[i])
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let join = |on: &mut String, text: String| {
+        if !on.is_empty() {
+            on.push_str(", ");
+        }
+        on.push_str(&text);
+    };
+    // The smallest boss it sits in, and the bore through that boss.
+    let boss = parallel("bosses")
+        .filter(|(_, db, r)| *db > d && r + d / 2.0 <= db / 2.0 + 0.01)
+        .min_by(|a, b| a.1.total_cmp(&b.1));
+    if let Some((q, db, r)) = boss {
+        let bore = parallel("holes")
+            .filter(|(h, dh, _)| {
+                *dh < db
+                    && (0..3)
+                        .filter(|&i| i != k)
+                        .all(|i| (h[i] - q[i]).abs() < 0.01)
+            })
+            .map(|(_, dh, _)| dh)
+            .filter(|dh| *dh > d)
+            .max_by(f64::total_cmp);
+        join(
+            &mut on,
+            match bore {
+                Some(dh) => format!("in the Ø{} boss around the Ø{} hole", num(db), num(dh)),
+                None => format!("in the Ø{} boss", num(db)),
+            },
+        );
+        if r < 0.05 {
+            return Place {
+                on,
+                ..Place::default()
+            };
+        }
+        return Place {
+            on,
+            offset: offset(q, true),
+            from: "its axis".into(),
+        };
+    }
+    // Else a larger hole it sits near.
+    if let Some((q, dh, _)) = parallel("holes")
+        .filter(|(_, dh, r)| *dh >= 2.0 * d && *r < *dh)
+        .min_by(|a, b| a.2.total_cmp(&b.2))
+    {
+        return Place {
+            on,
+            offset: offset(q, true),
+            from: format!("the Ø{} hole's axis", num(dh)),
+        };
+    }
+    // Else the corner of the part's box.
+    let corner = (0..3)
+        .filter(|&i| i != k)
+        .map(|i| format!("−{}", AXES[i]))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Place {
+        on,
+        offset: offset(size.min, false),
+        from: format!("the {corner} corner"),
+    }
+}
+
+/// A feature in words, as a drawing names it (`Ø5 × 30 through hole`), and where it is.
+fn describe(f: &Feature) -> (String, Option<[f64; 3]>) {
+    let r = &f.record;
+    let n = |k: &str| r.get(k).and_then(Value::as_f64);
+    let at = position(r);
+    let hole = |h: &Map<String, Value>| {
+        let n = |k: &str| h.get(k).and_then(Value::as_f64);
+        let mut s = String::new();
+        for (k, word) in [
+            ("cbore", "counterbored "),
+            ("csink", "countersunk "),
+            ("spotface", "spotfaced "),
+        ] {
+            if h.get(k).is_some_and(|v| !v.is_null()) {
+                s += word;
+            }
+        }
+        let d = n("diameter").map(|d| format!("Ø{}", num(d)));
+        let size = match (d, n("depth")) {
+            (Some(d), Some(depth)) => format!("{d} × {} ", num(depth)),
+            (Some(d), None) => format!("{d} "),
+            _ => String::new(),
+        };
+        let kind = match h.get("bottom").and_then(Value::as_str) {
+            Some("through") => "through hole",
+            Some(_) => "blind hole",
+            None => "hole",
+        };
+        format!("{size}{s}{kind}")
+    };
+    let what = match f.family.as_str() {
+        "holes" => hole(r),
+        "hole_patterns" => {
+            let holes = r.get("holes").and_then(Value::as_array);
+            let count = holes.map_or(0, Vec::len);
+            let first = holes.and_then(|h| h.first()).and_then(Value::as_object);
+            let each = first.map_or_else(|| "holes".to_string(), |h| several(&hole(h)));
+            match n("diameter").filter(|_| f.id.contains("bolt_circle")) {
+                Some(d) => format!("pattern of {count} × {each} on a Ø{} circle", num(d)),
+                None => format!("pattern of {count} × {each}"),
+            }
+        }
+        "bosses" => match (n("diameter"), n("height")) {
+            (Some(d), Some(h)) => format!("Ø{} × {} boss", num(d), num(h)),
+            _ => "boss".into(),
+        },
+        "fillets" | "blends" => match n("radius") {
+            Some(radius) => format!("R{} {}", num(radius), singular(&f.family)),
+            None => singular(&f.family),
+        },
+        "plates" => match (n("lo"), n("hi")) {
+            (Some(lo), Some(hi)) => format!("{} thick plate", num(hi - lo)),
+            _ => "plate".into(),
+        },
+        other => singular(other),
+    };
+    (what, at)
 }
 
 /// The question and feature of an answer on one feature (`hole.function:holes:12.13`), as
@@ -210,6 +602,7 @@ impl Matching<'_> {
                 class: class.into(),
                 reason,
                 candidates,
+                question: String::new(),
             })
         };
         let gone = |(face, bind): (usize, Bind)| match bind {
@@ -301,6 +694,8 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
         new_features: &new_features,
     };
 
+    let (old_size, new_size) = (size(&old.part), size(&new.part));
+
     // Features, by specify-core's IDs.
     let (old_records, new_records) = (
         records(&old_features, &old_q.fingerprints),
@@ -343,6 +738,11 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
             .cloned()
             .collect();
         reached.extend(candidates.iter().cloned());
+        let old_feature = old_features.iter().find(|f| &f.id == old_id);
+        let (what, at) = old_feature.map_or_else(|| (String::new(), None), describe);
+        let place = old_feature
+            .map(|f| locate(f, &old_features, &old_size))
+            .unwrap_or_default();
         feature_changes.push(FeatureChange {
             class: class.into(),
             family: family_of(&old_features, old_id),
@@ -350,6 +750,13 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
             new: new_id,
             candidates,
             changes: e.changes.clone(),
+            what,
+            at,
+            place,
+            axis: old_feature
+                .and_then(|f| along(&f.record))
+                .map(|(k, _, _)| k),
+            there: Vec::new(),
         });
     }
     for f in &new_features {
@@ -358,6 +765,8 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
             && new_records.values().any(|v| v == &f.id)
             && !reached.contains(&f.id)
         {
+            let (what, at) = describe(f);
+            let place = locate(f, &new_features, &new_size);
             feature_changes.push(FeatureChange {
                 class: "new".into(),
                 family: f.family.clone(),
@@ -365,13 +774,43 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
                 new: Some(f.id.clone()),
                 candidates: Vec::new(),
                 changes: BTreeMap::new(),
+                what,
+                at,
+                place,
+                axis: along(&f.record).map(|(k, _, _)| k),
+                there: Vec::new(),
             });
         }
+    }
+
+    // An ambiguous feature's candidates in its own place on the new part.
+    for f in feature_changes
+        .iter_mut()
+        .filter(|f| f.class == "ambiguous")
+    {
+        f.there = f
+            .candidates
+            .iter()
+            .filter(|c| {
+                f.place.on.is_empty()
+                    || new_features
+                        .iter()
+                        .find(|g| &&g.id == c)
+                        .is_some_and(|g| locate(g, &new_features, &new_size).on == f.place.on)
+            })
+            .cloned()
+            .collect();
     }
 
     // The answers.
     let mut carried = Map::new();
     let (mut migrated, mut unresolved, mut check) = (Vec::new(), Vec::new(), Vec::new());
+    // Each question the old part asks, in words.
+    let prompts: BTreeMap<String, String> = api::questions(&old_analysis, answers)?
+        .into_iter()
+        .map(|q| (q.id, q.prompt))
+        .collect();
+    let asked = |id: &str| prompts.get(id).cloned().unwrap_or_default();
     let results: Vec<_> = answers
         .iter()
         .map(|(id, answer)| (id, answer, matching.answer(id, answer)))
@@ -391,6 +830,7 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
                 class: "ambiguous".into(),
                 reason: format!("several answers carry to {now}; review required"),
                 candidates: vec![now.clone()],
+                question: String::new(),
             }),
             Ok((now, value)) => {
                 let (id, now, value) = (*id, now.clone(), value.clone());
@@ -405,6 +845,7 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
                         answer: value.clone(),
                         feature,
                         changes: changes.clone(),
+                        question: asked(id),
                     });
                 }
                 carried.insert(now, value);
@@ -438,7 +879,21 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
             answer,
             class,
             candidates: Vec::new(),
+            question: String::new(),
         });
+    }
+    for u in &mut unresolved {
+        u.question = asked(&u.id);
+        // An answer on a removed feature says so, not which face went.
+        if u.class == "orphaned"
+            && let Some((question, _, _)) = feature_answer(&u.id)
+            && let Some(gone) = feature_changes.iter().find(|f| {
+                f.class == "orphaned" && f.old.as_deref() == Some(&u.id[question.len() + 1..])
+            })
+            && !gone.what.is_empty()
+        {
+            u.reason = format!("the {} was removed", gone.what);
+        }
     }
 
     // What the new part asks and finds that the old one did not.
@@ -459,6 +914,7 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
                     q.id.clone(),
                     q.title
                         .as_ref()
+                        .filter(|t| !q.prompt.contains(t.as_str()))
                         .map_or_else(|| q.prompt.clone(), |t| format!("{t}: {}", q.prompt)),
                 )
             })
@@ -562,11 +1018,7 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
     gone.sort_unstable();
     gone.dedup();
 
-    let ambiguous = feature_changes
-        .iter()
-        .filter(|f| f.class == "ambiguous")
-        .count();
-    let open_count = unresolved.len() + ambiguous + questions.len();
+    let open_count = unresolved.len() + questions.len();
     let verdict = if !problems.added.is_empty() {
         "problems"
     } else if open_count > 0 {
@@ -581,10 +1033,54 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
             format!("{n} {many}")
         }
     };
+    // What changed in the part, counted by family: `2 holes removed, 1 boss changed`.
+    let mut counts: Vec<((&str, &str), usize)> = Vec::new();
+    for f in &feature_changes {
+        let done = match f.class.as_str() {
+            "orphaned" => "removed",
+            "new" => "added",
+            "adapted"
+                if f.changes
+                    .keys()
+                    .all(|k| k == "position" || k == "adjacency") =>
+            {
+                "moved"
+            }
+            "adapted" => "changed",
+            _ => continue,
+        };
+        match counts
+            .iter_mut()
+            .find(|(k, _)| *k == (f.family.as_str(), done))
+        {
+            Some((_, n)) => *n += 1,
+            None => counts.push(((f.family.as_str(), done), 1)),
+        }
+    }
+    let part: Vec<String> = counts
+        .iter()
+        .map(|((family, done), n)| {
+            let one = singular(family);
+            format!("{} {done}", plural(*n, &one, &several(&one)))
+        })
+        .collect();
+    let mut part = if part.is_empty() {
+        "No feature changed".to_string()
+    } else {
+        part.join(", ")
+    };
+    part[..1].make_ascii_uppercase();
     let summary = match verdict {
+        "ok" if carried.is_empty() => {
+            format!("{part}. There are no answers to carry, and the new part asks nothing new.")
+        }
         "ok" => format!(
-            "Every answer carries to the new part ({}), and it asks nothing new.",
-            plural(carried.len(), "answer", "answers")
+            "{part}. {} to the new part, and it asks nothing new.",
+            if carried.len() == 1 {
+                "The answer carries".to_string()
+            } else {
+                format!("All {} answers carry", carried.len())
+            }
         ),
         "decide" => {
             let mut parts = Vec::new();
@@ -594,22 +1090,16 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
                     plural(unresolved.len(), "answer", "answers")
                 ));
             }
-            if ambiguous > 0 {
-                parts.push(format!(
-                    "{} that can't be told apart",
-                    plural(ambiguous, "feature", "features")
-                ));
-            }
             if !questions.is_empty() {
                 parts.push(format!(
                     "{} new to the part",
                     plural(questions.len(), "question", "questions")
                 ));
             }
-            format!("A decision is needed: {}.", parts.join(", "))
+            format!("{part}. A decision is needed: {}.", parts.join(", "))
         }
         _ => format!(
-            "Review finds {} on the new part it did not before.",
+            "{part}. Review finds {} on the new part it did not before.",
             plural(problems.added.len(), "problem", "problems")
         ),
     };
@@ -621,6 +1111,10 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
         unresolved,
         check,
         features: feature_changes,
+        measures: Measures {
+            old: old_size,
+            new: new_size,
+        },
         questions,
         problems,
         faces: face_class,
@@ -647,55 +1141,245 @@ impl Revised {
         }
         let fmt = |v: &Value| match v {
             Value::String(s) => s.clone(),
-            other => other.to_string(),
+            Value::Number(n) => n.as_f64().map_or_else(|| n.to_string(), num),
+            other => xyz(other).map_or_else(|| other.to_string(), |p| point(&p)),
         };
-        let changes = |c: &BTreeMap<String, qc::Change>| {
+        // A change in words, its move apart: `depth 10 → 12`.
+        let sizes = |c: &BTreeMap<String, qc::Change>| {
             c.iter()
-                .filter(|(k, _)| *k != "adjacency")
-                .map(|(k, c)| format!("{k} {} → {}", fmt(&c.old), fmt(&c.new)))
+                .filter(|(k, _)| !matches!(k.as_str(), "adjacency" | "position"))
+                .map(|(k, c)| {
+                    let k = k.strip_prefix("sizes.").unwrap_or(k).replace('_', " ");
+                    format!("{k} {} → {}", fmt(&c.old), fmt(&c.new))
+                })
                 .collect::<Vec<_>>()
                 .join("; ")
         };
-        if !self.features.is_empty() {
-            s += "**The part**\n\n";
-            for f in &self.features {
-                let who = f
-                    .old
-                    .as_ref()
-                    .or(f.new.as_ref())
-                    .cloned()
-                    .unwrap_or_default();
-                let _ = writeln!(
-                    s,
-                    "{}",
-                    match f.class.as_str() {
-                        "adapted" => format!("- {} `{who}`: {}", f.family, changes(&f.changes)),
-                        "ambiguous" => format!(
-                            "- {} `{who}`: can't tell which it is now ({})",
-                            f.family,
-                            f.candidates.join(", ")
-                        ),
-                        "orphaned" => format!("- {} `{who}` is gone", f.family),
-                        _ => format!("- new {} `{who}`", f.family),
+        // A move along the part's axes: `X −15`.
+        // Not along its own axis when its length changed there: its middle moves as it grows.
+        let moved = |changes: &BTreeMap<String, qc::Change>, axis: Option<usize>| {
+            let lengthened = ["sizes.height", "sizes.depth"]
+                .iter()
+                .any(|k| changes.contains_key(*k));
+            let c = changes.get("position")?;
+            let (a, b) = (xyz(&c.old)?, xyz(&c.new)?);
+            let shift: Vec<String> = (0..3)
+                .filter(|&i| (b[i] - a[i]).abs() >= 0.05)
+                .filter(|&i| !(lengthened && axis == Some(i)))
+                .map(|i| format!("{} {}", AXES[i], signed(b[i] - a[i])))
+                .collect();
+            (!shift.is_empty()).then(|| shift.join(", "))
+        };
+        // Where several are, or nothing when there are too many to read.
+        let places = |at: &[Option<[f64; 3]>]| -> String {
+            let points: Option<Vec<String>> = at.iter().map(|p| p.as_ref().map(point)).collect();
+            match points {
+                Some(p) if !p.is_empty() && p.len() <= 4 => {
+                    let (last, rest) = p.split_last().expect("not empty");
+                    if rest.is_empty() {
+                        format!(" at {last}")
+                    } else {
+                        format!(" at {} and {last}", rest.join(", "))
                     }
+                }
+                _ => String::new(),
+            }
+        };
+        {
+            let (o, n) = (&self.measures.old, &self.measures.new);
+            let change = |old: f64, new: f64, unit: &str| {
+                let d = new - old;
+                if d.abs() < 0.005 {
+                    "unchanged".to_string()
+                } else if old.abs() > 0.0 {
+                    let sign = if d > 0.0 { "+" } else { "" };
+                    format!(
+                        "{sign}{} {unit} ({sign}{}%)",
+                        amount(d),
+                        num(d / old * 100.0)
+                    )
+                } else {
+                    format!("{} {unit}", amount(d))
+                }
+            };
+            let row =
+                |s: &mut String, what: &str, old: Option<f64>, new: Option<f64>, unit: &str| {
+                    let shown = |v: Option<f64>| {
+                        v.map_or_else(
+                            || "unknown".to_string(),
+                            |v| format!("{} {unit}", amount(v)),
+                        )
+                    };
+                    let delta = match (old, new) {
+                        (Some(a), Some(b)) => change(a, b, unit),
+                        _ => String::new(),
+                    };
+                    let _ = writeln!(s, "| {what} | {} | {} | {delta} |", shown(old), shown(new));
+                };
+            let extent = |z: &Size| [0, 1, 2].map(|k| z.max[k] - z.min[k]);
+            let boxed = |z: &Size| extent(z).map(num).join(" × ") + " mm";
+            let (eo, en) = (extent(o), extent(n));
+            let axes = ["X", "Y", "Z"];
+            let grown: Vec<String> = (0..3)
+                .filter(|&k| (en[k] - eo[k]).abs() >= 0.005)
+                .map(|k| {
+                    let d = en[k] - eo[k];
+                    format!("{} {}{}", axes[k], if d > 0.0 { "+" } else { "" }, num(d))
+                })
+                .collect();
+            let shifted = (0..3).any(|k| (n.min[k] - o.min[k]).abs() >= 0.005);
+            let box_change = match (grown.is_empty(), shifted) {
+                (true, false) => "unchanged".to_string(),
+                (true, true) => "same size, moved".to_string(),
+                _ => grown.join(", "),
+            };
+            s += "| | Before | After | Change |\n|---|---|---|---|\n";
+            row(&mut s, "Volume", o.volume, n.volume, "mm³");
+            row(&mut s, "Surface area", o.area, n.area, "mm²");
+            let _ = writeln!(
+                s,
+                "| Bounding box | {} | {} | {box_change} |",
+                boxed(o),
+                boxed(n)
+            );
+            let faces = n.faces as f64 - o.faces as f64;
+            let _ = writeln!(
+                s,
+                "| Faces | {} | {} | {} |\n",
+                o.faces,
+                n.faces,
+                if faces == 0.0 {
+                    "unchanged".to_string()
+                } else {
+                    format!("{}{faces}", if faces > 0.0 { "+" } else { "" })
+                }
+            );
+        }
+        if !self.features.is_empty() {
+            s += "**What changed**\n\n";
+            // Alike changes to alike features read as one line: `2× Ø5 × 30 through holes removed`.
+            type Group<'a> = (
+                (&'a str, &'a str, String, &'a str, &'a str),
+                Vec<&'a FeatureChange>,
+            );
+            let mut groups: Vec<Group> = Vec::new();
+            for f in &self.features {
+                let key = (
+                    f.class.as_str(),
+                    f.what.as_str(),
+                    sizes(&f.changes),
+                    f.place.on.as_str(),
+                    f.place.from.as_str(),
                 );
+                match groups.iter_mut().find(|(k, _)| *k == key) {
+                    Some((_, fs)) => fs.push(f),
+                    None => groups.push((key, vec![f])),
+                }
+            }
+            for ((class, what, sized, on, from), fs) in &groups {
+                let what = if what.is_empty() { "feature" } else { what };
+                let label = if fs.len() > 1 {
+                    format!("{}× {}", fs.len(), several(what))
+                } else {
+                    what.to_string()
+                };
+                // Where they are: in words where the part gives them, else as coordinates.
+                let offsets: Vec<&str> = fs
+                    .iter()
+                    .map(|f| f.place.offset.as_str())
+                    .filter(|o| !o.is_empty())
+                    .collect();
+                let place = if on.is_empty() && from.is_empty() {
+                    places(&fs.iter().map(|f| f.at).collect::<Vec<_>>())
+                        .trim_start()
+                        .to_string()
+                } else {
+                    let mut place = on.to_string();
+                    if !offsets.is_empty() && offsets.len() <= 4 {
+                        if !place.is_empty() {
+                            place += ", ";
+                        }
+                        place += &format!("at {} from {from}", offsets.join("; "));
+                    }
+                    place
+                };
+                let place = |sep: &str| {
+                    if place.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{sep}{place}")
+                    }
+                };
+                let mut moves: Vec<String> = fs
+                    .iter()
+                    .filter_map(|f| moved(&f.changes, f.axis))
+                    .collect();
+                moves.dedup();
+                let line = match *class {
+                    "orphaned" => format!("{label} removed{}", place(": ")),
+                    "new" => format!("{label} added{}", place(": ")),
+                    "ambiguous" => {
+                        // What became of alike features that don't pair one to one.
+                        let mut there: Vec<&String> = fs.iter().flat_map(|f| &f.there).collect();
+                        there.sort();
+                        there.dedup();
+                        let (was, now) = (fs.len(), there.len());
+                        let are = if was > 1 { "are" } else { "is" };
+                        match now {
+                            0 => format!(
+                                "{label}{}: no longer one to one with the new part",
+                                place(", ")
+                            ),
+                            1 if was > 1 => format!("{label}{}, {are} now one", place(", ")),
+                            _ if now < was => format!("{label}{}, {are} now {now}", place(", ")),
+                            _ if now > was && was == 1 => {
+                                format!("{label}{}, is now split in {now}", place(", "))
+                            }
+                            _ if now > was => format!("{label}{}, are now {now}", place(", ")),
+                            _ => format!(
+                                "{label}{}: still there, but alike, so the old and new can't be \
+                                 paired one to one",
+                                place(", ")
+                            ),
+                        }
+                    }
+                    _ if sized.is_empty() && !moves.is_empty() && moves.len() <= 4 => {
+                        format!("{label}{}: moved {}", place(", "), moves.join("; "))
+                    }
+                    _ if sized.is_empty() => format!("{label}{}: moved", place(", ")),
+                    _ if !moves.is_empty() && moves.len() <= 4 => {
+                        format!(
+                            "{label}{}: {sized}; moved {}",
+                            place(", "),
+                            moves.join("; ")
+                        )
+                    }
+                    _ => format!("{label}{}: {sized}", place(", ")),
+                };
+                let _ = writeln!(s, "- {line}");
             }
             s += "\n";
         }
+        // An answer in words: its question where the old part asks it, else its ID.
+        let answered = |question: &str, id: &str, answer: &Value| {
+            if question.is_empty() {
+                format!("`{id}` = **{}**", fmt(answer))
+            } else {
+                format!("{question} **{}** (`{id}`)", fmt(answer))
+            }
+        };
         if !self.unresolved.is_empty() {
             s += "**Answers not carried**\n\n";
             for u in &self.unresolved {
                 let _ = writeln!(
                     s,
-                    "- `{}` = {} ({}): {}{}",
-                    u.id,
-                    fmt(&u.answer),
-                    u.class,
+                    "- {}: {}{}",
+                    answered(&u.question, &u.id, &u.answer),
                     u.reason,
                     if u.candidates.is_empty() {
                         String::new()
                     } else {
-                        format!("; candidates {}", u.candidates.join(", "))
+                        format!(" ({})", u.candidates.join(", "))
                     }
                 );
             }
@@ -704,13 +1388,17 @@ impl Revised {
         if !self.check.is_empty() {
             s += "**Answers carried to a changed feature: check them**\n\n";
             for c in &self.check {
-                let _ = writeln!(
-                    s,
-                    "- `{}` = {}: {}",
-                    c.id,
-                    fmt(&c.answer),
-                    changes(&c.changes)
-                );
+                let what = [
+                    sizes(&c.changes),
+                    moved(&c.changes, None)
+                        .map(|m| format!("moved {m}"))
+                        .unwrap_or_default(),
+                ]
+                .into_iter()
+                .filter(|t| !t.is_empty())
+                .collect::<Vec<_>>()
+                .join("; ");
+                let _ = writeln!(s, "- {}: {what}", answered(&c.question, &c.id, &c.answer));
             }
             s += "\n";
         }

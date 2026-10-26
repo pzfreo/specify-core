@@ -26,6 +26,13 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- `revise`'s report reads as a person would describe the change. The summary leads with what
+  changed (`2 holes removed.`). A table gives the part's volume, area, bounding box and face
+  count before and after. Each feature is named as a drawing names it (`Ø5 × 30 through
+  hole`) and placed by the side of the part it is on, the boss it sits in and its offset from
+  an axis or corner (`FeatureChange.what` and `.place`); alike features changed alike read as
+  one line. Answers are listed by their question, and an answer on a removed feature says
+  which feature went (`Revised.measures`, `Unresolved.question`, `Check.question` are new).
 - For #2, `writer::write_bytes` and `write_bytes_with` take a part of an assembly (from
   `part::File::load`), as `write_parts_bytes` does: the other parts, their placements, PMI and
   stored answers are kept. They no longer refuse a `LoadedPart` whose `part_count` is not 1.
