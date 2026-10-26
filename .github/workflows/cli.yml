@@ -1,0 +1,65 @@
+name: Release command line
+
+# The specify-core command line for Linux, macOS and Windows, attached to each release. A change to
+# this workflow builds and tries all three on its pull request, without attaching anything.
+on:
+  release:
+    types: [published]
+  pull_request:
+    paths: ['.github/workflows/cli.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  cli:
+    if: github.event_name == 'pull_request' || startsWith(github.event.release.tag_name, 'v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, exe: '' }
+          - { os: macos-latest, target: aarch64-apple-darwin, exe: '' }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, exe: .exe }
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    env:
+      CARGO_TERM_COLOR: always
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.release.tag_name || github.sha }}
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: cli-${{ matrix.target }}
+      - run: cargo build --locked --release --bin specify-core --target ${{ matrix.target }}
+      - name: Try it on a revision
+        run: |
+          bin="target/${{ matrix.target }}/release/specify-core${{ matrix.exe }}"
+          fixtures=tests/fixtures/revisions
+          printed=$("$bin" revise $fixtures/hole_removed.old.step.gz $fixtures/hole_removed.new.step.gz -o smoke)
+          echo "$printed"
+          echo "$printed" | grep -q '"verdict": *"ok"'
+      - name: Package and checksum
+        run: |
+          name="specify-core-${RELEASE_TAG:-pr}-${{ matrix.target }}"
+          mkdir "$name"
+          cp "target/${{ matrix.target }}/release/specify-core${{ matrix.exe }}" LICENSE README.md "$name/"
+          if [ "${{ runner.os }}" = Windows ]; then
+            asset="$name.zip"; 7z a -bd "$asset" "$name" > /dev/null
+          else
+            asset="$name.tar.gz"; tar -czf "$asset" "$name"
+          fi
+          if command -v sha256sum > /dev/null; then sha256sum "$asset"; else shasum -a 256 "$asset"; fi > "$asset.sha256"
+          echo "ASSET=$asset" >> "$GITHUB_ENV"
+      - name: Attach to this release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$RELEASE_TAG" "$ASSET" "$ASSET.sha256" --clobber
