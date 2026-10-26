@@ -25,6 +25,9 @@ fixtures always run. `SPECIFY_CORPUS_ALL=1` enables all captured corpus inputs l
 entries remain committed; stale checks and exact departure snapshots use only selected
 cases. Unknown differences and returning resolved differences still fail. CLI/library
 composition uses its own named wrapper cases in `tests/cli.rs`.
+Base corpus writes run through the library writer oracle; CLI base writes use committed
+fixtures, with corpus base writes restored by `SPECIFY_CORPUS_ALL=1`. Selected corpus CLI
+questions and every scenario/transcript still run by default.
 
 One directory per case, every artifact gzipped JSON (`<name>.json.gz`, keys in Python's order):
 

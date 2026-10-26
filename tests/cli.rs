@@ -396,9 +396,10 @@ fn part_case(file: &str, k: Option<usize>) -> String {
 /// and gzipped inputs, one/two/three parts, explicit part selection, placed geometry,
 /// through/blind holes and patterns, and foreign PMI. CLI errors/refusals also have
 /// direct coverage in exit_codes_say_what_happened and the captured command lines.
-/// Full-corpus geometry remains in features/mesh, Python-intent writes and read-back in
+/// Selected corpus geometry remains in features/mesh, Python-intent writes and read-back in
 /// write_oracle, and questions/defaults/intents in rules_oracle. `python_inputs` below still
-/// checks EVERY captured CLI question set, write and scenario; no CLI verdict is dropped.
+/// checks every selected CLI question set and every scenario. Base corpus writes are the
+/// writer sweep's responsibility; SPECIFY_CORPUS_ALL=1 also replays them through the CLI.
 fn file_cases() -> Vec<(String, PathBuf, Vec<Option<usize>>)> {
     const WRAPPER_CASES: &[&str] = &[
         "parts/plate",
@@ -911,8 +912,13 @@ fn python_inputs(dir: &Path) -> Vec<Difference> {
             ));
         }
     }
-    // Each file's base write, from Python's analyses.
-    for c in all.iter().filter(|c| c.part().is_none()) {
+    // Wrapper writes on committed fixtures (including assemblies and foreign PMI).
+    // Corpus writes repeat write_oracle's reports and rules_oracle's intents; leave that
+    // geometry work to the library sweeps unless the full local sweep was requested.
+    for c in all
+        .iter()
+        .filter(|c| c.part().is_none() && (c.kind() != "corpus" || common::all_corpus()))
+    {
         let Some(report) = c.artifact("write") else {
             continue;
         };
@@ -1332,7 +1338,17 @@ fn command_lines(dir: &Path) -> Vec<Difference> {
 /// stale. With the corpus, every entry must match.
 fn check_area(differences: &[Difference]) {
     let path = common::known_differences_file("cli");
-    let entries = load_known(&path);
+    let entries: Vec<_> = load_known(&path)
+        .into_iter()
+        .filter(|e| {
+            common::all_corpus()
+                || !e.case.starts_with("corpus/")
+                || (!e.path.starts_with("write") && !e.path.starts_with("apply")
+                // Mixed question/write verdicts still explain every observed difference.
+                // Their exact selected question values are independently snapshot-checked.
+                && (e.path != "*" || differences.iter().any(|d| e.matches(d))))
+        })
+        .collect();
     let entries: Vec<_> = if corpus_dir().is_some() {
         entries
     } else {
@@ -1493,6 +1509,12 @@ fn check_datum_origin_departures(differences: &[Difference]) {
         let case = v["case"].as_str().unwrap();
         let path = v["path"].as_str().unwrap();
         if !common::case_selected(case) {
+            return false;
+        }
+        if !common::all_corpus()
+            && case.starts_with("corpus/")
+            && (path.starts_with("write") || path.starts_with("apply"))
+        {
             return false;
         }
         // Questions use captured analyses and are checked even without STEP inputs.
