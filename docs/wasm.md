@@ -49,8 +49,10 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 
 | Export | Behaviour |
 | --- | --- |
-| `new IntentEngine(name, bytes)` | Opens one STEP part. Refuses gzip, any count other than one distinct part, any count other than one placement, and a mismatch between haecceity's ordered face sources and the STEP definition. `name` labels the input; it is never read as a path. |
-| `engine.snapshot()` | `{analysis, mesh, provenance: {source_sha256, face_entities, part: 0}}`. |
+| `new IntentEngine(name, bytes)` | Opens one STEP part. Refuses gzip, any count other than one distinct part, any count other than one placement, and a mismatch between haecceity's ordered face sources and the STEP definition. `name` labels the input; it is never read as a path. An assembly, or a part placed more than once, is opened with `IntentEngine.openPart`. |
+| `IntentEngine.parts(name, bytes)` | The file's distinct parts, as `specify-core parts` lists them: `[{part, name, product_id, faces, instances, placements, written}]`, `written` saying whether Specify has stored answers for the part. Refuses gzip, as the constructor does. |
+| `IntentEngine.openPart(name, bytes, part)` | Opens part `part` (an index from `parts`) of any file: an assembly's part, or a part placed more than once. See "Assemblies" below. Part 0 of a file of one part used once opens exactly as the constructor opens it. |
+| `engine.snapshot()` | `{analysis, mesh, provenance: {source_sha256, face_entities, part}}`; `part` is the part opened (0 from the constructor). |
 | `engine.review(answersJson)` | `{questions, open, intent, problems}`; adds geometry anchors to `intent.anchors`. |
 | `engine.acceptDefaults(answersJson)` | Answers object with every unanswered default filled to a fixed point, using the same rules as CLI/serve `accept_defaults`. Preserves supplied answers; questions without defaults stay unanswered. |
 | `engine.writePmi(answersJson, projectBase64?, payloadJson?)` | `{bytes, source_sha256, report}`; `bytes` is an array of byte values. Writes and verifies answered PMI and stored answers in memory. Unanswered defaults remain suggestions. `report` is the upstream writer's report; its `output` is the constructor's name. `payloadJson` is `{name, value}`: any JSON value carried in the STEP under `name` (give the project or a payload, not both; see below). |
@@ -118,6 +120,29 @@ payload JSON over 8 MiB, its JSON input limit. A part that came with PMI or pres
 writer replaced, or a file written without a project or payload, gives `undefined`. Core
 callers use `specify_core::carried::{attributes, payload, original}` with
 `writer::write_bytes_with`.
+
+## Assemblies
+
+A file of several distinct parts, or of one part placed more than once, is refused by the
+constructor (its message says to use `openPart`). List its parts, let the person choose one,
+and open that one:
+
+```js
+const parts = JSON.parse(IntentEngine.parts('assembly.step', bytes));
+// [{part: 0, name: 'plate', instances: 1, ...}, {part: 1, name: 'pin', instances: 2, ...}]
+const engine = IntentEngine.openPart('assembly.step', bytes, parts[1].part);
+```
+
+The part is analysed as `specify-core analyse --part K` analyses it: in its own frame, with
+its mates against the file's other parts (read from the same bytes), and its snapshot, review,
+`acceptDefaults`, `settle`, `evidence` and `rematchAnswers` are that part's. `writePmi` writes
+into the original file as `specify-core write` does for an analysis of that part: the part's
+PMI, stored answers and any project or payload go on that part's product definition (once,
+however often it is placed); every other part, every placement and what earlier writes put on
+other parts are kept byte for byte, so parts are written one at a time, each from a session on
+the file the previous write returned. `parts()` then shows each written part as `written`.
+`payload(name)` reads the payload written on the opened part (another part's payload of the
+same name is not this part's); `original()` gives back the whole file as first opened.
 
 ## Answers saved outside the STEP
 

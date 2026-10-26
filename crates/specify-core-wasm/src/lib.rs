@@ -70,6 +70,21 @@ mod wasm {
                 .map(IntentEngine)
                 .map_err(|error| JsValue::from_str(&error))
         }
+        /// Part `part` (an index from `IntentEngine.parts`) of any file, an assembly included.
+        #[wasm_bindgen(js_name = openPart)]
+        pub fn open_part(name: &str, bytes: &[u8], part: usize) -> Result<IntentEngine, JsValue> {
+            session::Session::open_part(name, bytes, part)
+                .map(IntentEngine)
+                .map_err(|error| JsValue::from_str(&error))
+        }
+
+        /// The file's distinct parts, as `specify-core parts` lists them: `[{part, name,
+        /// product_id, faces, instances, placements, written}]`.
+        pub fn parts(name: &str, bytes: &[u8]) -> Result<String, JsValue> {
+            session::Session::parts(name, bytes)
+                .map(|value| value.to_string())
+                .map_err(|error| JsValue::from_str(&error))
+        }
         pub fn snapshot(&self) -> String {
             self.0.snapshot().to_string()
         }
