@@ -11,7 +11,7 @@ All notable changes to specify-core-rust. The format follows
 - The `specify-core` command line for Linux (x86_64), macOS (Apple Silicon) and Windows
   (x86_64), attached to each release (`.github/workflows/cli.yml`), each built, tried on a
   revision and checksummed.
-- `specify-core revise OLD NEW --answers A -o DIR` (`revision::revise`, `revision::picture`):
+- `specify-core diff OLD NEW --answers A -o DIR` (`revision::diff`, `revision::picture`):
   answers carried to a new revision of the part through quiddity's correspondence, where
   `resume::rematch_answers` leaves every feature and datum answer unresolved once the face
   evidence differs. Each answer's faces are mapped and the answer moved to the feature of its
@@ -41,7 +41,21 @@ All notable changes to specify-core-rust. The format follows
   stay unresolved with their values. Without face evidence, changed IDs remain unresolved,
   and automatic/manual provenance follows each answer. Malformed assembly cycles and
   nesting deeper than 64 are refused as a whole by haecceity.
-- `revise`'s report reads as a person would describe the change. The summary leads with what
+- `revise` is now `specify-core diff` (`revision::diff`): it says what changed between two
+  revisions as well as carrying the answers.
+- `diff` compares PMI (`Revised.pmi`). Without `--answers` it reads the answers Specify wrote
+  as PMI in the old file (`pmi.answers_from`: `given`, `stored` or `none`); where the new file
+  holds Specify's PMI too, each answer it differs on from those carried is listed
+  (`pmi.stored`); a new file without it is said to need writing. The files' own PMI (from CAD) is
+  matched through the faces and each dimension, tolerance, datum or note added, removed or
+  changed is listed by the feature it is on (`pmi.existing`: `Ø7 × 10 through hole: flatness
+  0.2 → 0.1`). The summary counts the changes to the PMI.
+- `diff`'s report on a real part: the summary names features first and counts the rounds and
+  surfaces that follow them (`2 holes changed, 8 rounds and surfaces with them`); a freeform
+  surface is `reshaped`, not its control points; a move is the component a person sees (a
+  round riding a drafted face moves `Z +2`, not `X +0.1, Y +0.1, Z +2`); and an answer on a
+  pattern is listed to check when its holes change.
+- `diff`'s report reads as a person would describe the change. The summary leads with what
   changed (`2 holes removed.`). A table gives the part's volume, area, bounding box and face
   count before and after. Each feature is named as a drawing names it (`Ø5 × 30 through
   hole`) and placed by the side of the part it is on, the boss it sits in and its offset from
