@@ -8,6 +8,9 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- The `specify-core` command line for Linux (x86_64), macOS (Apple Silicon) and Windows
+  (x86_64), attached to each release (`.github/workflows/cli.yml`), each built, tried on a
+  revision and checksummed.
 - `specify-core revise OLD NEW --answers A -o DIR` (`revision::revise`, `revision::picture`):
   answers carried to a new revision of the part through quiddity's correspondence, where
   `resume::rematch_answers` leaves every feature and datum answer unresolved once the face

@@ -693,6 +693,18 @@ fn part_arg(step: &Path, args: &Args) -> Result<Option<usize>, Exit> {
 /// `revise`: the answers carried from OLD to NEW, the report, and the new part's picture.
 fn revise(old: &Path, new: &Path, args: &Args, out: &mut impl Write) -> Result<(), Exit> {
     let part = part_arg(new, args)?;
+    // The part is chosen in both files: say which file lacks it before either is loaded.
+    if let Some(k) = part {
+        for path in [old, new] {
+            let count = part::parts(path).map_err(Exit::error)?.len();
+            if k >= count {
+                return Err(Exit::error(format!(
+                    "{} has {count} part(s); there is no part {k}",
+                    path.display()
+                )));
+            }
+        }
+    }
     let answers = match args.value("--answers") {
         Some(path) => answers_of(read_json(Path::new(path))?)?,
         None => Map::new(),

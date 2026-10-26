@@ -167,6 +167,11 @@ fn the_picture_is_a_png() {
     let r = revise(&old, &new, &Map::new()).unwrap();
     let png = picture(&old, &new, &r, 300);
     assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+    let height = u32::from_be_bytes(png[20..24].try_into().unwrap());
+    assert!(
+        height <= 2 * 300 + 2,
+        "no taller than twice the width: {height}"
+    );
     assert!(
         r.faces.values().any(|c| *c == "changed"),
         "the boss is coloured"
@@ -216,4 +221,46 @@ fn the_command_line_writes_the_answers_report_and_picture() {
         "{md}"
     );
     assert!(dir.join("model.png").is_file() && dir.join("report.json").is_file());
+}
+
+#[test]
+fn a_datum_s_settings_stay_open_with_their_datum() {
+    // Face 7 is the removed hole's bore.
+    let r = revised(
+        "hole_removed",
+        json!({ "datum.A": [7], "datum.A.flatness": "0.01", "datum.B": [4] }),
+    );
+    let unresolved: Vec<_> = r
+        .unresolved
+        .iter()
+        .map(|u| (u.id.as_str(), u.class.as_str()))
+        .collect();
+    assert_eq!(
+        unresolved,
+        [("datum.A", "orphaned"), ("datum.A.flatness", "orphaned")]
+    );
+    assert_eq!(r.unresolved[1].reason, "its datum datum.A is unresolved");
+    assert_eq!(r.answers.keys().collect::<Vec<_>>(), ["datum.B"]);
+}
+
+#[test]
+fn a_part_the_old_file_lacks_is_named() {
+    let fixture = |which: &str| {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "tests/fixtures/revisions/hole_moved.{which}.step.gz"
+        ))
+    };
+    let out = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        .arg("revise")
+        .args([fixture("old"), fixture("new")])
+        .args(["--part", "1", "-o"])
+        .arg(std::env::temp_dir().join("specify-core-revision-part"))
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("hole_moved.old.step.gz has 1 part(s); there is no part 1"),
+        "{err}"
+    );
 }

@@ -269,14 +269,18 @@ impl Matching<'_> {
 
 /// Carry *answers* (and *automatic*, the IDs the default path answered) from *old* to *new*.
 pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) -> Result<Revised> {
-    let analysis = |p: &LoadedPart| api::analyse(p);
-    let (old_analysis, new_analysis) = (analysis(old)?, analysis(new)?);
-    let features = |a: &Value| -> Vec<Feature> {
-        serde_json::from_value(a["features"].clone()).unwrap_or_default()
-    };
-    let (old_features, new_features) = (features(&old_analysis), features(&new_analysis));
+    // One recognition of each part, for both its analysis and its fingerprints.
     let old_q = qc::recognise(&old.part);
     let new_q = qc::recognise(&new.part);
+    let (old_analysis, new_analysis) = (
+        api::analyse_recognised(old, &old_q)?,
+        api::analyse_recognised(new, &new_q)?,
+    );
+    let features = |a: &Value| -> Result<Vec<Feature>> {
+        serde_json::from_value(a["features"].clone())
+            .map_err(|e| api::Error::Analysis(format!("the analysis's features: {e}")))
+    };
+    let (old_features, new_features) = (features(&old_analysis)?, features(&new_analysis)?);
     let corr =
         qc::correspond(&old_q.fingerprints, &new_q.fingerprints).map_err(api::Error::Analysis)?;
     let faces = corr
@@ -368,9 +372,28 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
     // The answers.
     let mut carried = Map::new();
     let (mut migrated, mut unresolved, mut check) = (Vec::new(), Vec::new(), Vec::new());
-    for (id, answer) in answers {
-        match matching.answer(id, answer) {
+    let results: Vec<_> = answers
+        .iter()
+        .map(|(id, answer)| (id, answer, matching.answer(id, answer)))
+        .collect();
+    let mut reached: BTreeMap<&str, usize> = BTreeMap::new();
+    for (_, _, r) in &results {
+        if let Ok((now, _)) = r {
+            *reached.entry(now.as_str()).or_default() += 1;
+        }
+    }
+    for (id, answer, result) in &results {
+        match result {
+            // Two answers would carry to one: neither is chosen, as resuming does.
+            Ok((now, _)) if reached[now.as_str()] > 1 => unresolved.push(Unresolved {
+                id: (*id).clone(),
+                answer: (*answer).clone(),
+                class: "ambiguous".into(),
+                reason: format!("several answers carry to {now}; review required"),
+                candidates: vec![now.clone()],
+            }),
             Ok((now, value)) => {
+                let (id, now, value) = (*id, now.clone(), value.clone());
                 if now != *id {
                     migrated.push((id.clone(), now.clone()));
                 }
@@ -386,16 +409,46 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
                 }
                 carried.insert(now, value);
             }
-            Err(u) => unresolved.push(*u),
+            Err(u) => unresolved.push((**u).clone()),
         }
+    }
+    // A datum's settings (`datum.A.flatness`) follow it: they stay open with an open datum.
+    let open_datums: Vec<(String, String)> = unresolved
+        .iter()
+        .filter(|u| u.id.starts_with("datum.") && u.id.matches('.').count() == 1)
+        .map(|u| (format!("{}.", u.id), u.class.clone()))
+        .collect();
+    let settings: Vec<(String, String)> = carried
+        .keys()
+        .filter_map(|id| {
+            open_datums
+                .iter()
+                .find(|(datum, _)| id.starts_with(datum.as_str()))
+                .map(|(_, class)| (id.clone(), class.clone()))
+        })
+        .collect();
+    for (id, class) in settings {
+        let answer = carried
+            .remove(&id)
+            .expect("listed from the carried answers");
+        let datum = &id[..id.rfind('.').expect("a datum setting")];
+        unresolved.push(Unresolved {
+            reason: format!("its datum {datum} is unresolved"),
+            id,
+            answer,
+            class,
+            candidates: Vec::new(),
+        });
     }
 
     // What the new part asks and finds that the old one did not.
+    // An old ID in the new part; one that does not carry names nothing new, so it can't match a
+    // new question or problem even where its old number is reused.
     let rename = |id: &str| {
         matching
             .answer(id, &Value::Null)
             .map(|(n, _)| n)
-            .unwrap_or_else(|_| id.to_string())
+            .unwrap_or_else(|_| format!("\u{0}gone {id}"))
     };
     let open = |analysis: &Value, answers: &Map<String, Value>| -> Result<Vec<(String, String)>> {
         let qs = api::questions(analysis, answers)?;
@@ -430,22 +483,36 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
             .filter(|p| p["severity"] != "info")
             .collect())
     };
-    let key = |p: &Value| p["message"].as_str().unwrap_or_default().to_string();
+    // A problem is its code, its subject and its message; an old problem's subject (an answer
+    // ID, which its message may quote) is read in the new part first.
+    let key = |p: &Value, old: bool| {
+        let text = |k: &str| p[k].as_str().unwrap_or_default().to_string();
+        let (about, message) = (text("about"), text("message"));
+        if old && !about.is_empty() {
+            let now = rename(&about);
+            let message = message.replace(&about, &now);
+            (text("code"), now, message)
+        } else {
+            (text("code"), about, message)
+        }
+    };
     let (was, now) = (
         warnings(&old_analysis, answers)?,
         warnings(&new_analysis, &carried)?,
     );
-    let (was_keys, now_keys): (BTreeSet<_>, BTreeSet<_>) =
-        (was.iter().map(key).collect(), now.iter().map(key).collect());
+    let (was_keys, now_keys): (BTreeSet<_>, BTreeSet<_>) = (
+        was.iter().map(|p| key(p, true)).collect(),
+        now.iter().map(|p| key(p, false)).collect(),
+    );
     let problems = Problems {
         added: now
             .iter()
-            .filter(|p| !was_keys.contains(&key(p)))
+            .filter(|p| !was_keys.contains(&key(p, false)))
             .cloned()
             .collect(),
         resolved: was
             .iter()
-            .filter(|p| !now_keys.contains(&key(p)))
+            .filter(|p| !now_keys.contains(&key(p, true)))
             .cloned()
             .collect(),
     };
@@ -801,10 +868,13 @@ fn render(
         }
     }
     let w = width as usize * 2;
-    let scale = (w as f64 * 0.9) / (hi[0] - lo[0]).max(1e-9);
+    // As wide as asked, and no taller than twice that: a long thin part standing up is drawn
+    // smaller rather than in a towering buffer.
+    let scale = ((w as f64 * 0.9) / (hi[0] - lo[0]).max(1e-9))
+        .min((w as f64 * 2.0 * 0.9) / (hi[1] - lo[1]).max(1e-9));
     let h = (((hi[1] - lo[1]) * scale) / 0.9).ceil().max(1.0) as usize + 2;
     let (ox, oy) = (
-        w as f64 * 0.05 - lo[0] * scale,
+        (w as f64 - (hi[0] - lo[0]) * scale) / 2.0 - lo[0] * scale,
         h as f64 * 0.05 + hi[1] * scale,
     );
     let screen = |p: [f64; 3]| -> [f64; 3] {
