@@ -10,6 +10,8 @@ export class IntentEngine {
   review(answers: string): string;
   settle(state: string): string;
   snapshot(): string;
+  static openPart(name: string, bytes: Uint8Array, part: number): IntentEngine;
+  static parts(name: string, bytes: Uint8Array): string;
   writePmi(answers: string, project?: string | null, payload?: string | null): string;
 }
 
@@ -44,7 +46,9 @@ export interface InitOutput {
   readonly intentengine_acceptDefaults: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_evidence: (a: number) => [number, number, number, number];
   readonly intentengine_open: (a: number, b: number, c: number, d: number) => [number, number, number];
+  readonly intentengine_openPart: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
   readonly intentengine_original: (a: number) => [number, number];
+  readonly intentengine_parts: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly intentengine_payload: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_rematchAnswers: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
   readonly intentengine_review: (a: number, b: number, c: number) => [number, number, number, number];

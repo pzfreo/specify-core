@@ -6,7 +6,7 @@
 
 mod common;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
 use specify_core::api;
@@ -147,17 +147,32 @@ fn load_bytes_refuses_unreadable_bytes() {
     assert!(err.starts_with("cannot read STEP file x.step"), "{err}");
 }
 
-/// write_bytes writes one part of a file of one part: a part of an assembly, which `write`
-/// writes with the file's other parts in view, is refused, and so is an intent made for other
-/// bytes (the binding check `write` makes).
+/// write_bytes writes a part of an assembly as write_parts_bytes writes it alone (#2: it took a
+/// file of one part only), the file's other parts in view, and refuses an intent made for
+/// other bytes (the binding check `write` makes).
 #[test]
-fn write_bytes_refuses_a_part_of_an_assembly_and_a_foreign_intent() {
+fn write_bytes_writes_a_part_of_an_assembly_and_refuses_a_foreign_intent() {
     let assembly = part::load(&fixture("assembly"), Some(0)).unwrap();
     let analysis = api::analyse(&assembly).unwrap();
     let intent = api::preview(&analysis, &Map::new()).unwrap();
-    match writer::write_bytes(&assembly, &intent, Some(&Map::new())) {
-        Err(WriteError::Invalid(why)) => assert!(why.contains("of one part"), "{why}"),
-        other => panic!("a part of an assembly written in memory: {other:?}"),
+    let answers = Map::new();
+    let (bytes, report) = writer::write_bytes(&assembly, &intent, Some(&answers)).unwrap();
+    assert_eq!(
+        (bytes.clone(), report),
+        writer::write_parts_bytes(&[(&assembly, &intent, Some(&answers))]).unwrap()
+    );
+    let back = part::File::of_bytes(Path::new("written.step"), bytes).unwrap();
+    assert_eq!(
+        back.parts(),
+        part::File::read(&fixture("assembly")).unwrap().parts()
+    );
+    // A part of an assembly is still written with the answers it came from.
+    match writer::write_bytes(&assembly, &intent, None) {
+        Err(WriteError::Invalid(why)) => assert_eq!(
+            why,
+            "a part of an assembly is written with the answers it came from"
+        ),
+        other => panic!("a part of an assembly written without answers: {other:?}"),
     }
 
     let plate = part::load_bytes("plate.step", std::fs::read(fixture("plate")).unwrap()).unwrap();
