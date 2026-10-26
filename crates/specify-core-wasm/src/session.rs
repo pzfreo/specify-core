@@ -111,8 +111,11 @@ impl Session {
             unresolved_faces: part.unresolved_faces().to_vec(),
             unresolved_edges: part.unresolved_edges().to_vec(),
             part,
-            // A part of an assembly is named as the file names it, as the command line names it.
-            name: if part_count == 1 {
+            // A file of one part used once keeps the name `open` has always given it (the file's);
+            // any other part, a part placed twice included, is named as `part::File::load` names
+            // it (its product definition's). The name only prefixes report lines of several parts
+            // written together, so neither choice changes a session's output.
+            name: if part_count == 1 && definition.placements.len() == 1 {
                 name.into()
             } else {
                 definition.name.clone()
