@@ -115,6 +115,9 @@ pub struct FeatureChange {
     pub at: Option<[f64; 3]>,
     /// Where it is, as a person finds it on the part.
     pub place: Place,
+    /// The part's axis it lies along, if any: its move along it is its length changing.
+    #[serde(skip)]
+    pub axis: Option<usize>,
 }
 
 /// Where a feature is, in words a person can find it by: the side of the part it is on, what
@@ -324,13 +327,47 @@ fn along(r: &Map<String, Value>) -> Option<(usize, f64, f64)> {
 
 /// Where *f* is on its part (*all* its features, *box* its size), as a person finds it.
 fn locate(f: &Feature, all: &[Feature], size: &Size) -> Place {
+    // A round along one of the part's axes: the boss whose edge it rounds.
+    if let (Some(p), Some(k), Some(radius)) = (
+        position(&f.record),
+        f.record
+            .get("axis")
+            .and_then(Value::as_str)
+            .and_then(|a| AXES.iter().position(|x| x.eq_ignore_ascii_case(a))),
+        f.record.get("radius").and_then(Value::as_f64),
+    ) {
+        let round = all
+            .iter()
+            .filter(|g| g.family == "bosses")
+            .filter_map(|g| {
+                let (q, (j, db, _)) = (position(&g.record)?, along(&g.record)?);
+                let r = (0..3)
+                    .filter(|&i| i != k)
+                    .map(|i| (q[i] - p[i]).powi(2))
+                    .sum::<f64>()
+                    .sqrt();
+                (j == k && (r - db / 2.0).abs() <= radius + 0.5).then_some(db)
+            })
+            .min_by(f64::total_cmp);
+        return match round {
+            Some(db) => Place {
+                on: format!("round the Ø{} boss", num(db)),
+                ..Place::default()
+            },
+            None => Place::default(),
+        };
+    }
     let (Some(p), Some((k, d, length))) = (position(&f.record), along(&f.record)) else {
         return Place::default();
     };
     // Its side of the part: an end of it on a face of the part's box, or both.
     let ends = [p[k], p[k] + length, p[k] - length];
     let touches = |edge: f64| ends.iter().any(|x| (x - edge).abs() < 1.0);
+    let points = f.record.get("axis").and_then(xyz).map(|a| a[k]);
     let side = match (touches(size.min[k]), touches(size.max[k])) {
+        _ if f.family == "bosses" => {
+            points.map(|a| format!("on the {}{} side", if a > 0.0 { "+" } else { "−" }, AXES[k]))
+        }
         (true, true) => Some(format!("through the part along {}", AXES[k])),
         (true, false) => Some(format!("on the −{} side", AXES[k])),
         (false, true) => Some(format!("on the +{} side", AXES[k])),
@@ -711,6 +748,9 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
             what,
             at,
             place,
+            axis: old_feature
+                .and_then(|f| along(&f.record))
+                .map(|(k, _, _)| k),
         });
     }
     for f in &new_features {
@@ -731,6 +771,7 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
                 what,
                 at,
                 place,
+                axis: along(&f.record).map(|(k, _, _)| k),
             });
         }
     }
@@ -1099,16 +1140,19 @@ impl Revised {
                 .join("; ")
         };
         // A move along the part's axes: `X −15`.
-        let moved = |c: &BTreeMap<String, qc::Change>| {
-            let c = c.get("position")?;
+        // Not along its own axis when its length changed there: its middle moves as it grows.
+        let moved = |changes: &BTreeMap<String, qc::Change>, axis: Option<usize>| {
+            let lengthened = ["sizes.height", "sizes.depth"]
+                .iter()
+                .any(|k| changes.contains_key(*k));
+            let c = changes.get("position")?;
             let (a, b) = (xyz(&c.old)?, xyz(&c.new)?);
-            Some(
-                (0..3)
-                    .filter(|&i| (b[i] - a[i]).abs() >= 0.05)
-                    .map(|i| format!("{} {}", AXES[i], signed(b[i] - a[i])))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            )
+            let shift: Vec<String> = (0..3)
+                .filter(|&i| (b[i] - a[i]).abs() >= 0.05)
+                .filter(|&i| !(lengthened && axis == Some(i)))
+                .map(|i| format!("{} {}", AXES[i], signed(b[i] - a[i])))
+                .collect();
+            (!shift.is_empty()).then(|| shift.join(", "))
         };
         // Where several are, or nothing when there are too many to read.
         let places = |at: &[Option<[f64; 3]>]| -> String {
@@ -1250,7 +1294,10 @@ impl Revised {
                         format!("{sep}{place}")
                     }
                 };
-                let mut moves: Vec<String> = fs.iter().filter_map(|f| moved(&f.changes)).collect();
+                let mut moves: Vec<String> = fs
+                    .iter()
+                    .filter_map(|f| moved(&f.changes, f.axis))
+                    .collect();
                 moves.dedup();
                 let line = match *class {
                     "orphaned" => format!("{label} removed{}", place(": ")),
@@ -1314,7 +1361,7 @@ impl Revised {
             for c in &self.check {
                 let what = [
                     sizes(&c.changes),
-                    moved(&c.changes)
+                    moved(&c.changes, None)
                         .map(|m| format!("moved {m}"))
                         .unwrap_or_default(),
                 ]
