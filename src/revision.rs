@@ -15,6 +15,10 @@
 //! value and the reason, as resuming does. An answer carried to a feature that quiddity reports
 //! changed (a resized hole keeping its fit) is carried and listed for a person to check.
 //!
+//! The answers are those given or, when none are, the ones Specify wrote as PMI in the old
+//! file. The PMI is compared too: Specify's in the new file against the answers carried, and the
+//! files' own (from CAD), each item read on the new part through the face matching.
+//!
 //! The report also lists the questions the new part opens that the old one did not (a new hole
 //! needs its function), the problems review finds that it did not before, and the features that
 //! changed; [`picture`] draws the new part coloured by what changed.
@@ -56,6 +60,8 @@ pub struct Revised {
     pub features: Vec<FeatureChange>,
     /// The whole part's volume, area, box and face count, before and after.
     pub measures: Measures,
+    /// The PMI in the two files: Specify's (stored answers) and the files' own (from CAD).
+    pub pmi: Pmi,
     /// Questions open on the new part that were not open on the old one.
     pub questions: Vec<OpenQuestion>,
     pub problems: Problems,
@@ -93,6 +99,9 @@ pub struct Check {
     /// The question it answers, in words.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub question: String,
+    /// The part's axis its feature lies along, as for [`FeatureChange::axis`].
+    #[serde(skip)]
+    pub axis: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -138,6 +147,205 @@ pub struct Place {
     /// `its axis`, `the Ø45 hole's axis` or `the −X, −Y corner`.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub from: String,
+}
+
+/// The PMI in the two files.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct Pmi {
+    /// Where the old part's answers came from: `given` (passed in), `stored` (the PMI Specify
+    /// wrote in the old file) or `none`.
+    pub answers_from: String,
+    /// Whether the new file holds PMI Specify wrote.
+    pub new_stored: bool,
+    /// The new file's Specify PMI against the answers carried to it, where it has some: an
+    /// answer `added`, `removed` or `changed` there.
+    pub stored: Vec<PmiChange>,
+    /// The files' own PMI (dimensions, tolerances, datums and notes from CAD), matched by the
+    /// faces it is on: `added`, `removed` or `changed`.
+    pub existing: Vec<PmiChange>,
+    /// How many items of their own PMI the old and new files state.
+    pub existing_count: [usize; 2],
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PmiChange {
+    pub class: String,
+    /// What it is on, in words: a feature (`Ø7 × 10 through hole`), an answer's question, or
+    /// faces.
+    pub on: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new: Option<String>,
+    /// The answer's ID, for Specify's PMI.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub id: String,
+}
+
+/// An item of a file's own PMI in words: `Ø7 +0.1/0`, `position 0.1 to A|B|C`, `datum A`.
+fn pmi_words(p: &Value) -> String {
+    let n = |k: &str| p.get(k).and_then(Value::as_f64);
+    let kind = p["kind"].as_str().unwrap_or_default();
+    let ty = p["type"].as_str().unwrap_or_default();
+    let words = ty.replace('_', " ").to_lowercase();
+    let limits = match (n("upper"), n("lower")) {
+        (Some(u), Some(l)) if (u + l).abs() < 1e-9 => format!(" ±{}", num(u)),
+        (Some(u), Some(l)) => format!(
+            " {}/{}",
+            signed(u).replace('−', "-"),
+            signed(l).replace('−', "-")
+        ),
+        _ => String::new(),
+    };
+    match kind {
+        "dimension" => {
+            let value = n("value").map(num).unwrap_or_default();
+            let size = match ty {
+                "Size_Diameter" => format!("Ø{value}"),
+                "Size_Radius" => format!("R{value}"),
+                _ => format!("{words} {value}"),
+            };
+            format!("{size}{limits}")
+        }
+        "geometric_tolerance" => {
+            let datums: Vec<&str> = p["datums"]
+                .as_array()
+                .map(|d| d.iter().filter_map(Value::as_str).collect())
+                .unwrap_or_default();
+            let value = n("value")
+                .map(|v| format!(" {}", num(v)))
+                .unwrap_or_default();
+            if datums.is_empty() {
+                format!("{words}{value}")
+            } else {
+                format!("{words}{value} to {}", datums.join("|"))
+            }
+        }
+        "datum" => format!("datum {ty}"),
+        _ => {
+            if words.is_empty() {
+                kind.replace('_', " ")
+            } else {
+                format!("{} ({words})", kind.replace('_', " "))
+            }
+        }
+    }
+}
+
+/// The faces of a PMI item.
+fn pmi_faces(p: &Value, key: &str) -> Vec<usize> {
+    p[key]
+        .as_array()
+        .map(|f| {
+            f.iter()
+                .filter_map(Value::as_u64)
+                .map(|i| i as usize)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// What a PMI item is on, in words: the smallest feature holding its faces, else its faces.
+fn pmi_on(faces: &[usize], features: &[Feature]) -> String {
+    if faces.is_empty() {
+        return "the part".into();
+    }
+    features
+        .iter()
+        .filter(|f| !EVIDENCE.contains(&f.family.as_str()))
+        .filter(|f| !f.faces.is_empty() && faces.iter().all(|i| f.faces.contains(i)))
+        .min_by_key(|f| f.faces.len())
+        .map(|f| describe(f).0)
+        .filter(|w| !w.is_empty())
+        .unwrap_or_else(|| {
+            let list: Vec<String> = faces.iter().map(usize::to_string).collect();
+            format!(
+                "face{} {}",
+                if faces.len() > 1 { "s" } else { "" },
+                list.join(", ")
+            )
+        })
+}
+
+/// The files' own PMI compared: each old item read on the new part through the face matching
+/// (*faces*), matched to a new item of the same kind and type on the same faces.
+fn compare_existing(
+    old: &[Value],
+    new: &[Value],
+    faces: &BTreeMap<usize, Bind>,
+    old_features: &[Feature],
+    new_features: &[Feature],
+) -> Vec<PmiChange> {
+    let key = |p: &Value, faces: Vec<usize>, faces2: Vec<usize>| {
+        (
+            p["kind"].as_str().unwrap_or_default().to_string(),
+            p["type"].as_str().unwrap_or_default().to_string(),
+            faces,
+            faces2,
+        )
+    };
+    let carry = |list: Vec<usize>| -> Option<Vec<usize>> {
+        let mut out: Vec<usize> = list
+            .iter()
+            .map(|i| match faces.get(i) {
+                Some(Bind::To(n)) => Some(*n),
+                _ => None,
+            })
+            .collect::<Option<_>>()?;
+        out.sort_unstable();
+        Some(out)
+    };
+    let mut unused: Vec<bool> = vec![true; new.len()];
+    let mut out = Vec::new();
+    for p in old {
+        let (f, f2) = (pmi_faces(p, "faces"), pmi_faces(p, "faces2"));
+        let found = match (carry(f.clone()), carry(f2)) {
+            (Some(now), Some(now2)) => {
+                let want = key(p, now, now2);
+                (0..new.len()).find(|&j| {
+                    unused[j]
+                        && key(
+                            &new[j],
+                            pmi_faces(&new[j], "faces"),
+                            pmi_faces(&new[j], "faces2"),
+                        ) == want
+                })
+            }
+            _ => None,
+        };
+        match found {
+            Some(j) => {
+                unused[j] = false;
+                let (was, now) = (pmi_words(p), pmi_words(&new[j]));
+                if was != now {
+                    out.push(PmiChange {
+                        class: "changed".into(),
+                        on: pmi_on(&pmi_faces(&new[j], "faces"), new_features),
+                        old: Some(was),
+                        new: Some(now),
+                        id: String::new(),
+                    });
+                }
+            }
+            None => out.push(PmiChange {
+                class: "removed".into(),
+                on: pmi_on(&f, old_features),
+                old: Some(pmi_words(p)),
+                new: None,
+                id: String::new(),
+            }),
+        }
+    }
+    for (_, p) in new.iter().enumerate().filter(|(j, _)| unused[*j]) {
+        out.push(PmiChange {
+            class: "added".into(),
+            on: pmi_on(&pmi_faces(p, "faces"), new_features),
+            old: None,
+            new: Some(pmi_words(p)),
+            id: String::new(),
+        });
+    }
+    out
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -212,6 +420,9 @@ pub struct Problems {
 /// change to the faces around them.
 const EVIDENCE: [&str; 2] = ["risers", "step_levels"];
 
+/// Families that border the features a person names: they change as those do.
+const ROUNDS: [&str; 4] = ["fillets", "blends", "chamfers", "freeform_surfaces"];
+
 /// The quiddity record of each feature: the one whose defining faces it shares most.
 fn records(features: &[Feature], prints: &qc::Fingerprints) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
@@ -260,6 +471,15 @@ fn xyz(v: &Value) -> Option<[f64; 3]> {
     match v.as_array()?.as_slice() {
         [x, y, z] => Some([x.as_f64()?, y.as_f64()?, z.as_f64()?]),
         _ => None,
+    }
+}
+
+/// A count of a thing: `1 answer`, `3 answers`.
+fn plural_of(n: usize, one: &str) -> String {
+    if n == 1 {
+        format!("1 {one}")
+    } else {
+        format!("{n} {}", several(one))
     }
 }
 
@@ -661,7 +881,7 @@ impl Matching<'_> {
 }
 
 /// Carry *answers* (and *automatic*, the IDs the default path answered) from *old* to *new*.
-pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) -> Result<Revised> {
+pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> Result<Revised> {
     // One recognition of each part, for both its analysis and its fingerprints.
     let old_q = qc::recognise(&old.part);
     let new_q = qc::recognise(&new.part);
@@ -669,6 +889,16 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
         api::analyse_recognised(old, &old_q)?,
         api::analyse_recognised(new, &new_q)?,
     );
+    // The PMI Specify wrote in a file: its answers.
+    let stored = |a: &Value| a["resume"]["answers"].as_object().cloned();
+    let (old_stored, new_stored) = (stored(&old_analysis), stored(&new_analysis));
+    // Answers given win; else the old file's own.
+    let (answers, answers_from) = match (&old_stored, given.is_empty()) {
+        (_, false) => (given.clone(), "given"),
+        (Some(a), true) => (a.clone(), "stored"),
+        (None, true) => (Map::new(), "none"),
+    };
+    let answers = &answers;
     let features = |a: &Value| -> Result<Vec<Feature>> {
         serde_json::from_value(a["features"].clone())
             .map_err(|e| api::Error::Analysis(format!("the analysis's features: {e}")))
@@ -837,14 +1067,29 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
                 if now != *id {
                     migrated.push((id.clone(), now.clone()));
                 }
+                // A pattern changes with its members: an answer on two holes is checked when
+                // they are resized.
+                let changes_of = |feature: &str| {
+                    changed.get(feature).cloned().or_else(|| {
+                        new_features
+                            .iter()
+                            .find(|f| f.id == feature)
+                            .and_then(|f| f.members.iter().find_map(|m| changed.get(m).cloned()))
+                    })
+                };
                 if let Some(feature) = now.split_once(':').map(|(_, f)| f.to_string())
-                    && let Some(changes) = changed.get(&feature)
+                    && let Some(changes) = changes_of(&feature)
                 {
                     check.push(Check {
                         id: now.clone(),
                         answer: value.clone(),
+                        axis: new_features
+                            .iter()
+                            .find(|f| f.id == feature)
+                            .and_then(|f| along(&f.record))
+                            .map(|(k, _, _)| k),
                         feature,
-                        changes: changes.clone(),
+                        changes,
                         question: asked(id),
                     });
                 }
@@ -1018,6 +1263,50 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
     gone.sort_unstable();
     gone.dedup();
 
+    // The PMI: Specify's in the new file against the answers carried, and the files' own.
+    let new_prompts: BTreeMap<String, String> = api::questions(&new_analysis, &carried)?
+        .into_iter()
+        .map(|q| (q.id, q.prompt))
+        .collect();
+    let mut stored_changes = Vec::new();
+    if let Some(now) = &new_stored {
+        let ids: BTreeSet<&String> = carried.keys().chain(now.keys()).collect();
+        let word = |v: &Value| match v {
+            Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+        for id in ids {
+            let (was, is) = (carried.get(id), now.get(id));
+            let class = match (was, is) {
+                (Some(a), Some(b)) if a == b => continue,
+                (Some(_), Some(_)) => "changed",
+                (Some(_), None) => "removed",
+                _ => "added",
+            };
+            stored_changes.push(PmiChange {
+                class: class.into(),
+                on: new_prompts.get(id).cloned().unwrap_or_default(),
+                old: was.map(word),
+                new: is.map(word),
+                id: id.clone(),
+            });
+        }
+    }
+    let list = |a: &Value| a["existing"].as_array().cloned().unwrap_or_default();
+    let (old_existing, new_existing) = (list(&old_analysis), list(&new_analysis));
+    let pmi = Pmi {
+        answers_from: answers_from.into(),
+        new_stored: new_stored.is_some(),
+        stored: stored_changes,
+        existing: compare_existing(
+            &old_existing,
+            &new_existing,
+            &matching.faces,
+            &old_features,
+            &new_features,
+        ),
+        existing_count: [old_existing.len(), new_existing.len()],
+    };
     let open_count = unresolved.len() + questions.len();
     let verdict = if !problems.added.is_empty() {
         "problems"
@@ -1057,13 +1346,41 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
             None => counts.push(((f.family.as_str(), done), 1)),
         }
     }
-    let part: Vec<String> = counts
+    // Rounds and surfaces follow the features they border: counted together, after them.
+    let follows = |family: &str| ROUNDS.contains(&family);
+    let mut part: Vec<String> = counts
         .iter()
+        .filter(|((family, _), _)| !follows(family))
         .map(|((family, done), n)| {
             let one = singular(family);
             format!("{} {done}", plural(*n, &one, &several(&one)))
         })
         .collect();
+    let rounds: usize = counts
+        .iter()
+        .filter(|((family, _), _)| follows(family))
+        .map(|(_, n)| n)
+        .sum();
+    if rounds > 0 {
+        part.push(if part.is_empty() {
+            format!(
+                "{} changed",
+                plural(rounds, "round or surface", "rounds and surfaces")
+            )
+        } else {
+            format!(
+                "{} with them",
+                plural(rounds, "round or surface", "rounds and surfaces")
+            )
+        });
+    }
+    let pmi_changes = pmi.stored.len() + pmi.existing.len();
+    if pmi_changes > 0 {
+        part.push(format!(
+            "{} to the PMI",
+            plural(pmi_changes, "change", "changes")
+        ));
+    }
     let mut part = if part.is_empty() {
         "No feature changed".to_string()
     } else {
@@ -1104,6 +1421,7 @@ pub fn revise(old: &LoadedPart, new: &LoadedPart, answers: &Map<String, Value>) 
         ),
     };
     Ok(Revised {
+        pmi,
         verdict: verdict.into(),
         summary,
         answers: carried,
@@ -1146,6 +1464,10 @@ impl Revised {
         };
         // A change in words, its move apart: `depth 10 → 12`.
         let sizes = |c: &BTreeMap<String, qc::Change>| {
+            // A surface's control points are not a size a person reads.
+            if c.keys().any(|k| k.contains("support.")) {
+                return "reshaped".to_string();
+            }
             c.iter()
                 .filter(|(k, _)| !matches!(k.as_str(), "adjacency" | "position"))
                 .map(|(k, c)| {
@@ -1163,8 +1485,11 @@ impl Revised {
                 .any(|k| changes.contains_key(*k));
             let c = changes.get("position")?;
             let (a, b) = (xyz(&c.old)?, xyz(&c.new)?);
+            // The move a person sees: components a tenth of the largest or less are the
+            // feature riding along a drafted or curved face.
+            let largest = (0..3).map(|i| (b[i] - a[i]).abs()).fold(0.0, f64::max);
             let shift: Vec<String> = (0..3)
-                .filter(|&i| (b[i] - a[i]).abs() >= 0.05)
+                .filter(|&i| (b[i] - a[i]).abs() >= 0.05 && (b[i] - a[i]).abs() > largest / 10.0)
                 .filter(|&i| !(lengthened && axis == Some(i)))
                 .map(|i| format!("{} {}", AXES[i], signed(b[i] - a[i])))
                 .collect();
@@ -1360,6 +1685,82 @@ impl Revised {
             }
             s += "\n";
         }
+        {
+            let p = &self.pmi;
+            let mut lines = Vec::new();
+            if p.answers_from == "stored" {
+                lines.push(format!(
+                    "The answers were read from the PMI Specify wrote in the old file ({}).",
+                    plural_of(self.answers.len() + self.unresolved.len(), "answer")
+                ));
+            }
+            // Only where the old file held them: answers kept beside the files stay there.
+            if p.answers_from == "stored" && !p.new_stored && !self.answers.is_empty() {
+                lines.push(
+                    "The new file has no Specify PMI yet: write the carried answers \
+                     (`answers.json`) to it with `specify-core write`."
+                        .into(),
+                );
+            }
+            for c in &p.stored {
+                let on = if c.on.is_empty() {
+                    format!("`{}`", c.id)
+                } else {
+                    format!("{} (`{}`)", c.on, c.id)
+                };
+                let (was, now) = (
+                    c.old.clone().unwrap_or_default(),
+                    c.new.clone().unwrap_or_default(),
+                );
+                lines.push(match c.class.as_str() {
+                    "changed" => format!("{on}: **{was}** → **{now}** in the new file's PMI"),
+                    "removed" => format!("{on}: **{was}** carried, but not in the new file's PMI"),
+                    _ => format!("{on}: **{now}** added in the new file's PMI"),
+                });
+            }
+            for c in &p.existing {
+                let (was, now) = (
+                    c.old.clone().unwrap_or_default(),
+                    c.new.clone().unwrap_or_default(),
+                );
+                // `flatness 0.2 → 0.1`, not `flatness 0.2 → flatness 0.1`.
+                let same = was
+                    .split(' ')
+                    .zip(now.split(' '))
+                    .take_while(|(a, b)| a == b)
+                    .count();
+                let (was_words, now_words): (Vec<&str>, Vec<&str>) =
+                    (was.split(' ').collect(), now.split(' ').collect());
+                let changed = if same > 0 && same < was_words.len() && same < now_words.len() {
+                    format!(
+                        "{} {} → {}",
+                        was_words[..same].join(" "),
+                        was_words[same..].join(" "),
+                        now_words[same..].join(" ")
+                    )
+                } else {
+                    format!("{was} → {now}")
+                };
+                lines.push(match c.class.as_str() {
+                    "changed" => format!("{}: {changed}", c.on),
+                    "removed" => format!("{}: {was} removed", c.on),
+                    _ => format!("{}: {now} added", c.on),
+                });
+            }
+            if p.existing.is_empty() && p.existing_count[0] > 0 {
+                lines.push(format!(
+                    "The files' own PMI is unchanged ({}).",
+                    plural_of(p.existing_count[0], "item")
+                ));
+            }
+            if !lines.is_empty() {
+                s += "**PMI**\n\n";
+                for l in lines {
+                    let _ = writeln!(s, "- {l}");
+                }
+                s += "\n";
+            }
+        }
         // An answer in words: its question where the old part asks it, else its ID.
         let answered = |question: &str, id: &str, answer: &Value| {
             if question.is_empty() {
@@ -1390,7 +1791,7 @@ impl Revised {
             for c in &self.check {
                 let what = [
                     sizes(&c.changes),
-                    moved(&c.changes, None)
+                    moved(&c.changes, c.axis)
                         .map(|m| format!("moved {m}"))
                         .unwrap_or_default(),
                 ]

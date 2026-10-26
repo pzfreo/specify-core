@@ -5,14 +5,14 @@
 //! "Feature ids cascade"), and every difference they find must have a verdict in
 //! `known_differences/cli.json`:
 //!
-//! 1. **Composition**, on every oracle case whose input is here: the binary's `analyse`, `mesh`,
+//! 1. **Composition**, on the named wrapper cases in `file_cases`: the binary's `analyse`, `mesh`,
 //!    `questions` and `write` outputs equal the library's own `api` results on the same inputs,
 //!    exactly (the analysis file byte for byte). This is where Rust-produced analyses are
 //!    checked: not against Python's, because feature ids differ by design (U2) and every
 //!    question id, answer key, intent requirement and report line embedding one would differ.
 //!    In a composition difference, `python` holds the library's result and `rust` the binary's.
-//! 2. **Python's inputs**: given Python's analysis and the oracle's answers (each case's base
-//!    answers and defaults, every scenario), the binary's questions, open questions, intent
+//! 2. **Python's inputs**: given Python's analysis and the oracle's answers (selected cases'
+//!    questions, committed fixtures' base writes, every scenario), the binary's open questions, intent
 //!    (`write --intent`), write report and refusals are compared with Python's; and each
 //!    synthetic part's serve transcript is replayed reply by reply through `specify-core serve`
 //!    (an analyse reply by its envelope and mesh summary; questions, interpret, preview and
@@ -392,10 +392,34 @@ fn part_case(file: &str, k: Option<usize>) -> String {
     }
 }
 
-/// Each file case with its input here: (file case name, input, parts: None for a file of one).
+/// Wrapper contracts, rather than a second geometry corpus sweep. These cases cover plain
+/// and gzipped inputs, one/two/three parts, explicit part selection, placed geometry,
+/// through/blind holes and patterns, and foreign PMI. CLI errors/refusals also have
+/// direct coverage in exit_codes_say_what_happened and the captured command lines.
+/// Selected corpus geometry remains in features/mesh, Python-intent writes and read-back in
+/// write_oracle, and questions/defaults/intents in rules_oracle. `python_inputs` below still
+/// checks every selected CLI question set and every scenario. Base corpus writes are the
+/// writer sweep's responsibility; SPECIFY_CORPUS_ALL=1 also replays them through the CLI.
 fn file_cases() -> Vec<(String, PathBuf, Vec<Option<usize>>)> {
-    cases()
-        .into_iter()
+    const WRAPPER_CASES: &[&str] = &[
+        "parts/plate",
+        "parts/pin",
+        "parts/wrapped",
+        "parts/assembly",
+        "parts/stack",
+        "parts/a_file_with_two_parts_must_say_which",
+        "parts/a_placed_part_is_meshed_in_the_frame_the_analysis_uses",
+        "nist/nist_ctc_01_asme1_ap242",
+    ];
+    let all = cases();
+    WRAPPER_CASES
+        .iter()
+        .map(|name| {
+            all.iter()
+                .find(|c| c.name == *name)
+                .unwrap_or_else(|| panic!("missing CLI wrapper case {name}"))
+                .clone()
+        })
         .filter(|c| c.part().is_none())
         .filter_map(|c| {
             let input = c.input()?;
@@ -411,6 +435,7 @@ fn file_cases() -> Vec<(String, PathBuf, Vec<Option<usize>>)> {
 }
 
 fn composition(dir: &Path) -> Vec<Difference> {
+    let started = std::time::Instant::now();
     let mut out = Vec::new();
     let base = json!({"part.material": "steel"});
     let answers_path = dir.join("base.json");
@@ -673,7 +698,10 @@ fn composition(dir: &Path) -> Vec<Difference> {
             std::fs::remove_file(p).ok();
         }
     }
-    println!("composition: {compared} files analysed, meshed, asked and written by both");
+    println!(
+        "composition: {compared} files analysed, meshed, asked and written by both in {:?}",
+        started.elapsed()
+    );
     out
 }
 
@@ -854,6 +882,7 @@ fn write_against(
 }
 
 fn python_inputs(dir: &Path) -> Vec<Difference> {
+    let started = std::time::Instant::now();
     let mut out = Vec::new();
     let all = cases();
     let (mut asked, mut writes, mut scenario_count) = (0, 0, 0);
@@ -883,8 +912,13 @@ fn python_inputs(dir: &Path) -> Vec<Difference> {
             ));
         }
     }
-    // Each file's base write, from Python's analyses.
-    for c in all.iter().filter(|c| c.part().is_none()) {
+    // Wrapper writes on committed fixtures (including assemblies and foreign PMI).
+    // Corpus writes repeat write_oracle's reports and rules_oracle's intents; leave that
+    // geometry work to the library sweeps unless the full local sweep was requested.
+    for c in all
+        .iter()
+        .filter(|c| c.part().is_none() && (c.kind() != "corpus" || common::all_corpus()))
+    {
         let Some(report) = c.artifact("write") else {
             continue;
         };
@@ -963,7 +997,8 @@ fn python_inputs(dir: &Path) -> Vec<Difference> {
     }
     out.extend(serve_replays(dir));
     println!(
-        "python inputs: {asked} question sets, {writes} file writes, {scenario_count} scenarios"
+        "python inputs: {asked} question sets, {writes} file writes, {scenario_count} scenarios in {:?}",
+        started.elapsed()
     );
     out
 }
@@ -1298,12 +1333,22 @@ fn command_lines(dir: &Path) -> Vec<Difference> {
 // The sweep
 // ---------------------------------------------------------------------------------------------
 
-/// `check_known("cli")`, but without the corpus the entries for corpus cases and
-/// for scenarios on corpus cases are left out: their cases were skipped, so they cannot be
-/// stale. With the corpus, every entry must match.
+/// Stale checks cover the CLI operations exercised: selected questions, fixture base writes,
+/// and scenarios. Full corpus base-write history remains active with SPECIFY_CORPUS_ALL=1.
+/// Without corpus inputs, unavailable corpus operations are also left out.
 fn check_area(differences: &[Difference]) {
     let path = common::known_differences_file("cli");
-    let entries = load_known(&path);
+    let entries: Vec<_> = load_known(&path)
+        .into_iter()
+        .filter(|e| {
+            common::all_corpus()
+                || !e.case.starts_with("corpus/")
+                || (!e.path.starts_with("write") && !e.path.starts_with("apply")
+                // Mixed question/write verdicts still explain every observed difference.
+                // Their exact selected question values are independently snapshot-checked.
+                && (e.path != "*" || differences.iter().any(|d| e.matches(d))))
+        })
+        .collect();
     let entries: Vec<_> = if corpus_dir().is_some() {
         entries
     } else {
@@ -1463,6 +1508,15 @@ fn check_datum_origin_departures(differences: &[Difference]) {
     let available = |v: &Value| {
         let case = v["case"].as_str().unwrap();
         let path = v["path"].as_str().unwrap();
+        if !common::case_selected(case) {
+            return false;
+        }
+        if !common::all_corpus()
+            && case.starts_with("corpus/")
+            && (path.starts_with("write") || path.starts_with("apply"))
+        {
+            return false;
+        }
         // Questions use captured analyses and are checked even without STEP inputs.
         corpus_dir().is_some()
             || path.starts_with("questions.")

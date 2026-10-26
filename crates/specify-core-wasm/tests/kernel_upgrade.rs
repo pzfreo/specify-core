@@ -80,7 +80,33 @@ fn browser_exposes_real_alpha6_pattern_id_migration_and_new_questions() {
     let snapshot = session.snapshot();
     let resumed = &snapshot["analysis"]["resume"];
     assert_eq!(resumed["answers"].as_object().unwrap().len(), 29);
-    assert_eq!(resumed["migrated"].as_array().unwrap().len(), 2);
+    // #100 claims drill-point cones: six bore/row answers now move in addition to
+    // the two schema-6 counterbore-pattern answers. Native kernel_upgrade's exact
+    // support/adjacency checks prove these are the same physical features.
+    assert_eq!(resumed["migrated"].as_array().unwrap().len(), 8);
+    let moves = [
+        ("holes:175", "holes:174.175"),
+        ("holes:177", "holes:176.177"),
+        (
+            "hole_patterns.linear:138.140.142.144.146.147.148.149",
+            "hole_patterns.linear:130.132.134.136.138.140.142.144.146.147.148.149",
+        ),
+        (
+            "hole_patterns.linear:189.191.193",
+            "hole_patterns.linear:188.189.190.191.192.193",
+        ),
+    ];
+    let expected: Vec<_> = original
+        .as_object()
+        .unwrap()
+        .keys()
+        .filter_map(|id| {
+            let (question, old) = id.split_once(':')?;
+            let (_, new) = moves.iter().find(|(from, _)| *from == old)?;
+            Some(json!([id, format!("{question}:{new}")]))
+        })
+        .collect();
+    assert_eq!(resumed["migrated"], json!(expected));
     assert!(resumed["unresolved"].is_null());
     for pair in resumed["migrated"].as_array().unwrap() {
         assert_ne!(pair[0], pair[1]);
@@ -95,8 +121,8 @@ fn browser_exposes_real_alpha6_pattern_id_migration_and_new_questions() {
     assert_eq!(
         review["open"],
         json!([
-            "hole.function:hole_patterns.linear:195.197.199",
-            "hole.position:hole_patterns.linear:195.197.199"
+            "hole.function:hole_patterns.linear:194.195.196.197.198.199",
+            "hole.position:hole_patterns.linear:194.195.196.197.198.199"
         ])
     );
 }
@@ -104,10 +130,10 @@ fn browser_exposes_real_alpha6_pattern_id_migration_and_new_questions() {
 #[test]
 fn browser_sessions_resume_all_84_alpha7_answers_after_schema6_upgrade() {
     let mut total = 0;
-    for (name, count) in [
-        ("golden_oriented_slots", 13),
-        ("cgb217", 37),
-        ("ctc02_ap242", 34),
+    for (name, count, moved) in [
+        ("golden_oriented_slots", 13, 0),
+        ("cgb217", 37, 3),
+        ("ctc02_ap242", 34, 15),
     ] {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join(format!("../../tests/fixtures/resume_alpha7/{name}.step.gz"));
@@ -116,11 +142,74 @@ fn browser_sessions_resume_all_84_alpha7_answers_after_schema6_upgrade() {
         let session = Session::open(name, &loaded.bytes).unwrap();
         let snapshot = session.snapshot();
         let resumed = &snapshot["analysis"]["resume"];
-        assert_eq!(&resumed["answers"], expected, "{name}");
+        // #100 adds terminal cones to cgb217/CTC-02's existing bores and derived
+        // patterns. #91 restores the golden slot walls, but its saved answers are
+        // all part/datum settings. Keep every value, explicitly checking changed IDs
+        // against the saved physical supports rather than expecting unchanged keys.
+        let metadata: Value = serde_json::from_slice(
+            &std::fs::read(path.with_file_name(format!("{name}.json"))).unwrap(),
+        )
+        .unwrap();
+        let migrations = resumed["migrated"].as_array().cloned().unwrap_or_default();
+        assert_eq!(migrations.len(), moved, "{name}");
+        assert_eq!(
+            resumed["answers"].as_object().unwrap().len(),
+            count,
+            "{name}"
+        );
+        for (old, value) in expected.as_object().unwrap() {
+            let new = migrations
+                .iter()
+                .find(|pair| pair[0] == *old)
+                .and_then(|pair| pair[1].as_str())
+                .unwrap_or(old);
+            assert_eq!(&resumed["answers"][new], value, "{name}: {old} -> {new}");
+        }
+        for pair in migrations {
+            let old = pair[0].as_str().unwrap().split_once(':').unwrap().1;
+            let new = pair[1].as_str().unwrap().split_once(':').unwrap().1;
+            let before = metadata["features"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|f| f["id"] == old)
+                .unwrap();
+            let after = snapshot["analysis"]["features"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|f| f["id"] == new)
+                .unwrap();
+            assert_eq!(before["family"], after["family"]);
+            let old_faces = before["faces"].as_array().unwrap();
+            let new_faces = after["faces"].as_array().unwrap();
+            assert!(old_faces.iter().all(|f| new_faces.contains(f)));
+            let extra: Vec<_> = new_faces
+                .iter()
+                .filter(|f| !old_faces.contains(f))
+                .collect();
+            assert!(!extra.is_empty());
+            for face in extra {
+                let i = face.as_u64().unwrap() as usize;
+                assert!(matches!(
+                    loaded.part.faces[i].surface,
+                    haecceity::geom::Surface::Cone { .. }
+                ));
+                assert!(
+                    loaded
+                        .part
+                        .neighbours(i)
+                        .iter()
+                        .any(|j| old_faces.contains(&json!(j)))
+                );
+            }
+        }
         assert_eq!(expected.as_object().unwrap().len(), count);
         assert!(resumed["unresolved"].is_null(), "{name}: {resumed}");
         assert!(resumed["unverified"].is_null(), "{name}: {resumed}");
-        let review = session.review(expected.as_object().unwrap()).unwrap();
+        let review = session
+            .review(resumed["answers"].as_object().unwrap())
+            .unwrap();
         assert!(
             !review["problems"]
                 .as_array()

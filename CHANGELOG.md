@@ -11,7 +11,7 @@ All notable changes to specify-core-rust. The format follows
 - The `specify-core` command line for Linux (x86_64), macOS (Apple Silicon) and Windows
   (x86_64), attached to each release (`.github/workflows/cli.yml`), each built, tried on a
   revision and checksummed.
-- `specify-core revise OLD NEW --answers A -o DIR` (`revision::revise`, `revision::picture`):
+- `specify-core diff OLD NEW --answers A -o DIR` (`revision::diff`, `revision::picture`):
   answers carried to a new revision of the part through quiddity's correspondence, where
   `resume::rematch_answers` leaves every feature and datum answer unresolved once the face
   evidence differs. Each answer's faces are mapped and the answer moved to the feature of its
@@ -26,7 +26,40 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
-- `revise`'s report reads as a person would describe the change. The summary leads with what
+- CI: cache Rust builds and check CLI/library composition on named wrapper cases; use
+  a shared named corpus subset (`SPECIFY_CORPUS_ALL=1` opts into the full sweep locally).
+  macOS PRs build all tests and run floating-point checks;
+  main, manual runs and `release*` PRs keep the full suite, as Linux does on every run.
+- Upgrade quiddity and haecceity (native and WASM) to **v0.2.1-alpha.1** (`7291435`),
+  retaining recognition schema 6 and fingerprint format 3. The feature picker gains
+  annular grooves, semicircular blind slots, sharp/rounded V-channels (`trough_radius`)
+  and rectangular through-notches. Drill-point holes include their tip cones, rectangular
+  slots their end walls, pockets more of their proved boundaries, and polygonal bosses
+  their free-end caps. Slot end planes use the actual claimed walls so questions, datum
+  defaults and written PMI remain correct under rigid motion.
+- Adopt quiddity #91's outline-based roll: `golden_oriented_slots` and its captures and the
+  17-degree slotted assembly return to the plate's file axes and four-wall slots; cgb241
+  returns to file axes with face 47 an R23 blend; cgb217 uses a 13.07-degree frame with
+  all sixteen R1 rounds classified as blends. Saved answers on verified unchanged geometry
+  follow unique same-family supports as cones/walls are added; ambiguous or missing supports
+  stay unresolved with their values. Without face evidence, changed IDs remain unresolved,
+  and automatic/manual provenance follows each answer. Malformed assembly cycles and
+  nesting deeper than 64 are refused as a whole by haecceity.
+- `revise` is now `specify-core diff` (`revision::diff`): it says what changed between two
+  revisions as well as carrying the answers.
+- `diff` compares PMI (`Revised.pmi`). Without `--answers` it reads the answers Specify wrote
+  as PMI in the old file (`pmi.answers_from`: `given`, `stored` or `none`); where the new file
+  holds Specify's PMI too, each answer it differs on from those carried is listed
+  (`pmi.stored`); a new file without it is said to need writing. The files' own PMI (from CAD) is
+  matched through the faces and each dimension, tolerance, datum or note added, removed or
+  changed is listed by the feature it is on (`pmi.existing`: `Ø7 × 10 through hole: flatness
+  0.2 → 0.1`). The summary counts the changes to the PMI.
+- `diff`'s report on a real part: the summary names features first and counts the rounds and
+  surfaces that follow them (`2 holes changed, 8 rounds and surfaces with them`); a freeform
+  surface is `reshaped`, not its control points; a move is the component a person sees (a
+  round riding a drafted face moves `Z +2`, not `X +0.1, Y +0.1, Z +2`); and an answer on a
+  pattern is listed to check when its holes change.
+- `diff`'s report reads as a person would describe the change. The summary leads with what
   changed (`2 holes removed.`). A table gives the part's volume, area, bounding box and face
   count before and after. Each feature is named as a drawing names it (`Ø5 × 30 through
   hole`) and placed by the side of the part it is on, the boss it sits in and its offset from

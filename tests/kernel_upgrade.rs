@@ -489,7 +489,8 @@ fn real_alpha6_ctc02_answers_exercise_changed_ids_and_explicit_refusals() {
     let resumed = &analysis["resume"];
 
     assert_eq!(resumed["answers"].as_object().unwrap().len(), 32);
-    assert!(resumed["migrated"].is_null());
+    // #100 adds the same holes' tip cones: 13 exact answer moves, two #82 refusals remain.
+    common::upgrade::check(&loaded, &base, &analysis, common::upgrade::CTC02);
     assert_eq!(resumed["unresolved"].as_array().unwrap().len(), 2);
     assert_eq!(warnings.len(), 2);
     for unresolved in resumed["unresolved"].as_array().unwrap() {
@@ -523,23 +524,16 @@ fn real_alpha6_ftc10_answers_migrate_to_larger_geometric_supports() {
     let resumed = &analysis["resume"];
     assert!(warnings.is_empty());
     assert_eq!(resumed["answers"].as_object().unwrap().len(), 29);
-    assert_eq!(resumed["migrated"].as_array().unwrap().len(), 2);
+    // #100 adds tip cones to two bores and one row: six new moves, plus the two
+    // schema-6 counterbore-pattern moves. Exact IDs and cone adjacency are checked.
+    common::upgrade::check(&loaded, &base, &analysis, common::upgrade::FTC10);
     assert!(resumed["unresolved"].is_null());
-    for pair in resumed["migrated"].as_array().unwrap() {
-        let old = pair[0].as_str().unwrap();
-        let new = pair[1].as_str().unwrap();
-        assert!(old.contains("hole_patterns.linear:138.140.142.144.146.147.148.149"));
-        assert!(
-            new.contains("hole_patterns.linear:130.132.134.136.138.140.142.144.146.147.148.149")
-        );
-        assert_eq!(resumed["answers"][new], base["answers"][old]);
-    }
     let review = api::review(&analysis, resumed["answers"].as_object().unwrap()).unwrap();
     assert_eq!(
         review["open"],
         json!([
-            "hole.function:hole_patterns.linear:195.197.199",
-            "hole.position:hole_patterns.linear:195.197.199"
+            "hole.function:hole_patterns.linear:194.195.196.197.198.199",
+            "hole.position:hole_patterns.linear:194.195.196.197.198.199"
         ])
     );
     for pair in resumed["migrated"].as_array().unwrap() {

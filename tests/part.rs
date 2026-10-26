@@ -595,7 +595,7 @@ fn parts_of_assemblies_carry_their_instances_unresolved_lists() {
     assert_eq!(checked, 5);
 }
 
-/// Every corpus file (a gzipped one decompressed first, as the oracle harness does): loads or
+/// Every selected corpus file (a gzipped one decompressed first): loads or
 /// is refused with a reason; no part is rebuilt or degraded; a part whose file holds more than
 /// one instance of it or other parts beside it carries its first instance's unresolved lists
 /// (`check_own`). Which parts have unresolved faces or edges is printed.
@@ -605,42 +605,23 @@ fn corpus_parts_and_their_unresolved_faces() {
         eprintln!("skipped: corpus not present");
         return;
     };
-    let mut files = Vec::new();
-    let mut stack = vec![root.clone()];
-    while let Some(dir) = stack.pop() {
-        for entry in std::fs::read_dir(&dir).unwrap() {
-            let path = entry.unwrap().path();
-            let name = path.to_string_lossy();
-            if path.is_dir() {
-                stack.push(path);
-            } else if [".step", ".stp", ".step.gz", ".stp.gz"]
-                .iter()
-                .any(|e| name.ends_with(e))
-            {
-                files.push(path);
-            }
-        }
-    }
+    let mut files: Vec<_> = common::cases()
+        .iter()
+        .filter(|c| c.kind() == "corpus")
+        .filter_map(|c| c.input())
+        .collect();
     files.sort();
-    let scratch = Path::new(env!("CARGO_TARGET_TMPDIR")).join("part-corpus");
-    std::fs::create_dir_all(&scratch).unwrap();
+    files.dedup();
     let (mut loaded, mut refused) = (0, 0);
     for file in &files {
-        let name = file.strip_prefix(&root).unwrap().display().to_string();
-        let path = if name.ends_with(".gz") {
-            let mut text = Vec::new();
-            std::io::Read::read_to_end(
-                &mut flate2::read::GzDecoder::new(std::fs::File::open(file).unwrap()),
-                &mut text,
-            )
-            .unwrap();
-            let out = scratch.join(name.replace('/', "_").trim_end_matches(".gz"));
-            std::fs::write(&out, text).unwrap();
-            out
-        } else {
-            file.clone()
-        };
-        let parts = match part::load_all(&path) {
+        let name = file
+            .strip_prefix(&root)
+            .unwrap_or(file)
+            .display()
+            .to_string();
+        // Case::input already verifies hashes and decompresses once through the harness.
+        let path = file.as_path();
+        let parts = match part::load_all(path) {
             Ok(parts) => parts,
             Err(e) => {
                 eprintln!("refused  {name}: {e}");
@@ -653,11 +634,11 @@ fn corpus_parts_and_their_unresolved_faces() {
         let whole = parts
             .iter()
             .any(assembled)
-            .then(|| haecceity::read_step(&std::fs::read(&path).unwrap()).unwrap());
+            .then(|| haecceity::read_step(&std::fs::read(path).unwrap()).unwrap());
         for lp in &parts {
             assert!(!lp.rebuilt, "{name} part {}", lp.binding.part);
             match &whole {
-                Some(whole) if assembled(lp) => check_own(&path, lp, whole),
+                Some(whole) if assembled(lp) => check_own(path, lp, whole),
                 _ => assert!(lp.part.face_source(0).is_some() && lp.degraded().is_none()),
             }
             if !lp.unresolved_faces.is_empty() || !lp.unresolved_edges.is_empty() {

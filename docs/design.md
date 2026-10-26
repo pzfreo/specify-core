@@ -87,7 +87,7 @@ the resume correspondence rule below handles feature-ID changes.
 ## Dependency plan
 
 - `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity-rust`,
-  pinned to tag `v0.2.0-alpha.2` in both manifests and Cargo.lock.
+  pinned to tag `v0.2.1-alpha.1` (`7291435`) in both manifests and Cargo.lock.
   Update only these packages with `cargo update -p quiddity -p haecceity`, then run
   the named local profile below and the full suite in CI, and rejudge any departures from the frozen Python captures with
   independent evidence. `correspondence::recognise` returns published file-coordinate records (#92);
@@ -303,6 +303,11 @@ Axis/coordinate consumer audit (native and `crates/specify-core-wasm/src`):
   (including mixed letter/vector axes) mean `origin + distance * direction`.
   Missing/invalid axes or origins return `FeatureError::Records`, never omit an end plane.
   Derived `end_direction`, `end_lo`, `end_hi` are also in file coordinates.
+  With #100/#91 end-wall claims, `features::refine_owned_end_planes` selects unique
+  parallel planes from the feature's own faces near those ends and uses their native
+  normals/origins. This avoids both legacy position snapping and sampled prismatic-section
+  direction error. Unclaimed or ambiguous ends retain the published-record fallback;
+  no plane is borrowed from another feature.
 - `rules::datums::recess_planes` uses those published end planes, including when reading
   older analysis JSON without derived fields. Blind-hole floors use file `axis`, `location`
   and scalar `depth`. Both letter and vector axes are accepted. End-plane comparisons allow
@@ -630,7 +635,7 @@ in [upstream-needs.md](upstream-needs.md)) and the parts each affects in the ora
 | Need | Stand-in | Affects in the oracle |
 |---|---|---|
 | U1 part of an assembly in its own frame | None: met at quiddity-rust 0d601d2 (`StepFile::part`); the stand-in is gone | The 5 parts of `parts/assembly` and `parts/stack` are haecceity's own `Part`s, checked against their first instance in the whole read (`tests/part.rs`, `parts_of_assemblies_carry_their_instances_unresolved_lists`) |
-| U2 constituent faces, pattern members | Defining faces; members matched to hole records by equality | Every analysis: feature ids differ from Python's (the cascade, `cli.json`); seven `rust-wrong` patterns in `features.json` (floors, drill points, boss ends, an angled step's plane, pattern members) |
+| U2 constituent faces, pattern members | Defining faces; members matched to hole records by equality | Feature ids can still differ from Python's (the cascade, `cli.json`); remaining constituent-face and member-link departures are in `features.json`. #100 now claims drill-point cones, rectangular slot end walls and proved polygonal-boss free-end caps |
 | U3 notes and surface finish | None: met at 10884b8, written in standard forms | specify-core does not read the surface texture (`cross_engine.json`, rust-correct) |
 | U4 face triangulation | `triangulate.rs` (constrained Delaunay in parameter space, `spade`) | Every mesh; faces listed in `missing`: cgb202 face 399 (U13), the zero-area thread end faces of `threaded_connector_109` and cgb242 face 483, and `inventory_refusal/14052` face 1 (a hole crossing its outer loop) (`mesh.json`) |
 | U5 overlap area of coplanar faces | Polygon intersection of the faces' loops (`i_overlay`), arcs resampled exactly | Contacts of every assembly part: the 18 multi-part parts the mates sweep compares; equal to Python's 3 decimals on `parts/stack` |

@@ -275,6 +275,10 @@ fn rules_match_the_oracle() {
     );
     let snapshot = common::fixtures().join("rule_defaults_oracle.json.gz");
     if std::env::var_os("UPDATE_RULE_DEFAULTS").is_some() {
+        assert!(
+            common::all_corpus(),
+            "regenerate with SPECIFY_CORPUS_ALL=1 to retain unselected expectations"
+        );
         use std::io::Write;
         let file = std::fs::File::create(&snapshot).unwrap();
         let mut gz = flate2::GzBuilder::new()
@@ -284,8 +288,16 @@ fn rules_match_the_oracle() {
             .unwrap();
         gz.finish().unwrap();
     }
+    let expected = common::read_json_gz(&snapshot);
+    let expected: Vec<_> = expected
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|v| common::case_selected(v["case"].as_str().unwrap()))
+        .cloned()
+        .collect();
     assert_eq!(
-        common::read_json_gz(&snapshot),
+        json!(expected),
         departures,
         "review rule default oracle departures"
     );

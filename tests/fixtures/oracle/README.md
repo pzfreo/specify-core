@@ -19,6 +19,16 @@ A capture is reproducible: run again, only each `meta.json`'s `captured` date ch
 
 ## Cases
 
+CI uses the named corpus subset in `tests/common/corpus.rs`; synthetic and committed NIST
+fixtures always run. `SPECIFY_CORPUS_ALL=1` enables all captured corpus inputs locally.
+`QUIDDITY_CORPUS_REQUIRED=1` requires the selected files. Unselected captures and ledger
+entries remain committed; stale checks and exact departure snapshots use only selected
+cases. Unknown differences and returning resolved differences still fail. CLI/library
+composition uses its own named wrapper cases in `tests/cli.rs`.
+Base corpus writes run through the library writer oracle; CLI base writes use committed
+fixtures, with corpus base writes restored by `SPECIFY_CORPUS_ALL=1`. Selected corpus CLI
+questions and every scenario/transcript still run by default.
+
 One directory per case, every artifact gzipped JSON (`<name>.json.gz`, keys in Python's order):
 
 | Case | Input |
@@ -100,7 +110,7 @@ the write report and `readback` (as above).
 Rust's intentional rule departures are expected outputs in
 `../rule_defaults_oracle.json.gz` (formerly `turned_defaults_oracle.json.gz`): each entry
 pins the case, JSON path, captured Python value and expected Rust value, checked before the
-known-difference verdicts. Regenerate with `UPDATE_RULE_DEFAULTS=1 cargo test --release
+known-difference verdicts. Regenerate with `SPECIFY_CORPUS_ALL=1 UPDATE_RULE_DEFAULTS=1 cargo test --release
 --test rules_oracle rules_match_the_oracle` and review the values. In particular,
 `locating_plus_minus_needs_no_positions_or_datums` now expects A/B/C in Rust without
 positions or FCFs, and `rules_datums_proposed_only_when_measured_from` expects the default
@@ -108,7 +118,7 @@ frame even with every hole set to general. Their `.result.json.gz` files retain 
 original no-datum outputs as evidence. CLI/serve envelopes (including complete `--intent`
 text and refusal messages) are pinned separately in `../cli_datum_origins.json.gz`, with
 verdicts in `../known_differences/cli.json`. Regenerate with
-`UPDATE_CLI_DATUM_ORIGINS=1 cargo test --release --test cli the_command_line_matches_the_oracle`;
+`SPECIFY_CORPUS_ALL=1 UPDATE_CLI_DATUM_ORIGINS=1 cargo test --release --test cli the_command_line_matches_the_oracle`;
 set `QUIDDITY_CORPUS` to include corpus cases. Regeneration without a corpus retains their
 existing snapshot entries. The independent library/executable comparison must be empty.
 

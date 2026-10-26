@@ -9,7 +9,7 @@
 //! - Features come from quiddity-rust (`quiddity::correspondence::recognise`, framed
 //!   records converted/labelled at this boundary), not Python quiddity's evidence view. A feature's faces are its
 //!   *defining* faces (the published recognition document), not its constituent faces (upstream need U2): a
-//!   blind hole is its bore, without its floor, so ids for the same feature can differ between
+//!   flat-bottomed blind hole can omit its floor (drill-point tips are now claimed), so ids can differ between
 //!   the engines. The families are quiddity-rust's: Python's cross-family reconciliation
 //!   (`step_levels`, `bosses` dropped on turned parts) is not there.
 //! - A pattern's member holes are found among the hole records by equality, the first not yet
@@ -251,7 +251,7 @@ pub fn recognise_from(
                 family_ids.push(None);
                 continue;
             }
-            let feature = Feature {
+            let mut feature = Feature {
                 id: feature_id(family, &faces),
                 family: family.clone(),
                 record: published_record(family, object(family, record)?)?,
@@ -259,6 +259,7 @@ pub fn recognise_from(
                 members: Vec::new(),
                 notes: Vec::new(),
             };
+            refine_owned_end_planes(loaded, &mut feature)?;
             family_ids.push(Some(feature.id.clone()));
             features.push(feature);
         }
@@ -432,6 +433,63 @@ fn published_record(
         record.insert("end_hi".into(), serde_json::json!(hi));
     }
     Ok(record)
+}
+
+/// Published file-axis slot coordinates retain a 0.01-mm grid. When recognition claims
+/// the end walls (quiddity #100 and #91), use their actual planes, including walls owned
+/// by the slot itself. Converted records and slots without planar end walls retain the
+/// published-record fallback above; no search can borrow another feature's wall.
+fn refine_owned_end_planes(loaded: &LoadedPart, feature: &mut Feature) -> Result<(), FeatureError> {
+    let Some((direction, ends)) = end_planes(&feature.family, &feature.record)? else {
+        return Ok(());
+    };
+    let mut walls = Vec::new();
+    for end in ends {
+        let planes: Vec<_> = feature
+            .faces
+            .iter()
+            .filter_map(|&id| {
+                let Surface::Plane { frame } = &loaded.part.faces[id].surface else {
+                    return None;
+                };
+                if haecceity::geom::dot(frame.z, direction).abs() < 0.999999 {
+                    return None;
+                }
+                let offset = haecceity::geom::dot(
+                    std::array::from_fn(|i| frame.origin[i] - end[i]),
+                    direction,
+                );
+                // Half a publication grid step, plus the existing geometry floor.
+                (offset.abs() <= 0.005001).then_some(frame)
+            })
+            .collect();
+        let [wall] = planes.as_slice() else {
+            // Unproved/ambiguous ownership: keep the published end plane.
+            return Ok(());
+        };
+        walls.push(*wall);
+    }
+    if haecceity::geom::dot(walls[0].z, walls[1].z).abs() < 1.0 - 1e-9 {
+        return Ok(());
+    }
+    // A converted prismatic section's sampled direction can differ slightly from the
+    // native wall normal. Publish the native plane, not a point projected on that sample.
+    let sign = if haecceity::geom::dot(walls[0].z, direction) < 0.0 {
+        -1.0
+    } else {
+        1.0
+    };
+    let direction = walls[0].z.map(|x| sign * x);
+    feature
+        .record
+        .insert("end_direction".into(), serde_json::json!(direction));
+    feature
+        .record
+        .insert("end_lo".into(), serde_json::json!(walls[0].origin));
+    feature
+        .record
+        .insert("end_hi".into(), serde_json::json!(walls[1].origin));
+    Ok(())
 }
 
 /// A record as a JSON object, or a refusal naming the family.

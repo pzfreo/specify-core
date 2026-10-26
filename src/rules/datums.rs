@@ -342,7 +342,7 @@ pub(crate) fn defaults_with(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> Resu
 }
 
 /// A recess's defining faces and end walls are poor axial stops. The recogniser's slot
-/// faces describe the sides only; its long-axis interval identifies the omitted end walls.
+/// faces may include its end walls; its long-axis interval also identifies omitted ends.
 /// Also exclude blind-hole bottoms even when the recogniser lists only their bores.
 fn recess_planes(ctx: &Ctx<'_>) -> Result<HashSet<i64>> {
     let mut ids = HashSet::new();
