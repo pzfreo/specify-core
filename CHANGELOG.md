@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.0-alpha.9 (2026-10-26)
+
 ### Added
 
 - The `specify-core` command line for Linux (x86_64), macOS (Apple Silicon) and Windows
