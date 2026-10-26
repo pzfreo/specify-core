@@ -296,29 +296,88 @@ fn extras_work_with_atomic_plain_and_gzip_destinations() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// #2: extras on one part of an assembly (the plate, then the pin placed twice) are written on
+/// that part's product definition, by all four writers alike, and verified: the file re-read
+/// has them on that part only, its answers resume, and the other part is as it was. Several
+/// parts written together with extras are refused (the extras would have no one owner), and an
+/// empty slice is still the plain writer's.
 #[test]
-fn assembly_extras_are_refused_even_when_only_one_part_is_written() {
-    let loaded = part::load(&fixture("assembly"), Some(0)).unwrap();
-    let answers = answers("steel");
-    let intent = preview_intent(&loaded, &answers);
+fn extras_are_written_on_a_part_of_an_assembly() {
+    let file = part::File::read(&fixture("assembly")).unwrap();
+    let original = std::fs::read(fixture("assembly")).unwrap();
+    let parts = file.load_all().unwrap();
+    let given: Vec<Map<String, Value>> = ["steel", "brass"]
+        .iter()
+        .map(|m| json!({ "part.material": m }).as_object().unwrap().clone())
+        .collect();
+    let intents: Vec<Intent> = parts
+        .iter()
+        .zip(&given)
+        .map(|(loaded, answers)| preview_intent(loaded, answers))
+        .collect();
     let extra = [project(1)];
-    let jobs = [(&loaded, &intent, Some(&answers))];
     let dir = temp("assembly");
-    let output = dir.join("refused.step.gz");
+    for k in [0, 1] {
+        let (loaded, intent, answers) = (&parts[k], &intents[k], Some(&given[k]));
+        let jobs = [(loaded, intent, answers)];
+        let (bytes, report) = writer::write_bytes_with(loaded, intent, answers, &extra).unwrap();
+        assert!(!report.written.is_empty());
+        assert_eq!(
+            writer::write_parts_bytes_with(&jobs, &extra).unwrap(),
+            (bytes.clone(), report.clone())
+        );
+        for name in ["out.step", "out.step.gz"] {
+            let output = dir.join(name);
+            writer::write_with(loaded, intent, &output, answers, &extra).unwrap();
+            assert_eq!(&*part::load(&output, Some(k)).unwrap().bytes, &bytes);
+            writer::write_parts_with(&jobs, &output, &extra).unwrap();
+            assert_eq!(&*part::load(&output, Some(k)).unwrap().bytes, &bytes);
+        }
+        let defs = read_part_definitions(&bytes).unwrap();
+        let doc = Document::parse(bytes.clone()).unwrap();
+        let read = pmi::read(&doc, &defs).unwrap().parts;
+        assert_attribute(&read[k], &extra[0]);
+        assert_eq!(
+            read[1 - k],
+            PartPmi::default(),
+            "the other part is untouched"
+        );
+        let back = part::File::of_bytes(Path::new("written.step"), bytes.clone()).unwrap();
+        assert_eq!(
+            resume::answers_for(&back.load(Some(k)).unwrap()).unwrap(),
+            Some(given[k].clone())
+        );
+        assert_eq!(
+            back.parts()[1].instances,
+            2,
+            "the pin keeps both placements"
+        );
+        // Without extras, the in-memory single-part writer now takes a part of an assembly too.
+        assert_eq!(
+            writer::write_bytes(loaded, intent, answers).unwrap(),
+            writer::write_parts_bytes(&jobs).unwrap()
+        );
+        assert_eq!(
+            writer::write_parts_bytes_with(&jobs, &[]).unwrap(),
+            writer::write_parts_bytes(&jobs).unwrap()
+        );
+    }
+    assert_eq!(std::fs::read(fixture("assembly")).unwrap(), original);
+
+    let both = [
+        (&parts[0], &intents[0], Some(&given[0])),
+        (&parts[1], &intents[1], Some(&given[1])),
+    ];
+    let output = dir.join("refused.step");
     for err in [
-        writer::write_bytes_with(&loaded, &intent, Some(&answers), &extra).unwrap_err(),
-        writer::write_parts_bytes_with(&jobs, &extra).unwrap_err(),
-        writer::write_with(&loaded, &intent, &output, Some(&answers), &extra).unwrap_err(),
-        writer::write_parts_with(&jobs, &output, &extra).unwrap_err(),
+        writer::write_parts_bytes_with(&both, &extra).unwrap_err(),
+        writer::write_parts_with(&both, &output, &extra).unwrap_err(),
     ] {
         assert!(matches!(err, WriteError::Invalid(_)), "{err}");
-        assert!(err.to_string().contains("file of one part"), "{err}");
+        assert!(err.to_string().contains("one part"), "{err}");
     }
     assert!(!output.exists());
-    assert_eq!(
-        writer::write_parts_bytes_with(&jobs, &[]).unwrap(),
-        writer::write_parts_bytes(&jobs).unwrap()
-    );
+    assert!(writer::write_parts_bytes_with(&both, &[]).is_ok());
     assert!(matches!(
         writer::write_parts_bytes_with(&[], &extra),
         Err(WriteError::Invalid(_))

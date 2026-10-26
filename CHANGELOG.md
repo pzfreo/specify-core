@@ -20,6 +20,31 @@ All notable changes to specify-core-rust. The format follows
   check (carried to a feature quiddity reports changed), new questions and new review problems,
   as JSON and as Markdown for a pull request comment, and `model.png` draws the new part
   coloured by what changed. A Rust-only command, left out of the Python-parity top-level help.
+- For #2, `api::parts_of(file)` lists a `part::File`'s parts as `api::parts` lists a path's
+  (`api::parts` now goes through it), and `carried::part_payload(bytes, part, name)` reads a
+  payload written on one part of an assembly.
+
+### Changed
+
+- For #2, `writer::write_bytes` and `write_bytes_with` take a part of an assembly (from
+  `part::File::load`), as `write_parts_bytes` does: the other parts, their placements, PMI and
+  stored answers are kept. They no longer refuse a `LoadedPart` whose `part_count` is not 1.
+- For #2, extra attributes (`write_bytes_with`, `write_with`, `write_parts_with`,
+  `write_parts_bytes_with`) are written on one part of an assembly, on its product definition,
+  and verified like the rest. Several parts written together with extras are refused
+  (`extra attributes are written on one part: write one part of an assembly at a time`), no
+  longer every assembly.
+
+### WASM API
+
+- For #2, add static `IntentEngine.parts(name: string, bytes: Uint8Array): string` and
+  `IntentEngine.openPart(name: string, bytes: Uint8Array, part: number): IntentEngine` (Rust:
+  `session::Session::{parts, open_part}`). An assembly's part, or a part placed more than
+  once, opens; its `writePmi` writes that part into the original file, keeping every other part
+  and placement byte for byte, and `payload` reads the payload on that part. The constructor
+  is unchanged for a file of one part used once and still refuses other files, its messages
+  now naming `openPart`. `snapshot().provenance.part` is the part opened (0, as before, from
+  the constructor). Existing calls are unchanged.
 
 ## 0.1.0-alpha.8 (2026-10-25)
 

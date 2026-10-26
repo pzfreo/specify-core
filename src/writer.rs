@@ -59,8 +59,8 @@
 //! existing file keeps its permissions, and any failure leaves the destination and the source
 //! as they were.
 //!
-//! **In memory.** [`write_bytes`] (one part of a file of one part) and [`write_parts_bytes`]
-//! (any parts of one file, an assembly's included) are the same write for a caller with no
+//! **In memory.** [`write_bytes`] (one part, of a file of one part or of an assembly) and
+//! [`write_parts_bytes`] (any parts of one file, an assembly's included) are the same write for a caller with no
 //! filesystem (the editor's browser build): the bytes are returned rather than staged, after the
 //! same verification of what was written. The file's other parts, where the writer consults
 //! them, are loaded from the parts' bytes, never from a path. An unchanged resumed write
@@ -70,7 +70,9 @@
 //! **Caller attributes.** [`write_bytes_with`] and [`write_parts_bytes_with`] accept extra
 //! [`AttributeSet`]s, written as given and verified in the same edit as the PMI and stored
 //! answers. [`write_with`] and [`write_parts_with`] do the same for a destination, including
-//! `.gz`. Nonempty extras require a file of one part. The stored-answers name ([`resume::NAME`])
+//! `.gz`. Nonempty extras are written on one part, the one job's (a file of one part, or one
+//! part of an assembly, on that part's product definition); a write of several parts of an
+//! assembly with extras is refused. The stored-answers name ([`resume::NAME`])
 //! is reserved for both set and item names, since resume reads items by name. Extras follow
 //! the usual write mode: on a resumed part replace removes the previous attributes along with
 //! the previous PMI and answers, so supply every extra wanted in the new write; add leaves
@@ -222,7 +224,8 @@ pub fn write_parts(jobs: &[Job<'_>], output: &Path) -> Result<WriteReport, Write
 }
 
 /// [`write_parts`] with caller attributes, following [`write_bytes_with`]'s rules. Nonempty
-/// extras require a file of one part, even when only one assembly part is being written.
+/// extras are written on the one part written: several parts written together with extras are
+/// refused.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn write_parts_with(
     jobs: &[Job<'_>],
@@ -292,9 +295,9 @@ fn gzip(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
 /// [`write`] in memory: `loaded` (from [`part::load_bytes`] or [`part::load`]) with `intent`
 /// added as AP242, verified by reading back as [`write`] verifies its file, and returned as the
 /// file's bytes with the report. The bytes are those [`write`] would put in its destination;
-/// the report's `output` is `loaded.path`, there being no destination. Single part: a part of
-/// a file of several is refused here, as before; [`write_parts_bytes`] (or `api::write_bytes`)
-/// writes one.
+/// the report's `output` is `loaded.path`, there being no destination. `loaded` may be a part
+/// of an assembly (from [`part::File::load`]): it is written as [`write_parts_bytes`] writes it
+/// alone, the file's other parts, their placements, PMI and stored answers kept as they were.
 pub fn write_bytes(
     loaded: &LoadedPart,
     intent: &Intent,
@@ -310,24 +313,15 @@ pub fn write_bytes(
 /// Extras follow the usual replace/add mode: replacing a resumed part removes its old extras,
 /// as it removes its old answers; pass every extra wanted in this write. Adding to foreign
 /// PMI leaves its existing attributes alone. No attribute is merged or updated by name.
-/// An empty slice is byte-identical to [`write_bytes`].
+/// An empty slice is byte-identical to [`write_bytes`]. For a part of an assembly the extras
+/// are written on that part's product definition, as its PMI is.
 pub fn write_bytes_with(
     loaded: &LoadedPart,
     intent: &Intent,
     answers: Option<&Map<String, Json>>,
     extra: &[AttributeSet],
 ) -> Result<(Vec<u8>, WriteReport), WriteError> {
-    if loaded.part_count != 1 {
-        return invalid(format!(
-            "{} has {} parts; writing in memory takes a file of one part",
-            loaded.path.display(),
-            loaded.part_count
-        ));
-    }
-    check_binding(loaded, intent)?;
-    let jobs = [(loaded, intent, answers)];
-    check_extra(&jobs, extra)?;
-    write_verified(&jobs, extra)
+    write_parts_bytes_with(&[(loaded, intent, answers)], extra)
 }
 
 /// [`write_parts`] in memory: each part of one file with its intent, all in one edit, verified by
@@ -341,8 +335,9 @@ pub fn write_parts_bytes(jobs: &[Job<'_>]) -> Result<(Vec<u8>, WriteReport), Wri
 }
 
 /// [`write_parts_bytes`] with caller attributes, following [`write_bytes_with`]'s rules.
-/// Nonempty extras require a file of one part, even when only one assembly part is being
-/// written. With an empty slice, assemblies work as in [`write_parts_bytes`].
+/// Nonempty extras are written on the one part written (of a file of one part or of an
+/// assembly); several parts written together with extras are refused. With an empty slice,
+/// assemblies work as in [`write_parts_bytes`].
 pub fn write_parts_bytes_with(
     jobs: &[Job<'_>],
     extra: &[AttributeSet],
@@ -353,6 +348,7 @@ pub fn write_parts_bytes_with(
 }
 
 /// Reserve both names: resume reads descriptive items by name, independently of their set.
+/// Extras are the one written part's: with several parts written they would have no one owner.
 fn check_extra(jobs: &[Job<'_>], extra: &[AttributeSet]) -> Result<(), WriteError> {
     if extra.iter().any(|set| {
         set.name == resume::NAME || set.items.iter().any(|(name, _)| name == resume::NAME)
@@ -362,9 +358,9 @@ fn check_extra(jobs: &[Job<'_>], extra: &[AttributeSet]) -> Result<(), WriteErro
             resume::NAME
         ));
     }
-    if !extra.is_empty() && jobs.first().is_none_or(|job| job.0.part_count != 1) {
+    if !extra.is_empty() && jobs.len() != 1 {
         return invalid(
-            "extra attributes require a file of one part; assemblies are not supported",
+            "extra attributes are written on one part: write one part of an assembly at a time",
         );
     }
     Ok(())
@@ -506,7 +502,7 @@ impl Source {
 
     /// Whether the part has PMI other than stored answers.
     fn has_pmi(&self, part: usize) -> bool {
-        // WASM sessions bind part 0 of one-part bytes; Source::of verifies the reader's part count.
+        // Every job's part was checked against these bytes' parts; Source::of verifies the reader's part count.
         let mut p = self.read.parts[part].clone();
         p.attributes.retain(|a| !resume::is_answers(a));
         p != PartPmi::default()
@@ -603,7 +599,7 @@ fn write_verified(
 
     let mut planned = Vec::new();
     for (&(loaded, intent, answers), &mode) in jobs.iter().zip(&modes) {
-        // The session binding comes from these same one-part bytes; Source::of verifies reader counts.
+        // The binding was checked against these same bytes' parts; Source::of verifies reader counts.
         let before = &source.read.parts[loaded.binding.part];
         let (mut pmi, lines) = part_pmi(intent, before, mode)?;
         let payload = match answers {

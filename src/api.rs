@@ -108,19 +108,23 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// are reported beside it and need not be unique.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn parts(step: &Path) -> Result<Vec<Value>> {
-    let file = part::File::read(step)?;
+    Ok(parts_of(&part::File::read(step)?))
+}
+
+/// [`parts`] of a file already read (from a path or from bytes held in memory, as the browser
+/// session lists an assembly's parts).
+pub fn parts_of(file: &part::File) -> Vec<Value> {
     let stored = resume::stored(file.bytes());
-    Ok(file
-        .parts()
+    file.parts()
         .into_iter()
         .map(|p| {
             let written = stored.contains_key(&p.part);
-            // PartSummary contains only JSON-serializable fields with string keys (native-only API).
+            // PartSummary contains only JSON-serializable fields with string keys.
             let mut value = serde_json::to_value(p).expect("a part summary serialises");
             value["written"] = Value::Bool(written);
             value
         })
-        .collect())
+        .collect()
 }
 
 /// The analysis of the `part`-th part of `step` (any part of a file of one part; a file of

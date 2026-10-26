@@ -231,3 +231,36 @@ SHAPE_REPRESENTATION_RELATIONSHIP() );
 #504 = NEXT_ASSEMBLY_USAGE_OCCURRENCE('2','plate','',#5,#27,$);
 ENDSEC;\nEND-ISO`);
 throwsString(() => new IntentEngine('twice.step', Buffer.from(twice)), /one instance/);
+// #2: an assembly's parts are listed, one is opened and written into the original file, and
+// the other part does not see its project; a part placed twice opens as part 0.
+{
+  const bytes = readFileSync(new URL('tests/fixtures/parts/assembly.step', root));
+  const brass = JSON.stringify({ 'part.material': 'brass' });
+  const listed = JSON.parse(IntentEngine.parts('assembly.step', bytes));
+  assert.deepEqual(listed.map(p => [p.part, p.name, p.instances, p.written]), [[0, 'plate', 1, false], [1, 'pin', 2, false]]);
+  throwsString(() => IntentEngine.openPart('assembly.step', bytes, 2), /there is no part 2/);
+  let written;
+  const pin = IntentEngine.openPart('assembly.step', bytes, 1);
+  try {
+    assert.equal(JSON.parse(pin.snapshot()).provenance.part, 1);
+    written = Buffer.from(JSON.parse(pin.writePmi(brass, project)).bytes);
+  } finally { pin.free(); }
+  assert.deepEqual(JSON.parse(IntentEngine.parts('assembly.step', written)).map(p => p.written), [false, true]);
+  const plate = IntentEngine.openPart('assembly.step', written, 0);
+  try {
+    assert.equal(plate.payload('draftwright editor project'), undefined);
+    assert.deepEqual(Buffer.from(plate.original()), bytes);
+  } finally { plate.free(); }
+  const reopened = IntentEngine.openPart('assembly.step', written, 1);
+  try {
+    assert.deepEqual(JSON.parse(reopened.snapshot()).analysis.resume.answers, JSON.parse(brass));
+    assert.deepEqual(JSON.parse(reopened.payload('draftwright editor project')), { revision: 1, drawing: 'front' });
+  } finally { reopened.free(); }
+  const placedTwice = IntentEngine.openPart('twice.step', Buffer.from(twice), 0);
+  try {
+    assert.equal(JSON.parse(IntentEngine.parts('twice.step', Buffer.from(twice)))[0].instances, 2);
+    const out = Buffer.from(JSON.parse(placedTwice.writePmi(JSON.stringify({ 'part.material': 'steel' }))).bytes);
+    assert.equal(JSON.parse(IntentEngine.parts('twice.step', out))[0].written, true);
+  } finally { placedTwice.free(); }
+}
+console.log('assemblies: parts listed, a part opened, written into the original file and reopened');

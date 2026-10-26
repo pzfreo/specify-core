@@ -53,7 +53,8 @@ Rust 1.99 (`rust-toolchain.toml`).
 
 The workspace also builds **`specify-core-wasm`**, a browser ES module with TypeScript
 bindings. Published `v*` releases attach `specify-core-wasm-<version>.tgz` (containing `pkg/`)
-and a SHA-256 checksum; there is no npm publication. Its `IntentEngine` opens STEP bytes,
+and a SHA-256 checksum; there is no npm publication. Its `IntentEngine` opens STEP bytes
+(a part of an assembly with `IntentEngine.parts` and `IntentEngine.openPart`),
 returns JSON snapshots/reviews and writes verified PMI with an optional embedded editor
 project or named application payload, which it reads back with the original part. It also
 re-matches answers saved outside the STEP (`rematchAnswers`). `IntentEngine.acceptDefaults` explicitly accepts all suggested defaults as editable
@@ -159,8 +160,9 @@ let extra = AttributeSet {
 let (bytes, report) = writer::write_bytes_with(&loaded, &intent, Some(&answers), &[extra])?;
 ```
 
-Nonempty extras require a file of one part; an assembly is refused even if only one of its
-parts is being written. A set or item named `pmi-assist answers` is refused because that name
+Nonempty extras are written on the one part written: a file of one part, or one part of an
+assembly (on that part's product definition, its other parts kept byte for byte); several parts
+of an assembly written together with extras are refused. A set or item named `pmi-assist answers` is refused because that name
 is reserved for resume. Names, owners and values pass through to haecceity; its read-only
 `description` and `general_property` metadata follow its normal writer rules. Extras follow
 the usual write mode: replacing a resumed part replaces its previous extras along with its PMI

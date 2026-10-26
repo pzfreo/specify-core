@@ -5,10 +5,22 @@ use sha2::{Digest, Sha256};
 use specify_core::{
     api, carried,
     features::Feature,
-    part::{Binding, LOADER_VERSION, LoadedPart},
+    part::{self, Binding, LOADER_VERSION, LoadedPart},
     resume, tolerancing,
 };
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+
+fn check_input(name: &str, bytes: &[u8]) -> Result<(), String> {
+    input::size("STEP input", bytes.len(), input::STEP_LIMIT).map_err(|e| e.to_string())?;
+    input::size("Input name", name.len(), input::TEXT_LIMIT).map_err(|e| e.to_string())?;
+    if bytes.starts_with(&[0x1f, 0x8b]) {
+        return Err("Decompress the STEP file before opening it.".into());
+    }
+    Ok(())
+}
 
 pub struct Session {
     loaded: LoadedPart,
@@ -16,28 +28,62 @@ pub struct Session {
 }
 
 impl Session {
+    /// Opens a file of one part used once. A file of several parts, or of one part placed more
+    /// than once, is refused: list its parts with [`Session::parts`] and open one with
+    /// [`Session::open_part`].
     pub fn open(name: &str, bytes: &[u8]) -> Result<Self, String> {
-        input::size("STEP input", bytes.len(), input::STEP_LIMIT).map_err(|e| e.to_string())?;
-        input::size("Input name", name.len(), input::TEXT_LIMIT).map_err(|e| e.to_string())?;
-        if bytes.starts_with(&[0x1f, 0x8b]) {
-            return Err("Decompress the STEP file before opening it.".into());
-        }
-        let definitions = step::read_part_definitions(bytes).map_err(|error| error.to_string())?;
-        if definitions.len() != 1 {
-            return Err(format!(
-                "Specify browser loading currently requires one distinct part; found {}. Assembly selection is not available yet.",
-                definitions.len()
-            ));
-        }
-        let definition = definitions.into_iter().next().ok_or_else(||
-            "Specify browser loading currently requires one distinct part; found 0. Assembly selection is not available yet.".to_string())?;
-        if definition.placements.len() != 1 {
-            return Err(
-                "Specify browser loading currently requires one instance of the part.".into(),
-            );
-        }
-        // The length check above proves this is the sole placement.
-        let placement = definition.placements[0].placement;
+        Self::load(name, bytes, None)
+    }
+
+    /// Opens part `part` (an index from [`Session::parts`]) of any file, an assembly's or one
+    /// part's placed several times included, as the command line's `--part` does: the part is
+    /// analysed in its own frame, the file's other parts consulted for its mates, and
+    /// [`Session::write_pmi`] writes it into the original file, keeping every other part and
+    /// placement as it was (decision D3). Part 0 of a file of one part used once opens as
+    /// [`Session::open`] opens it.
+    pub fn open_part(name: &str, bytes: &[u8], part: usize) -> Result<Self, String> {
+        Self::load(name, bytes, Some(part))
+    }
+
+    /// The distinct parts of the file, as `specify-core parts` lists them (`api::parts`):
+    /// `[{part, name, product_id, faces, instances, placements, written}]`.
+    pub fn parts(name: &str, bytes: &[u8]) -> Result<Value, String> {
+        check_input(name, bytes)?;
+        let file = part::File::of_bytes(Path::new(name), bytes.to_vec())
+            .map_err(|error| error.to_string())?;
+        Ok(Value::Array(api::parts_of(&file)))
+    }
+
+    fn load(name: &str, bytes: &[u8], chosen: Option<usize>) -> Result<Self, String> {
+        check_input(name, bytes)?;
+        let mut definitions =
+            step::read_part_definitions(bytes).map_err(|error| error.to_string())?;
+        let part_count = definitions.len();
+        let index = match chosen {
+            None => {
+                if part_count != 1 {
+                    return Err(format!(
+                        "Specify browser loading without a part chosen requires one distinct part; found {part_count}. List the parts with parts() and open one with openPart()."
+                    ));
+                }
+                // The length check above proves this is the sole definition.
+                if definitions[0].placements.len() != 1 {
+                    return Err(
+                        "Specify browser loading without a part chosen requires one instance of the part. Open it with openPart(name, bytes, 0)."
+                            .into(),
+                    );
+                }
+                0
+            }
+            Some(index) if index < part_count => index,
+            Some(index) => {
+                return Err(format!(
+                    "{name} has {part_count} part(s); there is no part {index}"
+                ));
+            }
+        };
+        let definition = definitions.swap_remove(index);
+        let placements = definition.placements.iter().map(|p| p.placement).collect();
         // The kernel owns the part/frame/source mapping; refuse any ordered-face mismatch.
         let part = step::read_part(bytes, &definition).map_err(|error| error.to_string())?;
         if part.faces.len() != definition.faces.len()
@@ -60,24 +106,33 @@ impl Session {
                     .collect(),
                 face_count: part.faces.len(),
                 loader_version: LOADER_VERSION,
-                part: 0,
+                part: index,
             },
             unresolved_faces: part.unresolved_faces().to_vec(),
             unresolved_edges: part.unresolved_edges().to_vec(),
             part,
+            // A file of one part used once keeps the name `open` has always given it (the file's);
+            // any other part, a part placed twice included, is named as `part::File::load` names
+            // it (its product definition's). The name only prefixes report lines of several parts
+            // written together, so neither choice changes a session's output.
+            name: if part_count == 1 && definition.placements.len() == 1 {
+                name.into()
+            } else {
+                definition.name.clone()
+            },
             definition,
-            part_count: 1,
-            name: name.into(),
-            placements: vec![placement],
+            part_count,
+            placements,
             rebuilt: false,
         };
+        // A part of an assembly is analysed with the file's other parts, read from these bytes.
         let analysis = api::analyse(&loaded).map_err(|error| error.to_string())?;
         Ok(Self { loaded, analysis })
     }
 
     pub fn snapshot(&self) -> Value {
         json!({"analysis": self.analysis, "mesh": api::mesh(&self.loaded),
-            "provenance": {"source_sha256": self.loaded.binding.source_sha256, "face_entities": self.loaded.definition.faces, "part": 0}})
+            "provenance": {"source_sha256": self.loaded.binding.source_sha256, "face_entities": self.loaded.definition.faces, "part": self.loaded.binding.part}})
     }
 
     /// Write and verify the answered PMI, with the answers stored. `project` is the editor's
@@ -85,6 +140,9 @@ impl Session {
     /// application's `{name, value}`, stored as base64 JSON under `name` (`carried`). Either
     /// also records the original part, which [`Session::original`] gives back. Without either,
     /// the written file carries no project, payload or original, even if the opened one did.
+    /// For a part of an assembly ([`Session::open_part`]) all of it is written on that part
+    /// only, into the original file: the other parts, their placements, PMI, answers and
+    /// payloads are kept byte for byte, and the original recorded is the whole file.
     pub fn write_pmi(
         &self,
         answers: &Map<String, Value>,
@@ -124,9 +182,14 @@ impl Session {
         serde_json::to_value(resumed).map_err(|error| error.to_string())
     }
 
-    /// The payload `name` the opened STEP carries, if any (`carried::payload`).
+    /// The payload `name` the opened STEP carries, if any (`carried::payload`); for a part of
+    /// an assembly, the one written on this part (`carried::part_payload`).
     pub fn payload(&self, name: &str) -> Option<Value> {
-        carried::payload(&self.loaded.bytes, name)
+        if self.loaded.part_count == 1 {
+            carried::payload(&self.loaded.bytes, name)
+        } else {
+            carried::part_payload(&self.loaded.bytes, self.loaded.binding.part, name)
+        }
     }
 
     /// The part the opened STEP was first written from, if it records it and the bytes

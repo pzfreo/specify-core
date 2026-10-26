@@ -29,7 +29,8 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use haecceity::p21::{Attribute, Document, RawEntity};
-use haecceity::pmi::{AttributeSet, AttributeValue};
+use haecceity::pmi::{self, AttributeSet, AttributeValue};
+use haecceity::step::read_part_definitions;
 use regex::bytes::{NoExpand, Regex};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -129,6 +130,30 @@ pub fn payload(bytes: &[u8], name: &str) -> Option<Value> {
         .into_iter()
         .rev()
         .find_map(|id| decode(&text_of(&doc, id)?))
+}
+
+/// [`payload`] of one part of the STEP `bytes` (an assembly's): the last item named `name` of
+/// a set of that name on part `part` itself (as the writer stores it on the part it writes),
+/// whose text is base64 of JSON. Another part's payload of the same name is not this part's.
+pub fn part_payload(bytes: &[u8], part: usize, name: &str) -> Option<Value> {
+    let defs = read_part_definitions(bytes).ok()?;
+    let doc = Document::parse(bytes.to_vec()).ok()?;
+    let read = pmi::read(&doc, &defs).ok()?;
+    read.parts
+        .get(part)?
+        .attributes
+        .iter()
+        .rev()
+        .filter(|set| set.name == name && set.on.is_none())
+        .find_map(|set| {
+            set.items
+                .iter()
+                .rev()
+                .find_map(|(item, value)| match value {
+                    AttributeValue::Text(text) if item == name => decode(text),
+                    _ => None,
+                })
+        })
 }
 
 /// The items named `name` held by user defined attributes, in file order.
