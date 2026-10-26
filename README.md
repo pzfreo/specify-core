@@ -26,10 +26,10 @@ decisions waiting for the maintainer in [docs/questions.md](docs/questions.md).
 
 As of stage 5 (consolidation, 2026-10-09) all five planned stages are on `main`. The full suite
 (376 tests, with the quiddity corpus) passes, last on 2026-10-20 at quiddity-rust's alpha.8.
-quiddity and haecceity (including WASM) are pinned to quiddity-rust's `v0.2.0-alpha.2` tag
-(`ff1975ef`). Recognition publishes schema 6: every record is in file coordinates, with axis
-fields as letters or unit vectors, and Specify reads geometry only from the published
-records (the recognition frame is provenance). Saved STEP answers
+quiddity and haecceity (including WASM) are pinned to quiddity-rust's `v0.2.1-alpha.1` tag
+(`7291435`). Recognition publishes schema 6: every record is in file coordinates, with axis
+fields as letters or unit vectors. Specify reads published records and refines slot end
+planes from their claimed native walls (the recognition frame is provenance). Saved STEP answers
 are re-matched on reopening, with unresolved old IDs and values reported for review; see
 [the upgrade rule](docs/design.md#saved-answers-across-kernel-upgrades).
 This includes derived PMI geometry and measured modelled threads, turned-diameter thread
