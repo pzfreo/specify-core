@@ -85,10 +85,10 @@ and verifies it by reading it back; the report (`output`, `written`, `not_writte
 `warnings`) is printed as JSON, and the answers are stored in the file so a later `analyse`
 resumes them.
 
-When the part's STEP file is revised, `revise` carries the answers to the new revision:
+When the part's STEP file is revised, `diff` reports what changed and carries the answers to the new revision:
 
 ```bash
-specify-core revise old.step new.step --answers a.json -o changes
+specify-core diff old.step new.step --answers a.json -o changes
 ```
 
 quiddity's correspondence matches the two parts face by face. Each answer moves to the new
@@ -96,14 +96,17 @@ part's feature of the same family holding its mapped faces, renamed where faces 
 answer is never guessed: one whose face is gone, matches several faces (symmetric repeats), or
 lands on no single feature is left unresolved with its value and reason. An answer carried to a
 feature that changed (a moved or resized hole) is applied and listed to check. `changes/`
-receives `answers.json` (the carried answers, to commit), `report.json`, `report.md` (written
+receives `answers.json` (the carried answers, to commit; without `--answers`, those Specify wrote as
+PMI in the old file), `report.json`, `report.md` (written
 to be posted as a pull request comment: the part's volume, area, bounding box and face count
 before and after; the features that changed, named as a drawing names them and placed so a
 person can find them (`2× Ø5 × 30 through holes removed: on the −Y side, in the Ø70 boss around
 the Ø45 hole, at X +27, Z −10; X +27, Z +10 from its axis`); the answers not carried or to
-check, by their questions; the questions the new part opens) and `model.png`, the new part drawn with its
+check, by their questions; the questions the new part opens; the PMI: Specify's in the new
+file against the answers carried, and the files' own dimensions, tolerances, datums and notes
+added, removed or changed, by the feature they are on) and `model.png`, the new part drawn with its
 changed faces orange, new faces green, faces that can't be told apart purple and the old
-part's gone or moved faces in translucent red. `revise` is this engine's own; Python's
+part's gone or moved faces in translucent red. `diff` is this engine's own; Python's
 specify-core has no counterpart.
 
 An assembly is specified a part at a time. `specify-core parts asm.step` lists its distinct

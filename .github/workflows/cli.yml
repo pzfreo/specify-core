@@ -46,7 +46,7 @@ jobs:
           bin="target/${{ matrix.target }}/release/specify-core${{ matrix.exe }}"
           fixtures=tests/fixtures/revisions
           echo '{"hole.function:holes:7": "fit:H7", "hole.function:holes:9": "general"}' > given.json
-          printed=$("$bin" revise $fixtures/hole_removed.old.step.gz $fixtures/hole_removed.new.step.gz --answers given.json -o smoke)
+          printed=$("$bin" diff $fixtures/hole_removed.old.step.gz $fixtures/hole_removed.new.step.gz --answers given.json -o smoke)
           echo "$printed"
           echo "$printed" | grep -q '"verdict": *"decide"'
           cat smoke/answers.json
