@@ -406,7 +406,7 @@ fn axis(value: &Value) -> V3 {
     }
 }
 
-/// Rejudge the 256 formerly-undetermined additive body-level frame fields by reconstructing
+/// Rejudge the selected cases of the 256 formerly-undetermined additive frame fields by reconstructing
 /// their nominal levels and spans in file coordinates and checking the physical supports.
 /// levels.rs admits near-axis planes at cosine > 0.99 and clusters origins within record.tol
 /// (0.5 mm); the span check remains 0.001 mm, independently of that recognition policy.
@@ -437,8 +437,18 @@ fn published_body_level_frames_reconstruct_the_physical_supports() {
             .insert((feature.to_owned(), index.parse().unwrap()));
     }
     assert_eq!(levels.values().map(BTreeSet::len).sum::<usize>(), 64);
+    let expected: usize = levels
+        .iter()
+        .filter(|(case, _)| common::case_selected(case))
+        .map(|(_, supports)| supports.len())
+        .sum();
     let mut checked = 0;
-    for (case, supports) in levels {
+    // This is a corpus-wide ledger sweep, so use the same selection as the oracle sweeps.
+    // Keep all physical assertions and the complete capture's 64-support inventory above.
+    for (case, supports) in levels
+        .into_iter()
+        .filter(|(case, _)| common::case_selected(case))
+    {
         let Some(path) = common::case(&case).input() else {
             continue;
         };
@@ -509,7 +519,16 @@ fn published_body_level_frames_reconstruct_the_physical_supports() {
             checked += 1;
         }
     }
-    eprintln!("checked {checked} body-level planes/spans (256 additive frame fields)");
+    if std::env::var_os("QUIDDITY_CORPUS_REQUIRED").is_some() {
+        assert_eq!(
+            checked, expected,
+            "every selected body-level support checked"
+        );
+    }
+    eprintln!(
+        "checked {checked} body-level planes/spans ({} additive frame fields)",
+        checked * 4
+    );
 }
 
 /// An oriented box is not a file AABB: check each published interval against the actual B-rep,
