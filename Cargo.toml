@@ -29,6 +29,8 @@ flate2 = "1.1.10"
 i_overlay = "8.1.2"
 # specify-core reads typed specs and added requirements with regular expressions (choices, extras).
 regex = "1.11.1"
+# The revision picture (revision.rs) is written as a PNG.
+png = "0.18.1"
 serde = { version = "1.0.229", features = ["derive"] }
 # preserve_order: objects keep their insertion order, as Python's dicts do, so the JSON formats
 # read in the same order as specify-core's.

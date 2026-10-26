@@ -6,6 +6,18 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- `specify-core revise OLD NEW --answers A -o DIR` (`revision::revise`, `revision::picture`):
+  answers carried to a new revision of the part through quiddity's correspondence, where
+  `resume::rematch_answers` leaves every feature and datum answer unresolved once the face
+  evidence differs. Each answer's faces are mapped and the answer moved to the feature of its
+  family holding them; orphaned, ambiguous, unmatched and stale answers are left unresolved
+  with their value and reason, never guessed. The report lists changed features, answers to
+  check (carried to a feature quiddity reports changed), new questions and new review problems,
+  as JSON and as Markdown for a pull request comment, and `model.png` draws the new part
+  coloured by what changed. A Rust-only command, left out of the Python-parity top-level help.
+
 ## 0.1.0-alpha.8 (2026-10-25)
 
 ### Added

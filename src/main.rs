@@ -7,6 +7,8 @@
 //! specify-core questions ANALYSIS [--answers ANSWERS] [--open]
 //! specify-core write STEP ANALYSIS ANSWERS [ANALYSIS ANSWERS ...] -o OUT
 //!                    [--accept-defaults] [--intent INTENT]
+//! specify-core revise OLD NEW -o DIR [--answers ANSWERS] [--part K] [--title TITLE]
+//!                    answers carried to a new revision of the part (revision.rs)
 //! specify-core serve                             JSON-line requests on stdin (serve.rs)
 //! ```
 //!
@@ -21,6 +23,10 @@
 //! does not verify. Arguments are parsed by hand, as argparse parses them (including its rule
 //! that positionals are matched a run at a time between options, so `write S A B -o OUT C D`
 //! leaves `C D` unrecognised).
+//!
+//! `revise` is this port's own, with no Python counterpart: it is taken as a command but left out
+//! of the top-level help and of argparse's list of choices, which stay Python's texts
+//! (`tests/cli.rs` compares them with Python's). `specify-core revise -h` gives its help.
 //!
 //! Where Python fails with an uncaught exception (a file that cannot be read or loaded, an
 //! output that cannot be written) it exits 1 with a traceback; this exits 1 with `error:` and
@@ -164,6 +170,32 @@ options:
 ",
 };
 
+const REVISE: Command = Command {
+    name: "revise",
+    positionals: &[("old", false), ("new", false)],
+    options: &[
+        (Some("-o"), "--output", true, true),
+        (None, "--answers", true, false),
+        (None, "--part", true, false),
+        (None, "--title", true, false),
+    ],
+    help: "usage: specify-core revise [-h] -o OUTPUT [--answers ANSWERS] [--part PART]
+                           [--title TITLE] old new
+
+positional arguments:
+  old                  the part's STEP file as it was
+  new                  the part's STEP file as it is now
+
+options:
+  -h, --help           show this help message and exit
+  -o, --output OUTPUT  a directory: answers.json, report.json, report.md,
+                       model.png
+  --answers ANSWERS    answers JSON for the old part: {question id: value}
+  --part PART          which part of an assembly (see parts)
+  --title TITLE        the report's title (the new file's name)
+",
+};
+
 const SERVE: Command = Command {
     name: "serve",
     positionals: &[],
@@ -291,6 +323,7 @@ fn parse(argv: &[String]) -> Result<Parsed, Exit> {
         "mesh" => &MESH,
         "questions" => &QUESTIONS,
         "write" => &WRITE,
+        "revise" => &REVISE,
         "serve" => &SERVE,
         other => {
             let choices: Vec<String> = COMMANDS.iter().map(|c| format!("'{c}'")).collect();
@@ -553,6 +586,7 @@ fn run(command: &Command, args: &Args, out: &mut impl Write) -> Result<(), Exit>
             print(out, &indent1_keeping_non_ascii(&Value::Array(shown)))
         }
         "write" => write(&positional(0), &args.positionals[1..], args, out),
+        "revise" => revise(&positional(0), &positional(1), args, out),
         other => unreachable!("{other} is not a command"),
     }
 }
@@ -654,6 +688,45 @@ fn part_arg(step: &Path, args: &Args) -> Result<Option<usize>, Exit> {
             )))
         }
     }
+}
+
+/// `revise`: the answers carried from OLD to NEW, the report, and the new part's picture.
+fn revise(old: &Path, new: &Path, args: &Args, out: &mut impl Write) -> Result<(), Exit> {
+    let part = part_arg(new, args)?;
+    let answers = match args.value("--answers") {
+        Some(path) => answers_of(read_json(Path::new(path))?)?,
+        None => Map::new(),
+    };
+    let load = |path: &Path| part::load(path, part).map_err(Exit::error);
+    let (before, after) = (load(old)?, load(new)?);
+    let revised = specify_core::revision::revise(&before, &after, &answers).map_err(Exit::error)?;
+    let dir = PathBuf::from(args.value("--output").expect("required"));
+    std::fs::create_dir_all(&dir).map_err(|e| Exit::error(format!("{}: {e}", dir.display())))?;
+    let title = args.value("--title").map(String::from).unwrap_or_else(|| {
+        new.file_name()
+            .map_or("part".into(), |n| n.to_string_lossy().into_owned())
+    });
+    let pretty = |v: &Value| indent1_keeping_non_ascii(v);
+    let report = serde_json::to_value(&revised).map_err(Exit::error)?;
+    save(
+        &dir.join("answers.json"),
+        &pretty(&Value::Object(revised.answers.clone())),
+    )?;
+    save(&dir.join("report.json"), &pretty(&report))?;
+    save(
+        &dir.join("report.md"),
+        &revised.markdown(&title, Some("model.png")),
+    )?;
+    let png = specify_core::revision::picture(&before, &after, &revised, 900);
+    let picture = dir.join("model.png");
+    std::fs::write(&picture, png)
+        .map_err(|e| Exit::error(format!("{}: {e}", picture.display())))?;
+    print(
+        out,
+        &indent1_keeping_non_ascii(
+            &json!({"verdict": revised.verdict, "summary": revised.summary}),
+        ),
+    )
 }
 
 /// A JSON file, parsed. A file that cannot be read is an uncaught failure (exit 1); one that
