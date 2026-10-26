@@ -1645,7 +1645,8 @@ impl Revised {
                     plural_of(self.answers.len() + self.unresolved.len(), "answer")
                 ));
             }
-            if !p.new_stored && !self.answers.is_empty() {
+            // Only where the old file held them: answers kept beside the files stay there.
+            if p.answers_from == "stored" && !p.new_stored && !self.answers.is_empty() {
                 lines.push(
                     "The new file has no Specify PMI yet: write the carried answers \
                      (`answers.json`) to it with `specify-core write`."
