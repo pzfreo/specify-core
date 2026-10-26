@@ -99,6 +99,9 @@ pub struct Check {
     /// The question it answers, in words.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub question: String,
+    /// The part's axis its feature lies along, as for [`FeatureChange::axis`].
+    #[serde(skip)]
+    pub axis: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -416,6 +419,9 @@ pub struct Problems {
 /// Families that are facts about faces, not features a person answers for: they follow every
 /// change to the faces around them.
 const EVIDENCE: [&str; 2] = ["risers", "step_levels"];
+
+/// Families that border the features a person names: they change as those do.
+const ROUNDS: [&str; 4] = ["fillets", "blends", "chamfers", "freeform_surfaces"];
 
 /// The quiddity record of each feature: the one whose defining faces it shares most.
 fn records(features: &[Feature], prints: &qc::Fingerprints) -> BTreeMap<String, String> {
@@ -1061,14 +1067,29 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
                 if now != *id {
                     migrated.push((id.clone(), now.clone()));
                 }
+                // A pattern changes with its members: an answer on two holes is checked when
+                // they are resized.
+                let changes_of = |feature: &str| {
+                    changed.get(feature).cloned().or_else(|| {
+                        new_features
+                            .iter()
+                            .find(|f| f.id == feature)
+                            .and_then(|f| f.members.iter().find_map(|m| changed.get(m).cloned()))
+                    })
+                };
                 if let Some(feature) = now.split_once(':').map(|(_, f)| f.to_string())
-                    && let Some(changes) = changed.get(&feature)
+                    && let Some(changes) = changes_of(&feature)
                 {
                     check.push(Check {
                         id: now.clone(),
                         answer: value.clone(),
+                        axis: new_features
+                            .iter()
+                            .find(|f| f.id == feature)
+                            .and_then(|f| along(&f.record))
+                            .map(|(k, _, _)| k),
                         feature,
-                        changes: changes.clone(),
+                        changes,
                         question: asked(id),
                     });
                 }
@@ -1325,13 +1346,34 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
             None => counts.push(((f.family.as_str(), done), 1)),
         }
     }
+    // Rounds and surfaces follow the features they border: counted together, after them.
+    let follows = |family: &str| ROUNDS.contains(&family);
     let mut part: Vec<String> = counts
         .iter()
+        .filter(|((family, _), _)| !follows(family))
         .map(|((family, done), n)| {
             let one = singular(family);
             format!("{} {done}", plural(*n, &one, &several(&one)))
         })
         .collect();
+    let rounds: usize = counts
+        .iter()
+        .filter(|((family, _), _)| follows(family))
+        .map(|(_, n)| n)
+        .sum();
+    if rounds > 0 {
+        part.push(if part.is_empty() {
+            format!(
+                "{} changed",
+                plural(rounds, "round or surface", "rounds and surfaces")
+            )
+        } else {
+            format!(
+                "{} with them",
+                plural(rounds, "round or surface", "rounds and surfaces")
+            )
+        });
+    }
     let pmi_changes = pmi.stored.len() + pmi.existing.len();
     if pmi_changes > 0 {
         part.push(format!(
@@ -1422,6 +1464,10 @@ impl Revised {
         };
         // A change in words, its move apart: `depth 10 → 12`.
         let sizes = |c: &BTreeMap<String, qc::Change>| {
+            // A surface's control points are not a size a person reads.
+            if c.keys().any(|k| k.contains("support.")) {
+                return "reshaped".to_string();
+            }
             c.iter()
                 .filter(|(k, _)| !matches!(k.as_str(), "adjacency" | "position"))
                 .map(|(k, c)| {
@@ -1439,8 +1485,11 @@ impl Revised {
                 .any(|k| changes.contains_key(*k));
             let c = changes.get("position")?;
             let (a, b) = (xyz(&c.old)?, xyz(&c.new)?);
+            // The move a person sees: components a tenth of the largest or less are the
+            // feature riding along a drafted or curved face.
+            let largest = (0..3).map(|i| (b[i] - a[i]).abs()).fold(0.0, f64::max);
             let shift: Vec<String> = (0..3)
-                .filter(|&i| (b[i] - a[i]).abs() >= 0.05)
+                .filter(|&i| (b[i] - a[i]).abs() >= 0.05 && (b[i] - a[i]).abs() > largest / 10.0)
                 .filter(|&i| !(lengthened && axis == Some(i)))
                 .map(|i| format!("{} {}", AXES[i], signed(b[i] - a[i])))
                 .collect();
@@ -1742,7 +1791,7 @@ impl Revised {
             for c in &self.check {
                 let what = [
                     sizes(&c.changes),
-                    moved(&c.changes, None)
+                    moved(&c.changes, c.axis)
                         .map(|m| format!("moved {m}"))
                         .unwrap_or_default(),
                 ]

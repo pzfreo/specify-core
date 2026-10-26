@@ -35,6 +35,11 @@ All notable changes to specify-core-rust. The format follows
   matched through the faces and each dimension, tolerance, datum or note added, removed or
   changed is listed by the feature it is on (`pmi.existing`: `Ø7 × 10 through hole: flatness
   0.2 → 0.1`). The summary counts the changes to the PMI.
+- `diff`'s report on a real part: the summary names features first and counts the rounds and
+  surfaces that follow them (`2 holes changed, 8 rounds and surfaces with them`); a freeform
+  surface is `reshaped`, not its control points; a move is the component a person sees (a
+  round riding a drafted face moves `Z +2`, not `X +0.1, Y +0.1, Z +2`); and an answer on a
+  pattern is listed to check when its holes change.
 - `diff`'s report reads as a person would describe the change. The summary leads with what
   changed (`2 holes removed.`). A table gives the part's volume, area, bounding box and face
   count before and after. Each feature is named as a drawing names it (`Ø5 × 30 through

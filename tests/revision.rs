@@ -455,3 +455,46 @@ fn specify_pmi_in_the_files_is_read_and_compared() {
     let given = answers(json!({ "part.material": "7075-T6" }));
     assert_eq!(diff(&old, &bare, &given).unwrap().pmi.answers_from, "given");
 }
+
+#[test]
+fn a_real_part_s_report_names_what_a_person_changed() {
+    // build123d's cast bearing unit: the flange 11 → 13 thick, the bolt holes Ø10 → Ø9.
+    let r = revised(
+        "bearing_flange",
+        json!({
+            "part.material": "EN AC-42100",
+            "hole.function:hole_patterns.set:31.32": "clearance:M8",
+            "datum.A": [17]
+        }),
+    );
+    // The holes first; the rounds and drafted surfaces that follow them counted after.
+    assert!(
+        r.summary
+            .starts_with("2 holes changed, 8 rounds and surfaces with them."),
+        "{}",
+        r.summary
+    );
+    let md = r.markdown("Bearing", None);
+    assert!(
+        md.contains(
+            "- 2× Ø10 × 11 through holes, on the −Z side, at X 10.9, Y 28.4; X 87.4, Y 28.4 \
+             from the −X, −Y corner: depth 11 → 13; diameter 10 → 9"
+        ),
+        "{md}"
+    );
+    // A drafted surface is reshaped, and a round riding it moves only as the flange grows.
+    assert!(
+        md.contains("- 4× freeform surfaces: reshaped; moved Z +2"),
+        "{md}"
+    );
+    assert!(md.contains("- 2× R1 fillets, at "), "{md}");
+    assert!(!md.contains("support."), "{md}");
+    // The answer on the pair of holes is carried and listed to check, without the holes'
+    // middles moving as they deepen.
+    let check: Vec<&str> = r.check.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(check, ["hole.function:hole_patterns.set:31.32"]);
+    assert!(
+        md.contains("**clearance:M8** (`hole.function:hole_patterns.set:31.32`): depth 11 → 13; diameter 10 → 9\n"),
+        "{md}"
+    );
+}
