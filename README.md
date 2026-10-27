@@ -114,7 +114,8 @@ To have the review posted on every pull request, add the [STEP diff action](step
 
 - **WebAssembly:** each release attaches `specify-core-wasm-<version>.tgz`, an ES module with
   TypeScript types, and its checksum. `IntentEngine` opens STEP bytes, returns the analysis,
-  questions and review as JSON, and writes verified PMI. The API, install and checks are in
+  questions and review as JSON, and writes verified PMI. The free `diff` function compares two
+  revisions in the browser. The API, install and checks are in
   [docs/wasm.md](docs/wasm.md).
 - **Service:** `specify-core serve` answers JSON-line requests on stdin, one reply per line on
   stdout, for a host process. Its ops are `parts`, `analyse`, `questions`, `preview`, `interpret`
