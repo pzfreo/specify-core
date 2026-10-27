@@ -132,6 +132,12 @@ pub struct FeatureChange {
     /// features read as merged (`2× R3 fillets … are now one`), split or paired.
     #[serde(skip)]
     pub there: Vec<String>,
+    /// Its faces on the new part (its candidates' when ambiguous) and on the old, for
+    /// [`view`].
+    #[serde(skip)]
+    pub new_faces: Vec<usize>,
+    #[serde(skip)]
+    pub old_faces: Vec<usize>,
 }
 
 /// Where a feature is, in words a person can find it by: the side of the part it is on, what
@@ -385,6 +391,66 @@ fn size(part: &Part) -> Size {
         min,
         max,
         faces: part.faces.len(),
+    }
+}
+
+/// A value in a report: a string as it is, a number as a size, a point as coordinates.
+fn fmt(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.as_f64().map_or_else(|| n.to_string(), num),
+        other => xyz(other).map_or_else(|| other.to_string(), |p| point(&p)),
+    }
+}
+
+/// A change in words, its move apart: `depth 10 → 12`.
+fn sizes(c: &BTreeMap<String, qc::Change>) -> String {
+    // A surface's control points are not a size a person reads.
+    if c.keys().any(|k| k.contains("support.")) {
+        return "reshaped".to_string();
+    }
+    c.iter()
+        .filter(|(k, _)| !matches!(k.as_str(), "adjacency" | "position"))
+        .map(|(k, c)| {
+            let k = k.strip_prefix("sizes.").unwrap_or(k).replace('_', " ");
+            format!("{k} {} → {}", fmt(&c.old), fmt(&c.new))
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// A move along the part's axes: `X −15`. Not along its own axis when its length changed
+/// there: its middle moves as it grows.
+fn moved(changes: &BTreeMap<String, qc::Change>, axis: Option<usize>) -> Option<String> {
+    let lengthened = ["sizes.height", "sizes.depth"]
+        .iter()
+        .any(|k| changes.contains_key(*k));
+    let c = changes.get("position")?;
+    let (a, b) = (xyz(&c.old)?, xyz(&c.new)?);
+    // The move a person sees: components a tenth of the largest or less are the feature
+    // riding along a drafted or curved face.
+    let largest = (0..3).map(|i| (b[i] - a[i]).abs()).fold(0.0, f64::max);
+    let shift: Vec<String> = (0..3)
+        .filter(|&i| (b[i] - a[i]).abs() >= 0.05 && (b[i] - a[i]).abs() > largest / 10.0)
+        .filter(|&i| !(lengthened && axis == Some(i)))
+        .map(|i| format!("{} {}", AXES[i], signed(b[i] - a[i])))
+        .collect();
+    (!shift.is_empty()).then(|| shift.join(", "))
+}
+
+/// Where several are, or nothing when there are too many to read.
+fn places(at: &[Option<[f64; 3]>]) -> String {
+    let points: Option<Vec<String>> = at.iter().map(|p| p.as_ref().map(point)).collect();
+    match points {
+        Some(p) if !p.is_empty() && p.len() <= 4 => {
+            let (last, rest) = p.split_last().expect("not empty");
+            if rest.is_empty() {
+                format!(" at {last}")
+            } else {
+                format!(" at {} and {last}", rest.join(", "))
+            }
+        }
+        _ => String::new(),
     }
 }
 
@@ -987,6 +1053,8 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
                 .and_then(|f| along(&f.record))
                 .map(|(k, _, _)| k),
             there: Vec::new(),
+            new_faces: Vec::new(),
+            old_faces: Vec::new(),
         });
     }
     for f in &new_features {
@@ -1009,6 +1077,8 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
                 place,
                 axis: along(&f.record).map(|(k, _, _)| k),
                 there: Vec::new(),
+                new_faces: Vec::new(),
+                old_faces: Vec::new(),
             });
         }
     }
@@ -1229,12 +1299,25 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
         .filter(|e| e.class == Class::Orphaned)
         .map(|e| e.old)
         .collect();
-    for c in &feature_changes {
+    for c in &mut feature_changes {
         let faces_of = |fs: &[Feature], id: &Option<String>| -> Vec<usize> {
             id.as_ref()
                 .and_then(|id| fs.iter().find(|f| &f.id == id))
                 .map(|f| f.faces.clone())
                 .unwrap_or_default()
+        };
+        c.old_faces = faces_of(&old_features, &c.old);
+        c.new_faces = if c.class == "ambiguous" {
+            let mut faces: Vec<usize> = c
+                .candidates
+                .iter()
+                .flat_map(|id| faces_of(&new_features, &Some(id.clone())))
+                .collect();
+            faces.sort_unstable();
+            faces.dedup();
+            faces
+        } else {
+            faces_of(&new_features, &c.new)
         };
         match c.class.as_str() {
             "adapted" => {
@@ -1442,6 +1525,118 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
 }
 
 impl Revised {
+    /// The report's "What changed" lines, alike changes to alike features as one, each with the
+    /// indices in [`Revised::features`] of the features it is about.
+    pub fn change_lines(&self) -> Vec<(String, Vec<usize>)> {
+        let mut out = Vec::new();
+        // Alike changes to alike features read as one line: `2× Ø5 × 30 through holes removed`.
+        type Group<'a> = (
+            (&'a str, &'a str, String, &'a str, &'a str),
+            Vec<&'a FeatureChange>,
+            Vec<usize>,
+        );
+        let mut groups: Vec<Group> = Vec::new();
+        for (i, f) in self.features.iter().enumerate() {
+            let key = (
+                f.class.as_str(),
+                f.what.as_str(),
+                sizes(&f.changes),
+                f.place.on.as_str(),
+                f.place.from.as_str(),
+            );
+            match groups.iter_mut().find(|(k, _, _)| *k == key) {
+                Some((_, fs, is)) => {
+                    fs.push(f);
+                    is.push(i);
+                }
+                None => groups.push((key, vec![f], vec![i])),
+            }
+        }
+        for ((class, what, sized, on, from), fs, is) in &groups {
+            let what = if what.is_empty() { "feature" } else { what };
+            let label = if fs.len() > 1 {
+                format!("{}× {}", fs.len(), several(what))
+            } else {
+                what.to_string()
+            };
+            // Where they are: in words where the part gives them, else as coordinates.
+            let offsets: Vec<&str> = fs
+                .iter()
+                .map(|f| f.place.offset.as_str())
+                .filter(|o| !o.is_empty())
+                .collect();
+            let place = if on.is_empty() && from.is_empty() {
+                places(&fs.iter().map(|f| f.at).collect::<Vec<_>>())
+                    .trim_start()
+                    .to_string()
+            } else {
+                let mut place = on.to_string();
+                if !offsets.is_empty() && offsets.len() <= 4 {
+                    if !place.is_empty() {
+                        place += ", ";
+                    }
+                    place += &format!("at {} from {from}", offsets.join("; "));
+                }
+                place
+            };
+            let place = |sep: &str| {
+                if place.is_empty() {
+                    String::new()
+                } else {
+                    format!("{sep}{place}")
+                }
+            };
+            let mut moves: Vec<String> = fs
+                .iter()
+                .filter_map(|f| moved(&f.changes, f.axis))
+                .collect();
+            moves.dedup();
+            let line = match *class {
+                "orphaned" => format!("{label} removed{}", place(": ")),
+                "new" => format!("{label} added{}", place(": ")),
+                "ambiguous" => {
+                    // What became of alike features that don't pair one to one.
+                    let mut there: Vec<&String> = fs.iter().flat_map(|f| &f.there).collect();
+                    there.sort();
+                    there.dedup();
+                    let (was, now) = (fs.len(), there.len());
+                    let are = if was > 1 { "are" } else { "is" };
+                    match now {
+                        0 => format!(
+                            "{label}{}: no longer one to one with the new part",
+                            place(", ")
+                        ),
+                        1 if was > 1 => format!("{label}{}, {are} now one", place(", ")),
+                        _ if now < was => format!("{label}{}, {are} now {now}", place(", ")),
+                        _ if now > was && was == 1 => {
+                            format!("{label}{}, is now split in {now}", place(", "))
+                        }
+                        _ if now > was => format!("{label}{}, are now {now}", place(", ")),
+                        _ => format!(
+                            "{label}{}: still there, but alike, so the old and new can't be \
+                             paired one to one",
+                            place(", ")
+                        ),
+                    }
+                }
+                _ if sized.is_empty() && !moves.is_empty() && moves.len() <= 4 => {
+                    format!("{label}{}: moved {}", place(", "), moves.join("; "))
+                }
+                _ if sized.is_empty() => format!("{label}{}: moved", place(", ")),
+                _ if !moves.is_empty() && moves.len() <= 4 => {
+                    format!(
+                        "{label}{}: {sized}; moved {}",
+                        place(", "),
+                        moves.join("; ")
+                    )
+                }
+                _ => format!("{label}{}: {sized}", place(", ")),
+            };
+            out.push((line, is.clone()));
+        }
+        out
+    }
+
     /// The report as Markdown, for a pull request comment; *image* is the picture's link.
     pub fn markdown(&self, title: &str, image: Option<&str>) -> String {
         use std::fmt::Write;
@@ -1457,59 +1652,6 @@ impl Revised {
                 "![The new part: changed in orange, new in green, can't tell in purple, gone or moved from in red]({image})\n"
             );
         }
-        let fmt = |v: &Value| match v {
-            Value::String(s) => s.clone(),
-            Value::Number(n) => n.as_f64().map_or_else(|| n.to_string(), num),
-            other => xyz(other).map_or_else(|| other.to_string(), |p| point(&p)),
-        };
-        // A change in words, its move apart: `depth 10 → 12`.
-        let sizes = |c: &BTreeMap<String, qc::Change>| {
-            // A surface's control points are not a size a person reads.
-            if c.keys().any(|k| k.contains("support.")) {
-                return "reshaped".to_string();
-            }
-            c.iter()
-                .filter(|(k, _)| !matches!(k.as_str(), "adjacency" | "position"))
-                .map(|(k, c)| {
-                    let k = k.strip_prefix("sizes.").unwrap_or(k).replace('_', " ");
-                    format!("{k} {} → {}", fmt(&c.old), fmt(&c.new))
-                })
-                .collect::<Vec<_>>()
-                .join("; ")
-        };
-        // A move along the part's axes: `X −15`.
-        // Not along its own axis when its length changed there: its middle moves as it grows.
-        let moved = |changes: &BTreeMap<String, qc::Change>, axis: Option<usize>| {
-            let lengthened = ["sizes.height", "sizes.depth"]
-                .iter()
-                .any(|k| changes.contains_key(*k));
-            let c = changes.get("position")?;
-            let (a, b) = (xyz(&c.old)?, xyz(&c.new)?);
-            // The move a person sees: components a tenth of the largest or less are the
-            // feature riding along a drafted or curved face.
-            let largest = (0..3).map(|i| (b[i] - a[i]).abs()).fold(0.0, f64::max);
-            let shift: Vec<String> = (0..3)
-                .filter(|&i| (b[i] - a[i]).abs() >= 0.05 && (b[i] - a[i]).abs() > largest / 10.0)
-                .filter(|&i| !(lengthened && axis == Some(i)))
-                .map(|i| format!("{} {}", AXES[i], signed(b[i] - a[i])))
-                .collect();
-            (!shift.is_empty()).then(|| shift.join(", "))
-        };
-        // Where several are, or nothing when there are too many to read.
-        let places = |at: &[Option<[f64; 3]>]| -> String {
-            let points: Option<Vec<String>> = at.iter().map(|p| p.as_ref().map(point)).collect();
-            match points {
-                Some(p) if !p.is_empty() && p.len() <= 4 => {
-                    let (last, rest) = p.split_last().expect("not empty");
-                    if rest.is_empty() {
-                        format!(" at {last}")
-                    } else {
-                        format!(" at {} and {last}", rest.join(", "))
-                    }
-                }
-                _ => String::new(),
-            }
-        };
         {
             let (o, n) = (&self.measures.old, &self.measures.new);
             let change = |old: f64, new: f64, unit: &str| {
@@ -1582,105 +1724,7 @@ impl Revised {
         }
         if !self.features.is_empty() {
             s += "**What changed**\n\n";
-            // Alike changes to alike features read as one line: `2× Ø5 × 30 through holes removed`.
-            type Group<'a> = (
-                (&'a str, &'a str, String, &'a str, &'a str),
-                Vec<&'a FeatureChange>,
-            );
-            let mut groups: Vec<Group> = Vec::new();
-            for f in &self.features {
-                let key = (
-                    f.class.as_str(),
-                    f.what.as_str(),
-                    sizes(&f.changes),
-                    f.place.on.as_str(),
-                    f.place.from.as_str(),
-                );
-                match groups.iter_mut().find(|(k, _)| *k == key) {
-                    Some((_, fs)) => fs.push(f),
-                    None => groups.push((key, vec![f])),
-                }
-            }
-            for ((class, what, sized, on, from), fs) in &groups {
-                let what = if what.is_empty() { "feature" } else { what };
-                let label = if fs.len() > 1 {
-                    format!("{}× {}", fs.len(), several(what))
-                } else {
-                    what.to_string()
-                };
-                // Where they are: in words where the part gives them, else as coordinates.
-                let offsets: Vec<&str> = fs
-                    .iter()
-                    .map(|f| f.place.offset.as_str())
-                    .filter(|o| !o.is_empty())
-                    .collect();
-                let place = if on.is_empty() && from.is_empty() {
-                    places(&fs.iter().map(|f| f.at).collect::<Vec<_>>())
-                        .trim_start()
-                        .to_string()
-                } else {
-                    let mut place = on.to_string();
-                    if !offsets.is_empty() && offsets.len() <= 4 {
-                        if !place.is_empty() {
-                            place += ", ";
-                        }
-                        place += &format!("at {} from {from}", offsets.join("; "));
-                    }
-                    place
-                };
-                let place = |sep: &str| {
-                    if place.is_empty() {
-                        String::new()
-                    } else {
-                        format!("{sep}{place}")
-                    }
-                };
-                let mut moves: Vec<String> = fs
-                    .iter()
-                    .filter_map(|f| moved(&f.changes, f.axis))
-                    .collect();
-                moves.dedup();
-                let line = match *class {
-                    "orphaned" => format!("{label} removed{}", place(": ")),
-                    "new" => format!("{label} added{}", place(": ")),
-                    "ambiguous" => {
-                        // What became of alike features that don't pair one to one.
-                        let mut there: Vec<&String> = fs.iter().flat_map(|f| &f.there).collect();
-                        there.sort();
-                        there.dedup();
-                        let (was, now) = (fs.len(), there.len());
-                        let are = if was > 1 { "are" } else { "is" };
-                        match now {
-                            0 => format!(
-                                "{label}{}: no longer one to one with the new part",
-                                place(", ")
-                            ),
-                            1 if was > 1 => format!("{label}{}, {are} now one", place(", ")),
-                            _ if now < was => format!("{label}{}, {are} now {now}", place(", ")),
-                            _ if now > was && was == 1 => {
-                                format!("{label}{}, is now split in {now}", place(", "))
-                            }
-                            _ if now > was => format!("{label}{}, are now {now}", place(", ")),
-                            _ => format!(
-                                "{label}{}: still there, but alike, so the old and new can't be \
-                                 paired one to one",
-                                place(", ")
-                            ),
-                        }
-                    }
-                    _ if sized.is_empty() && !moves.is_empty() && moves.len() <= 4 => {
-                        format!("{label}{}: moved {}", place(", "), moves.join("; "))
-                    }
-                    _ if sized.is_empty() => format!("{label}{}: moved", place(", ")),
-                    _ if !moves.is_empty() && moves.len() <= 4 => {
-                        format!(
-                            "{label}{}: {sized}; moved {}",
-                            place(", "),
-                            moves.join("; ")
-                        )
-                    }
-                    _ => format!("{label}{}: {sized}", place(", ")),
-                };
+            for (line, _) in self.change_lines() {
                 let _ = writeln!(s, "- {line}");
             }
             s += "\n";
@@ -1836,7 +1880,9 @@ impl Revised {
 /// `specify-core mesh` writes them), each new face's class (`changed`, `new` or `ambiguous`;
 /// unchanged faces left out), the old faces that are gone or moved, and `motion`, the rotation
 /// rows and translation taking the old part's frame to the new one's (`null` when none was
-/// found, the frames then taken as one).
+/// found, the frames then taken as one). `changes` is the report's "What changed" lines, in its
+/// order, each with its features (indices in the report's `features`) and their faces on the
+/// new part and the old, for a viewer that links the lines and the faces.
 pub fn view(old: &LoadedPart, new: &LoadedPart, revised: &Revised) -> Value {
     let motion = revised
         .correspondence
@@ -1850,6 +1896,21 @@ pub fn view(old: &LoadedPart, new: &LoadedPart, revised: &Revised) -> Value {
         "faces": revised.faces.iter().map(|(f, c)| (f.to_string(), Value::from(*c))).collect::<Map<_, _>>(),
         "gone": revised.gone,
         "motion": motion,
+        "changes": revised.change_lines().into_iter().map(|(line, features)| {
+            let faces = |of: fn(&FeatureChange) -> &Vec<usize>| -> Vec<usize> {
+                let mut faces: Vec<usize> =
+                    features.iter().flat_map(|&i| of(&revised.features[i]).iter().copied()).collect();
+                faces.sort_unstable();
+                faces.dedup();
+                faces
+            };
+            serde_json::json!({
+                "line": line,
+                "features": features,
+                "new": faces(|f| &f.new_faces),
+                "old": faces(|f| &f.old_faces),
+            })
+        }).collect::<Vec<_>>(),
     })
 }
 
