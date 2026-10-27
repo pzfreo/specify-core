@@ -46,6 +46,35 @@ fn the_browser_s_diff_is_the_command_line_s_with_what_a_viewer_draws() {
     );
     assert!(view["gone"].as_array().is_some());
     assert!(view["motion"].is_null() || view["motion"]["rotation"].as_array().unwrap().len() == 3);
+    // The "What changed" lines, as the Markdown lists them, each with its features' faces.
+    let changes = view["changes"].as_array().unwrap();
+    assert!(!changes.is_empty());
+    let markdown = got["markdown"].as_str().unwrap();
+    let mut seen = Vec::new();
+    for c in changes {
+        let line = c["line"].as_str().unwrap();
+        assert!(markdown.contains(&format!("- {line}\n")), "{line}");
+        let features: Vec<usize> = c["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i.as_u64().unwrap() as usize)
+            .collect();
+        let mut new: Vec<usize> = features
+            .iter()
+            .flat_map(|&i| revised.features[i].new_faces.clone())
+            .collect();
+        new.sort_unstable();
+        new.dedup();
+        assert_eq!(c["new"], serde_json::json!(new), "{line}");
+        assert!(
+            !new.is_empty() || !c["old"].as_array().unwrap().is_empty(),
+            "{line}"
+        );
+        seen.extend(features);
+    }
+    seen.sort_unstable();
+    assert_eq!(seen, (0..revised.features.len()).collect::<Vec<_>>());
 }
 
 #[test]

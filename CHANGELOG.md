@@ -10,6 +10,9 @@ All notable changes to specify-core-rust. The format follows
 
 - The STEP diff action's picture links, in a public repository, to draftwright.io/diff, which
   compares the two revisions live in the browser and shows the part in 3D.
+- The WebAssembly `diff`'s `view` has `changes`: the report's "What changed" lines in order,
+  each with its features and their faces on the new part and the old, so a viewer can link the
+  lines and the faces.
 
 ## 0.1.0 (2026-10-27)
 
