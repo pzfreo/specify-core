@@ -6,6 +6,13 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- The STEP diff action (`step-diff/`): one workflow step, `uses:
+  pzfreo/specify-core-rust/step-diff@main`, that runs `specify-core diff` on each STEP file a pull
+  request changes and keeps one comment up to date with the report, its picture and the answers
+  carried.
+
 ### WASM API
 
 - `diff(oldName, oldBytes, newName, newBytes, answersJson, title)`: `specify-core diff` in the

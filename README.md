@@ -109,6 +109,10 @@ changed faces orange, new faces green, faces that can't be told apart purple and
 part's gone or moved faces in translucent red. `diff` is this engine's own; Python's
 specify-core has no counterpart.
 
+To comment on each pull request that changes a STEP file, add the
+[STEP diff action](step-diff/README.md), a workflow of one step:
+`uses: pzfreo/specify-core-rust/step-diff@main`.
+
 An assembly is specified a part at a time. `specify-core parts asm.step` lists its distinct
 parts (a part placed twice is one part, with two placements); `analyse` and `mesh` take
 `--part N`; and `write` takes an analysis and answers for each part, writing them all into the
