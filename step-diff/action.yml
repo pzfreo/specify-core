@@ -1,0 +1,38 @@
+# The STEP diff action: on a pull request that changes a STEP file, compare it with the base
+# branch's using `specify-core diff` and keep one comment on the pull request up to date with
+# what changed in the part, its picture and the Specify answers carried to the new revision.
+# See README.md beside this file.
+name: Specify STEP diff
+description: Comment on a pull request with what changed in each STEP file, and carry its Specify answers
+branding:
+  icon: git-pull-request
+  color: orange
+
+inputs:
+  version:
+    description: The specify-core release to run (e.g. v0.1.0-alpha.10). By default the action's own tag, or the latest release when it is used from a branch.
+    required: false
+    default: ''
+  token:
+    description: The token that pushes the pictures and writes the comment.
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        fetch-depth: 0
+        token: ${{ inputs.token }}
+
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        VERSION: ${{ inputs.version }}
+        ACTION_REF: ${{ github.action_ref }}
+        PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        PR: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+      run: '"$GITHUB_ACTION_PATH/step-diff.sh"'
