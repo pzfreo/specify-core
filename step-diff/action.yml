@@ -31,8 +31,8 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
         VERSION: ${{ inputs.version }}
         ACTION_REF: ${{ github.action_ref }}
-        BASE: ${{ github.event.pull_request.base.sha }}
-        HEAD: ${{ github.event.pull_request.head.sha }}
+        PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         PR: ${{ github.event.pull_request.number }}
         REPO: ${{ github.repository }}
       run: '"$GITHUB_ACTION_PATH/step-diff.sh"'
