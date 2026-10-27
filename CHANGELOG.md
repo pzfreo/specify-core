@@ -6,6 +6,11 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- The STEP diff action's picture links, in a public repository, to draftwright.io/diff, which
+  compares the two revisions live in the browser and shows the part in 3D.
+
 ## 0.1.0 (2026-10-27)
 
 ### Added

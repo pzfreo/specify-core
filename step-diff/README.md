@@ -46,6 +46,11 @@ checks its checksum.
 - **The picture** is the new part. Faces that changed are orange, new faces are green, faces
   that can't be told apart from a matching one are purple, and the old part's faces that are
   gone or moved are drawn over it in translucent red.
+- **Turn the part round in 3D:** in a public repository, the picture and the line under it link to
+  [draftwright.io/diff](https://draftwright.io/diff). That page fetches the two revisions from
+  GitHub, compares them in your browser, and shows the part coloured the same way, to turn round
+  and zoom. A private repository's comment has the picture only, because the page can't read its
+  files.
 - **The measures** are the volume, surface area, bounding box and face count, before and
   after.
 - **What changed** names each feature as a drawing would ("2× Ø10 × 11 through holes") and

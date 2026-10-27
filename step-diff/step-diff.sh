@@ -142,11 +142,25 @@ body="$RUNNER_TEMP/comment.md"
         ;;
       changed)
         report=$(< "$out/report.md")
+        # A public repository's revisions can be compared live in the browser, at draftwright.io:
+        # the picture links there.
+        viewer=
+        if [ "$PRIVATE" != true ]; then
+          uri() { jq -rn --arg s "$1" '$s | @uri'; }
+          viewer="https://draftwright.io/diff?repo=$REPO&base=$BASE&head=$PR_HEAD&path=$(uri "$new")"
+          [ "$old" = "$new" ] || viewer+="&was=$(uri "$old")"
+        fi
         if [ "$pictures" = yes ]; then
           image="https://github.com/$REPO/blob/step-diff-images/$dir/$i.png?raw=true"
-          report=${report//"](model.png)"/"]($image)"}
+          if [ -n "$viewer" ]; then
+            report=${report/"!["/"[!["}
+            report=${report//"](model.png)"/"]($image)]($viewer)"}
+          else
+            report=${report//"](model.png)"/"]($image)"}
+          fi
         fi
         printf '%s\n' "$report"
+        if [ -n "$viewer" ]; then printf '\n[Turn the part round in 3D](%s), compared live in the browser.\n' "$viewer"; fi
         if [ "$(< "$out/answers.json")" != "{}" ]; then
           printf '\n<details><summary>The answers carried to the new revision (<code>%s.answers.json</code>)</summary>\n\n```json\n' "${new%.*}"
           cat "$out/answers.json"
