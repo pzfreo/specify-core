@@ -6,6 +6,12 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### WASM API
+
+- `diff(oldName, oldBytes, newName, newBytes, answersJson, title)`: `specify-core diff` in the
+  browser, returning the report, its Markdown and `view`, the meshes and face classes a viewer
+  draws the change with (`revision::view`, `session::diff`). For draftwright.io's STEP diff page.
+
 ## 0.1.0-alpha.9 (2026-10-26)
 
 ### Added

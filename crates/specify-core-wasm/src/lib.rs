@@ -196,6 +196,24 @@ mod wasm {
         console_error_panic_hook::set_once();
     }
 
+    /// Two revisions of a part compared (`session::diff`): `{report, markdown, view}` JSON.
+    /// `answers` is a JSON object, `{}` to carry the old file's stored answers.
+    #[wasm_bindgen(js_name = diff)]
+    pub fn diff_json(
+        old_name: &str,
+        old: &[u8],
+        new_name: &str,
+        new: &[u8],
+        answers: &str,
+        title: &str,
+    ) -> Result<String, JsValue> {
+        limit("Title", title, input::TEXT_LIMIT)?;
+        let answers = self::answers(answers)?;
+        session::diff((old_name, old), (new_name, new), &answers, title)
+            .map(|value| value.to_string())
+            .map_err(|error| JsValue::from_str(&error))
+    }
+
     #[wasm_bindgen(js_name = review)]
     pub fn review_json(analysis: &str, answers: &str) -> Result<String, JsValue> {
         let (analysis, answers) = parse(analysis, answers)?;

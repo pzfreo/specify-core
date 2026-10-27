@@ -1832,6 +1832,27 @@ impl Revised {
     }
 }
 
+/// What a viewer needs to draw the new part as [`picture`] draws it: both parts' meshes (as
+/// `specify-core mesh` writes them), each new face's class (`changed`, `new` or `ambiguous`;
+/// unchanged faces left out), the old faces that are gone or moved, and `motion`, the rotation
+/// rows and translation taking the old part's frame to the new one's (`null` when none was
+/// found, the frames then taken as one).
+pub fn view(old: &LoadedPart, new: &LoadedPart, revised: &Revised) -> Value {
+    let motion = revised
+        .correspondence
+        .as_ref()
+        .map(|c| &c.alignment)
+        .filter(|a| a.found)
+        .map(|a| serde_json::json!({"rotation": a.rotation, "translation": a.translation}));
+    serde_json::json!({
+        "new": crate::mesh::mesh(new),
+        "old": crate::mesh::mesh(old),
+        "faces": revised.faces.iter().map(|(f, c)| (f.to_string(), Value::from(*c))).collect::<Map<_, _>>(),
+        "gone": revised.gone,
+        "motion": motion,
+    })
+}
+
 /// The new part's picture: an isometric view, its faces coloured by what changed (changed
 /// orange, new green, ambiguous purple, the rest grey) with the old part's gone or moved faces
 /// over it in translucent red, as a PNG *width* pixels wide.
