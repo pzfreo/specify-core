@@ -97,12 +97,12 @@ A part with no answers still gets the comment: what changed, the picture and the
 ```yaml
       - uses: pzfreo/specify-core-rust/step-diff@main
         with:
-          version: v0.1.0-alpha.9   # the specify-core release to run
+          version: v0.1.0         # the specify-core release to run
           token: ${{ secrets.MY_TOKEN }}
 ```
 
 - **`version`:** with the default, `@main` runs the latest specify-core release that has a
-  Linux build, and a release tag such as `@v0.1.0-alpha.10` runs that release. Pin a tag, or set
+  Linux build, and a release tag such as `@v0.1.0` runs that release. Pin a tag, or set
   `version`, to stop the comment changing when a new release comes out.
 - **`token`:** pushes the pictures and writes the comment. The default is the job's
   `github.token`, which needs the `permissions` above.

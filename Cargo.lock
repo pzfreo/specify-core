@@ -499,7 +499,7 @@ dependencies = [
 
 [[package]]
 name = "specify-core"
-version = "0.1.0-alpha.9"
+version = "0.1.0"
 dependencies = [
  "base64",
  "flate2",
@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "specify-core-wasm"
-version = "0.1.0-alpha.9"
+version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "haecceity",

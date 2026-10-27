@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.0 (2026-10-27)
+
 ### Added
 
 - The STEP diff action (`step-diff/`): one workflow step, `uses:
@@ -13,13 +15,15 @@ All notable changes to specify-core-rust. The format follows
   request changes and keeps one comment up to date with the report, its picture and the answers
   carried.
 
-
 ### Changed
 
+- The README describes Specify as it is now, with install steps for the release binaries;
+  `docs/diff.md` explains how revisions are compared and answers carried, and
+  `step-diff/README.md` is a guide to the action. The library API moved to `docs/library.md`
+  and the Python engine's history and differences to `docs/python.md`.
 - quiddity and haecceity are pinned to quiddity-rust's `v0.2.1` release (`37df6a0`), from
   `v0.2.1-alpha.1`. The release changes no library code, so recognition (schema 6), fingerprints
   and answer IDs are unchanged.
-
 
 ### WASM API
 

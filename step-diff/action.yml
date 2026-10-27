@@ -10,7 +10,7 @@ branding:
 
 inputs:
   version:
-    description: The specify-core release to run (e.g. v0.1.0-alpha.10). By default the action's own tag, or the latest release when it is used from a branch.
+    description: The specify-core release to run (e.g. v0.1.0). By default the action's own tag, or the latest release when it is used from a branch.
     required: false
     default: ''
   token:
