@@ -6,6 +6,12 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Changed
+
+- quiddity and haecceity are pinned to quiddity-rust's `v0.2.1` release (`37df6a0`), from
+  `v0.2.1-alpha.1`. The release changes no library code, so recognition (schema 6), fingerprints
+  and answer IDs are unchanged.
+
 ### Added
 
 - The STEP diff action (`step-diff/`): one workflow step, `uses:
