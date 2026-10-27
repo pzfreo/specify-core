@@ -21,6 +21,8 @@ export function acceptDefaults(analysis: string, answers: string): string;
 
 export function answerEdit(state: string, answers: string): string;
 
+export function diff(old_name: string, old: Uint8Array, new_name: string, _new: Uint8Array, answers: string, title: string): string;
+
 export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
 
 export function interpret(analysis: string, answers: string, question_id: string, text: string): string;
@@ -43,6 +45,7 @@ export interface InitOutput {
   readonly __wbindgen_start: () => void;
   readonly acceptDefaults: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly answerEdit: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+  readonly diff: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number, number, number];
   readonly intentengine_acceptDefaults: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_evidence: (a: number) => [number, number, number, number];
   readonly intentengine_open: (a: number, b: number, c: number, d: number) => [number, number, number];
