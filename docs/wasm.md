@@ -15,7 +15,7 @@ README. Nothing is published to npm. Pin an exact release and verify the archive
 extracting it:
 
 ```sh
-version=0.1.0-alpha.9 # choose a release that includes the WASM assets
+version=0.1.0 # choose a release that includes the WASM assets
 archive="specify-core-wasm-${version}.tgz"
 gh release download "v${version}" --repo pzfreo/specify-core-rust \
   --pattern "$archive" --pattern "$archive.sha256"
@@ -63,6 +63,7 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `review(analysisJson, answersJson)` | Same review composition without a session or geometry anchors. Calls `specify_core::api::review`. |
 | `acceptDefaults(analysisJson, answersJson)` | Same accepted answers as the session method, using the supplied analysis. |
 | `interpret(analysisJson, answersJson, questionId, text)` | `{value, code, callout?}` for a choice question; includes a diameter callout for `hole.function:` and `diameter.fit:`. |
+| `diff(oldName, oldBytes, newName, newBytes, answersJson, title)` | Two revisions of a part compared, as `specify-core diff` compares two files, carrying `answersJson` (`{}` carries the answers Specify stored in the old file): `{report, markdown, view}`. `report` is what `report.json` holds and `markdown` is the report headed `title` with no picture. `view` is what a viewer needs to draw the change as `model.png` does: `new` and `old` meshes (as `snapshot().mesh`), `faces` (each new face's class, `changed`, `new` or `ambiguous`, keyed by face number; unchanged faces left out), `gone` (the old faces gone or moved) and `motion` (`{rotation, translation}` taking the old part's frame to the new one's, or `null`). Single parts only; refuses gzip. |
 | `start()` | Installs `console_error_panic_hook`; initialization also calls it automatically. |
 
 Questions use `to_presented_dict()` with `diameter` and `depth` added when present. `open`

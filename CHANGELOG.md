@@ -8,12 +8,33 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- The STEP diff action's picture links, in a public repository, to draftwright.io/diff, which
+  compares the two revisions live in the browser and shows the part in 3D.
+
+## 0.1.0 (2026-10-27)
+
+### Added
+
 - The STEP diff action (`step-diff/`): one workflow step, `uses:
   pzfreo/specify-core-rust/step-diff@main`, that runs `specify-core diff` on each STEP file a pull
   request changes and keeps one comment up to date with the report, its picture and the answers
   carried.
-- The STEP diff action's picture links, in a public repository, to draftwright.io/diff, which
-  compares the two revisions live in the browser and shows the part in 3D.
+
+### Changed
+
+- The README describes Specify as it is now, with install steps for the release binaries;
+  `docs/diff.md` explains how revisions are compared and answers carried, and
+  `step-diff/README.md` is a guide to the action. The library API moved to `docs/library.md`
+  and the Python engine's history and differences to `docs/python.md`.
+- quiddity and haecceity are pinned to quiddity-rust's `v0.2.1` release (`37df6a0`), from
+  `v0.2.1-alpha.1`. The release changes no library code, so recognition (schema 6), fingerprints
+  and answer IDs are unchanged.
+
+### WASM API
+
+- `diff(oldName, oldBytes, newName, newBytes, answersJson, title)`: `specify-core diff` in the
+  browser, returning the report, its Markdown and `view`, the meshes and face classes a viewer
+  draws the change with (`revision::view`, `session::diff`). For draftwright.io's STEP diff page.
 
 ## 0.1.0-alpha.9 (2026-10-26)
 

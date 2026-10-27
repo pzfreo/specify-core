@@ -156,8 +156,8 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "haecceity"
-version = "0.2.1-alpha.1"
-source = "git+https://github.com/pzfreo/quiddity-rust?tag=v0.2.1-alpha.1#72914356f2db8089042e9f7f07bf214ae5291903"
+version = "0.2.1"
+source = "git+https://github.com/pzfreo/quiddity-rust?tag=v0.2.1#37df6a0e3a8bf4f6a658593c204ede19bd58ca98"
 dependencies = [
  "flate2",
  "i_overlay",
@@ -358,8 +358,8 @@ dependencies = [
 
 [[package]]
 name = "quiddity"
-version = "0.2.1-alpha.1"
-source = "git+https://github.com/pzfreo/quiddity-rust?tag=v0.2.1-alpha.1#72914356f2db8089042e9f7f07bf214ae5291903"
+version = "0.2.1"
+source = "git+https://github.com/pzfreo/quiddity-rust?tag=v0.2.1#37df6a0e3a8bf4f6a658593c204ede19bd58ca98"
 dependencies = [
  "flate2",
  "haecceity",
@@ -499,7 +499,7 @@ dependencies = [
 
 [[package]]
 name = "specify-core"
-version = "0.1.0-alpha.9"
+version = "0.1.0"
 dependencies = [
  "base64",
  "flate2",
@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "specify-core-wasm"
-version = "0.1.0-alpha.9"
+version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "haecceity",
