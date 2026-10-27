@@ -25,9 +25,9 @@ needs from quiddity-rust are in [docs/upstream-needs.md](docs/upstream-needs.md)
 decisions waiting for the maintainer in [docs/questions.md](docs/questions.md).
 
 As of stage 5 (consolidation, 2026-10-09) all five planned stages are on `main`. The full suite
-(466 tests, with Specify's named corpus subset) passes, last on 2026-10-26 at quiddity-rust's v0.2.1-alpha.1.
-quiddity and haecceity (including WASM) are pinned to quiddity-rust's `v0.2.1-alpha.1` tag
-(`7291435`). Recognition publishes schema 6: every record is in file coordinates, with axis
+(466 tests, with Specify's named corpus subset) passes, last on 2026-10-27 at quiddity-rust's v0.2.1.
+quiddity and haecceity (including WASM) are pinned to quiddity-rust's `v0.2.1` tag
+(`37df6a0`). Recognition publishes schema 6: every record is in file coordinates, with axis
 fields as letters or unit vectors. Specify reads published records and refines slot end
 planes from their claimed native walls (the recognition frame is provenance). Saved STEP answers
 are re-matched on reopening, with unresolved old IDs and values reported for review; see
