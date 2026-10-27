@@ -26,7 +26,7 @@ and still reads and writes the same files; see [docs/python.md](docs/python.md).
 
 ## Status
 
-**0.1.0** (2026-10-27), the first release. Until 1.0, a minor release (0.2, 0.3) may change the
+**0.1.1** (2026-10-27). 0.1.0 was the first release. Until 1.0, a minor release (0.2, 0.3) may change the
 command line, the JSON formats or answer IDs, and its CHANGELOG entry says how to upgrade; a
 patch release (0.1.1) doesn't. See [CHANGELOG.md](CHANGELOG.md). What each part does and how it's verified is in
 [docs/design.md](docs/design.md).
@@ -37,7 +37,7 @@ Each [release](https://github.com/pzfreo/specify-core-rust/releases) has the com
 Linux (x86_64), macOS (Apple Silicon) and Windows (x86_64), each with a SHA-256 checksum:
 
 ```bash
-v=v0.1.0; t=aarch64-apple-darwin   # or x86_64-unknown-linux-gnu
+v=v0.1.1; t=aarch64-apple-darwin   # or x86_64-unknown-linux-gnu
 gh release download $v -R pzfreo/specify-core-rust -p "specify-core-$v-$t.tar.gz*"
 shasum -a 256 -c specify-core-$v-$t.tar.gz.sha256 && tar -xzf specify-core-$v-$t.tar.gz
 ./specify-core-$v-$t/specify-core --help
