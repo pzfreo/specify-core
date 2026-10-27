@@ -11,7 +11,7 @@ meshing input and PMI reading and writing from its haecceity kernel.
 
 ## Status
 
-**0.1.0-alpha.8 (2026-10-25)**; see [CHANGELOG.md](CHANGELOG.md).
+**0.1.0-alpha.9 (2026-10-26)**; see [CHANGELOG.md](CHANGELOG.md).
 
 Every module of specify-core is ported (part loading, features, existing PMI, the rules,
 mates, meshing, anchors, the writer with resume and assemblies, the API, the command line and
@@ -25,7 +25,7 @@ needs from quiddity-rust are in [docs/upstream-needs.md](docs/upstream-needs.md)
 decisions waiting for the maintainer in [docs/questions.md](docs/questions.md).
 
 As of stage 5 (consolidation, 2026-10-09) all five planned stages are on `main`. The full suite
-(376 tests, with the quiddity corpus) passes, last on 2026-10-20 at quiddity-rust's alpha.8.
+(466 tests, with Specify's named corpus subset) passes, last on 2026-10-26 at quiddity-rust's v0.2.1-alpha.1.
 quiddity and haecceity (including WASM) are pinned to quiddity-rust's `v0.2.1-alpha.1` tag
 (`7291435`). Recognition publishes schema 6: every record is in file coordinates, with axis
 fields as letters or unit vectors. Specify reads published records and refines slot end
