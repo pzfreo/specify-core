@@ -7,7 +7,7 @@ its manufacturing intent (material, fits, threads, datums, tolerances) to the ne
 
 ![The comment on a pull request that thickens a flange and shrinks its bolt holes](comment.png)
 
-That comment is on [pzfreo/step-diff-demo#1](https://github.com/pzfreo/step-diff-demo/pull/1).
+That comment is on [pzfreo/step-diff-demo#2](https://github.com/pzfreo/step-diff-demo/pull/2).
 The [demo repository](https://github.com/pzfreo/step-diff-demo) is a working example to copy.
 
 ## Adding it to a repository
@@ -102,7 +102,7 @@ A part with no answers still gets the comment: what changed, the picture and the
 ```yaml
       - uses: pzfreo/specify-core-rust/step-diff@main
         with:
-          version: v0.1.0         # the specify-core release to run
+          version: v0.1.1         # the specify-core release to run
           token: ${{ secrets.MY_TOKEN }}
 ```
 
