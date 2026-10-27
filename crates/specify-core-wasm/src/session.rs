@@ -6,7 +6,7 @@ use specify_core::{
     api, carried,
     features::Feature,
     part::{self, Binding, LOADER_VERSION, LoadedPart},
-    resume, tolerancing,
+    resume, revision, tolerancing,
 };
 use std::{
     path::{Path, PathBuf},
@@ -20,6 +20,29 @@ fn check_input(name: &str, bytes: &[u8]) -> Result<(), String> {
         return Err("Decompress the STEP file before opening it.".into());
     }
     Ok(())
+}
+
+/// Compares two revisions of a part held in memory, as `specify-core diff` compares two files,
+/// carrying `answers` (the old file's stored answers when empty): `{report, markdown, view}`,
+/// the report as `report.json` holds it, as Markdown headed *title* (with no picture), and what
+/// a viewer needs to draw the change ([`revision::view`]). Single parts only.
+pub fn diff(
+    old: (&str, &[u8]),
+    new: (&str, &[u8]),
+    answers: &Map<String, Value>,
+    title: &str,
+) -> Result<Value, String> {
+    let load = |(name, bytes): (&str, &[u8])| -> Result<LoadedPart, String> {
+        check_input(name, bytes)?;
+        part::load_bytes(name, bytes.to_vec()).map_err(|error| format!("{name}: {error}"))
+    };
+    let (before, after) = (load(old)?, load(new)?);
+    let revised = revision::diff(&before, &after, answers).map_err(|error| error.to_string())?;
+    Ok(json!({
+        "report": serde_json::to_value(&revised).map_err(|error| error.to_string())?,
+        "markdown": revised.markdown(title, None),
+        "view": revision::view(&before, &after, &revised),
+    }))
 }
 
 pub struct Session {

@@ -6,18 +6,26 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
-### Changed
-
-- quiddity and haecceity are pinned to quiddity-rust's `v0.2.1` release (`37df6a0`), from
-  `v0.2.1-alpha.1`. The release changes no library code, so recognition (schema 6), fingerprints
-  and answer IDs are unchanged.
-
 ### Added
 
 - The STEP diff action (`step-diff/`): one workflow step, `uses:
   pzfreo/specify-core-rust/step-diff@main`, that runs `specify-core diff` on each STEP file a pull
   request changes and keeps one comment up to date with the report, its picture and the answers
   carried.
+
+
+### Changed
+
+- quiddity and haecceity are pinned to quiddity-rust's `v0.2.1` release (`37df6a0`), from
+  `v0.2.1-alpha.1`. The release changes no library code, so recognition (schema 6), fingerprints
+  and answer IDs are unchanged.
+
+
+### WASM API
+
+- `diff(oldName, oldBytes, newName, newBytes, answersJson, title)`: `specify-core diff` in the
+  browser, returning the report, its Markdown and `view`, the meshes and face classes a viewer
+  draws the change with (`revision::view`, `session::diff`). For draftwright.io's STEP diff page.
 
 ## 0.1.0-alpha.9 (2026-10-26)
 
