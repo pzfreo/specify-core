@@ -1,49 +1,135 @@
 # STEP diff action
 
-On each pull request that changes a STEP file, this action compares the file with the base
-branch's version using `specify-core diff`. It keeps one comment on the pull request up to date
-with:
+A pull request that changes a STEP file gets a comment saying what changed in the part, in
+words a person can check against the model, with a picture of the new part coloured by what
+changed. If the part has been specified with [Specify](../README.md), the comment also carries
+its manufacturing intent (material, fits, threads, datums, tolerances) to the new revision.
 
-- what changed in the part, in words;
-- a picture of the new part, coloured by what changed;
-- its volume, area and bounding box before and after;
-- the [Specify](../README.md) answers carried to the new revision, and those to check.
+![The comment on a pull request that thickens a flange and shrinks its bolt holes](comment.png)
+
+That comment is on [pzfreo/step-diff-demo#1](https://github.com/pzfreo/step-diff-demo/pull/1).
+The [demo repository](https://github.com/pzfreo/step-diff-demo) is a working example to copy.
 
 ## Adding it to a repository
 
-Add `.github/workflows/step-diff.yml`:
+1. Add `.github/workflows/step-diff.yml`:
+
+   ```yaml
+   name: STEP diff
+   on:
+     pull_request:
+       paths: ['**.step', '**.stp', '**.STEP', '**.STP', '**.answers.json']
+   permissions:
+     contents: write       # the pictures, on the step-diff-images branch
+     pull-requests: write  # the comment
+   jobs:
+     diff:
+       runs-on: ubuntu-latest
+       steps:
+         - uses: pzfreo/specify-core-rust/step-diff@main
+   ```
+
+2. Commit it to the default branch.
+
+The next pull request that changes a STEP file gets the comment. Every later push to that pull
+request rewrites the same comment, so there's only ever one. Nothing else is needed: no token, no
+secret, no build. The action checks the repository out, downloads the specify-core release and
+checks its checksum.
+
+## Reading the comment
+
+- **The summary line** counts what changed by family ("2 holes changed, 8 rounds and surfaces
+  with them") and says whether the answers carry. ✅ means every answer carried and the new part
+  asks nothing new. ⚠️ means a decision is needed: an answer couldn't be carried, or the part
+  asks something new. ❌ means Specify's review finds problems in the new part that it didn't
+  find in the old one.
+- **The picture** is the new part. Faces that changed are orange, new faces are green, faces
+  that can't be told apart from a matching one are purple, and the old part's faces that are
+  gone or moved are drawn over it in translucent red.
+- **The measures** are the volume, surface area, bounding box and face count, before and
+  after.
+- **What changed** names each feature as a drawing would ("2× Ø10 × 11 through holes") and
+  places it so it can be found ("on the −Z side, at X 10.9, Y 28.4 from the −X, −Y corner"),
+  then says what changed: "depth 11 → 13; diameter 10 → 9", "moved Z +2", "removed".
+- **Answers carried to a changed feature** are applied but listed to check. A clearance hole
+  that got smaller may no longer clear its bolt.
+- **Answers not carried** keep their value and say why: the feature was removed, or the new
+  part has several features it could be.
+- **New questions** are what the new part asks that the old one didn't, for a new hole, say.
+- **PMI** lists the dimensions, tolerances and datums in the STEP files themselves that were
+  added, removed or changed.
+- **The answers carried to the new revision** are the answers file for the new part, ready to
+  commit.
+
+How `diff` matches the two parts and decides what carries is in [docs/diff.md](../docs/diff.md).
+
+## Answers
+
+The answers are the decisions made about the part: its material, what each hole is for, which
+faces are datums, the tolerances. The action looks for them in two places:
+
+- **A file beside the part.** For `bracket.step`, the file is `bracket.answers.json`, a JSON object
+  mapping question ids to values, as `specify-core write` takes. The base branch's file is the
+  one carried. The comment shows the carried answers, renamed where the part's faces
+  renumbered, for you to commit as the new revision's file.
+- **The STEP file itself.** A STEP file written by Specify, including one exported from the
+  Specify editor at [draftwright.io](https://draftwright.io), stores its answers as PMI. When
+  there's no answers file, those are carried.
+
+A part with no answers still gets the comment: what changed, the picture and the measures.
+
+## What it compares
+
+- **Changed files:** each STEP file the pull request changes, as it would be once merged, is
+  compared with the base branch's version.
+- **Answers changed without the STEP file:** the part is compared too, so the comment shows
+  the answers again.
+- **New and removed files** are listed as new or removed parts.
+- **Renames:** a renamed file is compared with its old path when the rename leaves it
+  unchanged. Otherwise it's reported as one part removed and another added, because STEP
+  files look too alike as text to pair by content.
+- **Unreadable files:** a file Specify can't read gets its error in the comment, and the
+  other files are still compared.
+- **Assemblies** aren't compared yet; `specify-core diff` needs one part per file.
+
+## Options
 
 ```yaml
-name: STEP diff
-on:
-  pull_request:
-    paths: ['**.step', '**.stp', '**.STEP', '**.STP', '**.answers.json']
-permissions:
-  contents: write       # the pictures, on the step-diff-images branch
-  pull-requests: write  # the comment
-jobs:
-  diff:
-    runs-on: ubuntu-latest
-    steps:
       - uses: pzfreo/specify-core-rust/step-diff@main
+        with:
+          version: v0.1.0-alpha.9   # the specify-core release to run
+          token: ${{ secrets.MY_TOKEN }}
 ```
 
-That is all. The action checks the repository out itself.
+- **`version`:** with the default, `@main` runs the latest specify-core release that has a
+  Linux build, and a release tag such as `@v0.1.0-alpha.10` runs that release. Pin a tag, or set
+  `version`, to stop the comment changing when a new release comes out.
+- **`token`:** pushes the pictures and writes the comment. The default is the job's
+  `github.token`, which needs the `permissions` above.
 
-- **What it compares:** each STEP file the pull request changes, as it would be once merged,
-  against the base branch's version. A renamed file is compared with its old path only when the
-  file is unchanged by the rename; otherwise it is reported as one part removed and another added.
-  Added and removed parts are listed. A file Specify can't read is reported with the error, and
-  the other files are still compared. An assembly isn't compared yet: specify-core asks for one
-  of its parts.
+## Where things go
 
-- **Answers:** a part's answers live beside it as `<name>.answers.json` (for `bracket.step`,
-  `bracket.answers.json`). The base branch's answers are the ones carried. The comment holds
-  the carried answers to commit. Without an answers file, the answers Specify wrote into the
-  old STEP file as PMI are carried.
-- **Pictures:** they are pushed to an orphan branch, `step-diff-images`, under
-  `pr-<number>/<commit>/`, so that the comment can show them.
-- **Version:** `@main` runs the latest specify-core release, and a release tag (`@v0.1.0-alpha.10`)
-  runs that release. `with: version: v0.1.0-alpha.9` picks one explicitly.
-- **Limits:** it runs on `ubuntu-latest`. A pull request from a fork gets a read-only token,
-  so there the action passes without commenting, with a notice saying so.
+- **Pictures:** these are pushed to an orphan branch, `step-diff-images`, under
+  `pr-<number>/<commit>/`, so the comment can show them. The branch shares no history with
+  your code and can be deleted at any time; old comments then lose their pictures.
+- **The comment:** it is found by a hidden `<!-- step-diff -->` marker at its start and
+  rewritten on each push.
+
+## Limits
+
+- **Runner:** it runs on `ubuntu-latest` (Linux x86_64).
+- **Pull requests from forks** get a read-only token, so there the action can't push pictures or
+  comment. It passes with a notice saying so.
+- **Comment size:** a comment longer than GitHub's 65,536-character limit is cut short; the
+  whole report is in the job's log.
+
+## Running the same comparison yourself
+
+The action runs `specify-core diff`. The same report comes from the command line:
+
+```bash
+specify-core diff old.step new.step --answers old.answers.json -o changes
+```
+
+`changes/` gets `report.md` (the comment), `model.png` (the picture), `report.json` and the
+carried `answers.json`. Installing the command line is described in [the README](../README.md#install).

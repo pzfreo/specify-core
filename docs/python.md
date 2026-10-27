@@ -1,0 +1,81 @@
+# The Python specify-core
+
+Specify began as a port of the Python [specify-core](https://github.com/pzfreo/specify-core), which
+runs on OpenCascade and Python's quiddity. The two engines share the command line, the JSON formats
+and the STEP files they read and write, so Draftwright Specify can drive either, one engine per part.
+`diff`, the STEP diff action and the browser module are this engine's own.
+
+## History
+
+Every module of specify-core is ported (part loading, features, existing PMI, the rules,
+mates, meshing, anchors, the writer with resume and assemblies, the API, the command line and
+the JSON-lines service) and checked against outputs captured from the Python implementation.
+Every difference from Python carries a verdict and its evidence, listed in
+[docs/known-differences.md](known-differences.md) (generated from
+`tests/fixtures/known_differences/`; its "Open work" section lists every difference that is a
+known bug or unsettled). What is verified per module, the stand-ins used for what quiddity-rust
+does not yet provide, and what remains are in [docs/design.md](design.md), "Status"; the
+needs from quiddity-rust are in [docs/upstream-needs.md](upstream-needs.md) and the
+decisions waiting for the maintainer in [docs/questions.md](questions.md).
+
+## Files written by one, read by the other
+
+OpenCascade (and so specify-core's Python) opens every Rust-written file and reads its datums,
+sizes and tolerances, on one face or several (Q16, Q20; `tests/cross_engine.rs`); it reads a fit
+without its limits, no thread and no surface finish, as specify-core's reader asks only for its
+own forms of those. Answers the Rust engine stores (stored-answer schema 2, Q14) resume in
+specify-core from its branch `fingerprint-v2` on, which writes schema 2 too; files the older
+specify-core wrote (schema 1) do not resume in Rust.
+
+## Where this engine differs
+
+Each of these is recorded with its reason (docs/known-differences.md, docs/questions.md):
+
+- **Datums are proposed as measurement origins in ± mode too** (maintainer decision,
+  draftwright-rust #122; rules version 2). The same A/B/C defaults apply, including a turned
+  part's axis A and shoulder B. They are written as AP242 datum features without adding
+  geometric tolerances in ± mode. Selected datum planes also set the origins of explicit ±
+  hole locations; changing or removing datums changes those origins. Verdict and exact Python
+  before/after evidence: [rules differences](../tests/fixtures/known_differences/rules.json) and
+  `tests/fixtures/rule_defaults_oracle.json.gz`; the captured Python results are retained.
+- **Part notes and surface finish are written in AP242's standard forms**, not Python's text
+  route: a finish (the default or on faces) as an ISO 10303-1110 surface texture, the coating,
+  heat treatment and edge note as the PMI practice's 'semantic text' (Q3). specify-core reads
+  the notes back but not the finish.
+  Rust also supports ordered free-text manufacturing notes through `part.notes` (default
+  `[]`), each a semantic `general note` with an explicit one-based `note index`. See the
+  [STEP form and readback contract](part-notes.md). Drawing-only notes stay in the
+  drawing Spec; no automatic migration is performed.
+- **Knurls are written as AP242's `turned_knurl`**, straight or diamond, which Python writes
+  as text: the number of teeth, tooth depth, root fillet and a diamond's helix angle are
+  derived from DIN 82 and stated in the intent with their sources, filled in with a warning
+  for an intent that lacks them; a pitch or pattern the standard does not give is listed in
+  `not_written` (Q4, Q15).
+- **An assembly that already has PMI from elsewhere is written** (by haecceity's add mode,
+  keeping every original byte), where Python refuses it because of OpenCascade; pending the
+  maintainer's confirmation (Q6).
+- **Feature ids can differ from Python's** for the same feature (quiddity-rust reports a
+  feature by its defining faces, Python's quiddity by its constituent faces, and some families
+  differ), so question ids and answer keys do too. An analysis and its answers belong together;
+  analyse and write with the same engine (Q1, upstream needs U2, U12).
+- **A gzipped STEP file is read** (told by its magic bytes, decompressed in memory, bound by
+  the decompressed bytes' hash), where specify-core refuses it; `write -o out.step.gz` writes
+  it gzipped (maintainer decision 2026-10-15).
+- A file that cannot be read, or an assembly analysed without `--part`, is an `error:` line on
+  stderr (exit 1) where Python prints a traceback; `write`'s stdout is only the report, without
+  OpenCascade's transfer statistics; meshes are triangulated by a local stand-in (U4) with about
+  1.8 times Python's triangles (Q12); a product with surface models beside its solid (NIST
+  CTC-02, 04, 05) is one part, not OpenCascade's several (Q7).
+
+## Tests
+
+Tests compare the port with fixtures captured from specify-core (`tools/capture.py`, run in
+specify-core's environment); tests whose input is a quiddity corpus file skip without the
+corpus. `docs/known-differences.md` is regenerated after an area file changes with
+`UPDATE_KNOWN_DIFFERENCES=1 cargo test --release --test known_differences_doc`.
+
+Optional live Python/OpenCascade tests use only an explicitly configured
+`SPECIFY_TEST_PYTHON=/path/to/specify-core/.venv/bin/python`; they never discover a
+checkout on the host. `SPECIFY_TEST_NIST_AP242=/path/to/plain/nist` additionally enables
+live comparisons on the five `nist_ctc_0N_asme1_ap242.stp` inputs. The committed captures
+remain the default regression record; these live checks do not recapture them.
