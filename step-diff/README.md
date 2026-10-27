@@ -5,7 +5,9 @@ branch's version using `specify-core diff`. It keeps one comment on the pull req
 with:
 
 - what changed in the part, in words;
-- a picture of the new part, coloured by what changed;
+- a picture of the new part, coloured by what changed, linked (in a public repository) to
+  [draftwright.io/diff](https://draftwright.io/diff), which fetches the two revisions from GitHub,
+  compares them in the browser and shows the part in 3D to turn round;
 - its volume, area and bounding box before and after;
 - the [Specify](../README.md) answers carried to the new revision, and those to check.
 

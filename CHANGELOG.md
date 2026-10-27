@@ -12,6 +12,8 @@ All notable changes to specify-core-rust. The format follows
   pzfreo/specify-core-rust/step-diff@main`, that runs `specify-core diff` on each STEP file a pull
   request changes and keeps one comment up to date with the report, its picture and the answers
   carried.
+- The STEP diff action's picture links, in a public repository, to draftwright.io/diff, which
+  compares the two revisions live in the browser and shows the part in 3D.
 
 ## 0.1.0-alpha.9 (2026-10-26)
 

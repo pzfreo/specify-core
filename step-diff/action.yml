@@ -33,6 +33,7 @@ runs:
         ACTION_REF: ${{ github.action_ref }}
         PR_HEAD: ${{ github.event.pull_request.head.sha }}
         HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        PRIVATE: ${{ github.event.repository.private }}
         PR: ${{ github.event.pull_request.number }}
         REPO: ${{ github.repository }}
       run: '"$GITHUB_ACTION_PATH/step-diff.sh"'
