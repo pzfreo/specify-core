@@ -106,7 +106,8 @@ pub struct Check {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct FeatureChange {
-    /// `adapted`, `ambiguous`, `orphaned` or `new`.
+    /// `adapted`, `ambiguous`, `orphaned`, `new`, or `replaced` (one feature in place of
+    /// another, see [`FeatureChange::became`]).
     pub class: String,
     pub family: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -120,6 +121,10 @@ pub struct FeatureChange {
     /// The feature in words, as a drawing names it (`Ø5 × 30 through hole`): the old one's, or
     /// the new one's when it is new.
     pub what: String,
+    /// For a feature `replaced` by another in its place (a pattern re-laid, a hole now
+    /// counterbored): the new one in words.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub became: String,
     /// Where it is (the old one, or the new one when it is new), in the part's coordinates.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub at: Option<[f64; 3]>,
@@ -410,7 +415,7 @@ fn sizes(c: &BTreeMap<String, qc::Change>) -> String {
         return "reshaped".to_string();
     }
     c.iter()
-        .filter(|(k, _)| !matches!(k.as_str(), "adjacency" | "position"))
+        .filter(|(k, _)| k.as_str() != "position" && !CONTEXT.contains(&k.as_str()))
         .map(|(k, c)| {
             let k = k.strip_prefix("sizes.").unwrap_or(k).replace('_', " ");
             format!("{k} {} → {}", fmt(&c.old), fmt(&c.new))
@@ -759,6 +764,163 @@ fn locate(f: &Feature, all: &[Feature], size: &Size) -> Place {
 }
 
 /// A feature in words, as a drawing names it (`Ø5 × 30 through hole`), and where it is.
+/// Keys of a feature's changes that are its surroundings, not the feature: what it borders.
+const CONTEXT: [&str; 2] = ["adjacency", "neighbourhood"];
+
+/// The changes read as a person would say them, not as features were paired:
+///
+/// - one line for a feature recognised twice (the same faces, as two records: a pocket by its
+///   depth and by its section), the record whose sizes read as words kept;
+/// - a pattern laid out again (another count, circle or spacing) as one pattern become
+///   another, its holes' own pairings folded into it;
+/// - a hole that became another kind of hole in its place (counterbored, blind) as that.
+fn fold(changes: &mut Vec<FeatureChange>, old: &[Feature], new: &[Feature], size: &Size) {
+    let diagonal = (0..3)
+        .map(|i| (size.max[i] - size.min[i]).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    let tolerance = (diagonal * 0.02).max(0.5);
+    let near = |a: Option<[f64; 3]>, b: Option<[f64; 3]>, across: Option<usize>| match (a, b) {
+        (Some(a), Some(b)) => {
+            (0..3)
+                .filter(|&i| Some(i) != across)
+                .map(|i| (a[i] - b[i]).powi(2))
+                .sum::<f64>()
+                .sqrt()
+                <= tolerance
+        }
+        _ => false,
+    };
+    let find = |fs: &'_ [Feature], id: &str| fs.iter().find(|f| f.id == id).cloned();
+
+    // The same faces recognised twice: the record with plain sizes, not a section's sides.
+    let plain = |c: &FeatureChange| {
+        c.changes
+            .keys()
+            .filter(|k| k.matches('.').count() > 1)
+            .count()
+    };
+    let mut kept: Vec<FeatureChange> = Vec::new();
+    for c in changes.drain(..) {
+        match kept.iter_mut().find(|k| {
+            k.class == c.class
+                && k.family == c.family
+                && k.old == c.old
+                && k.new == c.new
+                && k.old.is_some()
+        }) {
+            Some(k) if plain(&c) < plain(k) => *k = c,
+            Some(_) => {}
+            None => kept.push(c),
+        }
+    }
+    *changes = kept;
+
+    // A pattern laid out again: the old one gone or unpaired, a new one in its place.
+    let mut folded_old: BTreeSet<String> = BTreeSet::new();
+    let mut folded_new: BTreeSet<String> = BTreeSet::new();
+    for i in 0..changes.len() {
+        let c = &changes[i];
+        if c.family != "hole_patterns" || !matches!(c.class.as_str(), "orphaned" | "ambiguous") {
+            continue;
+        }
+        let Some(was) = c.old.as_deref().and_then(|id| find(old, id)) else {
+            continue;
+        };
+        let candidate = c
+            .candidates
+            .iter()
+            .filter_map(|id| find(new, id))
+            .find(|f| f.family == "hole_patterns")
+            .or_else(|| {
+                changes
+                    .iter()
+                    // Where a pattern is along its holes' axis is where they start, not it.
+                    .filter(|n| {
+                        n.class == "new"
+                            && n.family == "hole_patterns"
+                            && near(n.at, c.at, c.axis.or(n.axis))
+                    })
+                    .find_map(|n| n.new.as_deref().and_then(|id| find(new, id)))
+            });
+        let Some(now) = candidate else { continue };
+        folded_old.extend(was.members.iter().cloned());
+        folded_new.extend(now.members.iter().cloned());
+        folded_new.insert(now.id.clone());
+        let (became, _) = describe(&now);
+        let c = &mut changes[i];
+        c.class = "replaced".into();
+        c.new = Some(now.id.clone());
+        c.candidates.clear();
+        c.became = became;
+    }
+    changes.retain(|c| {
+        let member_old =
+            c.family == "holes" && c.old.as_ref().is_some_and(|id| folded_old.contains(id));
+        let member_new =
+            c.class != "replaced" && c.new.as_ref().is_some_and(|id| folded_new.contains(id));
+        let ambiguous_member = c.family == "holes"
+            && c.class == "ambiguous"
+            && c.candidates.iter().all(|id| folded_new.contains(id));
+        !(member_old || member_new || ambiguous_member)
+    });
+
+    // A hole that became another kind of hole in its place.
+    let mut taken: BTreeSet<usize> = BTreeSet::new();
+    for i in 0..changes.len() {
+        if changes[i].family != "holes" || changes[i].class != "orphaned" {
+            continue;
+        }
+        let (at, axis) = (changes[i].at, changes[i].axis);
+        let Some(j) = (0..changes.len()).find(|&j| {
+            !taken.contains(&j)
+                && changes[j].class == "new"
+                && changes[j].family == "holes"
+                && changes[j].axis == axis
+                && near(changes[j].at, at, axis)
+        }) else {
+            continue;
+        };
+        taken.insert(j);
+        let (became, id) = (changes[j].what.clone(), changes[j].new.clone());
+        let c = &mut changes[i];
+        c.class = "replaced".into();
+        c.new = id;
+        c.became = became;
+    }
+    let mut index = 0;
+    changes.retain(|_| {
+        let keep = !taken.contains(&index);
+        index += 1;
+        keep
+    });
+
+    // A pattern whose holes changed kind "moves" only as its holes' faces do: that is theirs.
+    let replaced: BTreeSet<&str> = changes
+        .iter()
+        .filter(|c| c.class == "replaced" && c.family == "holes")
+        .filter_map(|c| c.old.as_deref())
+        .collect();
+    let knock_on: Vec<bool> = changes
+        .iter()
+        .map(|c| {
+            c.family == "hole_patterns"
+                && c.class == "adapted"
+                && sizes(&c.changes).is_empty()
+                && c.old
+                    .as_deref()
+                    .and_then(|id| find(old, id))
+                    .is_some_and(|p| p.members.iter().any(|m| replaced.contains(m.as_str())))
+        })
+        .collect();
+    let mut index = 0;
+    changes.retain(|_| {
+        let keep = !knock_on[index];
+        index += 1;
+        keep
+    });
+}
+
 fn describe(f: &Feature) -> (String, Option<[f64; 3]>) {
     let r = &f.record;
     let n = |k: &str| r.get(k).and_then(Value::as_f64);
@@ -807,6 +969,13 @@ fn describe(f: &Feature) -> (String, Option<[f64; 3]>) {
         "fillets" | "blends" => match n("radius") {
             Some(radius) => format!("R{} {}", num(radius), singular(&f.family)),
             None => singular(&f.family),
+        },
+        "slots" => match (n("length"), n("width"), n("d_lo"), n("d_hi")) {
+            (Some(l), Some(w), Some(lo), Some(hi)) => {
+                format!("{} × {} × {} slot", num(l), num(w), num(hi - lo))
+            }
+            (Some(l), Some(w), ..) => format!("{} × {} slot", num(l), num(w)),
+            _ => "slot".into(),
         },
         "plates" => match (n("lo"), n("hi")) {
             (Some(lo), Some(hi)) => format!("{} thick plate", num(hi - lo)),
@@ -1019,7 +1188,9 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
         }
         let class = match e.class {
             Class::Carried => continue,
-            Class::Adapted if e.changes.keys().all(|k| k == "adjacency") => continue,
+            // What a feature borders is context, not a change to it: a chamfer whose corners
+            // are rounded is the same chamfer.
+            Class::Adapted if e.changes.keys().all(|k| CONTEXT.contains(&k.as_str())) => continue,
             Class::Adapted => "adapted",
             Class::Ambiguous => "ambiguous",
             _ => "orphaned",
@@ -1047,6 +1218,7 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
             candidates,
             changes: e.changes.clone(),
             what,
+            became: String::new(),
             at,
             place,
             axis: old_feature
@@ -1073,6 +1245,7 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
                 candidates: Vec::new(),
                 changes: BTreeMap::new(),
                 what,
+                became: String::new(),
                 at,
                 place,
                 axis: along(&f.record).map(|(k, _, _)| k),
@@ -1082,6 +1255,13 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
             });
         }
     }
+
+    fold(
+        &mut feature_changes,
+        &old_features,
+        &new_features,
+        &new_size,
+    );
 
     // An ambiguous feature's candidates in its own place on the new part.
     for f in feature_changes
@@ -1340,6 +1520,12 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
                     face_class.insert(i, "new");
                 }
             }
+            "replaced" => {
+                for i in faces_of(&new_features, &c.new) {
+                    face_class.insert(i, "changed");
+                }
+                gone.extend(faces_of(&old_features, &c.old));
+            }
             _ => gone.extend(faces_of(&old_features, &c.old)),
         }
     }
@@ -1411,6 +1597,7 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
         let done = match f.class.as_str() {
             "orphaned" => "removed",
             "new" => "added",
+            "replaced" => "changed",
             "adapted"
                 if f.changes
                     .keys()
@@ -1531,7 +1718,7 @@ impl Revised {
         let mut out = Vec::new();
         // Alike changes to alike features read as one line: `2× Ø5 × 30 through holes removed`.
         type Group<'a> = (
-            (&'a str, &'a str, String, &'a str, &'a str),
+            (&'a str, &'a str, String, &'a str, &'a str, &'a str),
             Vec<&'a FeatureChange>,
             Vec<usize>,
         );
@@ -1543,6 +1730,7 @@ impl Revised {
                 sizes(&f.changes),
                 f.place.on.as_str(),
                 f.place.from.as_str(),
+                f.became.as_str(),
             );
             match groups.iter_mut().find(|(k, _, _)| *k == key) {
                 Some((_, fs, is)) => {
@@ -1552,7 +1740,7 @@ impl Revised {
                 None => groups.push((key, vec![f], vec![i])),
             }
         }
-        for ((class, what, sized, on, from), fs, is) in &groups {
+        for ((class, what, sized, on, from, became), fs, is) in &groups {
             let what = if what.is_empty() { "feature" } else { what };
             let label = if fs.len() > 1 {
                 format!("{}× {}", fs.len(), several(what))
@@ -1593,6 +1781,15 @@ impl Revised {
             moves.dedup();
             let line = match *class {
                 "orphaned" => format!("{label} removed{}", place(": ")),
+                // One in place of another: `4× Ø6 × 10 through holes → Ø6 × 7 counterbored …`.
+                "replaced" => {
+                    let became = if fs.len() > 1 {
+                        several(became)
+                    } else {
+                        became.to_string()
+                    };
+                    format!("{label} → {became}{}", place(": "))
+                }
                 "new" => format!("{label} added{}", place(": ")),
                 "ambiguous" => {
                     // What became of alike features that don't pair one to one.
@@ -1635,6 +1832,36 @@ impl Revised {
             out.push((line, is.clone()));
         }
         out
+    }
+
+    /// The whole part's move between the revisions, in words, when one was found and it is
+    /// more than rounding: `turned 90° about Z, moved X +15, Y −8`.
+    pub fn motion(&self) -> Option<String> {
+        let a = &self.correspondence.as_ref()?.alignment;
+        if !a.found {
+            return None;
+        }
+        let r = &a.rotation;
+        let turn = (((r[0][0] + r[1][1] + r[2][2] - 1.0) / 2.0).clamp(-1.0, 1.0))
+            .acos()
+            .to_degrees();
+        let mut words = Vec::new();
+        if turn >= 0.5 {
+            let axis = [r[2][1] - r[1][2], r[0][2] - r[2][0], r[1][0] - r[0][1]];
+            let length = axis.iter().map(|v| v * v).sum::<f64>().sqrt();
+            let about = (0..3)
+                .find(|&i| length > 1e-9 && (axis[i] / length).abs() > 0.99)
+                .map_or_else(|| "a skew axis".to_string(), |i| AXES[i].to_string());
+            words.push(format!("turned {}° about {about}", num(turn)));
+        }
+        let shift: Vec<String> = (0..3)
+            .filter(|&i| a.translation[i].abs() >= 0.05)
+            .map(|i| format!("{} {}", AXES[i], signed(a.translation[i])))
+            .collect();
+        if !shift.is_empty() {
+            words.push(format!("moved {}", shift.join(", ")));
+        }
+        (!words.is_empty()).then(|| words.join(", "))
     }
 
     /// The report as Markdown, for a pull request comment; *image* is the picture's link.
@@ -1720,6 +1947,13 @@ impl Revised {
                 } else {
                     format!("{}{faces}", if faces > 0.0 { "+" } else { "" })
                 }
+            );
+        }
+        if let Some(moved) = self.motion() {
+            let _ = writeln!(
+                s,
+                "The whole part moved between the revisions ({moved}); each feature is compared \
+                 where it is now.\n"
             );
         }
         if !self.features.is_empty() {

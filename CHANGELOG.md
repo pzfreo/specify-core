@@ -4,6 +4,25 @@ All notable changes to specify-core-rust. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Changed
+
+- The revision report says complex changes plainly (#56):
+  - a hole pattern laid out again (another count, circle or spacing) is one line, the old
+    pattern become the new (`pattern of 4 × Ø6 … → pattern of 5 × Ø6 … on a Ø48 circle`),
+    its holes' own pairings folded into it;
+  - a hole that became another kind of hole in its place reads as that (`Ø6 × 10 through
+    holes → Ø6 × 7 counterbored through holes`), not as removed and added;
+  - what a feature borders is not a change to it: a chamfer whose corners are rounded is not
+    reported, and neighbourhood signatures are never shown;
+  - a feature recognised twice (a pocket by its depth and by its section) is one line, in plain
+    sizes, not `section.sides.2`;
+  - when the whole part moved, the report says so: `The whole part moved between the revisions
+    (turned 90° about Z, moved X +8, Y +15, Z +3)`;
+  - a slot is named by its size (`16 × 6 × 10 slot added`).
+- A report feature's `class` can be `replaced`, with `became`: the new feature in words.
+
 ## 0.1.1 (2026-10-27)
 
 ### Added
