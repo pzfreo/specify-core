@@ -508,15 +508,30 @@ const ROUNDS: [&str; 5] = [
     "cylindrical_profiles",
 ];
 
+/// Whole-body contexts may co-own every face with an individual feature, or with
+/// another classification. They must each keep their own fingerprint identity.
+const BODY_CLASSIFICATIONS: [&str; 5] = [
+    "plates",
+    "polygonal_stock",
+    "thin_wall_bodies",
+    "sheet_metal_bodies",
+    "turned_bodies",
+];
+
 /// The quiddity record of each feature: the one whose defining faces it shares most.
 fn records(features: &[Feature], prints: &qc::Fingerprints) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for record in &prints.features {
         let best = features
             .iter()
-            // Co-owning body classifications must never bind a feature's fingerprint
-            // (or vice versa), even when their supports are identical (#123).
-            .filter(|f| f.family == record.family)
+            // #123: co-owning bodies keep their own identities. Preserve the shared
+            // representative for a physical feature's dimensional and section views,
+            // so fold() can keep one description with plain measurements.
+            .filter(|f| {
+                f.family == record.family
+                    || (!BODY_CLASSIFICATIONS.contains(&f.family.as_str())
+                        && !BODY_CLASSIFICATIONS.contains(&record.family.as_str()))
+            })
             .filter(|f| !f.faces.is_empty())
             .map(|f| {
                 (
