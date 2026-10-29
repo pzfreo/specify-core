@@ -120,6 +120,12 @@ A part with no answers still gets the comment: what changed, the picture and the
 - **The comment:** it is found by a hidden `<!-- step-diff -->` marker at its start and
   rewritten on each push.
 
+## From another web page
+
+A CAD tool's own page can open the same 3D comparison with two files it already has: it opens
+https://editor.draftwright.io/diff and posts it the files, which are compared in the browser and
+never uploaded. [HANDOFF.md](HANDOFF.md) gives the message and the few lines that send it.
+
 ## Limits
 
 - **Runner:** it runs on `ubuntu-latest` (Linux x86_64).
