@@ -143,6 +143,10 @@ pub fn analyse_file(step: &Path, part: Option<usize>) -> Result<Value> {
 /// specify-core wrote whose answers fit this part `existing: []`, `part: {}` and `resume:
 /// {answers}`. The snapshot is what gets stored: it is never re-derived for the same file.
 ///
+/// New schema-6 families and concave fillets include an optional plain `description` on
+/// their feature objects. Their measured `record` and defining `faces` remain the inputs
+/// to questions, matching and PMI.
+///
 /// Contacts that could not be measured are left out of the snapshot (its format has no place
 /// for them); [`analyse_reporting`] says which.
 pub fn analyse(loaded: &LoadedPart) -> Result<Value> {
@@ -247,10 +251,18 @@ fn analyse_with(
         warnings = refusals;
     }
     analysis.insert("faces".into(), faces);
-    analysis.insert(
-        "features".into(),
-        serde_json::to_value(&features).map_err(|e| refused(&e))?,
-    );
+    let mut described = serde_json::to_value(&features).map_err(|e| refused(&e))?;
+    for (value, feature) in described
+        .as_array_mut()
+        .into_iter()
+        .flatten()
+        .zip(&features)
+    {
+        if let Some(description) = feature.description() {
+            value["description"] = Value::String(description);
+        }
+    }
+    analysis.insert("features".into(), described);
     if let Some(mated) = mated {
         analysis.insert("mates".into(), Value::Object(mated));
     }

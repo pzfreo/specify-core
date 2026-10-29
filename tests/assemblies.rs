@@ -151,6 +151,8 @@ fn assert_same(got: &Value, want: &Value, at: &str) {
 /// in memory under another name.
 #[test]
 fn a_part_is_analysed_as_before_from_one_read() {
+    // quiddity #123 adds the pin's whole turned-body classification. The captured
+    // base includes that one record; every face, feature and PMI field stays checked.
     let base: Value = serde_json::from_str(
         &std::fs::read_to_string(
             common::fixtures()
@@ -187,7 +189,13 @@ fn a_part_is_analysed_as_before_from_one_read() {
         // #92: the old working X was -file Z. The converted station must still be on
         // riser face 2; its height interval must still span that face in file Y.
         if k == PIN {
-            let record = &analysis["features"][3]["record"];
+            // #123 inserts a turned-body record before risers in family order.
+            let record = &analysis["features"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|f| f["id"] == "risers:2")
+                .unwrap()["record"];
             assert_eq!(record["axis"], "z");
             assert_eq!(record["height_axis"], "y");
             let station =

@@ -221,6 +221,7 @@ fn pmi_words(p: &Value) -> String {
             let size = match ty {
                 "Size_Diameter" => format!("Ø{value}"),
                 "Size_Radius" => format!("R{value}"),
+                "Size_SphericalRadius" => format!("SR{value}"),
                 _ => format!("{words} {value}"),
             };
             format!("{size}{limits}")
@@ -499,7 +500,13 @@ pub struct Problems {
 const EVIDENCE: [&str; 2] = ["risers", "step_levels"];
 
 /// Families that border the features a person names: they change as those do.
-const ROUNDS: [&str; 4] = ["fillets", "blends", "chamfers", "freeform_surfaces"];
+const ROUNDS: [&str; 5] = [
+    "fillets",
+    "blends",
+    "chamfers",
+    "freeform_surfaces",
+    "cylindrical_profiles",
+];
 
 /// The quiddity record of each feature: the one whose defining faces it shares most.
 fn records(features: &[Feature], prints: &qc::Fingerprints) -> BTreeMap<String, String> {
@@ -507,6 +514,9 @@ fn records(features: &[Feature], prints: &qc::Fingerprints) -> BTreeMap<String, 
     for record in &prints.features {
         let best = features
             .iter()
+            // Co-owning body classifications must never bind a feature's fingerprint
+            // (or vice versa), even when their supports are identical (#123).
+            .filter(|f| f.family == record.family)
             .filter(|f| !f.faces.is_empty())
             .map(|f| {
                 (
@@ -563,7 +573,9 @@ fn plural_of(n: usize, one: &str) -> String {
 
 /// One of a family, in words: `holes` → `hole`, `hole_patterns` → `hole pattern`.
 fn singular(family: &str) -> String {
-    let one = if family.ends_with("sses") {
+    let one = if family == "turned_bodies" {
+        "turned_body"
+    } else if family.ends_with("sses") {
         &family[..family.len() - 2]
     } else {
         family.strip_suffix('s').unwrap_or(family)
@@ -573,11 +585,17 @@ fn singular(family: &str) -> String {
 
 /// Several of a thing in words: `hole` → `holes`, `boss` → `bosses`.
 fn several(one: &str) -> String {
+    if let Some(rest) = one.strip_prefix("face groove ") {
+        return format!("face grooves {rest}");
+    }
     if let Some(rest) = one.strip_prefix("pattern of ") {
         return format!("patterns of {rest}");
     }
     if let Some((noun, finish)) = one.split_once(", ") {
         return format!("{}, {finish}", several(noun));
+    }
+    if let Some(stem) = one.strip_suffix("body") {
+        return format!("{stem}bodies");
     }
     if one.ends_with('s') {
         format!("{one}es")
@@ -602,6 +620,7 @@ fn position(r: &Map<String, Value>) -> Option<[f64; 3]> {
     r.get("location")
         .or_else(|| r.get("at"))
         .or_else(|| r.get("center"))
+        .or_else(|| r.get("axis_point"))
         .or_else(|| r.get("path").and_then(|p| p.get("center")))
         .and_then(xyz)
         .or_else(|| {
@@ -1171,38 +1190,42 @@ fn describe(f: &Feature) -> (String, Option<[f64; 3]>) {
         };
         format!("{size}{kind}{finish}")
     };
-    let what = match f.family.as_str() {
-        "holes" => hole(r),
-        "hole_patterns" => {
-            let holes = r.get("holes").and_then(Value::as_array);
-            let count = holes.map_or(0, Vec::len);
-            let first = holes.and_then(|h| h.first()).and_then(Value::as_object);
-            let each = first.map_or_else(|| "holes".to_string(), |h| several(&hole(h)));
-            match n("diameter").filter(|_| f.id.contains("bolt_circle")) {
-                Some(d) => format!("pattern of {count} × {each} on a Ø{} circle", num(d)),
-                None => format!("pattern of {count} × {each}"),
+    let what = if let Some(description) = f.description() {
+        description
+    } else {
+        match f.family.as_str() {
+            "holes" => hole(r),
+            "hole_patterns" => {
+                let holes = r.get("holes").and_then(Value::as_array);
+                let count = holes.map_or(0, Vec::len);
+                let first = holes.and_then(|h| h.first()).and_then(Value::as_object);
+                let each = first.map_or_else(|| "holes".to_string(), |h| several(&hole(h)));
+                match n("diameter").filter(|_| f.id.contains("bolt_circle")) {
+                    Some(d) => format!("pattern of {count} × {each} on a Ø{} circle", num(d)),
+                    None => format!("pattern of {count} × {each}"),
+                }
             }
+            "bosses" => match (n("diameter"), n("height")) {
+                (Some(d), Some(h)) => format!("Ø{} × {} boss", num(d), num(h)),
+                _ => "boss".into(),
+            },
+            "fillets" | "blends" => match n("radius") {
+                Some(radius) => format!("R{} {}", num(radius), singular(&f.family)),
+                None => singular(&f.family),
+            },
+            "slots" => match (n("length"), n("width"), n("d_lo"), n("d_hi")) {
+                (Some(l), Some(w), Some(lo), Some(hi)) => {
+                    format!("{} × {} × {} slot", num(l), num(w), num(hi - lo))
+                }
+                (Some(l), Some(w), ..) => format!("{} × {} slot", num(l), num(w)),
+                _ => "slot".into(),
+            },
+            "plates" => match (n("lo"), n("hi")) {
+                (Some(lo), Some(hi)) => format!("{} thick plate", num(hi - lo)),
+                _ => "plate".into(),
+            },
+            other => singular(other),
         }
-        "bosses" => match (n("diameter"), n("height")) {
-            (Some(d), Some(h)) => format!("Ø{} × {} boss", num(d), num(h)),
-            _ => "boss".into(),
-        },
-        "fillets" | "blends" => match n("radius") {
-            Some(radius) => format!("R{} {}", num(radius), singular(&f.family)),
-            None => singular(&f.family),
-        },
-        "slots" => match (n("length"), n("width"), n("d_lo"), n("d_hi")) {
-            (Some(l), Some(w), Some(lo), Some(hi)) => {
-                format!("{} × {} × {} slot", num(l), num(w), num(hi - lo))
-            }
-            (Some(l), Some(w), ..) => format!("{} × {} slot", num(l), num(w)),
-            _ => "slot".into(),
-        },
-        "plates" => match (n("lo"), n("hi")) {
-            (Some(lo), Some(hi)) => format!("{} thick plate", num(hi - lo)),
-            _ => "plate".into(),
-        },
-        other => singular(other),
     };
     (what, at)
 }

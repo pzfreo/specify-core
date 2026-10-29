@@ -6,6 +6,18 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Changed
+
+- Upgrade quiddity and haecceity (native and WASM) to **v0.2.3** (`ced75a5`).
+  Analyses and revision reports describe turned bodies, annular face grooves (rim
+  diameters, depth and wall angles), cylindrical profile surfaces and concave fillets,
+  including spherical inside corner caps. These families follow the existing body,
+  groove and surface rules without additional interview questions or duplicate PMI.
+  Full-length turned ODs are no longer bosses; their external cylinders retain the
+  existing OD datum defaults. Saved answers on a removed boss remain
+  visibly unresolved for review and cannot migrate to another family. Recognition
+  schema 6 and fingerprint format 3 are unchanged; optional F3D import stays off.
+
 ## 0.1.3 (2026-10-29)
 
 ### Added

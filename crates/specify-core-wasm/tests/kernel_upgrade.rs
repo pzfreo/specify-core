@@ -222,3 +222,48 @@ fn browser_sessions_resume_all_84_alpha7_answers_after_schema6_upgrade() {
     }
     assert_eq!(total, 84);
 }
+
+#[test]
+fn browser_refuses_suppressed_od_boss_answers_in_saved_and_shared_projects() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/quiddity023/turned_body_disc.step");
+    let loaded = part::load(&path, None).unwrap();
+    // #123: face 1 is still the Ø22 OD, co-owned by turned_bodies, but no boss.
+    let key = "diameter.fit:bosses:1";
+    let answers = json!({key:"g6", "part.material":"steel"})
+        .as_object()
+        .unwrap()
+        .clone();
+    let session = Session::open("disc.step", &loaded.bytes).unwrap();
+    let evidence = session.evidence().unwrap();
+    for e in [Some(&evidence), None] {
+        let out = session.rematch_answers(&answers, e, None).unwrap();
+        assert_eq!(out["unresolved"].as_array().unwrap().len(), 1);
+        assert_eq!(out["unresolved"][0]["id"], key);
+        assert_eq!(out["unresolved"][0]["answer"], "g6");
+        assert!(out["answers"].get(key).is_none());
+        assert!(out["migrated"].is_null());
+    }
+    let a = specify_core::api::analyse(&loaded).unwrap();
+    let intent = specify_core::rules::apply_with_defaults(
+        &a,
+        json!({"part.material":"steel"}).as_object().unwrap(),
+        true,
+    )
+    .unwrap();
+    let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
+    let session = Session::open("saved.step", &bytes).unwrap();
+    let snapshot = session.snapshot();
+    let out = &snapshot["analysis"]["resume"];
+    assert_eq!(out["unresolved"][0]["id"], key);
+    assert_eq!(out["unresolved"][0]["answer"], "g6");
+    assert!(out["answers"].get(key).is_none());
+    let review = session.review(out["answers"].as_object().unwrap()).unwrap();
+    assert!(
+        review["problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["code"] == "saved_answer_unresolved")
+    );
+}
