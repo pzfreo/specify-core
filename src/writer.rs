@@ -1050,22 +1050,6 @@ fn faceless(kind: &str, req: &Map<String, Json>) -> Option<String> {
 }
 
 impl Features<'_> {
-    /// Whether `faces` can be written as a feature beside those already written: the same faces
-    /// as one of them, or none of theirs. A face two features each name is an AP242 rule
-    /// violation (`item_identified_representation_usage.UR1`), refused by haecceity.
-    fn fits(&self, faces: Option<&Json>) -> bool {
-        let Some(ids) = face_ids(faces) else {
-            return false;
-        };
-        let wanted: Vec<Anchor> = ids.iter().map(|&i| Anchor::Face(FaceIndex(i))).collect();
-        self.0.iter().all(|x| match x {
-            Feature::Items(items) => {
-                *items == wanted || !items.iter().any(|a| wanted.contains(a))
-            }
-            _ => true,
-        })
-    }
-
     fn of(&mut self, faces: Option<&Json>, what: &str) -> Result<FeatureId, WriteError> {
         let Some(ids) = face_ids(faces) else {
             return invalid(format!("{what} names no faces"));

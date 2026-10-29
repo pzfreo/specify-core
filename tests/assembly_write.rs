@@ -174,7 +174,14 @@ fn each_part_has_its_own_pmi_and_answers() {
             .iter()
             .any(|d| matches!(d.tolerance, DimTolerance::Fit { .. }))
     );
-    assert!(pin.dimensions.is_empty());
+    // The pin has nothing specified: its dimensions are only those the general tolerance
+    // covers, each with its nominal alone (#63).
+    assert!(!pin.dimensions.is_empty());
+    assert!(
+        pin.dimensions
+            .iter()
+            .all(|d| matches!(d.tolerance, DimTolerance::None))
+    );
     assert_eq!(plate.material.unwrap().id, "steel");
     assert_eq!(pin.material.unwrap().id, "brass");
 }
