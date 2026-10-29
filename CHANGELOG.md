@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.3 (2026-10-29)
+
 ### Added
 
 - `specify-core diff` compares two revisions of an assembly with no `--part`: its parts paired
