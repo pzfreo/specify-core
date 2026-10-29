@@ -26,7 +26,7 @@ plate with 4 × Ø6 holes on a Ø60 circle, a pocket, two chamfers and a boss un
 | `complex_counterbore` | the through holes counterbored |
 | `complex_pattern` | 4 holes on Ø60 → 5 on Ø48 |
 
-`gramil_assembly` is two revisions of gramil's assembly (pzfreo/gramil 9171ef6, Open Community
+`gramil_assembly` (under the Open Community License v1: see `LICENSE-gramil`) is two revisions of gramil's assembly (pzfreo/gramil 9171ef6, Open Community
 License v1), 12 distinct parts, made by `gramil_assembly.py` from a gramil checkout with its
 venv (build123d 0.10.0) and gzipped (`gzip -9`), for `tests/assembly_diff.rs`. Both are the
 production build (`process.prototype=False`, as gramil's `scripts/build_production.py`). The
