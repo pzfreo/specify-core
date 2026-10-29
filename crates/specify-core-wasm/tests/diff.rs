@@ -7,7 +7,7 @@ use std::path::Path;
 fn bytes(name: &str) -> Vec<u8> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join(format!("../../tests/fixtures/revisions/{name}.step.gz"));
-    part::load(&path, None).unwrap().bytes.to_vec()
+    part::File::read(&path).unwrap().bytes().to_vec()
 }
 
 #[test]
@@ -92,4 +92,56 @@ fn a_compressed_or_unreadable_revision_is_refused_by_name() {
     )
     .unwrap_err();
     assert!(error.contains("old.step"), "{error}");
+}
+
+#[test]
+fn an_assembly_is_compared_part_by_part_each_changed_part_shaped_as_a_part_s_diff() {
+    let (old, new) = (bytes("gramil_assembly.old"), bytes("gramil_assembly.new"));
+    let got = session::diff(
+        ("old.step", &old),
+        ("new.step", &new),
+        &Map::new(),
+        "gramil_assembly.step",
+    )
+    .unwrap();
+    assert!(
+        got["markdown"]
+            .as_str()
+            .unwrap()
+            .starts_with("### gramil_assembly.step: Specify\n\n✅ 2 parts changed")
+    );
+    assert_eq!(got["report"]["parts"].as_array().unwrap().len(), 12);
+    let after = part::File::of_bytes(Path::new("new.step"), new.clone())
+        .unwrap()
+        .parts();
+    let parts = got["parts"].as_array().unwrap();
+    assert_eq!(parts.len(), 12);
+    for p in parts {
+        let name = p["name"].as_str().unwrap();
+        if p["status"] == "changed" {
+            let faces = after.iter().find(|s| s.name == name).unwrap().faces;
+            assert_eq!(p["view"]["new"]["faces"].as_array().unwrap().len(), faces);
+            assert!(
+                p["markdown"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with(&format!("#### {name}\n\n✅ ")),
+                "{name}"
+            );
+            assert!(p["report"]["summary"].is_string());
+        } else {
+            assert_eq!(p["status"], "unchanged", "{name}");
+            assert!(
+                p.get("view").is_none() && p.get("markdown").is_none(),
+                "{name}"
+            );
+            assert!(p["report"].is_object(), "{name}");
+        }
+    }
+    let changed: Vec<&str> = parts
+        .iter()
+        .filter(|p| p["status"] == "changed")
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(changed, ["GRM-02 shaft", "GRM-04 drive plate"]);
 }

@@ -6,6 +6,22 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- `specify-core diff` compares two revisions of an assembly with no `--part`: its parts paired
+  by name, a parts table of those changed, added, removed, placed a different number of times or
+  moved, each changed part's own report, and a picture of the whole assembly coloured by part.
+  Answers are by part name; a single part's answers are taken as its part's when its file
+  becomes an assembly. `--viewer URL` links each changed part to the /diff page with
+  `&part=NAME`. A single part's report is unchanged (`docs/diff.md`, "Assemblies").
+- The STEP diff action compares assemblies: one comment with the parts table, a section for each
+  changed part, the assembly's picture and a /diff link for each changed part.
+
+### WASM API
+
+- `diff` compares two revisions of an assembly part by part: `{report, markdown, parts}`, each
+  changed part with its own `markdown` and `view`. Its signature is unchanged.
+
 ## 0.1.2 (2026-10-29)
 
 ### Changed

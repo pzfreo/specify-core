@@ -51,6 +51,10 @@ checks its checksum.
   GitHub, compares them in your browser, and shows the part coloured the same way, to turn round
   and zoom. A private repository's comment has the picture only, because the page can't read its
   files.
+- **The parts table**, for an assembly, lists the parts that differ: changed, added, removed,
+  placed a different number of times, or moved, with a count of the rest. Each changed part
+  then gets its own section, read as a part's comment is, with a link that opens that part on
+  the /diff page.
 - **The measures** are the volume, surface area, bounding box and face count, before and
   after.
 - **What changed** names each feature as a drawing would ("2× Ø10 × 11 through holes") and
@@ -95,7 +99,16 @@ A part with no answers still gets the comment: what changed, the picture and the
   files look too alike as text to pair by content.
 - **Unreadable files:** a file Specify can't read gets its error in the comment, and the
   other files are still compared.
-- **Assemblies** aren't compared yet; `specify-core diff` needs one part per file.
+- **Assemblies:** a file of several parts, or of a part placed more than once, is compared part
+  by part. Parts are paired by their names in the STEP file, so a renamed part shows as one
+  removed and another added. The comment has the parts table (changed, added, removed, quantity
+  changed and moved, plus a count of the unchanged), a section for each changed part, and a
+  picture of the whole assembly: changed, re-counted and moved parts orange, added green,
+  removed red. In a public
+  repository each changed part links to /diff with `&part=` to open it there. An assembly's
+  answers file maps part names to their answers: `{"GRM-04 drive plate": {"part.material":
+  "6061-T6"}}`. A file that was a single part keeps its old answers file: it is taken as that
+  part's.
 
 ## Options
 
@@ -143,4 +156,5 @@ specify-core diff old.step new.step --answers old.answers.json -o changes
 ```
 
 `changes/` gets `report.md` (the comment), `model.png` (the picture), `report.json` and the
-carried `answers.json`. Installing the command line is described in [the README](../README.md#install).
+carried `answers.json`. An assembly gives the same four files, its answers by part name.
+Installing the command line is described in [the README](../README.md#install).

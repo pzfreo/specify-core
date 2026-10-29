@@ -26,6 +26,20 @@ plate with 4 × Ø6 holes on a Ø60 circle, a pocket, two chamfers and a boss un
 | `complex_counterbore` | the through holes counterbored |
 | `complex_pattern` | 4 holes on Ø60 → 5 on Ø48 |
 
+`gramil_assembly` (under the Open Community License v1: see `LICENSE-gramil`) is two revisions of gramil's assembly (pzfreo/gramil 9171ef6),
+12 distinct parts, made by `gramil_assembly.py` from a gramil checkout with its
+venv (build123d 0.10.0) and gzipped (`gzip -9`), for `tests/assembly_diff.rs`. Both are the
+production build (`process.prototype=False`, as gramil's `scripts/build_production.py`). The
+new revision is gramil's defaults; the old has `shaft.drive_plate_mount_depth` 4 (not 5) and
+`drive_plate.mount_hole_diameter` 2.2 (not 2.4). So GRM-02 shaft's mount tap goes deeper, GRM-04
+drive plate's mount hole goes Ø2.2 → Ø2.4, and the other 10 parts are unchanged. The shaft's end
+chamfer is left alone: a single part's diff reads an added end chamfer as a shorter boss, a
+moved flat and a removed plate.
+
+`plate_turned` is a plate and a block, made by `plate_turned.py` with build123d 0.10.0: the new
+plate is the old one turned end for end in its own frame and placed as before, for
+`tests/assembly_diff.rs` (a part that moved in its own frame is `moved`, not `unchanged`).
+
 `bearing_flange` is build123d's `examples/cast_bearing_unit.py` (Apache-2.0, by Gumyr), an
 oval flanged bearing housing with drafted sides, exported with build123d 0.11.0. The new
 revision changes two parameters: the flange `A1` 11 → 13 thick and the bolt holes
