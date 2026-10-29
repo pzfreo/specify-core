@@ -78,6 +78,21 @@ pub(crate) fn on(doc: &Document, ids: &[u64], ancestor: &str) -> Option<u64> {
     number(doc, root(Some(doc), ids, ancestor))
 }
 
+fn texture_root(doc: Option<&Document>, ids: &[u64]) -> u64 {
+    doc.and_then(|doc| {
+        ids.iter().copied().find(|&id| {
+            matches!(doc.get(id), Some(RawEntity::Simple {name, attributes, ..})
+            if name == "PROPERTY_DEFINITION" && matches!(attributes.first(),
+                Some(Attribute::String(s)) if s == "surface texture"))
+        })
+    })
+    .unwrap_or(0)
+}
+
+pub(crate) fn texture_number(doc: &Document, ids: &[u64]) -> Option<u64> {
+    number(doc, texture_root(Some(doc), ids))
+}
+
 fn measure(v: Option<&pmi::Value>) -> String {
     v.map(|v| format!("{:.9}", crate::existing::value(v)))
         .unwrap_or_default()
@@ -207,10 +222,7 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
             .collect();
         parameters.sort_unstable();
         let ids = prov.map_or(&[][..], |v| v.surface_textures[i].as_slice());
-        let entity = doc.and_then(|doc| ids.iter().copied().find(|&id| {
-            matches!(doc.get(id), Some(RawEntity::Simple { name, attributes, .. })
-                if name == "PROPERTY_DEFINITION" && attributes.first() == Some(&Attribute::String("surface texture".into())))
-        })).unwrap_or(0);
+        let entity = texture_root(doc, ids);
         add(
             "surface_texture",
             parameters.join("|"),

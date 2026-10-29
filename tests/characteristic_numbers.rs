@@ -534,3 +534,122 @@ fn imported_shared_features_numeric_ids_are_reserved_without_numbering_old_requi
         "the imported requirement remains unnumbered"
     );
 }
+
+#[test]
+fn a_datum_requirement_number_is_not_overridden_by_its_geometric_features_id() {
+    let p = load("parts/plate.step");
+    let p = write(&p, &intent(&p));
+    let required = numbers(&p)
+        .iter()
+        .find(|c| c.kind == "datum")
+        .unwrap()
+        .number;
+    let doc = Document::parse(p.bytes.to_vec()).unwrap();
+    let feature = doc
+        .ids()
+        .find(|id| {
+            matches!(doc.get(*id),
+        Some(RawEntity::Simple {name,..}) if name == "DATUM_FEATURE")
+        })
+        .unwrap();
+    let mut edit = Edit::new();
+    edit.add(haecceity::p21::simple(
+        "ID_ATTRIBUTE",
+        vec![
+            Attribute::String("40".into()),
+            Attribute::EntityRef(feature),
+        ],
+    ));
+    let p = back(doc.apply(&edit).unwrap().bytes);
+    assert_eq!(
+        numbers(&p)
+            .iter()
+            .find(|c| c.kind == "datum")
+            .unwrap()
+            .number,
+        required
+    );
+    assert_eq!(
+        existing::read_existing(&p)
+            .unwrap()
+            .iter()
+            .find(|c| c.kind == "datum")
+            .unwrap()
+            .number,
+        Some(required)
+    );
+}
+
+#[test]
+fn surface_texture_pmi_reads_the_number_from_its_root_even_when_parameters_have_lower_ids() {
+    let p = load("parts/plate.step");
+    let p = write(&p, &intent(&p));
+    let expected = numbers(&p)
+        .into_iter()
+        .find(|c| c.kind == "surface_texture" && !c.faces.is_empty())
+        .unwrap();
+    let doc = Document::parse(p.bytes.to_vec()).unwrap();
+    let parameter = doc.ids().find(|id| matches!(doc.get(*id), Some(RawEntity::Simple {name,attributes,..})
+        if name == "PROPERTY_DEFINITION" && matches!(attributes.first(), Some(Attribute::String(s)) if s == "surface_condition"))).unwrap();
+    assert!(parameter > expected.entity);
+    let swap = |id| {
+        if id == parameter {
+            expected.entity
+        } else if id == expected.entity {
+            parameter
+        } else {
+            id
+        }
+    };
+    fn refs(a: &mut Attribute, swap: &impl Fn(u64) -> u64) {
+        match a {
+            Attribute::EntityRef(id) => *id = swap(*id),
+            Attribute::List(items) => {
+                for a in items {
+                    refs(a, swap);
+                }
+            }
+            Attribute::Typed { value, .. } => refs(value, swap),
+            _ => {}
+        }
+    }
+    let mut edit = Edit::new();
+    for id in doc.ids() {
+        let mut e = doc.get(id).unwrap().clone();
+        match &mut e {
+            RawEntity::Simple { id, attributes, .. } => {
+                *id = swap(*id);
+                for a in attributes {
+                    refs(a, &swap);
+                }
+            }
+            RawEntity::Complex { id, parts, .. } => {
+                *id = swap(*id);
+                for part in parts {
+                    for a in &mut part.attributes {
+                        refs(a, &swap);
+                    }
+                }
+            }
+        }
+        edit.replace(swap(id), e);
+    }
+    let p = back(doc.apply(&edit).unwrap().bytes);
+    let public = existing::read_existing(&p).unwrap();
+    assert_eq!(
+        public
+            .iter()
+            .find(|c| c.kind == "note" && c.r#type == "surface finish")
+            .unwrap()
+            .number,
+        Some(expected.number)
+    );
+    assert_eq!(
+        numbers(&p)
+            .iter()
+            .find(|c| c.entity == parameter)
+            .unwrap()
+            .number,
+        expected.number
+    );
+}

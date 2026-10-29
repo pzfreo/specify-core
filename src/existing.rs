@@ -381,12 +381,7 @@ impl Reading {
             if !seen.contains(&key) {
                 let mut item = ExistingPmi::new("datum", &key.0, key.1.clone());
                 item.provenance = owned.then(|| provenance::MARKER.into());
-                item.number = datum
-                    .feature()
-                    .and_then(|f| {
-                        crate::characteristics::on(doc, &prov.features[f.0], "datum_feature")
-                    })
-                    .or_else(|| crate::characteristics::on(doc, &prov.datums[i], "datum"));
+                item.number = crate::characteristics::on(doc, &prov.datums[i], "datum");
                 out.push(item);
                 seen.push(key);
             }
@@ -680,7 +675,7 @@ fn notes(
                 "surface finish",
                 &faces_of(pmi, &[f]),
                 provenance::marked(doc, &prov.surface_textures[i], "surface texture"),
-                crate::characteristics::on(doc, &prov.surface_textures[i], "property_definition"),
+                crate::characteristics::texture_number(doc, &prov.surface_textures[i]),
             );
         }
     }
