@@ -103,10 +103,12 @@ A part with no answers still gets the comment: what changed, the picture and the
   by part. Parts are paired by their names in the STEP file, so a renamed part shows as one
   removed and another added. The comment has the parts table (changed, added, removed, quantity
   changed and moved, plus a count of the unchanged), a section for each changed part, and a
-  picture of the whole assembly: changed parts orange, added green, removed red. In a public
+  picture of the whole assembly: changed, re-counted and moved parts orange, added green,
+  removed red. In a public
   repository each changed part links to /diff with `&part=` to open it there. An assembly's
   answers file maps part names to their answers: `{"GRM-04 drive plate": {"part.material":
-  "6061-T6"}}`.
+  "6061-T6"}}`. A file that was a single part keeps its old answers file: it is taken as that
+  part's.
 
 ## Options
 

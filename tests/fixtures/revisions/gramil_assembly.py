@@ -3,8 +3,10 @@
 #   .venv/bin/python gramil_assembly.py OUTDIR
 # then gzip -9 OUTDIR/*.step. The production build (process.prototype=False, as cnc_params() in
 # scripts/build_production.py does): the prototype build's helical threads don't export.
-# new: gramil's defaults. old: the shaft without its end chamfer and with a 4 deep mount tap, and
-# the drive plate's mount hole Ø2.2. Read as a change: GRM-02 and GRM-04 change, nothing else.
+# new: gramil's defaults. old: the shaft's mount tap 4 deep, and the drive plate's mount hole
+# Ø2.2. Read as a change: GRM-02 and GRM-04 change, nothing else. (Not the shaft's end chamfer: a
+# single part's diff reads an added end chamfer as a shorter boss, a moved flat and a removed
+# plate.)
 import sys
 from build123d import export_step
 from gramil.assembly import build_assembly
@@ -15,7 +17,7 @@ def params(old=False):
     p = p.model_copy(update={"process": p.process.model_copy(update={"prototype": False})})
     if old:
         p = p.model_copy(update={
-            "shaft": p.shaft.model_copy(update={"end_chamfer": 0.0, "drive_plate_mount_depth": 4.0}),
+            "shaft": p.shaft.model_copy(update={"drive_plate_mount_depth": 4.0}),
             "drive_plate": p.drive_plate.model_copy(update={"mount_hole_diameter": 2.2}),
         })
     return p

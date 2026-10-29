@@ -78,6 +78,10 @@ pub struct PartChange {
     /// The part's own comparison, for a part in both files.
     #[serde(rename = "report", skip_serializing_if = "Option::is_none")]
     pub revised: Option<Revised>,
+    /// The old placements no new one is at, of a part placed a different number of times or
+    /// moved, for [`Assembly::picture`].
+    #[serde(skip)]
+    pub gone: Vec<usize>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -91,8 +95,7 @@ pub struct Assembly {
 
 /// Whether a part's comparison finds nothing: no feature, face, answer, question, problem or
 /// PMI changed, and its volume, area, box and face count are the same. Not whether the
-/// alignment found a move: a symmetric part (a screw, a washer) aligns with itself turned
-/// 180°, while geometry that moved in the part's own frame moves its box.
+/// alignment found a move: [`placed`] weighs that.
 fn unchanged(r: &Revised) -> bool {
     let close = |a: Option<f64>, b: Option<f64>| match (a, b) {
         (Some(a), Some(b)) => (a - b).abs() < 0.005,
@@ -115,19 +118,47 @@ fn unchanged(r: &Revised) -> bool {
         && o.faces == n.faces
 }
 
+type Place = [[f64; 4]; 3];
+
 /// A part in both files whose geometry did not change: `quantity` when it is placed a
-/// different number of times, `moved` when a placement differs, else `unchanged`.
-fn placed_status(old: &[[[f64; 4]; 3]], new: &[[[f64; 4]; 3]]) -> &'static str {
-    if old.len() != new.len() {
-        return "quantity";
-    }
-    let differs = old.iter().zip(new).any(|(a, b)| {
+/// different number of times, `moved` when an old placement has no new one at it, else
+/// `unchanged`; and those old placements. *new* is where the new placements put the old part.
+fn placed(old: &[Place], new: &[Place]) -> (&'static str, Vec<usize>) {
+    let same = |a: &Place, b: &Place| {
         a.iter()
             .flatten()
             .zip(b.iter().flatten())
-            .any(|(x, y)| (x - y).abs() > 1e-6)
-    });
-    if differs { "moved" } else { "unchanged" }
+            .all(|(x, y)| (x - y).abs() <= 1e-4)
+    };
+    let gone: Vec<usize> = (0..old.len())
+        .filter(|&i| !new.iter().any(|b| same(&old[i], b)))
+        .collect();
+    let status = if old.len() != new.len() {
+        "quantity"
+    } else if gone.is_empty() {
+        "unchanged"
+    } else {
+        "moved"
+    };
+    (status, gone)
+}
+
+/// The new part's placements, each after the part's own move between the revisions when it
+/// moved in its own frame: where they put the old part.
+fn placing_old(new: &[Place], r: &Revised) -> Vec<Place> {
+    let a = match &r.correspondence {
+        Some(c) if !r.still => &c.alignment,
+        _ => return new.to_vec(),
+    };
+    new.iter()
+        .map(|p| {
+            std::array::from_fn(|i| {
+                let row = |k: usize| (0..3).map(|j| p[i][j] * a.rotation[j][k]).sum::<f64>();
+                let shift = (0..3).map(|j| p[i][j] * a.translation[j]).sum::<f64>() + p[i][3];
+                [row(0), row(1), row(2), shift]
+            })
+        })
+        .collect()
 }
 
 fn names_of(parts: &[LoadedPart]) -> Vec<String> {
@@ -139,13 +170,22 @@ fn names_of(parts: &[LoadedPart]) -> Vec<String> {
 }
 
 /// Compares every part of two revisions of an assembly. *given* is the old parts' answers by
-/// name, `{part name: {question id: value}}`; a part with none carries its own stored answers.
+/// name, `{part name: {question id: value}}`, or, when the old file is a single part, a part's
+/// `{question id: value}`; a part with none carries its own stored answers.
 pub fn diff(
     old: &[LoadedPart],
     new: &[LoadedPart],
     given: &Map<String, Value>,
 ) -> Result<Assembly> {
     let (old_names, new_names) = (names_of(old), names_of(new));
+    let wrapped;
+    let given = match old_names.as_slice() {
+        [only] if given.values().any(|a| !a.is_object()) => {
+            wrapped = Map::from_iter([(only.clone(), Value::Object(given.clone()))]);
+            &wrapped
+        }
+        _ => given,
+    };
     let invalid = |m: String| api::Error::Rules(rules::Error::Invalid(m));
     for (name, answers) in given {
         if !answers.is_object() {
@@ -161,7 +201,7 @@ pub fn diff(
             )));
         }
     }
-    let placed = |parts: &[LoadedPart], k: Option<usize>| {
+    let count = |parts: &[LoadedPart], k: Option<usize>| {
         k.map(|k| Placed {
             part: k,
             instances: parts[k].placements.len(),
@@ -169,7 +209,7 @@ pub fn diff(
     };
     let mut rows = Vec::new();
     for (name, o, n) in matched(&old_names, &new_names) {
-        let (status, revised) = match (o, n) {
+        let (status, gone, revised) = match (o, n) {
             (Some(i), Some(j)) => {
                 let answers = given
                     .get(&name)
@@ -177,22 +217,23 @@ pub fn diff(
                     .cloned()
                     .unwrap_or_default();
                 let r = super::diff(&old[i], &new[j], &answers)?;
-                let status = if unchanged(&r) {
-                    placed_status(&old[i].placements, &new[j].placements)
+                let (status, gone) = if unchanged(&r) {
+                    placed(&old[i].placements, &placing_old(&new[j].placements, &r))
                 } else {
-                    "changed"
+                    ("changed", Vec::new())
                 };
-                (status, Some(r))
+                (status, gone, Some(r))
             }
-            (Some(_), None) => ("removed", None),
-            _ => ("added", None),
+            (Some(_), None) => ("removed", Vec::new(), None),
+            _ => ("added", Vec::new(), None),
         };
         rows.push(PartChange {
             name,
             status,
-            old: placed(old, o),
-            new: placed(new, n),
+            old: count(old, o),
+            new: count(new, n),
             revised,
+            gone,
         });
     }
     let verdicts: Vec<&str> = rows
@@ -294,7 +335,8 @@ impl Assembly {
         if let Some(image) = image {
             let _ = writeln!(
                 s,
-                "![The assembly: changed parts in orange, added in green, removed in red]({image})\n"
+                "![The assembly: changed, re-counted and moved parts in orange, added in green, \
+                 removed in red]({image})\n"
             );
         }
         let differ: Vec<&PartChange> = self
@@ -338,13 +380,31 @@ impl Assembly {
     }
 
     /// The new assembly's picture, as [`super::picture`] draws a part: every part where it is
-    /// placed, changed, re-counted and moved parts orange, added green, the rest grey, and the
-    /// removed parts in translucent red where they were; a PNG *width* pixels wide.
+    /// placed, changed, re-counted and moved parts orange, added green, the rest grey, and in
+    /// translucent red, where they are not under a part now, the removed parts and the
+    /// placements that went; a PNG *width* pixels wide.
     pub fn picture(&self, old: &[LoadedPart], new: &[LoadedPart], width: u32) -> Vec<u8> {
         let (mut solid, mut ghost, mut lines) = (Vec::new(), Vec::new(), Vec::new());
+        let red = [0.84, 0.16, 0.16];
+        let place = |at: &Place| {
+            let at = *at;
+            move |q: [f64; 3]| {
+                [0, 1, 2].map(|i| at[i][0] * q[0] + at[i][1] * q[1] + at[i][2] * q[2] + at[i][3])
+            }
+        };
         for p in &self.parts {
+            if let (false, Some(o)) = (p.gone.is_empty(), &p.old) {
+                let mesh = crate::mesh::mesh(&old[o.part]);
+                for &i in &p.gone {
+                    ghost.extend(triangles(
+                        &mesh,
+                        &|_| Some(red),
+                        &place(&old[o.part].placements[i]),
+                    ));
+                }
+            }
             let (parts, k, colour) = match (p.status, &p.old, &p.new) {
-                ("removed", Some(o), _) => (old, o.part, [0.84, 0.16, 0.16]),
+                ("removed", Some(o), _) => (old, o.part, red),
                 (_, _, Some(n)) => (
                     new,
                     n.part,
@@ -358,10 +418,7 @@ impl Assembly {
             };
             let mesh = crate::mesh::mesh(&parts[k]);
             for at in &parts[k].placements {
-                let place = |q: [f64; 3]| {
-                    [0, 1, 2]
-                        .map(|i| at[i][0] * q[0] + at[i][1] * q[1] + at[i][2] * q[2] + at[i][3])
-                };
+                let place = place(at);
                 let tris = triangles(&mesh, &|_| Some(colour), &place);
                 if p.status == "removed" {
                     ghost.extend(tris);
@@ -371,7 +428,7 @@ impl Assembly {
                 }
             }
         }
-        render(&solid, &ghost, &lines, width)
+        render(&solid, &ghost, &lines, true, width)
     }
 }
 
@@ -448,11 +505,18 @@ mod tests {
             ]
         };
         assert_eq!(
-            placed_status(&[at(0.0), at(5.0)], &[at(0.0), at(5.0), at(10.0)]),
-            "quantity"
+            placed(&[at(0.0), at(5.0)], &[at(0.0), at(5.0), at(10.0)]),
+            ("quantity", vec![])
         );
-        assert_eq!(placed_status(&[at(0.0)], &[at(1.0)]), "moved");
-        assert_eq!(placed_status(&[at(0.0)], &[at(1e-9)]), "unchanged");
+        assert_eq!(
+            placed(&[at(0.0), at(5.0), at(10.0)], &[at(10.0), at(0.0)]),
+            ("quantity", vec![1])
+        );
+        assert_eq!(placed(&[at(0.0)], &[at(1.0)]), ("moved", vec![0]));
+        assert_eq!(
+            placed(&[at(0.0), at(5.0)], &[at(5.0), at(1e-9)]),
+            ("unchanged", vec![])
+        );
     }
 
     #[test]

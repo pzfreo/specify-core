@@ -75,6 +75,10 @@ pub struct Revised {
     pub gone: Vec<usize>,
     #[serde(skip)]
     pub correspondence: Option<Correspondence>,
+    /// The part did not move in its own frame: no move was found, or it is rounding, or the old
+    /// part lies on itself after it (a screw turned about its axis).
+    #[serde(skip)]
+    pub still: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1910,7 +1914,8 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
             plural(problems.added.len(), "problem", "problems")
         ),
     };
-    Ok(Revised {
+    let alignment = corr.alignment.clone();
+    let mut revised = Revised {
         pmi,
         verdict: verdict.into(),
         summary,
@@ -1928,6 +1933,39 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
         faces: face_class,
         gone,
         correspondence: Some(corr),
+        still: true,
+    };
+    revised.still = revised.motion().is_none() || onto_itself(&old_q.fingerprints, &alignment);
+    Ok(revised)
+}
+
+/// Whether *a* takes a part onto itself: each face, moved, has a face of the same surface and
+/// area where it now is.
+fn onto_itself(prints: &qc::Fingerprints, a: &qc::Alignment) -> bool {
+    let tol = prints.scale * 1e-3;
+    let moved = |p: [f64; 3]| {
+        [0, 1, 2].map(|i| {
+            a.rotation[i][0] * p[0]
+                + a.rotation[i][1] * p[1]
+                + a.rotation[i][2] * p[2]
+                + a.translation[i]
+        })
+    };
+    let same_area = |x: Option<f64>, y: Option<f64>| match (x, y) {
+        (Some(x), Some(y)) => (x - y).abs() <= 1e-3 * x.abs().max(y.abs()),
+        (x, y) => x == y,
+    };
+    prints.faces.iter().all(|f| {
+        let c = moved(f.centroid);
+        prints.faces.iter().any(|g| {
+            g.surface == f.surface
+                && same_area(f.area, g.area)
+                && (0..3)
+                    .map(|k| (c[k] - g.centroid[k]).powi(2))
+                    .sum::<f64>()
+                    .sqrt()
+                    <= tol
+        })
     })
 }
 
@@ -2433,7 +2471,7 @@ pub fn picture(old: &LoadedPart, new: &LoadedPart, revised: &Revised, width: u32
         },
     );
     let edges = edges(&mesh_new, &|p| p);
-    render(&solid, &ghost, &edges, width)
+    render(&solid, &ghost, &edges, false, width)
 }
 
 /// A triangle and its colour, for [`render`].
@@ -2501,8 +2539,16 @@ fn edges(mesh: &Value, place: &dyn Fn([f64; 3]) -> [f64; 3]) -> Vec<Vec<[f64; 3]
         .collect()
 }
 
-/// A z-buffered isometric rendering (looking along −(1, −1, 1), z up), 2× supersampled.
-fn render(solid: &[Triangle], ghost: &[Triangle], edges: &[Vec<[f64; 3]>], width: u32) -> Vec<u8> {
+/// A z-buffered isometric rendering (looking along −(1, −1, 1), z up), 2× supersampled. The
+/// ghost is drawn over everything, or, *in_front*, only where it is in front of the solid (not
+/// where a solid face lies on it).
+fn render(
+    solid: &[Triangle],
+    ghost: &[Triangle],
+    edges: &[Vec<[f64; 3]>],
+    in_front: bool,
+    width: u32,
+) -> Vec<u8> {
     let norm = |v: [f64; 3]| {
         let n = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
         v.map(|x| x / n)
@@ -2554,6 +2600,7 @@ fn render(solid: &[Triangle], ghost: &[Triangle], edges: &[Vec<[f64; 3]>], width
                 c: [f64; 3],
                 alpha: f64,
                 test: bool,
+                behind: Option<f64>,
                 rgb: &mut Vec<[f64; 3]>,
                 depth: &mut Vec<f64>| {
         let n = norm(cross(
@@ -2616,6 +2663,9 @@ fn render(solid: &[Triangle], ghost: &[Triangle], edges: &[Vec<[f64; 3]>], width
                 }
                 let z = b0 * s[0][2] + b1 * s[1][2] + b2 * s[2][2];
                 let i = y * w + x;
+                if behind.is_some_and(|allowance| z <= depth[i] + allowance) {
+                    continue;
+                }
                 if test {
                     if z <= depth[i] {
                         continue;
@@ -2627,7 +2677,7 @@ fn render(solid: &[Triangle], ghost: &[Triangle], edges: &[Vec<[f64; 3]>], width
         }
     };
     for (t, c) in solid {
-        fill(t, *c, 1.0, true, &mut rgb, &mut depth);
+        fill(t, *c, 1.0, true, None, &mut rgb, &mut depth);
     }
     // The edges, where they are not behind a face (a little depth allowance for the face they
     // bound).
@@ -2653,7 +2703,15 @@ fn render(solid: &[Triangle], ghost: &[Triangle], edges: &[Vec<[f64; 3]>], width
         }
     }
     for (t, c) in ghost {
-        fill(t, *c, 0.45, false, &mut rgb, &mut depth);
+        fill(
+            t,
+            *c,
+            0.45,
+            false,
+            in_front.then_some(allowance),
+            &mut rgb,
+            &mut depth,
+        );
     }
     // Down-sample 2× and encode.
     let (ow, oh) = (w / 2, h / 2);

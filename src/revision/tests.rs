@@ -46,6 +46,7 @@ fn report() -> Revised {
             new_faces: vec![],
             questions: vec![],
         }),
+        still: true,
     }
 }
 

@@ -105,8 +105,11 @@ A file of several parts, or of a part placed more than once, is compared as an a
   `name (2)`. A renamed part is one removed and another added.
 - **Each part in both files is compared on its own**, as a single part is, with the rest of the
   file consulted for its mates. Its status is `changed` when its comparison finds anything,
-  else `quantity` when it is placed a different number of times, `moved` when a placement
-  differs, else `unchanged`. Parts in one file only are `added` or `removed`.
+  else `quantity` when it is placed a different number of times, `moved` when an old placement
+  has no new one at it, else `unchanged`. A part whose geometry turned or moved in its own
+  frame is placed by its placement and that move together, so a plate turned end for end is
+  `moved`; a move that lays the part on itself (a screw turned about its axis) is not counted.
+  Parts in one file only are `added` or `removed`.
 - **The verdict** is the worst of the changed parts'. The summary counts each status and names
   the parts when there are 5 or fewer: `2 parts changed (GRM-02 shaft, GRM-04 drive plate), 10
   unchanged.`
@@ -115,11 +118,13 @@ A file of several parts, or of a part placed more than once, is compared as an a
   [/diff page](https://draftwright.io/diff)'s link for the two revisions), each section links to
   `URL&part=name`.
 - **`model.png`** is the whole assembly, every part where it is placed: changed, re-counted and
-  moved parts orange, added parts green, the rest grey, and removed parts in translucent red
-  where they were.
+  moved parts orange, added parts green, the rest grey, and in translucent red, where no part
+  now lies over them, the removed parts and the placements that went (a moved part's old place,
+  a re-counted part's missing copy).
 - **Answers are by part name**: `--answers` takes `{part name: {question id: value}}`, and
   `answers.json` holds the answers carried, by part. A part with no entry carries the answers
-  Specify stored in it.
+  Specify stored in it. When the old file is a single part, `{question id: value}` is taken as
+  that part's answers.
 - **`report.json`** is `{verdict, summary, parts}`, each part `{name, status, old, new}` (which
   part of each file and how many times it is placed) and its `report` when it is in both.
 

@@ -167,7 +167,7 @@ body="$RUNNER_TEMP/comment.md"
         fi
         printf '%s\n' "$report"
         what="the part" by=
-        if [ $assembly = yes ]; then what="the changed parts" by=", by part"; fi
+        if [ $assembly = yes ]; then what="the assembly" by=", by part"; fi
         if [ -n "$viewer" ]; then printf '\n[Turn %s round in 3D](%s), compared live in the browser.\n' "$what" "$viewer"; fi
         if [ "$(< "$out/answers.json")" != "{}" ]; then
           printf '\n<details><summary>The answers carried to the new revision%s (<code>%s.answers.json</code>)</summary>\n\n```json\n' "$by" "${new%.*}"
