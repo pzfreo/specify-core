@@ -424,3 +424,113 @@ fn foreign_pmi_append_keeps_original_bytes_and_numbers_even_for_equal_requiremen
         );
     }
 }
+
+#[test]
+fn stale_revision_transport_cannot_reuse_numbers_retired_in_the_destination_file() {
+    let old = load("revisions/hole_removed.old.step.gz");
+    let new = load("revisions/hole_removed.new.step.gz");
+    let answers = json!({"hole.function:holes:6":"fit:H7"})
+        .as_object()
+        .unwrap()
+        .clone();
+    let i = api::preview(&api::analyse(&old).unwrap(), &answers).unwrap();
+    let old = back(writer::write_bytes(&old, &i, Some(&answers)).unwrap().0);
+    let r = revision::diff(&old, &new, &Map::new()).unwrap();
+    let mut i = api::preview(&api::analyse(&new).unwrap(), &r.answers).unwrap();
+    let new = back(writer::write_bytes(&new, &i, Some(&r.answers)).unwrap().0);
+    i = rebind(&i, &new);
+    let extra = json!({"kind":"flatness","faces":[4],"tolerance":0.02})
+        .as_object()
+        .unwrap()
+        .clone();
+    i.requirements.push(extra.clone());
+    let added = back(writer::write_bytes(&new, &i, Some(&r.answers)).unwrap().0);
+    let retired = numbers(&added)
+        .into_iter()
+        .find(|c| c.kind == "geometric_tolerance")
+        .unwrap()
+        .number;
+    i = rebind(&i, &added);
+    i.requirements.pop();
+    let removed = back(writer::write_bytes(&added, &i, Some(&r.answers)).unwrap().0);
+    i = rebind(&i, &removed);
+    i.requirements.push(extra);
+    let readded = back(
+        writer::write_bytes(&removed, &i, Some(&r.answers))
+            .unwrap()
+            .0,
+    );
+    assert!(
+        numbers(&readded)
+            .iter()
+            .find(|c| c.kind == "geometric_tolerance")
+            .unwrap()
+            .number
+            > retired
+    );
+    // The transport is also bound to its intended target geometry, even on a direct writer
+    // call that does not go through the browser's answer-shape checks.
+    let unrelated = load("parts/pin.step");
+    let empty = rules::Intent::new(serde_json::to_value(&unrelated.binding).unwrap());
+    assert!(
+        writer::write_bytes(&unrelated, &empty, Some(&r.answers))
+            .unwrap_err()
+            .to_string()
+            .contains("different geometry")
+    );
+}
+
+#[test]
+fn imported_shared_features_numeric_ids_are_reserved_without_numbering_old_requirements() {
+    let p = load("parts/plate.step");
+    let mut i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
+    i.requirements.push(
+        json!({"kind":"size","faces":[9],"nominal":10.,"upper":0.1,"lower":-0.1})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+    let numbered = write(&p, &i);
+    let d = Document::parse(numbered.bytes.to_vec()).unwrap();
+    let defs = haecceity::step::read_part_definitions(&numbered.bytes).unwrap();
+    let mut model = haecceity::pmi::read(&d, &defs).unwrap().parts.remove(0);
+    model.attributes.clear();
+    // Import the semantic requirement without inspection identity, using haecceity alone.
+    let original = Document::parse(p.bytes.to_vec()).unwrap();
+    let defs = haecceity::step::read_part_definitions(&p.bytes).unwrap();
+    let (edit, _) = haecceity::pmi::write(
+        &original,
+        &defs,
+        &[(haecceity::pmi::PartId(0), model)],
+        haecceity::pmi::write::Mode::Add,
+        haecceity::pmi::write::PresentationPolicy::RemovePresentation,
+    )
+    .unwrap();
+    let imported = Document::parse(original.apply(&edit).unwrap().bytes).unwrap();
+    let read = haecceity::pmi::read(&imported, &defs).unwrap();
+    let feature = read.provenance.parts[0].features[0].iter().copied().find(|id|
+        matches!(imported.get(*id), Some(RawEntity::Simple {name,..}) if name == "SHAPE_ASPECT")).unwrap();
+    let mut edit = Edit::new();
+    edit.add(haecceity::p21::simple(
+        "ID_ATTRIBUTE",
+        vec![
+            Attribute::String("40".into()),
+            Attribute::EntityRef(feature),
+        ],
+    ));
+    let imported = back(imported.apply(&edit).unwrap().bytes);
+    assert!(
+        numbers(&imported).is_empty(),
+        "a geometric feature id is not a requirement number"
+    );
+    let added = back(
+        writer::write_bytes(&imported, &rebind(&i, &imported), None)
+            .unwrap()
+            .0,
+    );
+    assert_eq!(numbers(&added)[0].number, 41);
+    assert!(
+        existing::read_existing(&added).unwrap()[0].number.is_none(),
+        "the imported requirement remains unnumbered"
+    );
+}

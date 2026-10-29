@@ -9,7 +9,9 @@ There is no dependency on the editor or draftwright.
 Specify uses the **standard derived `id` slot**, populated by
 `ID_ATTRIBUTE('<positive decimal integer>',#characteristic)`. It does not put numbers in
 `name` (which carries dimension type or other semantics) or in the authorship description.
-The integer is canonical decimal, starts at 1, and is unique within each part.
+The integer is canonical decimal, starts at 1 on an unnumbered part, and is unique within
+each part. Imported numeric ids on consumed PMI (including shared feature shape aspects)
+reserve their values too, to respect AP242's wider id uniqueness constraints.
 
 This choice follows CAx-IF [PMI Recommended Practices v4.1, §5.1, Figure 4](https://www.mbx-if.org/home/wp-content/uploads/2024/06/rec_pracs_pmi_v41.pdf),
 which recommends `id_attribute` and describes its uniqueness constraints. The pinned
@@ -77,6 +79,8 @@ when the old file has number history. **Keep that member with the returned answe
 applying/writing the revision. The ordinary writer verifies its target geometry fingerprint,
 uses the carried history and consumes the member; it does not store it among user answers.
 The next resume reads the freshly written entity numbers and current high-water mark.
+Once the destination has its own history, that history takes precedence over stale revision
+transport, so reusing external answers cannot reset its counter or resurrect retired numbers.
 No separate number-matching operation is needed in a drawing or CSV consumer.
 
 An Add-mode write preserves imported PMI byte for byte. Existing numeric characteristic ids

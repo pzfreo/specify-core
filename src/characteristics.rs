@@ -445,7 +445,16 @@ pub(crate) fn allocate(
     }
     old.high_water = old
         .high_water
-        .max(old.entries.iter().map(|e| e.number).max().unwrap_or(0));
+        .max(old.entries.iter().map(|e| e.number).max().unwrap_or(0))
+        // AP242's id uniqueness also covers the shared shape aspects, not only the
+        // characteristic roots. Do not collide with an imported feature's numeric id.
+        .max(
+            prov.all()
+                .into_iter()
+                .filter_map(|id| number(doc, id))
+                .max()
+                .unwrap_or(0),
+        );
     let new = items(p, None, None);
     if !replace && new.is_empty() {
         return Ok(());
