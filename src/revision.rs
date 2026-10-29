@@ -653,14 +653,16 @@ fn along(r: &Map<String, Value>) -> Option<(usize, f64, f64)> {
 /// Where *f* is on its part (*all* its features, *box* its size), as a person finds it.
 fn locate(f: &Feature, all: &[Feature], size: &Size) -> Place {
     // A round along one of the part's axes: the boss whose edge it rounds.
-    if let (Some(p), Some(k), Some(radius)) = (
-        position(&f.record),
-        f.record
-            .get("axis")
-            .and_then(Value::as_str)
-            .and_then(|a| AXES.iter().position(|x| x.eq_ignore_ascii_case(a))),
-        f.record.get("radius").and_then(Value::as_f64),
-    ) {
+    if matches!(f.family.as_str(), "fillets" | "blends")
+        && let (Some(p), Some(k), Some(radius)) = (
+            position(&f.record),
+            f.record
+                .get("axis")
+                .and_then(Value::as_str)
+                .and_then(|a| AXES.iter().position(|x| x.eq_ignore_ascii_case(a))),
+            f.record.get("radius").and_then(Value::as_f64),
+        )
+    {
         let round = all
             .iter()
             .filter(|g| g.family == "bosses")

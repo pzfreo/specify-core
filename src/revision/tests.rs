@@ -459,3 +459,32 @@ fn repeated_face_grooves_pluralise_the_feature_not_its_measurements() {
         "face grooves Ø18.5/Ø13 × 0.25 deep, 45° walls"
     );
 }
+
+#[test]
+fn profile_surfaces_are_not_located_as_rounds_on_a_boss() {
+    let profile = feature(
+        "cylindrical_profiles",
+        "cylindrical_profiles:1",
+        json!({"radius":203.2,"axis":"x","axis_point":[0.,5.,0.],"side":"convex"}),
+        vec![1],
+    );
+    let boss = feature(
+        "bosses",
+        "bosses:2",
+        json!({"diameter":10.,"height":4.,"axis":[1.,0.,0.],"location":[0.,0.,0.]}),
+        vec![2],
+    );
+    let size = report().measures.old;
+    assert!(
+        locate(&profile, std::slice::from_ref(&boss), &size)
+            .on
+            .is_empty()
+    );
+    let round = feature(
+        "fillets",
+        "fillets:1",
+        json!({"radius":1.,"axis":"x","at":[0.,5.,0.],"side":"concave"}),
+        vec![1],
+    );
+    assert_eq!(locate(&round, &[boss], &size).on, "round the Ø10 boss");
+}

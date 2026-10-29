@@ -2,7 +2,7 @@
 
 - `turned_body_disc.step`: copied unchanged from quiddity-rust v0.2.3 (`ced75a5`),
   `tests/fixtures/turned_body_disc.step`, under that repository's AGPL-3.0 license.
-  Ø22 × 7, Ø8 through bore, two 0.5 mm end chamfers. Its former full-length OD
+  Ø22 × 7, Ø8 through bore, two 0.25 mm end chamfers. Its former full-length OD
   boss is suppressed by #123; its defining cylinder remains face 1.
 - `face_grooves.step`: generated with OpenCascade by revolving a closed polygon in
   the radius/Z plane through 360° about Z. Vertices in mm:
