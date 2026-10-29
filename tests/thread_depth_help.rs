@@ -128,7 +128,8 @@ fn full_thread_is_a_text_edit_and_defaults_stay_suggestions() {
 
 /// Frozen by cx/quiddity-010 (9c16b407), using its native parity_reference example:
 /// GRM-02_shaft.step, name shaft.step, material steel and the M2 tap answered, no depth
-/// answer or accept-defaults. Preserve the exact STEP bytes as well as semantic readback.
+/// answer or accept-defaults. Preserve every non-numbering entity/reference as well as
+/// semantic readback; #65 permits only the standard ids and number history to be added.
 #[test]
 fn answered_m2_without_depth_writes_the_exact_alpha7_thread_and_resaves_it() {
     use haecceity::{p21::Document, pmi, step::read_part_definitions};
@@ -165,7 +166,7 @@ fn answered_m2_without_depth_writes_the_exact_alpha7_thread_and_resaves_it() {
         None,
     )
     .unwrap();
-    assert_eq!(bytes.as_slice(), baseline.bytes.as_slice());
+    common::numbering::only_numbering_added(&baseline.bytes, &bytes).unwrap();
     for (source, answers) in [(loaded, given.clone()), (baseline, given)] {
         let analysis = api::analyse(&source).unwrap();
         let mut complete = rules::with_all_defaults(&analysis, &answers).unwrap();
