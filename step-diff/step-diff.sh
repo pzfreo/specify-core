@@ -144,8 +144,8 @@ body="$RUNNER_TEMP/comment.md"
   for i in "${!kinds[@]}"; do
     out="$outs/$i" old=${olds[$i]} new=${news[$i]}
     case "${kinds[$i]}" in
-      added) printf '### %s: Specify\n\nA new part: nothing to compare it with.\n\n' "$new" ;;
-      removed) printf '### %s: Specify\n\nThe part was removed.\n\n' "$old" ;;
+      added) printf '### %s: Specify\n\nA new file: nothing to compare it with.\n\n' "$new" ;;
+      removed) printf '### %s: Specify\n\nThe file was removed.\n\n' "$old" ;;
       failed)
         printf '### %s: Specify\n\nSpecify could not compare it:\n\n```\n' "$new"
         tail -n 20 "$out/error"
