@@ -102,7 +102,7 @@ A part with no answers still gets the comment: what changed, the picture and the
 ```yaml
       - uses: pzfreo/specify-core-rust/step-diff@main
         with:
-          version: v0.1.1         # the specify-core release to run
+          version: v0.1.2         # the specify-core release to run
           token: ${{ secrets.MY_TOKEN }}
 ```
 
