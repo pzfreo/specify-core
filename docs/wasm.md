@@ -257,7 +257,7 @@ on 2026-10-16:
 | Raw, optimized | 10,197,823 | 9.73 |
 | gzip, level 9 | 3,157,943 | 3.01 |
 | Brotli, quality 11 | 2,148,100 | 2.05 |
-| Raw ceiling | 11,800,000 | 11.25 |
+| Raw ceiling | 12,980,000 | 12.38 |
 
 These measure `specify_core_wasm_bg.wasm`, excluding the small JS/TypeScript/metadata files.
 CI and releases print current measurements and the remaining size headroom; sizes can change
@@ -340,7 +340,9 @@ sizes and headroom in bytes and as a percentage of the ceiling. Compressed figur
 recorded for transfer-size visibility and do not have separate limits.
 
 The initial ceiling is approximately 15% above the measured baseline, rounded upward to
-100,000 bytes: 11,800,000 bytes, leaving 1,602,177 bytes of initial headroom.
+100,000 bytes: 11,800,000 bytes, leaving 1,602,177 bytes of initial headroom. On 2026-10-29 the
+maintainer raised it by 10% to 12,980,000 bytes, after PR #57's revision-report work measured
+11,807,493 bytes in CI (7,493 over).
 Raising it requires a deliberate, reviewed JSON edit; the size checker never
 updates the budget automatically. When rebaselining, record the three measurements and
 tool versions together and explain the increase in the changelog.

@@ -498,3 +498,121 @@ fn a_real_part_s_report_names_what_a_person_changed() {
         "{md}"
     );
 }
+
+/// The "What changed" lines of a `complex_*` pair (`tests/fixtures/revisions/complex.py`): a
+/// 100 × 80 × 10 plate with 4 × Ø6 holes, a pocket, two chamfers and a boss, changed in ways a
+/// report must still put plainly.
+fn complex(case: &str) -> String {
+    revised(case, json!({})).markdown("Plate", None)
+}
+
+#[test]
+fn a_pattern_laid_out_again_is_one_pattern_become_another() {
+    let md = complex("complex_pattern");
+    assert!(
+        md.contains(
+            "- pattern of 4 × Ø6 × 10 through holes → pattern of 5 × Ø6 × 10 through holes on a \
+             Ø48 circle: on the +Z side, at X 50, Y 40 from the −X, −Y corner"
+        ),
+        "{md}"
+    );
+    // Its holes' own pairings are folded into it.
+    for not in ["can't be paired", "are now", "moved X"] {
+        assert!(!md.contains(not), "{not}: {md}");
+    }
+    assert!(md.contains("⚠️ 1 hole pattern changed."), "{md}");
+}
+
+#[test]
+fn many_changes_at_once_each_read_once() {
+    let md = complex("complex_many");
+    for line in [
+        "- 2× chamfers removed: at (0, 39.5, 9.5) and (0, -39.5, 9.5)",
+        "- Ø10 × 6 boss removed: on the −Z side, at X 10, Y 68 from the −X, −Y corner",
+        "- pattern of 4 × Ø6 × 10 through holes → pattern of 6 × Ø8 × 10 through holes on a Ø60 \
+         circle: on the +Z side, at X 50, Y 40 from the −X, −Y corner",
+        "- section recess: depth 4 → 6; length 30 → 36",
+        "- 16 × 6 × 10 slot added",
+    ] {
+        assert!(md.contains(line), "{line}\n{md}");
+    }
+    // The pocket once, in words: not again by its section's sides.
+    assert_eq!(md.matches("section recess:").count(), 1, "{md}");
+    for not in ["section.sides", "run length", "no longer one to one"] {
+        assert!(!md.contains(not), "{not}: {md}");
+    }
+}
+
+#[test]
+fn what_a_feature_borders_is_not_a_change_to_it() {
+    // Filleting the corners: the chamfers they meet are the same chamfers. (build123d carries a
+    // chamfer round a tangent fillet, so six chamfer faces are new.)
+    let r = revised("complex_fillet_all", json!({}));
+    let md = r.markdown("Plate", None);
+    assert!(md.contains("- 4× R5 fillets added"), "{md}");
+    // The six faces continue the two old chamfers; they are not six added features.
+    assert!(
+        md.contains("- 2× chamfers now run round the new fillets"),
+        "{md}"
+    );
+    assert!(!md.contains("chamfers added"), "{md}");
+    let continued: Vec<_> = r
+        .features
+        .iter()
+        .filter(|f| f.class == "continued")
+        .collect();
+    assert_eq!(continued.len(), 2);
+    let faces: std::collections::BTreeSet<_> = continued
+        .iter()
+        .flat_map(|f| f.new_faces.iter().copied())
+        .collect();
+    assert_eq!(faces, [2, 5, 7, 18, 19, 20, 21, 22].into_iter().collect());
+    assert!(faces.iter().all(|i| r.faces.get(i) == Some(&"changed")));
+    assert!(continued.iter().all(|f| f.old_faces.len() == 1));
+    assert!(!md.contains("neighbourhood"), "{md}");
+    assert!(
+        !md.contains("chamfers, at"),
+        "no line for the chamfers kept: {md}"
+    );
+}
+
+#[test]
+fn a_hole_that_became_another_kind_of_hole_reads_as_that() {
+    let md = complex("complex_counterbore");
+    // Name the enlargement, not just the remaining 7 mm of narrow bore.
+    assert!(
+        md.contains(
+            "- 4× Ø6 × 10 through holes → Ø6 through holes, counterbored Ø12 × 3 deep: on the +Z side"
+        ),
+        "{md}"
+    );
+    for not in ["removed", "added", "neighbourhood", "pattern of"] {
+        assert!(!md.contains(not), "{not}: {md}");
+    }
+    assert!(md.contains("✅ 4 holes changed."), "{md}");
+}
+
+#[test]
+fn a_whole_part_moved_is_said_and_its_changes_found_where_it_is() {
+    let md = complex("complex_moved");
+    assert!(
+        md.contains(
+            "The whole part moved between the revisions (turned 90° about Z, moved X +8, Y +15, \
+             Z +3); each feature is compared where it is now."
+        ),
+        "{md}"
+    );
+    assert!(md.contains(": diameter 6 → 7"), "{md}");
+    assert_eq!(
+        md.matches("\n- ").count(),
+        2,
+        "the holes, and the question they ask: {md}"
+    );
+}
+
+#[test]
+fn the_same_part_built_another_way_has_not_changed() {
+    let md = complex("complex_remodelled");
+    assert!(md.contains("✅ No feature changed."), "{md}");
+    assert!(!md.contains("The whole part moved"), "{md}");
+}
