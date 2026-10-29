@@ -127,7 +127,7 @@ fn rust_readback(path: &Path, k: usize, count: usize) -> Value {
 
 fn readback_of(loaded: &LoadedPart) -> Value {
     let existing = match read_existing(loaded) {
-        Ok(e) => serde_json::to_value(e).unwrap(),
+        Ok(e) => serde_json::to_value(common::numbering::legacy_existing(e)).unwrap(),
         Err(e) => json!({"error": "ExistingError", "message": e.to_string()}),
     };
     let part = match part_settings(loaded) {

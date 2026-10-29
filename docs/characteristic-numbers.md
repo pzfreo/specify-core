@@ -117,7 +117,11 @@ The writer verifies both semantic PMI and the numbers read back from their actua
 including number uniqueness and the history. Schema and EXPRESS-rule tests cover the standard
 slots. `tests/characteristic_numbers.rs` covers all characteristic kinds, repeat writes,
 additions, value edits, removal/re-addition/empty writes, foreign append, old-file compatibility,
-an older-quiddity fixture and the `hole_removed` revision pair. The older-engine test adds
+an older-quiddity fixture and the `hole_removed` revision pair. Numberless analysis, PMI
+serialization and settings-only writes are also checked against SHA-256 snapshots captured
+from the unmodified parent commit in a separate checkout. The cross-engine suite preserves
+its old specimens and verifies that new writer outputs differ only by numbering metadata,
+comparing every other entity and reference. The older-engine test adds
 only `ID_ATTRIBUTE` records to the committed alpha.6 specimen; it never regenerates its old
 PMI with the new writer. Requirements newer rules stop emitting are retired.
 

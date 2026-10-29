@@ -32,6 +32,7 @@
 #![allow(dead_code)]
 
 mod corpus;
+pub mod numbering;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
