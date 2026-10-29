@@ -1954,6 +1954,8 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
             plural(problems.added.len(), "problem", "problems")
         ),
     };
+    crate::characteristics::carry_revision(old, new, &corr, &mut carried)
+        .map_err(api::Error::Analysis)?;
     let alignment = corr.alignment.clone();
     let mut revised = Revised {
         pmi,

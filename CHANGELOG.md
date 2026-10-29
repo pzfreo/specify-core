@@ -6,6 +6,14 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- For #65: stable per-part characteristic numbers in standard AP242 `ID_ATTRIBUTE`s,
+  with a persistent high-water mark that retires removed numbers. PMI/analysis and WASM
+  snapshots expose file numbers; answer revision carry preserves them through quiddity's
+  correspondence. General ISO 2768 rows remain unnumbered. See
+  [characteristic number storage and allocation](docs/characteristic-numbers.md).
+
 ### Changed
 
 - Upgrade quiddity and haecceity (native and WASM) to **v0.2.3** (`ced75a5`).

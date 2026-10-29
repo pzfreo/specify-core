@@ -39,7 +39,11 @@ fn bad(id: &str, why: impl Into<String>) -> Error {
 pub fn answers_shape(answers: &Map<String, Value>) -> Result<(), Error> {
     for (id, value) in answers {
         let invalid = |why| bad(id, why);
-        if let Some(name) = id.strip_prefix("part.") {
+        if id == specify_core::characteristics::CARRY {
+            if !value.is_object() {
+                return Err(invalid("characteristic number transport must be an object"));
+            }
+        } else if let Some(name) = id.strip_prefix("part.") {
             if name == "notes" {
                 if !value
                     .as_array()

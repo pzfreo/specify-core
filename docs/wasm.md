@@ -375,3 +375,9 @@ any explicit WASM URL from `dw_intent_bg.wasm` to `specify_core_wasm_bg.wasm`). 
 initialization, `IntentEngine`, JSON calls and optional project argument. Then remove
 `crates/intent`, its copied writer, workspace membership and its WASM build from editor CI.
 The editor's separate drawing engine and its WASM build remain independently managed.
+
+For #65, `snapshot().analysis.characteristics` exposes the file's stable inspection numbers,
+including default part textures and resumed PMI. `diff` carries number history in its returned
+`report.answers`; preserve the opaque `_specify_characteristic_numbers` member when passing
+those answers to the revised part's `writePmi`. It is geometry-checked and consumed on write.
+Numberless files omit the list. See [characteristic numbers](characteristic-numbers.md).

@@ -45,10 +45,10 @@ standard (`description_attribute_select` includes `representation`) and leaves i
 kind, nominal, tolerance and tolerance principle untouched. The pinned schema table lists
 `dimensional_size` UR1, WR1 and WR2 in both editions: ISO 10303-47 UR1 is uniqueness of
 `(id, applies_to)`, and WR2 allows at most one `id_attribute`. The alpha.8 `express_rules`
-checker does not implement these dimension rules. Specify creates **no dimension
-ID_ATTRIBUTE**, so it does not occupy that identifier slot or create a repeated identifier
-when two sizes share an aspect. A regression writes that case and explicitly checks the
-absence of identification attributes. `description_attribute_select` also explicitly
+checker does not implement these dimension rules. Provenance uses no identifier slot.
+For #65, each size now has a distinct numeric `ID_ATTRIBUTE`; two sizes sharing an aspect
+retain separate numbers and description-based provenance. The regression explicitly checks
+that the two numeric identifiers differ. See [characteristic numbers](characteristic-numbers.md). `description_attribute_select` also explicitly
 includes `property_definition_representation`, permitting UDA annotation without changing
 its reserved description or visible items.
 

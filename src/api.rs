@@ -313,6 +313,13 @@ fn analyse_with(
             analysis.insert("part".into(), Value::Object(settings));
         }
     }
+    let numbers = crate::characteristics::read(loaded).map_err(Error::Analysis)?;
+    if !numbers.is_empty() {
+        analysis.insert(
+            "characteristics".into(),
+            serde_json::to_value(numbers).map_err(|e| refused(&e))?,
+        );
+    }
     Ok((Value::Object(analysis), warnings))
 }
 
