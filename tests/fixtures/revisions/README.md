@@ -33,8 +33,7 @@ production build (`process.prototype=False`, as gramil's `scripts/build_producti
 new revision is gramil's defaults; the old has `shaft.drive_plate_mount_depth` 4 (not 5) and
 `drive_plate.mount_hole_diameter` 2.2 (not 2.4). So GRM-02 shaft's mount tap goes deeper, GRM-04
 drive plate's mount hole goes Ø2.2 → Ø2.4, and the other 10 parts are unchanged. The shaft's end
-chamfer is left alone: a single part's diff reads an added end chamfer as a shorter boss, a
-moved flat and a removed plate.
+chamfer is left alone; `gramil_shaft` below isolates that change (#67).
 
 `plate_turned` is a plate and a block, made by `plate_turned.py` with build123d 0.10.0: the new
 plate is the old one turned end for end in its own frame and placed as before, for
@@ -44,3 +43,21 @@ plate is the old one turned end for end in its own frame and placed as before, f
 oval flanged bearing housing with drafted sides, exported with build123d 0.11.0. The new
 revision changes two parameters: the flange `A1` 11 → 13 thick and the bolt holes
 `Hole(5)` → `Hole(4.5)`, Ø10 → Ø9.
+
+`gramil_shaft` (For #67) is Paul Fremantle's gramil shaft from
+[pzfreo/gramil](https://github.com/pzfreo/gramil), commit
+`9171ef652e81daf7102c5155531493d36c349b3c`, under the Open Community License v1
+(see `LICENSE-gramil`, also covering the generator). `gramil_shaft.py` uses
+`gramil.parts.shaft.build_shaft` and gramil's `build123d.export_step` export path.
+Both use default `PurflingCutterParams` with `process.prototype=False`; the only
+difference is `shaft.end_chamfer`: 0 (old) and 1.5 (new). Reproduce with:
+
+```sh
+uv venv --python 3.12 /tmp/gramil-venv
+uv pip install --python /tmp/gramil-venv/bin/python /path/to/gramil 'ocp-gordon==0.2.0'
+/tmp/gramil-venv/bin/python gramil_shaft.py .
+```
+
+Generated with Python 3.12.13, build123d 0.10.0 and cadquery-ocp 7.8.1.1.post1.
+Pinning ocp-gordon avoids 0.3.1's incompatible `OCP.collections` import with that
+OCP version. The recipe writes both STEPs then gzips them with mtime 0.
