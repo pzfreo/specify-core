@@ -14,11 +14,13 @@ from gramil.parameters import PurflingCutterParams
 from gramil.parts.shaft import build_shaft
 
 out = Path(sys.argv[1])
-for which, chamfer in (("old", 0.0), ("new", 1.5)):
+for which, chamfer, extra in (("old", 0.0, {}), ("new", 1.5, {}),
+                              ("shorter", 1.5, {"length": 35.6}),
+                              ("flat_moved", 1.5, {"flat_depth": 0.8})):
     p = PurflingCutterParams()
     p = p.model_copy(update={
         "process": p.process.model_copy(update={"prototype": False}),
-        "shaft": p.shaft.model_copy(update={"end_chamfer": chamfer}),
+        "shaft": p.shaft.model_copy(update={"end_chamfer": chamfer, **extra}),
     })
     path = out / f"gramil_shaft.{which}.step"
     export_step(build_shaft(p), str(path))

@@ -61,3 +61,16 @@ uv pip install --python /tmp/gramil-venv/bin/python /path/to/gramil 'ocp-gordon=
 Generated with Python 3.12.13, build123d 0.10.0 and cadquery-ocp 7.8.1.1.post1.
 Pinning ocp-gordon avoids 0.3.1's incompatible `OCP.collections` import with that
 OCP version. The recipe writes both STEPs then gzips them with mtime 0.
+
+The same recipe also writes two negative controls against `gramil_shaft.old`:
+`gramil_shaft.shorter` adds the chamfer AND changes `shaft.length` 37.6 → 35.6;
+`gramil_shaft.flat_moved` adds the chamfer AND changes `shaft.flat_depth` 0.6 → 0.8.
+Their genuine boss height / flat plane changes must remain visible.
+
+`edge_treatment_controls.py` (build123d 0.10.0, run with an output directory) makes
+`flat_translated` and `plate_removed`. Both add a 1.5 × 45° top chamfer. The first
+moves a finite flat 3 mm along a Ø16 × 40 cylinder, within its unchanged support
+plane; three fixed, unequal bores anchor correspondence. The second removes a
+10 × 50 × 50 upright from a 100 × 50 × 10 bracket with a Ø16 × 12 boss. The
+fixture script gives all positions and dimensions. These guard against treating
+plane equality or the presence of a chamfer as sufficient reason to hide a change.
