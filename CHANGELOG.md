@@ -8,6 +8,13 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Upgrade quiddity and haecceity (native and WASM) to **v0.2.2** (`e58d174`). Deep
+  hole-entry steps are counterbores; multi-step holes retain their outer counterbores and
+  holes with different outer steps get separate questions. Tangent convex rounds are
+  fillets at any wall angle (up to a 135° sweep), while bend skins and false rounds are
+  no longer fillets. Failed recognition proofs stay refusals, never question targets.
+  Recognition schema 6 and fingerprint format 3 are unchanged; optional F3D import stays off.
+
 - The reviewed WASM size ceiling is raised by 10%, from 11,800,000 to 12,980,000 raw bytes,
   after the revision-report work measured 11,807,493 in CI.
 - The revision report says complex changes plainly (#56):
