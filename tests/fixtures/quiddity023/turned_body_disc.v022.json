@@ -1,0 +1,98 @@
+[
+  {
+    "id": "chamfers:0",
+    "family": "chamfers",
+    "record": {
+      "axis": "z",
+      "leg1": 0.25,
+      "leg2": 0.25,
+      "angle": 45.0,
+      "at": [
+        -10.875,
+        0.0,
+        -3.375
+      ],
+      "turned": true,
+      "corner": null,
+      "leg1_direction": null,
+      "leg2_direction": null,
+      "length": null,
+      "support_spans": null,
+      "body_key": null
+    },
+    "faces": [
+      0
+    ]
+  },
+  {
+    "id": "chamfers:2",
+    "family": "chamfers",
+    "record": {
+      "axis": "z",
+      "leg1": 0.25,
+      "leg2": 0.25,
+      "angle": 45.0,
+      "at": [
+        -10.875,
+        0.0,
+        3.375
+      ],
+      "turned": true,
+      "corner": null,
+      "leg1_direction": null,
+      "leg2_direction": null,
+      "length": null,
+      "support_spans": null,
+      "body_key": null
+    },
+    "faces": [
+      2
+    ]
+  },
+  {
+    "id": "bosses:1",
+    "family": "bosses",
+    "record": {
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "location": [
+        1.0959085600432287e-16,
+        -1.313966691531836e-16,
+        3.25
+      ],
+      "diameter": 22.0,
+      "height": 6.5
+    },
+    "faces": [
+      1
+    ]
+  },
+  {
+    "id": "holes:4",
+    "family": "holes",
+    "record": {
+      "axis": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "location": [
+        0.0,
+        0.0,
+        3.5
+      ],
+      "diameter": 8.0,
+      "depth": 7.0,
+      "bottom": "through",
+      "cbore": null,
+      "spotface": null,
+      "csink": null
+    },
+    "faces": [
+      4
+    ]
+  }
+]

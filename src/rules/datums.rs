@@ -218,11 +218,31 @@ pub(crate) fn turned_axis<'c>(
     // same dominance and common-axis safeguards, rather than requiring multiple steps.
     let family = if ctx.has_family("turned_steps") {
         "turned_steps"
+    } else if ctx.has_family("turned_bodies") {
+        // #123 removes a nearly full-length OD boss. The body profile still names
+        // its external cylinders; preserve their datum role without making body
+        // questions or treating the bore as an external locating seat.
+        "turned_bodies"
     } else {
         "bosses"
     };
     for feature in ctx.features.iter().filter(|f| f.family == family) {
+        let external: HashSet<i64> = if family == "turned_bodies" {
+            feature
+                .get("profile")?
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|s| s["side"] == "external" && s["kind"] == "cylinder")
+                .filter_map(|s| s["face"].as_i64())
+                .collect()
+        } else {
+            HashSet::new()
+        };
         for &id in feature.faces()? {
+            if family == "turned_bodies" && !external.contains(&id) {
+                continue;
+            }
             if ctx.faces.at(id)?.is_cylinder() && !ids.contains(&id) {
                 ids.push(id);
             }

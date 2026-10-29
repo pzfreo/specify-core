@@ -11,7 +11,7 @@
 //!   *defining* faces (the published recognition document), not its constituent faces (upstream need U2): a
 //!   flat-bottomed blind hole can omit its floor (drill-point tips are now claimed), so ids can differ between
 //!   the engines. The families are quiddity-rust's: Python's cross-family reconciliation
-//!   (`step_levels`, `bosses` dropped on turned parts) is not there.
+//!   (`step_levels`) is not there; quiddity #123 now suppresses full-length OD bosses on turned bodies.
 //! - A pattern's member holes are found among the hole records by equality, the first not yet
 //!   taken (as quiddity-rust's own `fingerprint::derived_faces`), because `HolePattern` holds
 //!   copies of its members, not their indices (U2).
@@ -82,6 +82,53 @@ pub struct Feature {
     /// Why a pattern is incomplete, when members could not all be linked.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
+}
+
+impl Feature {
+    /// Plain descriptions for schema-6 additions and inside rounds. Keep the measured
+    /// record untouched: descriptions are display text, never matching or PMI inputs.
+    pub fn description(&self) -> Option<String> {
+        let n = |key: &str| self.record.get(key).and_then(Value::as_f64);
+        let num = |x: f64| crate::pyfmt::g(x);
+        let side = self
+            .record
+            .get("side")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        match self.family.as_str() {
+            "turned_bodies" => Some(match (n("od"), n("length")) {
+                (Some(d), Some(l)) => format!("Ø{} × {} turned body", num(d), num(l)),
+                _ => "turned body".into(),
+            }),
+            "face_grooves" => {
+                let mut text = match (n("outer_diameter"), n("inner_diameter"), n("depth")) {
+                    (Some(o), Some(i), Some(d)) => {
+                        format!("face groove Ø{}/Ø{} × {} deep", num(o), num(i), num(d))
+                    }
+                    _ => "face groove".into(),
+                };
+                match (n("outer_wall_angle"), n("inner_wall_angle")) {
+                    (Some(o), Some(i)) if num(o) == num(i) => {
+                        text += &format!(", {}° walls", num(o))
+                    }
+                    (Some(o), Some(i)) => {
+                        text += &format!(", {}° outer / {}° inner walls", num(o), num(i))
+                    }
+                    _ => {}
+                }
+                Some(text)
+            }
+            "cylindrical_profiles" => Some(match n("radius") {
+                Some(r) => format!("R{} {side} profile surface", num(r)),
+                None => format!("{side} profile surface"),
+            }),
+            "fillets" if side == "concave" => Some(match n("radius") {
+                Some(r) => format!("R{} concave fillet", num(r)),
+                None => "concave fillet".into(),
+            }),
+            _ => None,
+        }
+    }
 }
 
 /// Why faces could not be described or features recognised.

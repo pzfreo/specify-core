@@ -342,3 +342,149 @@ fn chamfer_continuation_requires_carried_faces_matching_sizes_and_tangent_fillet
     continue_chamfers(&mut changes, &[old], &new, &corr, &prints);
     assert!(changes.iter().all(|c| c.class != "continued"));
 }
+
+#[test]
+fn schema6_additions_and_inside_rounds_have_plain_report_descriptions() {
+    for (family, record, expected) in [
+        (
+            "face_grooves",
+            json!({"outer_diameter":18.5,"inner_diameter":13.,"depth":0.25,"outer_wall_angle":45.,"inner_wall_angle":45.}),
+            "face groove Ø18.5/Ø13 × 0.25 deep, 45° walls",
+        ),
+        (
+            "face_grooves",
+            json!({"outer_diameter":18.5,"inner_diameter":13.,"depth":0.25,"outer_wall_angle":45.,"inner_wall_angle":90.}),
+            "face groove Ø18.5/Ø13 × 0.25 deep, 45° outer / 90° inner walls",
+        ),
+        (
+            "cylindrical_profiles",
+            json!({"radius":203.2,"side":"convex"}),
+            "R203.2 convex profile surface",
+        ),
+        (
+            "cylindrical_profiles",
+            json!({"radius":203.2,"side":"concave"}),
+            "R203.2 concave profile surface",
+        ),
+        (
+            "fillets",
+            json!({"radius":6.35,"side":"concave"}),
+            "R6.35 concave fillet",
+        ),
+        (
+            "fillets",
+            json!({"radius":6.35,"side":"convex"}),
+            "R6.35 fillet",
+        ),
+        (
+            "turned_bodies",
+            json!({"od":22.,"length":7.}),
+            "Ø22 × 7 turned body",
+        ),
+    ] {
+        let f = feature(family, &format!("{family}:1"), record, vec![1]);
+        assert_eq!(describe(&f).0, expected);
+        let mut r = report();
+        let mut c = change(&f, "new");
+        c.what = describe(&f).0;
+        r.features.push(c);
+        let md = r.markdown("test", None);
+        assert!(md.contains(expected), "{md}");
+    }
+    assert_eq!(plural_of(2, &singular("turned_bodies")), "2 turned bodies");
+}
+
+#[test]
+fn radius_pmi_on_inside_rounds_keeps_radius_and_material_side() {
+    let f = feature(
+        "fillets",
+        "fillets:1.2",
+        json!({"radius":6.35,"side":"concave"}),
+        vec![1, 2],
+    );
+    // A fillet may include both its cylindrical wall and a spherical corner cap (#127).
+    for support in [vec![1], vec![2], vec![1, 2]] {
+        assert_eq!(
+            pmi_on(&support, std::slice::from_ref(&f)),
+            "R6.35 concave fillet"
+        );
+    }
+    assert_eq!(
+        pmi_words(
+            &json!({"kind":"dimension","type":"Size_Radius","value":6.35,"upper":0.05,"lower":-0.05})
+        ),
+        "R6.35 ±0.05"
+    );
+    assert_eq!(
+        pmi_words(&json!({"kind":"dimension","type":"Size_SphericalRadius","value":6.35})),
+        "SR6.35"
+    );
+}
+
+#[test]
+fn coowning_body_fingerprints_never_alias_individual_features() {
+    // Identical support must not turn a body into a groove (or duplicate its change).
+    let fs = vec![
+        feature("face_grooves", "face_grooves:1.2", json!({}), vec![1, 2]),
+        feature("turned_bodies", "turned_bodies:1.2", json!({}), vec![1, 2]),
+    ];
+    let prints = qc::Fingerprints {
+        fingerprint_version: String::new(),
+        scale: 1.,
+        faces: vec![],
+        features: ["face_grooves", "turned_bodies"]
+            .into_iter()
+            .map(|family| qc::FeatureFingerprint {
+                id: format!("{family}/0"),
+                family: family.into(),
+                traits: BTreeMap::new(),
+                sizes: BTreeMap::new(),
+                axis: None,
+                position: None,
+                faces: vec![1, 2],
+                neighbourhood: vec![],
+            })
+            .collect(),
+    };
+    let mapped = records(&fs, &prints);
+    assert_eq!(mapped.len(), 2);
+    assert_eq!(mapped["face_grooves/0"], "face_grooves:1.2");
+    assert_eq!(mapped["turned_bodies/0"], "turned_bodies:1.2");
+}
+
+#[test]
+fn repeated_face_grooves_pluralise_the_feature_not_its_measurements() {
+    assert_eq!(
+        several("face groove Ø18.5/Ø13 × 0.25 deep, 45° walls"),
+        "face grooves Ø18.5/Ø13 × 0.25 deep, 45° walls"
+    );
+}
+
+#[test]
+fn profile_surfaces_are_not_located_as_rounds_on_a_boss() {
+    let profile = feature(
+        "cylindrical_profiles",
+        "cylindrical_profiles:1",
+        json!({"radius":203.2,"axis":"x","axis_point":[0.,5.,0.],"side":"convex"}),
+        vec![1],
+    );
+    let boss = feature(
+        "bosses",
+        "bosses:2",
+        json!({"diameter":10.,"height":4.,"axis":[1.,0.,0.],"location":[0.,0.,0.]}),
+        vec![2],
+    );
+    let size = report().measures.old;
+    assert!(
+        locate(&profile, std::slice::from_ref(&boss), &size)
+            .on
+            .is_empty()
+    );
+    let round = feature(
+        "fillets",
+        "fillets:1",
+        json!({"radius":1.,"axis":"x","at":[0.,5.,0.],"side":"concave"}),
+        vec![1],
+    );
+    assert_eq!(locate(&round, &[boss], &size).on, "round the Ø10 boss");
+}

@@ -816,6 +816,189 @@
     ]
    },
    {
+    "id": "turned_bodies:0.1.2.3.4.5.6",
+    "family": "turned_bodies",
+    "record": {
+     "axis": "z",
+     "axis_point": [
+      0.0,
+      0.0,
+      16.0
+     ],
+     "od": 10.0,
+     "length": 32.0,
+     "bores": [
+      {
+       "diameter": 4.2,
+       "span": [
+        8.0,
+        16.0
+       ]
+      }
+     ],
+     "profile": [
+      {
+       "kind": "plane_shoulder",
+       "side": "shoulder",
+       "start": [
+        -16.0,
+        3.0
+       ],
+       "end": [
+        -16.0,
+        0.0
+       ],
+       "arc_center": null,
+       "arc_radius": null,
+       "arc_sweep": null,
+       "face": 6
+      },
+      {
+       "kind": "cylinder",
+       "side": "external",
+       "start": [
+        -16.0,
+        3.0
+       ],
+       "end": [
+        -4.0,
+        3.0
+       ],
+       "arc_center": null,
+       "arc_radius": null,
+       "arc_sweep": null,
+       "face": 4
+      },
+      {
+       "kind": "plane_shoulder",
+       "side": "shoulder",
+       "start": [
+        -4.0,
+        5.0
+       ],
+       "end": [
+        -4.0,
+        3.0
+       ],
+       "arc_center": null,
+       "arc_radius": null,
+       "arc_sweep": null,
+       "face": 2
+      },
+      {
+       "kind": "cylinder",
+       "side": "external",
+       "start": [
+        -4.0,
+        5.0
+       ],
+       "end": [
+        16.0,
+        5.0
+       ],
+       "arc_center": null,
+       "arc_radius": null,
+       "arc_sweep": null,
+       "face": 0
+      },
+      {
+       "kind": "plane_shoulder",
+       "side": "shoulder",
+       "start": [
+        8.0,
+        2.1
+       ],
+       "end": [
+        8.0,
+        0.0
+       ],
+       "arc_center": null,
+       "arc_radius": null,
+       "arc_sweep": null,
+       "face": 5
+      },
+      {
+       "kind": "cylinder",
+       "side": "internal",
+       "start": [
+        8.0,
+        2.1
+       ],
+       "end": [
+        16.0,
+        2.1
+       ],
+       "arc_center": null,
+       "arc_radius": null,
+       "arc_sweep": null,
+       "face": 3
+      },
+      {
+       "kind": "plane_shoulder",
+       "side": "shoulder",
+       "start": [
+        16.0,
+        5.0
+       ],
+       "end": [
+        16.0,
+        2.1
+       ],
+       "arc_center": null,
+       "arc_radius": null,
+       "arc_sweep": null,
+       "face": 1
+      }
+     ],
+     "body_key": [
+      -5.0,
+      -5.0,
+      0.0,
+      5.0,
+      5.0,
+      32.0,
+      1799.25294456,
+      1117.15034762
+     ],
+     "profile_key": {
+      "axis": "z",
+      "axis_origin": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "body_bounds": [
+       -5.0,
+       5.0,
+       -5.0,
+       5.0,
+       0.0,
+       32.0
+      ],
+      "body_key": [
+       -5.0,
+       -5.0,
+       0.0,
+       5.0,
+       5.0,
+       32.0,
+       1799.25294456,
+       1117.15034762
+      ]
+     }
+    },
+    "faces": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "description": "Ø10 × 32 turned body"
+   },
+   {
     "id": "risers:2",
     "family": "risers",
     "record": {

@@ -212,7 +212,7 @@ fn corrected_round_inventory_agrees_with_material_side() {
     let Some(corpus) = common::corpus_dir() else {
         return;
     };
-    for (name, convex, concave, count) in [
+    for (name, convex, concave, convex_count, inside_count) in [
         (
             "cgb202",
             vec![
@@ -221,14 +221,16 @@ fn corrected_round_inventory_agrees_with_material_side() {
             ],
             vec![2, 3, 11, 44, 46, 692, 697, 1215, 1219],
             307,
+            401, // quiddity #127: proved inside rounds and their sphere caps.
         ),
         (
             "cgb217",
             vec![177, 182, 205, 210, 233, 238, 261, 266],
             vec![],
             22,
+            63, // quiddity #127: inside rounds no longer fall back to blends.
         ),
-        ("cgb241", vec![39, 47], vec![27], 2),
+        ("cgb241", vec![39, 47], vec![27], 2, 0),
     ] {
         let path = corpus.join(format!("cadgenbench_inputs/{name}.step"));
         let path = if path.is_file() {
@@ -241,7 +243,23 @@ fn corrected_round_inventory_agrees_with_material_side() {
         let fillets: Vec<_> = features.iter().filter(|f| f.family == "fillets").collect();
         // quiddity #120 recognises tangent convex cylinders at any wall angle/run
         // direction. #91's roll no longer changes these fillets into generic blends.
-        assert_eq!(fillets.len(), count, "{name}");
+        assert_eq!(fillets.len(), convex_count + inside_count, "{name}");
+        assert_eq!(
+            fillets
+                .iter()
+                .filter(|f| f.record["side"] == "convex")
+                .count(),
+            convex_count,
+            "{name}"
+        );
+        assert_eq!(
+            fillets
+                .iter()
+                .filter(|f| f.record["side"] == "concave")
+                .count(),
+            inside_count,
+            "{name}"
+        );
         for face in convex {
             assert_eq!(
                 loaded.part.frame_points_outward(face),
@@ -289,10 +307,15 @@ fn corrected_round_inventory_agrees_with_material_side() {
                 Some(false),
                 "{name}:{face}"
             );
-            assert!(
-                !fillets.iter().any(|f| f.faces.contains(&face)),
-                "{name}:{face}"
-            );
+            // #127 restores proved inside rounds with their correct material side;
+            // cgb241's large non-round face remains outside the fillet inventory.
+            let found: Vec<_> = fillets.iter().filter(|f| f.faces.contains(&face)).collect();
+            if name == "cgb202" {
+                assert_eq!(found.len(), 1, "{name}:{face}");
+                assert_eq!(found[0].record["side"], "concave", "{name}:{face}");
+            } else {
+                assert!(found.is_empty(), "{name}:{face}");
+            }
         }
     }
     // Exact Python convex claims removed by #89 in this capture, checked against material.
