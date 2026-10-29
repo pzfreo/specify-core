@@ -79,15 +79,16 @@ known difference whose analyses must not cross engines (question Q1).
 **Features differ by design between the two quiddities.** On `pin.step` Python reports
 `holes:3.5` (the bore and its floor: *constituent* faces) and Rust `holes/0 [3]` (*defining*
 faces only); Python reports `step_levels` and suppresses `bosses` on a turned part (its
-cross-family reconciliation), Rust reports `bosses` and no `step_levels`. Feature ids in this
-crate are specify-core's (`family:faces`, from the faces the port uses), so ids for the same
+cross-family reconciliation). Rust has no `step_levels`; since quiddity #123 in v0.2.3,
+its proved `turned_bodies` suppress nearly full-length OD bosses while retaining shorter
+local bosses. Feature ids in this crate are specify-core's (`family:faces`, from the faces the port uses), so ids for the same
 feature can differ between engines. An analysis is a stored snapshot, but saved STEP answers are re-recognised on reopening;
 the resume correspondence rule below handles feature-ID changes.
 
 ## Dependency plan
 
 - `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity-rust`,
-  pinned to tag `v0.2.1` (`37df6a0`) in both manifests and Cargo.lock.
+  pinned to tag `v0.2.3` (`ced75a5`) in both manifests and Cargo.lock.
   Update only these packages with `cargo update -p quiddity -p haecceity`, then run
   the named local profile below and the full suite in CI, and rejudge any departures from the frozen Python captures with
   independent evidence. `correspondence::recognise` returns published file-coordinate records (#92);
@@ -159,7 +160,10 @@ except where a hash is taken (resume fingerprint, `pyjson.rs`).
   existing: [ExistingPmi], part: {material?, general_tolerance?, surface_finish?, coating?,
   heat_treatment?, edges?}, resume?: {answers}}`. `Face { id, kind: plane|cylinder|cone|torus|
   other, area, centroid, direction?, origin?, radius?, contact? }`. `Feature { id, family, record
-  (JSON object), faces, members?, notes? }`.
+  (JSON object), faces, members?, notes?, description? }`. Analysis snapshots add plain
+  `description` text for turned bodies, face grooves, cylindrical profiles and concave
+  fillets. The measured record and source-face indices remain the matching/PMI inputs;
+  these descriptions introduce no feature questions.
 - Answers: `{question id: JSON value}` (strings, face lists, `extra.*` objects).
 - `Question` (to_dict order and omissions as Python's), `Intent { schema: 1, rules_version: 3,
   binding, part, datums, requirements, general }` with requirements as JSON objects whose kinds
