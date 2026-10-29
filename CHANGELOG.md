@@ -8,6 +8,8 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- The reviewed WASM size ceiling is raised by 10%, from 11,800,000 to 12,980,000 raw bytes,
+  after the revision-report work measured 11,807,493 in CI.
 - The revision report says complex changes plainly (#56):
   - a hole pattern laid out again (another count, circle or spacing) is one line, the old
     pattern become the new (`pattern of 4 × Ø6 … → pattern of 5 × Ø6 … on a Ø48 circle`),
