@@ -239,10 +239,16 @@ pub fn recognise_from(
         let mut family_ids = Vec::with_capacity(list.len());
         for (n, record) in list.iter().enumerate() {
             let id = format!("{family}/{n}");
-            let faces = &published
+            let published_entry = published
                 .get(id.as_str())
-                .ok_or_else(|| records(family, format!("no published defining faces for {id}")))?
-                .faces;
+                .ok_or_else(|| records(family, format!("no published defining faces for {id}")))?;
+            // quiddity #119 publishes failed proofs with faces, but no feature claim.
+            // Keep their reasons in recognition; never offer them as specifiable features.
+            if published_entry.is_refusal() {
+                family_ids.push(None);
+                continue;
+            }
+            let faces = &published_entry.faces;
             let mut faces = faces.clone();
             faces.sort_unstable();
             faces.dedup();
@@ -539,6 +545,7 @@ fn hole_sets(features: &[Feature]) -> Vec<Feature> {
             truthy(r.get("cbore")),
             truthy(r.get("spotface")),
             truthy(r.get("csink")),
+            outer_step_key(r.get("outer_steps")),
             axis,
         ])
         .to_string();
@@ -592,6 +599,17 @@ fn rounded_value(value: &Value) -> Value {
         Some(x) => serde_json::json!(round_half_even(x, 6) + 0.0),
         None => Value::Null,
     }
+}
+
+/// quiddity #118: compare the ordered counterbore diameters and depths, treating an
+/// omitted optional field as an empty list (legacy saved analyses).
+pub(crate) fn outer_step_key(value: Option<&Value>) -> Vec<[Value; 2]> {
+    value
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|step| ["diameter", "depth"].map(|key| rounded_value(&step[key])))
+        .collect()
 }
 
 /// Python's `bool(x)` of a JSON value.
@@ -680,6 +698,27 @@ mod tests {
         assert_eq!(sets[0].members, ["holes:1", "holes:2"]);
         assert_eq!(sets[0].record["kind"], "set");
         assert_eq!(sets[0].record["diameter"], 5.5);
+    }
+
+    #[test]
+    fn outer_counterbores_separate_hole_sets() {
+        // quiddity #118: equal bores with different outer counterbores are not equal holes.
+        let mut holes = vec![
+            hole("holes:1", 6.0, [0.0, 0.0, 1.0]),
+            hole("holes:2", 6.0, [0.0, 0.0, 1.0]),
+            hole("holes:3", 6.0, [0.0, 0.0, 1.0]),
+        ];
+        holes[0].record.insert("outer_steps".into(), json!([]));
+        assert_eq!(hole_sets(&holes)[0].members.len(), 3);
+        holes[2].record.insert(
+            "outer_steps".into(),
+            json!([{"diameter":18.0,"depth":2.0},{"diameter":15.0,"depth":1.0}]),
+        );
+        assert_eq!(hole_sets(&holes)[0].members, ["holes:1", "holes:2"]);
+        holes[0].record = holes[2].record.clone();
+        assert_eq!(hole_sets(&holes)[0].members, ["holes:1", "holes:3"]);
+        holes[0].record["outer_steps"][0]["depth"] = json!(3.0);
+        assert!(hole_sets(&holes).is_empty());
     }
 
     #[test]

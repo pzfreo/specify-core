@@ -52,6 +52,52 @@ fn identical_bolt_circles_are_one_question() {
     assert!(!qs.iter().any(|x| x.prompt.contains("12× Ø8")));
 }
 
+#[test]
+fn outer_counterbores_separate_questions_and_keep_bore_requirements() {
+    // quiddity #118: a different outer step must not inherit another group's answer.
+    let mut spool = analysis(SPOOL);
+    let q = merged(&spool, "Ø8 holes");
+    let id = &q.parts[0].0;
+    let pattern = spool["features"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|f| f["id"] == *id)
+        .unwrap();
+    let steps = json!([{"diameter":18.0,"depth":2.0},{"diameter":15.0,"depth":1.0}]);
+    for hole in pattern["record"]["holes"].as_array_mut().unwrap() {
+        hole["outer_steps"] = steps.clone();
+    }
+    let members = pattern["members"].as_array().unwrap().clone();
+    for feature in spool["features"].as_array_mut().unwrap() {
+        if members.contains(&feature["id"]) {
+            feature["record"]["outer_steps"] = steps.clone();
+        }
+    }
+    let qs = questions(&spool, &Map::new()).unwrap();
+    let functions: Vec<_> = qs
+        .iter()
+        .filter(|q| q.id.starts_with("hole.function:") && q.diameter == Some(8.0))
+        .collect();
+    assert_eq!(functions.len(), 2);
+    assert!(functions.iter().all(|q| q.parts.is_empty()));
+    let answers = json!({"part.material":"steel", format!("hole.function:{id}"):"fit:H7"});
+    let intent = apply(
+        &spool,
+        &with_defaults(&spool, answers.as_object().unwrap().clone()),
+    )
+    .unwrap();
+    let fit: Vec<_> = intent
+        .requirements
+        .iter()
+        .filter(|r| r.get("fit") == Some(&json!("H7")))
+        .collect();
+    assert_eq!(fit.len(), 1);
+    assert_eq!(fit[0]["feature"], *id);
+    assert_eq!(fit[0]["faces"], json!(q.parts[0].1));
+    assert_eq!(fit[0]["nominal"], 8.0);
+}
+
 // test_same_as.py::test_each_group_keeps_its_own_size_and_position
 #[test]
 fn each_group_keeps_its_own_size_and_position() {

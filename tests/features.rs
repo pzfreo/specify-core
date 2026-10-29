@@ -220,6 +220,47 @@ fn recognition_refuses_a_degraded_part() {
     assert!(features::recognise(&part::load(&path, Some(0)).unwrap()).is_ok());
 }
 
+/// quiddity #119: a failed discovery has source faces and a reason, but claims no feature.
+#[test]
+fn discovery_refusals_are_not_question_targets() {
+    use quiddity::features::{Features, discovery::DiscoveryRefusal};
+    let loaded = part::load(&fixture("plate.step"), None).unwrap();
+    let mut recognition = quiddity::correspondence::recognise(&loaded.part);
+    let families = [
+        "pad_refusals",
+        "prismatic_pocket_refusals",
+        "section_passage_refusals",
+        "oriented_slot_refusals",
+        "polygonal_boss_refusals",
+        "reconciliation_refusals",
+    ];
+    recognition.features = Features {
+        discovery_refusals: families
+            .into_iter()
+            .map(|family| {
+                (
+                    family,
+                    vec![DiscoveryRefusal {
+                        faces: vec![0, 1],
+                        reason: "unproved source roles".into(),
+                    }],
+                )
+            })
+            .collect(),
+        ..Features::default()
+    }
+    .into();
+    let document = quiddity::recognition::document(&recognition, loaded.part.faces.len());
+    assert_eq!(document.records.len(), families.len());
+    assert!(document.records.iter().all(|r| r.is_refusal()));
+    let features = features::recognise_from(&loaded, &recognition).unwrap();
+    assert!(features.is_empty());
+    let analysis =
+        json!({"faces": features::describe_faces(&loaded).unwrap(), "features": features});
+    let questions = specify_core::rules::questions(&analysis, &Default::default()).unwrap();
+    assert!(questions.iter().all(|q| q.feature.is_none()));
+}
+
 // --- the oracle sweeps -----------------------------------------------------------------------
 
 /// The Rust part a case's analysis is of, or why there is none to compare.

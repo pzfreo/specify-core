@@ -487,7 +487,13 @@ fn a_real_part_s_report_names_what_a_person_changed() {
         md.contains("- 4× freeform surfaces: reshaped; moved Z +2"),
         "{md}"
     );
-    assert!(md.contains("- 2× R1 fillets, at "), "{md}");
+    // quiddity #120 recognises all four tangent mirror rounds as fillets.
+    let rounds: Vec<_> = md
+        .lines()
+        .filter(|line| line.starts_with("- 4× R1 fillets, at "))
+        .collect();
+    assert_eq!(rounds.len(), 1, "{md}");
+    assert!(rounds[0].ends_with(": moved Z +2"), "{md}");
     assert!(!md.contains("support."), "{md}");
     // The answer on the pair of holes is carried and listed to check, without the holes'
     // middles moving as they deepen.
