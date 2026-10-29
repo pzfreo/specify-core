@@ -107,7 +107,8 @@ pub struct Check {
 #[derive(Clone, Debug, Serialize)]
 pub struct FeatureChange {
     /// `adapted`, `ambiguous`, `orphaned`, `new`, or `replaced` (one feature in place of
-    /// another, see [`FeatureChange::became`]).
+    /// another, see [`FeatureChange::became`]), or `continued` (an existing chamfer
+    /// carrying round new fillets; `candidates` includes its extension records).
     pub class: String,
     pub family: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -569,6 +570,9 @@ fn several(one: &str) -> String {
     if let Some(rest) = one.strip_prefix("pattern of ") {
         return format!("patterns of {rest}");
     }
+    if let Some((noun, finish)) = one.split_once(", ") {
+        return format!("{}, {finish}", several(noun));
+    }
     if one.ends_with('s') {
         format!("{one}es")
     } else {
@@ -774,17 +778,51 @@ const CONTEXT: [&str; 2] = ["adjacency", "neighbourhood"];
 /// - a pattern laid out again (another count, circle or spacing) as one pattern become
 ///   another, its holes' own pairings folded into it;
 /// - a hole that became another kind of hole in its place (counterbored, blind) as that.
-fn fold(changes: &mut Vec<FeatureChange>, old: &[Feature], new: &[Feature], size: &Size) {
-    let diagonal = (0..3)
-        .map(|i| (size.max[i] - size.min[i]).powi(2))
-        .sum::<f64>()
-        .sqrt();
-    let tolerance = (diagonal * 0.02).max(0.5);
-    let near = |a: Option<[f64; 3]>, b: Option<[f64; 3]>, across: Option<usize>| match (a, b) {
-        (Some(a), Some(b)) => {
+fn fold(changes: &mut Vec<FeatureChange>, old: &[Feature], new: &[Feature]) {
+    // A tenth of the smaller feature's radius, with a 0.1 mm rounding floor.
+    // The part's box must not make two small, distant holes count as the same place.
+    let radius = |f: &Feature| {
+        if f.family == "hole_patterns" {
+            if f.id.contains("bolt_circle") {
+                return f
+                    .record
+                    .get("diameter")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0)
+                    / 2.0;
+            }
+            if let (Some(center), Some(holes)) = (
+                position(&f.record),
+                f.record.get("holes").and_then(Value::as_array),
+            ) {
+                return holes
+                    .iter()
+                    .filter_map(Value::as_object)
+                    .filter_map(position)
+                    .map(|p| {
+                        (0..3)
+                            .map(|i| (p[i] - center[i]).powi(2))
+                            .sum::<f64>()
+                            .sqrt()
+                    })
+                    .fold(0.0, f64::max);
+            }
+        }
+        f.record
+            .get("diameter")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+            / 2.0
+    };
+    let near = |a: &Feature, b: &Feature, across: Option<usize>| match (
+        position(&a.record),
+        position(&b.record),
+    ) {
+        (Some(p), Some(q)) => {
+            let tolerance = (radius(a).min(radius(b)) * 0.1).max(0.1);
             (0..3)
                 .filter(|&i| Some(i) != across)
-                .map(|i| (a[i] - b[i]).powi(2))
+                .map(|i| (p[i] - q[i]).powi(2))
                 .sum::<f64>()
                 .sqrt()
                 <= tolerance
@@ -839,7 +877,10 @@ fn fold(changes: &mut Vec<FeatureChange>, old: &[Feature], new: &[Feature], size
                     .filter(|n| {
                         n.class == "new"
                             && n.family == "hole_patterns"
-                            && near(n.at, c.at, c.axis.or(n.axis))
+                            && n.new
+                                .as_deref()
+                                .and_then(|id| find(new, id))
+                                .is_some_and(|now| near(&was, &now, c.axis.or(n.axis)))
                     })
                     .find_map(|n| n.new.as_deref().and_then(|id| find(new, id)))
             });
@@ -871,13 +912,20 @@ fn fold(changes: &mut Vec<FeatureChange>, old: &[Feature], new: &[Feature], size
         if changes[i].family != "holes" || changes[i].class != "orphaned" {
             continue;
         }
-        let (at, axis) = (changes[i].at, changes[i].axis);
+        let axis = changes[i].axis;
+        let Some(was) = changes[i].old.as_deref().and_then(|id| find(old, id)) else {
+            continue;
+        };
         let Some(j) = (0..changes.len()).find(|&j| {
             !taken.contains(&j)
                 && changes[j].class == "new"
                 && changes[j].family == "holes"
                 && changes[j].axis == axis
-                && near(changes[j].at, at, axis)
+                && changes[j]
+                    .new
+                    .as_deref()
+                    .and_then(|id| find(new, id))
+                    .is_some_and(|now| near(&was, &now, axis))
         }) else {
             continue;
         };
@@ -921,24 +969,186 @@ fn fold(changes: &mut Vec<FeatureChange>, old: &[Feature], new: &[Feature], size
     });
 }
 
+/// A tangent chain of unchanged bevels can grow round new fillets. Count its old
+/// chamfers, not the extra faces. Require a carried face as the anchor, equal bevel
+/// sizes, and each extra face to touch a new fillet or bridge two such faces.
+fn continue_chamfers(
+    changes: &mut Vec<FeatureChange>,
+    old: &[Feature],
+    new: &[Feature],
+    corr: &Correspondence,
+    prints: &qc::Fingerprints,
+) {
+    let added = |f: &Feature| {
+        changes
+            .iter()
+            .any(|c| c.class == "new" && c.new.as_ref() == Some(&f.id))
+    };
+    let fillets: BTreeSet<usize> = new
+        .iter()
+        .filter(|f| f.family == "fillets" && added(f))
+        .flat_map(|f| f.faces.iter().copied())
+        .collect();
+    if fillets.is_empty() {
+        return;
+    }
+    let neighbours: BTreeMap<_, _> = prints
+        .faces
+        .iter()
+        .map(|f| (f.index, &f.neighbours))
+        .collect();
+    let touches_fillet = |i: &usize| {
+        neighbours
+            .get(i)
+            .is_some_and(|ns| ns.iter().any(|(j, _)| fillets.contains(j)))
+    };
+    let mut continued = Vec::new();
+    let mut absorbed = BTreeSet::new();
+    for was in old.iter().filter(|f| f.family == "chamfers") {
+        // Never turn a resized, removed or ambiguously matched bevel into a continuation.
+        if changes.iter().any(|c| c.old.as_ref() == Some(&was.id)) {
+            continue;
+        }
+        let mapped: Option<Vec<usize>> = was
+            .faces
+            .iter()
+            .map(|i| {
+                corr.faces
+                    .iter()
+                    .find(|e| e.old == *i && matches!(e.class, Class::Carried | Class::Adapted))
+                    .and_then(|e| e.new)
+            })
+            .collect();
+        let Some(mapped) = mapped.filter(|fs| !fs.is_empty()) else {
+            continue;
+        };
+        let same_sizes = |f: &&Feature| {
+            ["leg1", "leg2", "angle"].iter().all(|key| {
+                match (
+                    was.record.get(*key).and_then(Value::as_f64),
+                    f.record.get(*key).and_then(Value::as_f64),
+                ) {
+                    (Some(a), Some(b)) => (a - b).abs() <= 0.01,
+                    _ => false,
+                }
+            })
+        };
+        let bevels: Vec<_> = new
+            .iter()
+            .filter(|f| f.family == "chamfers")
+            .filter(same_sizes)
+            .collect();
+        let Some(anchor) = bevels
+            .iter()
+            .find(|f| mapped.iter().all(|i| f.faces.contains(i)))
+        else {
+            continue;
+        };
+        let allowed: BTreeSet<_> = bevels
+            .iter()
+            .flat_map(|f| f.faces.iter().copied())
+            .collect();
+        let mut reached: BTreeSet<_> = mapped.into_iter().collect();
+        let mut pending: Vec<_> = reached.iter().copied().collect();
+        while let Some(i) = pending.pop() {
+            if let Some(ns) = neighbours.get(&i) {
+                for (j, arc) in *ns {
+                    if arc == "smooth" && allowed.contains(j) && reached.insert(*j) {
+                        pending.push(*j);
+                    }
+                }
+            }
+        }
+        let extensions: Vec<_> = bevels
+            .iter()
+            .filter(|f| {
+                added(f)
+                    && !f.faces.is_empty()
+                    && f.faces.iter().all(|i| {
+                        reached.contains(i)
+                            && (touches_fillet(i)
+                                || neighbours.get(i).is_some_and(|ns| {
+                                    ns.iter()
+                                        .filter(|(j, arc)| {
+                                            arc == "smooth"
+                                                && reached.contains(j)
+                                                && touches_fillet(j)
+                                        })
+                                        .count()
+                                        >= 2
+                                }))
+                    })
+            })
+            .collect();
+        if extensions.is_empty() {
+            continue;
+        }
+        let candidates: Vec<_> = std::iter::once(anchor.id.clone())
+            .chain(extensions.iter().map(|f| f.id.clone()))
+            .collect();
+        absorbed.extend(extensions.iter().map(|f| f.id.clone()));
+        continued.push(FeatureChange {
+            class: "continued".into(),
+            family: "chamfers".into(),
+            old: Some(was.id.clone()),
+            new: Some(anchor.id.clone()),
+            candidates,
+            changes: BTreeMap::new(),
+            what: "chamfer".into(),
+            became: String::new(),
+            at: None,
+            place: Place::default(),
+            axis: None,
+            there: Vec::new(),
+            new_faces: Vec::new(),
+            old_faces: Vec::new(),
+        });
+    }
+    changes
+        .retain(|c| !(c.class == "new" && c.new.as_ref().is_some_and(|id| absorbed.contains(id))));
+    changes.extend(continued);
+}
+
 fn describe(f: &Feature) -> (String, Option<[f64; 3]>) {
     let r = &f.record;
     let n = |k: &str| r.get(k).and_then(Value::as_f64);
     let at = position(r);
     let hole = |h: &Map<String, Value>| {
         let n = |k: &str| h.get(k).and_then(Value::as_f64);
-        let mut s = String::new();
-        for (k, word) in [
-            ("cbore", "counterbored "),
-            ("csink", "countersunk "),
-            ("spotface", "spotfaced "),
-        ] {
-            if h.get(k).is_some_and(|v| !v.is_null()) {
-                s += word;
+        let mut finishes = Vec::new();
+        let mut step = |v: &Value, word: &str| {
+            if let (Some(d), Some(depth)) = (v["diameter"].as_f64(), v["depth"].as_f64()) {
+                finishes.push(format!("{word} Ø{} × {} deep", num(d), num(depth)));
+            }
+        };
+        for (key, word) in [("cbore", "counterbored"), ("spotface", "spotfaced")] {
+            if let Some(v) = h.get(key) {
+                step(v, word);
             }
         }
+        if let Some(steps) = h.get("outer_steps").and_then(Value::as_array) {
+            for v in steps {
+                step(v, "counterbored");
+            }
+        }
+        if let Some(v) = h.get("csink").filter(|v| !v.is_null()) {
+            let mut finish = "countersunk".to_string();
+            if let Some(d) = v["major_diameter"].as_f64() {
+                finish += &format!(" Ø{}", num(d));
+            }
+            if let Some(angle) = v["included_angle"].as_f64() {
+                finish += &format!(" × {}°", num(angle));
+            }
+            if let Some(depth) = v["depth"].as_f64() {
+                finish += &format!(", {} deep", num(depth));
+            }
+            finishes.push(finish);
+        }
         let d = n("diameter").map(|d| format!("Ø{}", num(d)));
-        let size = match (d, n("depth")) {
+        // A finished through hole's bore depth excludes the mouth enlargement: call it
+        // through and give each enlargement's own depth, rather than imply a shorter hole.
+        let depth = n("depth").filter(|_| finishes.is_empty() || h["bottom"] != "through");
+        let size = match (d, depth) {
             (Some(d), Some(depth)) => format!("{d} × {} ", num(depth)),
             (Some(d), None) => format!("{d} "),
             _ => String::new(),
@@ -948,7 +1158,12 @@ fn describe(f: &Feature) -> (String, Option<[f64; 3]>) {
             Some(_) => "blind hole",
             None => "hole",
         };
-        format!("{size}{s}{kind}")
+        let finish = if finishes.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", finishes.join(", "))
+        };
+        format!("{size}{kind}{finish}")
     };
     let what = match f.family.as_str() {
         "holes" => hole(r),
@@ -1256,11 +1471,14 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
         }
     }
 
-    fold(
+    fold(&mut feature_changes, &old_features, &new_features);
+
+    continue_chamfers(
         &mut feature_changes,
         &old_features,
         &new_features,
-        &new_size,
+        &corr,
+        &new_q.fingerprints,
     );
 
     // An ambiguous feature's candidates in its own place on the new part.
@@ -1487,7 +1705,7 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
                 .unwrap_or_default()
         };
         c.old_faces = faces_of(&old_features, &c.old);
-        c.new_faces = if c.class == "ambiguous" {
+        c.new_faces = if matches!(c.class.as_str(), "ambiguous" | "continued") {
             let mut faces: Vec<usize> = c
                 .candidates
                 .iter()
@@ -1500,8 +1718,8 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
             faces_of(&new_features, &c.new)
         };
         match c.class.as_str() {
-            "adapted" => {
-                for i in faces_of(&new_features, &c.new) {
+            "adapted" | "continued" => {
+                for &i in &c.new_faces {
                     face_class.insert(i, "changed");
                 }
                 if c.changes.contains_key("position") {
@@ -1597,7 +1815,7 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
         let done = match f.class.as_str() {
             "orphaned" => "removed",
             "new" => "added",
-            "replaced" => "changed",
+            "replaced" | "continued" => "changed",
             "adapted"
                 if f.changes
                     .keys()
@@ -1791,6 +2009,10 @@ impl Revised {
                     format!("{label} → {became}{}", place(": "))
                 }
                 "new" => format!("{label} added{}", place(": ")),
+                "continued" => format!(
+                    "{label} now run{} round the new fillets",
+                    if fs.len() == 1 { "s" } else { "" }
+                ),
                 "ambiguous" => {
                     // What became of alike features that don't pair one to one.
                     let mut there: Vec<&String> = fs.iter().flat_map(|f| &f.there).collect();
@@ -1847,8 +2069,20 @@ impl Revised {
             .to_degrees();
         let mut words = Vec::new();
         if turn >= 0.5 {
-            let axis = [r[2][1] - r[1][2], r[0][2] - r[2][0], r[1][0] - r[0][1]];
-            let length = axis.iter().map(|v| v * v).sum::<f64>().sqrt();
+            let mut axis = [r[2][1] - r[1][2], r[0][2] - r[2][0], r[1][0] - r[0][1]];
+            let mut length = axis.iter().map(|v| v * v).sum::<f64>().sqrt();
+            if length < 1e-6 && turn > 90.0 {
+                // At π the skew part vanishes; R + I = 2 n nᵀ. Its largest
+                // column gives the axis without dividing by a tiny sine of the turn.
+                axis = (0..3)
+                    .map(|j| std::array::from_fn(|i| r[i][j] + if i == j { 1.0 } else { 0.0 }))
+                    .max_by(|a: &[f64; 3], b| {
+                        let norm = |v: &[f64; 3]| v.iter().map(|x| x * x).sum::<f64>();
+                        norm(a).total_cmp(&norm(b))
+                    })
+                    .expect("three columns");
+                length = axis.iter().map(|v| v * v).sum::<f64>().sqrt();
+            }
             let about = (0..3)
                 .find(|&i| length > 1e-9 && (axis[i] / length).abs() > 0.99)
                 .map_or_else(|| "a skew axis".to_string(), |i| AXES[i].to_string());
@@ -2420,3 +2654,6 @@ fn render(
     }
     out
 }
+
+#[cfg(test)]
+mod tests;

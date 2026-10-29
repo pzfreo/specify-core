@@ -11,17 +11,25 @@ All notable changes to specify-core-rust. The format follows
 - The revision report says complex changes plainly (#56):
   - a hole pattern laid out again (another count, circle or spacing) is one line, the old
     pattern become the new (`pattern of 4 × Ø6 … → pattern of 5 × Ø6 … on a Ø48 circle`),
-    its holes' own pairings folded into it;
+    its holes' own pairings folded into it; same-place folding uses 10% of the smaller
+    feature's radius (pattern circle radius or member spread), with a 0.1 mm floor, so a
+    large part does not make distant small holes into replacements;
   - a hole that became another kind of hole in its place reads as that (`Ø6 × 10 through
-    holes → Ø6 × 7 counterbored through holes`), not as removed and added;
-  - what a feature borders is not a change to it: a chamfer whose corners are rounded is not
-    reported, and neighbourhood signatures are never shown;
+    holes → Ø6 through holes, counterbored Ø12 × 3 deep`), not as removed and added;
+    counterbores, countersinks, spotfaces and outer steps include their sizes in hole and
+    pattern descriptions;
+  - what a feature borders is not a change to it, and neighbourhood signatures are never
+    shown; when unchanged bevels continue tangentially round new fillets, anchored to carried
+    old chamfer faces, the report says `2× chamfers now run round the new fillets`, rather than
+    counting the extra faces as chamfers added; separate or resized chamfers remain changes;
   - a feature recognised twice (a pocket by its depth and by its section) is one line, in plain
     sizes, not `section.sides.2`;
   - when the whole part moved, the report says so: `The whole part moved between the revisions
-    (turned 90° about Z, moved X +8, Y +15, Z +3)`;
+    (turned 90° about Z, moved X +8, Y +15, Z +3)`; half-turns recover their axis from
+    the symmetric part of the rotation, where the skew part vanishes;
   - a slot is named by its size (`16 × 6 × 10 slot added`).
-- A report feature's `class` can be `replaced`, with `became`: the new feature in words.
+- A report feature's `class` can be `replaced`, with `became`: the new feature in words; or
+  `continued`, with the chamfer's extension records in `candidates` and their faces in the view.
 
 ## 0.1.1 (2026-10-27)
 

@@ -547,9 +547,28 @@ fn many_changes_at_once_each_read_once() {
 fn what_a_feature_borders_is_not_a_change_to_it() {
     // Filleting the corners: the chamfers they meet are the same chamfers. (build123d carries a
     // chamfer round a tangent fillet, so six chamfer faces are new.)
-    let md = complex("complex_fillet_all");
+    let r = revised("complex_fillet_all", json!({}));
+    let md = r.markdown("Plate", None);
     assert!(md.contains("- 4× R5 fillets added"), "{md}");
-    assert!(md.contains("- 6× chamfers added"), "{md}");
+    // The six faces continue the two old chamfers; they are not six added features.
+    assert!(
+        md.contains("- 2× chamfers now run round the new fillets"),
+        "{md}"
+    );
+    assert!(!md.contains("chamfers added"), "{md}");
+    let continued: Vec<_> = r
+        .features
+        .iter()
+        .filter(|f| f.class == "continued")
+        .collect();
+    assert_eq!(continued.len(), 2);
+    let faces: std::collections::BTreeSet<_> = continued
+        .iter()
+        .flat_map(|f| f.new_faces.iter().copied())
+        .collect();
+    assert_eq!(faces, [2, 5, 7, 18, 19, 20, 21, 22].into_iter().collect());
+    assert!(faces.iter().all(|i| r.faces.get(i) == Some(&"changed")));
+    assert!(continued.iter().all(|f| f.old_faces.len() == 1));
     assert!(!md.contains("neighbourhood"), "{md}");
     assert!(
         !md.contains("chamfers, at"),
@@ -560,9 +579,10 @@ fn what_a_feature_borders_is_not_a_change_to_it() {
 #[test]
 fn a_hole_that_became_another_kind_of_hole_reads_as_that() {
     let md = complex("complex_counterbore");
+    // Name the enlargement, not just the remaining 7 mm of narrow bore.
     assert!(
         md.contains(
-            "- 4× Ø6 × 10 through holes → Ø6 × 7 counterbored through holes: on the +Z side"
+            "- 4× Ø6 × 10 through holes → Ø6 through holes, counterbored Ø12 × 3 deep: on the +Z side"
         ),
         "{md}"
     );
