@@ -8,8 +8,10 @@
 //! specify-core write STEP ANALYSIS ANSWERS [ANALYSIS ANSWERS ...] -o OUT
 //!                    [--accept-defaults] [--intent INTENT]
 //! specify-core diff OLD NEW -o DIR [--answers ANSWERS] [--part K] [--title TITLE]
+//!                    [--viewer URL]
 //!                    what changed between two revisions of a part, its answers carried
-//!                    to the new one (revision.rs)
+//!                    to the new one (revision.rs), or of an assembly, part by part
+//!                    (revision/assembly.rs)
 //! specify-core serve                             JSON-line requests on stdin (serve.rs)
 //! ```
 //!
@@ -42,6 +44,7 @@ use serde_json::{Map, Value, json};
 use specify_core::api::{self, Error};
 use specify_core::part;
 use specify_core::pyjson;
+use specify_core::revision::assembly;
 use specify_core::rules::{self, IncompleteError, Intent};
 use specify_core::serve;
 use specify_core::writer::WriteError;
@@ -179,21 +182,25 @@ const DIFF: Command = Command {
         (None, "--answers", true, false),
         (None, "--part", true, false),
         (None, "--title", true, false),
+        (None, "--viewer", true, false),
     ],
     help: "usage: specify-core diff [-h] -o OUTPUT [--answers ANSWERS] [--part PART]
-                         [--title TITLE] old new
+                         [--title TITLE] [--viewer VIEWER] old new
 
 positional arguments:
-  old                  the part's STEP file as it was
-  new                  the part's STEP file as it is now
+  old                  the STEP file as it was (a part or an assembly)
+  new                  the STEP file as it is now
 
 options:
   -h, --help           show this help message and exit
   -o, --output OUTPUT  a directory: answers.json, report.json, report.md,
-                       model.png
-  --answers ANSWERS    answers JSON for the old part: {question id: value}
-  --part PART          which part of an assembly (see parts)
+                       model.png; an assembly's answers.json is by part
+  --answers ANSWERS    answers JSON for the old part: {question id: value};
+                       for an assembly, {part name: {question id: value}}
+  --part PART          compare one part of an assembly (see parts)
   --title TITLE        the report's title (the new file's name)
+  --viewer VIEWER      the /diff page's link for these revisions: an
+                       assembly's changed parts link to it with &part=NAME
 ",
 };
 
@@ -710,8 +717,23 @@ fn diff(old: &Path, new: &Path, args: &Args, out: &mut impl Write) -> Result<(),
         Some(path) => answers_of(read_json(Path::new(path))?)?,
         None => Map::new(),
     };
-    let load = |path: &Path| part::load(path, part).map_err(Exit::error);
-    let (before, after) = (load(old)?, load(new)?);
+    // With no part chosen, a file of several parts, or of a part placed other than once, is
+    // compared as an assembly.
+    let (before, after) = match part {
+        Some(_) => {
+            let load = |path: &Path| part::load(path, part).map_err(Exit::error);
+            (load(old)?, load(new)?)
+        }
+        None => {
+            let read = |path: &Path| part::File::read(path).map_err(Exit::error);
+            let (old, new) = (read(old)?, read(new)?);
+            if assembly::is_assembly(&old) || assembly::is_assembly(&new) {
+                return diff_assembly(&old, &new, &answers, args, out);
+            }
+            let load = |file: &part::File| file.load(None).map_err(Exit::error);
+            (load(&old)?, load(&new)?)
+        }
+    };
     let revised = specify_core::revision::diff(&before, &after, &answers).map_err(Exit::error)?;
     let dir = PathBuf::from(args.value("--output").expect("required"));
     std::fs::create_dir_all(&dir).map_err(|e| Exit::error(format!("{}: {e}", dir.display())))?;
@@ -738,6 +760,49 @@ fn diff(old: &Path, new: &Path, args: &Args, out: &mut impl Write) -> Result<(),
         out,
         &indent1_keeping_non_ascii(
             &json!({"verdict": revised.verdict, "summary": revised.summary}),
+        ),
+    )
+}
+
+/// `diff` of two revisions of an assembly, with no `--part`: every part compared, the parts
+/// list and each changed part's report in `report.md`, the whole assembly's picture, and the
+/// answers carried by part name.
+fn diff_assembly(
+    old: &part::File,
+    new: &part::File,
+    answers: &Map<String, Value>,
+    args: &Args,
+    out: &mut impl Write,
+) -> Result<(), Exit> {
+    let load = |file: &part::File| file.load_all().map_err(Exit::error);
+    let (before, after) = (load(old)?, load(new)?);
+    let compared = assembly::diff(&before, &after, answers).map_err(refused)?;
+    let dir = PathBuf::from(args.value("--output").expect("required"));
+    std::fs::create_dir_all(&dir).map_err(|e| Exit::error(format!("{}: {e}", dir.display())))?;
+    let title = args.value("--title").map(String::from).unwrap_or_else(|| {
+        new.path()
+            .file_name()
+            .map_or("assembly".into(), |n| n.to_string_lossy().into_owned())
+    });
+    let pretty = |v: &Value| indent1_keeping_non_ascii(v);
+    let report = serde_json::to_value(&compared).map_err(Exit::error)?;
+    save(
+        &dir.join("answers.json"),
+        &pretty(&Value::Object(compared.answers())),
+    )?;
+    save(&dir.join("report.json"), &pretty(&report))?;
+    save(
+        &dir.join("report.md"),
+        &compared.markdown(&title, Some("model.png"), args.value("--viewer")),
+    )?;
+    let png = compared.picture(&before, &after, 900);
+    let picture = dir.join("model.png");
+    std::fs::write(&picture, png)
+        .map_err(|e| Exit::error(format!("{}: {e}", picture.display())))?;
+    print(
+        out,
+        &indent1_keeping_non_ascii(
+            &json!({"verdict": compared.verdict, "summary": compared.summary}),
         ),
     )
 }

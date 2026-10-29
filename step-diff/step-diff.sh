@@ -71,6 +71,8 @@ for stem in ${answered[@]+"${answered[@]}"}; do
   done
 done
 
+uri() { jq -rn --arg s "$1" '$s | @uri'; }
+links=()
 outs="$RUNNER_TEMP/step-diff"
 mkdir -p "$outs"
 for i in "${!kinds[@]}"; do
@@ -87,7 +89,16 @@ for i in "${!kinds[@]}"; do
     git show "$BASE:${old%.*}.answers.json" > "$out/answers.old.json"
     answers=(--answers "$out/answers.old.json")
   fi
-  if ! specify-core diff "$out/old.step" "./$new" ${answers[@]+"${answers[@]}"} --title "$title" -o "$out" 2> "$out/error"; then
+  # A public repository's revisions can be compared live in the browser, at draftwright.io: the
+  # picture links there, and an assembly's changed parts link there each with &part=.
+  viewer=()
+  if [ "$PRIVATE" != true ]; then
+    link="https://draftwright.io/diff?repo=$REPO&base=$BASE&head=$PR_HEAD&path=$(uri "$new")"
+    [ "$old" = "$new" ] || link+="&was=$(uri "$old")"
+    links[i]=$link
+    viewer=(--viewer "$link")
+  fi
+  if ! specify-core diff "$out/old.step" "./$new" ${answers[@]+"${answers[@]}"} ${viewer[@]+"${viewer[@]}"} --title "$title" -o "$out" 2> "$out/error"; then
     cat "$out/error" >&2
     kinds[$i]=failed
   fi
@@ -142,14 +153,9 @@ body="$RUNNER_TEMP/comment.md"
         ;;
       changed)
         report=$(< "$out/report.md")
-        # A public repository's revisions can be compared live in the browser, at draftwright.io:
-        # the picture links there.
-        viewer=
-        if [ "$PRIVATE" != true ]; then
-          uri() { jq -rn --arg s "$1" '$s | @uri'; }
-          viewer="https://draftwright.io/diff?repo=$REPO&base=$BASE&head=$PR_HEAD&path=$(uri "$new")"
-          [ "$old" = "$new" ] || viewer+="&was=$(uri "$old")"
-        fi
+        viewer=${links[i]:-}
+        assembly=no
+        if jq -e 'has("parts")' "$out/report.json" > /dev/null; then assembly=yes; fi
         if [ "$pictures" = yes ]; then
           image="https://github.com/$REPO/blob/step-diff-images/$dir/$i.png?raw=true"
           if [ -n "$viewer" ]; then
@@ -160,9 +166,11 @@ body="$RUNNER_TEMP/comment.md"
           fi
         fi
         printf '%s\n' "$report"
-        if [ -n "$viewer" ]; then printf '\n[Turn the part round in 3D](%s), compared live in the browser.\n' "$viewer"; fi
+        what="the part" by=
+        if [ $assembly = yes ]; then what="the changed parts" by=", by part"; fi
+        if [ -n "$viewer" ]; then printf '\n[Turn %s round in 3D](%s), compared live in the browser.\n' "$what" "$viewer"; fi
         if [ "$(< "$out/answers.json")" != "{}" ]; then
-          printf '\n<details><summary>The answers carried to the new revision (<code>%s.answers.json</code>)</summary>\n\n```json\n' "${new%.*}"
+          printf '\n<details><summary>The answers carried to the new revision%s (<code>%s.answers.json</code>)</summary>\n\n```json\n' "$by" "${new%.*}"
           cat "$out/answers.json"
           printf '\n```\n\n</details>\n'
         fi

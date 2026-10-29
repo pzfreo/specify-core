@@ -6,7 +6,9 @@ use specify_core::{
     api, carried,
     features::Feature,
     part::{self, Binding, LOADER_VERSION, LoadedPart},
-    resume, revision, tolerancing,
+    resume,
+    revision::{self, assembly},
+    tolerancing,
 };
 use std::{
     path::{Path, PathBuf},
@@ -25,23 +27,70 @@ fn check_input(name: &str, bytes: &[u8]) -> Result<(), String> {
 /// Compares two revisions of a part held in memory, as `specify-core diff` compares two files,
 /// carrying `answers` (the old file's stored answers when empty): `{report, markdown, view}`,
 /// the report as `report.json` holds it, as Markdown headed *title* (with no picture), and what
-/// a viewer needs to draw the change ([`revision::view`]). Single parts only.
+/// a viewer needs to draw the change ([`revision::view`]).
+///
+/// Two revisions of an assembly (either file of several parts, or of a part placed other than
+/// once) are compared part by part ([`assembly::diff`]), `answers` then by part name:
+/// `{report, markdown, parts}`, the assembly's report and Markdown, and each part's
+/// `{name, status, old, new}` with its `report` when it is in both files, and its `markdown`
+/// (headed `#### name`) and `view` when it changed: a changed part is shaped as a part's diff.
 pub fn diff(
     old: (&str, &[u8]),
     new: (&str, &[u8]),
     answers: &Map<String, Value>,
     title: &str,
 ) -> Result<Value, String> {
-    let load = |(name, bytes): (&str, &[u8])| -> Result<LoadedPart, String> {
+    let read = |(name, bytes): (&str, &[u8])| -> Result<part::File, String> {
         check_input(name, bytes)?;
-        part::load_bytes(name, bytes.to_vec()).map_err(|error| format!("{name}: {error}"))
+        part::File::of_bytes(Path::new(name), bytes.to_vec())
+            .map_err(|error| format!("{name}: {error}"))
     };
-    let (before, after) = (load(old)?, load(new)?);
+    let (old_file, new_file) = (read(old)?, read(new)?);
+    if assembly::is_assembly(&old_file) || assembly::is_assembly(&new_file) {
+        return diff_assembly(&old_file, &new_file, answers, title);
+    }
+    let load = |file: &part::File, name: &str| -> Result<LoadedPart, String> {
+        file.load(None).map_err(|error| format!("{name}: {error}"))
+    };
+    let (before, after) = (load(&old_file, old.0)?, load(&new_file, new.0)?);
     let revised = revision::diff(&before, &after, answers).map_err(|error| error.to_string())?;
     Ok(json!({
         "report": serde_json::to_value(&revised).map_err(|error| error.to_string())?,
         "markdown": revised.markdown(title, None),
         "view": revision::view(&before, &after, &revised),
+    }))
+}
+
+fn diff_assembly(
+    old: &part::File,
+    new: &part::File,
+    answers: &Map<String, Value>,
+    title: &str,
+) -> Result<Value, String> {
+    let load = |file: &part::File| file.load_all().map_err(|error| error.to_string());
+    let (before, after) = (load(old)?, load(new)?);
+    let compared = assembly::diff(&before, &after, answers).map_err(|error| error.to_string())?;
+    let parts = compared
+        .parts
+        .iter()
+        .map(|p| {
+            let mut row = json!({"name": p.name, "status": p.status, "old": p.old, "new": p.new});
+            if let Some(r) = &p.revised {
+                row["report"] = serde_json::to_value(r).map_err(|error| error.to_string())?;
+                if let ("changed", Some(o), Some(n)) = (p.status, &p.old, &p.new) {
+                    row["markdown"] = r
+                        .markdown_headed(&format!("#### {}", p.name), None, None)
+                        .into();
+                    row["view"] = revision::view(&before[o.part], &after[n.part], r);
+                }
+            }
+            Ok(row)
+        })
+        .collect::<Result<Vec<Value>, String>>()?;
+    Ok(json!({
+        "report": serde_json::to_value(&compared).map_err(|error| error.to_string())?,
+        "markdown": compared.markdown(title, None, None),
+        "parts": parts,
     }))
 }
 

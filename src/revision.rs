@@ -34,6 +34,8 @@ use crate::features::Feature;
 use crate::part::LoadedPart;
 use haecceity::Part;
 
+pub mod assembly;
+
 /// What one old face is in the new part.
 #[derive(Clone, Debug, PartialEq)]
 enum Bind {
@@ -2100,18 +2102,32 @@ impl Revised {
 
     /// The report as Markdown, for a pull request comment; *image* is the picture's link.
     pub fn markdown(&self, title: &str, image: Option<&str>) -> String {
+        self.markdown_headed(&format!("### {title}: Specify"), image, None)
+    }
+
+    /// The verdict's mark: ✅ ok, ⚠️ decide, ❌ problems.
+    pub fn mark(&self) -> &'static str {
+        mark(&self.verdict)
+    }
+
+    /// [`Revised::markdown`] under *heading* (an assembly's part's), with *link*, a line
+    /// linking to the page that shows the part in 3D, after the summary.
+    pub fn markdown_headed(
+        &self,
+        heading: &str,
+        image: Option<&str>,
+        link: Option<&str>,
+    ) -> String {
         use std::fmt::Write;
-        let mark = match self.verdict.as_str() {
-            "ok" => "✅",
-            "decide" => "⚠️",
-            _ => "❌",
-        };
-        let mut s = format!("### {title}: Specify\n\n{mark} {}\n\n", self.summary);
+        let mut s = format!("{heading}\n\n{} {}\n\n", self.mark(), self.summary);
         if let Some(image) = image {
             let _ = writeln!(
                 s,
                 "![The new part: changed in orange, new in green, can't tell in purple, gone or moved from in red]({image})\n"
             );
+        }
+        if let Some(link) = link {
+            let _ = writeln!(s, "{link}\n");
         }
         {
             let (o, n) = (&self.measures.old, &self.measures.new);
@@ -2396,62 +2412,77 @@ pub fn picture(old: &LoadedPart, new: &LoadedPart, revised: &Revised, width: u32
     };
     let mesh_new = crate::mesh::mesh(new);
     let mesh_old = crate::mesh::mesh(old);
-    let triangles = |mesh: &Value,
-                     keep: &dyn Fn(usize) -> Option<[f64; 3]>,
-                     motion: Option<&qc::Alignment>|
-     -> Vec<([[f64; 3]; 3], [f64; 3])> {
-        let pos: Vec<f64> = mesh["positions"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_f64)
-            .collect();
-        let idx: Vec<usize> = mesh["indices"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_u64)
-            .map(|i| i as usize)
-            .collect();
-        let place = |v: usize| -> [f64; 3] {
-            let p = [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]];
-            match motion {
-                Some(a) if a.found => [0, 1, 2].map(|i| {
-                    a.rotation[i][0] * p[0]
-                        + a.rotation[i][1] * p[1]
-                        + a.rotation[i][2] * p[2]
-                        + a.translation[i]
-                }),
-                _ => p,
-            }
-        };
-        let mut out = Vec::new();
-        for (face, range) in mesh["faces"].as_array().into_iter().flatten().enumerate() {
-            let (Some(start), Some(count)) = (range[0].as_u64(), range[1].as_u64()) else {
-                continue;
-            };
-            let Some(c) = keep(face) else { continue };
-            for t in start as usize..(start + count) as usize {
-                out.push((
-                    [
-                        place(idx[t * 3]),
-                        place(idx[t * 3 + 1]),
-                        place(idx[t * 3 + 2]),
-                    ],
-                    c,
-                ));
-            }
-        }
-        out
-    };
-    let solid = triangles(&mesh_new, &|f| Some(colour(revised.faces.get(&f))), None);
+    let solid = triangles(&mesh_new, &|f| Some(colour(revised.faces.get(&f))), &|p| p);
     let gone: BTreeSet<usize> = revised.gone.iter().copied().collect();
+    let motion = revised
+        .correspondence
+        .as_ref()
+        .map(|c| &c.alignment)
+        .filter(|a| a.found);
     let ghost = triangles(
         &mesh_old,
         &|f| gone.contains(&f).then_some([0.84, 0.16, 0.16]),
-        revised.correspondence.as_ref().map(|c| &c.alignment),
+        &|p| match motion {
+            Some(a) => [0, 1, 2].map(|i| {
+                a.rotation[i][0] * p[0]
+                    + a.rotation[i][1] * p[1]
+                    + a.rotation[i][2] * p[2]
+                    + a.translation[i]
+            }),
+            None => p,
+        },
     );
-    let edges: Vec<Vec<[f64; 3]>> = mesh_new["edges"]
+    let edges = edges(&mesh_new, &|p| p);
+    render(&solid, &ghost, &edges, width)
+}
+
+/// A triangle and its colour, for [`render`].
+type Triangle = ([[f64; 3]; 3], [f64; 3]);
+
+/// A mesh's triangles (as [`crate::mesh::mesh`] writes it), each vertex put where *place*
+/// says, of the faces *keep* gives a colour.
+fn triangles(
+    mesh: &Value,
+    keep: &dyn Fn(usize) -> Option<[f64; 3]>,
+    place: &dyn Fn([f64; 3]) -> [f64; 3],
+) -> Vec<Triangle> {
+    let pos: Vec<f64> = mesh["positions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_f64)
+        .collect();
+    let idx: Vec<usize> = mesh["indices"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_u64)
+        .map(|i| i as usize)
+        .collect();
+    let vertex = |v: usize| place([pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]]);
+    let mut out = Vec::new();
+    for (face, range) in mesh["faces"].as_array().into_iter().flatten().enumerate() {
+        let (Some(start), Some(count)) = (range[0].as_u64(), range[1].as_u64()) else {
+            continue;
+        };
+        let Some(c) = keep(face) else { continue };
+        for t in start as usize..(start + count) as usize {
+            out.push((
+                [
+                    vertex(idx[t * 3]),
+                    vertex(idx[t * 3 + 1]),
+                    vertex(idx[t * 3 + 2]),
+                ],
+                c,
+            ));
+        }
+    }
+    out
+}
+
+/// A mesh's edges as polylines, each point put where *place* says.
+fn edges(mesh: &Value, place: &dyn Fn([f64; 3]) -> [f64; 3]) -> Vec<Vec<[f64; 3]>> {
+    mesh["edges"]
         .as_array()
         .into_iter()
         .flatten()
@@ -2464,20 +2495,14 @@ pub fn picture(old: &LoadedPart, new: &LoadedPart, revised: &Revised, width: u32
                 .collect();
             p.chunks(3)
                 .filter(|c| c.len() == 3)
-                .map(|c| [c[0], c[1], c[2]])
+                .map(|c| place([c[0], c[1], c[2]]))
                 .collect()
         })
-        .collect();
-    render(&solid, &ghost, &edges, width)
+        .collect()
 }
 
 /// A z-buffered isometric rendering (looking along −(1, −1, 1), z up), 2× supersampled.
-fn render(
-    solid: &[([[f64; 3]; 3], [f64; 3])],
-    ghost: &[([[f64; 3]; 3], [f64; 3])],
-    edges: &[Vec<[f64; 3]>],
-    width: u32,
-) -> Vec<u8> {
+fn render(solid: &[Triangle], ghost: &[Triangle], edges: &[Vec<[f64; 3]>], width: u32) -> Vec<u8> {
     let norm = |v: [f64; 3]| {
         let n = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
         v.map(|x| x / n)
@@ -2653,6 +2678,15 @@ fn render(
         writer.write_image_data(&bytes).expect("PNG data");
     }
     out
+}
+
+/// A verdict's mark: ✅ ok, ⚠️ decide, ❌ problems.
+fn mark(verdict: &str) -> &'static str {
+    match verdict {
+        "ok" => "✅",
+        "decide" => "⚠️",
+        _ => "❌",
+    }
 }
 
 #[cfg(test)]

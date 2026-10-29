@@ -1,10 +1,12 @@
 # Comparing revisions: `specify-core diff`
 
 ```bash
-specify-core diff old.step new.step [--answers old.answers.json] [--title TITLE] [--part N] -o DIR
+specify-core diff old.step new.step [--answers old.answers.json] [--title TITLE] [--part N]
+                  [--viewer URL] -o DIR
 ```
 
-`diff` compares two revisions of a part. It reports what changed in words a person can check
+`diff` compares two revisions of a part, or of an assembly part by part (see
+[Assemblies](#assemblies)). It reports what changed in words a person can check
 against the model, draws the change, and carries the part's answers to the new revision.
 The [STEP diff action](../step-diff/README.md) runs it on pull requests.
 
@@ -96,4 +98,30 @@ gone or moved are drawn over it in translucent red, placed by the matching motio
 
 ## Assemblies
 
-`--part N` compares part N of each file. Both files must have that part.
+A file of several parts, or of a part placed more than once, is compared as an assembly:
+
+- **Parts are paired by name**, the product name in the STEP file (its product id when it has
+  no name, else `part N`). Parts of the same name pair in file order, the second shown as
+  `name (2)`. A renamed part is one removed and another added.
+- **Each part in both files is compared on its own**, as a single part is, with the rest of the
+  file consulted for its mates. Its status is `changed` when its comparison finds anything,
+  else `quantity` when it is placed a different number of times, `moved` when a placement
+  differs, else `unchanged`. Parts in one file only are `added` or `removed`.
+- **The verdict** is the worst of the changed parts'. The summary counts each status and names
+  the parts when there are 5 or fewer: `2 parts changed (GRM-02 shaft, GRM-04 drive plate), 10
+  unchanged.`
+- **`report.md`** has the summary, the picture, a table of the parts that differ, and a section
+  `#### name` for each changed part: that part's own report. With `--viewer URL` (the
+  [/diff page](https://draftwright.io/diff)'s link for the two revisions), each section links to
+  `URL&part=name`.
+- **`model.png`** is the whole assembly, every part where it is placed: changed, re-counted and
+  moved parts orange, added parts green, the rest grey, and removed parts in translucent red
+  where they were.
+- **Answers are by part name**: `--answers` takes `{part name: {question id: value}}`, and
+  `answers.json` holds the answers carried, by part. A part with no entry carries the answers
+  Specify stored in it.
+- **`report.json`** is `{verdict, summary, parts}`, each part `{name, status, old, new}` (which
+  part of each file and how many times it is placed) and its `report` when it is in both.
+
+`--part N` compares only part N of each file, as before: a single part's report. Both files must
+have that part.

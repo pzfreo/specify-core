@@ -196,8 +196,10 @@ mod wasm {
         console_error_panic_hook::set_once();
     }
 
-    /// Two revisions of a part compared (`session::diff`): `{report, markdown, view}` JSON.
-    /// `answers` is a JSON object, `{}` to carry the old file's stored answers.
+    /// Two revisions of a part compared (`session::diff`): `{report, markdown, view}` JSON; of
+    /// an assembly, `{report, markdown, parts}`, each changed part with its own `markdown` and
+    /// `view`. `answers` is a JSON object (by part name for an assembly), `{}` to carry the old
+    /// file's stored answers.
     #[wasm_bindgen(js_name = diff)]
     pub fn diff_json(
         old_name: &str,
