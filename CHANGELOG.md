@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.2 (2026-10-29)
+
 ### Changed
 
 - Upgrade quiddity and haecceity (native and WASM) to **v0.2.2** (`e58d174`). Deep
