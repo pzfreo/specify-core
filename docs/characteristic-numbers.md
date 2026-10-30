@@ -179,7 +179,8 @@ slots. First-allocation tests pin every number and geometric support on the pris
 in the test. They also prove that a later top-left hole appends despite sorting first on
 a fresh part. `characteristic-numbers-category.step.gz`, captured from unmodified
 `68f375c` with the test's `intent()`, pins the old category order through both a no-op
-and a changed-value rewrite with an addition. `tests/characteristic_numbers.rs` covers all characteristic kinds, repeat writes,
+and a changed-value rewrite with an addition. `tests/characteristic_numbers.rs` covers
+all characteristic kinds, repeat writes,
 additions, value edits, removal/re-addition/empty writes, foreign append, old-file compatibility,
 an older-quiddity fixture and the `hole_removed` revision pair. Numberless analysis, PMI
 serialization and settings-only writes are also checked against SHA-256 snapshots captured
@@ -189,6 +190,12 @@ its old specimens and verifies that new writer outputs differ only by numbering 
 comparing every other entity and reference. The older-engine test adds
 only `ID_ATTRIBUTE` records to the committed alpha.6 specimen; it never regenerates its old
 PMI with the new writer. Requirements newer rules stop emitting are retired.
+
+`tests/kernel_upgrade.rs` still compares every written PMI field under rigid motion.
+Its two initially numberless shaft poses now pin their first-allocation numbers separately:
+a rotated stored frame can change principal-view positions. Only those expected numbers
+change; the semantic and source-face comparisons remain intact. Already numbered files
+retain their numbers through the ordinary correspondence/carry path.
 
 The WASM M2 tap byte pin is `tests/fixtures/thread-depth-numbered.step.gz`. The original
 `thread-depth-alpha7.step.gz` remains unchanged. The native `thread_depth_help` test checks
