@@ -54,13 +54,62 @@ caller attributes. A corrupt history or exhausted counter refuses the write, wit
 
 ## Allocation and carry
 
-Numbers use **allocation order**, not inspection/display order. Inspection order would
-renumber requirements when an earlier row is inserted, contradicting the stability rule.
-On the first write the deterministic order is datums, dimensions, geometric tolerances,
-surface textures, threads, then knurls, each in semantic model order. Subsequent writes
-match all existing requirements before allocating new ones above `high_water`. Reordering,
-adding or removing another requirement does not compact the numbers. A removed number is
-retired permanently; reintroducing that requirement later receives a new number.
+The **first allocation is in inspection order**, consecutively 1…N without gaps on a
+part with no reserved numeric ids. Later allocations append above `high_water`, even if
+an added characteristic would sort first geometrically. Existing numbers always win,
+including files numbered in category order by the 0.1.3-era writer. Reordering, adding or
+removing another requirement does not compact the numbers. A removed number is retired
+permanently; reintroducing that requirement later receives a new number.
+
+The first-allocation rule is:
+
+1. Datum features first, by datum letter (A, B, C…). Equal labels retain semantic model order.
+2. Other characteristics are assigned to **front, top (Draftwright's `plan`), right
+   (Draftwright's `side`)**, in that order, in the part's own stored coordinates. The
+   projections are respectively (X,Z), (X,Y), (Y,Z), with the second coordinate upward.
+   These are Draftwright's `model::VIEWS`. Its `analyse_step_input` keeps files carrying
+   PMI in their stored frame; its optional squaring of slightly rotated numberless parts
+   therefore does not apply to Specify's written PMI. Quiddity's inferred recognition
+   frame is not a second rotation of those stored face coordinates.
+3. Reuse Draftwright's simple geometric view rules (`pmi_lowering::face_on`, `edge_on`,
+   `plane_to_bore`, and `dims::pmi_dimensions`): bore sizes and plane-to-bore
+   locations (including bore-to-bore locations) use the cylinder's end-on view (X axis → right, Y → front, Z → top).
+   Other linear dimensions use the reference planes' normal, then their target surfaces'
+   common direction, then the vector between support box centres (a lone support uses
+   its longest extent). X/Z measurements lie in front; Y measurements lie in right.
+   Angular dimensions use the cross product of their first two surface directions to
+   choose the end-on view of the angle; parallel or missing directions fall back to front.
+   Geometric tolerances use the common cylinder axis, otherwise the support box's longest
+   extent, end-on. Surface textures use their surface's common direction edge-on
+   (X/Z → front, Y → right), otherwise the longest extent. External cylindrical sizes,
+   threads and knurls use front, as in
+   `dims::turned::diameter_views` (X/Z in profile, Y end-on). Internal threads use their
+   cylinder axis end-on, like the hole callout carrying them; other manufacturing supports
+   use the longest extent end-on.
+   A common direction means every supporting surface selects the same dominant axis.
+   For oblique directions choose the largest absolute component; component/extent ties
+   choose X, then Y, then Z. This is a deterministic principal-view approximation:
+   Specify does not reproduce Draftwright's trimmed-face witness proofs, feature-callout
+   merging, omitted-view substitutions, sections, or user-selected sheet layout.
+4. Position is the centre of the union of the characteristic's target face bounds.
+   A location uses its target's position; its reference selects the measuring view,
+   so size, location and control on one feature can share a site. Within each view use
+   **row-major zones**, top to bottom, then left to right. Round projected coordinates
+   to 0.001 mm (ties to even) so numerical noise does not split a drawing row. Rows are
+   easier to walk across repeated holes than a polar/clockwise sort with an arbitrary centre.
+5. At an equal projected position: size before location before geometric tolerance,
+   then surface/manufacturing characteristics. Remaining ties retain the existing
+   semantic model order (datums, dimensions, tolerances, textures, threads, knurls).
+   Thus the order is total and deterministic, including coincident requirements.
+6. Requirements without finite target face bounds go last in the same tie order.
+   This includes a part default finish and whole-part controls. Face textures, threads
+   and knurls participate by position; they are not collected at the end by category.
+
+Only a first allocation with `high_water == 0` uses this sort. Subsequent writes match all
+existing requirements first, then append unmatched ones in the existing semantic model
+order above the counter. Read APIs retain their semantic array order for compatibility;
+CSV/drawing consumers use the stored `number` to walk the inspection sequence. A different
+sheet layout never changes those file numbers.
 
 Numbers are read from the actual STEP entities before planning a rewrite. Identity uses
 requirement kind/type and geometric face support (including the reference support of a
@@ -125,7 +174,13 @@ gets no number. Specify does not create an entity solely to hold a number. The i
 
 The writer verifies both semantic PMI and the numbers read back from their actual entities,
 including number uniqueness and the history. Schema and EXPRESS-rule tests cover the standard
-slots. `tests/characteristic_numbers.rs` covers all characteristic kinds, repeat writes,
+slots. First-allocation tests pin every number and geometric support on the prismatic plate
+(14 characteristics), turned pin (12), and GRM-02 shaft (15), with each station explained
+in the test. They also prove that a later top-left hole appends despite sorting first on
+a fresh part. `characteristic-numbers-category.step.gz`, captured from unmodified
+`68f375c` with the test's `intent()`, pins the old category order through both a no-op
+and a changed-value rewrite with an addition. `tests/characteristic_numbers.rs` covers
+all characteristic kinds, repeat writes,
 additions, value edits, removal/re-addition/empty writes, foreign append, old-file compatibility,
 an older-quiddity fixture and the `hole_removed` revision pair. Numberless analysis, PMI
 serialization and settings-only writes are also checked against SHA-256 snapshots captured
@@ -135,6 +190,12 @@ its old specimens and verifies that new writer outputs differ only by numbering 
 comparing every other entity and reference. The older-engine test adds
 only `ID_ATTRIBUTE` records to the committed alpha.6 specimen; it never regenerates its old
 PMI with the new writer. Requirements newer rules stop emitting are retired.
+
+`tests/kernel_upgrade.rs` still compares every written PMI field under rigid motion.
+Its two initially numberless shaft poses now pin their first-allocation numbers separately:
+a rotated stored frame can change principal-view positions. Only those expected numbers
+change; the semantic and source-face comparisons remain intact. Already numbered files
+retain their numbers through the ordinary correspondence/carry path.
 
 The WASM M2 tap byte pin is `tests/fixtures/thread-depth-numbered.step.gz`. The original
 `thread-depth-alpha7.step.gz` remains unchanged. The native `thread_depth_help` test checks

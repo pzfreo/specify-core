@@ -12,6 +12,8 @@ use crate::existing::{faces_of, location_type, size_type, tolerance_type};
 use crate::part::LoadedPart;
 use crate::resume;
 
+mod inspection;
+
 /// Part-level CAx-IF UDA. The characteristic itself uses standard `ID_ATTRIBUTE`, not a UDA.
 pub const PROPERTY: &str = "specify characteristic numbers";
 /// Opaque revision transport in the returned answers. Keep it when saving/reapplying them.
@@ -412,7 +414,7 @@ fn same_support(old: &Key, new: &Key) -> bool {
         && grows(&old.reference, &new.reference)
 }
 
-/// Allocate in stable model order (datums, dimensions, tolerances, textures), after matching
+/// First allocate in inspection order; later additions use stable model order after matching
 /// all existing requirements. Support growth is allowed only for a unique two-way match,
 /// following resume's conservative same-geometry support rule.
 pub(crate) fn allocate(
@@ -510,8 +512,15 @@ pub(crate) fn allocate(
             matched[n] = Some(*i);
         }
     }
-    let mut entries = if replace { vec![] } else { old.entries.clone() };
-    for (item, matched) in new.iter().zip(matched) {
+    let order = if old.high_water == 0 {
+        inspection::order(loaded, p, &new)
+    } else {
+        (0..new.len()).collect()
+    };
+    let mut allocations = vec![None; new.len()];
+    for n in order {
+        let item = &new[n];
+        let matched = matched[n];
         if !replace
             && item.key.kind == "datum"
             && before_items
@@ -530,7 +539,15 @@ pub(crate) fn allocate(
                 .ok_or("characteristic number exhausted")?;
             old.high_water
         };
-        if !entries.iter().any(|e| e.number == number) {
+        allocations[n] = Some(number);
+    }
+    // History and annotation emission keep semantic order, including on the first write:
+    // only the assigned values change. This also keeps unchanged rewrites byte-identical.
+    let mut entries = if replace { vec![] } else { old.entries.clone() };
+    for (item, number) in new.iter().zip(allocations) {
+        if let Some(number) = number
+            && !entries.iter().any(|e| e.number == number)
+        {
             entries.push(Entry {
                 key: item.key.clone(),
                 number,
