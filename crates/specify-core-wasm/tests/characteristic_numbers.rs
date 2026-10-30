@@ -31,6 +31,12 @@ fn snapshot_exposes_file_numbers_and_diff_answers_carry_them_through_write_pmi()
     let reopened = Session::open("old", &written).unwrap();
     let numbers = reopened.snapshot()["analysis"]["characteristics"].clone();
     assert_eq!(numbers.as_array().unwrap().len(), 4);
+    for row in numbers.as_array().unwrap() {
+        assert_eq!(row["origin"], "requirement");
+        assert_eq!(row["source"]["parameter"], "bore.diameter");
+        assert_eq!(row["source"]["support"], row["faces"]);
+        assert_eq!(row["source"]["schema"], 2);
+    }
     let result = session::diff(("old", &written), ("new", &new), &Map::new(), "Revision").unwrap();
     let carried = result["report"]["answers"].as_object().unwrap();
     let s = Session::open("new", &new).unwrap();

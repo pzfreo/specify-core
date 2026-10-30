@@ -6,6 +6,14 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- For #77: each written size/location dimension records its origin and stable geometric
+  source as a CAx-IF UDA on the dimension itself. Native PMI/analysis and WASM snapshots
+  expose stored metadata; accepted defaults count as requirements and kept foreign PMI
+  remains byte-identical. Edition-1 writes upgrade the header to AP242 edition 4.
+  See [dimension origin and source](docs/pmi-origin.md).
+
 ## 0.1.4 (2026-10-30)
 
 ### Added

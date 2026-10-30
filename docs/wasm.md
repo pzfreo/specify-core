@@ -381,3 +381,7 @@ including default part textures and resumed PMI. `diff` carries number history i
 `report.answers`; preserve the opaque `_specify_characteristic_numbers` member when passing
 those answers to the revised part's `writePmi`. It is geometry-checked and consumed on write.
 Numberless files omit the list. See [characteristic numbers](characteristic-numbers.md).
+
+For #77, dimension entries in `snapshot().analysis.characteristics` also expose optional
+stored `origin` and `source`, including nominal-only general dimensions. `writePmi` writes
+the same per-dimension UDAs as native. See [dimension origin and source](pmi-origin.md).

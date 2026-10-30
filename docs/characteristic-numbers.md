@@ -210,3 +210,6 @@ so Specify removes just those numeric inverse annotations before Replace. For up
 first-class support, haecceity could expose optional ids alongside each semantic root, and
 consume definition-shape `ID_ATTRIBUTE`s in the thread/knurl provenance; that is not required
 for this implementation and no quiddity files are edited here.
+
+For #77, per-dimension records also expose optional stored `origin` and `source`.
+See [dimension origin and source](pmi-origin.md) for the UDA and geometric source grammar.
