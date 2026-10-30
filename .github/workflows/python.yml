@@ -16,7 +16,13 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/python.yml'
+  # A manual run on main can publish the version already released (0.1.4 predates this workflow).
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the built wheels and sdist to PyPI
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -126,7 +132,9 @@ jobs:
 
   publish:
     needs: [wheels, sdist, test]
-    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
+    if: >-
+      (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
