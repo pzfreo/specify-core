@@ -9,6 +9,9 @@
 //! `mesh`, `write`, `write_parts`, `read_existing` and `part_settings` take it (or a path), so a
 //! caller that reuses a part, as `serve` does, reads the file once.
 //!
+//! The command line ([`cli`]) and a serving session ([`Server`], `serve.reply`) are the engine's
+//! own (`specify_core::cli`, `specify_core::serve`).
+//!
 //! Errors are raised as Python raises them: answers that leave questions open are the
 //! package's `IncompleteError` (a `ValueError`, with `missing` and `part`); a file or part that
 //! cannot be loaded, an answer the rules refuse, or a write asked wrongly is a `ValueError`; a
@@ -22,6 +25,7 @@ use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use serde_json::{Map, Value, json};
 use specify_core::api::{self, Error};
+use specify_core::choices;
 use specify_core::existing;
 use specify_core::part;
 use specify_core::rules::{self, Question};
@@ -275,6 +279,95 @@ fn part_settings(py: Python<'_>, step: &Bound<'_, PyAny>, part: Option<usize>) -
     Ok(Value::Object(settings).to_string())
 }
 
+/// The command line on `argv` (the arguments after the program's name), as the binary runs it:
+/// replies on stdout, messages on stderr. The exit code.
+#[pyfunction]
+fn cli(py: Python<'_>, argv: Vec<String>) -> u8 {
+    py.detach(|| specify_core::cli::main(&argv))
+}
+
+/// A serving session, as `specify-core serve` keeps one: the parts loaded for anchoring, kept
+/// between requests (Python's `serve` module state).
+#[pyclass(module = "specify_core._native")]
+#[derive(Default)]
+struct Server(specify_core::serve::Server);
+
+#[pymethods]
+impl Server {
+    #[new]
+    fn new() -> Self {
+        Server::default()
+    }
+
+    /// The reply to one request (JSON), as JSON: its result, or a structured error.
+    fn reply(&mut self, py: Python<'_>, request: &str) -> PyResult<String> {
+        let request = parse("request", request)?;
+        let server = &mut self.0;
+        Ok(py.detach(|| server.reply(&request)).to_string())
+    }
+}
+
+/// What may be wrong with the answers so far, as JSON (`problems.problems`).
+#[pyfunction]
+fn problems(py: Python<'_>, analysis: &str, answers: &str) -> PyResult<String> {
+    let (analysis, answers) = parse_both(analysis, answers)?;
+    let found = py
+        .detach(|| specify_core::problems::problems(&analysis, &answers))
+        .map_err(|e| raised(Error::Rules(e)))?;
+    Ok(Value::Array(found).to_string())
+}
+
+/// The package's `choices.SpecError(message)`.
+fn spec_error(e: choices::SpecError) -> PyErr {
+    package_error("specify_core.choices", "SpecError", e.0)
+}
+
+/// The answer `text` means for question `qid` (`choices.interpret`).
+#[pyfunction]
+#[pyo3(signature = (qid, text, options, diameter, depth=None))]
+fn choices_interpret(
+    qid: &str,
+    text: &str,
+    options: Vec<String>,
+    diameter: Option<f64>,
+    depth: Option<f64>,
+) -> PyResult<String> {
+    choices::interpret(qid, text, &options, diameter, depth).map_err(spec_error)
+}
+
+/// Refuses an answer (JSON) that is neither offered nor a spec that fits (`choices.check`).
+#[pyfunction]
+#[pyo3(signature = (qid, value, options, diameter, depth=None))]
+fn choices_check(
+    qid: &str,
+    value: &str,
+    options: Vec<String>,
+    diameter: Option<f64>,
+    depth: Option<f64>,
+) -> PyResult<()> {
+    let value = parse("value", value)?;
+    choices::check(qid, &value, &options, diameter, depth).map_err(spec_error)
+}
+
+/// Each option of a hole or turned-diameter question, as JSON (`choices.describe`).
+#[pyfunction]
+fn choices_describe(qid: &str, options: Vec<String>, diameter: Option<f64>) -> PyResult<String> {
+    let described = choices::describe(qid, &options, diameter).map_err(PyValueError::new_err)?;
+    Ok(Value::Array(described).to_string())
+}
+
+/// An answer as an engineer would name it (`choices.code`).
+#[pyfunction]
+fn choices_code(value: &str) -> String {
+    choices::code(value)
+}
+
+/// What the answer puts on the drawing for a feature of diameter `d` (`choices.callout`).
+#[pyfunction]
+fn choices_callout(value: &str, d: f64, hole: bool) -> PyResult<String> {
+    choices::callout(value, d, hole).map_err(PyValueError::new_err)
+}
+
 fn intent_of(text: &str) -> PyResult<rules::Intent> {
     rules::Intent::from_dict(&parse("intent", text)?).map_err(|e| raised(Error::Rules(e)))
 }
@@ -408,6 +501,14 @@ fn record(question: &Question) -> Value {
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<LoadedPart>()?;
+    m.add_class::<Server>()?;
+    m.add_function(wrap_pyfunction!(cli, m)?)?;
+    m.add_function(wrap_pyfunction!(problems, m)?)?;
+    m.add_function(wrap_pyfunction!(choices_interpret, m)?)?;
+    m.add_function(wrap_pyfunction!(choices_check, m)?)?;
+    m.add_function(wrap_pyfunction!(choices_describe, m)?)?;
+    m.add_function(wrap_pyfunction!(choices_code, m)?)?;
+    m.add_function(wrap_pyfunction!(choices_callout, m)?)?;
     m.add_function(wrap_pyfunction!(load, m)?)?;
     m.add_function(wrap_pyfunction!(parts, m)?)?;
     m.add_function(wrap_pyfunction!(analyse, m)?)?;

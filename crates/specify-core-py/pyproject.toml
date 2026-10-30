@@ -8,10 +8,15 @@ version = "0.1.3"
 description = "Interview-driven PMI authoring: recognise features, ask for missing intent, write AP242 semantic PMI"
 readme = "README.md"
 license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Paul Fremantle" }]
 requires-python = ">=3.12,<3.15"
 # None: the Rust engine needs neither quiddity, build123d nor OCP.
 dependencies = []
+
+[project.scripts]
+# The engine's command line; specify-core's second name for it, pmi-assist, is not kept.
+specify-core = "specify_core.cli:run"
 
 [tool.maturin]
 python-source = "python"
