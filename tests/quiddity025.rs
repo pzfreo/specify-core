@@ -32,7 +32,17 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
             assert!((base["boss"]["record"]["location"][2].as_f64().unwrap() - 22.5).abs() < 1e-8);
         } else {
             // This boss points toward its untreated end; only its opposite span grows.
-            assert_eq!(boss.record["location"], base["boss"]["record"]["location"]);
+            // Its location is ~1e-11 mm from zero, with digits that differ by platform libm.
+            for i in 0..3 {
+                let (now, was) = (
+                    boss.record["location"][i].as_f64().unwrap(),
+                    base["boss"]["record"]["location"][i].as_f64().unwrap(),
+                );
+                assert!(
+                    (now - was).abs() < 1e-8,
+                    "{name} location[{i}]: {now} vs {was}"
+                );
+            }
         }
         assert_eq!(resume::evidence(&loaded).unwrap(), base["evidence"]);
         let answers = base["answers"].as_object().unwrap();
