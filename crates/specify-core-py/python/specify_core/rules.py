@@ -2,12 +2,17 @@
 
 The questions are the Rust engine's (``specify_core._native``); this is the type they come
 back as, field for field, so a caller of specify-core's Python engine reads them unchanged.
+``questions`` is ``api.questions``, under the name specify-core's ``rules`` also gives it.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+
+#: How holes are located: by position tolerances from datums, or by ± dimensions
+#: on the drawing under the general tolerance, which needs no datums.
+LOCATING = ("position tolerances", "± dimensions")
 
 #: How much each question needs a person, so a part can be reviewed rather
 #: than interrogated: ``required`` has no default and must be answered;
@@ -103,3 +108,9 @@ class Question:
             basis=record["basis"],
             mate=record["mate"],
         )
+
+
+def questions(analysis: dict[str, Any], answers: dict[str, Any]) -> list[Question]:
+    from .api import questions
+
+    return questions(analysis, answers)
