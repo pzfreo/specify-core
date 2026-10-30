@@ -1,0 +1,34 @@
+"""What a write reports: ``WriteReport`` and ``VerificationError``, as specify-core's ``writer``
+defines them. The writing is the Rust engine's (``api.write``, ``api.write_parts``).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+
+@dataclass
+class WriteReport:
+    output: Path
+    written: list[str] = field(default_factory=list)
+    #: Intent that has no place in the file yet; it must reach the drawing another way.
+    not_written: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "output": str(self.output),
+            "written": self.written,
+            "not_written": self.not_written,
+            "warnings": self.warnings,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> WriteReport:
+        return cls(Path(data["output"]), data["written"], data["not_written"], data["warnings"])
+
+
+class VerificationError(RuntimeError):
+    pass

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "specify-core"
+version = "0.1.4"
+description = "Interview-driven PMI authoring: recognise features, ask for missing intent, write AP242 semantic PMI"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Paul Fremantle" }]
+requires-python = ">=3.12"
+# None: the Rust engine needs neither quiddity, build123d nor OCP.
+dependencies = []
+
+[project.scripts]
+# The engine's command line; specify-core's second name for it, pmi-assist, is not kept.
+specify-core = "specify_core.cli:run"
+
+[tool.maturin]
+python-source = "python"
+module-name = "specify_core._native"
+manifest-path = "Cargo.toml"
+strip = true
+exclude = ["**/__pycache__/**"]

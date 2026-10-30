@@ -22,7 +22,9 @@ in the browser. It is pure Rust, with no OpenCascade or Python. Feature recognit
 AP242 kernel come from [quiddity-rust](https://github.com/pzfreo/quiddity-rust).
 
 Specify began as a port of the Python [specify-core](https://github.com/pzfreo/specify-core),
-and still reads and writes the same files; see [docs/python.md](docs/python.md).
+and still reads and writes the same files; see [docs/python.md](docs/python.md). The Python
+package `specify-core` is now this engine (`crates/specify-core-py`; see
+[docs/python.md](docs/python.md#the-python-package)).
 
 ## Status
 
@@ -138,7 +140,7 @@ To have the review posted on every pull request, add the [STEP diff action](step
 | [docs/library.md](docs/library.md) | the Rust API |
 | [docs/part-notes.md](docs/part-notes.md) | part notes in the STEP file |
 | [docs/design.md](docs/design.md) | design and status |
-| [docs/python.md](docs/python.md) | the Python specify-core: compatibility and differences |
+| [docs/python.md](docs/python.md) | the Python package, and the Python specify-core: compatibility and differences |
 | [docs/questions.md](docs/questions.md) | decisions taken and open |
 
 ## Tests

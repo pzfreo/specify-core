@@ -8,6 +8,10 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- The Python package `specify-core` on this engine (`crates/specify-core-py`): specify-core's
+  Python API and the `specify-core` command line, with no Python dependency; abi3 wheels for
+  CPython 3.12 and later, built and published by `.github/workflows/python.yml`. See
+  [docs/python.md](docs/python.md#the-python-package).
 - For #77: each written size/location dimension records its origin and stable geometric
   source as a CAx-IF UDA on the dimension itself. Native PMI/analysis and WASM snapshots
   expose stored metadata; accepted defaults count as requirements and kept foreign PMI

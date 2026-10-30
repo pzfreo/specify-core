@@ -5,6 +5,32 @@ runs on OpenCascade and Python's quiddity. The two engines share the command lin
 and the STEP files they read and write, so Draftwright Specify can drive either, one engine per part.
 `diff`, the STEP diff action and the browser module are this engine's own.
 
+## The Python package
+
+`crates/specify-core-py` builds the Python package `specify_core` on this engine: specify-core's
+API (`load`, `parts`, `analyse`, `questions`, `apply`, `preview`, `write`, `write_parts`,
+`mesh`, with its types `Question`, `Intent`, `WriteReport`, `ExistingPmi` and its errors), plus
+`problems`, `choices`, `serve.reply` and the `specify-core` command line, which runs this
+engine's (`specify_core::cli`) in the Python process. It needs no Python dependency (no
+quiddity, build123d or OpenCascade). A `LoadedPart` is a handle on the part held by the engine:
+it has `path`, `binding`, `part_count` and `name`, but none of OpenCascade's objects. The
+second program name `pmi-assist` is not kept.
+
+It is a PyO3 extension built with maturin (abi3, one wheel per platform for CPython 3.12 and
+later): `maturin build --release -m crates/specify-core-py/Cargo.toml`. `tests/python` is a
+smoke suite of the package; `.github/workflows/python.yml` builds, tests and publishes the
+wheels. The engine itself is tested in Rust.
+
+Parity was checked once, before the Python repository was archived, by running specify-core's
+own test suite at cc341dd (the revision the oracle was captured from) on this package: 169 of
+its 219 test functions apply to it, and of their 238 cases 210 passed, 24 failed by differences
+recorded in the ledger (`tests/fixtures/known_differences/`), 3 by documented decisions with no
+ledger entry (an assembly part written alone, D3; an assembly with PMI from elsewhere written in
+add mode, Q6; a `'theoretical'` dimensional note per basic dimension where Python shares one),
+and 1 was skipped for a NIST file not at hand. The other 50 test Python's own internals
+(OpenCascade objects, private functions, modules the package does not expose) or a tool of the
+Python repository.
+
 ## History
 
 Every module of specify-core is ported (part loading, features, existing PMI, the rules,
