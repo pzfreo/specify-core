@@ -1,14 +1,21 @@
-"""The questions a part needs: ``Question``, as specify-core's ``rules`` defines it.
+"""The questions a part needs and the intent its answers amount to: ``Question``, ``Intent``
+and ``IncompleteError``, as specify-core's ``rules`` defines them.
 
-The questions are the Rust engine's (``specify_core._native``); this is the type they come
-back as, field for field, so a caller of specify-core's Python engine reads them unchanged.
-``questions`` is ``api.questions``, under the name specify-core's ``rules`` also gives it.
+The questions and the intent are the Rust engine's (``specify_core._native``); these are the
+types they come back as, field for field, so a caller of specify-core's Python engine reads
+them unchanged. ``questions`` is ``api.questions``, under the name specify-core's ``rules``
+also gives it.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+
+from . import _native
+
+#: The rules' version, stated in every intent (the engine's).
+RULES_VERSION = _native.RULES_VERSION
 
 #: How holes are located: by position tolerances from datums, or by ± dimensions
 #: on the drawing under the general tolerance, which needs no datums.
@@ -110,7 +117,55 @@ class Question:
         )
 
 
+
+@dataclass
+class Intent:
+    binding: dict[str, Any]
+    part: dict[str, Any] = field(default_factory=dict)
+    datums: list[dict[str, Any]] = field(default_factory=list)
+    requirements: list[dict[str, Any]] = field(default_factory=list)
+    schema: int = 1
+    rules_version: int = RULES_VERSION
+    #: The dimensions the general tolerance covers (``general.dimensions``):
+    #: listed for inspection and shown, not written into the STEP.
+    general: list[dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema": self.schema,
+            "rules_version": self.rules_version,
+            "binding": self.binding,
+            "part": self.part,
+            "datums": self.datums,
+            "requirements": self.requirements,
+            "general": self.general,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Intent:
+        if data.get("schema") != 1:
+            raise ValueError(f"unsupported intent schema {data.get('schema')!r}")
+        return cls(
+            data["binding"],
+            data.get("part", {}),
+            data.get("datums", []),
+            data.get("requirements", []),
+            data["schema"],
+            data.get("rules_version", 0),
+            data.get("general", []),
+        )
+
+
 def questions(analysis: dict[str, Any], answers: dict[str, Any]) -> list[Question]:
     from .api import questions
 
     return questions(analysis, answers)
+
+
+class IncompleteError(ValueError):
+    def __init__(self, missing: list[str], part: int | None = None) -> None:
+        # In an assembly, which part's questions they are.
+        of = f"part {part}: " if part is not None else ""
+        super().__init__(f"{of}{len(missing)} question(s) unanswered: {', '.join(missing)}")
+        self.missing = missing
+        self.part = part
