@@ -17,3 +17,5 @@ dependencies = []
 python-source = "python"
 module-name = "specify_core._native"
 manifest-path = "Cargo.toml"
+strip = true
+exclude = ["**/__pycache__/**"]
