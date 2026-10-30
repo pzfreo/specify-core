@@ -708,3 +708,245 @@ fn surface_texture_pmi_reads_the_number_from_its_root_even_when_parameters_have_
         expected.number
     );
 }
+
+// Every entry pins both the stored number and its complete public geometric identity.
+// The array is the inspector's walk, independent of the reader's semantic array order.
+type WalkItem<'a> = (&'a str, &'a str, &'a [usize], &'a [usize]);
+fn assert_walk(p: &part::LoadedPart, expected: &[WalkItem<'_>]) {
+    let mut ns = numbers(p);
+    ns.sort_by_key(|c| c.number);
+    assert_eq!(ns.len(), expected.len());
+    for (i, (n, &(kind, ty, faces, reference))) in ns.iter().zip(expected).enumerate() {
+        assert_eq!(
+            (
+                n.number,
+                n.kind.as_str(),
+                n.r#type.as_str(),
+                n.faces.as_slice(),
+                n.reference.as_slice()
+            ),
+            ((i + 1) as u64, kind, ty, faces, reference),
+            "inspection station {}",
+            i + 1
+        );
+    }
+}
+fn requirement(i: &mut rules::Intent, r: Value) {
+    i.requirements.push(r.as_object().unwrap().clone());
+}
+
+#[test]
+fn first_plate_walk_is_datum_letters_then_front_top_right_and_rows() {
+    let p = load("parts/plate.step");
+    let mut i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
+    // Deliberately reverse letters and scramble the holes' semantic order.
+    for d in [
+        json!({"letter":"B","faces":[0]}),
+        json!({"letter":"A","faces":[4]}),
+    ] {
+        i.datums.push(d.as_object().unwrap().clone());
+    }
+    for face in [8, 6, 13, 10, 9] {
+        requirement(
+            &mut i,
+            json!({"kind":"size","faces":[face],"nominal":8.,"upper":0.1,"lower":-0.1}),
+        );
+    }
+    for r in [
+        json!({"kind":"location","faces":[9],"reference":[0],"distance":50.,"basic":true}),
+        json!({"kind":"position","faces":[9],"tolerance":0.1,"diametral":true,"datums":["A"]}),
+        json!({"kind":"finish","faces":[8],"value":"Ra 3.2"}),
+        json!({"kind":"finish","faces":[10],"value":"Ra 3.2"}),
+        json!({"kind":"location","faces":[5],"reference":[0],"distance":100.,"upper":0.1,"lower":-0.1}),
+        json!({"kind":"location","faces":[3],"reference":[1],"distance":60.,"upper":0.1,"lower":-0.1}),
+    ] {
+        requirement(&mut i, r);
+    }
+    i.part.insert("surface_finish".into(), json!("Ra 6.3"));
+    let written = write(&p, &i);
+    assert_walk(
+        &written,
+        &[
+            ("datum", "A", &[4], &[]), // 1: letters, despite B preceding A in the model
+            ("datum", "B", &[0], &[]), // 2
+            ("surface_texture", "Ra", &[10], &[]), // 3: front, (-30,0), edge-on Z cylinder
+            ("surface_texture", "Ra", &[8], &[]), // 4: front, (30,0), same row to the right
+            ("dimension", "Location_LinearDistance", &[5], &[0]), // 5: front, (50,0), X span
+            ("dimension", "Size_Diameter", &[10], &[]), // 6: top, (-30,15), first end-on hole
+            ("dimension", "Size_Diameter", &[13], &[]), // 7: top, (30,15), top row right
+            ("dimension", "Size_Diameter", &[9], &[]), // 8: top, (0,0), size before location
+            ("dimension", "Location_LinearDistance", &[9], &[0]), // 9: plane-to-bore in top
+            ("geometric_tolerance", "Position", &[9], &[]), // 10: same site, after location
+            ("dimension", "Size_Diameter", &[6], &[]), // 11: top, (-30,-15), bottom row left
+            ("dimension", "Size_Diameter", &[8], &[]), // 12: top, (30,-15), bottom row right
+            ("dimension", "Location_LinearDistance", &[3], &[1]), // 13: right, Y span
+            ("surface_texture", "Ra", &[], &[]), // 14: default finish has no face position
+        ],
+    );
+    assert_eq!(written.bytes, write(&p, &i).bytes);
+}
+
+#[test]
+fn first_turned_walk_interleaves_axial_sizes_finishes_threads_and_knurls() {
+    let p = load("parts/pin.step");
+    let mut i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
+    for d in [
+        json!({"letter":"B","faces":[6]}),
+        json!({"letter":"A","faces":[4]}),
+    ] {
+        i.datums.push(d.as_object().unwrap().clone());
+    }
+    for r in [
+        json!({"kind":"size","faces":[4],"nominal":6.,"upper":0.1,"lower":-0.1}),
+        json!({"kind":"size","faces":[0],"nominal":10.,"upper":0.1,"lower":-0.1}),
+        json!({"kind":"size","faces":[3],"nominal":4.2,"upper":0.1,"lower":-0.1}),
+        json!({"kind":"location","faces":[1],"reference":[6],"distance":32.,"upper":0.1,"lower":-0.1}),
+        json!({"kind":"finish","faces":[4],"value":"Ra 3.2"}),
+        json!({"kind":"finish","faces":[0],"value":"Ra 3.2"}),
+        json!({"kind":"thread","faces":[4],"side":"external","spec":"M6x1","class":"6g","hand":"RH","pitch":1.,"nominal":6.,"length":12.}),
+        json!({"kind":"knurl","faces":[0],"pattern":"diamond","pitch":1.,"diameter":10.}),
+        json!({"kind":"position","faces":[3],"tolerance":0.1,"diametral":true,"datums":["A"]}),
+    ] {
+        requirement(&mut i, r);
+    }
+    i.part.insert("surface_finish".into(), json!("Ra 6.3"));
+    let written = write(&p, &i);
+    assert_walk(
+        &written,
+        &[
+            ("datum", "A", &[4], &[]), // 1: OD datum first, by letter
+            ("datum", "B", &[6], &[]), // 2: bottom end datum
+            ("dimension", "Location_LinearDistance", &[1], &[6]), // 3: front, Z=32, top end
+            ("dimension", "Size_Diameter", &[0], &[]), // 4: front OD profile at Z=22
+            ("surface_texture", "Ra", &[0], &[]), // 5: same station, after size
+            ("knurl", "knurl", &[0], &[]), // 6: same station, semantic tie after finish
+            ("dimension", "Size_Diameter", &[4], &[]), // 7: front lower OD, Z=6
+            ("surface_texture", "Ra", &[4], &[]), // 8: lower OD finish
+            ("thread", "External", &[4], &[]), // 9: external thread shares OD's front view
+            ("dimension", "Size_Diameter", &[3], &[]), // 10: top, bore seen end-on at (0,0)
+            ("geometric_tolerance", "Position", &[3], &[]), // 11: same site, size before control
+            ("surface_texture", "Ra", &[], &[]), // 12: unpositioned default last
+        ],
+    );
+    assert_eq!(written.bytes, write(&p, &i).bytes);
+}
+
+#[test]
+fn a_later_top_left_hole_appends_even_though_its_fresh_allocation_would_be_first() {
+    let p = load("parts/plate.step");
+    let mut i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
+    for f in [8, 6] {
+        requirement(
+            &mut i,
+            json!({"kind":"size","faces":[f],"nominal":6.6,"upper":0.1,"lower":-0.1}),
+        );
+    }
+    let first = write(&p, &i);
+    assert_walk(
+        &first,
+        &[
+            ("dimension", "Size_Diameter", &[6], &[]),
+            ("dimension", "Size_Diameter", &[8], &[]),
+        ],
+    );
+    requirement(
+        &mut i,
+        json!({"kind":"size","faces":[10],"nominal":6.6,"upper":0.1,"lower":-0.1}),
+    );
+    let fresh = write(&p, &i);
+    assert_walk(
+        &fresh,
+        &[
+            ("dimension", "Size_Diameter", &[10], &[]), // top left would be 1 on first allocation
+            ("dimension", "Size_Diameter", &[6], &[]),
+            ("dimension", "Size_Diameter", &[8], &[]),
+        ],
+    );
+    let added = write(&first, &rebind(&i, &first));
+    assert_walk(
+        &added,
+        &[
+            ("dimension", "Size_Diameter", &[6], &[]),
+            ("dimension", "Size_Diameter", &[8], &[]),
+            ("dimension", "Size_Diameter", &[10], &[]), // high_water + 1 despite position
+        ],
+    );
+}
+
+#[test]
+fn category_order_fixture_from_the_013_era_keeps_numbers_on_noop_and_rewrite() {
+    // Captured from unmodified 68f375c with intent(), before implementing inspection order.
+    // Keep the old schema-1 history and the actual ID_ATTRIBUTE records, not a regenerated
+    // new-order file whose numbers have merely been patched in this test.
+    let old = load("characteristic-numbers-category.step.gz");
+    let category = [
+        ("datum", "A", &[4][..], &[][..]),
+        ("dimension", "Size_Diameter", &[9][..], &[][..]),
+        ("dimension", "Location_LinearDistance", &[9][..], &[4][..]),
+        ("geometric_tolerance", "Flatness", &[4][..], &[][..]),
+        ("surface_texture", "Ra", &[9][..], &[][..]),
+        ("surface_texture", "Ra", &[][..], &[][..]),
+    ];
+    assert_walk(&old, &category);
+    let i = intent(&old);
+    assert_eq!(old.bytes, write(&old, &i).bytes);
+    let mut i = i;
+    i.requirements[0].insert("upper".into(), json!(0.2)); // force rewrite, carry unique support
+    requirement(
+        &mut i,
+        json!({"kind":"flatness","faces":[5],"tolerance":0.02}),
+    );
+    let rewritten = write(&old, &i);
+    let mut expected = category.to_vec();
+    expected.push(("geometric_tolerance", "Flatness", &[5], &[]));
+    assert_walk(&rewritten, &expected);
+    let raw = load("parts/plate.step");
+    let fresh = write(&raw, &intent(&raw));
+    assert_ne!(
+        numbers(&fresh).iter().map(|c| c.number).collect::<Vec<_>>(),
+        (1..=6).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn first_shaft_walk_uses_front_shoulders_then_end_on_holes_and_side_width() {
+    let p = load("parts/GRM-02_shaft.step");
+    let a = api::analyse(&p).unwrap();
+    let answers = rules::with_all_defaults(&a, &Map::new()).unwrap();
+    let i = api::preview(&a, &answers).unwrap();
+    let written = back(writer::write_bytes(&p, &i, Some(&answers)).unwrap().0);
+    assert_walk(
+        &written,
+        &[
+            ("datum", "A", &[0], &[]),                                 // 1: X-axis OD
+            ("datum", "B", &[7, 11], &[]),                             // 2: split end plane
+            ("dimension", "Location_LinearDistance", &[5], &[7, 11]),  // 3: front Z=.3, X=27.2
+            ("dimension", "Location_LinearDistance", &[3], &[7, 11]),  // 4: same row, X=33.6
+            ("dimension", "Location_LinearDistance", &[9], &[7, 11]),  // 5: front Z=0, X=1.5
+            ("dimension", "Location_LinearDistance", &[16], &[7, 11]), // 6: X=5 end of M2 bore
+            ("dimension", "Location_LinearDistance", &[13], &[7, 11]), // 7: X=37.6 far end
+            ("dimension", "Location_LinearDistance", &[8], &[10]),     // 8: front lower row Z=-1.5
+            ("dimension", "Location_LinearDistance", &[2, 6], &[10]),  // 9: front flats Z=-3.4
+            ("dimension", "Size_Diameter", &[14], &[]), // 10: right, X-axis hole, (Y,Z)=(0,0)
+            ("geometric_tolerance", "Position", &[15], &[]), // 11: same site, control model order
+            ("geometric_tolerance", "Position", &[14], &[]), // 12: second control
+            ("thread", "Internal", &[15], &[]),         // 13: M2 at the same end-on position
+            ("dimension", "Location_LinearDistance", &[12], &[4]), // 14: right, Y=2.375 side flat
+            ("surface_texture", "Ra", &[], &[]),        // 15: default finish has no position
+        ],
+    );
+    assert_eq!(
+        written.bytes.as_slice(),
+        writer::write_bytes(&p, &i, Some(&answers))
+            .unwrap()
+            .0
+            .as_slice()
+    );
+    assert_eq!(
+        written.bytes.as_slice(),
+        writer::write_bytes(&written, &rebind(&i, &written), Some(&answers))
+            .unwrap()
+            .0
+            .as_slice()
+    );
+}
