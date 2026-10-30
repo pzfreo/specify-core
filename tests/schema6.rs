@@ -220,10 +220,10 @@ fn corrected_round_inventory_agrees_with_material_side() {
                 2056, 2057,
             ],
             vec![2, 3, 11, 44, 46, 692, 697, 1215, 1219],
-            // quiddity-rust#134 moves 193 turned root fillets from convex to concave.
-            114,
-            594, // Includes #127's 401 prismatic inside rounds and sphere caps.
-            193,
+            // quiddity-rust#134 moves 194 turned root fillets from convex to concave.
+            113,
+            595, // Includes #127's 401 prismatic inside rounds and sphere caps.
+            194,
         ),
         (
             "cgb217",
