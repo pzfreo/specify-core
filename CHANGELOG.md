@@ -13,7 +13,11 @@ All notable changes to specify-core-rust. The format follows
 - For #65: stable per-part characteristic numbers in standard AP242 `ID_ATTRIBUTE`s,
   with a persistent high-water mark that retires removed numbers. PMI/analysis and WASM
   snapshots expose file numbers; answer revision carry preserves them through quiddity's
-  correspondence. General dimensions written as PMI are numbered; rows without an entity remain unnumbered. See
+  correspondence. General dimensions written as PMI are numbered; rows without an entity remain unnumbered.
+  A part's first numbering follows inspection order: datum letters, then front/top/right view
+  and row-major face position, with size/location/control ties; face finishes, threads and
+  knurls share that walk and unpositioned defaults go last. Later additions append above the
+  high-water mark. See
   [characteristic number storage and allocation](docs/characteristic-numbers.md).
 - The STEP states every dimension a drawing would (#63): the writer writes the dimensions the
   general tolerance covers (plain sizes, plane levels and hole locations, `general.rs`) with
@@ -30,12 +34,6 @@ All notable changes to specify-core-rust. The format follows
   flat centroids from real moving or removal. Raw recognition, correspondence and answer migration are unchanged.
 
 ### Changed
-
-- For #65: first characteristic allocation follows inspection order: datum letters, then
-  front/top/right view and row-major face position, with size/location/control ties.
-  Face finishes, threads and knurls share that walk; unpositioned defaults go last.
-  Existing file numbers remain authoritative and later additions append above the
-  high-water mark, including on files written in the earlier category order.
 
 - Upgrade quiddity and haecceity (native and WASM) to **v0.2.5** (`6110b4c`,
   quiddity-rust#134). Boss heights and free ends include their own convex end chamfers
