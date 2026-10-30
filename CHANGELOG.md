@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.4 (2026-10-30)
+
 ### Added
 
 - For #65: stable per-part characteristic numbers in standard AP242 `ID_ATTRIBUTE`s,
