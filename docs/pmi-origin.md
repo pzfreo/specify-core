@@ -58,8 +58,8 @@ For a **kept foreign entity**, absence means imported. A consumer can map genera
 kept foreign to its future statuses `general` / `requirement` / `existing`. For legacy
 Specify-authored PMI without the attribute, origin is unknown; do not infer an individual
 requirement or general tolerance just from nominal/tolerance values. The old authorship
-marker can distinguish that legacy case. Unknown, duplicate or malformed metadata is not
-interpreted as a requirement. Native and WASM JSON retain absence instead of adding a
+marker can distinguish that legacy case. Unknown or duplicate origin values are not interpreted as requirements. Malformed source
+data is omitted independently; duplicate attribute sets are ignored. Native and WASM JSON retain absence instead of adding a
 synthetic `imported` field to old files. This preserves old analysis and PMI serialization.
 
 ## Source grammar
@@ -104,7 +104,8 @@ and `api::analyse(...).characteristics` add those same optional fields to per-di
 records, including nominal-only general dimensions and resumed files. `ExistingPmi` in
 `existing::read_existing` / `Reading::existing` adds them to the dimension rows it already
 exposes. Locations retain the legacy `ExistingPmi` convention: `faces` is the reference
-and `faces2` is the target, whereas `source.support` always identifies the target. The interview continues to omit general dimensions (#63).
+and `faces2` is the target, whereas `source.support` always identifies the target. The
+interview continues to omit general dimensions (#63).
 
 WASM `IntentEngine.snapshot().analysis.characteristics` exposes the identical stored
 metadata. `writePmi` uses the native planner/writer. JavaScript signatures are unchanged.
