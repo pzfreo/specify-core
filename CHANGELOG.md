@@ -6,6 +6,13 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- The Python package `specify-core` on this engine (`crates/specify-core-py`): specify-core's
+  Python API and the `specify-core` command line, with no Python dependency; abi3 wheels for
+  CPython 3.12 and later, built and published by `.github/workflows/python.yml`. See
+  [docs/python.md](docs/python.md#the-python-package).
+
 ## 0.1.4 (2026-10-30)
 
 ### Added
