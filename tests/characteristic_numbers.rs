@@ -176,52 +176,107 @@ fn additions_do_not_renumber_removals_retire_even_after_an_empty_write_and_value
 }
 
 #[test]
-fn general_iso2768_rows_have_no_entities_and_allocate_no_numbers() {
+fn written_general_dimensions_are_numbered_and_entityless_rows_are_not() {
     let p = load("parts/plate.step");
     let mut i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
     i.part
-        .insert("general_tolerance".into(), json!("ISO 2768-mK"));
+        .insert("general_tolerance".into(), json!("ISO 2768-m"));
+    for r in [
+        json!({"kind":"size","faces":[9],"nominal":10.,"general":true}),
+        json!({"kind":"location","faces":[5],"reference":[4],"distance":10.,"general":true}),
+        json!({"kind":"size","faces":[],"nominal":2.,"general":true}),
+    ] {
+        i.general.push(r.as_object().unwrap().clone());
+    }
+    let result = write(&p, &i);
+    let ns = numbers(&result);
+    assert_eq!(ns.len(), 2);
+    assert!(
+        ns.iter()
+            .all(|n| n.kind == "dimension" && !n.faces.is_empty())
+    );
+    assert_eq!(api::analyse(&result).unwrap()["characteristics"], json!(ns));
+    // Nominal-only authored dimensions still settle no interview questions (#63).
+    assert!(existing::read_existing(&result).unwrap().is_empty());
+    assert_eq!(result.bytes, write(&result, &rebind(&i, &result)).bytes);
+    i = rebind(&i, &result);
+    i.general.remove(0);
+    let removed = write(&result, &i);
+    assert_eq!(numbers(&removed)[0].number, ns[1].number);
+    i = rebind(&i, &removed);
     i.general.push(
-        json!({"kind":"size","faces":[9],"nominal":10.})
+        json!({"kind":"size","faces":[9],"nominal":10.,"general":true})
             .as_object()
             .unwrap()
             .clone(),
     );
-    let result = write(&p, &i);
-    assert!(numbers(&result).is_empty());
-    assert!(
-        api::analyse(&result)
+    let added = write(&removed, &i);
+    assert!(numbers(&added).iter().any(|n| n.number == 3));
+    assert!(numbers(&added).iter().any(|n| n.number == ns[1].number));
+    // With only a row that cannot produce PMI, there is no identity or history to invent.
+    i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
+    i.general.push(
+        json!({"kind":"size","faces":[],"nominal":2.,"general":true})
+            .as_object()
             .unwrap()
-            .get("characteristics")
-            .is_none()
+            .clone(),
     );
-    assert!(!String::from_utf8_lossy(&result.bytes).contains(characteristics::PROPERTY));
+    let empty = write(&p, &i);
+    assert!(numbers(&empty).is_empty());
+    assert!(!String::from_utf8_lossy(&empty.bytes).contains(characteristics::PROPERTY));
+}
+
+fn legacy_cases() -> Map<String, Value> {
+    serde_json::from_str::<Value>(include_str!("fixtures/characteristic-numbers-legacy.json"))
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .clone()
+}
+
+#[test]
+fn legacy_numberless_files_expose_no_number_fields_on_every_platform() {
+    for name in legacy_cases().keys() {
+        let p = load(name);
+        assert!(numbers(&p).is_empty());
+        assert!(api::analyse(&p).unwrap().get("characteristics").is_none());
+        let pmi = serde_json::to_value(existing::read_existing(&p).unwrap()).unwrap();
+        assert!(
+            pmi.as_array()
+                .unwrap()
+                .iter()
+                .all(|row| row.get("number").is_none())
+        );
+    }
 }
 
 #[test]
 fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() {
-    // Captured by the unmodified parent f3f4410e070b345b388a2fd9369a9f9decf0e252
-    // in a separate checkout: byte comparisons against this change cannot bless themselves.
-    let expected: Value =
-        serde_json::from_str(include_str!("fixtures/characteristic-numbers-legacy.json")).unwrap();
-    let hash = |value: &Value| {
-        Sha256::digest(serde_json::to_vec(value).unwrap())
+    // Captured on macOS by unmodified main a49dc3d in a separate checkout and target dir.
+    // Float serialization varies by platform; portable absence checks run separately above.
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let hash = |bytes: Vec<u8>| {
+        Sha256::digest(bytes)
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect::<String>()
     };
-    for (name, baseline) in expected.as_object().unwrap() {
-        let p = load(name);
-        assert!(numbers(&p).is_empty());
+    for (name, baseline) in legacy_cases() {
+        let p = load(&name);
         let a = api::analyse(&p).unwrap();
-        assert!(a.get("characteristics").is_none());
-        let pmi = serde_json::to_value(existing::read_existing(&p).unwrap()).unwrap();
+        let pmi = existing::read_existing(&p).unwrap();
         assert_eq!(
-            hash(&a),
+            hash(serde_json::to_vec(&a).unwrap()),
             baseline["analysis_sha256"],
             "{name}: analysis bytes"
         );
-        assert_eq!(hash(&pmi), baseline["pmi_sha256"], "{name}: PMI read bytes");
+        assert_eq!(
+            hash(serde_json::to_vec(&pmi).unwrap()),
+            baseline["pmi_sha256"],
+            "{name}: PMI read bytes"
+        );
         let mut i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
         i.part.insert("material".into(), json!("steel"));
         let answers = json!({"part.material":"steel"})
@@ -229,12 +284,9 @@ fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() 
             .unwrap()
             .clone();
         let output = writer::write_bytes(&p, &i, Some(&answers)).unwrap().0;
-        let actual = Sha256::digest(output)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>();
         assert_eq!(
-            actual, baseline["settings_only_writer_sha256"],
+            hash(output),
+            baseline["settings_only_writer_sha256"],
             "{name}: unchanged settings-only writer"
         );
     }
@@ -297,7 +349,7 @@ fn revised_part_correspondence_carries_numbers_and_retirement_with_the_answers()
 }
 
 #[test]
-fn older_quiddity_written_pmi_keeps_numbers_on_upgrade_to_023() {
+fn older_quiddity_written_pmi_keeps_numbers_on_upgrade_to_024() {
     let p = load("resume-alpha6/ftc10-reid.step.gz");
     // Add standard numeric ids to the committed OLD writer's PMI without regenerating any
     // old semantic records. This simulates numbering in a producer predating this kernel.

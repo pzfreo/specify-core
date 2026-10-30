@@ -167,6 +167,13 @@ fn answered_m2_without_depth_writes_the_exact_alpha7_thread_and_resaves_it() {
     )
     .unwrap();
     common::numbering::only_numbering_added(&baseline.bytes, &bytes).unwrap();
+    let numbered = part::load(
+        &common::fixtures().join("thread-depth-numbered.step.gz"),
+        None,
+    )
+    .unwrap();
+    // This is also the WASM byte pin: prove its only delta from alpha.7 is numbering.
+    assert_eq!(bytes.as_slice(), numbered.bytes.as_slice());
     for (source, answers) in [(loaded, given.clone()), (baseline, given)] {
         let analysis = api::analyse(&source).unwrap();
         let mut complete = rules::with_all_defaults(&analysis, &answers).unwrap();

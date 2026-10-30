@@ -55,11 +55,12 @@ jobs:
         # schema6: rotated slot end planes, frame roll and PMI coordinates.
         # resume: rounded centroids, signed zero and persisted fingerprint hashes.
         # revision: geometric correspondence, rounded report measurements and PNG projection.
+        # characteristic_numbers: macOS-captured legacy serialization hashes.
         # pyfmt: exact binary rounding/formatting used by all these expectations.
         run: >-
           cargo test --release --locked --no-fail-fast
           --test features --test mesh --test anchors --test schema6
-          --test resume --test revision --test pyfmt
+          --test resume --test revision --test pyfmt --test characteristic_numbers
 
   wasm:
     runs-on: ubuntu-latest
