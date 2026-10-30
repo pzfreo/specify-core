@@ -82,8 +82,7 @@ feature measurements change; face indices are meaningful only within their finge
 `parameter` follows Draftwright's measurement paths: dot-separated nonempty lowercase
 ASCII/digit/underscore components. Current diameter mappings, checked in Draftwright's
 `src/dims/{holes,bosses,turned}.rs`, are `bore.diameter` for holes/patterns,
-`boss.diameter`, `step.diameter`, and `turned_body.diameter`. Other recognised diameter
-supports use `diameter`. Recognised locations use `location.length.x`, `.y`, or `.z`,
+`boss.diameter`, `step.diameter`, and `turned_body.diameter`. These are the recognised diameter families the writer currently produces. Recognised locations use `location.length.x`, `.y`, or `.z`,
 chosen by the reference plane normal's largest absolute component in stored part coordinates
 (ties X, then Y, then Z). A future producer may add paths using the same grammar.
 
@@ -92,7 +91,7 @@ explicit feature association, then a unique exact support match, then a unique c
 feature. Ambiguous/unrecognised supports get **origin only**. It stores the measured support,
 not the recogniser's full defining-face list, which can grow after a kernel upgrade.
 An existing source is preserved through the characteristic allocator's unique support-growth
-match on unchanged geometry when its parameter still matches. Revision to different geometry
+match on unchanged geometry, including when recognition no longer names that feature. Revision to different geometry
 creates a source in the new fingerprint's namespace. Readers do not rerun recognition.
 
 ## Read APIs and compatibility

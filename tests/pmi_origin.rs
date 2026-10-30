@@ -262,3 +262,25 @@ fn reserved_name_refuses_spoofing_and_schema_one_header_upgrades_losslessly() {
         );
     }
 }
+
+#[test]
+fn unique_support_growth_carries_the_stored_source_even_if_recognition_renames_it() {
+    let p = load("parts/plate.step");
+    let mut i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
+    i.requirements.push(json!({"kind":"size","feature":"holes:9","faces":[9],"nominal":10.,"upper":0.1,"lower":-0.1}).as_object().unwrap().clone());
+    let first = back(writer::write_bytes(&p, &i, Some(&Map::new())).unwrap().0);
+    let before = characteristics::read(&first).unwrap().remove(0);
+    assert!(before.source.is_some());
+    i.binding = serde_json::to_value(&first.binding).unwrap();
+    i.requirements[0].insert("faces".into(), json!([9, 10]));
+    i.requirements[0].insert("feature".into(), json!("renamed-by-new-kernel"));
+    let grown = back(
+        writer::write_bytes(&first, &i, Some(&Map::new()))
+            .unwrap()
+            .0,
+    );
+    let after = characteristics::read(&grown).unwrap().remove(0);
+    assert_eq!(after.number, before.number);
+    assert_eq!(after.faces, vec![9, 10]);
+    assert_eq!(after.source, before.source);
+}

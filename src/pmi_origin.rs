@@ -130,15 +130,20 @@ impl Planner {
             },
             _ => None,
         });
-        let parameter = feature.map(|f| {
+        let parameter = feature.and_then(|f| {
             if req.get("kind").and_then(Value::as_str) == Some("size") {
-                match f.family.as_str() {
-                    "holes" | "hole_patterns" => "bore.diameter".to_string(),
-                    "bosses" => "boss.diameter".to_string(),
-                    "turned_steps" => "step.diameter".to_string(),
-                    "turned_bodies" => "turned_body.diameter".to_string(),
-                    _ => "diameter".to_string(),
-                }
+                Some(
+                    match f.family.as_str() {
+                        "holes" | "hole_patterns" => "bore.diameter",
+                        "bosses" => "boss.diameter",
+                        "turned_steps" => "step.diameter",
+                        "turned_bodies" => "turned_body.diameter",
+                        // Other feature families do not name a diameter measurement in the
+                        // current Specify writer. Do not invent a Draftwright parameter.
+                        _ => return None,
+                    }
+                    .to_string(),
+                )
             } else {
                 let direction = req
                     .get("reference")
@@ -156,7 +161,7 @@ impl Planner {
                             .then_with(|| b.cmp(&a))
                     })
                     .unwrap_or(0);
-                format!("location.length.{}", ["x", "y", "z"][axis])
+                Some(format!("location.length.{}", ["x", "y", "z"][axis]))
             }
         });
         let mut items = vec![(
@@ -196,19 +201,17 @@ impl Planner {
 /// match. Recognition IDs and newly added defining faces cannot rename that requirement.
 pub(crate) fn carry_source(pmi: &mut PartPmi, index: usize, old: &Source, fingerprint: &str) {
     let owner = NoteOwner::Dimension(DimensionId(index));
-    let now = read(pmi, owner);
     if old.faces == fingerprint
-        && now
-            .source
-            .as_ref()
-            .is_some_and(|s| s.parameter == old.parameter)
         && let Some(set) = pmi
             .attributes
             .iter_mut()
             .find(|s| s.name == PROPERTY && s.on == Some(owner))
-        && let Some((_, AttributeValue::Text(value))) =
-            set.items.iter_mut().find(|(key, _)| key == "source")
     {
-        *value = serde_json::to_string(old).expect("source serializes");
+        let value = AttributeValue::Text(serde_json::to_string(old).expect("source serializes"));
+        if let Some((_, current)) = set.items.iter_mut().find(|(key, _)| key == "source") {
+            *current = value;
+        } else {
+            set.items.push(("source".into(), value));
+        }
     }
 }

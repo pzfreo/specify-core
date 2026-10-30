@@ -325,6 +325,23 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
         }
         assert_eq!(reports[0], reports[1], "{name}: write and refusal reports");
         let mut expected_readback = readbacks[0].clone();
+        // #77 sources are keyed in each stored pose's schema-2 face namespace. A rigid
+        // move changes that fingerprint while leaving the face supports/intent intact.
+        for (readback, loaded) in readbacks.iter().zip(&written_parts) {
+            let fingerprint = resume::fingerprint(loaded).unwrap();
+            for row in readback.as_array().unwrap() {
+                if let Some(source) = row.get("source") {
+                    assert_eq!(source["faces"], fingerprint);
+                    assert_eq!(source["support"], row["faces"]);
+                }
+            }
+        }
+        let moved_fingerprint = resume::fingerprint(&written_parts[1]).unwrap();
+        for row in expected_readback.as_array_mut().unwrap() {
+            if let Some(source) = row.get_mut("source") {
+                source["faces"] = json!(moved_fingerprint);
+            }
+        }
         if name == "GRM-02_shaft" {
             // For #65: these are independent FIRST writes of two numberless poses.
             // Stored-frame view/position order can change under rotation. Pin both
