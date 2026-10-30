@@ -1,0 +1,388 @@
+{
+  "boss": {
+    "id": "bosses:0",
+    "family": "bosses",
+    "record": {
+      "axis": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "location": [
+        -3.880984422721667e-11,
+        2.348978195857371e-16,
+        2.5404678360985145e-13
+      ],
+      "diameter": 8.0,
+      "height": 36.1
+    },
+    "faces": [
+      0
+    ]
+  },
+  "answers": {
+    "part.material": "steel",
+    "extra.boss-fit": {
+      "faces": [
+        0
+      ],
+      "kind": "fit",
+      "value": "h6"
+    },
+    "extra.boss-height": {
+      "faces": [
+        13
+      ],
+      "reference": [
+        7,
+        11
+      ],
+      "kind": "distance",
+      "value": "±0.05"
+    },
+    "part.general_tolerance": "ISO 2768-m",
+    "part.surface_finish": "Ra 3.2",
+    "part.coating": "None (as machined)",
+    "part.heat_treatment": "None",
+    "part.edges": "Break sharp edges 0.2 max",
+    "part.notes": [],
+    "part.locating": "position tolerances",
+    "hole.function:holes:15": "tapped:M2",
+    "hole.position:holes:15": "0.2",
+    "hole.function:holes:14": "clearance:M3",
+    "hole.position:holes:14": "0.3",
+    "datum.A": [
+      0
+    ],
+    "datum.B": [
+      7,
+      11
+    ],
+    "datum.C": [],
+    "datum.B.control": "none",
+    "hole.full_thread:holes:15": "2"
+  },
+  "evidence": {
+    "schema": 2,
+    "face_count": 17,
+    "faces": "eeb389b155fe18cf92a60d866e16399c7014f2de2efd682a79278f6ff3d214ac"
+  },
+  "intent": {
+    "schema": 1,
+    "rules_version": 3,
+    "binding": {
+      "source_sha256": "3898b635daa9483bed2ea271d0382dcbb72eaf165948ed9f34c1d54dd3438158",
+      "face_count": 17,
+      "loader_version": 2,
+      "part": 0
+    },
+    "part": {
+      "material": "steel",
+      "general_tolerance": "ISO 2768-m",
+      "surface_finish": "Ra 3.2",
+      "edges": "Break sharp edges 0.2 max"
+    },
+    "datums": [
+      {
+        "letter": "A",
+        "faces": [
+          0
+        ],
+        "question": "datum.A"
+      },
+      {
+        "letter": "B",
+        "faces": [
+          7,
+          11
+        ],
+        "question": "datum.B"
+      }
+    ],
+    "requirements": [
+      {
+        "kind": "thread",
+        "feature": "holes:15",
+        "faces": [
+          15
+        ],
+        "side": "internal",
+        "designation": "M2",
+        "pitch": 0.4,
+        "spec": "M2x0.4",
+        "class": "6H",
+        "hand": "RH",
+        "through": false,
+        "drill_point": false,
+        "drill_diameter": 1.6,
+        "drill_depth": 3.5,
+        "full_thread": 2.0,
+        "question": "hole.function:holes:15"
+      },
+      {
+        "kind": "position",
+        "feature": "holes:15",
+        "faces": [
+          15
+        ],
+        "tolerance": 0.2,
+        "diametral": true,
+        "datums": [
+          "A"
+        ],
+        "question": "hole.position:holes:15"
+      },
+      {
+        "kind": "size",
+        "feature": "holes:14",
+        "faces": [
+          14
+        ],
+        "nominal": 3.3,
+        "fit": "H11",
+        "upper": 0.075,
+        "lower": 0.0,
+        "clearance_for": "M3",
+        "question": "hole.function:holes:14"
+      },
+      {
+        "kind": "position",
+        "feature": "holes:14",
+        "faces": [
+          14
+        ],
+        "tolerance": 0.3,
+        "diametral": true,
+        "datums": [
+          "A"
+        ],
+        "mmc": true,
+        "question": "hole.position:holes:14"
+      },
+      {
+        "kind": "size",
+        "feature": "added",
+        "faces": [
+          0
+        ],
+        "question": "extra.boss-fit",
+        "nominal": 8.0,
+        "fit": "h6",
+        "upper": 0.0,
+        "lower": -0.009
+      },
+      {
+        "kind": "location",
+        "feature": "added",
+        "faces": [
+          13
+        ],
+        "question": "extra.boss-height",
+        "reference": [
+          7,
+          11
+        ],
+        "distance": 37.6,
+        "upper": 0.05,
+        "lower": -0.05
+      }
+    ],
+    "general": [
+      {
+        "kind": "location",
+        "feature": "",
+        "faces": [
+          8
+        ],
+        "reference": [
+          10
+        ],
+        "distance": 3.0,
+        "upper": 0.1,
+        "lower": -0.1,
+        "general": true
+      },
+      {
+        "kind": "location",
+        "feature": "",
+        "faces": [
+          2,
+          6
+        ],
+        "reference": [
+          10
+        ],
+        "distance": 4.9,
+        "upper": 0.1,
+        "lower": -0.1,
+        "general": true
+      },
+      {
+        "kind": "location",
+        "feature": "",
+        "faces": [
+          3
+        ],
+        "reference": [
+          7,
+          11
+        ],
+        "distance": 33.6,
+        "upper": 0.3,
+        "lower": -0.3,
+        "general": true
+      },
+      {
+        "kind": "location",
+        "feature": "",
+        "faces": [
+          5
+        ],
+        "reference": [
+          7,
+          11
+        ],
+        "distance": 27.2,
+        "upper": 0.2,
+        "lower": -0.2,
+        "general": true
+      },
+      {
+        "kind": "location",
+        "feature": "",
+        "faces": [
+          16
+        ],
+        "reference": [
+          7,
+          11
+        ],
+        "distance": 5.0,
+        "upper": 0.1,
+        "lower": -0.1,
+        "general": true
+      },
+      {
+        "kind": "location",
+        "feature": "",
+        "faces": [
+          9
+        ],
+        "reference": [
+          7,
+          11
+        ],
+        "distance": 1.5,
+        "upper": 0.1,
+        "lower": -0.1,
+        "general": true
+      },
+      {
+        "kind": "location",
+        "feature": "",
+        "faces": [
+          12
+        ],
+        "reference": [
+          4
+        ],
+        "distance": 4.75,
+        "upper": 0.1,
+        "lower": -0.1,
+        "general": true
+      }
+    ]
+  },
+  "existing": [
+    {
+      "kind": "dimension",
+      "type": "Size_Diameter",
+      "faces": [
+        0
+      ],
+      "value": 8.0,
+      "provenance": "specify-core:written:v1",
+      "number": 4
+    },
+    {
+      "kind": "dimension",
+      "type": "Size_Diameter",
+      "faces": [
+        14
+      ],
+      "value": 3.3,
+      "provenance": "specify-core:written:v1",
+      "number": 3
+    },
+    {
+      "kind": "dimension",
+      "type": "Location_LinearDistance",
+      "faces": [
+        7,
+        11
+      ],
+      "faces2": [
+        13
+      ],
+      "value": 37.6,
+      "upper": 0.05,
+      "lower": -0.05,
+      "provenance": "specify-core:written:v1",
+      "number": 5
+    },
+    {
+      "kind": "geometric_tolerance",
+      "type": "Position",
+      "faces": [
+        15
+      ],
+      "value": 0.2,
+      "datums": [
+        "A"
+      ],
+      "provenance": "specify-core:written:v1",
+      "number": 13
+    },
+    {
+      "kind": "geometric_tolerance",
+      "type": "Position",
+      "faces": [
+        14
+      ],
+      "value": 0.3,
+      "datums": [
+        "A"
+      ],
+      "provenance": "specify-core:written:v1",
+      "number": 14
+    },
+    {
+      "kind": "datum",
+      "type": "A",
+      "faces": [
+        0
+      ],
+      "provenance": "specify-core:written:v1",
+      "number": 1
+    },
+    {
+      "kind": "datum",
+      "type": "B",
+      "faces": [
+        7,
+        11
+      ],
+      "provenance": "specify-core:written:v1",
+      "number": 2
+    },
+    {
+      "kind": "note",
+      "type": "internal thread",
+      "faces": [
+        15
+      ],
+      "provenance": "specify-core:written:v1",
+      "number": 16
+    }
+  ]
+}

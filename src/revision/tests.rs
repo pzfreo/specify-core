@@ -373,6 +373,11 @@ fn schema6_additions_and_inside_rounds_have_plain_report_descriptions() {
         ),
         (
             "fillets",
+            json!({"radius":6.35,"side":"concave","turned":true}),
+            "R6.35 concave fillet",
+        ),
+        (
+            "fillets",
             json!({"radius":6.35,"side":"convex"}),
             "R6.35 fillet",
         ),

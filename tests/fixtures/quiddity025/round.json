@@ -1,0 +1,225 @@
+{
+  "boss": {
+    "id": "bosses:0",
+    "family": "bosses",
+    "record": {
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "location": [
+        1.0171760214833562e-16,
+        -9.083271542307768e-17,
+        22.50000000001118
+      ],
+      "diameter": 10.0,
+      "height": 18.5
+    },
+    "faces": [
+      0
+    ]
+  },
+  "answers": {
+    "part.material": "steel",
+    "extra.boss-fit": {
+      "faces": [
+        0
+      ],
+      "kind": "fit",
+      "value": "h6"
+    },
+    "extra.boss-height": {
+      "faces": [
+        3
+      ],
+      "reference": [
+        2
+      ],
+      "kind": "distance",
+      "value": "±0.05"
+    },
+    "part.general_tolerance": "ISO 2768-m",
+    "part.surface_finish": "Ra 3.2",
+    "part.coating": "None (as machined)",
+    "part.heat_treatment": "None",
+    "part.edges": "Break sharp edges 0.2 max",
+    "part.notes": [],
+    "datum.A": [
+      0
+    ],
+    "datum.B": [
+      8
+    ],
+    "datum.C": [],
+    "datum.B.control": "none"
+  },
+  "evidence": {
+    "schema": 2,
+    "face_count": 9,
+    "faces": "317a7b3a585878bd0f4006f4f3153a168048a3e3ac4edc358acb4a192c60ceb9"
+  },
+  "intent": {
+    "schema": 1,
+    "rules_version": 3,
+    "binding": {
+      "source_sha256": "39e178dc65b756dcf3d02255845495bc395b0870e64510fc8dfc38f62a78e0df",
+      "face_count": 9,
+      "loader_version": 2,
+      "part": 0
+    },
+    "part": {
+      "material": "steel",
+      "general_tolerance": "ISO 2768-m",
+      "surface_finish": "Ra 3.2",
+      "edges": "Break sharp edges 0.2 max"
+    },
+    "datums": [
+      {
+        "letter": "A",
+        "faces": [
+          0
+        ],
+        "question": "datum.A"
+      },
+      {
+        "letter": "B",
+        "faces": [
+          8
+        ],
+        "question": "datum.B"
+      }
+    ],
+    "requirements": [
+      {
+        "kind": "size",
+        "feature": "added",
+        "faces": [
+          0
+        ],
+        "question": "extra.boss-fit",
+        "nominal": 10.0,
+        "fit": "h6",
+        "upper": 0.0,
+        "lower": -0.009
+      },
+      {
+        "kind": "location",
+        "feature": "added",
+        "faces": [
+          3
+        ],
+        "question": "extra.boss-height",
+        "reference": [
+          2
+        ],
+        "distance": 20.0,
+        "upper": 0.05,
+        "lower": -0.05
+      }
+    ],
+    "general": [
+      {
+        "kind": "location",
+        "feature": "",
+        "faces": [
+          2
+        ],
+        "reference": [
+          8
+        ],
+        "distance": 4.0,
+        "upper": 0.1,
+        "lower": -0.1,
+        "general": true
+      },
+      {
+        "kind": "location",
+        "feature": "",
+        "faces": [
+          3
+        ],
+        "reference": [
+          8
+        ],
+        "distance": 24.0,
+        "upper": 0.2,
+        "lower": -0.2,
+        "general": true
+      },
+      {
+        "kind": "location",
+        "feature": "",
+        "faces": [
+          4
+        ],
+        "reference": [
+          7
+        ],
+        "distance": 20.0,
+        "upper": 0.2,
+        "lower": -0.2,
+        "general": true
+      },
+      {
+        "kind": "location",
+        "feature": "",
+        "faces": [
+          5
+        ],
+        "reference": [
+          6
+        ],
+        "distance": 20.0,
+        "upper": 0.2,
+        "lower": -0.2,
+        "general": true
+      }
+    ]
+  },
+  "existing": [
+    {
+      "kind": "dimension",
+      "type": "Size_Diameter",
+      "faces": [
+        0
+      ],
+      "value": 10.0,
+      "provenance": "specify-core:written:v1",
+      "number": 3
+    },
+    {
+      "kind": "dimension",
+      "type": "Location_LinearDistance",
+      "faces": [
+        2
+      ],
+      "faces2": [
+        3
+      ],
+      "value": 20.0,
+      "upper": 0.05,
+      "lower": -0.05,
+      "provenance": "specify-core:written:v1",
+      "number": 4
+    },
+    {
+      "kind": "datum",
+      "type": "A",
+      "faces": [
+        0
+      ],
+      "provenance": "specify-core:written:v1",
+      "number": 1
+    },
+    {
+      "kind": "datum",
+      "type": "B",
+      "faces": [
+        8
+      ],
+      "provenance": "specify-core:written:v1",
+      "number": 2
+    }
+  ]
+}

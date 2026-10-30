@@ -29,6 +29,43 @@ fn browser_sessions_resume_all_87_alpha6_answers() {
 }
 
 #[test]
+fn browser_resumes_v024_answers_on_bosses_with_corrected_end_heights() {
+    // quiddity-rust#134 changes the measurement, while the saved face evidence and
+    // diameter fit still denote precisely the same physical cylinder.
+    for (name, height) in [("chamfer", 37.6), ("round", 20.)] {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/quiddity025");
+        let base: Value =
+            serde_json::from_slice(&std::fs::read(dir.join(format!("{name}.json"))).unwrap())
+                .unwrap();
+        let loaded = part::load(&dir.join(format!("{name}.step.gz")), None).unwrap();
+        let session = Session::open(name, &loaded.bytes).unwrap();
+        let snapshot = session.snapshot();
+        let boss = snapshot["analysis"]["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["id"] == base["boss"]["id"])
+            .unwrap();
+        assert_eq!(boss["record"]["height"], height);
+        assert_eq!(snapshot["analysis"]["resume"]["answers"], base["answers"]);
+        assert!(snapshot["analysis"]["resume"]["unresolved"].is_null());
+        let answers = base["answers"].as_object().unwrap();
+        assert!(
+            session.review(answers).unwrap()["open"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        for evidence in [Some(&base["evidence"]), None] {
+            let out = session.rematch_answers(answers, evidence, None).unwrap();
+            assert_eq!(out["answers"], base["answers"]);
+            assert!(out["unresolved"].is_null());
+            assert_eq!(out["unverified"].is_string(), evidence.is_none());
+        }
+    }
+}
+
+#[test]
 fn browser_reports_unmatched_values_and_leaves_current_question_open() {
     let bytes = saved("pin");
     let mut payload = json!(resume::stored(&bytes)[&0]);

@@ -212,7 +212,7 @@ fn corrected_round_inventory_agrees_with_material_side() {
     let Some(corpus) = common::corpus_dir() else {
         return;
     };
-    for (name, convex, concave, convex_count, inside_count) in [
+    for (name, convex, concave, convex_count, inside_count, turned_inside) in [
         (
             "cgb202",
             vec![
@@ -220,17 +220,21 @@ fn corrected_round_inventory_agrees_with_material_side() {
                 2056, 2057,
             ],
             vec![2, 3, 11, 44, 46, 692, 697, 1215, 1219],
-            307,
-            401, // quiddity #127: proved inside rounds and their sphere caps.
+            // quiddity-rust#134 moves 193 turned root fillets from convex to concave.
+            114,
+            594, // Includes #127's 401 prismatic inside rounds and sphere caps.
+            193,
         ),
         (
             "cgb217",
             vec![177, 182, 205, 210, 233, 238, 261, 266],
             vec![],
-            22,
-            63, // quiddity #127: inside rounds no longer fall back to blends.
+            // quiddity-rust#134 moves five turned root fillets to the inside inventory.
+            17,
+            68, // Includes #127's 63 prismatic inside rounds.
+            5,
         ),
-        ("cgb241", vec![39, 47], vec![27], 2, 0),
+        ("cgb241", vec![39, 47], vec![27], 2, 0, 0),
     ] {
         let path = corpus.join(format!("cadgenbench_inputs/{name}.step"));
         let path = if path.is_file() {
@@ -259,6 +263,14 @@ fn corrected_round_inventory_agrees_with_material_side() {
                 .count(),
             inside_count,
             "{name}"
+        );
+        assert_eq!(
+            fillets
+                .iter()
+                .filter(|f| f.record["side"] == "concave" && f.record["turned"] == true)
+                .count(),
+            turned_inside,
+            "{name}: quiddity-rust#134 turned inside fillets"
         );
         for face in convex {
             assert_eq!(

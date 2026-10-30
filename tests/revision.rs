@@ -648,11 +648,12 @@ fn an_end_chamfer_is_one_change_despite_trimmed_recognition_records() {
             .iter()
             .any(|f| f.old == "plates/0" && f.class == qc::Class::Carried)
     );
-    assert!(
-        corr.faces
-            .iter()
-            .any(|f| f.old == 1 && f.class == qc::Class::Orphaned)
-    );
+    // quiddity-rust#134 recovers this retained end plane through the supporting plate.
+    let end = corr.faces.iter().find(|f| f.old == 1).unwrap();
+    assert_eq!(end.new, Some(13));
+    assert_eq!(end.class, qc::Class::Adapted);
+    assert!(end.changes.contains_key("area"));
+    assert!(end.changes.contains_key("adjacency"));
     assert_eq!(r.features.len(), 1, "{:?}", r.features);
     assert_eq!(r.features[0].family, "chamfers");
     assert_eq!(r.features[0].class, "new");
@@ -684,6 +685,7 @@ fn a_real_boss_shortening_alongside_a_chamfer_still_reports() {
         "{:?}",
         r.features
     );
+    // quiddity-rust#134 includes the 1.5 mm end chamfer in both physical heights.
     assert!(r.markdown("Shaft", None).contains("height 37.6 → 35.6"));
     // The existing diameter-resize fixture is still a reported size change too.
     assert!(
