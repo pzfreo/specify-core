@@ -208,5 +208,12 @@
   "pattern": "Python's parts of one product are one part here",
   "verdict": "not-applicable",
   "evidence": "Captured from specify-core with its ISO 286 extension (branch iso286-3150; docs/questions.md Q8), which applies this file's answers. Python's write then fails inside OpenCascade ('StepShape_DimensionalLocation: Null Reference'; its part 0 intent has two hole patterns' sizes and positions and six locations with faces [], as on the mfcadpp parts); Python's three per-XCAF-part intents name the one Rust part more than once (question Q7: parts 1 and 2 are surface models that are in Rust's part 0), so the Rust writer refuses 'a part is written once' and the CLI 'has no part 1' before writing."
+ },
+ {
+  "case": "*",
+  "path": "write.written[*under the general tolerance]",
+  "pattern": "the report counts the dimensions written under the general tolerance (#63)",
+  "verdict": "rust-correct",
+  "evidence": "Issue #63 (https://github.com/pzfreo/specify-core-rust/issues/63): the writer writes the dimensions the general tolerance covers (general.rs) with their nominal alone, and counts them in one report line, `N dimension(s) under the general tolerance` (with `part:` in an assembly), rather than listing each. Python writes none of them, so it has no such line. A part with PMI from elsewhere (Mode::Add) gets none and no line."
  }
 ]

@@ -109,11 +109,17 @@ retain their original bytes; lossless Add keeps every original entity record unc
 
 ## General ISO 2768 rows
 
-General CSV rows derived from ISO 2768 have **no number**: the underlying general class does
-not state individual dimension or location requirements. Specify does not invent PMI
-entities or numbers for these inferred limits. Consumers should leave the number cell empty
-or explicitly mark it unnumbered. An explicitly authored size/location/FCF has its own PMI
-entity and is numbered even if its value agrees with a general limit.
+General size and location dimensions that Specify writes as nominal-only PMI (#63) **are
+numbered**. They have individual STEP entities, and inspection consumers need the same
+stable identity as for explicitly toleranced dimensions. Their inferred limits remain
+governed by the part's general tolerance. They participate in the same allocation, carry,
+and retirement rules; adding a general dimension never renumbers an existing one.
+
+A general CSV row with **no individual STEP entity** remains unnumbered. Leave its number
+cell empty or explicitly mark it unnumbered; the general class alone is a part setting and
+gets no number. Specify does not create an entity solely to hold a number. The interview's
+`existing` list still omits Specify's nominal-only dimensions (#63), while the authoritative
+`characteristics` list exposes their numbers and supports to native and WASM consumers.
 
 ## Verification and upstream boundary
 

@@ -11,10 +11,21 @@ All notable changes to specify-core-rust. The format follows
 - For #65: stable per-part characteristic numbers in standard AP242 `ID_ATTRIBUTE`s,
   with a persistent high-water mark that retires removed numbers. PMI/analysis and WASM
   snapshots expose file numbers; answer revision carry preserves them through quiddity's
-  correspondence. General ISO 2768 rows remain unnumbered. See
+  correspondence. General dimensions written as PMI are numbered; rows without an entity remain unnumbered. See
   [characteristic number storage and allocation](docs/characteristic-numbers.md).
+- The STEP states every dimension a drawing would (#63): the writer writes the dimensions the
+  general tolerance covers (plain sizes, plane levels and hole locations, `general.rs`) with
+  their nominal alone, under the general tolerance written for the part. A part located by ±
+  dimensions now carries its hole locations. They are counted in one report line,
+  `N dimensions under the general tolerance`. A part with PMI from elsewhere gets none (its
+  own dimensions stand), and a datum's own faces get no size (its datum stays a plain datum
+  feature). Read back, Specify's own nominal-only dimensions settle no question.
 
 ### Changed
+
+- Upgrade quiddity and haecceity (native and WASM) to **v0.2.4** (`2f6b3a6`): haecceity's Add
+  shares the face usages a file's location dimensions hold, so PMI added beside them no longer
+  breaks `item_identified_representation_usage.UR1` (quiddity-rust#132).
 
 - Upgrade quiddity and haecceity (native and WASM) to **v0.2.3** (`ced75a5`).
   Analyses and revision reports describe turned bodies, annular face grooves (rim

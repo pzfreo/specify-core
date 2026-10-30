@@ -31,6 +31,14 @@ use specify_core::writer::{WriteError, WriteReport, write};
 // --- helpers ---------------------------------------------------------------------------------
 
 /// A fresh directory for one test.
+/// The report's line counting the dimensions under the general tolerance (#63): 1 or 0.
+fn general_line(written: &[String]) -> usize {
+    written
+        .iter()
+        .filter(|l| l.ends_with("under the general tolerance"))
+        .count()
+}
+
 fn temp(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
         .join("specify-core-writer-tests")
@@ -225,10 +233,10 @@ fn the_spool_is_written_verified_and_read_back() {
         return;
     };
     // Datums, requirements, material, general tolerance and the part's notes (surface finish
-    // and edges at their defaults, Q3).
+    // and edges at their defaults, Q3), and the one line counting the dimensions under the general tolerance, #63).
     assert_eq!(
         report.written.len(),
-        intent.datums.len() + intent.requirements.len() + 4
+        intent.datums.len() + intent.requirements.len() + 4 + general_line(&report.written)
     );
     assert!(report.written.contains(&"material 6082-T6".to_string()));
     assert!(
@@ -1270,7 +1278,10 @@ fn write_the_rest(name: &str, faceless: &[&str]) {
         .count();
     assert_eq!(
         report.written.len(),
-        intent.datums.len() + intent.requirements.len() - faceless.len() + 2 + notes,
+        intent.datums.len() + intent.requirements.len() - faceless.len()
+            + 2
+            + notes
+            + general_line(&report.written),
         "{:?}",
         report.written
     );
@@ -1286,7 +1297,13 @@ fn write_the_rest(name: &str, faceless: &[&str]) {
             .filter(|r| r["faces"].as_array().is_some_and(|f| !f.is_empty()))
             .count()
     };
-    assert_eq!(read.dimensions.len(), on_faces(&["size", "location"]));
+    // Those with a tolerance of their own: the rest are under the general tolerance (#63).
+    let toleranced = read
+        .dimensions
+        .iter()
+        .filter(|d| !matches!(d.tolerance, DimTolerance::None))
+        .count();
+    assert_eq!(toleranced, on_faces(&["size", "location"]));
     assert_eq!(
         read.tolerances.len(),
         on_faces(&[
