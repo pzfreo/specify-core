@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from . import _native
+from . import _native, rules  # noqa: F401  (specify-core's api has rules too)
 from .load import LoadedPart, load
 from .rules import Intent, Question
 from .writer import WriteReport

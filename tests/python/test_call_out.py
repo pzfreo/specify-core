@@ -1,7 +1,8 @@
 """Calling out a dimension: a size or a distance a person tolerances themselves,
 in place of what the general tolerance would have said of it."""
 import pytest
-from specify_core.api import analyse, apply
+from specify_core.api import analyse, apply, write
+from specify_core.existing import read_existing
 from specify_core.load import load
 from specify_core.rules import questions
 MATERIAL = {"part.material": "steel"}
@@ -20,6 +21,22 @@ def _added(intent, key):
     return next(r for r in intent.requirements if r.get("question") == key)
 
 
+def test_a_called_out_size_is_written_and_leaves_the_general_list(plate, plate_analysis, tmp_path):
+    size = next(g for g in _general(plate_analysis) if g["kind"] == "size")
+    extra = {"faces": size["faces"], "kind": "size", "value": "+0.1/-0"}
+    intent = apply(plate_analysis, {**MATERIAL, "extra.1": extra}, accept_defaults=True)
+    req = _added(intent, "extra.1")
+    assert (req["kind"], req["nominal"], req["upper"], req["lower"], req["fit"]) == (
+        "size",
+        size["nominal"],
+        0.1,
+        0.0,
+        "",
+    )
+    assert not any(g["kind"] == "size" and g["faces"] == size["faces"] for g in intent.general)
+    write(plate, intent, tmp_path / "size.step")  # verifies the limits read back
+
+
 def test_a_called_out_size_may_be_plus_minus_or_a_fit(plate_analysis):
     size = next(g for g in _general(plate_analysis) if g["kind"] == "size")
     for value, (fit, upper, lower) in {"±0.05": ("", 0.05, -0.05), "H7": ("H7", None, 0.0)}.items():
@@ -29,6 +46,29 @@ def test_a_called_out_size_may_be_plus_minus_or_a_fit(plate_analysis):
         )
         assert req["fit"] == fit and req["lower"] == lower
         assert upper is None or req["upper"] == upper
+
+
+def test_a_called_out_length_is_written_and_leaves_the_general_list(
+    plate, plate_analysis, tmp_path
+):
+    length = next(g for g in _general(plate_analysis) if g["kind"] == "location")
+    extra = {
+        "faces": length["faces"],
+        "reference": length["reference"],
+        "kind": "distance",
+        "value": "±0.05",
+    }
+    intent = apply(plate_analysis, {**MATERIAL, "extra.1": extra}, accept_defaults=True)
+    req = _added(intent, "extra.1")
+    assert req["kind"] == "location" and req["distance"] == pytest.approx(length["distance"])
+    assert (req["upper"], req["lower"]) == (0.05, -0.05)
+    assert not any(
+        g["kind"] == "location" and {*g["faces"]} == {*length["faces"]} for g in intent.general
+    )
+    out = tmp_path / "length.step"
+    write(plate, intent, out)  # verifies the location reads back
+    found = [e for e in read_existing(load(out)) if e.kind == "dimension"]
+    assert any(e.type.startswith("Location") for e in found)
 
 
 def test_a_distance_to_a_holes_axis_is_measured_from_a_plane_along_it(plate_analysis):
@@ -93,6 +133,14 @@ def test_a_call_out_that_does_not_suit_its_faces_is_refused(plate_analysis, extr
     extra = {k: named.get(v, v) if k in ("faces", "reference") else v for k, v in extra.items()}
     with pytest.raises(ValueError, match=reason):
         questions(plate_analysis, {"extra.1": extra})
+
+
+@pytest.mark.parametrize("value", ["-0.05/-0.1", "+0.1/+0.05", "+0.2/-0.1", "+0.1/0"])
+def test_a_distance_with_any_limits_is_written_and_verified(plate, plate_analysis, tmp_path, value):
+    top, bottom, _ = _planes(plate_analysis)
+    extra = {"faces": [top], "reference": [bottom], "kind": "distance", "value": value}
+    intent = apply(plate_analysis, {**MATERIAL, "extra.1": extra}, accept_defaults=True)
+    write(plate, intent, tmp_path / "limits.step")  # verifies the limits are in the file
 
 
 @pytest.mark.parametrize("value", ["Ra 0.8", ["finish"], None, 3])

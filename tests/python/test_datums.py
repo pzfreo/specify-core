@@ -5,16 +5,136 @@ A is two coplanar flange faces, B and C are holes, D is the web, and the
 switch-mounting holes are located from D|B|C. Values are NIST's in inches;
 sizes use H11 until ± tolerances exist.
 """
-import json
 import pytest
-from specify_core.api import analyse, apply
+from specify_core.api import analyse, apply, write
+from specify_core.existing import read_existing
 from specify_core.load import load
 from specify_core.rules import questions
+INCH = 25.4
+
+
+def _bores(face_ids, diameter, faces):
+    # Ported: specify-core's rules._bores, the cylinder faces among face_ids at diameter.
+    return tuple(
+        i
+        for i in face_ids
+        if faces[i]["kind"] == "cylinder" and abs(2 * faces[i].get("radius", 0) - diameter) < 1e-6
+    )
 
 
 @pytest.fixture(scope="module")
 def ctc03_analysis(ctc03):
     return analyse(ctc03)
+
+
+def _bore(analysis, hole_id):
+    faces = {f["id"]: f for f in analysis["faces"]}
+    hole = next(f for f in analysis["features"] if f["id"] == hole_id)
+    return list(_bores(hole["faces"], hole["record"]["diameter"], faces))
+
+
+@pytest.fixture(scope="module")
+def nist_answers(ctc03_analysis):
+    a = ctc03_analysis
+    pair, switches = "hole_patterns.rectangle:58.59.60.61", "hole_patterns.linear:72.73.74.75"
+    return {
+        "part.material": "6061-T6",
+        "datum.A": [18, 28],
+        "datum.B": _bore(a, "holes:58"),
+        "datum.C": _bore(a, "holes:60"),
+        "datum.D": [7],
+        "datum.B.control": f"{0.01 * INCH:g}",
+        "datum.C.control": f"{0.02 * INCH:g}",
+        f"hole.function:{pair}": "fit:H11",
+        f"hole.position:{pair}": f"{0.05 * INCH:g}",
+        f"hole.function:{switches}": "fit:H11",
+        f"hole.frame:{switches}": "D|B|C",
+        f"hole.position:{switches}": f"{0.05 * INCH:g}",
+        "hole.function:holes:70": "fit:H11",
+        "hole.frame:holes:70": "D|B|C",
+        "hole.position:holes:70": f"{0.08 * INCH:g}",
+        # Untoleranced on NIST's drawing (Ø1.065 has its own perpendicularity
+        # to E, not modelled here). Metric clearance matching would otherwise
+        # take them for M24 and M4 holes: an inch part is .
+        "hole.function:holes:76": "general",
+        "hole.function:hole_patterns.rectangle:77.78.79.80": "general",
+    }
+
+
+def test_nist_datum_scheme_round_trips(ctc03, ctc03_analysis, nist_answers, tmp_path):
+    intent = apply(ctc03_analysis, nist_answers, accept_defaults=True)
+    out = tmp_path / "ctc03-pmi.step"
+    write(ctc03, intent, out)
+    found = {
+        (e.type, e.datums, round(e.value / INCH, 4))
+        for e in read_existing(load(out))
+        if e.kind == "geometric_tolerance"
+    }
+    assert found == {
+        ("Perpendicularity", ("A",), 0.01),  # datum B
+        ("Position", ("A", "B"), 0.02),  # datum C
+        ("Position", ("A", "B", "C"), 0.05),  # the 2x pair left after B and C
+        ("Position", ("D", "B", "C"), 0.05),  # switch mounting holes
+        ("Position", ("D", "B", "C"), 0.08),  # Ø2.00
+    }
+
+
+def test_a_datum_hole_keeps_its_size_but_leaves_its_set(ctc03_analysis, nist_answers):
+    ids = {q.id: q for q in questions(ctc03_analysis, nist_answers)}
+    assert "hole.function:holes:58" in ids and "hole.position:holes:58" not in ids
+    pair = ids["hole.function:hole_patterns.rectangle:58.59.60.61"]
+    assert pair.prompt == "What are the 2× Ø11.125 holes for?"
+
+
+def test_frames_are_offered_only_with_extra_datums(ctc03_analysis, nist_answers):
+    without_d = {k: v for k, v in nist_answers.items() if k != "datum.D" and "frame" not in k}
+    assert not any(q.id.startswith("hole.frame") for q in questions(ctc03_analysis, without_d))
+    frame = next(
+        q for q in questions(ctc03_analysis, nist_answers) if q.id.startswith("hole.frame")
+    )
+    assert frame.options == ("A|B|C", "D|B|C")
+
+
+def test_a_frame_that_is_not_offered_is_refused(ctc03_analysis, nist_answers):
+    bad = {**nist_answers, "hole.frame:holes:70": "C|B|A"}
+    with pytest.raises(ValueError, match="is not one of"):
+        apply(ctc03_analysis, bad, accept_defaults=True)
+
+
+@pytest.mark.parametrize(
+    "remove", [lambda a: a.pop("datum.D"), lambda a: a.update({"datum.D": []})]
+)
+def test_frame_answers_lapse_when_the_extra_datum_goes(ctc03_analysis, nist_answers, remove):
+    """Removing D must not leave its D|B|C answers breaking apply."""
+    answers = dict(nist_answers)
+    remove(answers)
+    intent = apply(ctc03_analysis, answers, accept_defaults=True)
+    assert {tuple(r["datums"]) for r in intent.requirements if r["kind"] == "position"} == {
+        ("A", "B"),
+        ("A", "B", "C"),
+    }
+
+
+def test_without_a_there_are_no_positions_or_controls(ctc03_analysis, nist_answers):
+    ids = {q.id for q in questions(ctc03_analysis, {**nist_answers, "datum.A": []})}
+    assert not any(i.startswith(("hole.position", "hole.frame")) or "control" in i for i in ids)
+
+
+def test_without_b_a_hole_c_has_no_control_but_keeps_a_position(ctc03_analysis, nist_answers):
+    answers = {k: v for k, v in nist_answers.items() if "frame" not in k}
+    answers.update({"datum.B": [], "hole.function:holes:60": "fit:H11"})
+    qs = {q.id: q for q in questions(ctc03_analysis, answers)}
+    assert "datum.C.control" not in qs
+    assert qs["hole.position:holes:60"].frame == "A"  # its own letter dropped from A|C
+
+
+def test_a_datum_hole_without_a_control_keeps_its_position(ctc03_analysis, nist_answers):
+    """D gets no control in v1, so a hole chosen as D must still be located."""
+    answers = {**nist_answers, "datum.D": _bore(ctc03_analysis, "holes:70")}
+    answers = {k: v for k, v in answers.items() if "frame" not in k}
+    qs = {q.id: q for q in questions(ctc03_analysis, answers)}
+    assert qs["hole.position:holes:70"].frame == "A|B|C"
+    assert qs["hole.frame:holes:70"].options == ("A|B|C", "B|C")
 
 
 def test_a_bad_datum_answer_is_a_clear_error(ctc03_analysis):

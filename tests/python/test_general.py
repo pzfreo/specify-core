@@ -1,6 +1,4 @@
 """Dimensions under the general tolerance: found and listed, never written."""
-from __future__ import annotations
-import pytest
 from specify_core import api
 MATERIAL = {"part.material": "Aluminium 6082-T6"}
 
@@ -24,3 +22,12 @@ def test_a_diameter_sized_otherwise_is_not_listed_again(plate):
         g["distance"] for g in intent.general if g["kind"] == "location" and not g["feature"]
     )
     assert outline == [10.0, 60.0, 100.0]
+
+
+def test_listed_but_not_written(pin, tmp_path):
+    analysis, intent = _general(pin)
+    assert intent.general
+    assert not any(r.get("general") for r in intent.requirements)
+    report = api.write(pin, intent, tmp_path / "pin-pmi.step")
+    assert not any(line.startswith("location") for line in report.written)
+    assert api.rules.Intent.from_dict(intent.to_dict()).general == intent.general

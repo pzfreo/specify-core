@@ -17,3 +17,12 @@ def test_a_typed_answer_reaches_the_intent_and_a_wrong_one_is_refused(plate):
     assert size["fit"] == "H6"
     with pytest.raises(ValueError, match="M5 tap needs"):
         questions(analysis, {bore.id: "tapped:M5"})
+
+
+@pytest.mark.parametrize("value", [0.1, 3, True, ["general"], {"value": "general"}, None])
+def test_a_choice_answer_that_is_not_text_is_refused(plate, value):
+    analysis = analyse(plate)
+    qid = next(q.id for q in questions(analysis, {}) if q.id.startswith("hole.position:"))
+    # Ported: the engine's refusal is a ValueError, of which specify-core's SpecError is one.
+    with pytest.raises(ValueError, match=qid):
+        questions(analysis, {qid: value})

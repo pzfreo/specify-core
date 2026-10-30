@@ -1,7 +1,7 @@
 """Tapped holes, external threads and knurls as intent."""
 import re
 import pytest
-from specify_core.api import analyse, apply, questions
+from specify_core.api import analyse, apply, questions, write
 
 
 @pytest.fixture(scope="module")
@@ -46,6 +46,29 @@ def test_a_tapped_hole_carries_its_thread_and_drill(pin_analysis):
         5.5,
     )
     assert thread["through"] is False
+
+
+def test_a_typed_thread_depth_is_written_and_read_back(pin, pin_analysis, tmp_path):
+    hole = f"hole.function:{_feature(pin_analysis, 'holes', 4.2)}"
+    with pytest.raises(ValueError, match="at most 5.6 mm"):
+        questions(pin_analysis, {hole: "tapped:M5@6"})
+    answers = {"part.material": "brass", hole: "tapped:M5@5.6"}  # 8 - 3 x 0.8
+    intent = apply(pin_analysis, answers, accept_defaults=True)
+    (thread,) = [r for r in intent.requirements if r["kind"] == "thread"]
+    assert (thread["drill_depth"], thread["full_thread"]) == (8.0, 5.6)
+
+    out = tmp_path / "deep.step"
+    report = write(pin, intent, out, answers=answers)
+    assert report.not_written == []
+    text = re.sub(r"\s*\n\s*", " ", out.read_text())
+    assert re.search(
+        r"MEASURE_REPRESENTATION_ITEM\('minimum full thread',LENGTH_MEASURE\(5\.6\)", text
+    )
+    assert re.search(
+        r"MEASURE_REPRESENTATION_ITEM\('tapping drill depth',LENGTH_MEASURE\(8\.", text
+    )
+    assert "5.6 mm minimum full thread" in text
+    assert analyse(out)["resume"] == {"answers": answers}
 
 
 def test_external_thread_and_knurl_from_turned_answers(pin_analysis):

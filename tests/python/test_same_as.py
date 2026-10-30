@@ -4,6 +4,15 @@ from specify_core.api import analyse, apply
 from specify_core.rules import questions
 
 
+def _bores(face_ids, diameter, faces):
+    # Ported: specify-core's rules._bores, the cylinder faces among face_ids at diameter.
+    return tuple(
+        i
+        for i in face_ids
+        if faces[i]["kind"] == "cylinder" and abs(2 * faces[i].get("radius", 0) - diameter) < 1e-6
+    )
+
+
 @pytest.fixture(scope="module")
 def spool_analysis(spool):
     return analyse(spool)
@@ -39,6 +48,20 @@ def test_identical_turned_diameters_are_one_question(spool_analysis):
     intent = apply(spool_analysis, answers | _defaults(spool_analysis, answers))
     fits = [r for r in intent.requirements if r.get("fit") == "h7"]
     assert sorted(r["feature"] for r in fits) == sorted(fid for fid, _ in q.parts)
+
+
+def test_datum_holes_are_never_merged(ctc03):
+    """CTC-03's datums B and C are identical holes, each its own datum."""
+    analysis = analyse(ctc03)
+    faces = {f["id"]: f for f in analysis["faces"]}
+    feats = {f["id"]: f for f in analysis["features"]}
+
+    def bore(h):
+        return list(_bores(feats[h]["faces"], feats[h]["record"]["diameter"], faces))
+
+    answers = {"datum.A": [18, 28], "datum.B": bore("holes:58"), "datum.C": bore("holes:60")}
+    ids = {q.id for q in questions(analysis, answers)}
+    assert {"hole.function:holes:58", "hole.function:holes:60"} <= ids
 
 
 def _defaults(analysis, answers):

@@ -73,8 +73,9 @@ def stack() -> Path:
 
 
 #: Tests that fail on the Rust engine because of a recorded difference: test -> the ledger
-#: entry (tests/fixtures/known_differences/) that explains it. Each is a strict xfail, so a
-#: test that starts passing is reported.
+#: entry (tests/fixtures/known_differences/) that explains it, or, marked NO LEDGER ENTRY, the
+#: documented decision that does. Each is a strict xfail, so a test that starts passing is
+#: reported.
 KNOWN = {
     "test_datums.py::test_datums_are_proposed_only_when_something_is_measured_from_them": "rules.json, "
     "'measurement datums are proposed before dimensions, including in ± mode' (draftwright-rust "
@@ -100,6 +101,57 @@ KNOWN = {
     "test_preview.py::test_an_answer_is_shown_as_decided": "rules.json, 'unanswered defaults "
     "remain suggestions until explicitly accepted' (specify-core-rust #20): an answered position "
     "waits for its datum frame, which is unanswered",
+    'test_assembly.py::test_both_parts_are_written_and_verified': (
+        "features.json, 'a blind hole's floor is constituent, not defining' (rust-wrong): the pin's tap drill is holes:3, not holes:3.5"
+    ),
+    'test_assembly.py::test_writing_one_part_again_alone_is_refused': (
+        'NO LEDGER ENTRY: decision D3 (docs/design.md): one part of an assembly may be written alone, the others left as they are'
+    ),
+    'test_assembly.py::test_an_assembly_with_pmi_of_its_own_is_refused': (
+        'NO LEDGER ENTRY: question Q6 (docs/questions.md, docs/python.md): an assembly with PMI from elsewhere is written in add mode'
+    ),
+    'test_conformance.py::test_callout_presentation_is_named': (
+        "writer.json, 'an assertion on Python's text route or drawing, not ported': Python's own text route or drawing, which haecceity does not write"
+    ),
+    'test_drawn.py::test_a_note_is_its_leader_and_no_words': (
+        "writer.json, 'an assertion on Python's text route or drawing, not ported': Python's own text route or drawing, which haecceity does not write"
+    ),
+    'test_requirements.py::test_the_text_route_and_its_callouts': (
+        "writer.json, 'an assertion on Python's text route or drawing, not ported': Python's own text route or drawing, which haecceity does not write"
+    ),
+    'test_threads.py::test_a_typed_thread_depth_is_written_and_read_back': (
+        "writer.json, 'an assertion on Python's text route or drawing, not ported': Python's own text route or drawing, which haecceity does not write"
+    ),
+    'test_requirements.py::test_the_standard_constructs': (
+        "cross_engine.json, 'the part's default finish, written as a surface texture' and 'a thread written as AP242's thread feature' (Q3): notes, finish and threads are written in AP242's standard forms, not Python's text constructs"
+    ),
+    'test_requirements.py::test_a_finish_on_faces_is_not_a_second_default': (
+        "cross_engine.json, 'the part's default finish, written as a surface texture' and 'a thread written as AP242's thread feature' (Q3): notes, finish and threads are written in AP242's standard forms, not Python's text constructs"
+    ),
+    'test_requirements.py::test_a_finish_written_in_the_old_form_still_reads_back': (
+        "cross_engine.json, 'the part's default finish, written as a surface texture' and 'a thread written as AP242's thread feature' (Q3): notes, finish and threads are written in AP242's standard forms, not Python's text constructs"
+    ),
+    'test_locations.py::test_positioned_holes_get_basic_dimensions_from_their_datum_planes': (
+        "writer.json, 'the report counts the dimensions written under the general tolerance' (#63): five more locations, nominal only; and, with NO LEDGER ENTRY, haecceity writes a 'theoretical' note per basic dimension where Python shares one"
+    ),
+    'test_merge.py::test_what_the_file_states_is_not_asked_again': (
+        "rules.json, 'ordered free-text part notes are model PMI' (draftwright-rust #123): part.notes is asked"
+    ),
+    'test_merge.py::test_a_nist_part_keeps_all_its_pmi': (
+        "rules.json, 'ordered free-text part notes are model PMI' (draftwright-rust #123): part.notes is asked"
+    ),
+    'test_profile_runout.py::test_a_runout_is_written_about_the_frame_and_read_back': (
+        "rules.json, 'axis-first turned datum defaults and their dependent questions and intent': axial holes and runout use A alone"
+    ),
+    'test_writer.py::test_existing_pmi_is_read_back_onto_the_same_faces': (
+        "rules.json, 'axis-first turned datum defaults and their dependent questions and intent': axial holes and runout use A alone"
+    ),
+    'test_writer.py::test_write_verifies_and_reports': (
+        "writer.json, 'the report counts the dimensions written under the general tolerance' (#63): one more report line"
+    ),
+    'test_writer.py::test_unreferenced_datums_are_warned': (
+        "rules.json, 'measurement datums are proposed before dimensions, including in ± mode' (draftwright-rust #122): A, B and C are written and warned about with nothing to position"
+    ),
 }
 
 

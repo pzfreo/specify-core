@@ -1,7 +1,8 @@
 """Locating holes by ± dimensions, the problems list, and requirements a
 person adds where nothing asked."""
 import pytest
-from specify_core.api import analyse, apply
+from specify_core.api import analyse, apply, write
+from specify_core.existing import read_existing
 from specify_core.load import load
 from specify_core.rules import LOCATING, questions
 
@@ -32,6 +33,32 @@ def test_holes_located_by_plus_minus_need_no_positions_or_datums(plate_analysis)
     intent = apply(plate_analysis, {**plus_minus, "part.material": "steel"}, accept_defaults=True)
     assert intent.datums == [] and not any(r["kind"] == "position" for r in intent.requirements)
     assert any(r["kind"] == "size" for r in intent.requirements)  # fits still apply
+
+
+def test_added_requirements_are_written_and_read_back(plate, plate_analysis, tmp_path):
+    top, bore = _top(plate_analysis)["id"], _bore8(plate_analysis)["id"]
+    answers = {
+        "part.material": "steel",
+        "extra.1": {"faces": [top], "kind": "flatness", "value": "0.05"},
+        "extra.2": {"faces": [bore], "kind": "perpendicularity", "value": "0.02", "datums": ["A"]},
+        "extra.3": {"faces": [top], "kind": "parallelism", "value": "0.1", "datums": ["A"]},
+        "extra.4": {"faces": [bore], "kind": "fit", "value": "H6"},
+    }
+    intent = apply(plate_analysis, answers, accept_defaults=True)
+    added = {r["question"]: r for r in intent.requirements if r.get("feature") == "added"}
+    assert added["extra.1"] == {
+        "kind": "flatness",
+        "feature": "added",
+        "faces": [top],
+        "question": "extra.1",
+        "tolerance": 0.05,
+    }
+    assert added["extra.2"]["diametral"] is True and added["extra.2"]["datums"] == ["A"]
+    assert added["extra.4"]["fit"] == "H6" and added["extra.4"]["upper"] == pytest.approx(0.009)
+    out = tmp_path / "added.step"
+    write(plate, intent, out)  # verifies every requirement reads back
+    kinds = {e.type for e in read_existing(load(out)) if e.kind == "geometric_tolerance"}
+    assert {"Flatness", "Perpendicularity", "Parallelism"} <= kinds
 
 
 def test_an_added_orientation_brings_datums_where_nothing_else_needs_them(plate_analysis):

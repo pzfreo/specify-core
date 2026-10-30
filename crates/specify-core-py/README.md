@@ -6,11 +6,13 @@ build123d, OCP). Built with [maturin](https://www.maturin.rs/) as a mixed projec
 module `specify_core._native` (`src/lib.rs`) and the package around it
 (`python/specify_core/`).
 
-So far: `load` (a `LoadedPart`), `parts`, `analyse`, `questions`, `apply` and `preview`, with
-`Question`, `Intent`, `IncompleteError` and `rules.with_all_defaults`. `analyse` takes a path or
-a `LoadedPart`, a handle on the part held by the engine: it has `path`, `binding`,
-`part_count` and `name`, but none of OpenCascade's objects (`faces`, `face`, `index_of`,
-`shape`).
+So far: `load` (a `LoadedPart`), `parts`, `analyse`, `questions`, `apply`, `preview`, `write`,
+`write_parts` and `mesh`, with `Question`, `Intent`, `IncompleteError`, `WriteReport`,
+`VerificationError`, `rules.with_all_defaults` and `existing.read_existing`/`part_settings`
+(`ExistingPmi`). Each step that reads a file takes a path or a `LoadedPart`, a handle on the
+part held by the engine: it has `path`, `binding`, `part_count` and `name`, but none of
+OpenCascade's objects (`faces`, `face`, `index_of`, `shape`). Not yet: the command line and
+`serve`.
 
 ```bash
 uv venv /tmp/specify-py && uv pip install --python /tmp/specify-py/bin/python maturin pytest
@@ -22,9 +24,11 @@ QUIDDITY_CORPUS=/path/to/quiddity/tests/corpus /tmp/specify-py/bin/python -m pyt
 `maturin build --release -m crates/specify-core-py/Cargo.toml` builds the wheel: abi3, so one
 wheel per platform serves CPython 3.12 to 3.14.
 
-`tests/python` holds specify-core's own tests of these steps (at cc341dd, the revision the
-oracle was captured from), on the committed parts `tools/make_parts.py` built; the tests of the
-spool and NIST CTC-03 skip without Quiddity's corpus. A test that fails by a recorded
-difference is a strict xfail naming its ledger entry (`tests/python/conftest.py`, `KNOWN`).
+`tests/python` holds specify-core's own tests (at cc341dd, the revision the oracle was captured
+from), on the committed parts `tools/make_parts.py` built; the tests of the spool and NIST
+CTC-03 skip without Quiddity's corpus (`QUIDDITY_CORPUS`), and those of NIST's PMI files
+without them (`NIST_PMI`). A test that fails by a recorded difference is a strict xfail naming
+its ledger entry (`tests/python/conftest.py`, `KNOWN`); the tests that do not run here, and the
+ones ported onto the public API, are listed in `tests/python/PYTHON_ONLY.md`.
 
 Licensed under Apache-2.0.
