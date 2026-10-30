@@ -1,5 +1,6 @@
-The gramil_assembly.* files in this directory (two revisions of the gramil assembly,
-from https://github.com/pzfreo/gramil, and the script that builds them) are under the
+The gramil_assembly.* and gramil_shaft.* files in this directory (revisions of
+Paul Fremantle's gramil assembly and shaft, from https://github.com/pzfreo/gramil,
+and the scripts that build them) are under the
 Open Community License v1 below, not this repository's AGPL-3.0. Every other file here is
 under the repository's licence.
 

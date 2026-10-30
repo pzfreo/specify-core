@@ -16,6 +16,13 @@ All notable changes to specify-core-rust. The format follows
   own dimensions stand), and a datum's own faces get no size (its datum stays a plain datum
   feature). Read back, Specify's own nominal-only dimensions settle no question.
 
+### Fixed
+
+- For #67, revision reports describe an added turned end chamfer with its size and
+  boss context. Retained supporting surfaces and boundary edges distinguish trimmed
+  boss/flat measurements and a lost plate classification from real resizing, moving
+  or removal. Raw recognition, correspondence and answer migration are unchanged.
+
 ### Changed
 
 - Upgrade quiddity and haecceity (native and WASM) to **v0.2.4** (`2f6b3a6`): haecceity's Add

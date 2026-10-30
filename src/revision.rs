@@ -35,6 +35,7 @@ use crate::part::LoadedPart;
 use haecceity::Part;
 
 pub mod assembly;
+mod treatments;
 
 /// What one old face is in the new part.
 #[derive(Clone, Debug, PartialEq)]
@@ -1230,6 +1231,15 @@ fn describe(f: &Feature) -> (String, Option<[f64; 3]>) {
                 Some(radius) => format!("R{} {}", num(radius), singular(&f.family)),
                 None => singular(&f.family),
             },
+            "chamfers" => match (n("leg1"), n("leg2"), n("angle")) {
+                (Some(a), Some(b), Some(angle)) if (a - b).abs() < 0.01 => {
+                    format!("{} × {}° chamfer", num(a), num(angle))
+                }
+                (Some(a), Some(b), Some(angle)) => {
+                    format!("{} × {} × {}° chamfer", num(a), num(b), num(angle))
+                }
+                _ => "chamfer".into(),
+            },
             "slots" => match (n("length"), n("width"), n("d_lo"), n("d_hi")) {
                 (Some(l), Some(w), Some(lo), Some(hi)) => {
                     format!("{} × {} × {} slot", num(l), num(w), num(hi - lo))
@@ -1518,6 +1528,15 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
     }
 
     fold(&mut feature_changes, &old_features, &new_features);
+
+    treatments::fold_end_chamfers(
+        &mut feature_changes,
+        &old_features,
+        &new_features,
+        &old.part,
+        &new.part,
+        &corr,
+    );
 
     continue_chamfers(
         &mut feature_changes,

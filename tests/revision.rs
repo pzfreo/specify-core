@@ -533,7 +533,7 @@ fn a_pattern_laid_out_again_is_one_pattern_become_another() {
 fn many_changes_at_once_each_read_once() {
     let md = complex("complex_many");
     for line in [
-        "- 2× chamfers removed: at (0, 39.5, 9.5) and (0, -39.5, 9.5)",
+        "- 2× 1 × 45° chamfers removed: at (0, 39.5, 9.5) and (0, -39.5, 9.5)",
         "- Ø10 × 6 boss removed: on the −Z side, at X 10, Y 68 from the −X, −Y corner",
         "- pattern of 4 × Ø6 × 10 through holes → pattern of 6 × Ø8 × 10 through holes on a Ø60 \
          circle: on the +Z side, at X 50, Y 40 from the −X, −Y corner",
@@ -621,4 +621,126 @@ fn the_same_part_built_another_way_has_not_changed() {
     let md = complex("complex_remodelled");
     assert!(md.contains("✅ No feature changed."), "{md}");
     assert!(!md.contains("The whole part moved"), "{md}");
+}
+
+#[test]
+fn an_end_chamfer_is_one_change_despite_trimmed_recognition_records() {
+    use quiddity::correspondence as qc;
+    let (old, new) = pair("gramil_shaft");
+    let was = qc::recognise(&old.part);
+    let now = qc::recognise(&new.part);
+    let before = serde_json::to_value(&was).unwrap();
+    let after = serde_json::to_value(&now).unwrap();
+    assert_eq!(before["bosses"][0]["height"], 37.6);
+    assert_eq!(after["bosses"][0]["height"], 36.1);
+    assert_eq!(before["flats"][1]["at"], json!([35.6, 0., -3.4]));
+    assert_eq!(after["flats"][1]["at"], json!([35.052, 0., -3.4]));
+    assert_eq!(before["plates"].as_array().unwrap().len(), 1);
+    assert!(after["plates"].as_array().unwrap().is_empty());
+    assert_eq!(after["chamfers"][0]["leg1"], 1.5);
+    assert_eq!(after["chamfers"][0]["leg2"], 1.5);
+    assert_eq!(after["chamfers"][0]["angle"], 45.);
+    let r = diff(&old, &new, &Map::new()).unwrap();
+    let corr = r.correspondence.as_ref().unwrap();
+    assert!(
+        corr.features
+            .iter()
+            .any(|f| f.old == "plates/0" && f.class == qc::Class::Orphaned)
+    );
+    assert!(
+        corr.faces
+            .iter()
+            .any(|f| f.old == 1 && f.class == qc::Class::Orphaned)
+    );
+    assert_eq!(r.features.len(), 1, "{:?}", r.features);
+    assert_eq!(r.features[0].family, "chamfers");
+    assert_eq!(r.features[0].class, "new");
+    assert_eq!(
+        r.change_lines()[0].0,
+        "1.5 × 45° chamfer added: on the end of the Ø8 boss"
+    );
+}
+
+fn shaft_control(which: &str) -> Revised {
+    let (old, _) = pair("gramil_shaft");
+    let new = load(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "tests/fixtures/revisions/gramil_shaft.{which}.step.gz"
+        )),
+        None,
+    )
+    .unwrap();
+    diff(&old, &new, &Map::new()).unwrap()
+}
+
+#[test]
+fn a_real_boss_shortening_alongside_a_chamfer_still_reports() {
+    let r = shaft_control("shorter");
+    assert!(
+        r.features
+            .iter()
+            .any(|f| f.family == "bosses" && f.changes.contains_key("sizes.height")),
+        "{:?}",
+        r.features
+    );
+    assert!(r.markdown("Shaft", None).contains("height 37.6 → 34.1"));
+    // The existing diameter-resize fixture is still a reported size change too.
+    assert!(
+        revised("boss_resized", json!({}))
+            .features
+            .iter()
+            .any(|f| f.family == "bosses" && f.changes.contains_key("sizes.diameter"))
+    );
+}
+
+#[test]
+fn real_flat_moves_alongside_a_chamfer_still_report() {
+    // Move the shaft's flat perpendicular to its support plane.
+    let r = shaft_control("flat_moved");
+    assert!(
+        r.features
+            .iter()
+            .any(|f| f.family == "flats" && f.changes.contains_key("position")),
+        "{:?}",
+        r.features
+    );
+    // Move a finite flat WITHIN the same supporting plane. Plane equality alone is insufficient.
+    let r = revised("flat_translated", json!({}));
+    assert!(
+        r.features
+            .iter()
+            .any(|f| f.family == "flats" && f.changes.contains_key("position")),
+        "{:?}",
+        r.features
+    );
+    assert!(r.markdown("Shaft", None).contains("moved Z +3"));
+}
+
+#[test]
+fn a_real_plate_removal_alongside_a_chamfer_still_reports() {
+    let r = revised("plate_removed", json!({}));
+    assert!(
+        r.features
+            .iter()
+            .any(|f| f.family == "plates" && f.class == "orphaned"),
+        "{:?}",
+        r.features
+    );
+    assert!(r.markdown("Bracket", None).contains("thick plate removed"));
+}
+
+#[test]
+fn chamfer_trimming_is_compared_after_the_whole_part_moves() {
+    let (old, mut new) = pair("gramil_shaft");
+    new.part = new
+        .part
+        .transformed(&[[0., -1., 0., 10.], [1., 0., 0., -8.], [0., 0., 1., 3.]])
+        .unwrap();
+    let r = diff(&old, &new, &Map::new()).unwrap();
+    assert!(r.motion().is_some());
+    assert_eq!(r.features.len(), 1, "{:?}", r.features);
+    assert_eq!(
+        r.change_lines()[0].0,
+        "1.5 × 45° chamfer added: on the end of the Ø8 boss"
+    );
 }
