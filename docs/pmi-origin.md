@@ -88,7 +88,9 @@ chosen by the reference plane normal's largest absolute component in stored part
 
 The writer resolves a requirement's recognised feature during planning, preferring its
 explicit feature association, then a unique exact support match, then a unique containing
-feature. Ambiguous/unrecognised supports get **origin only**. It stores the measured support,
+feature, within the diameter families above or hole/pattern/boss location families. Aggregate
+bodies and plane-level recognition alone do not give a generic plane distance a feature
+parameter. Ambiguous/unrecognised supports get **origin only**. It stores the measured support,
 not the recogniser's full defining-face list, which can grow after a kernel upgrade.
 An existing source is preserved through the characteristic allocator's unique support-growth
 match on unchanged geometry, including when recognition no longer names that feature. Revision to different geometry
@@ -101,7 +103,8 @@ creates a source in the new fingerprint's namespace. Readers do not rerun recogn
 and `api::analyse(...).characteristics` add those same optional fields to per-dimension
 records, including nominal-only general dimensions and resumed files. `ExistingPmi` in
 `existing::read_existing` / `Reading::existing` adds them to the dimension rows it already
-exposes. The interview continues to omit general dimensions (#63).
+exposes. Locations retain the legacy `ExistingPmi` convention: `faces` is the reference
+and `faces2` is the target, whereas `source.support` always identifies the target. The interview continues to omit general dimensions (#63).
 
 WASM `IntentEngine.snapshot().analysis.characteristics` exposes the identical stored
 metadata. `writePmi` uses the native planner/writer. JavaScript signatures are unchanged.

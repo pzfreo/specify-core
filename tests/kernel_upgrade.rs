@@ -332,7 +332,15 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
             for row in readback.as_array().unwrap() {
                 if let Some(source) = row.get("source") {
                     assert_eq!(source["faces"], fingerprint);
-                    assert_eq!(source["support"], row["faces"]);
+                    let target = if row["type"]
+                        .as_str()
+                        .is_some_and(|s| s.starts_with("Location"))
+                    {
+                        &row["faces2"]
+                    } else {
+                        &row["faces"]
+                    };
+                    assert_eq!(&source["support"], target);
                 }
             }
         }

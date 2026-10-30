@@ -101,17 +101,32 @@ impl Planner {
             .collect();
         support.sort_unstable();
         support.dedup();
+        let size = req.get("kind").and_then(Value::as_str) == Some("size");
+        // Aggregate bodies, risers and plane-level features can contain a support without
+        // being the feature this measurement states. Only match families whose parameter
+        // the writer can identify in Draftwright's measurement vocabulary.
+        let eligible = |f: &features::Feature| {
+            if size {
+                matches!(
+                    f.family.as_str(),
+                    "holes" | "hole_patterns" | "bosses" | "turned_steps" | "turned_bodies"
+                )
+            } else {
+                matches!(f.family.as_str(), "holes" | "hole_patterns" | "bosses")
+            }
+        };
         let named = req
             .get("feature")
             .and_then(Value::as_str)
-            .and_then(|id| self.features.iter().find(|f| f.id == id));
+            .and_then(|id| self.features.iter().find(|f| f.id == id && eligible(f)));
         // Face-picked extras can name a recognised feature too. Prefer a unique exact
         // support; otherwise a unique containing feature. Never resolve ambiguity by ID.
         let candidates = |exact: bool| {
             self.features
                 .iter()
                 .filter(|f| {
-                    !support.is_empty()
+                    eligible(f)
+                        && !support.is_empty()
                         && if exact {
                             f.faces == support
                         } else {
@@ -131,7 +146,7 @@ impl Planner {
             _ => None,
         });
         let parameter = feature.and_then(|f| {
-            if req.get("kind").and_then(Value::as_str) == Some("size") {
+            if size {
                 Some(
                     match f.family.as_str() {
                         "holes" | "hole_patterns" => "bore.diameter",
