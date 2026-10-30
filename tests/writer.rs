@@ -1219,8 +1219,8 @@ fn a_datum_symbol_presents_its_datum_feature() {
             Regex::new(&format!(
                 r"#{aspect}\s*=\s*(DATUM_FEATURE|DIMENSIONAL_SIZE_WITH_DATUM_FEATURE)\("
             ))
-                .unwrap()
-                .is_match(&text),
+            .unwrap()
+            .is_match(&text),
             "callout #{callout} presents #{aspect}, not a datum feature"
         );
     }

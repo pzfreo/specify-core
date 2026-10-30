@@ -1179,7 +1179,11 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
     // elsewhere (`Mode::Add`) gets none: its own dimensions are the ones its designer chose, and
     // these would repeat them, on faces its PMI already uses.
     let mut general = 0usize;
-    let covered: &[Map<String, Json>] = if mode == Mode::Replace { &intent.general } else { &[] };
+    let covered: &[Map<String, Json>] = if mode == Mode::Replace {
+        &intent.general
+    } else {
+        &[]
+    };
     for req in intent.requirements.iter().chain(covered) {
         let kind = req.get("kind").and_then(Json::as_str).unwrap_or("");
         let under_general = truthy(req.get("general"));
