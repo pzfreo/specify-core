@@ -15,13 +15,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [cli](#cli) | 143 | 0 | 52 | 0 | 2 | 1 | 198 |
 | [cross_engine](#cross_engine) | 5 | 1 | 0 | 1 | 1 | 0 | 8 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 0 | 33 |
-| [features](#features) | 3413 | 1415 | 503 | 2483 | 1066 | 1685 | 10565 |
+| [features](#features) | 3413 | 1415 | 514 | 2483 | 1066 | 1686 | 10577 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 89 | 0 | 615 | 0 | 0 | 0 | 704 |
 | [writer](#writer) | 16 | 0 | 0 | 0 | 15 | 0 | 31 |
-| **all** | 3702 | 1433 | 1181 | 2489 | 1101 | 1686 | 11592 |
+| **all** | 3702 | 1433 | 1192 | 2489 | 1101 | 1687 | 11604 |
 
 ## anchors
 
@@ -313,7 +313,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **quiddity #134: plate under trimming** (8 entries, 5 case globs)
 
-  The evidence is stated per entry (8 distinct; all in `features.json`). The first, for `corpus/gramel/GRM-05_depth_lock_bolt` at `features[id=plates:2.3]`: At v0.2.5: quiddity-rust#134. Supporting planes [2, 3] bound the z slab at 0/14 mm. Restoring projected convex edge strips adds 40.05530633 mm² to the two skins, for combined area 126.4000169 mm² (strip faces/areas [{"face":1,"area":40.055306333255075}]). Independent caller-coordinate area-weighted centre is (1.149630553e-15,1.609933606e-16) mm; largest residual from the framed published centre is 2.715783732e-09 mm, below 0.001 mm. Published (u,v) changes from no recognised plate → [2.1508837649542996e-09,2.7157838925729243e-09]. Skin trimming changes coverage/centroid, while these bounding planes remain. Exact comparison: Python null; Rust {"id":"plates:2.3","family":"plates","record":{"axis":"z","lo":0.0,"hi":14.0,"u":2.1508837649542996e-09,"v":2.7157838925729243e-09,"body_key":[-5.0,-5.0,0.0,5.0,5.0,32.0,1580.33564199,897.246058412]},"faces":[2,3]}.
+  The evidence is stated per entry (8 distinct; all in `features.json`). The first, for `corpus/gramel/GRM-05_depth_lock_bolt` at `features[id=plates:2.3]`: Historical raw-centre evidence: At v0.2.5: quiddity-rust#134. Supporting planes [2, 3] bound the z slab at 0/14 mm. Restoring projected convex edge strips adds 40.05530633 mm² to the two skins, for combined area 126.4000169 mm² (strip faces/areas [{"face":1,"area":40.055306333255075}]). Independent caller-coordinate area-weighted centre is (1.149630553e-15,1.609933606e-16) mm; largest residual from the framed published centre is 2.715783732e-09 mm, below 0.001 mm. Published (u,v) changes from no recognised plate → [2.1508837649542996e-09,2.7157838925729243e-09]. Skin trimming changes coverage/centroid, while these bounding planes remain. Exact comparison: Python null; Rust {"id":"plates:2.3","family":"plates","record":{"axis":"z","lo":0.0,"hi":14.0,"u":2.1508837649542996e-09,"v":2.7157838925729243e-09,"body_key":[-5.0,-5.0,0.0,5.0,5.0,32.0,1580.33564199,897.246058412]},"faces":[2,3]}. At v0.2.5: quiddity-rust#134's restored projected skins exposed a 6.96e-10 mm native/WASM centre difference on GRM-02. Specify now publishes every plate's u/v on the existing face-centroid six-decimal mm grid, with the parity comparison unchanged. For plates:2.3: raw (u,v) [2.1508837649542996e-09,2.7157838925729243e-09] mm → published [0.0,0.0] mm (largest adjustment 2.71578389e-09 mm), bounded by 0.0000005 mm. Defining faces, bounding lo/hi, body key and quiddity matching fingerprints remain exact. Exact comparison: Python null; Rust {"id":"plates:2.3","family":"plates","record":{"axis":"z","lo":0.0,"hi":14.0,"u":0.0,"v":0.0,"body_key":[-5.0,-5.0,0.0,5.0,5.0,32.0,1580.33564199,897.246058412]},"faces":[2,3]}.
 
 - **quiddity #134: turned fillet side** (281 entries, 11 case globs)
 
@@ -453,7 +453,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   quiddity-rust v0.1.0-alpha.2 publishes section_recesses in Features (154 records over the corpus and fixtures at v0.1.0-alpha.3); each differs only by Python's faces adding plane faces, records equal. quiddity-rust gives defining faces only (Features::defining); Python quiddity's evidence view gives constituent faces (upstream need U2).
 
-### features: equivalent (503 entries)
+### features: equivalent (514 entries)
+
+- **quiddity #134: plate under trimming** (18 entries, 8 case globs)
+
+  The evidence is stated per entry (18 distinct; all in `features.json`). The first, for `corpus/mfcadpp/1000` at `features[id=plates:0.27].record.u`: At v0.2.5: quiddity-rust#134's restored projected skins exposed a 6.96e-10 mm native/WASM centre difference on GRM-02. Specify now publishes every plate's u/v on the existing face-centroid six-decimal mm grid, with the parity comparison unchanged. For plates:0.27: raw u 6.587998058228942 mm → published 6.587998 mm (adjustment 5.82289426e-08 mm), bounded by 0.0000005 mm. Defining faces, bounding lo/hi, body key and quiddity matching fingerprints remain exact. Exact comparison: Python 6.587998058009582; Rust 6.587998.
 
 - **quiddity #127: inside-round publication changes the common-feature order** (18 entries, 18 case globs)
 
@@ -474,18 +478,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **body volume in the body key differs below 1e-7 relative** (5 entries, 5 case globs)
 
   The evidence is stated per entry (5 distinct; all in `features.json`). The first, for `corpus/mfcadpp_regressions/11512` at `features[id=*body_key[7]`: body_key[7] is the body's volume, integrated by each kernel (e.g. ctc_04's area: 17519780.20 against 17519779.30); agreement to 1e-7 is within either kernel's integration error; specify-core never reads body_key. Here 3 value(s), largest difference 1.01e-05.
-
-- **plate offset u differs below 1.5e-7 mm** (2 entries, 2 case globs)
-
-  The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/nist/nist_ctc_01_asme1_rd` at `features[id=plates:*].record.u`: A fitted in-plane offset (nist_ctc_01: -1.33368645 against -1.33368631). Here 1 value(s), largest difference 1.4e-07.
-
-- **quiddity #134: plate under trimming** (3 entries, 2 case globs)
-
-  The evidence is stated per entry (3 distinct; all in `features.json`). The first, for `corpus/nist/nist_ftc_06_asme1_rd` at `features[id=plates:*].record.u`: Historical (plate offset u differs below 1.5e-7 mm): A fitted in-plane offset (nist_ctc_01: -1.33368645 against -1.33368631). Here 2 value(s), largest difference 2.37e-08. At v0.2.5: quiddity-rust#134. Supporting planes [5, 7, 14] bound the z slab at -31.75/0 mm. Restoring projected convex edge strips adds 0 mm² to the two skins, for combined area 41640.71963 mm² (strip faces/areas []). Independent caller-coordinate area-weighted centre is (-3.449190909e-14,52.04890725) mm; largest residual from the framed published centre is 5.198775049e-08 mm, below 0.001 mm. Published (u,v) changes [5.198771614528606e-08,52.048907235317614] → [5.198771599669615e-08,52.048907235317614]. Skin trimming changes coverage/centroid, while these bounding planes remain. The centre change is sub-micrometre integration noise; the physical plate is unchanged. Exact comparison: Python 2.5489582468002987e-15; Rust 5.198771599669615e-08.
-
-- **plate offset v differs below 1.5e-7 mm** (2 entries, 2 case globs)
-
-  The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/nist/nist_ctc_01_asme1_rd` at `features[id=plates:*].record.v`: A fitted in-plane offset (nist_ctc_01: -1.33368645 against -1.33368631). Here 1 value(s), largest difference 1.22e-07.
 
 - **a fillet's reported point differs by a rounding unit** (2 entries, 2 case globs)
 
@@ -735,7 +727,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (7 distinct; all in `features.json`). The first, for `corpus/mfcadpp/1007` at `features[id=oriented_chamfers:2]`: quiddity #92 family merge at ada4a044: oriented_chamfers:2 is now chamfers:2 on the same physical faces [2]. tests/schema6.rs::merged_families_keep_the_frozen_oriented_feature_geometry checks all 20 renamed supports against the frozen geometry: same chamfer points, leg/span pairs (allowing paired swaps and reversed run sense), lengths and angles, or the same slot end planes/width. mfcadpp/10252 additionally checks the actual bevel plane and overlapping support-edge intervals. This is a namespace/representation change, not lost or newly invented recognition. Remaining body-key integral differences, where present, are below 1e-9 relative; this verdict concerns cross-family representation, not a claim of exact integral equality.  Exact alpha.2 candidate observation: {"case":"corpus/mfcadpp/1007","path":"features[id=oriented_chamfers:2]","python":{"id":"oriented_chamfers:2","family":"oriented_chamfers","record":{"run":[0.0,0.963429,0.267965],"length":1.315,"at":[6.876,11.184,16.322],"corner":[6.926,11.197,16.274],"leg1":0.1,"leg2":0.1,"leg1_direction":[-1.0,0.0,0.0],"leg2_direction":[0.0,-0.267965,0.963429],"support_spans":[[-0.715,0.715],[-0.658,0.658]],"angle":45.0,"body_key":[0.0,0.0,0.0,11.999845,37.829959,20.147884,5672.85285361,2527.96466244]},"faces":[2]},"rust":null}.
 
-### features: resolved (1685 entries)
+### features: resolved (1686 entries)
 
 - **a drilled hole's point cone is constituent, not defining** (`*` at `features[id=holes:*].faces+cone`)
 
@@ -780,6 +772,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **body volume in the body key differs up to 2e-5 relative** (`corpus/nist/nist_ftc_10_asme1_rb` at `features[id=*body_key[7]`)
 
   body_key[7] is the body's volume, integrated by each kernel; the difference follows the face integrals' (this case's faces[i].area entries judge each against the adaptive reference: e.g. string_post's face 0, Python 95.29644, Rust 95.29871, reference 95.29871), but the whole body was not integrated independently; specify-core never reads body_key. Here 1 value(s), largest difference 0.0071. At v0.2.1-alpha.1: #100 changes FTC-10 slot support 163.165 to 162.163.165.166, so the sweep now reports the complete changed-support slot rather than this scalar body-key path. The discrepancy is retained in that entry, not claimed numerically corrected. Historical label correction: features/body.rs appends volume at body_key[6] and area at [7]; the original area/volume labels above were reversed.
+
+- **quiddity #134: plate under trimming** (`corpus/nist/nist_ftc_06_asme1_rd` at `features[id=plates:*].record.u`)
+
+  Historical (plate offset u differs below 1.5e-7 mm): A fitted in-plane offset (nist_ctc_01: -1.33368645 against -1.33368631). Here 2 value(s), largest difference 2.37e-08. At v0.2.5: quiddity-rust#134. Supporting planes [5, 7, 14] bound the z slab at -31.75/0 mm. Restoring projected convex edge strips adds 0 mm² to the two skins, for combined area 41640.71963 mm² (strip faces/areas []). Independent caller-coordinate area-weighted centre is (-3.449190909e-14,52.04890725) mm; largest residual from the framed published centre is 5.198775049e-08 mm, below 0.001 mm. Published (u,v) changes [5.198771614528606e-08,52.048907235317614] → [5.198771599669615e-08,52.048907235317614]. Skin trimming changes coverage/centroid, while these bounding planes remain. The centre change is sub-micrometre integration noise; the physical plate is unchanged. Exact comparison: Python 2.5489582468002987e-15; Rust 5.198771599669615e-08. At v0.2.5: quiddity-rust#134 plate-centre publication uses the face-centroid six-decimal mm grid. Both FTC-06 plate u coordinates now publish zero, agreeing with the captured Python values within the unchanged 1e-9 mm comparison. Retain this path as an absence assertion.
 
 - **a blend's reported point differs by a rounding unit** (`corpus/nist/nist_ftc_07_asme1_rd` at `features[id=blends:*].record.path.at[*]`)
 

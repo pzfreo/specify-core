@@ -34,7 +34,9 @@ All notable changes to specify-core-rust. The format follows
   and rounds; edge-treated plates stay plates, and inside turned fillets are described
   as concave. Saved boss answers retain their face targets; revision migration still
   reviews changed dimensions. Recognition schema 6 and fingerprint format 3 stay unchanged;
-  optional F3D import stays off.
+  optional F3D import stays off. Plate centre coordinates use the same six-decimal mm
+  publication as face centroids, keeping native and WASM snapshots consistent after
+  projected edge strips are restored.
 
 - Upgrade quiddity and haecceity (native and WASM) to **v0.2.4** (`2f6b3a6`): haecceity's Add
   shares the face usages a file's location dimensions hold, so PMI added beside them no longer
