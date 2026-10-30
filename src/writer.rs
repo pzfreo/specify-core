@@ -1187,10 +1187,27 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
     for req in intent.requirements.iter().chain(covered) {
         let kind = req.get("kind").and_then(Json::as_str).unwrap_or("");
         let under_general = truthy(req.get("general"));
+        // Not on a datum's own faces: a size there makes the datum a datum feature of size
+        // (dimensional_size_with_datum_feature), a complex instance the authorship contract
+        // does not mark (docs/pmi-provenance.md), so a resumed write would not keep its bytes.
+        // The general tolerance still covers it.
+        if under_general
+            && kind == "size"
+            && intent.datums.iter().any(|d| {
+                face_ids(d.get("faces")).is_some()
+                    && face_ids(d.get("faces")) == face_ids(req.get("faces"))
+            })
+        {
+            continue;
+        }
         let feature_name = || py_str(req.get("feature").unwrap_or(&Json::Null));
         // A requirement on no faces (a hole whose bores the rules keep no cylinder for) is
         // listed and the rest written (question Q17).
         if let Some(what) = faceless(kind, req) {
+            // One the general tolerance covers is not a requirement: nothing to report.
+            if under_general {
+                continue;
+            }
             lines.not_written.push(format!(
                 "{what} names no faces, so nothing in the file can carry it (question Q17)"
             ));

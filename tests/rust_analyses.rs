@@ -316,7 +316,13 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
             path.file_stem().unwrap().to_string_lossy()
         ));
         let report = write_parts(&[(&loaded, &applied, answers.as_object())], &output).unwrap();
-        assert_eq!(report.written.len(), written, "{file}");
+        // Besides the one line counting the dimensions under the general tolerance (#63).
+        let lines = report
+            .written
+            .iter()
+            .filter(|l| !l.ends_with("under the general tolerance"))
+            .count();
+        assert_eq!(lines, written, "{file}");
         assert!(
             report.not_written.is_empty(),
             "{file}: {:?}",
