@@ -6,8 +6,11 @@ build123d, OCP). Built with [maturin](https://www.maturin.rs/) as a mixed projec
 module `specify_core._native` (`src/lib.rs`) and the package around it
 (`python/specify_core/`).
 
-So far: `parts`, `analyse` and `questions` (with `Question`). `analyse` takes a path, not a
-`LoadedPart`.
+So far: `load` (a `LoadedPart`), `parts`, `analyse`, `questions`, `apply` and `preview`, with
+`Question`, `Intent`, `IncompleteError` and `rules.with_all_defaults`. `analyse` takes a path or
+a `LoadedPart`, a handle on the part held by the engine: it has `path`, `binding`,
+`part_count` and `name`, but none of OpenCascade's objects (`faces`, `face`, `index_of`,
+`shape`).
 
 ```bash
 uv venv /tmp/specify-py && uv pip install --python /tmp/specify-py/bin/python maturin pytest
@@ -24,4 +27,4 @@ oracle was captured from), on the committed parts `tools/make_parts.py` built; t
 spool and NIST CTC-03 skip without Quiddity's corpus. A test that fails by a recorded
 difference is a strict xfail naming its ledger entry (`tests/python/conftest.py`, `KNOWN`).
 
-Licensed under AGPL-3.0-or-later; bundled haecceity/quiddity are AGPL-3.0-only.
+Licensed under Apache-2.0.

@@ -90,10 +90,24 @@ KNOWN = {
         "rules.json, 'measurement datums are proposed before dimensions, including in ± mode' "
         "(draftwright-rust #122): in ± mode A, B and C are proposed, not only the cited B"
     ),
+    "test_locating_problems_extras.py::test_holes_located_by_plus_minus_need_no_positions_or_datums": (
+        "rules.json, 'measurement datums are proposed before dimensions, including in ± mode' "
+        "(draftwright-rust #122): in ± mode A, B and C are still proposed"
+    ),
+    "test_preview.py::test_nothing_answered_shows_the_defaults": "rules.json, 'unanswered "
+    "defaults remain suggestions until explicitly accepted' (specify-core-rust #20): preview "
+    "holds only the answers given, so nothing answered previews no datums or requirements",
+    "test_preview.py::test_an_answer_is_shown_as_decided": "rules.json, 'unanswered defaults "
+    "remain suggestions until explicitly accepted' (specify-core-rust #20): an answered position "
+    "waits for its datum frame, which is unanswered",
 }
 
 
 def pytest_collection_modifyitems(items):
+    try:  # the Rust-backed package; specify-core's own engine runs these tests unmarked
+        import specify_core._native  # noqa: F401
+    except ImportError:
+        return
     for item in items:
         name = f"{item.path.name}::{item.originalname}"
         if name in KNOWN:

@@ -1,7 +1,8 @@
 """Clearance holes positioned at MMC, the part's notes, and surface finish."""
 import re
 import pytest
-from specify_core.api import analyse
+from specify_core.api import analyse, apply
+from specify_core.load import load
 from specify_core.rules import questions
 
 

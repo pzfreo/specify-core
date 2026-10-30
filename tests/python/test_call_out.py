@@ -1,7 +1,8 @@
 """Calling out a dimension: a size or a distance a person tolerances themselves,
 in place of what the general tolerance would have said of it."""
 import pytest
-from specify_core.api import analyse
+from specify_core.api import analyse, apply
+from specify_core.load import load
 from specify_core.rules import questions
 MATERIAL = {"part.material": "steel"}
 
@@ -9,6 +10,43 @@ MATERIAL = {"part.material": "steel"}
 @pytest.fixture(scope="module")
 def plate_analysis(plate):
     return analyse(plate)
+
+
+def _general(analysis, answers=None):
+    return apply(analysis, {**MATERIAL, **(answers or {})}, accept_defaults=True).general
+
+
+def _added(intent, key):
+    return next(r for r in intent.requirements if r.get("question") == key)
+
+
+def test_a_called_out_size_may_be_plus_minus_or_a_fit(plate_analysis):
+    size = next(g for g in _general(plate_analysis) if g["kind"] == "size")
+    for value, (fit, upper, lower) in {"±0.05": ("", 0.05, -0.05), "H7": ("H7", None, 0.0)}.items():
+        extra = {"faces": size["faces"], "kind": "size", "value": value}
+        req = _added(
+            apply(plate_analysis, {**MATERIAL, "extra.1": extra}, accept_defaults=True), "extra.1"
+        )
+        assert req["fit"] == fit and req["lower"] == lower
+        assert upper is None or req["upper"] == upper
+
+
+def test_a_distance_to_a_holes_axis_is_measured_from_a_plane_along_it(plate_analysis):
+    faces = {f["id"]: f for f in plate_analysis["faces"]}
+    bore = next(f for f in faces.values() if f["kind"] == "cylinder")
+    side = next(
+        f
+        for f in faces.values()
+        if f["kind"] == "plane"
+        and abs(sum(a * b for a, b in zip(f["direction"], bore["direction"], strict=False))) < 1e-6
+    )
+    extra = {"faces": [bore["id"]], "reference": [side["id"]], "kind": "distance", "value": "±0.1"}
+    req = _added(
+        apply(plate_analysis, {**MATERIAL, "extra.1": extra}, accept_defaults=True), "extra.1"
+    )
+    offset = [o - c for o, c in zip(bore["origin"], side["centroid"], strict=False)]
+    expected = abs(sum(o * n for o, n in zip(offset, side["direction"], strict=False)))
+    assert req["distance"] == pytest.approx(expected, abs=1e-5) and req["reference"] == [side["id"]]
 
 
 def _planes(analysis):
@@ -55,3 +93,11 @@ def test_a_call_out_that_does_not_suit_its_faces_is_refused(plate_analysis, extr
     extra = {k: named.get(v, v) if k in ("faces", "reference") else v for k, v in extra.items()}
     with pytest.raises(ValueError, match=reason):
         questions(plate_analysis, {"extra.1": extra})
+
+
+@pytest.mark.parametrize("value", ["Ra 0.8", ["finish"], None, 3])
+def test_an_added_requirement_that_is_not_an_object_is_refused(plate_analysis, value):
+    with pytest.raises(ValueError, match="extra.finish1"):
+        questions(plate_analysis, {"extra.finish1": value})
+    with pytest.raises(ValueError, match="extra.finish1"):
+        apply(plate_analysis, {**MATERIAL, "extra.finish1": value}, accept_defaults=True)

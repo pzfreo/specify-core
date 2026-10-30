@@ -40,6 +40,22 @@ def test_a_pin_in_its_bores_is_a_fit_on_both(defaults):
     assert defaults[PIN]["diameter.fit:10.0"][0] == "general"
 
 
+def test_a_suggested_default_reaches_the_intent(stack):
+    analysis = api.analyse(stack, BASE)
+    intent = api.apply(analysis, {"part.material": "steel"}, accept_defaults=True)
+    fits = {r["fit"] for r in intent.requirements if r["kind"] == "size"}
+    assert "H7" in fits
+
+
+def test_an_answer_given_is_kept_over_a_suggestion(stack):
+    analysis = api.analyse(stack, BASE)
+    bore = next(q.id for q in api.questions(analysis, {}) if q.diameter == 8.0)
+    (q,) = [q for q in api.questions(analysis, {bore: "general"}) if q.id == bore]
+    assert q.default == "fit:H7"  # still offered, but the answer stands
+    intent = api.apply(analysis, {"part.material": "steel", bore: "general"}, accept_defaults=True)
+    assert not any(r.get("question") == bore and r["kind"] == "size" for r in intent.requirements)
+
+
 def test_a_part_alone_has_no_mates(plate):
     assert "mates" not in api.analyse(plate)
 

@@ -1,7 +1,6 @@
 import json
 from specify_core.api import analyse
-
-from conftest import PARTS
+from specify_core.load import load
 
 
 def test_analysis_is_json_and_ids_are_unique(spool):
@@ -34,8 +33,9 @@ def _plate_with_holes(tmp_path, locations):
     # under the calling test's name (with the same holes at the same locations).
     import inspect
 
-    name = inspect.stack()[1].function.removeprefix("test_")
-    path = PARTS / f"{name}.step"
+    from conftest import PARTS
+
+    path = PARTS / f"{inspect.stack()[1].function.removeprefix('test_')}.step"
     return [f for f in analyse(path)["features"] if f["family"] == "hole_patterns"]
 
 

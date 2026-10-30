@@ -4,7 +4,7 @@ and ``IncompleteError``, as specify-core's ``rules`` defines them.
 The questions and the intent are the Rust engine's (``specify_core._native``); these are the
 types they come back as, field for field, so a caller of specify-core's Python engine reads
 them unchanged. ``questions`` is ``api.questions``, under the name specify-core's ``rules``
-also gives it.
+also gives it; ``with_all_defaults`` is the engine's.
 """
 
 from __future__ import annotations
@@ -160,6 +160,14 @@ def questions(analysis: dict[str, Any], answers: dict[str, Any]) -> list[Questio
     from .api import questions
 
     return questions(analysis, answers)
+
+
+def with_all_defaults(analysis: dict[str, Any], answers: dict[str, Any]) -> dict[str, Any]:
+    """``answers`` plus every default, to a fixed point: some questions only
+    exist once an earlier default is taken."""
+    import json
+
+    return json.loads(_native.with_all_defaults(json.dumps(analysis), json.dumps(answers)))
 
 
 class IncompleteError(ValueError):

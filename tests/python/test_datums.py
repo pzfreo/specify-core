@@ -7,9 +7,9 @@ sizes use H11 until ± tolerances exist.
 """
 import json
 import pytest
-from specify_core.api import analyse
+from specify_core.api import analyse, apply
+from specify_core.load import load
 from specify_core.rules import questions
-INCH = 25.4
 
 
 @pytest.fixture(scope="module")
@@ -22,6 +22,18 @@ def test_a_bad_datum_answer_is_a_clear_error(ctc03_analysis):
         questions(ctc03_analysis, {"datum.A": [99999]})
     with pytest.raises(ValueError, match="datum A: .* cannot form one datum"):
         questions(ctc03_analysis, {"datum.A": [18, 7]})
+
+
+def test_a_plane_c_is_held_square_to_a_and_b(plate):
+    analysis = analyse(plate)
+    qs = {q.id: q for q in questions(analysis, {})}
+    assert qs["datum.C.control"].prompt == (
+        "Perpendicularity required on datum C, relative to A|B?"
+    )
+    answers = {"part.material": "steel", "datum.C.control": "0.05"}
+    intent = apply(analysis, answers, accept_defaults=True)
+    (c,) = [r for r in intent.requirements if r["feature"] == "datum C"]
+    assert (c["kind"], c["datums"], c["diametral"]) == ("perpendicularity", ["A", "B"], False)
 
 
 def test_a_datum_bore_on_a_turned_part_keeps_its_fit(spool):

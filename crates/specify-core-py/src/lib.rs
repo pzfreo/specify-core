@@ -172,6 +172,16 @@ fn preview(py: Python<'_>, analysis: &str, answers: &str) -> PyResult<String> {
     Ok(intent.to_dict().to_string())
 }
 
+/// `answers` plus every default, to a fixed point, as JSON (`rules.with_all_defaults`).
+#[pyfunction]
+fn with_all_defaults(py: Python<'_>, analysis: &str, answers: &str) -> PyResult<String> {
+    let (analysis, answers) = parse_both(analysis, answers)?;
+    let answers = py
+        .detach(|| rules::with_all_defaults(&analysis, &answers))
+        .map_err(|e| raised(Error::Rules(e)))?;
+    Ok(Value::Object(answers).to_string())
+}
+
 fn parse_both(analysis: &str, answers: &str) -> PyResult<(Value, Map<String, Value>)> {
     let analysis = parse("analysis", analysis)?;
     let Value::Object(answers) = parse("answers", answers)? else {
@@ -216,6 +226,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(questions, m)?)?;
     m.add_function(wrap_pyfunction!(apply, m)?)?;
     m.add_function(wrap_pyfunction!(preview, m)?)?;
+    m.add_function(wrap_pyfunction!(with_all_defaults, m)?)?;
     m.add("ANALYSIS_SCHEMA", api::ANALYSIS_SCHEMA)?;
     m.add("LOADER_VERSION", part::LOADER_VERSION)?;
     m.add("RULES_VERSION", rules::RULES_VERSION)?;

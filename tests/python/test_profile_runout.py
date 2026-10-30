@@ -1,6 +1,7 @@
 """Runout on turned diameters, and profile and runout added on any faces."""
 import pytest
-from specify_core.api import analyse
+from specify_core.api import analyse, apply
+from specify_core.load import load
 from specify_core.rules import questions
 
 

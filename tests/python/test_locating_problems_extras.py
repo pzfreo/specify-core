@@ -1,7 +1,8 @@
 """Locating holes by ± dimensions, the problems list, and requirements a
 person adds where nothing asked."""
 import pytest
-from specify_core.api import analyse
+from specify_core.api import analyse, apply
+from specify_core.load import load
 from specify_core.rules import LOCATING, questions
 
 
@@ -20,6 +21,17 @@ def _bore8(analysis):
     return next(
         f for f in analysis["faces"] if f["kind"] == "cylinder" and abs(f["radius"] - 4) < 1e-6
     )
+
+
+def test_holes_located_by_plus_minus_need_no_positions_or_datums(plate_analysis):
+    ids = {q.id for q in questions(plate_analysis, {})}
+    assert "part.locating" in ids and any(i.startswith("hole.position") for i in ids)
+    plus_minus = {"part.locating": LOCATING[1]}
+    ids = {q.id for q in questions(plate_analysis, plus_minus)}
+    assert not any(i.startswith(("hole.position", "hole.frame", "datum.")) for i in ids)
+    intent = apply(plate_analysis, {**plus_minus, "part.material": "steel"}, accept_defaults=True)
+    assert intent.datums == [] and not any(r["kind"] == "position" for r in intent.requirements)
+    assert any(r["kind"] == "size" for r in intent.requirements)  # fits still apply
 
 
 def test_an_added_orientation_brings_datums_where_nothing_else_needs_them(plate_analysis):

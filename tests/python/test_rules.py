@@ -1,6 +1,6 @@
 import pytest
-from specify_core.api import analyse
-from specify_core.rules import questions
+from specify_core.api import analyse, apply
+from specify_core.rules import IncompleteError, questions
 
 
 @pytest.fixture(scope="module")
@@ -40,6 +40,21 @@ def test_position_follows_the_fastener_formula(plate_analysis):
 def test_general_holes_get_no_position_question(plate_analysis):
     qs = questions(plate_analysis, {})
     assert not any("Position" in q.prompt and "Ø8 hole" in q.prompt for q in qs)
+
+
+def test_incomplete_answers_are_refused(plate_analysis):
+    with pytest.raises(IncompleteError) as exc:
+        apply(plate_analysis, {}, accept_defaults=True)
+    assert exc.value.missing == ["part.material"]
+
+
+def test_intent_from_defaults(plate_analysis):
+    intent = apply(plate_analysis, {"part.material": "6082-T6"}, accept_defaults=True)
+    kinds = sorted(r["kind"] for r in intent.requirements if r["kind"] != "location")
+    assert kinds == ["position", "position", "size", "thread"]
+    # Each positioned hole has basic dimensions from B and C: 6 + 1 holes, 2 each.
+    assert sum(r.get("basic", False) for r in intent.requirements) == 14
+    assert [d["letter"] for d in intent.datums] == ["A", "B", "C"]
 
 
 def test_off_table_holes_can_be_clearance_for_an_unstated_bolt(spool):

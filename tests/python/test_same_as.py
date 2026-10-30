@@ -1,6 +1,6 @@
 """Identical features are asked about once, and each still gets its own spec."""
 import pytest
-from specify_core.api import analyse
+from specify_core.api import analyse, apply
 from specify_core.rules import questions
 
 
@@ -19,3 +19,29 @@ def test_identical_bolt_circles_are_one_question(spool_analysis):
     assert len(q.parts) == 2 and len(q.faces) == 24
     assert q.to_dict()["features"] == [fid for fid, _ in q.parts]
     assert not [x for x in questions(spool_analysis, {}) if "12× Ø8" in x.prompt]
+
+
+def test_each_group_keeps_its_own_size_and_position(spool_analysis):
+    q = _merged(spool_analysis, "Ø8 holes")
+    answers = {"part.material": "steel", q.id: "clearance"}
+    intent = apply(spool_analysis, answers | _defaults(spool_analysis, answers))
+    for fid, bores in q.parts:
+        mine = [r for r in intent.requirements if r["feature"] == fid]
+        assert sorted(r["kind"] for r in mine) == ["position", "size"]
+        assert all(r["faces"] == list(bores) for r in mine)
+        assert all(r["question"] in (q.id, q.id.replace("function", "position")) for r in mine)
+
+
+def test_identical_turned_diameters_are_one_question(spool_analysis):
+    q = _merged(spool_analysis, "Ø130")
+    assert q.prompt.startswith("Is the turned 2× Ø130")
+    answers = {"part.material": "steel", q.id: "h7"}
+    intent = apply(spool_analysis, answers | _defaults(spool_analysis, answers))
+    fits = [r for r in intent.requirements if r.get("fit") == "h7"]
+    assert sorted(r["feature"] for r in fits) == sorted(fid for fid, _ in q.parts)
+
+
+def _defaults(analysis, answers):
+    from specify_core.rules import with_all_defaults
+
+    return with_all_defaults(analysis, answers)

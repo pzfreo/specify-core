@@ -4,8 +4,7 @@ import json
 import re
 import pytest
 from specify_core import api
-PLATE, PIN = 0, 1
-ANSWERS = {PLATE: {"part.material": "steel"}, PIN: {"part.material": "brass"}}
+from specify_core.load import load
 
 
 def test_each_part_is_listed_once_with_where_its_instances_are(assembly):
