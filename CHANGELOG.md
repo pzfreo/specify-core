@@ -6,6 +6,12 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Changed
+
+- Relicensed from AGPL-3.0-or-later to **Apache-2.0** (`LICENSE`, `NOTICE`, both crates'
+  `license` fields). The binaries and WASM package still contain quiddity and haecceity,
+  which remain AGPL-3.0-only.
+
 ### Added
 
 - For #65: stable per-part characteristic numbers in standard AP242 `ID_ATTRIBUTE`s,

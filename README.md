@@ -154,4 +154,6 @@ Comparisons with the Python implementation are described in [docs/python.md](doc
 
 ## Licence
 
-AGPL-3.0-or-later; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE). The command-line binaries and the
+WASM package also contain [quiddity-rust](https://github.com/pzfreo/quiddity-rust)'s quiddity and
+haecceity, which are AGPL-3.0-only.
