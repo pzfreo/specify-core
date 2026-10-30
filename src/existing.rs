@@ -276,9 +276,15 @@ impl Reading {
                     faces_of(pmi, &[*to]),
                 ),
             };
+            let owned = provenance::dimension(doc, &prov.dimensions[i]);
+            // One Specify wrote with no tolerance of its own is a dimension the general
+            // tolerance covers (#63): it states nothing the geometry does not, so it settles no
+            // question, read back without the answers it was written from.
+            if owned && matches!(dimension.tolerance, DimTolerance::None) {
+                continue;
+            }
             let mut item = ExistingPmi::new("dimension", r#type, first);
-            item.provenance =
-                provenance::dimension(doc, &prov.dimensions[i]).then(|| provenance::MARKER.into());
+            item.provenance = owned.then(|| provenance::MARKER.into());
             item.faces2 = second;
             let nominal = dimension.nominal.as_ref();
             item.value = nominal.map(value);
