@@ -477,6 +477,18 @@ fn published_record(
     family: &str,
     mut record: Map<String, Value>,
 ) -> Result<Map<String, Value>, FeatureError> {
+    if family == "plates" {
+        // quiddity-rust#134 restores projected edge strips to plate centres. Their
+        // integration differs below a nanometre between native and WASM. Publish
+        // these coordinates on the same six-decimal mm grid as face centroids;
+        // keep the bounding levels and quiddity's matching fingerprints exact.
+        for key in ["u", "v"] {
+            if let Some(value) = record.get(key) {
+                let value = rounded_value(value);
+                record.insert(key.into(), value);
+            }
+        }
+    }
     if let Some((direction, [lo, hi])) = end_planes(family, &record)?
         && (record.contains_key("origin") || !record.get("long_axis").is_some_and(Value::is_string))
     {
@@ -675,6 +687,32 @@ fn truthy(value: Option<&Value>) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn restored_plate_centres_publish_identically_on_native_and_wasm() {
+        // Measured native/WASM GRM-02 values after quiddity-rust#134. This is a
+        // publication rule, not a relaxed parity comparison or a new matching grid.
+        let records = [0.19083891396389085, 0.19083891326764577].map(|v| {
+            json!({"u":-1.231855997068095e-8,"v":v,"lo":33.6,"hi":37.6,
+                "body_key":[0.123456789012345]})
+            .as_object()
+            .unwrap()
+            .clone()
+        });
+        let published = records
+            .clone()
+            .map(|r| published_record("plates", r).unwrap());
+        assert_eq!(published[0], published[1]);
+        assert_eq!(published[0]["u"], 0.0);
+        assert_eq!(published[0]["v"], 0.190839);
+        for key in ["lo", "hi", "body_key"] {
+            assert_eq!(published[0][key], records[0][key]);
+        }
+        assert_eq!(
+            published_record("bosses", records[0].clone()).unwrap(),
+            records[0]
+        );
+    }
 
     #[test]
     fn published_end_planes_decode_letters_vectors_and_refuse_missing_origins() {

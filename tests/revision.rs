@@ -632,11 +632,12 @@ fn an_end_chamfer_is_one_change_despite_trimmed_recognition_records() {
     let before = serde_json::to_value(&was).unwrap();
     let after = serde_json::to_value(&now).unwrap();
     assert_eq!(before["bosses"][0]["height"], 37.6);
-    assert_eq!(after["bosses"][0]["height"], 36.1);
+    // quiddity-rust#134 includes the end chamfer and retains the trimmed plate.
+    assert_eq!(after["bosses"][0]["height"], 37.6);
     assert_eq!(before["flats"][1]["at"], json!([35.6, 0., -3.4]));
     assert_eq!(after["flats"][1]["at"], json!([35.052, 0., -3.4]));
     assert_eq!(before["plates"].as_array().unwrap().len(), 1);
-    assert!(after["plates"].as_array().unwrap().is_empty());
+    assert_eq!(after["plates"].as_array().unwrap().len(), 1);
     assert_eq!(after["chamfers"][0]["leg1"], 1.5);
     assert_eq!(after["chamfers"][0]["leg2"], 1.5);
     assert_eq!(after["chamfers"][0]["angle"], 45.);
@@ -645,13 +646,14 @@ fn an_end_chamfer_is_one_change_despite_trimmed_recognition_records() {
     assert!(
         corr.features
             .iter()
-            .any(|f| f.old == "plates/0" && f.class == qc::Class::Orphaned)
+            .any(|f| f.old == "plates/0" && f.class == qc::Class::Carried)
     );
-    assert!(
-        corr.faces
-            .iter()
-            .any(|f| f.old == 1 && f.class == qc::Class::Orphaned)
-    );
+    // quiddity-rust#134 recovers this retained end plane through the supporting plate.
+    let end = corr.faces.iter().find(|f| f.old == 1).unwrap();
+    assert_eq!(end.new, Some(13));
+    assert_eq!(end.class, qc::Class::Adapted);
+    assert!(end.changes.contains_key("area"));
+    assert!(end.changes.contains_key("adjacency"));
     assert_eq!(r.features.len(), 1, "{:?}", r.features);
     assert_eq!(r.features[0].family, "chamfers");
     assert_eq!(r.features[0].class, "new");
@@ -683,7 +685,8 @@ fn a_real_boss_shortening_alongside_a_chamfer_still_reports() {
         "{:?}",
         r.features
     );
-    assert!(r.markdown("Shaft", None).contains("height 37.6 → 34.1"));
+    // quiddity-rust#134 includes the 1.5 mm end chamfer in both physical heights.
+    assert!(r.markdown("Shaft", None).contains("height 37.6 → 35.6"));
     // The existing diameter-resize fixture is still a reported size change too.
     assert!(
         revised("boss_resized", json!({}))

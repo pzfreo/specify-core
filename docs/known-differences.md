@@ -15,13 +15,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [cli](#cli) | 143 | 0 | 52 | 0 | 2 | 1 | 198 |
 | [cross_engine](#cross_engine) | 5 | 1 | 0 | 1 | 1 | 0 | 8 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 0 | 33 |
-| [features](#features) | 3116 | 1415 | 507 | 2486 | 1066 | 1685 | 10275 |
+| [features](#features) | 3413 | 1415 | 514 | 2483 | 1066 | 1686 | 10577 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 89 | 0 | 615 | 0 | 0 | 0 | 704 |
 | [writer](#writer) | 16 | 0 | 0 | 0 | 15 | 0 | 31 |
-| **all** | 3405 | 1433 | 1185 | 2492 | 1101 | 1686 | 11302 |
+| **all** | 3702 | 1433 | 1192 | 2489 | 1101 | 1687 | 11604 |
 
 ## anchors
 
@@ -305,7 +305,19 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## features
 
-### features: rust-correct (3116 entries)
+### features: rust-correct (3413 entries)
+
+- **quiddity #134: boss end treatment** (8 entries, 4 case globs)
+
+  The evidence is stated per entry (8 distinct; all in `features.json`). The first, for `corpus/cadgenbench/threaded_connector_109` at `features[id=bosses:169.173.177.181.185.189.193.197.201.205.209.213].record.height`: At v0.2.5: quiddity-rust#134. Ø130.94 boss, defining faces [169, 173, 177, 181, 185, 189, 193, 197, 201, 205, 209, 213]: the cylinder projects to [-139.42,-119.42] mm along its axis. The adjacent cone/torus spans and oriented joins are [{"face":164,"span":[-143.46,-139.42],"arcs":["169:Some(Convex)","173:Some(Convex)","177:Some(Convex)","181:Some(Convex)","185:Some(Convex)","189:Some(Convex)","193:Some(Convex)","197:Some(Convex)","201:Some(Convex)","205:Some(Convex)","209:Some(Convex)","213:Some(Convex)"]}]. Including its own convex end treatment changes height 20 → 24.04 mm and free-end location [9.566999970012091e-15,2.4865526304651553e-14,119.41999939997366] → [9.566999970012091e-15,2.4865526304651553e-14,119.41999939997366]. Root/concave joins remain outside the boss extent; defining cylinders are unchanged. Exact comparison: Python 20.0; Rust 24.04.
+
+- **quiddity #134: plate under trimming** (8 entries, 5 case globs)
+
+  The evidence is stated per entry (8 distinct; all in `features.json`). The first, for `corpus/gramel/GRM-05_depth_lock_bolt` at `features[id=plates:2.3]`: Historical raw-centre evidence: At v0.2.5: quiddity-rust#134. Supporting planes [2, 3] bound the z slab at 0/14 mm. Restoring projected convex edge strips adds 40.05530633 mm² to the two skins, for combined area 126.4000169 mm² (strip faces/areas [{"face":1,"area":40.055306333255075}]). Independent caller-coordinate area-weighted centre is (1.149630553e-15,1.609933606e-16) mm; largest residual from the framed published centre is 2.715783732e-09 mm, below 0.001 mm. Published (u,v) changes from no recognised plate → [2.1508837649542996e-09,2.7157838925729243e-09]. Skin trimming changes coverage/centroid, while these bounding planes remain. Exact comparison: Python null; Rust {"id":"plates:2.3","family":"plates","record":{"axis":"z","lo":0.0,"hi":14.0,"u":2.1508837649542996e-09,"v":2.7157838925729243e-09,"body_key":[-5.0,-5.0,0.0,5.0,5.0,32.0,1580.33564199,897.246058412]},"faces":[2,3]}. At v0.2.5: quiddity-rust#134's restored projected skins exposed a 6.96e-10 mm native/WASM centre difference on GRM-02. Specify now publishes every plate's u/v on the existing face-centroid six-decimal mm grid, with the parity comparison unchanged. For plates:2.3: raw (u,v) [2.1508837649542996e-09,2.7157838925729243e-09] mm → published [0.0,0.0] mm (largest adjustment 2.71578389e-09 mm), bounded by 0.0000005 mm. Defining faces, bounding lo/hi, body key and quiddity matching fingerprints remain exact. Exact comparison: Python null; Rust {"id":"plates:2.3","family":"plates","record":{"axis":"z","lo":0.0,"hi":14.0,"u":0.0,"v":0.0,"body_key":[-5.0,-5.0,0.0,5.0,5.0,32.0,1580.33564199,897.246058412]},"faces":[2,3]}.
+
+- **quiddity #134: turned fillet side** (281 entries, 11 case globs)
+
+  The evidence is stated per entry (281 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=fillets:86].record.side`: At v0.2.5: quiddity-rust#134. Native torus face 86: major radius 45 mm, minor radius 10 mm, trimmed UV sweeps 360°/90°. At 25%, 50%, 75% of the trimmed domain, outward-normal dot tube-radial vector is [-10, -10, -10] mm. All three negative signs prove material outside the tube (a concave root round). Defining faces and radius are unchanged; the old turned path hard-coded convex. Exact comparison: Python "convex"; Rust "concave".
 
 - **quiddity #127: inside rounds and spherical caps are concave fillets** (1016 entries, 20 case globs)
 
@@ -441,7 +453,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   quiddity-rust v0.1.0-alpha.2 publishes section_recesses in Features (154 records over the corpus and fixtures at v0.1.0-alpha.3); each differs only by Python's faces adding plane faces, records equal. quiddity-rust gives defining faces only (Features::defining); Python quiddity's evidence view gives constituent faces (upstream need U2).
 
-### features: equivalent (507 entries)
+### features: equivalent (514 entries)
+
+- **quiddity #134: plate under trimming** (18 entries, 8 case globs)
+
+  The evidence is stated per entry (18 distinct; all in `features.json`). The first, for `corpus/mfcadpp/1000` at `features[id=plates:0.27].record.u`: At v0.2.5: quiddity-rust#134's restored projected skins exposed a 6.96e-10 mm native/WASM centre difference on GRM-02. Specify now publishes every plate's u/v on the existing face-centroid six-decimal mm grid, with the parity comparison unchanged. For plates:0.27: raw u 6.587998058228942 mm → published 6.587998 mm (adjustment 5.82289426e-08 mm), bounded by 0.0000005 mm. Defining faces, bounding lo/hi, body key and quiddity matching fingerprints remain exact. Exact comparison: Python 6.587998058009582; Rust 6.587998.
 
 - **quiddity #127: inside-round publication changes the common-feature order** (18 entries, 18 case globs)
 
@@ -462,14 +478,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **body volume in the body key differs below 1e-7 relative** (5 entries, 5 case globs)
 
   The evidence is stated per entry (5 distinct; all in `features.json`). The first, for `corpus/mfcadpp_regressions/11512` at `features[id=*body_key[7]`: body_key[7] is the body's volume, integrated by each kernel (e.g. ctc_04's area: 17519780.20 against 17519779.30); agreement to 1e-7 is within either kernel's integration error; specify-core never reads body_key. Here 3 value(s), largest difference 1.01e-05.
-
-- **plate offset u differs below 1.5e-7 mm** (6 entries, 6 case globs)
-
-  The evidence is stated per entry (6 distinct; all in `features.json`). The first, for `corpus/nist/nist_ctc_01_asme1_rd` at `features[id=plates:*].record.u`: A fitted in-plane offset (nist_ctc_01: -1.33368645 against -1.33368631). Here 1 value(s), largest difference 1.4e-07.
-
-- **plate offset v differs below 1.5e-7 mm** (5 entries, 5 case globs)
-
-  The evidence is stated per entry (5 distinct; all in `features.json`). The first, for `corpus/nist/nist_ctc_01_asme1_rd` at `features[id=plates:*].record.v`: A fitted in-plane offset (nist_ctc_01: -1.33368645 against -1.33368631). Here 1 value(s), largest difference 1.22e-07.
 
 - **a fillet's reported point differs by a rounding unit** (2 entries, 2 case globs)
 
@@ -539,7 +547,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (8 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb217` at `features[id=fillets:191].record.axis`: At v0.2.2: quiddity #120. Native face 191: convex cylinder R1 mm, UV sweep 90 degrees, run [1.0,0.0,0.0]. The Python principal-axis letter and the published Rust vector describe the same unoriented line; only representation/sign differs after the any-direction recogniser. Exact comparison: Python "x"; Rust [-1.0000000000000002,0.0,0.0].
 
-### features: undetermined (2486 entries)
+### features: undetermined (2483 entries)
 
 - **face numbering differs from OpenCascade's** (`corpus/inventory_refusal/13975` at `faces[*`)
 
@@ -601,7 +609,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   fit_error 1.08891 (Python) against 0.326125 (Rust): each kernel's sample points of freeform faces; not checked further.
 
-- **fillets reported by Rust only** (2 entries, 1 case glob)
+- **fillets reported by Rust only** (`corpus/cadgenbench_inputs/cgb202` at `features[id=fillets:1627]`)
 
   Python reports nothing on these faces.
 
@@ -628,10 +636,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **interior_voids reported by Rust only** (`corpus/cadgenbench_inputs/cgb243` at `features[id=interior_voids:31.32.33.34.126.227.528.529.530.531.532.533]`)
 
   Python's interior_voids feature(s) interior_voids:29.30.31.32.33.34.75.126.127.128.139.146.147.153.158.159.186.220.226.227.528.529.530.531.532.533.534.535 share faces with it but differ in record or faces (the two quiddities compose it differently).
-
-- **plates reported by Rust only** (`corpus/gramel/GRM-03_thumbwheel_drive_screw` at `features[id=plates:0.7.11]`)
-
-  Python's cross-family reconciliation gives these faces to risers and drops this plates record; quiddity-rust does not reconcile (U2).
 
 - **prismatic_pockets: Rust only** (39 entries, 39 case globs)
 
@@ -673,9 +677,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (46 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `features[id=fillets:1069]`: Alpha.8 record {"id":"fillets:1069","family":"fillets","record":{"axis":"y","radius":3.0,"at":[-9.296,-70.35,0.254],"turned":false,"side":"convex"},"faces":[1069]}. v0.1.1 schema-5 accounting: face 1069: {"group":"unexplained"}. No named refusal accounts for all of this support. No replacement is claimed for the unexplained/body faces. Exact observation features[id=fillets:1069]: captured {"id":"fillets:1069","family":"fillets","record":{"axis":"y","radius":3.0,"at":[-9.296,-70.35,0.254],"turned":false,"side":"convex"},"faces":[1069]}, v0.1.1 null.
 
-- **Inventory addition (not a lost feature)** (25 entries, 10 case globs)
+- **Inventory addition (not a lost feature)** (24 entries, 9 case globs)
 
-  The evidence is stated per entry (25 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `features[id=fillets:1703]`: v0.1.1 publishes {"id":"fillets:1703","family":"fillets","record":{"axis":"x","radius":3.0,"at":[-165.499,-132.192,-91.846],"turned":false,"side":"convex","_local":["axis"],"_frame":{"status":"inferred","origin":[30.746994014776185,-32.658330387712496,-4.440670776034475],"x":[0.0,1.0,0.0],"y":[-0.08715574274761806,0.0,-0.9961946980917492],"z":[-0.9961946980917492,0.0,0.08715574274761806],"gauge":"full"}},"faces":[1703]}. Alpha.8 did not publish this support. The frozen Python inventory has no such ID. quiddity #57/#58/#61 change intrinsic-frame selection; the presence alone does not prove which semantic reading is correct. Exact observation features[id=fillets:1703]: captured null, v0.1.1 {"id":"fillets:1703","family":"fillets","record":{"axis":"x","radius":3.0,"at":[-165.499,-132.192,-91.846],"turned":false,"side":"convex","_local":["axis"],"_frame":{"status":"inferred","origin":[30.746994014776185,-32.658330387712496,-4.440670776034475],"x":[0.0,1.0,0.0],"y":[-0.08715574274761806,0.0,-0.9961946980917492],"z":[-0.9961946980917492,0.0,0.08715574274761806],"gauge":"full"}},"faces":[1703]}.
+  The evidence is stated per entry (24 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `features[id=fillets:1703]`: v0.1.1 publishes {"id":"fillets:1703","family":"fillets","record":{"axis":"x","radius":3.0,"at":[-165.499,-132.192,-91.846],"turned":false,"side":"convex","_local":["axis"],"_frame":{"status":"inferred","origin":[30.746994014776185,-32.658330387712496,-4.440670776034475],"x":[0.0,1.0,0.0],"y":[-0.08715574274761806,0.0,-0.9961946980917492],"z":[-0.9961946980917492,0.0,0.08715574274761806],"gauge":"full"}},"faces":[1703]}. Alpha.8 did not publish this support. The frozen Python inventory has no such ID. quiddity #57/#58/#61 change intrinsic-frame selection; the presence alone does not prove which semantic reading is correct. Exact observation features[id=fillets:1703]: captured null, v0.1.1 {"id":"fillets:1703","family":"fillets","record":{"axis":"x","radius":3.0,"at":[-165.499,-132.192,-91.846],"turned":false,"side":"convex","_local":["axis"],"_frame":{"status":"inferred","origin":[30.746994014776185,-32.658330387712496,-4.440670776034475],"x":[0.0,1.0,0.0],"y":[-0.08715574274761806,0.0,-0.9961946980917492],"z":[-0.9961946980917492,0.0,0.08715574274761806],"gauge":"full"}},"faces":[1703]}.
 
 - **Support claimed by named replacement** (2 entries, 2 case globs)
 
@@ -723,7 +727,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (7 distinct; all in `features.json`). The first, for `corpus/mfcadpp/1007` at `features[id=oriented_chamfers:2]`: quiddity #92 family merge at ada4a044: oriented_chamfers:2 is now chamfers:2 on the same physical faces [2]. tests/schema6.rs::merged_families_keep_the_frozen_oriented_feature_geometry checks all 20 renamed supports against the frozen geometry: same chamfer points, leg/span pairs (allowing paired swaps and reversed run sense), lengths and angles, or the same slot end planes/width. mfcadpp/10252 additionally checks the actual bevel plane and overlapping support-edge intervals. This is a namespace/representation change, not lost or newly invented recognition. Remaining body-key integral differences, where present, are below 1e-9 relative; this verdict concerns cross-family representation, not a claim of exact integral equality.  Exact alpha.2 candidate observation: {"case":"corpus/mfcadpp/1007","path":"features[id=oriented_chamfers:2]","python":{"id":"oriented_chamfers:2","family":"oriented_chamfers","record":{"run":[0.0,0.963429,0.267965],"length":1.315,"at":[6.876,11.184,16.322],"corner":[6.926,11.197,16.274],"leg1":0.1,"leg2":0.1,"leg1_direction":[-1.0,0.0,0.0],"leg2_direction":[0.0,-0.267965,0.963429],"support_spans":[[-0.715,0.715],[-0.658,0.658]],"angle":45.0,"body_key":[0.0,0.0,0.0,11.999845,37.829959,20.147884,5672.85285361,2527.96466244]},"faces":[2]},"rust":null}.
 
-### features: resolved (1685 entries)
+### features: resolved (1686 entries)
 
 - **a drilled hole's point cone is constituent, not defining** (`*` at `features[id=holes:*].faces+cone`)
 
@@ -768,6 +772,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **body volume in the body key differs up to 2e-5 relative** (`corpus/nist/nist_ftc_10_asme1_rb` at `features[id=*body_key[7]`)
 
   body_key[7] is the body's volume, integrated by each kernel; the difference follows the face integrals' (this case's faces[i].area entries judge each against the adaptive reference: e.g. string_post's face 0, Python 95.29644, Rust 95.29871, reference 95.29871), but the whole body was not integrated independently; specify-core never reads body_key. Here 1 value(s), largest difference 0.0071. At v0.2.1-alpha.1: #100 changes FTC-10 slot support 163.165 to 162.163.165.166, so the sweep now reports the complete changed-support slot rather than this scalar body-key path. The discrepancy is retained in that entry, not claimed numerically corrected. Historical label correction: features/body.rs appends volume at body_key[6] and area at [7]; the original area/volume labels above were reversed.
+
+- **quiddity #134: plate under trimming** (`corpus/nist/nist_ftc_06_asme1_rd` at `features[id=plates:*].record.u`)
+
+  Historical (plate offset u differs below 1.5e-7 mm): A fitted in-plane offset (nist_ctc_01: -1.33368645 against -1.33368631). Here 2 value(s), largest difference 2.37e-08. At v0.2.5: quiddity-rust#134. Supporting planes [5, 7, 14] bound the z slab at -31.75/0 mm. Restoring projected convex edge strips adds 0 mm² to the two skins, for combined area 41640.71963 mm² (strip faces/areas []). Independent caller-coordinate area-weighted centre is (-3.449190909e-14,52.04890725) mm; largest residual from the framed published centre is 5.198775049e-08 mm, below 0.001 mm. Published (u,v) changes [5.198771614528606e-08,52.048907235317614] → [5.198771599669615e-08,52.048907235317614]. Skin trimming changes coverage/centroid, while these bounding planes remain. The centre change is sub-micrometre integration noise; the physical plate is unchanged. Exact comparison: Python 2.5489582468002987e-15; Rust 5.198771599669615e-08. At v0.2.5: quiddity-rust#134 plate-centre publication uses the face-centroid six-decimal mm grid. Both FTC-06 plate u coordinates now publish zero, agreeing with the captured Python values within the unchanged 1e-9 mm comparison. Retain this path as an absence assertion.
 
 - **a blend's reported point differs by a rounding unit** (`corpus/nist/nist_ftc_07_asme1_rd` at `features[id=blends:*].record.path.at[*]`)
 
@@ -1218,8 +1226,8 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `corpus/nist/nist_ftc_10_asme1_rb`: `features[id=hole_patterns.grid:*].record.center[1]`
 - **circular face pattern fit error differs** (1 entry)
   - `corpus/cadgenbench_inputs/cgb203`: `features[id=circular_face_patterns:*].record.fit_error`
-- **fillets reported by Rust only** (2 entries)
-  - `corpus/cadgenbench_inputs/cgb202`: `features[id=fillets:1627]`, `features[id=fillets:698]`
+- **fillets reported by Rust only** (1 entry)
+  - `corpus/cadgenbench_inputs/cgb202`: `features[id=fillets:1627]`
 - **thin_wall_bodies reported by Python only** (3 entries)
   - `corpus/cadgenbench_inputs/cgb207`: `features[id=thin_wall_bodies:114.115.116.117.118.119.120.121.122.123.124.125.126.127.128.129.130.131.132.133.134.135.136.137.138.139.140.141.142.143.144.145.146.147.148.149.150.151.152.153.155.157.158.159.160.161.162.163.164.165.166.167.168.169.170.171.172.173.179.180.181.182.183.184.185.186.187.188.189.190.191.198.199.200.208.210.212.213.214.215.216.217.218.219.220.221.224.227.233.234.235.236.237.238.239.240.241.242.246.248.249.251.252.254.255.257.258.259.260.261.262.263.264.265.267.268.269.271.272]`
   - `corpus/cadgenbench_inputs/cgb241`: `features[id=thin_wall_bodies:0.1.2.3.4.5.6.7.8.9.10.11.12.13.14.15.16.17.18.19.20.21.22.23.24.25.26.27.28.29.30.31.32.33.34.35.36.37.38.39.40.41.42.43.44.45.46.47.48.49.50.51]`
@@ -1241,8 +1249,6 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `corpus/cadgenbench_inputs/cgb243`: `features[id=holes:133.134.135.136.137.138.139.140.141.142.143.144.145.146.187]`
 - **interior_voids reported by Rust only** (1 entry)
   - `corpus/cadgenbench_inputs/cgb243`: `features[id=interior_voids:31.32.33.34.126.227.528.529.530.531.532.533]`
-- **plates reported by Rust only** (1 entry)
-  - `corpus/gramel/GRM-03_thumbwheel_drive_screw`: `features[id=plates:0.7.11]`
 - **prismatic_pockets: Rust only** (39 entries)
   - `corpus/inventory_refusal/14052`: `features[id=prismatic_pockets:*]`
   - `corpus/mfcadpp/1000`: `features[id=prismatic_pockets:*]`
@@ -1500,9 +1506,8 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `nist/nist_ctc_02_asme1_ap242#0`: `features[id=hole_patterns.linear:272.273.274.341.342.343.344.345.346]`, `features[id=hole_patterns.set:254.255.257.258.271.305.306.307.308.311.312.313.314.339.340]`
   - `nist/nist_ctc_04_asme1_ap242#0`: `features[id=countersinks:447]`, `features[id=countersinks:449]`, `features[id=countersinks:451]`, `features[id=countersinks:453]`, `features[id=countersinks:455]`, `features[id=countersinks:457]`, `features[id=countersinks:472]`, `features[id=countersinks:474]`, `features[id=countersinks:476]`, `features[id=countersinks:478]`, `features[id=countersinks:480]`, `features[id=countersinks:482]`, `features[id=hole_patterns.rectangle:69.70.71.74.75.77.83.84.86.88.89.90.144.145.146.147.169.170.171.172]`, `features[id=hole_patterns.rectangle:79.116.117.143.148.149.150.151.165.166.167.168]`
   - `nist/nist_ctc_05_asme1_ap242`: `features[id=holes:37.38]`
-- **Inventory addition (not a lost feature)** (25 entries)
+- **Inventory addition (not a lost feature)** (24 entries)
   - `corpus/cadgenbench_inputs/cgb202`: `features[id=fillets:1703]`, `features[id=fillets:1707]`, `features[id=fillets:1721]`, `features[id=fillets:1722]`, `features[id=fillets:1726]`, `features[id=fillets:1727]`, `features[id=fillets:2093]`, `features[id=fillets:2098]`
-  - `corpus/cadgenbench_inputs/cgb217`: `features[id=bosses:321.330.332.334.336.338.340.342]`
   - `corpus/cadgenbench_inputs/cgb242`: `features[id=fillets:349]`, `features[id=fillets:376]`
   - `corpus/mfcadpp/10060`: `features[id=edge_open_circular_pockets:11.12.13.14]`
   - `corpus/mfcadpp/10103`: `features[id=edge_open_circular_pockets:24.25.26.27]`

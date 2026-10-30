@@ -253,6 +253,9 @@ fn legacy_numberless_files_expose_no_number_fields_on_every_platform() {
 #[test]
 fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() {
     // Captured on macOS by unmodified main a49dc3d in a separate checkout and target dir.
+    // quiddity-rust#134: only shaft analysis was recaptured (boss 36.1 → 37.6,
+    // retained plate and its six-decimal published centre). PMI and settings-only
+    // writer hashes remain the original ones.
     // Float serialization varies by platform; portable absence checks run separately above.
     if !cfg!(target_os = "macos") {
         return;
