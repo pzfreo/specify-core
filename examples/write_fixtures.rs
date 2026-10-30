@@ -15,6 +15,11 @@
 //! /Users/paul/repos/specify-core/.venv/bin/python tools/capture.py cross-engine tests/fixtures/cross_engine
 //! ```
 //!
+//! **For #65.** The frozen numberless files and their independent Python readbacks remain.
+//! `common::numbering::only_numbering_added` removes only the new ids/history and verifies
+//! that every remaining entity/reference equals the old graph, allowing consequent ids of
+//! new records to shift. All other writer changes still require the recapture below.
+//!
 //! **Regenerating.** `tests/cross_engine.rs` checks that each committed file is still exactly
 //! what the writer produces today (the decompressed bytes, byte for byte; the writer is
 //! deterministic and a write's bytes depend only on the input and the intent). When a

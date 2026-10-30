@@ -201,6 +201,19 @@ fn gramel_threads_knurls_and_every_other_written_requirement_have_step_provenanc
             let items = existing::read_existing(&back).unwrap();
             assert!(!items.is_empty());
             assert!(
+                items.iter().all(|e| e.number.is_some()),
+                "all authored inspection requirements have numbers"
+            );
+            assert_eq!(
+                specify_core::characteristics::read(&back).unwrap().len(),
+                pmi.datums.len()
+                    + pmi.dimensions.len()
+                    + pmi.tolerances.len()
+                    + pmi.surface_textures.len()
+                    + pmi.threads.len()
+                    + pmi.knurls.len()
+            );
+            assert!(
                 items
                     .iter()
                     .all(|e| e.provenance.as_deref() == Some(MARKER))
@@ -415,7 +428,7 @@ fn writing_an_identical_imported_material_does_not_claim_its_authorship() {
 }
 
 #[test]
-fn two_sizes_on_one_aspect_do_not_use_the_identifier_slot() {
+fn two_sizes_on_one_aspect_keep_provenance_separate_from_their_numeric_identifiers() {
     let loaded = part::load(&common::fixtures().join("parts/pin.step"), None).unwrap();
     let mut intent = rules::Intent::new(serde_json::to_value(&loaded.binding).unwrap());
     for nominal in [10, 11] {
@@ -442,11 +455,13 @@ fn two_sizes_on_one_aspect_do_not_use_the_identifier_slot() {
         })
         .collect();
     assert_eq!(roots.len(), 2);
-    // Explicit UR1/WR2 regression: provenance occupies none of either size's identifier slots.
-    for id in roots {
-        assert!(!doc.referrers(id).iter().any(|&r|
-            matches!(doc.get(r), Some(RawEntity::Simple { name, .. }) if name == "ID_ATTRIBUTE")));
-    }
+    // For #65 the identifier slots now contain distinct numbers. Provenance still uses
+    // descriptions, so two sizes on one aspect satisfy AP242 UR1/WR2.
+    let numbers: Vec<_> = roots
+        .into_iter()
+        .map(|id| specify_core::characteristics::number(&doc, id).unwrap())
+        .collect();
+    assert_ne!(numbers[0], numbers[1]);
 }
 
 #[test]

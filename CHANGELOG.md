@@ -8,6 +8,11 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- For #65: stable per-part characteristic numbers in standard AP242 `ID_ATTRIBUTE`s,
+  with a persistent high-water mark that retires removed numbers. PMI/analysis and WASM
+  snapshots expose file numbers; answer revision carry preserves them through quiddity's
+  correspondence. General dimensions written as PMI are numbered; rows without an entity remain unnumbered. See
+  [characteristic number storage and allocation](docs/characteristic-numbers.md).
 - The STEP states every dimension a drawing would (#63): the writer writes the dimensions the
   general tolerance covers (plain sizes, plane levels and hole locations, `general.rs`) with
   their nominal alone, under the general tolerance written for the part. A part located by ±

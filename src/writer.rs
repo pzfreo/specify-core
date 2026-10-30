@@ -350,6 +350,15 @@ pub fn write_parts_bytes_with(
 /// Reserve both names: resume reads descriptive items by name, independently of their set.
 /// Extras are the one written part's: with several parts written they would have no one owner.
 fn check_extra(jobs: &[Job<'_>], extra: &[AttributeSet]) -> Result<(), WriteError> {
+    if extra
+        .iter()
+        .any(|set| set.name == crate::characteristics::PROPERTY)
+    {
+        return invalid(format!(
+            "extra attribute set name '{}' is reserved for characteristic numbers",
+            crate::characteristics::PROPERTY
+        ));
+    }
     if extra.iter().any(|set| {
         set.name == resume::NAME || set.items.iter().any(|(name, _)| name == resume::NAME)
     }) {
@@ -604,13 +613,25 @@ fn write_verified(
         let (mut pmi, lines) = part_pmi(intent, before, mode)?;
         let payload = match answers {
             Some(answers) if mode == Mode::Replace => {
-                let payload = resume::payload(loaded, answers).map_err(failed)?;
+                let mut saved = answers.clone();
+                saved.remove(crate::characteristics::CARRY);
+                let payload = resume::payload(loaded, &saved).map_err(failed)?;
                 pmi.attributes.push(resume::attribute_set(&payload));
                 Some(payload)
             }
             _ => None,
         };
         pmi.attributes.extend_from_slice(extra);
+        crate::characteristics::allocate(
+            loaded,
+            &mut pmi,
+            before,
+            &source.read.provenance.parts[loaded.binding.part],
+            &source.doc,
+            answers,
+            mode == Mode::Replace,
+        )
+        .map_err(WriteError::Invalid)?;
         planned.push(Planned {
             loaded,
             pmi,
@@ -725,6 +746,11 @@ fn write_by_modes(
                 .map(|(id, _)| source.read.provenance.parts[id.0].clone())
                 .collect();
             let edit = provenance::before_replace(current, &parts);
+            let unnumbered = current
+                .apply(&crate::characteristics::before_replace(current, &parts))
+                .map_err(|e| WriteError::Failed(e.to_string()))?;
+            let current =
+                Document::parse(unnumbered.bytes).map_err(|e| WriteError::Failed(e.to_string()))?;
             Some(
                 Document::parse(
                     current
@@ -759,7 +785,16 @@ fn write_by_modes(
         let marked = after
             .apply(&marker_edit)
             .map_err(|e| WriteError::Failed(format!("cannot mark written PMI: {e}")))?;
-        written = Some(marked.bytes);
+        let marked =
+            Document::parse(marked.bytes).map_err(|e| WriteError::Failed(e.to_string()))?;
+        let numbers =
+            crate::characteristics::annotate(current, &marked, defs).map_err(WriteError::Failed)?;
+        written = Some(
+            marked
+                .apply(&numbers)
+                .map_err(|e| WriteError::Failed(e.to_string()))?
+                .bytes,
+        );
     }
     // jobs is checked nonempty and every edit group assigns written before reaching this return.
     Ok(written.expect("at least one part is written"))
@@ -849,6 +884,8 @@ fn verify(
         }
     }
     for (i, read) in after.parts.iter().enumerate() {
+        crate::characteristics::verify(&after_doc, read, &after.provenance.parts[i])
+            .map_err(fail)?;
         // Source::of checked before.parts.len() == defs.len(); after.parts is checked against defs above.
         let old = &before.parts[i];
         let found = written.iter().zip(modes).find(|((p, _), _)| p.0 == i);

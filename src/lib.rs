@@ -7,6 +7,7 @@
 pub mod anchors;
 pub mod api;
 pub mod carried;
+pub mod characteristics;
 pub mod choices;
 pub mod existing;
 pub mod extras;

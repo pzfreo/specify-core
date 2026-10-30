@@ -38,3 +38,9 @@ This preserves the original reference source and pinned Python dependencies with
 another working repository on the host. The capture records the reconstructed commit hash.
 The provenance-only readback departures have explicit `rust-correct` verdicts backed by #22;
 the original Python oracle is unchanged. See `docs/pmi-provenance.md` for reader matching.
+
+For #65 these files remain independent, pre-numbering specimens. The writer check permits
+only standard numeric ids and the part's number history to be added; after removing those
+records it compares every remaining entity and reference to this frozen graph. The Python
+readbacks therefore still refer to the original bytes. Number allocation and current-output
+readbacks are tested separately in `tests/characteristic_numbers.rs`.

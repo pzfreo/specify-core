@@ -196,8 +196,10 @@ for (const [part, path] of parts) {
   throwsString(() => new IntentEngine(name, gzipSync(bytes)), /Decompress/);
 }
 // #21: the accepted tap's derived depth must survive without a new depth answer,
-// including a save of an alpha.7 file. The first write must equal the base bytes exactly.
+// including a save of an alpha.7 file. Pin the current numbered bytes separately: the native
+// thread_depth_help test proves every non-numbering entity/reference still equals alpha.7.
 const alpha7 = gunzipSync(readFileSync(new URL('tests/fixtures/thread-depth-alpha7.step.gz', root)));
+const numberedTap = gunzipSync(readFileSync(new URL('tests/fixtures/thread-depth-numbered.step.gz', root)));
 const savedTap = new IntentEngine('shaft.step', alpha7);
 let tapAnswers;
 try { tapAnswers = JSON.parse(savedTap.snapshot()).analysis.resume.answers; }
@@ -212,11 +214,11 @@ for (const [index, bytes] of [readFileSync(new URL('tests/fixtures/parts/GRM-02_
     assert.ok(!Object.hasOwn(tapAnswers, depth.id));
     assert.equal(reviewed.intent.requirements.find(r => r.kind === 'thread').full_thread, 2);
     const written = Buffer.from(JSON.parse(engine.writePmi(JSON.stringify(tapAnswers))).bytes);
-    if (index === 0) assert.deepEqual(written, alpha7, 'implicit M2 tap writes exact cx/quiddity-010 STEP bytes');
+    if (index === 0) assert.deepEqual(written, numberedTap, 'implicit M2 tap writes exact numbered STEP bytes');
     assert.match(written.toString(), /MEASURE_WITH_UNIT\(LENGTH_MEASURE\(2(?:\.0*)?\),#\d+\)REPRESENTATION_ITEM\('minimum full thread'\)/);
   } finally { engine.free(); }
 }
-console.log('alpha.7 M2 tap: implicit depth, exact base STEP bytes and resave passed');
+console.log('alpha.7 M2 tap: implicit depth, exact numbered STEP bytes and resave passed');
 for (const [part, pattern] of [['assembly', /one distinct part/]]) {
   throwsString(() => new IntentEngine(`${part}.step`, readFileSync(new URL(`tests/fixtures/parts/${part}.step`, root))), pattern);
 }

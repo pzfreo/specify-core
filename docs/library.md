@@ -39,3 +39,8 @@ is reserved for resume. Names, owners and values pass through to haecceity; its 
 the usual write mode: replacing a resumed part replaces its previous extras along with its PMI
 and answers, so resupply every extra wanted in the new write. Adding to foreign PMI leaves
 existing attributes alone. There is no separate merge or update by attribute name.
+
+Characteristic numbers are read with `characteristics::read` and appear in analysis's optional
+`characteristics` list and `ExistingPmi.number`. Writers allocate them from the file's history;
+when writing a revision, retain the opaque number-history member in `revision::diff`'s returned
+answers. See [the STEP storage and carry contract](characteristic-numbers.md).

@@ -86,6 +86,8 @@ pub struct ExistingPmi {
     pub datums: Vec<String>,
     /// STEP authorship token on this requirement; absent for unmarked input PMI.
     pub provenance: Option<String>,
+    /// Stable inspection number read from this requirement's AP242 id, when present.
+    pub number: Option<u64>,
 }
 
 impl ExistingPmi {
@@ -100,6 +102,7 @@ impl ExistingPmi {
             lower: None,
             datums: Vec::new(),
             provenance: None,
+            number: None,
         }
     }
 }
@@ -132,6 +135,9 @@ impl Serialize for ExistingPmi {
         }
         if let Some(provenance) = &self.provenance {
             map.serialize_entry("provenance", provenance)?;
+        }
+        if let Some(number) = self.number {
+            map.serialize_entry("number", &number)?;
         }
         if self.faces.is_empty() {
             map.serialize_entry("faces", &self.faces)?;
@@ -285,6 +291,15 @@ impl Reading {
             }
             let mut item = ExistingPmi::new("dimension", r#type, first);
             item.provenance = owned.then(|| provenance::MARKER.into());
+            item.number = crate::characteristics::on(
+                doc,
+                &prov.dimensions[i],
+                if matches!(dimension.kind, DimensionKind::Size { .. }) {
+                    "dimensional_size"
+                } else {
+                    "dimensional_location"
+                },
+            );
             item.faces2 = second;
             let nominal = dimension.nominal.as_ref();
             item.value = nominal.map(value);
@@ -310,7 +325,7 @@ impl Reading {
             out.push(item);
         }
 
-        for tolerance in &pmi.tolerances {
+        for (i, tolerance) in pmi.tolerances.iter().enumerate() {
             let faces = match &tolerance.target {
                 ToleranceTarget::Feature(f) => faces_of(pmi, &[*f]),
                 ToleranceTarget::Dimension(d) => match pmi.dimensions.get(d.0).map(|d| &d.kind) {
@@ -327,6 +342,8 @@ impl Reading {
                 ExistingPmi::new("geometric_tolerance", tolerance_type(tolerance.kind), faces);
             item.provenance = (tolerance.description.as_deref() == Some(provenance::MARKER))
                 .then(|| provenance::MARKER.into());
+            item.number =
+                crate::characteristics::on(doc, &prov.tolerances[i], "geometric_tolerance");
             item.value = tolerance.magnitude.as_ref().map(value);
             item.datums = tolerance
                 .datums
@@ -370,6 +387,7 @@ impl Reading {
             if !seen.contains(&key) {
                 let mut item = ExistingPmi::new("datum", &key.0, key.1.clone());
                 item.provenance = owned.then(|| provenance::MARKER.into());
+                item.number = crate::characteristics::on(doc, &prov.datums[i], "datum");
                 out.push(item);
                 seen.push(key);
             }
@@ -596,14 +614,22 @@ fn notes(
     pmi: &PartPmi,
     prov: &pmi::PartProvenance,
 ) -> Vec<ExistingPmi> {
-    let mut found: Vec<(String, bool, BTreeSet<usize>)> = Vec::new();
-    let mut add = |kind: &str, faces: &[usize], owned: bool| {
+    let mut found: Vec<(String, bool, Option<u64>, BTreeSet<usize>)> = Vec::new();
+    let mut add = |kind: &str, faces: &[usize], owned: bool, number: Option<u64>| {
         if faces.is_empty() {
             return;
         }
-        match found.iter_mut().find(|(k, o, _)| k == kind && *o == owned) {
-            Some((_, _, set)) => set.extend(faces),
-            None => found.push((kind.to_string(), owned, faces.iter().copied().collect())),
+        match found
+            .iter_mut()
+            .find(|(k, o, n, _)| k == kind && *o == owned && *n == number)
+        {
+            Some((_, _, _, set)) => set.extend(faces),
+            None => found.push((
+                kind.to_string(),
+                owned,
+                number,
+                faces.iter().copied().collect(),
+            )),
         }
     };
     let graph = doc.graph();
@@ -625,7 +651,7 @@ fn notes(
         if NOTE_KINDS.contains(&kind.as_str())
             && let Some(index) = loaded.definition.face_index(*face)
         {
-            add(kind, &[index], false);
+            add(kind, &[index], false, None);
         }
     }
     for (i, thread) in pmi.threads.iter().enumerate() {
@@ -637,6 +663,7 @@ fn notes(
             kind,
             &faces_of(pmi, &[thread.feature]),
             provenance::marked(doc, &prov.threads[i], "thread"),
+            crate::characteristics::on(doc, &prov.threads[i], "product_definition_shape"),
         );
     }
     for (i, knurl) in pmi.knurls.iter().enumerate() {
@@ -644,6 +671,7 @@ fn notes(
             "knurl",
             &faces_of(pmi, &[knurl.feature]),
             provenance::marked(doc, &prov.knurls[i], "knurl"),
+            crate::characteristics::on(doc, &prov.knurls[i], "product_definition_shape"),
         );
     }
     // A finish on faces as the Rust writer writes it: a surface texture on them (question Q3).
@@ -653,14 +681,16 @@ fn notes(
                 "surface finish",
                 &faces_of(pmi, &[f]),
                 provenance::marked(doc, &prov.surface_textures[i], "surface texture"),
+                crate::characteristics::texture_number(doc, &prov.surface_textures[i]),
             );
         }
     }
     found
         .into_iter()
-        .map(|(kind, owned, faces)| {
+        .map(|(kind, owned, number, faces)| {
             let mut item = ExistingPmi::new("note", &kind, faces.into_iter().collect());
             item.provenance = owned.then(|| provenance::MARKER.into());
+            item.number = number;
             item
         })
         .collect()
@@ -694,7 +724,7 @@ fn default_finish(text: &str) -> Option<&str> {
 
 /// The faces of `features`, following groups and derived features to what they are made of
 /// (as Python's `datum_faces` follows shape aspect relationships), ascending.
-fn faces_of(pmi: &PartPmi, features: &[FeatureId]) -> Vec<usize> {
+pub(crate) fn faces_of(pmi: &PartPmi, features: &[FeatureId]) -> Vec<usize> {
     fn walk(pmi: &PartPmi, f: FeatureId, seen: &mut BTreeSet<usize>, out: &mut BTreeSet<usize>) {
         if !seen.insert(f.0) {
             return;
@@ -726,7 +756,7 @@ fn faces_of(pmi: &PartPmi, features: &[FeatureId]) -> Vec<usize> {
 
 /// A value in millimetres or degrees. A value stated in that unit is its decimal as written;
 /// anything else is converted.
-fn value(v: &PmiValue) -> f64 {
+pub(crate) fn value(v: &PmiValue) -> f64 {
     match &v.quantity {
         Quantity::Length(l) if l.unit == LengthUnit::Millimetre => l.value.to_f64(),
         Quantity::Length(l) => l.mm(),
@@ -813,7 +843,7 @@ const LOCATION_TYPES: [(LocationKind, &str); 10] = [
 
 /// The type name OpenCascade gives a dimensional (or angular) size: angular first, then the
 /// name's kind, then a size with a path; otherwise its default, `Location_None`.
-fn size_type(kind: &SizeKind, path: bool, angular: bool) -> &'static str {
+pub(crate) fn size_type(kind: &SizeKind, path: bool, angular: bool) -> &'static str {
     if angular {
         return "Size_Angular";
     }
@@ -829,7 +859,7 @@ fn size_type(kind: &SizeKind, path: bool, angular: bool) -> &'static str {
 }
 
 /// The type name OpenCascade gives a dimensional (or angular) location, as [`size_type`].
-fn location_type(kind: &LocationKind, path: bool, angular: bool) -> &'static str {
+pub(crate) fn location_type(kind: &LocationKind, path: bool, angular: bool) -> &'static str {
     if angular {
         return "Location_Angular";
     }

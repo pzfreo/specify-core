@@ -1,4 +1,4 @@
-//! Dimensions under the general tolerance, found and listed, never written: specify-core's
+//! Dimensions under the general tolerance, found and listed (written since #63): specify-core's
 //! `tests/test_general.py`, on the oracle's captured analyses of the pin and the plate.
 //!
 //! `test_listed_but_not_written`'s write is the writer's (stage 3); its rules side (listed in

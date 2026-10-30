@@ -1,10 +1,12 @@
 //! The cross-engine check: what each engine reads of the other's files, so Draftwright Specify
 //! can move a part between engines.
 //!
-//! - (a) `rust_written_files_are_what_the_writer_writes_today`: the committed Rust-written
+//! - (a) `rust_written_files_only_gain_characteristic_numbers`: the committed Rust-written
 //!   files (`tests/fixtures/cross_engine/<case>/rust.step.gz`, or `rust.refused.txt` for a
 //!   case the example or the writer refuses) are still exactly what `examples/write_fixtures.rs` produces,
-//!   byte for byte. A deliberate change is regenerated with that example (its doc comment says
+//!   byte for byte, except #65's ids and history, whose strict entity/reference projection
+//!   must reproduce the old graph exactly (`common::numbering`). This keeps the numberless
+//!   fixtures and independent Python readbacks. A deliberate change is regenerated with that example (its doc comment says
 //!   how), together with Python's read-back of the new files. The bytes are the same on every
 //!   platform: nothing written depends on a platform's maths library beyond the signs of zero
 //!   that stored-answer schema 1 hashed, which schema 2 writes unsigned (the fixtures' README).
@@ -75,7 +77,7 @@ fn rust_written(case: &str) -> Option<PathBuf> {
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn rust_written_files_are_what_the_writer_writes_today() {
+fn rust_written_files_only_gain_characteristic_numbers() {
     let scratch = write_fixtures::scratch();
     let cases = write_fixtures::cases();
     assert!(!cases.is_empty(), "no synthetic or NIST oracle cases");
@@ -86,7 +88,11 @@ fn rust_written_files_are_what_the_writer_writes_today() {
         let (step, refused) = (dir.join("rust.step.gz"), dir.join("rust.refused.txt"));
         match (write_fixtures::write(case, &output), step.is_file()) {
             (Ok(bytes), true) if gunzip(&step) == bytes => {}
-            (Ok(_), true) => stale.push(format!("{}: the writer's bytes changed", case.name)),
+            (Ok(bytes), true) => {
+                if let Err(why) = common::numbering::only_numbering_added(&gunzip(&step), &bytes) {
+                    stale.push(format!("{}: {why}", case.name));
+                }
+            }
             (Ok(_), false) => stale.push(format!("{}: written now, not committed", case.name)),
             (Err(why), false)
                 if std::fs::read_to_string(&refused).ok().as_deref()
