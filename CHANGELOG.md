@@ -29,6 +29,12 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- For #65: first characteristic allocation follows inspection order: datum letters, then
+  front/top/right view and row-major face position, with size/location/control ties.
+  Face finishes, threads and knurls share that walk; unpositioned defaults go last.
+  Existing file numbers remain authoritative and later additions append above the
+  high-water mark, including on files written in the earlier category order.
+
 - Upgrade quiddity and haecceity (native and WASM) to **v0.2.5** (`6110b4c`,
   quiddity-rust#134). Boss heights and free ends include their own convex end chamfers
   and rounds; edge-treated plates stay plates, and inside turned fillets are described
