@@ -749,7 +749,7 @@ fn first_plate_walk_is_datum_letters_then_front_top_right_and_rows() {
     for face in [8, 6, 13, 10, 9] {
         requirement(
             &mut i,
-            json!({"kind":"size","faces":[face],"nominal":8.,"upper":0.1,"lower":-0.1}),
+            json!({"kind":"size","faces":[face],"nominal":if face == 9 { 8. } else { 6.6 },"upper":0.1,"lower":-0.1}),
         );
     }
     for r in [
@@ -948,5 +948,28 @@ fn first_shaft_walk_uses_front_shoulders_then_end_on_holes_and_side_width() {
             .unwrap()
             .0
             .as_slice()
+    );
+}
+
+#[test]
+fn bore_to_bore_location_uses_the_end_on_view_even_when_both_axes_are_parallel() {
+    let p = load("parts/plate.step");
+    let mut i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
+    // Both cylinders run along Z; their axes' separation lies in XY, so the location
+    // belongs in top, beside the bore size. A front-view finish must precede both.
+    for r in [
+        json!({"kind":"location","faces":[9],"reference":[12],"distance":45.,"upper":0.1,"lower":-0.1}),
+        json!({"kind":"size","faces":[9],"nominal":8.,"upper":0.1,"lower":-0.1}),
+        json!({"kind":"finish","faces":[8],"value":"Ra 3.2"}),
+    ] {
+        requirement(&mut i, r);
+    }
+    assert_walk(
+        &write(&p, &i),
+        &[
+            ("surface_texture", "Ra", &[8], &[]), // front, X=30: before every top characteristic
+            ("dimension", "Size_Diameter", &[9], &[]), // top, (0,0): size wins over location
+            ("dimension", "Location_LinearDistance", &[9], &[12]), // top, same site
+        ],
     );
 }

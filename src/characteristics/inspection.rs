@@ -99,9 +99,18 @@ fn dimension_view(loaded: &LoadedPart, item: &Item, d: &DimensionKind, b: Box3) 
             }
         }
         DimensionKind::Location { angle: None, .. }
-            if cylinder.is_some_and(|k| common_axis(loaded, reference, false) != Some(k)) =>
+            if cylinder.is_some_and(|k| {
+                common_axis(loaded, reference, false) != Some(k)
+                    || reference.iter().any(|&f| {
+                        loaded
+                            .part
+                            .faces
+                            .get(f)
+                            .is_some_and(|face| matches!(face.surface, Surface::Cylinder { .. }))
+                    })
+            }) =>
         {
-            // A plane-to-bore location lies in the bore's end-on view, as in
+            // Plane-to-bore and bore-to-bore locations lie in the end-on view, as in
             // Draftwright pmi_lowering::plane_to_bore. Keep the hole's position for ties.
             end_on(cylinder.expect("tested above"))
         }

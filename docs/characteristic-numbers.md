@@ -73,7 +73,7 @@ The first-allocation rule is:
    frame is not a second rotation of those stored face coordinates.
 3. Reuse Draftwright's simple geometric view rules (`pmi_lowering::face_on`, `edge_on`,
    `plane_to_bore`, and `dims::pmi_dimensions`): bore sizes and plane-to-bore
-   locations use the cylinder's end-on view (X axis → right, Y → front, Z → top).
+   locations (including bore-to-bore locations) use the cylinder's end-on view (X axis → right, Y → front, Z → top).
    Other linear dimensions use the reference planes' normal, then their target surfaces'
    common direction, then the vector between support box centres (a lone support uses
    its longest extent). X/Z measurements lie in front; Y measurements lie in right.
@@ -81,7 +81,8 @@ The first-allocation rule is:
    choose the end-on view of the angle; parallel or missing directions fall back to front.
    Geometric tolerances use the common cylinder axis, otherwise the support box's longest
    extent, end-on. Surface textures use their surface's common direction edge-on
-   (X/Z → front, Y → right), otherwise the longest extent. External cylindrical sizes, threads and knurls use front, as in
+   (X/Z → front, Y → right), otherwise the longest extent. External cylindrical sizes,
+   threads and knurls use front, as in
    `dims::turned::diameter_views` (X/Z in profile, Y end-on). Internal threads use their
    cylinder axis end-on, like the hole callout carrying them; other manufacturing supports
    use the longest extent end-on.
@@ -173,7 +174,12 @@ gets no number. Specify does not create an entity solely to hold a number. The i
 
 The writer verifies both semantic PMI and the numbers read back from their actual entities,
 including number uniqueness and the history. Schema and EXPRESS-rule tests cover the standard
-slots. `tests/characteristic_numbers.rs` covers all characteristic kinds, repeat writes,
+slots. First-allocation tests pin every number and geometric support on the prismatic plate
+(14 characteristics), turned pin (12), and GRM-02 shaft (15), with each station explained
+in the test. They also prove that a later top-left hole appends despite sorting first on
+a fresh part. `characteristic-numbers-category.step.gz`, captured from unmodified
+`68f375c` with the test's `intent()`, pins the old category order through both a no-op
+and a changed-value rewrite with an addition. `tests/characteristic_numbers.rs` covers all characteristic kinds, repeat writes,
 additions, value edits, removal/re-addition/empty writes, foreign append, old-file compatibility,
 an older-quiddity fixture and the `hole_removed` revision pair. Numberless analysis, PMI
 serialization and settings-only writes are also checked against SHA-256 snapshots captured
