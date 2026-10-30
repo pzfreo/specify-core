@@ -297,7 +297,7 @@ impl Question {
 
 /// What the answers amount to: the part's settings, its datums and its requirements, each
 /// a JSON object with specify-core's keys in its order; and the dimensions the general
-/// tolerance covers (listed for inspection, not written into the STEP).
+/// tolerance covers (listed for inspection, and written with their nominal alone).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Intent {
     pub schema: i64,

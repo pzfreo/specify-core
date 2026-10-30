@@ -4,7 +4,8 @@
 //! general tolerance covers (every other diameter, length and hole location) is left to
 //! whoever dimensions the drawing, and an inspection list built from the PMI misses it. Here
 //! those dimensions are found, toleranced by the general tolerance class (ISO 2768-1 linear),
-//! for the inspection list and the view. They are not written into the STEP.
+//! for the inspection list and the view, and written into the STEP with their nominal alone, so
+//! the general tolerance governs them as on a drawing (`writer.rs`, #63).
 //!
 //! The scheme is baseline from the datums: along each direction the part has parallel planes
 //! in, every plane level is a length from one reference plane (the datum plane in that

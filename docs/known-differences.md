@@ -13,15 +13,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
 | [cli](#cli) | 143 | 0 | 52 | 0 | 2 | 1 | 198 |
-| [cross_engine](#cross_engine) | 4 | 1 | 0 | 1 | 1 | 0 | 7 |
+| [cross_engine](#cross_engine) | 5 | 1 | 0 | 1 | 1 | 0 | 8 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 0 | 33 |
 | [features](#features) | 3116 | 1415 | 507 | 2486 | 1066 | 1685 | 10275 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 89 | 0 | 615 | 0 | 0 | 0 | 704 |
-| [writer](#writer) | 15 | 0 | 0 | 0 | 15 | 0 | 30 |
-| **all** | 3403 | 1433 | 1185 | 2492 | 1101 | 1686 | 11300 |
+| [writer](#writer) | 16 | 0 | 0 | 0 | 15 | 0 | 31 |
+| **all** | 3405 | 1433 | 1185 | 2492 | 1101 | 1686 | 11302 |
 
 ## anchors
 
@@ -161,7 +161,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cross_engine
 
-### cross_engine: rust-correct (4 entries)
+### cross_engine: rust-correct (5 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `python_readback.existing[key=*].provenance`)
 
@@ -178,6 +178,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **the Rust engine finds Python-written schema 1 answers but refuses them on the schema 1 fingerprint: zeros' signs differ** (`*` at `python_written.resume[rust did not resume: fingerprint differs only in signs of zero]`)
 
   On every part of the 11 Python-written synthetic files (tests/fixtures/oracle/parts/\*\*/written.step.gz) resume::stored reads Python's payload (schema 1), equal to what Python's own resume.saved finds (python_written_evidence.json.gz), with the same face count; the stored fingerprint is specify-core's own schema 1 hash of the faces it lists (fingerprint_v1 in the evidence), and those faces equal the Rust engine's by value, differing only in signs of zero (faces_gap), which schema 1's text keeps. Q14 (decided 2026-10-09) keeps schema 1 read exactly as before: resumed only when its own fingerprint matches, so the Rust engine is right not to resume these. The fix is schema 2, which both engines write: specify-core's own schema 2 fingerprint (branch fingerprint-v2, captured 2026-10-10) of its faces in these files equals the Rust engine's on all 15 parts (tests/cross_engine.rs schema_two_fingerprints_are_the_same_in_both_engines), so files specify-core writes with schema 2 resume here. These files were written by the oracle's specify-core (cc341dd, schema 1) and are not rewritten by the recapture. Everything else these files hold (existing PMI, part settings) reads in Rust exactly as Python reads it.
+
+- **Specify's own dimensions under the general tolerance (nominal only, #63) are not read back as existing PMI** (`parts/*` at `python_readback.existing[key=dimension|*]`)
+
+  Issue #63 (https://github.com/pzfreo/specify-core-rust/issues/63): the writer writes the dimensions the general tolerance covers (general.rs: plain sizes, plane levels and hole locations) with their nominal alone, so the STEP states every dimension a drawing would. existing.rs skips a dimension that is both Specify-marked (specify-core:written:v1) and nominal only: it states nothing the geometry does not, and read back without its answers it must not settle a question (tests/writer.rs pmi_is_added_to_a_part_that_has_some). Python reads every dimension, so each such dimension is in Python's existing list and not in Rust's. Every difference here is a Size_Diameter or Location_LinearDistance with no upper or lower; the toleranced and basic dimensions agree.
 
 ### cross_engine: rust-wrong (1 entry)
 
@@ -1027,7 +1031,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (15 entries)
+### writer: rust-correct (16 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1076,6 +1080,10 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **Python's write fails its verification on items with no faces; Rust writes the rest and lists them (Q17)** (`nist/nist_ctc_05_asme1_ap242` at `write`)
 
   Captured from specify-core with its ISO 286 extension (branch iso286-3150; docs/questions.md Q8, 'Recapture source'), which applies this part's answers where the earlier specify-core refused its Ø558.8 diameter. Python's own intent has the size (H11, 0.11/0.0, clearance for M10) and the position of two hole patterns, hole_patterns.linear:84.85.86.87.88.89 and :78.79.80.81.82.83, with faces []; its write raises VerificationError naming exactly those four ('limits 0.11/0.0 not in file' twice, 'position on [] missing or wrong' twice). As question Q17 decides, the Rust writer writes the rest (material, general tolerance, finish, edges) and lists each of the four in not_written ('the size on hole_patterns.linear:84.85.86.87.88.89 names no faces, so nothing in the file can carry it (question Q17)'; checked by running specify-core write --accept-defaults with the oracle's analysis), verified by reading back; the same file is the cross-engine check's nist/nist_ctc_05_asme1_ap242, which OpenCascade opens and reads (tests/cross_engine.rs).
+
+- **the report counts the dimensions written under the general tolerance (#63)** (`*` at `write.written[*under the general tolerance]`)
+
+  Issue #63 (https://github.com/pzfreo/specify-core-rust/issues/63): the writer writes the dimensions the general tolerance covers (general.rs) with their nominal alone, and counts them in one report line, `N dimension(s) under the general tolerance` (with `part:` in an assembly), rather than listing each. Python writes none of them, so it has no such line. A part with PMI from elsewhere (Mode::Add) gets none and no line.
 
 ### writer: not-applicable (15 entries)
 

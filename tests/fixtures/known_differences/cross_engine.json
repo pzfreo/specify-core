@@ -47,5 +47,12 @@
     "pattern": "the faces' rounded centroids differ where haecceity's face integrals are off (U11), so the schema 2 fingerprints differ",
     "verdict": "rust-wrong",
     "evidence": "Python's faces (python_meta.json.gz, resume_evidence) and the Rust engine's faces of the Rust-written file agree in kind and count (156) and in every centroid rounded to 3 decimals but those of faces 93, 97, 109 and 112 (B-spline surfaces: Python [-145.171, 51.241, 52.431], Rust -145.170814, 51.239719, 52.431061) and 98, 103, 104 and 108 (spheres: Python 72.111, Rust 72.111586 rounds to 72.112). OpenCascade's adaptive integral (eps 1e-9) of the same faces gives 51.24061051 and 72.11149644, Python's values: features.json judges each of these eight centroids rust-wrong (faces[93].centroid[*] etc., upstream need U11, Part::face_moments to 1e-6). The fingerprint itself is not at fault: on the other 34 parts of the check, where the rounded faces are the same, specify-core's own schema 2 fingerprint (branch fingerprint-v2) equals the Rust engine's byte for byte (schema_two_fingerprints_are_the_same_in_both_engines). No answers are stored in a NIST file the Rust writer writes, so nothing fails to resume here; answers stored on this part would not cross engines until U11 is met."
+  },
+  {
+    "case": "parts/*",
+    "path": "python_readback.existing[key=dimension|*]",
+    "pattern": "Specify's own dimensions under the general tolerance (nominal only, #63) are not read back as existing PMI",
+    "verdict": "rust-correct",
+    "evidence": "Issue #63 (https://github.com/pzfreo/specify-core-rust/issues/63): the writer writes the dimensions the general tolerance covers (general.rs: plain sizes, plane levels and hole locations) with their nominal alone, so the STEP states every dimension a drawing would. existing.rs skips a dimension that is both Specify-marked (specify-core:written:v1) and nominal only: it states nothing the geometry does not, and read back without its answers it must not settle a question (tests/writer.rs pmi_is_added_to_a_part_that_has_some). Python reads every dimension, so each such dimension is in Python's existing list and not in Rust's. Every difference here is a Size_Diameter or Location_LinearDistance with no upper or lower; the toleranced and basic dimensions agree."
   }
 ]

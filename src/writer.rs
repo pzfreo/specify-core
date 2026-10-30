@@ -1172,12 +1172,42 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
             .map_err(|e| WriteError::Invalid(e.0))
     };
 
-    for req in &intent.requirements {
+    // The dimensions the general tolerance covers (`general.rs`) follow the requirements, each
+    // written with its nominal alone: the general tolerance written for the part governs it, as
+    // on a drawing, so the file states every size and hole location, not only those specified
+    // (#63). They are counted in one line of the report, not listed. A part with PMI from
+    // elsewhere (`Mode::Add`) gets none: its own dimensions are the ones its designer chose, and
+    // these would repeat them, on faces its PMI already uses.
+    let mut general = 0usize;
+    let covered: &[Map<String, Json>] = if mode == Mode::Replace {
+        &intent.general
+    } else {
+        &[]
+    };
+    for req in intent.requirements.iter().chain(covered) {
         let kind = req.get("kind").and_then(Json::as_str).unwrap_or("");
+        let under_general = truthy(req.get("general"));
+        // Not on a datum's own faces: a size there makes the datum a datum feature of size
+        // (dimensional_size_with_datum_feature), a complex instance the authorship contract
+        // does not mark (docs/pmi-provenance.md), so a resumed write would not keep its bytes.
+        // The general tolerance still covers it.
+        if under_general
+            && kind == "size"
+            && intent.datums.iter().any(|d| {
+                face_ids(d.get("faces")).is_some()
+                    && face_ids(d.get("faces")) == face_ids(req.get("faces"))
+            })
+        {
+            continue;
+        }
         let feature_name = || py_str(req.get("feature").unwrap_or(&Json::Null));
         // A requirement on no faces (a hole whose bores the rules keep no cylinder for) is
         // listed and the rest written (question Q17).
         if let Some(what) = faceless(kind, req) {
+            // One the general tolerance covers is not a requirement: nothing to report.
+            if under_general {
+                continue;
+            }
             lines.not_written.push(format!(
                 "{what} names no faces, so nothing in the file can carry it (question Q17)"
             ));
@@ -1189,6 +1219,7 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
                 let nominal = number(req, "nominal")?;
                 let fit = req.get("fit");
                 let tolerance = match fit {
+                    _ if under_general => DimTolerance::None,
                     Some(Json::String(name)) if !name.is_empty() => {
                         // The class alone is written, so it must mean what the intent's
                         // deviations say: an intent whose limits are not its class's is refused
@@ -1230,12 +1261,16 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
                     modifiers: Vec::new(),
                     principle: None,
                 });
-                lines.written.push(format!(
-                    "Ø{} {} on {}",
-                    pyfmt::g(nominal),
-                    fit.map_or(String::new(), py_str),
-                    feature_name()
-                ));
+                if under_general {
+                    general += 1;
+                } else {
+                    lines.written.push(format!(
+                        "Ø{} {} on {}",
+                        pyfmt::g(nominal),
+                        fit.map_or(String::new(), py_str),
+                        feature_name()
+                    ));
+                }
             }
             "location" => {
                 let to = f.of(
@@ -1250,6 +1285,8 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
                 let basic = truthy(req.get("basic"));
                 let (tolerance, how) = if basic {
                     (DimTolerance::Basic, "basic".to_string())
+                } else if under_general {
+                    (DimTolerance::None, "general".to_string())
                 } else {
                     let (upper, lower) = (number(req, "upper")?, number(req, "lower")?);
                     let how = if upper == -lower {
@@ -1275,12 +1312,16 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
                     modifiers: Vec::new(),
                     principle: None,
                 });
-                lines.written.push(format!(
-                    "location {} {how} to {} from faces {}",
-                    pyfmt::g(distance),
-                    feature_name(),
-                    face_list(req.get("reference"))
-                ));
+                if under_general {
+                    general += 1;
+                } else {
+                    lines.written.push(format!(
+                        "location {} {how} to {} from faces {}",
+                        pyfmt::g(distance),
+                        feature_name(),
+                        face_list(req.get("reference"))
+                    ));
+                }
             }
             "thread" => {
                 let feature = f.of(
@@ -1395,6 +1436,12 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
                 ));
             }
         }
+    }
+    if general > 0 {
+        lines.written.push(format!(
+            "{general} dimension{} under the general tolerance",
+            if general == 1 { "" } else { "s" }
+        ));
     }
     for d in &intent.datums {
         let letter = d.get("letter").and_then(Json::as_str).unwrap_or("");
