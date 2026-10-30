@@ -7,7 +7,7 @@ resolver = "3"
 name = "specify-core"
 version = "0.1.3"
 edition = "2024"
-license = "AGPL-3.0-or-later"
+license = "Apache-2.0"
 description = "Interview-driven AP242 PMI authoring for STEP parts (Rust port of specify-core)"
 repository = "https://github.com/pzfreo/specify-core-rust"
 

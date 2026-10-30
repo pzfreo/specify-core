@@ -154,4 +154,4 @@ Comparisons with the Python implementation are described in [docs/python.md](doc
 
 ## Licence
 
-AGPL-3.0-or-later; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
