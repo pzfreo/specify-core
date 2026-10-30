@@ -10,10 +10,6 @@ under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
 CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 
-Built artifacts (the command-line binaries and the WASM package) also include
-quiddity and haecceity from https://github.com/pzfreo/quiddity-rust, which are
-licensed AGPL-3.0-only; their terms apply to those components.
-
 Third-party material:
 
 - src/specify_core/fonts/futural.jhf is the Hershey "Futura Light" single-stroke
