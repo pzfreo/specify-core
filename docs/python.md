@@ -21,6 +21,17 @@ later): `maturin build --release -m crates/specify-core-py/Cargo.toml`. `tests/p
 smoke suite of the package; `.github/workflows/python.yml` builds, tests and publishes the
 wheels. The engine itself is tested in Rust.
 
+To build and test it locally:
+
+```bash
+uv venv /tmp/specify-py && uv pip install --python /tmp/specify-py/bin/python maturin pytest
+VIRTUAL_ENV=/tmp/specify-py /tmp/specify-py/bin/maturin develop --release \
+  -m crates/specify-core-py/Cargo.toml
+/tmp/specify-py/bin/python -m pytest tests/python
+```
+
+Its README (`crates/specify-core-py/README.md`) is the PyPI page, so it is written for users.
+
 Parity was checked once, before the Python repository was archived, by running specify-core's
 own test suite at cc341dd (the revision the oracle was captured from) on this package: 169 of
 its 219 test functions apply to it, and of their 238 cases 210 passed, 24 failed by differences

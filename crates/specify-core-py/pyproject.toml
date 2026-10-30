@@ -4,15 +4,35 @@ build-backend = "maturin"
 
 [project]
 name = "specify-core"
-version = "0.1.4"
-description = "Interview-driven PMI authoring: recognise features, ask for missing intent, write AP242 semantic PMI"
+version = "0.1.4.post1"
+description = "Add manufacturing intent (GD&T, fits, threads, finish) to STEP parts and write it as AP242 semantic PMI"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Paul Fremantle" }]
+keywords = ["step", "ap242", "pmi", "gd&t", "mbd", "cad", "manufacturing", "tolerancing"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Manufacturing",
+  "Operating System :: MacOS",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Rust",
+  "Topic :: Scientific/Engineering",
+]
 requires-python = ">=3.12"
 # None: the Rust engine needs neither quiddity, build123d nor OCP.
 dependencies = []
+
+[project.urls]
+Homepage = "https://editor.draftwright.io/specify"
+Source = "https://github.com/pzfreo/specify-core-rust"
+Issues = "https://github.com/pzfreo/specify-core-rust/issues"
+Changelog = "https://github.com/pzfreo/specify-core-rust/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/pzfreo/specify-core-rust/blob/main/crates/specify-core-py/README.md"
 
 [project.scripts]
 # The engine's command line; specify-core's second name for it, pmi-assist, is not kept.
