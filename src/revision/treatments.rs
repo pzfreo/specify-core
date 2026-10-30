@@ -263,47 +263,17 @@ pub(super) fn fold_end_chamfers(
             if was.faces.is_empty() || !was.faces.iter().all(|f| proven.contains(f)) {
                 continue;
             }
-            match (c.family.as_str(), c.class.as_str()) {
-                ("flats", "adapted") => {
-                    // across/normal changes still report. A centroid shift is explained only
-                    // when the mapped feature owns exactly these proven retained faces.
-                    if new_features.iter().any(|f| {
-                        c.new.as_ref() == Some(&f.id)
-                            && f.faces.len() == was.faces.len()
-                            && was.faces.iter().all(|i| f.faces.contains(&mapped[i]))
-                    }) {
-                        c.changes.remove("position");
-                    }
-                }
-                ("bosses", "adapted") => {
-                    if let Some(now) = new_features.iter().find(|f| c.new.as_ref() == Some(&f.id)) {
-                        let Some(axis) = was.record.get("axis").and_then(xyz) else {
-                            continue;
-                        };
-                        let axis = a.rotation.map(|r| geom::dot(r, axis));
-                        let before = old.extent_along(&was.faces, axis);
-                        let mut fs = now.faces.clone();
-                        fs.push(cone);
-                        let after = new.extent_along(&fs, axis);
-                        if (before.0 - after.0).abs() < TOL
-                            && (before.1 - after.1).abs() < TOL
-                            && now
-                                .faces
-                                .iter()
-                                .all(|j| was.faces.iter().any(|i| mapped.get(i) == Some(j)))
-                        {
-                            c.changes.remove("sizes.height");
-                            c.changes.remove("position");
-                        }
-                    }
-                }
-                ("plates", "orphaned") => {
-                    // The bounding planes still exist at the same offsets, with their only
-                    // boundary differences proved to be this chamfer. Recognition lost a
-                    // slab classification; physical material was not removed as a plate.
-                    c.class = "trimmed".into();
-                }
-                _ => {}
+            // Across/normal changes still report. A centroid shift is explained only
+            // when the mapped flat owns exactly these proven retained faces.
+            if c.family == "flats"
+                && c.class == "adapted"
+                && new_features.iter().any(|f| {
+                    c.new.as_ref() == Some(&f.id)
+                        && f.faces.len() == was.faces.len()
+                        && was.faces.iter().all(|i| f.faces.contains(&mapped[i]))
+                })
+            {
+                c.changes.remove("position");
             }
         }
         // Locate the chamfer by its cylinder rather than by a point on the conical face.
@@ -322,7 +292,6 @@ pub(super) fn fold_end_chamfers(
         }
     }
     changes.retain(|c| {
-        c.class != "trimmed"
-            && !(c.class == "adapted" && c.changes.keys().all(|k| CONTEXT.contains(&k.as_str())))
+        !(c.class == "adapted" && c.changes.keys().all(|k| CONTEXT.contains(&k.as_str())))
     });
 }

@@ -25,10 +25,16 @@ All notable changes to specify-core-rust. The format follows
 
 - For #67, revision reports describe an added turned end chamfer with its size and
   boss context. Retained supporting surfaces and boundary edges distinguish trimmed
-  boss/flat measurements and a lost plate classification from real resizing, moving
-  or removal. Raw recognition, correspondence and answer migration are unchanged.
+  flat centroids from real moving or removal. Raw recognition, correspondence and answer migration are unchanged.
 
 ### Changed
+
+- Upgrade quiddity and haecceity (native and WASM) to **v0.2.5** (`6110b4c`,
+  quiddity-rust#134). Boss heights and free ends include their own convex end chamfers
+  and rounds; edge-treated plates stay plates, and inside turned fillets are described
+  as concave. Saved boss answers retain their face targets; revision migration still
+  reviews changed dimensions. Recognition schema 6 and fingerprint format 3 stay unchanged;
+  optional F3D import stays off.
 
 - Upgrade quiddity and haecceity (native and WASM) to **v0.2.4** (`2f6b3a6`): haecceity's Add
   shares the face usages a file's location dimensions hold, so PMI added beside them no longer
