@@ -148,3 +148,18 @@ def test_the_output_keeps_its_permissions_and_its_symlink(plate, tmp_path):
     assert "DATUM(" in target.read_text()
     assert stat.S_IMODE(os.stat(target).st_mode) == 0o600
     assert sorted(p.name for p in tmp_path.iterdir()) == ["link.step", "real.step"]
+
+
+def test_the_command_line_says_why_it_cannot_write(plate, tmp_path, capsys):
+    import json
+
+    from specify_core.cli import main
+
+    analysis = analyse(plate)
+    analysis["binding"]["loader_version"] -= 1
+    (tmp_path / "a.json").write_text(json.dumps(analysis))
+    (tmp_path / "answers.json").write_text(json.dumps({"part.material": "steel"}))
+    args = ["write", str(plate), str(tmp_path / "a.json"), str(tmp_path / "answers.json")]
+    code = main([*args, "-o", str(tmp_path / "out.step"), "--accept-defaults"])
+    assert code == 2 and "loader version" in capsys.readouterr().err
+    assert not (tmp_path / "out.step").exists()

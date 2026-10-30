@@ -4,6 +4,7 @@ import pytest
 from specify_core.api import analyse, apply, write
 from specify_core.existing import read_existing
 from specify_core.load import load
+from specify_core.problems import problems
 from specify_core.rules import LOCATING, questions
 
 
@@ -14,6 +15,12 @@ def plate_analysis(plate):
 
 def _top(analysis):
     return max(
+        (f for f in analysis["faces"] if f["kind"] == "plane"), key=lambda f: f["centroid"][2]
+    )
+
+
+def _bottom(analysis):
+    return min(
         (f for f in analysis["faces"] if f["kind"] == "plane"), key=lambda f: f["centroid"][2]
     )
 
@@ -33,6 +40,27 @@ def test_holes_located_by_plus_minus_need_no_positions_or_datums(plate_analysis)
     intent = apply(plate_analysis, {**plus_minus, "part.material": "steel"}, accept_defaults=True)
     assert intent.datums == [] and not any(r["kind"] == "position" for r in intent.requirements)
     assert any(r["kind"] == "size" for r in intent.requirements)  # fits still apply
+
+
+def test_a_standard_part_has_no_problems(plate_analysis):
+    assert problems(plate_analysis, {}) == []
+
+
+def test_holes_with_nothing_to_locate_them_are_reported(plate_analysis):
+    found = problems(plate_analysis, {"datum.A": []})
+    unlocated = [p for p in found if "nothing locates" in p["message"]]
+    assert unlocated and all(p["severity"] == "warning" and p["faces"] for p in unlocated)
+    assert any("6× Ø6.6 holes are for M6 clearance" in p["message"] for p in unlocated)
+
+
+def test_an_unused_and_a_redundant_datum_are_reported(plate_analysis):
+    plain = {
+        q.id: "general" for q in questions(plate_analysis, {}) if q.id.startswith("hole.function")
+    }
+    found = problems(plate_analysis, {**plain, "datum.A": [_top(plate_analysis)["id"]]})
+    assert [p["about"] for p in found] == ["datum.A"] and found[0]["severity"] == "info"
+    redundant = problems(plate_analysis, {"datum.B": [_bottom(plate_analysis)["id"]]})
+    assert any(p["about"] == "datum.B" and "parallel to A" in p["message"] for p in redundant)
 
 
 def test_added_requirements_are_written_and_read_back(plate, plate_analysis, tmp_path):
@@ -71,6 +99,17 @@ def test_an_added_orientation_brings_datums_where_nothing_else_needs_them(plate_
     assert "datum.A" in {q.id for q in questions(plate_analysis, {**plain, "extra.1": extra})}
 
 
+def test_an_added_requirement_citing_a_missing_datum_is_reported_not_written(plate_analysis):
+    bore = _bore8(plate_analysis)["id"]
+    answers = {"extra.1": {"faces": [bore], "kind": "parallelism", "value": "0.1", "datums": ["E"]}}
+    intent = apply(plate_analysis, {**answers, "part.material": "x"}, accept_defaults=True)
+    assert not any(r.get("question") == "extra.1" for r in intent.requirements)
+    found = problems(plate_analysis, answers)
+    assert any(p["about"] == "datum.E" and "datum E" in p["message"] for p in found)
+    # E is asked, empty, so it can be picked.
+    assert "datum.E" in {q.id for q in questions(plate_analysis, answers)}
+
+
 @pytest.mark.parametrize(
     ("extra", "reason"),
     [
@@ -107,3 +146,10 @@ def test_only_the_datums_added_orientations_cite_are_proposed(plate_analysis):
     both = {**extra, "datums": ["A", "B"]}
     asked_both = {q.id for q in questions(plate_analysis, {**plus_minus, "extra.1": both})}
     assert {"datum.A", "datum.B"} <= asked_both and "datum.C" not in asked_both
+
+
+def test_an_orientation_on_its_own_datum_is_reported(plate_analysis):
+    top = _top(plate_analysis)["id"]
+    extra = {"faces": [top], "kind": "parallelism", "value": "0.05", "datums": ["A"]}
+    found = problems(plate_analysis, {"datum.A": [top], "extra.1": extra})
+    assert any(p["about"] == "extra.1" and "measured from itself" in p["message"] for p in found)

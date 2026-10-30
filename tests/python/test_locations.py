@@ -1,6 +1,7 @@
 """Location dimensions: basic from a position's datum planes, ± from the edges."""
 import pytest
 from specify_core.api import analyse, apply, write
+from specify_core.choices import interpret
 from specify_core.existing import read_existing
 from specify_core.load import load
 from specify_core.rules import LOCATING, questions

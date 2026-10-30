@@ -4,6 +4,7 @@ import pytest
 from specify_core.api import analyse, apply, write
 from specify_core.existing import read_existing
 from specify_core.load import load
+from specify_core.problems import problems
 from specify_core.rules import questions
 MATERIAL = {"part.material": "steel"}
 
@@ -141,6 +142,31 @@ def test_a_distance_with_any_limits_is_written_and_verified(plate, plate_analysi
     extra = {"faces": [top], "reference": [bottom], "kind": "distance", "value": value}
     intent = apply(plate_analysis, {**MATERIAL, "extra.1": extra}, accept_defaults=True)
     write(plate, intent, tmp_path / "limits.step")  # verifies the limits are in the file
+
+
+def test_a_diameter_sized_twice_is_reported(plate_analysis):
+    size = next(g for g in _general(plate_analysis) if g["kind"] == "size")
+    answers = {
+        "extra.1": {"faces": size["faces"], "kind": "fit", "value": "H7"},
+        "extra.2": {"faces": size["faces"], "kind": "size", "value": "±0.05"},
+    }
+    found = [p for p in problems(plate_analysis, answers) if "sized twice" in p["message"]]
+    assert [p["about"] for p in found] == ["extra.2"] and "H7 and ±0.05" in found[0]["message"]
+
+
+def test_a_datum_a_call_out_is_measured_from_is_used(plate_analysis):
+    top, bottom, _ = _planes(plate_analysis)
+    answers = {
+        "datum.A": [bottom],
+        "extra.1": {"faces": [top], "reference": [bottom], "kind": "distance", "value": "±0.1"},
+    }
+    plain = {
+        q.id: "general" for q in questions(plate_analysis, {}) if q.id.startswith("hole.function")
+    }
+    unused = [
+        p for p in problems(plate_analysis, {**plain, **answers}) if "not used" in p["message"]
+    ]
+    assert not any(p["about"] == "datum.A" for p in unused)
 
 
 @pytest.mark.parametrize("value", ["Ra 0.8", ["finish"], None, 3])

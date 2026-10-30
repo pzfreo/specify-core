@@ -17,14 +17,16 @@ CORE = {"specify_core.api.analyse", "specify_core.api.questions", "specify_core.
         "specify_core.rules.questions", "specify_core.api.apply", "specify_core.api.preview",
         "specify_core.load.load", "specify_core.api.write", "specify_core.api.write_parts",
         "specify_core.api.mesh", "specify_core.existing.read_existing",
-        "specify_core.existing.part_settings"}
+        "specify_core.existing.part_settings", "specify_core.cli.main", "specify_core.serve.reply",
+        "specify_core.problems.problems", "specify_core.choices.interpret",
+        "specify_core.choices.check", "specify_core.choices.describe", "specify_core.choices.code",
+        "specify_core.choices.callout", "subprocess"}
 OK = CORE | {"specify_core.rules.ATTENTION", "specify_core.rules.LOCATING",
              "specify_core.rules.Intent", "specify_core.rules.IncompleteError",
-             "specify_core.rules.with_all_defaults"}
+             "specify_core.rules.with_all_defaults", "specify_core.choices.SpecError"}
 # Reached inside the test (not seen by classify.py): the CLI, private rules, OpenCascade,
 # Python's own internals (each listed in tests/python/PYTHON_ONLY.md).
 EXCLUDE = {
-    "test_writer.py::test_the_command_line_says_why_it_cannot_write",
     "test_load.py::test_index_of_round_trips",
     "test_mesh.py::test_a_face_that_does_not_triangulate_is_reported",
     "test_writer.py::test_a_failed_write_leaves_the_destination_and_the_source",
@@ -49,7 +51,7 @@ INCLUDE = {
     "test_resume.py::test_without_answers_nothing_is_stored",
     "test_load.py::test_face_indices_are_stable_across_processes",
     "test_general.py::test_listed_but_not_written",
-    "test_choices.py::test_a_choice_answer_that_is_not_text_is_refused",
+    "test_anchors.py::test_preview_carries_anchors_for_its_labels_when_given_the_file",
     "test_materials.py::test_a_long_material_name_is_written_and_verified",
     "test_load.py::test_binding_identifies_the_file",
     "test_load.py::test_an_assembly_holding_one_solid_is_numbered_on_the_solid",
@@ -83,12 +85,22 @@ def saved(path, part=0):
 
     return True if parts(path)[part]["written"] else None
 """
-PRELUDE = {"test_datums.py": _BORES, "test_same_as.py": _BORES, "test_mesh.py": _FACES,
+_KEY = """
+
+def key(faces):
+    # Ported: specify-core's anchors.key, the key a set of faces' anchor is found by.
+    return ",".join(str(int(i)) for i in sorted(faces))
+"""
+PRELUDE = {"test_anchors.py": _KEY, "test_datums.py": _BORES, "test_same_as.py": _BORES, "test_mesh.py": _FACES,
            "test_writer.py": _FACES, "test_resume.py": _SAVED, "test_merge.py": _SAVED}
 HAVE = {"specify_core.api": {"analyse", "questions", "parts", "apply", "preview", "load",
                               "write", "write_parts", "mesh"},
         "specify_core.existing": {"read_existing", "part_settings", "ExistingPmi"},
         "specify_core.writer": {"WriteReport", "VerificationError"},
+        "specify_core.cli": {"main"},
+        "specify_core.serve": {"reply"},
+        "specify_core.problems": {"problems"},
+        "specify_core.choices": {"interpret", "check", "describe", "code", "callout", "SpecError"},
         "specify_core.rules": {"questions", "ATTENTION", "LOCATING", "Question", "Intent",
                                "IncompleteError", "with_all_defaults"},
         "specify_core.load": {"load", "LoadedPart", "Binding"},
@@ -116,7 +128,8 @@ PATCHES = {
 """)],
     "test_choices.py": [(
         """    with pytest.raises(SpecError, match=qid):""",
-        """    # Ported: the engine's refusal is a ValueError, of which specify-core's SpecError is one.
+        """    # Ported: the rules report a refused spec as the answer's ValueError, of which
+    # specify-core's SpecError is one; the engine does not tell them apart.
     with pytest.raises(ValueError, match=qid):""")],
     "test_materials.py": [(
         """    longest = max((name for name, _, _ in MATERIALS), key=len)""",

@@ -6,13 +6,17 @@ build123d, OCP). Built with [maturin](https://www.maturin.rs/) as a mixed projec
 module `specify_core._native` (`src/lib.rs`) and the package around it
 (`python/specify_core/`).
 
-So far: `load` (a `LoadedPart`), `parts`, `analyse`, `questions`, `apply`, `preview`, `write`,
+The API: `load` (a `LoadedPart`), `parts`, `analyse`, `questions`, `apply`, `preview`, `write`,
 `write_parts` and `mesh`, with `Question`, `Intent`, `IncompleteError`, `WriteReport`,
-`VerificationError`, `rules.with_all_defaults` and `existing.read_existing`/`part_settings`
-(`ExistingPmi`). Each step that reads a file takes a path or a `LoadedPart`, a handle on the
-part held by the engine: it has `path`, `binding`, `part_count` and `name`, but none of
-OpenCascade's objects (`faces`, `face`, `index_of`, `shape`). Not yet: the command line and
-`serve`.
+`VerificationError`, `rules.with_all_defaults`, `existing.read_existing`/`part_settings`
+(`ExistingPmi`), `problems.problems`, `choices` (`interpret`, `check`, `describe`, `code`,
+`callout`, `SpecError`) and `serve.reply`. Each step that reads a file takes a path or a
+`LoadedPart`, a handle on the part held by the engine: it has `path`, `binding`, `part_count`
+and `name`, but none of OpenCascade's objects (`faces`, `face`, `index_of`, `shape`).
+
+The command line: the `specify-core` console script (or `python -m specify_core`) runs the
+engine's (`specify_core::cli`, the binary's code) in the Python process, `serve` included;
+`cli.main(argv)` returns its exit code. specify-core's second name, `pmi-assist`, is not kept.
 
 ```bash
 uv venv /tmp/specify-py && uv pip install --python /tmp/specify-py/bin/python maturin pytest
@@ -31,4 +35,4 @@ without them (`NIST_PMI`). A test that fails by a recorded difference is a stric
 its ledger entry (`tests/python/conftest.py`, `KNOWN`); the tests that do not run here, and the
 ones ported onto the public API, are listed in `tests/python/PYTHON_ONLY.md`.
 
-Licensed under Apache-2.0.
+Licensed under Apache-2.0 (LICENSE, NOTICE: the repository's, copied here for the wheel).

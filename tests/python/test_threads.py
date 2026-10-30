@@ -2,6 +2,7 @@
 import re
 import pytest
 from specify_core.api import analyse, apply, questions, write
+from specify_core.serve import reply
 
 
 @pytest.fixture(scope="module")
@@ -69,6 +70,21 @@ def test_a_typed_thread_depth_is_written_and_read_back(pin, pin_analysis, tmp_pa
     )
     assert "5.6 mm minimum full thread" in text
     assert analyse(out)["resume"] == {"answers": answers}
+
+
+def test_the_serve_child_reports_the_depth_it_kept(pin_analysis):
+    hole = f"hole.function:{_feature(pin_analysis, 'holes', 4.2)}"
+
+    def typed(text):
+        request = {"op": "interpret", "analysis": pin_analysis, "answers": {}}
+        return reply({"id": 1, **request, "question": hole, "text": text})
+
+    assert typed("M5 tapped, 5 mm full thread")["result"] == {
+        "value": "tapped:M5@5",
+        "code": "M5 tapped, 5 mm full thread",
+        "callout": "M5×0.8-6H, 5 mm min full thread, ⌀4.2 tap drill",
+    }
+    assert "at most 5.6 mm" in typed("M5, usable thread depth 7 mm")["error"]["message"]
 
 
 def test_external_thread_and_knurl_from_turned_answers(pin_analysis):

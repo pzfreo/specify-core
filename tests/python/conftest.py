@@ -152,6 +152,15 @@ KNOWN = {
     'test_writer.py::test_unreferenced_datums_are_warned': (
         "rules.json, 'measurement datums are proposed before dimensions, including in ± mode' (draftwright-rust #122): A, B and C are written and warned about with nothing to position"
     ),
+    'test_assembly.py::test_an_analysis_from_before_parts_still_previews_with_anchors': (
+        "rules.json, 'unanswered defaults remain suggestions until explicitly accepted' (specify-core-rust #20): nothing answered previews no items, so there is nothing to anchor"
+    ),
+    'test_locating_problems_extras.py::test_an_unused_and_a_redundant_datum_are_reported': (
+        "rules.json, 'measurement datums are proposed before dimensions, including in ± mode' (draftwright-rust #122): B and C are proposed too, and reported unused"
+    ),
+    'test_anchors.py::test_preview_carries_anchors_for_its_labels_when_given_the_file': (
+        "rules.json, 'unanswered defaults remain suggestions until explicitly accepted' (specify-core-rust #20): nothing answered previews no items, so there is nothing to label"
+    ),
 }
 
 

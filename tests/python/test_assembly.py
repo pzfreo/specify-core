@@ -4,8 +4,10 @@ import json
 import re
 import pytest
 from specify_core import api
+from specify_core.cli import main
 from specify_core.existing import read_existing
 from specify_core.load import load
+from specify_core.serve import reply
 PLATE, PIN = 0, 1
 ANSWERS = {PLATE: {"part.material": "steel"}, PIN: {"part.material": "brass"}}
 
@@ -61,6 +63,29 @@ def test_writing_one_part_again_alone_is_refused(written, tmp_path):
         api.write(out, intent, tmp_path / "x.step")
 
 
+def test_written_again_through_the_service_its_pmi_is_replaced(written, tmp_path):
+    *_, out = written
+    again = tmp_path / "again.step"
+    parts = [{"analysis": api.analyse(out, k), "answers": ANSWERS[k]} for k in (PLATE, PIN)]
+    result = reply(
+        {
+            "id": 1,
+            "op": "write",
+            "step": str(out),
+            "output": str(again),
+            "accept_defaults": True,
+            "parts": parts,
+        }
+    )
+    assert result["ok"], result
+    count = lambda p: len(re.findall(r"= ?DATUM\(", p.read_text()))  # noqa: E731
+    assert count(again) == count(out) == 5
+    assert reply({"id": 2, "op": "parts", "step": str(again)})["result"]["parts"][PIN]["written"]
+    analysed = reply({"id": 3, "op": "analyse", "step": str(again), "part": PIN})["result"]
+    assert analysed["analysis"]["resume"] == {"answers": ANSWERS[PIN]}
+    assert len(analysed["mesh"]["faces"]) == 7
+
+
 def test_an_assembly_with_pmi_of_its_own_is_refused(written, tmp_path):
     *_, out = written
     foreign = tmp_path / "foreign.step"
@@ -92,6 +117,43 @@ def test_answers_stored_for_a_part_the_file_no_longer_has_are_refused(written, t
     intents = [(api.apply(a, q, accept_defaults=True), q) for a, q in parts]
     with pytest.raises(ValueError, match=r"answers stored for part\(s\) 5 are not for"):
         api.write_parts(changed, intents, tmp_path / "x.step")
+
+
+def test_an_unanswered_part_is_named(assembly, tmp_path):
+    parts = [{"analysis": api.analyse(assembly, k), "answers": {}} for k in (PLATE, PIN)]
+    parts[PLATE]["answers"] = ANSWERS[PLATE]
+    result = reply(
+        {
+            "id": 1,
+            "op": "write",
+            "step": str(assembly),
+            "output": str(tmp_path / "x.step"),
+            "accept_defaults": True,
+            "parts": parts,
+        }
+    )
+    assert result["error"]["code"] == "incomplete" and result["error"]["part"] == PIN
+    assert result["error"]["message"].startswith("part 1: ")
+
+
+def test_an_analysis_from_before_parts_still_previews_with_anchors(pin):
+    analysis = api.analyse(pin)
+    analysis["binding"].pop("part")
+    request = {"op": "preview", "analysis": analysis, "answers": {}, "step": str(pin)}
+    assert reply({"id": 1, **request})["result"]["intent"]["anchors"]
+
+
+def test_the_command_line_writes_a_pair_for_each_part(assembly, tmp_path, capsys):
+    pairs = []
+    for k in (PLATE, PIN):
+        analysis, answers = tmp_path / f"a{k}.json", tmp_path / f"q{k}.json"
+        assert main(["analyse", str(assembly), "--part", str(k), "-o", str(analysis)]) == 0
+        answers.write_text(json.dumps(ANSWERS[k]))
+        pairs += [str(analysis), str(answers)]
+    capsys.readouterr()
+    out = tmp_path / "cli.step"
+    assert main(["write", str(assembly), *pairs, "-o", str(out), "--accept-defaults"]) == 0
+    assert any(line.startswith("pin: ") for line in json.loads(capsys.readouterr().out)["written"])
 
 
 def test_an_intent_made_before_parts_were_told_apart_still_writes(pin, tmp_path):

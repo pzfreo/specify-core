@@ -5,8 +5,10 @@ A is two coplanar flange faces, B and C are holes, D is the web, and the
 switch-mounting holes are located from D|B|C. Values are NIST's in inches;
 sizes use H11 until ± tolerances exist.
 """
+import json
 import pytest
 from specify_core.api import analyse, apply, write
+from specify_core.cli import main
 from specify_core.existing import read_existing
 from specify_core.load import load
 from specify_core.rules import questions
@@ -164,6 +166,14 @@ def test_a_datum_bore_on_a_turned_part_keeps_its_fit(spool):
     assert "hole.function:holes:34.55" in ids
     assert "hole.position:holes:34.55" not in ids
     assert "datum.B.control" in ids
+
+
+def test_the_cli_reports_a_bad_datum_answer(ctc03_analysis, tmp_path, capsys):
+    analysis, answers = tmp_path / "analysis.json", tmp_path / "answers.json"
+    analysis.write_text(json.dumps(ctc03_analysis))
+    answers.write_text(json.dumps({"datum.A": [18, 7]}))
+    assert main(["questions", str(analysis), "--answers", str(answers)]) == 2
+    assert "invalid answer: datum A" in capsys.readouterr().err
 
 
 def test_datums_are_proposed_only_when_something_is_measured_from_them(plate):

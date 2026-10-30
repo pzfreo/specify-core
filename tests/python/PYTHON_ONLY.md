@@ -9,9 +9,9 @@ captured from), run on the Rust-backed package. This file accounts for the rest,
   (`conftest.py`, `KNOWN`).
 - Each test of cc341dd that is not there is listed below, with why.
 
-cc341dd has 219 test functions. `tests/python` runs 138 of them (171 cases with their
-parameters), 24 of those ported onto the public API (below). 81 do not run: 15 wait for the
-command line and `serve`, and 66 apply only to the Python engine.
+cc341dd has 219 test functions. `tests/python` runs 169 of them (238 cases with their
+parameters), 25 of those ported onto the public API (below). The other 50 apply only to the
+Python engine.
 
 Where "Rust:" names a file, the Rust repo's test of the same name (ported from specify-core)
 checks the same behaviour in the engine.
@@ -32,35 +32,14 @@ The test's intent is kept; what changed is how it reaches the part. Each change 
 | `test_load.py::test_an_assembly_holding_one_solid_is_numbered_on_the_solid` | the seven faces counted; OpenCascade's shape type and `index_of` dropped |
 | `test_mesh.py::test_every_triangle_winds_outward` | the plate's exact volume, computed, for OpenCascade's; the spool case is dropped (its volume is not known without OpenCascade) |
 | `test_conformance.py`: 2 tests | their regular expressions allow Part 21's optional spaces around `=` (OpenCascade writes `#1 = X(`, haecceity `#1=X(`) |
-| `test_choices.py::test_a_choice_answer_that_is_not_text_is_refused` | `ValueError` for `choices.SpecError` (its base class); the engine raises the former |
+| `test_choices.py::test_a_choice_answer_that_is_not_text_is_refused` | `ValueError` for `choices.SpecError` (its base class): the rules report a refused spec as the answer's `ValueError`, without telling the two apart |
+| `test_anchors.py::test_preview_carries_anchors_for_its_labels_when_given_the_file` | `anchors.key`, a one-line join of sorted face ids, is carried in the test file |
 | `test_materials.py::test_a_long_material_name_is_written_and_verified` | the longest name from the material question's suggestions, which are `MATERIALS` |
 
 Parts the tests build with build123d are the committed files `tools/make_parts.py` built from
 the same code (`tests/fixtures/parts/`).
 
-## Waiting for the command line and `serve` (15)
-
-These drive `specify_core.cli.main`, `specify_core.serve.reply` or the `serve` child process.
-They apply to the Rust engine, and are run once the package ships the Rust `specify-core`
-binary as its command line.
-
-- `test_anchors.py::test_preview_carries_anchors_for_its_labels_when_given_the_file`
-- `test_anchors.py::test_anchors_are_not_given_for_a_different_file`
-- `test_assembly.py::test_written_again_through_the_service_its_pmi_is_replaced`
-- `test_assembly.py::test_an_unanswered_part_is_named`
-- `test_assembly.py::test_an_analysis_from_before_parts_still_previews_with_anchors`
-- `test_assembly.py::test_the_command_line_writes_a_pair_for_each_part`
-- `test_choices.py::test_the_serve_child_interprets_what_was_typed`
-- `test_datums.py::test_the_cli_reports_a_bad_datum_answer`
-- `test_serve.py::test_a_session_over_the_pipe`
-- `test_serve.py::test_errors_are_structured_and_the_child_survives`
-- `test_serve.py::test_unanswered_questions_are_listed`
-- `test_serve.py::test_a_crash_inside_one_request_is_reported`
-- `test_serve.py::test_a_line_that_is_not_an_object_is_refused_and_the_child_survives`
-- `test_threads.py::test_the_serve_child_reports_the_depth_it_kept`
-- `test_writer.py::test_the_command_line_says_why_it_cannot_write`
-
-## Python only (66)
+## Python only (50)
 
 ### OpenCascade objects and Python's loaders (4)
 
@@ -100,18 +79,16 @@ binary as its command line.
 | `test_datums.py::test_turned_datum_b_takes_every_face_of_a_split_bore` | `rules._default_datums`, whose turned datums the engine replaces (rules.json, "axis-first turned datum defaults"). Rust: `datums.rs` |
 | `test_profile_runout.py::test_turned_diameters_offer_runout_about_the_part_axis_but_not_the_axis_itself` | `rules._default_datums` (the same). Rust: `profile_runout.rs` |
 
-### Python modules the package does not expose (36)
+### Python modules the package does not expose (20)
 
 Their tables and functions are the engine's own (named), checked in Rust against
-specify-core's (the oracle's sweeps, `docs/design.md`, "Status").
+specify-core's (the oracle's sweeps, `docs/design.md`, "Status"). The package exposes
+`choices` and `problems`, whose tests run here.
 
 | Tests | Module | Rust |
 |---|---|---|
-| `test_choices.py`: 9 (`each_option_has_…`, `typed_specs_are_read_…`, `on_a_shaft_capital_m_…`, `specs_that_do_not_fit_…`, `a_tapped_hole_keeps_…`, `a_number_that_cannot_be_kept_…`, `a_clearance_hole_takes_no_depth_…`, `a_stored_depth_written_otherwise_…`, `a_thread_depth_is_named_…`) | `choices` | `choices.rs`, `choices_oracle.json.gz` |
 | `test_standards.py`: all 6 | `standards` | `standards.rs` |
 | `test_threads.py::test_thread_standards` | `standards` | `threads.rs` |
-| `test_locating_problems_extras.py`: 5 (`a_standard_part_has_no_problems`, `holes_with_nothing_to_locate_…`, `an_unused_and_a_redundant_datum_…`, `an_added_requirement_citing_a_missing_datum_…`, `an_orientation_on_its_own_datum_…`) | `problems` | `problems.rs`, `extras.rs` |
-| `test_call_out.py::test_a_diameter_sized_twice_is_reported`, `test_a_datum_a_call_out_is_measured_from_is_used` | `problems` | `call_out.rs` |
 | `test_call_out.py::test_a_distance_leaves_the_general_list_by_place_not_by_the_faces_picked` | `general._between` | none by name |
 | `test_general.py::test_iso_2768_linear`, `test_pin_lengths_are_baseline_from_datum_a` | `general.deviation` | `general.rs` |
 | `test_locations.py::test_a_typed_location_tolerance`, `test_only_untoleranced_locations_are_marked_basic` | `locations.parse`, `mark_basic` | `locations.rs` |
