@@ -2,7 +2,7 @@
 name = "specify-core-wasm"
 version = "0.1.4"
 edition = "2024"
-license = "AGPL-3.0-or-later"
+license = "Apache-2.0"
 description = "Browser bindings for Specify's questions and manufacturing intent"
 repository = "https://github.com/pzfreo/specify-core-rust"
 readme = "README.md"

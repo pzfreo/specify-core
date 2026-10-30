@@ -35,6 +35,9 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Relicensed from AGPL-3.0-or-later to **Apache-2.0** (`LICENSE`, `NOTICE`, both crates'
+  `license` fields), matching quiddity and haecceity.
+
 - Upgrade quiddity and haecceity (native and WASM) to **v0.2.5** (`6110b4c`,
   quiddity-rust#134). Boss heights and free ends include their own convex end chamfers
   and rounds; edge-treated plates stay plates, and inside turned fillets are described
