@@ -2,7 +2,7 @@
 name = "specify-core-py"
 version = "0.1.3"
 edition = "2024"
-license = "AGPL-3.0-or-later"
+license = "Apache-2.0"
 description = "Python bindings for specify-core: the Python package's API on the Rust engine"
 repository = "https://github.com/pzfreo/specify-core-rust"
 readme = "README.md"
