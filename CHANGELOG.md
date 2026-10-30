@@ -12,6 +12,8 @@ All notable changes to specify-core-rust. The format follows
   Python API and the `specify-core` command line, with no Python dependency; abi3 wheels for
   CPython 3.12 and later, built and published by `.github/workflows/python.yml`. See
   [docs/python.md](docs/python.md#the-python-package).
+- Its PyPI page (0.1.4.post1, packaging only): a README for users, with examples checked
+  against the published package, plus project links, keywords and classifiers.
 - For #77: each written size/location dimension records its origin and stable geometric
   source as a CAx-IF UDA on the dimension itself. Native PMI/analysis and WASM snapshots
   expose stored metadata; accepted defaults count as requirements and kept foreign PMI
