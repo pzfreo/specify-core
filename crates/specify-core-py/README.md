@@ -22,17 +22,11 @@ engine's (`specify_core::cli`, the binary's code) in the Python process, `serve`
 uv venv /tmp/specify-py && uv pip install --python /tmp/specify-py/bin/python maturin pytest
 VIRTUAL_ENV=/tmp/specify-py /tmp/specify-py/bin/maturin develop --release \
   -m crates/specify-core-py/Cargo.toml
-QUIDDITY_CORPUS=/path/to/quiddity/tests/corpus /tmp/specify-py/bin/python -m pytest tests/python
+/tmp/specify-py/bin/python -m pytest tests/python
 ```
 
 `maturin build --release -m crates/specify-core-py/Cargo.toml` builds the wheel: abi3, so one
-wheel per platform serves CPython 3.12 to 3.14.
-
-`tests/python` holds specify-core's own tests (at cc341dd, the revision the oracle was captured
-from), on the committed parts `tools/make_parts.py` built; the tests of the spool and NIST
-CTC-03 skip without Quiddity's corpus (`QUIDDITY_CORPUS`), and those of NIST's PMI files
-without them (`NIST_PMI`). A test that fails by a recorded difference is a strict xfail naming
-its ledger entry (`tests/python/conftest.py`, `KNOWN`); the tests that do not run here, and the
-ones ported onto the public API, are listed in `tests/python/PYTHON_ONLY.md`.
+wheel per platform serves CPython 3.12 and later. `tests/python` is a smoke suite of the
+package; the engine is tested in Rust. See [docs/python.md](https://github.com/pzfreo/specify-core-rust/blob/main/docs/python.md#the-python-package).
 
 Licensed under Apache-2.0 (LICENSE, NOTICE: the repository's, copied here for the wheel).
