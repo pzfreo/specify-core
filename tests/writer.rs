@@ -1222,13 +1222,9 @@ fn a_datum_symbol_presents_its_datum_feature() {
     for callout in symbols {
         let aspect = &linked[callout];
         assert!(
-            // A datum axis whose cylinder carries its size (one the general tolerance covers,
-            // #63) is a datum feature of size: AP242's dimensional_size_with_datum_feature.
-            Regex::new(&format!(
-                r"#{aspect}\s*=\s*(DATUM_FEATURE|DIMENSIONAL_SIZE_WITH_DATUM_FEATURE)\("
-            ))
-            .unwrap()
-            .is_match(&text),
+            Regex::new(&format!(r"#{aspect}\s*=\s*DATUM_FEATURE\("))
+                .unwrap()
+                .is_match(&text),
             "callout #{callout} presents #{aspect}, not a datum feature"
         );
     }

@@ -13,7 +13,8 @@ All notable changes to specify-core-rust. The format follows
   their nominal alone, under the general tolerance written for the part. A part located by ±
   dimensions now carries its hole locations. They are counted in one report line,
   `N dimensions under the general tolerance`. A part with PMI from elsewhere gets none (its
-  own dimensions stand). Read back, Specify's own nominal-only dimensions settle no question.
+  own dimensions stand), and a datum's own faces get no size (its datum stays a plain datum
+  feature). Read back, Specify's own nominal-only dimensions settle no question.
 
 ### Changed
 
