@@ -185,7 +185,8 @@ fn answered_m2_without_depth_preserves_alpha7_semantics_and_pins_presentation_by
         None,
     )
     .unwrap();
-    // This is also the WASM byte pin: quiddity-rust#137 callouts, aspects and #65 numbering.
+    // This is also the WASM byte pin: #137 callouts, aspects and #65 numbering.
+    // v0.2.7 moves the General notes block; recapture this output, keep alpha.7 unchanged.
     assert_eq!(bytes.as_slice(), numbered.bytes.as_slice());
     for (source, answers) in [(loaded, given.clone()), (baseline, given)] {
         let analysis = api::analyse(&source).unwrap();

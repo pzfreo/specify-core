@@ -257,6 +257,7 @@ fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() 
     // retained plate and its six-decimal published centre). Analysis and read hashes stay
     // unchanged for quiddity-rust#137; settings-only writes gain its General notes callout.
     // #77 leaves these settings-only hashes unchanged: no size/location UDA is written.
+    // v0.2.7 moves the General notes block; only settings-only writer hashes change.
     // Float serialization varies by platform; portable absence checks run separately above.
     if !cfg!(target_os = "macos") {
         return;

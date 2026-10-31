@@ -15,7 +15,9 @@
 //! /Users/paul/repos/specify-core/.venv/bin/python tools/capture.py cross-engine tests/fixtures/cross_engine
 //! ```
 //!
-//! **For quiddity-rust#137.** Recaptured with v0.2.6: default presentation adds callouts,
+//! **For quiddity-rust 0.2.7.** Recaptured for slash-separated deviations and
+//! clearer notes/frame placement; semantic PMI and recognition are unchanged.
+//! The previous v0.2.6 recapture added: default presentation adds callouts,
 //! surface symbols and notes; composite and location aspects change semantic structure.
 //! These files include #65 ids/history and #77 dimension origin/source UDAs, checked byte
 //! for byte with independent Python readbacks. Historical category-order and alpha.7
