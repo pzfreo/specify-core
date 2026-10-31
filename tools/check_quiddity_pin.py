@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SIBLING = "pzfreo/draftwright-rust"
 KERNEL = "pzfreo/quiddity-rust"
+REQUIRED_TAG = "v0.4.0"
 
 
 def api(path):
@@ -104,6 +105,8 @@ def main():
     args = parser.parse_args()
     try:
         local = pins(tomllib.loads(args.manifest.read_text()))
+        if any(pin != ("tag", REQUIRED_TAG) for pin in local.values()):
+            warning(f"Expected both kernel crates pinned to {REQUIRED_TAG}: {describe(local)}")
         tag = latest_release(SIBLING)
         contents = api(f"{SIBLING}/contents/Cargo.toml?ref={urllib.parse.quote(tag, safe='')}")
         sibling = pins(tomllib.loads(base64.b64decode(contents["content"]).decode()))

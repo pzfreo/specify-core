@@ -145,39 +145,53 @@ impl Planner {
             },
             _ => None,
         });
-        let parameter = feature.and_then(|f| {
-            if size {
-                Some(
-                    match f.family.as_str() {
-                        "holes" | "hole_patterns" => "bore.diameter",
-                        "bosses" => "boss.diameter",
-                        "turned_steps" => "step.diameter",
-                        "turned_bodies" => "turned_body.diameter",
-                        // Other feature families do not name a diameter measurement in the
-                        // current Specify writer. Do not invent a Draftwright parameter.
-                        _ => return None,
+        let planned_parameter = feature.filter(|_| !support.is_empty()).and_then(|_| {
+            req.get("planner")
+                .and_then(|p| {
+                    serde_json::from_value::<crate::dimensioning::Planned>(p.clone()).ok()
+                })
+                .map(|p| match p.required.kind {
+                    quiddity::dimensioning::Kind::Size { role, .. } => role,
+                    quiddity::dimensioning::Kind::Location { axis, .. } => {
+                        format!("location.length.{}", ["x", "y", "z"][axis])
                     }
-                    .to_string(),
-                )
-            } else {
-                let direction = req
-                    .get("reference")
-                    .and_then(Value::as_array)
-                    .and_then(|a| a.first())
-                    .and_then(Value::as_u64)
-                    .and_then(|i| self.faces.get(i as usize))
-                    .and_then(|f| f.direction)
-                    .unwrap_or([1., 0., 0.]);
-                let axis = (0..3)
-                    .max_by(|&a, &b| {
-                        direction[a]
-                            .abs()
-                            .total_cmp(&direction[b].abs())
-                            .then_with(|| b.cmp(&a))
-                    })
-                    .unwrap_or(0);
-                Some(format!("location.length.{}", ["x", "y", "z"][axis]))
-            }
+                })
+        });
+        let parameter = planned_parameter.or_else(|| {
+            feature.and_then(|f| {
+                if size {
+                    Some(
+                        match f.family.as_str() {
+                            "holes" | "hole_patterns" => "bore.diameter",
+                            "bosses" => "boss.diameter",
+                            "turned_steps" => "step.diameter",
+                            "turned_bodies" => "turned_body.diameter",
+                            // Other feature families do not name a diameter measurement in the
+                            // current Specify writer. Do not invent a Draftwright parameter.
+                            _ => return None,
+                        }
+                        .to_string(),
+                    )
+                } else {
+                    let direction = req
+                        .get("reference")
+                        .and_then(Value::as_array)
+                        .and_then(|a| a.first())
+                        .and_then(Value::as_u64)
+                        .and_then(|i| self.faces.get(i as usize))
+                        .and_then(|f| f.direction)
+                        .unwrap_or([1., 0., 0.]);
+                    let axis = (0..3)
+                        .max_by(|&a, &b| {
+                            direction[a]
+                                .abs()
+                                .total_cmp(&direction[b].abs())
+                                .then_with(|| b.cmp(&a))
+                        })
+                        .unwrap_or(0);
+                    Some(format!("location.length.{}", ["x", "y", "z"][axis]))
+                }
+            })
         });
         let mut items = vec![(
             "origin".into(),

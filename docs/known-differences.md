@@ -13,15 +13,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
 | [cli](#cli) | 143 | 0 | 52 | 0 | 2 | 1 | 198 |
-| [cross_engine](#cross_engine) | 8 | 1 | 0 | 1 | 1 | 0 | 11 |
+| [cross_engine](#cross_engine) | 63 | 1 | 0 | 1 | 1 | 0 | 66 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 0 | 33 |
 | [features](#features) | 3413 | 1415 | 514 | 2483 | 1066 | 1686 | 10577 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 89 | 0 | 615 | 0 | 0 | 0 | 704 |
-| [writer](#writer) | 16 | 0 | 0 | 0 | 15 | 0 | 31 |
-| **all** | 3705 | 1433 | 1192 | 2489 | 1101 | 1687 | 11607 |
+| [writer](#writer) | 99 | 0 | 0 | 0 | 15 | 2 | 116 |
+| **all** | 3843 | 1433 | 1192 | 2489 | 1101 | 1689 | 11747 |
 
 ## anchors
 
@@ -161,7 +161,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cross_engine
 
-### cross_engine: rust-correct (8 entries)
+### cross_engine: rust-correct (63 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `python_readback.existing[key=*].provenance`)
 
@@ -190,6 +190,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **The independent Python reader predates Specify's dimension origin/source UDAs** (2 entries, 1 case glob)
 
   The evidence is stated per entry (2 distinct; all in `cross_engine.json`). The first, for `*` at `python_readback.existing[key=dimension|*].origin`: Specify #77 (PR #78) adds a specify pmi origin UDA to each newly written size/location. Recapturing the quiddity-rust#137 v0.2.6 writer fixtures changes 12 STEP outputs and their SHA metadata, while the documented cc341dd + ISO/fingerprint Python reader returns exactly the same readbacks: it does not expose this UDA. Measured after existing semantic entries: 69 absent origin fields on eight parts: NIST CTC-03 (1), assembly part 0 (15), four_corner_holes (9), identical_holes (5), plate (15), stack parts 0/1/2 (11/12/1). Rust reads requirement origin on these dimensions. tests/pmi_origin.rs additionally checks every newly written dimension including general-tolerance dimensions, the actual DIMENSIONAL_SIZE/DIMENSIONAL_LOCATION UDA owner under split datum/size and composite/location aspects, exact readback, no-op bytes and changed-value rewrites. Frozen v0.2.4 inputs and legacy analysis/read hashes remain unchanged. Only this absent API field is covered; no dimensional value or support is projected out.
+
+- **Python reports new shared-planner General dimensions which settle no Specify interview question (#75)** (55 entries, 3 case globs)
+
+  Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared.
 
 ### cross_engine: rust-wrong (1 entry)
 
@@ -1047,7 +1051,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (16 entries)
+### writer: rust-correct (99 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1099,7 +1103,23 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 - **the report counts the dimensions written under the general tolerance (#63)** (`*` at `write.written[*under the general tolerance]`)
 
-  Issue #63 (https://github.com/pzfreo/specify-core-rust/issues/63): the writer writes the dimensions the general tolerance covers (general.rs) with their nominal alone, and counts them in one report line, `N dimension(s) under the general tolerance` (with `part:` in an assembly), rather than listing each. Python writes none of them, so it has no such line. A part with PMI from elsewhere (Mode::Add) gets none and no line.
+  Issue #63 (https://github.com/pzfreo/specify-core-rust/issues/63): the writer writes the dimensions the general tolerance covers (general.rs) with their nominal alone, and counts them in one report line, `N dimension(s) under the general tolerance` (with `part:` in an assembly), rather than listing each. Python writes none of them, so it has no such line. A part with PMI from elsewhere (Mode::Add) gets none and no line. Shared planner, #75: slice-one General rows now also appear in Add mode after stored dimensions enter specified; deferred General rows retain the old omission.
+
+- **shared pattern origins, pitches and coincident spans replace per-member locations (#75)** (54 entries, 30 case globs)
+
+  Shared planner, #75: quiddity::dimensioning v0.4.0 plans from recognised support face sets and Specify datum/answered tolerance contracts. The writer oracle rewrites the frozen Python intent and checks STEP readback and EXPRESS validity; Python retains the old per-member set. tests/planner_dimensions.rs verifies the exact required set, Basic pattern origins and pitches, stored authority, reference modifiers and retired characteristic numbers on a pre-planner plate. docs/dimensioning.md records the slice boundary; deferred owners remain on the old path. These case-specific location differences are the removed member offsets and required shared origins/pitches; no geometry recognition differences are exempted.
+
+- **shared-frame location retains six decimal places in millimetres (#75)** (`corpus/mfcadpp_holdout/363` at `existing[key=dimension|Location_LinearDistance|[15]|[23]#1].value`)
+
+  Shared planner, #75: on holdout/363 the shared geometry nominal on [15] from [23] writes 2.238489 mm at Specify's six decimal places; Python's frozen per-member location is 2.23849 mm. The writer oracle reads the actual STEP value and compares it at its existing strict tolerance. This entry covers only that measured value difference; answered location tolerance and support are unchanged.
+
+- **shared hole-size support includes both defining cylindrical faces (#75)** (2 entries, 1 case glob)
+
+  Shared planner, #75: the frozen spool intent states Ø62 +0.03/0 on [55]; quiddity::dimensioning identifies the same bore by its defining faces [34,55]. The nominal and answered limits are preserved, once, on the complete shared support. The writer oracle STEP readback and EXPRESS check establish the change; deferred turned diameters stay on the existing path.
+
+- **shared hole-size support uses complete defining faces (#75)** (26 entries, 4 case globs)
+
+  Shared planner, #75: the frozen Python intent sizes a subset of the recognised bore faces; quiddity::dimensioning v0.4.0 uses the complete defining support of the same hole or equal-hole group. The writer oracle reads the removed subset and added complete-support roots explicitly. Nominals and answered ISO 286 fit classes are preserved; writer verification checks the class against the answered limits. The oracle comparison can expand class limits only on its old intent face set, so the newly keyed full support reads as a class without numeric limits. Only these exact measured roots are covered; deferred owners remain unchanged.
 
 ### writer: not-applicable (15 entries)
 
@@ -1118,6 +1138,12 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **an assertion on Python's text route or drawing, not ported** (10 entries, 10 case globs)
 
   Python's own text route ('manufacturing requirement' sentences, leaders) or its own datum symbol lettering, which haecceity does not write (decisions 5 and 6 of docs/step-ap242.md); the semantic content each test also checks is ported in tests/writer.rs.
+
+### writer: resolved (2 entries)
+
+- **shared pattern origins, pitches and coincident spans replace per-member locations (#75)** (2 entries, 1 case glob)
+
+  Shared planner, #75: quiddity::dimensioning v0.4.0 plans from recognised support face sets and Specify datum/answered tolerance contracts. The writer oracle rewrites the frozen Python intent and checks STEP readback and EXPRESS validity; Python retains the old per-member set. tests/planner_dimensions.rs verifies the exact required set, Basic pattern origins and pitches, stored authority, reference modifiers and retired characteristic numbers on a pre-planner plate. docs/dimensioning.md records the slice boundary; deferred owners remain on the old path. These case-specific location differences are the removed member offsets and required shared origins/pitches; no geometry recognition differences are exempted. Resolved by the #75 consumer fallback: the completed 78-write sweep preserves locations not covered by the slice-one hole grammar as specified or legacy requirements, instead of dropping them. These cgb202 location reports and readbacks equal Python; the entries now assert that absence. Its complete defining-face size changes remain separately recorded.
 
 ## Open work
 

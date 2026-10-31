@@ -14,7 +14,7 @@ whose every part has Python's accept-defaults intent:
 | `python_written_evidence.json.gz` | the same | The same resume evidence for the file Python wrote for the oracle (`../oracle/<case>/written.step.gz`). |
 
 Regenerate in this order, in one commit: the example, then the capture (each `.gz` is written
-reproducibly; only `captured` dates change on a rerun). The committed capture is from
+reproducibly; only `captured` dates change on a rerun). The initial capture was from
 specify-core 2cb6499 (cc341dd with its branches `iso286-3150` and `fingerprint-v2` cherry-picked,
 loaded with `SPECIFY_CORE=<that checkout>`; docs/questions.md, "Recapture source"), which writes
 and reads stored-answer schema 2.
@@ -66,3 +66,10 @@ Recapture the independent readbacks and byte hashes with the same schema-2 refer
 (`84c770e`); retain the original Python-written oracle and its evidence. The three
 `characteristic-numbers-legacy.json` settings-only writer hashes change solely because
 v0.2.7 moves the General notes block; their analysis and semantic-read hashes stay fixed.
+
+For the shared planner (#75), regenerate Rust outputs with v0.4.0 and recapture
+with `tools/capture.py cross-engine tests/fixtures/cross_engine --rust-only`.
+This option retains the independent, unchanged Python-written specimens and their
+original resume evidence. Use the same `cc341dd` + `iso286-3150` + `fingerprint-v2`
+reference described above. Planner counts/roles now have dimension-owned metadata;
+synthetic support points use the source context's length unit, including inches.
