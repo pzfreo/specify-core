@@ -12,3 +12,8 @@ original file. `writePmi` uses the upstream verified writer and optionally store
 base64 `draftwright editor project` attribute on the part.
 
 Licensed under AGPL-3.0-or-later; bundled haecceity/quiddity are AGPL-3.0-only.
+
+For #87, snapshot faces include authored STEP `name` when present. Keep the entire
+`evidence()` object with external answers: named parts use schema 3; missing or
+duplicate names are unresolved without geometric fallback. See
+[face-name matching and compatibility](../../docs/face-names.md).

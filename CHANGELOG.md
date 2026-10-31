@@ -6,6 +6,19 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- For #87: carry authored STEP face names in analysis and stored-answer schema 3.
+  Resume and diff match names exactly before unnamed geometric supports; missing or
+  duplicate names leave answers unresolved. Unnamed parts retain schema 2 and their
+  existing bytes. See [face-name compatibility](docs/face-names.md).
+
+### WASM API
+
+- For #87: snapshot faces add optional `name`; evidence adds schema 3 `face_names`
+  and optional mixed-part `geometry`. Add descriptive `AnalysisFace` and
+  `AnswerEvidence` JSON types; existing methods and answer shapes are retained.
+
 ## 0.1.5 (2026-10-31)
 
 On quiddity/haecceity 0.2.8. Adds `pmiScene` (one PMI scene for the editor's Specify, diff and viewer), rebuilds `diff`'s PMI section on haecceity PMI with characteristic numbers, records dimension origins (#77), and adds `pmi_scene` and `api.diff` to the `specify-core` Python package. `diff`'s `pmi.stored`/`pmi.existing` are deprecated in favour of `pmi.items`. The WASM ceiling is now 15,000,000 bytes.

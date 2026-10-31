@@ -38,6 +38,26 @@ export function start(): void;
 
 export function tolerancingEdit(state: string, mode: string | null | undefined, answers: string): string;
 
+export interface AnalysisFace {
+  area: number;
+  centroid: [number, number, number];
+  contact?: unknown;
+  direction?: [number, number, number];
+  id: number;
+  kind: string;
+  name?: string;
+  origin?: [number, number, number];
+  radius?: number;
+}
+
+export interface AnswerEvidence {
+  face_count: number;
+  face_names?: (string | null)[];
+  faces: string;
+  geometry?: unknown;
+  schema: 1 | 2 | 3;
+}
+
 export interface DiffPmi {
   answers_from: "given" | "stored" | "none";
   existing: unknown[];
