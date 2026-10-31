@@ -55,8 +55,30 @@ impl Scene {
                 }
             };
             let (semantic, metadata, counts) = self.planned(loaded, analysis, answers, foreign)?;
+            // Reusing a foreign datum does not author a new item or redraw its callout.
+            if foreign
+                && semantic.pmi.material.is_none()
+                && !metadata
+                    .values()
+                    .any(|meta| matches!(meta["status"].as_str(), Some("answered" | "default")))
+            {
+                return self.file(loaded, None);
+            }
             let mut graphics =
                 presentation::generated(&semantic, &loaded.part).map_err(|e| e.to_string())?;
+            if foreign {
+                let mut planes = std::collections::BTreeSet::new();
+                for id in &semantic.ids["datums"] {
+                    if metadata
+                        .get(id)
+                        .is_some_and(|meta| meta["status"] == "existing")
+                        && let Some(rows) = graphics.items.remove(id)
+                    {
+                        planes.extend(rows.into_iter().filter_map(|graphic| graphic.plane_id));
+                    }
+                }
+                graphics.planes.retain(|plane| !planes.contains(&plane.id));
+            }
             for (id, count) in counts {
                 if count > 1
                     && let Some(items) = graphics.items.get_mut(&id)
@@ -208,7 +230,35 @@ impl Scene {
                 }
             }
         }
+        if foreign {
+            let original = wire::identify(
+                before.clone(),
+                Some(&self.read.identifiers.parts[self.index]),
+            )
+            .map_err(|e| e.to_string())?;
+            for (i, datum) in semantic.pmi.datums.iter().enumerate() {
+                if let Some(old) = before
+                    .datums
+                    .iter()
+                    .position(|old| old.label() == datum.label())
+                {
+                    let id = original.ids["datums"][old].clone();
+                    let previous = std::mem::replace(
+                        &mut semantic.ids.get_mut("datums").ok_or("missing datum ids")?[i],
+                        id.clone(),
+                    );
+                    metadata.remove(&previous);
+                    counts.remove(&previous);
+                    let mut meta = json!({"status":"existing"});
+                    if let Some(number) = id.parse::<u64>().ok().filter(|n| *n > 0) {
+                        meta["number"] = json!(number);
+                    }
+                    metadata.insert(id, meta);
+                }
+            }
+        }
         part_metadata(&mut semantic, &mut metadata, answers)?;
+        attribute_ids(&mut semantic, &mut metadata)?;
         fill_metadata(&semantic, &mut metadata, "general");
         Ok((semantic, metadata, counts))
     }
@@ -246,6 +296,7 @@ impl Scene {
         }
         if let Some(answers) = &self.stored {
             part_metadata(&mut semantic, &mut metadata, answers)?;
+            attribute_ids(&mut semantic, &mut metadata)?;
             // Drop obsolete content ids after renaming the part settings.
             let ids: std::collections::BTreeSet<_> = semantic.ids.values().flatten().collect();
             metadata.retain(|id, _| ids.contains(id));
@@ -314,6 +365,55 @@ fn part_metadata(
                 metadata.insert(id, json!({"status": if answers.contains_key(&question) {"answered"} else {"default"}, "question":question}));
             }
         }
+    }
+    Ok(())
+}
+
+// Metadata/history are semantic JSON items too. Their identities follow their
+// requirement owner and property name, rather than changing with the property's value.
+fn attribute_ids(semantic: &mut Semantic, metadata: &mut Map<String, Value>) -> Result<(), String> {
+    let mut occurrences = BTreeMap::new();
+    for (index, attribute) in semantic.pmi.attributes.iter().enumerate() {
+        if attribute.name == writer::SEMANTIC_TEXT && attribute.on.is_none() {
+            continue;
+        }
+        let owner = match attribute.on {
+            Some(NoteOwner::Feature(id)) => Some(("features", id.0)),
+            Some(NoteOwner::Dimension(id)) => Some(("dimensions", id.0)),
+            Some(NoteOwner::Tolerance(id)) => Some(("tolerances", id.0)),
+            Some(NoteOwner::DatumTarget(id)) => Some(("datum_targets", id.0)),
+            None => None,
+        }
+        .map(|(collection, index)| {
+            semantic
+                .ids
+                .get(collection)
+                .and_then(|ids| ids.get(index))
+                .cloned()
+                .ok_or("unknown attribute owner")
+        })
+        .transpose()?
+        .unwrap_or_else(|| "part".into());
+        let base = format!("attribute:{owner}:{}", attribute.name);
+        let occurrence = occurrences.entry(base.clone()).or_insert(0usize);
+        let id = format!("{base}:{}", *occurrence);
+        *occurrence += 1;
+        let mut meta = json!({"status":"general"});
+        if let Some(parent) = metadata.get(&owner) {
+            meta["status"] = parent["status"].clone();
+            if let Some(question) = parent.get("question") {
+                meta["question"] = question.clone();
+            }
+        }
+        let old = std::mem::replace(
+            &mut semantic
+                .ids
+                .get_mut("attributes")
+                .ok_or("missing attribute ids")?[index],
+            id.clone(),
+        );
+        metadata.remove(&old);
+        metadata.insert(id, meta);
     }
     Ok(())
 }
@@ -398,7 +498,10 @@ fn merge(target: &mut Value, other: Value) -> Result<(), String> {
                 .as_array_mut()
                 .ok_or("missing PMI collection")?;
             for row in rows {
-                if !output.iter().any(|r| r["id"] == row["id"]) {
+                if let Some(existing) = output.iter_mut().find(|r| r["id"] == row["id"]) {
+                    // The source owns reused datums, including their targets/supports.
+                    *existing = row.clone();
+                } else {
                     output.push(row.clone());
                 }
             }

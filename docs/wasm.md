@@ -417,7 +417,12 @@ The result is:
 The two haecceity documents retain their schemas: units are explicit and semantic decimals
 are strings. `pmi.pmi` holds collections of `{id, value}`; references use those ids.
 `presentation.items[id]` holds graphics with `name` (full notation), `text` (cells),
-`polylines`, `triangles`, and `source: 'generated' | 'file'`. Pattern notation includes
+`polylines`, `triangles`, and `source: 'generated' | 'file'`. With haecceity v0.2.8,
+optional `id`, `plane_id` and `text_placements` retain model-space text origins, axes,
+heights/alignment when stated; document `planes` and `views` preserve annotation planes
+and saved-view membership. Datum-feature graphics also appear under their datum ids.
+These fields survive a live review that adds PMI beside a file's existing callouts.
+Pattern notation includes
 `6×` in the name and first cell. `presentation.unlinked` retains graphics with no semantic
 item. Render text as DOM text. Face anchors are `{face: meshIndex}`, including named STEP
 faces and assembly parts; indices address `snapshot().mesh.faces` and the analysis face list.
@@ -443,3 +448,8 @@ Python exposes `specify_core.pmi_scene` and `specify_core.api.pmi_scene`: paths 
 `LoadedPart` handles accept answers or review state; raw `bytes` are view-only. Its
 packaged schemas are `specify_core/schema/haecceity.pmi-1.json` and
 `specify_core/schema/haecceity.presentation-1.json`.
+
+Scene export uses haecceity's serialise-only `json` feature in native, WASM and Python.
+`json-import` is not enabled. The Python package ships the v0.2.8 schemas as data; its
+smoke tests validate exports with Python's `jsonschema`, keeping schemas and import
+validation code out of the WASM binary.

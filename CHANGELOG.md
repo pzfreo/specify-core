@@ -32,13 +32,20 @@ All notable changes to specify-core-rust. The format follows
   remains byte-identical. Edition-1 writes upgrade the header to AP242 edition 4.
   See [dimension origin and source](docs/pmi-origin.md).
 
+### Fixed
+
+- Scene metadata/history ids follow the requirement owner and property name across
+  answer changes. Foreign datum identities and file callouts are reused during a live
+  review, including when adding a control; saved views and planes survive the merge.
+
 ### Changed
 
 - Upgrade quiddity/haecceity to **v0.2.8** (`840b2ad`). Scene export uses only the
   serialise-only `json` feature in native, WASM and Python; no JSON import API is exposed.
   Presentation retains text placement, plane/graphic ids, saved views and datum links.
   Package schemas match v0.2.8. Written mass units use conversion-based gram per
-  CAx-IF Annex C.1, changing density-bearing STEP goldens while recognition stays unchanged.
+  CAx-IF Annex C.1. Existing Specify STEP goldens remain byte-identical: its material
+  writer supplies no density and foreign density records are preserved. Recognition stays unchanged.
 
 - Upgrade quiddity/haecceity to **v0.2.7** (`eaa7762`); recognition stays unchanged.
   Writer expectations change for slash-separated deviations and notes/frame placement.

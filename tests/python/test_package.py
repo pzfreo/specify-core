@@ -165,3 +165,30 @@ def test_pmi_scene_and_packaged_schemas(plate):
         Draft202012Validator.check_schema(schema)
         Draft202012Validator(schema).validate(scene[name])
         Draft202012Validator(schema).validate(empty[name])
+
+
+def test_foreign_pmi_scene_schema_and_as_drawn_metadata():
+    import gzip
+    import importlib.resources
+    from jsonschema import Draft202012Validator
+    from specify_core import api
+
+    path = Path(__file__).parent.parent / "fixtures/nist/nist_ctc_01_asme1_ap242.stp.gz"
+    scene = api.pmi_scene(gzip.decompress(path.read_bytes()), part=0)
+    analysis = api.analyse(path, part=0)
+    face = next(face["id"] for face in analysis["faces"] if face["kind"] == "plane")
+    merged = api.pmi_scene(path, {"extra.1": {"kind": "flatness", "faces": [face], "value": "0.05"}}, part=0)
+    root = importlib.resources.files("specify_core").joinpath("schema")
+    for name in ("pmi", "presentation"):
+        schema = json.loads(root.joinpath(f"haecceity.{name}-1.json").read_text())
+        Draft202012Validator(schema).validate(scene[name])
+        Draft202012Validator(schema).validate(merged[name])
+    assert scene["pmi"]["pmi"]["datums"] == merged["pmi"]["pmi"]["datums"]
+    assert scene["presentation"]["views"] == merged["presentation"]["views"]
+    presentation = scene["presentation"]
+    assert presentation["planes"]
+    assert presentation["views"]
+    assert any(presentation["items"].get(datum["id"]) for datum in scene["pmi"]["pmi"]["datums"])
+    graphics = [g for rows in presentation["items"].values() for g in rows]
+    assert all(g["source"] == "file" for g in graphics)
+    assert any(g.get("plane_id") for g in graphics)

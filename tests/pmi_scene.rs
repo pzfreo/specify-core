@@ -142,7 +142,12 @@ fn requirement_ids_are_stable_and_statuses_use_review_and_stored_origin() {
         .scene(&loaded, Some(&analysis), Some(&changed))
         .unwrap();
     validate(&second);
-    for collection in ["dimensions", "datums", "tolerances"] {
+    for collection in first["pmi"]["pmi"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .filter_map(|(key, value)| value.is_array().then_some(key.as_str()))
+    {
         let ids = |scene: &Value| {
             scene["pmi"]["pmi"][collection]
                 .as_array()
@@ -303,7 +308,9 @@ fn patterned_requirements_put_the_count_in_notation_and_first_cell() {
         .as_object()
         .unwrap()
         .iter()
-        .filter(|(_, m)| m["question"] == q.id)
+        .filter(|(id, m)| {
+            m["question"] == q.id && scene["presentation"]["items"].get(*id).is_some()
+        })
         .map(|(id, _)| id)
         .collect();
     assert!(!ids.is_empty());
@@ -345,5 +352,98 @@ fn generated_graphics_expose_model_space_placement_and_plane_ids() {
                 .unwrap()
                 .is_empty()
         );
+    }
+}
+
+#[test]
+fn live_foreign_review_keeps_original_datum_ids_and_file_placement() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/nist/nist_ctc_01_asme1_ap242.stp.gz");
+    let loaded = part::load(&path, Some(0)).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let cache = Scene::new(&loaded).unwrap();
+    let file = cache.scene(&loaded, None, None).unwrap();
+    validate(&file);
+    let review = cache
+        .scene(&loaded, Some(&analysis), Some(&Map::new()))
+        .unwrap();
+    validate(&review);
+    assert_eq!(file["pmi"]["pmi"]["datums"], review["pmi"]["pmi"]["datums"]);
+    assert_eq!(
+        file["presentation"]["views"],
+        review["presentation"]["views"]
+    );
+    assert!(
+        review["presentation"]["items"]
+            .as_object()
+            .unwrap()
+            .values()
+            .flat_map(|rows| rows.as_array().unwrap())
+            .all(|g| g["source"] == "file")
+    );
+    assert!(!file["presentation"]["views"].as_array().unwrap().is_empty());
+    assert!(
+        !file["presentation"]["planes"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        file["pmi"]["pmi"]["datums"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(
+                |datum| file["presentation"]["items"][datum["id"].as_str().unwrap()]
+                    .as_array()
+                    .is_some_and(|rows| !rows.is_empty())
+            )
+    );
+}
+
+#[test]
+fn new_foreign_control_preserves_saved_views_planes_and_datum_callouts() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/nist/nist_ctc_01_asme1_ap242.stp.gz");
+    let loaded = part::load(&path, Some(0)).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let cache = Scene::new(&loaded).unwrap();
+    let file = cache.scene(&loaded, None, None).unwrap();
+    let face = analysis["faces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["kind"] == "plane")
+        .unwrap()["id"]
+        .clone();
+    let answers = json!({"extra.1":{"kind":"flatness", "faces":[face], "value":"0.05"}})
+        .as_object()
+        .unwrap()
+        .clone();
+    let review = cache
+        .scene(&loaded, Some(&analysis), Some(&answers))
+        .unwrap();
+    validate(&review);
+    assert_eq!(review["specify"]["flatness:extra.1"]["status"], "answered");
+    assert_eq!(file["pmi"]["pmi"]["datums"], review["pmi"]["pmi"]["datums"]);
+    assert_eq!(
+        file["presentation"]["views"],
+        review["presentation"]["views"]
+    );
+    for plane in file["presentation"]["planes"].as_array().unwrap() {
+        assert!(
+            review["presentation"]["planes"]
+                .as_array()
+                .unwrap()
+                .contains(plane)
+        );
+    }
+    for datum in file["pmi"]["pmi"]["datums"].as_array().unwrap() {
+        let id = datum["id"].as_str().unwrap();
+        assert_eq!(
+            file["presentation"]["items"][id],
+            review["presentation"]["items"][id]
+        );
+        assert_eq!(review["specify"][id]["status"], "existing");
     }
 }
