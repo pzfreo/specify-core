@@ -196,8 +196,9 @@ for (const [part, path] of parts) {
   throwsString(() => new IntentEngine(name, gzipSync(bytes)), /Decompress/);
 }
 // #21: the accepted tap's derived depth must survive without a new depth answer,
-// including a save of an alpha.7 file. Pin the current numbered bytes separately: the native
-// thread_depth_help test proves every non-numbering entity/reference still equals alpha.7.
+// including a save of an alpha.7 file. quiddity-rust#137 adds callouts, General notes and
+// new aspects to the current numbered byte pin. The native thread_depth_help test compares
+// every legacy semantic readback field and part setting to the unchanged alpha.7 input.
 const alpha7 = gunzipSync(readFileSync(new URL('tests/fixtures/thread-depth-alpha7.step.gz', root)));
 const numberedTap = gunzipSync(readFileSync(new URL('tests/fixtures/thread-depth-numbered.step.gz', root)));
 const savedTap = new IntentEngine('shaft.step', alpha7);

@@ -128,10 +128,10 @@ fn full_thread_is_a_text_edit_and_defaults_stay_suggestions() {
 
 /// Frozen by cx/quiddity-010 (9c16b407), using its native parity_reference example:
 /// GRM-02_shaft.step, name shaft.step, material steel and the M2 tap answered, no depth
-/// answer or accept-defaults. Preserve every non-numbering entity/reference as well as
-/// semantic readback; #65 permits only the standard ids and number history to be added.
+/// answer or accept-defaults. quiddity-rust#137 adds callouts and separate location/composite
+/// aspects: preserve the old semantic readback and pin every new byte (including #65 ids).
 #[test]
-fn answered_m2_without_depth_writes_the_exact_alpha7_thread_and_resaves_it() {
+fn answered_m2_without_depth_preserves_alpha7_semantics_and_pins_presentation_bytes() {
     use haecceity::{p21::Document, pmi, step::read_part_definitions};
     use specify_core::{part, writer};
     let loaded = part::load_bytes(
@@ -166,13 +166,26 @@ fn answered_m2_without_depth_writes_the_exact_alpha7_thread_and_resaves_it() {
         None,
     )
     .unwrap();
-    common::numbering::only_numbering_added(&baseline.bytes, &bytes).unwrap();
+    let current = part::load_bytes("shaft.step", bytes.clone()).unwrap();
+    assert_eq!(
+        common::numbering::legacy_existing(
+            specify_core::existing::read_existing(&baseline).unwrap()
+        ),
+        common::numbering::legacy_existing(
+            specify_core::existing::read_existing(&current).unwrap()
+        ),
+        "quiddity-rust#137 must preserve every legacy semantic PMI field"
+    );
+    assert_eq!(
+        specify_core::existing::part_settings(&baseline).unwrap(),
+        specify_core::existing::part_settings(&current).unwrap()
+    );
     let numbered = part::load(
         &common::fixtures().join("thread-depth-numbered.step.gz"),
         None,
     )
     .unwrap();
-    // This is also the WASM byte pin: prove its only delta from alpha.7 is numbering.
+    // This is also the WASM byte pin: quiddity-rust#137 callouts, aspects and #65 numbering.
     assert_eq!(bytes.as_slice(), numbered.bytes.as_slice());
     for (source, answers) in [(loaded, given.clone()), (baseline, given)] {
         let analysis = api::analyse(&source).unwrap();

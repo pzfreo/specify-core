@@ -185,9 +185,11 @@ additions, value edits, removal/re-addition/empty writes, foreign append, old-fi
 an older-quiddity fixture and the `hole_removed` revision pair. Numberless analysis, PMI
 serialization and settings-only writes are also checked against SHA-256 snapshots captured
 from the unmodified main `a49dc3d` (quiddity 0.2.4 and #63) in a separate checkout and target directory.
-These hashes run on macOS, where captured; portable absence assertions run everywhere. The cross-engine suite preserves
-its old specimens and verifies that new writer outputs differ only by numbering metadata,
-comparing every other entity and reference. The older-engine test adds
+These hashes run on macOS, where captured; portable absence assertions run everywhere.
+For quiddity-rust#137 (v0.2.6), only settings-only writer hashes were regenerated: they gain
+General notes presentation. Analysis and read hashes remain unchanged. The cross-engine
+suite's v0.2.6 specimens and independent Python readbacks include characteristic numbers,
+callouts, surface symbols, notes and new aspect shapes; the writer check requires exact bytes. The older-engine test adds
 only `ID_ATTRIBUTE` records to the committed alpha.6 specimen; it never regenerates its old
 PMI with the new writer. Requirements newer rules stop emitting are retired.
 
@@ -199,14 +201,14 @@ retain their numbers through the ordinary correspondence/carry path.
 
 The WASM M2 tap byte pin is `tests/fixtures/thread-depth-numbered.step.gz`. The original
 `thread-depth-alpha7.step.gz` remains unchanged. The native `thread_depth_help` test checks
-the numbered pin against the writer and uses `only_numbering_added` against alpha.7, stripping
-only numeric `ID_ATTRIBUTE`s and history UDA records (including their authorship annotations),
-then comparing every other entity and reference exactly.
+every byte of the numbered pin against the writer. For quiddity-rust#137 this pin was
+regenerated with presentation and new aspect shapes. Every legacy semantic readback field
+and part setting still matches alpha.7 after projecting out characteristic numbers; the
+original alpha.7 input is never regenerated.
 
 No haecceity API change is required: Specify uses its existing PMI/AttributeSet writer and
-lossless `Document::apply`/`Edit` APIs. The pinned reader consumes ids on dimensions, datums,
-tolerances and surface textures. It does not consume ids on thread/knurl definition shapes,
-so Specify removes just those numeric inverse annotations before Replace. For upstream
-first-class support, haecceity could expose optional ids alongside each semantic root, and
-consume definition-shape `ID_ATTRIBUTE`s in the thread/knurl provenance; that is not required
-for this implementation and no quiddity files are edited here.
+lossless `Document::apply`/`Edit` APIs. The v0.2.6 reader exposes identifiers alongside semantic roots (#135), including thread/knurl
+definition shapes. Specify still reads numeric identifiers directly from the exact semantic
+entity, preserving its strict positive-decimal and ambiguity rules. Tests cross-check the new
+reader identifiers against Specify's numbers on the separate datum/size, composite and
+location aspects introduced by quiddity-rust#137.
