@@ -1122,6 +1122,109 @@ fn faceless(kind: &str, req: &Map<String, Json>) -> Option<String> {
     }
 }
 
+fn planned_kind(
+    planned: &crate::dimensioning::Planned,
+    features: &mut Features<'_>,
+    geometry: &mut Vec<pmi::Geometry>,
+) -> Result<DimensionKind, WriteError> {
+    fn resolve(
+        id: &str,
+        planned: &crate::dimensioning::Planned,
+        f: &mut Features<'_>,
+        geometry: &mut Vec<pmi::Geometry>,
+        cache: &mut std::collections::BTreeMap<String, FeatureId>,
+    ) -> Result<FeatureId, WriteError> {
+        if let Some(id) = cache.get(id) {
+            return Ok(*id);
+        }
+        let feature = if let Some(members) = planned.groups.get(id) {
+            let members = members
+                .iter()
+                .map(|id| resolve(id, planned, f, geometry, cache))
+                .collect::<Result<Vec<_>, _>>()?;
+            Feature::Group {
+                members,
+                kind: if id.starts_with("pattern[") {
+                    pmi::GroupKind::PatternOfFeatures
+                } else {
+                    pmi::GroupKind::MultipleElements
+                },
+            }
+        } else {
+            let support = planned
+                .supports
+                .iter()
+                .find(|s| s.feature == id)
+                .ok_or_else(|| WriteError::Invalid(format!("planner support {id} is absent")))?;
+            if !support.faces.is_empty() {
+                Feature::Items(
+                    support
+                        .faces
+                        .iter()
+                        .map(|&i| Anchor::Face(FaceIndex(i)))
+                        .collect(),
+                )
+            } else {
+                let point = planned.frame.to_world(support.at);
+                let coords = point
+                    .into_iter()
+                    .map(decimal)
+                    .collect::<Result<Vec<_>, _>>()?;
+                let item = pmi::GeometryItem {
+                    leaves: vec![(
+                        "CARTESIAN_POINT".into(),
+                        vec![
+                            pmi::GeometryValue::Text(PMI_PROVENANCE.into()),
+                            pmi::GeometryValue::List(
+                                coords.into_iter().map(pmi::GeometryValue::Real).collect(),
+                            ),
+                        ],
+                    )],
+                };
+                let i = geometry.len();
+                geometry.push(pmi::Geometry {
+                    item,
+                    length_unit: Some(LengthUnit::Millimetre),
+                });
+                Feature::Items(vec![Anchor::Geometry(pmi::GeometryId(i))])
+            }
+        };
+        let at = f.0.iter().position(|x| *x == feature).unwrap_or_else(|| {
+            let at = f.0.len();
+            f.0.push(feature);
+            at
+        });
+        let at = FeatureId(at);
+        cache.insert(id.into(), at);
+        Ok(at)
+    }
+    let mut ids = std::collections::BTreeMap::new();
+    match &planned.required.kind {
+        quiddity::dimensioning::Kind::Size { feature, .. } => {
+            resolve(feature, planned, features, geometry, &mut ids)?;
+        }
+        quiddity::dimensioning::Kind::Location { from, to, .. } => {
+            resolve(&from.feature, planned, features, geometry, &mut ids)?;
+            resolve(&to.feature, planned, features, geometry, &mut ids)?;
+        }
+    }
+    // Both (or the sole size) resolver keys were checked above.
+    let mut kind = planned.required.dimension_kind(|id| ids[id]);
+    // The planner's generic "length" is not an AP242 Table 4 size name. Axial
+    // lengths use its standard curve-length size; the exact depth role stays in the UDA.
+    if matches!(
+        &planned.required.kind,
+        quiddity::dimensioning::Kind::Size {
+            kind: quiddity::dimensioning::SizeKind::Length,
+            ..
+        }
+    ) && let DimensionKind::Size { kind, .. } = &mut kind
+    {
+        *kind = SizeKind::CurveLength;
+    }
+    Ok(kind)
+}
+
 impl Features<'_> {
     fn of(&mut self, faces: Option<&Json>, what: &str) -> Result<FeatureId, WriteError> {
         let Some(ids) = face_ids(faces) else {
@@ -1202,6 +1305,32 @@ fn part_pmi_observed(
     mode: Mode,
     observe: &mut impl FnMut(&str, usize, &Map<String, Json>),
 ) -> Result<(PartPmi, Lines), WriteError> {
+    // Old JSON analyses/intents lack the typed planner input. Upgrade only rule-generated
+    // intent here; a caller's hand-authored dimensions remain authoritative as stated.
+    let mut upgraded;
+    let intent = if !intent
+        .requirements
+        .iter()
+        .chain(&intent.general)
+        .any(|r| r.contains_key("planner"))
+        && intent
+            .requirements
+            .iter()
+            .chain(&intent.datums)
+            .any(|r| r.contains_key("question"))
+    {
+        upgraded = intent.clone();
+        if mode == Mode::Add {
+            upgraded
+                .requirements
+                .extend(crate::dimensioning::stated(before));
+        }
+        let input = crate::dimensioning::input(&loaded.part).map_err(WriteError::Failed)?;
+        crate::dimensioning::apply(input, &mut upgraded).map_err(WriteError::Failed)?;
+        &upgraded
+    } else {
+        intent
+    };
     let mut p = PartPmi::default();
     let origins = crate::pmi_origin::Planner::new(loaded).map_err(WriteError::Failed)?;
     let mut lines = Lines::default();
@@ -1285,6 +1414,9 @@ fn part_pmi_observed(
         &[]
     };
     for req in intent.requirements.iter().chain(covered) {
+        if truthy(req.get("stored")) {
+            continue;
+        }
         let kind = req.get("kind").and_then(Json::as_str).unwrap_or("");
         let under_general = truthy(req.get("general"));
         // Not on a datum's own faces: a size there makes the datum a datum feature of size
@@ -1292,6 +1424,7 @@ fn part_pmi_observed(
         // does not mark (docs/pmi-provenance.md), so a resumed write would not keep its bytes.
         // The general tolerance still covers it.
         if under_general
+            && !req.contains_key("planner")
             && kind == "size"
             && intent.datums.iter().any(|d| {
                 face_ids(d.get("faces")).is_some()
@@ -1303,7 +1436,7 @@ fn part_pmi_observed(
         let feature_name = || py_str(req.get("feature").unwrap_or(&Json::Null));
         // A requirement on no faces (a hole whose bores the rules keep no cylinder for) is
         // listed and the rest written (question Q17).
-        if let Some(what) = faceless(kind, req) {
+        if let Some(what) = faceless(kind, req).filter(|_| !req.contains_key("planner")) {
             // One the general tolerance covers is not a requirement: nothing to report.
             if under_general {
                 continue;
@@ -1311,6 +1444,105 @@ fn part_pmi_observed(
             lines.not_written.push(format!(
                 "{what} names no faces, so nothing in the file can carry it (question Q17)"
             ));
+            continue;
+        }
+        if let Some(planned) = req.get("planner") {
+            let planned: crate::dimensioning::Planned = serde_json::from_value(planned.clone())
+                .map_err(|e| WriteError::Invalid(format!("planned dimension: {e}")))?;
+            let dimension_kind = planned_kind(&planned, &mut f, &mut p.geometry)?;
+            let nominal = if matches!(
+                &planned.required.kind,
+                quiddity::dimensioning::Kind::Size {
+                    kind: quiddity::dimensioning::SizeKind::Angle,
+                    ..
+                }
+            ) {
+                Value::angle(decimal(planned.required.nominal)?, pmi::AngleUnit::Degree)
+            } else {
+                mm(planned.required.nominal)?
+            };
+            let tolerance = match &planned.required.tolerance {
+                quiddity::dimensioning::Tolerance::Basic => DimTolerance::Basic,
+                quiddity::dimensioning::Tolerance::General
+                | quiddity::dimensioning::Tolerance::Untoleranced => DimTolerance::None,
+                quiddity::dimensioning::Tolerance::Explicit(_) => {
+                    if let Some(name) = req
+                        .get("fit")
+                        .and_then(Json::as_str)
+                        .filter(|s| !s.is_empty())
+                    {
+                        let (u, l) = crate::standards::fit_limits(name, planned.required.nominal)
+                            .map_err(|e| WriteError::Invalid(e.to_string()))?;
+                        if (u - number(req, "upper")?).abs() > 1e-9
+                            || (l - number(req, "lower")?).abs() > 1e-9
+                        {
+                            return invalid(format!(
+                                "the {name} size limits are not the class's limits"
+                            ));
+                        }
+                        DimTolerance::Fit {
+                            class: fit_class(name)?,
+                            limits: None,
+                        }
+                    } else {
+                        deviations(
+                            number(req, "upper")?,
+                            number(req, "lower")?,
+                            "planned dimension",
+                        )?
+                    }
+                }
+            };
+            observe("dimensions", p.dimensions.len(), req);
+            p.dimensions.push(Dimension {
+                kind: dimension_kind,
+                nominal: Some(nominal),
+                tolerance,
+                qualifier: None,
+                modifiers: if planned.required.reference.is_some() {
+                    vec![pmi::DimensionModifier::Reference]
+                } else {
+                    vec![]
+                },
+                principle: None,
+            });
+            origins.dimension(&mut p, req, under_general);
+            p.attributes.push(AttributeSet {
+                name: "specify dimension plan".into(),
+                on: Some(NoteOwner::Dimension(pmi::DimensionId(
+                    p.dimensions.len() - 1,
+                ))),
+                items: vec![(
+                    "requirement".into(),
+                    AttributeValue::Text(
+                        serde_json::to_string(&planned)
+                            .map_err(|e| WriteError::Failed(e.to_string()))?,
+                    ),
+                )],
+                description: None,
+                general_property: None,
+            });
+            if under_general {
+                general += 1;
+            } else if kind == "size" {
+                lines.written.push(format!(
+                    "Ø{} {} on {}",
+                    pyfmt::g(planned.required.nominal),
+                    req.get("fit").map_or(String::new(), py_str),
+                    feature_name()
+                ));
+            } else {
+                let how = if truthy(req.get("basic")) {
+                    "basic".into()
+                } else {
+                    format!("±{}", pyfmt::g(number(req, "upper")?))
+                };
+                lines.written.push(format!(
+                    "{} {how} to {}",
+                    pyfmt::g(planned.required.nominal),
+                    feature_name()
+                ));
+            }
             continue;
         }
         match kind {

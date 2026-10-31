@@ -8,6 +8,14 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Upgrade quiddity/haecceity to **v0.4.0**. For #75, written hole sizes, pattern
+  origins/pitches and prismatic plane levels/extents follow the shared planner.
+  Inspection plans contain fewer rows: the default cross-engine plate changes from
+  21 dimensions / 28 characteristics to 13 / 20 (11 with all-General contracts).
+  Existing numbers win; removed rows retire permanently. On the frozen pre-planner
+  plate, numbers **6–11 and 21–26** retire. New requirements allocate above the
+  previous high-water mark. Deferred feature owners retain their existing path.
+
 - For #87 fix round 1: only unique names in the authored `f:` namespace become
   face identities. Shared names and generic/class labels (including singletons)
   retain geometric evidence and schema 2 when no usable identities remain. Omit

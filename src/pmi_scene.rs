@@ -236,13 +236,23 @@ impl Scene {
             if let Some(q) = question {
                 meta["question"] = json!(q);
             }
-            let count = analysis["features"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find(|feature| feature["id"] == req.get("feature").cloned().unwrap_or(Value::Null))
-                .and_then(|feature| feature["members"].as_array())
-                .map_or(1, |members| members.len().max(1));
+            let count = req
+                .get("planner")
+                .and_then(|p| p.get("required"))
+                .and_then(|r| r.get("count"))
+                .and_then(Value::as_u64)
+                .and_then(|n| usize::try_from(n).ok())
+                .unwrap_or_else(|| {
+                    analysis["features"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .find(|feature| {
+                            feature["id"] == req.get("feature").cloned().unwrap_or(Value::Null)
+                        })
+                        .and_then(|feature| feature["members"].as_array())
+                        .map_or(1, |members| members.len().max(1))
+                });
             bindings.insert((collection.into(), index), (id, meta, count));
         };
         let before = &self.read.parts[self.index];
@@ -560,6 +570,14 @@ fn has_pmi(p: &PartPmi) -> bool {
 }
 
 fn requirement_id(req: &Map<String, Value>) -> String {
+    if let Some(id) = req
+        .get("planner")
+        .and_then(|p| p.get("required"))
+        .and_then(|r| r.get("id"))
+        .and_then(Value::as_str)
+    {
+        return format!("planner:{id}");
+    }
     if let Some(letter) = req.get("letter").and_then(Value::as_str) {
         return format!("datum:{letter}");
     }

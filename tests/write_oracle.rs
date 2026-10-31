@@ -565,5 +565,18 @@ fn writes_match_the_oracle() {
     // left is the writer's.
     let mut differences = explained(&["existing"], &differences);
     differences.extend(dropped());
+    if let Some(dir) = std::env::var_os("SPECIFY_DUMP") {
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let rows: Vec<_> = differences
+            .iter()
+            .map(|d| json!({"case":d.case,"path":d.path,"python":d.python,"rust":d.rust}))
+            .collect();
+        std::fs::write(
+            dir.join("writer.json"),
+            serde_json::to_vec_pretty(&rows).unwrap(),
+        )
+        .unwrap();
+    }
     check_area(&differences);
 }

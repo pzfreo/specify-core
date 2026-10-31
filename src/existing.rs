@@ -255,6 +255,10 @@ pub fn part_settings_provenance(loaded: &LoadedPart) -> Result<Map<String, Value
 }
 
 impl Reading {
+    pub(crate) fn model(&self) -> &PartPmi {
+        &self.pmi
+    }
+
     /// The semantic PMI the file states on the part, as [`read_existing`]; `loaded` is the part
     /// this reading is of. A tolerance citing a datum the reader does not hold is refused, not
     /// listed without it.

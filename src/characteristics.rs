@@ -177,7 +177,25 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
             ty.into(),
             faces,
             reference,
-            dimension_signature(d),
+            {
+                let id = p
+                    .attributes
+                    .iter()
+                    .find(|a| {
+                        a.name == "specify dimension plan"
+                            && a.on == Some(pmi::NoteOwner::Dimension(pmi::DimensionId(i)))
+                    })
+                    .and_then(|a| a.items.iter().find(|(k, _)| k == "requirement"))
+                    .and_then(|(_, v)| match v {
+                        pmi::AttributeValue::Text(s) => {
+                            serde_json::from_str::<crate::dimensioning::Planned>(s).ok()
+                        }
+                        _ => None,
+                    })
+                    .map(|p| p.required.id);
+                let signature = dimension_signature(d);
+                id.map_or(signature.clone(), |id| format!("{signature}|planner:{id}"))
+            },
             root(doc, prov.map_or(&[], |v| &v.dimensions[i]), ancestor),
         );
     }
@@ -422,8 +440,11 @@ fn same_support(old: &Key, new: &Key) -> bool {
     };
     old.kind == new.kind
         && old.r#type == new.r#type
-        && grows(&old.faces, &new.faces)
-        && grows(&old.reference, &new.reference)
+        && ((grows(&old.faces, &new.faces) && grows(&old.reference, &new.reference))
+            || (old.kind == "dimension"
+                && old.r#type == "Location_LinearDistance"
+                && grows(&old.faces, &new.reference)
+                && grows(&old.reference, &new.faces)))
 }
 
 /// First allocate in inspection order; later additions use stable model order after matching
@@ -500,6 +521,46 @@ pub(crate) fn allocate(
         {
             used.insert(i);
             matched[n] = Some(i);
+        }
+    }
+    // Planner role ids distinguish equal quantities on one support. When upgrading older
+    // PMI without that metadata, prefer an unchanged value/contract before the unique
+    // support-growth fallback, so a newly added depth cannot steal a diameter's number.
+    let signature = |key: &Key| {
+        key.specification
+            .split("|planner:")
+            .next()
+            .unwrap_or("")
+            .to_owned()
+    };
+    for (n, item) in new.iter().enumerate() {
+        if matched[n].is_some() || !eligible(item) {
+            continue;
+        }
+        let candidates: Vec<_> = old
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(i, e)| {
+                !used.contains(i)
+                    && same_support(&e.key, &item.key)
+                    && signature(&e.key) == signature(&item.key)
+            })
+            .collect();
+        if let [(i, e)] = candidates.as_slice()
+            && new
+                .iter()
+                .enumerate()
+                .filter(|(n, item)| {
+                    matched[*n].is_none()
+                        && same_support(&e.key, &item.key)
+                        && signature(&e.key) == signature(&item.key)
+                })
+                .count()
+                == 1
+        {
+            used.insert(*i);
+            matched[n] = Some(*i);
         }
     }
     for (n, item) in new.iter().enumerate() {
