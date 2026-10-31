@@ -110,7 +110,7 @@ fn notes_round_trip_as_semantic_text_and_answers_with_a_byte_stable_rewrite() {
         Some(haecceity::p21::RawEntity::Simple { name, attributes, .. })
             if name == "TESSELLATED_CURVE_SET" && matches!(attributes.first(),
                 Some(Attribute::String(text)) if text.starts_with("GENERAL NOTES\n")
-                    && text.matches("(blank)").count() == 3))));
+                    && text.matches("(blank)").count() == 1))));
     let read = pmi::read(&doc, &defs).unwrap();
     let sets: Vec<_> = read.parts[0]
         .attributes

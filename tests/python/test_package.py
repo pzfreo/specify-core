@@ -139,3 +139,72 @@ def test_cli_main_returns_the_exit_code(capsys):
 
     assert main(["parts", "/no/such/file.step"]) == 1
     assert "error:" in capsys.readouterr().err
+
+
+def test_pmi_scene_and_packaged_schemas(plate):
+    import importlib.resources
+    import json
+    import specify_core
+    from specify_core import api
+
+    scene = specify_core.pmi_scene(plate, {
+        "part.general_tolerance": "ISO 2768-m",
+        "hole.function:holes:9": "fit:H7",
+        "part.surface_finish": "Ra 3.2",
+    })
+    assert scene["pmi"]["schema"] == "haecceity.pmi/1"
+    assert scene["presentation"]["schema"] == "haecceity.presentation/1"
+    assert scene["specify"]["size:holes:9"]["status"] == "answered"
+    assert scene["specify"]["size:holes:9"]["question"] == "hole.function:holes:9"
+    assert scene["specify"]["part.surface_finish"]["number"] > 0
+    empty = api.pmi_scene(plate.read_bytes())
+    assert empty["pmi"]["pmi"]["dimensions"] == []
+    root = importlib.resources.files("specify_core").joinpath("schema")
+    for name in ("pmi", "presentation"):
+        schema = json.loads(root.joinpath(f"haecceity.{name}-1.json").read_text())
+        assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+        from jsonschema import Draft202012Validator
+        Draft202012Validator.check_schema(schema)
+        Draft202012Validator(schema).validate(scene[name])
+        Draft202012Validator(schema).validate(empty[name])
+
+
+def test_foreign_pmi_scene_schema_and_as_drawn_metadata():
+    import gzip
+    import importlib.resources
+    from jsonschema import Draft202012Validator
+    from specify_core import api
+
+    path = Path(__file__).parent.parent / "fixtures/nist/nist_ctc_01_asme1_ap242.stp.gz"
+    scene = api.pmi_scene(gzip.decompress(path.read_bytes()), part=0)
+    analysis = api.analyse(path, part=0)
+    face = next(face["id"] for face in analysis["faces"] if face["kind"] == "plane")
+    merged = api.pmi_scene(path, {"extra.1": {"kind": "flatness", "faces": [face], "value": "0.05"}}, part=0)
+    root = importlib.resources.files("specify_core").joinpath("schema")
+    for name in ("pmi", "presentation"):
+        schema = json.loads(root.joinpath(f"haecceity.{name}-1.json").read_text())
+        Draft202012Validator(schema).validate(scene[name])
+        Draft202012Validator(schema).validate(merged[name])
+    assert scene["pmi"]["pmi"]["datums"] == merged["pmi"]["pmi"]["datums"]
+    assert scene["presentation"]["views"] == merged["presentation"]["views"]
+    presentation = scene["presentation"]
+    assert presentation["planes"]
+    assert presentation["views"]
+    assert any(presentation["items"].get(datum["id"]) for datum in scene["pmi"]["pmi"]["datums"])
+    graphics = [g for rows in presentation["items"].values() for g in rows]
+    assert all(g["source"] == "file" for g in graphics)
+    assert any(g.get("plane_id") for g in graphics)
+
+
+@pytest.mark.parametrize("answers", [
+    {"part.surface_finish": []},
+    {"diameter.fit:missing-feature": "fit:h6"},
+    {"datum.A": [999999]},
+])
+def test_pmi_scene_rejects_malformed_answers(plate, answers):
+    from specify_core import api
+
+    with pytest.raises(ValueError, match="Invalid answers"):
+        api.pmi_scene(plate, answers)
+    with pytest.raises(ValueError, match="Invalid answers"):
+        api.pmi_scene(plate, {"answers": answers, "auto": []})

@@ -601,6 +601,24 @@ pub(crate) fn allocate(
     Ok(())
 }
 
+/// Numbers allocated by the same history/inspection walk as the STEP writer.
+pub(crate) fn planned_numbers(p: &PartPmi) -> Result<Vec<Option<u64>>, String> {
+    let h = history(p)?.unwrap_or_default();
+    let mut used = BTreeSet::new();
+    Ok(items(p, None, None)
+        .iter()
+        .map(|item| {
+            h.entries
+                .iter()
+                .find(|entry| entry.key == item.key && !used.contains(&entry.number))
+                .map(|entry| {
+                    used.insert(entry.number);
+                    entry.number
+                })
+        })
+        .collect())
+}
+
 /// Append only the newly written roots' numeric identifiers. haecceity's semantic reader
 /// already consumes standard id_attributes, so its normal replace removes them again.
 pub(crate) fn annotate(

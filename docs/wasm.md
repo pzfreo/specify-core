@@ -386,3 +386,81 @@ Numberless files omit the list. See [characteristic numbers](characteristic-numb
 For #77, dimension entries in `snapshot().analysis.characteristics` also expose optional
 stored `origin` and `source`, including nominal-only general dimensions. `writePmi` writes
 the same per-dimension UDAs as native. See [dimension origin and source](pmi-origin.md).
+
+## PMI scenes
+
+`JSON.parse(engine.pmiScene(JSON.stringify(answers)))` returns the PMI for the current
+answers on the already-open part. `openPart` uses the same API, in the part's own frame.
+The session caches the source STEP and semantic PMI; answering does not reload geometry.
+Pass the editor's full `{answers, auto?, gdt?}` review state instead of just answers when
+available: `auto` identifies the questions whose values are unreviewed automatic defaults.
+An explicitly supplied value is `answered`, even when it equals a question's default.
+Unanswered suggestions produce no PMI, just as in `review` and `writePmi`.
+
+The result is:
+
+```ts
+{
+  pmi: /* haecceity.pmi/1 document */,
+  presentation: /* haecceity.presentation/1 document */,
+  specify: {
+    [itemId: string]: {
+      status: 'answered' | 'default' | 'general' | 'existing';
+      question?: string; // extra.N for a face-picked extra
+      number?: number;   // characteristic number, as the STEP writer allocates it
+      origin?: 'requirement' | 'general_tolerance' | 'imported';
+      source?: {schema: number; faces: string; support: number[]; parameter: string};
+    }
+  }
+}
+```
+
+The two haecceity documents retain their schemas: units are explicit and semantic decimals
+are strings. `pmi.pmi` holds collections of `{id, value}`; references use those ids.
+`presentation.items[id]` holds graphics with `name` (full notation), `text` (cells),
+`polylines`, `triangles`, and `source: 'generated' | 'file'`. With haecceity v0.2.8,
+optional `id`, `plane_id` and `text_placements` retain model-space text origins, axes,
+heights/alignment when stated; document `planes` and `views` preserve annotation planes
+and saved-view membership. Datum-feature graphics also appear under their datum ids.
+These fields survive a live review that adds PMI beside a file's existing callouts.
+Pattern sizes, locations and tolerances include `6×` in the name and first cell;
+datum labels carry only their letter. `presentation.unlinked` retains graphics with no semantic
+item. Render text as DOM text. Face anchors are `{face: meshIndex}`, including named STEP
+faces and assembly parts; indices address `snapshot().mesh.faces` and the analysis face list.
+
+Specify ids come from the requirement, such as `size:holes:9`, `datum:A`, or an extra's
+question, with reference supports distinguishing location axes and the question
+distinguishing a member's measurement from its pattern's. General locations without a
+feature id use their face supports. Changing a value leaves
+the id intact. Foreign items retain haecceity's `ID_ATTRIBUTE` or content-derived id.
+The same ids key semantic references, presentation and the requirement overlay `specify`.
+Supporting features, geometry and units remain in the haecceity documents but are omitted
+from `specify`, as are saved-answer and number-history attributes. Their graphics may
+therefore have no overlay entry. Thread/knurl manufacturing attributes inherit the owning
+requirement's question and status. Part settings use the rules' question ids, including
+`part.coating`; unreviewed values marked by `auto` are `default`, and absent or empty
+settings produce no PMI, as in the writer. Foreign numeric `ID_ATTRIBUTE` values stay ids;
+`number` is exposed only when the item also matches Specify's characteristic-number history.
+Stored #77 origin and
+source are read from the file; `general_tolerance` maps to `general`, `requirement` to
+`answered` (or `default` when the review state marks it automatic), and foreign PMI to
+`existing`. Legacy files without metadata do not gain inferred origin/source.
+
+For view-only use, import the free `pmiScene` function and call
+`JSON.parse(pmiScene(stepBytes, partIndex))`; omit the index for a single-part file.
+No interview is required. File-owned As Drawn callouts retain `source: 'file'`, including
+NIST CTC-01's graphics. For `/diff`, call it on both revisions; revision-report changes
+link to scene items by characteristic `number`, and by requirement `id` for Specify items.
+
+Native Rust exposes `specify_core::pmi_scene::{Scene, pmi_scene}`. Construct `Scene::new`
+once with a `LoadedPart`, then call `scene` with cached analysis and answers, or
+`scene_with_state` with `tolerancing::State`. Omit answers for the file's stored PMI.
+Python exposes `specify_core.pmi_scene` and `specify_core.api.pmi_scene`: paths and
+`LoadedPart` handles accept answers or review state; raw `bytes` are view-only. Its
+packaged schemas are `specify_core/schema/haecceity.pmi-1.json` and
+`specify_core/schema/haecceity.presentation-1.json`.
+
+Scene export uses haecceity's serialise-only `json` feature in native, WASM and Python.
+`json-import` is not enabled. The Python package ships the v0.2.8 schemas as data; its
+smoke tests validate exports with Python's `jsonschema`, keeping schemas and import
+validation code out of the WASM binary.

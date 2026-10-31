@@ -30,6 +30,7 @@ __all__ = [
     "write",
     "write_parts",
     "mesh",
+    "pmi_scene",
 ]
 
 ANALYSIS_SCHEMA = _native.ANALYSIS_SCHEMA
@@ -123,3 +124,19 @@ def _path(step: Any) -> str:
     if not isinstance(step, str | os.PathLike):
         raise TypeError(f"expected a path or a LoadedPart, not {type(step).__name__}")
     return os.fspath(step)
+
+
+def pmi_scene(
+    step: str | Path | LoadedPart | bytes,
+    answers: dict[str, Any] | None = None,
+    part: int | None = None,
+) -> dict[str, Any]:
+    """Semantic PMI, presentation and Specify review metadata. Bytes are view-only.
+
+    Face anchors use the same indices as mesh(); assemblies take a part index.
+    Omit answers to display the file's own PMI, including As Drawn graphics.
+    """
+    source = step if isinstance(step, bytes) else _step(step)
+    return json.loads(_native.pmi_scene(
+        source, None if answers is None else json.dumps(answers), part
+    ))

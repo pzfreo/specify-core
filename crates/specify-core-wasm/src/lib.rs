@@ -1,8 +1,8 @@
 #![cfg_attr(not(test), warn(clippy::unwrap_used, clippy::expect_used))]
 
 use serde_json::{Map, Value, json};
+use specify_core::input;
 use specify_core::{api, choices};
-mod input;
 pub mod session;
 
 /// Accept every unanswered default to the same fixed point as CLI/serve apply.
@@ -85,6 +85,17 @@ mod wasm {
                 .map(|value| value.to_string())
                 .map_err(|error| JsValue::from_str(&error))
         }
+        #[wasm_bindgen(js_name = pmiScene)]
+        pub fn pmi_scene(&self, answers: &str) -> Result<String, JsValue> {
+            let value = json("Answers or review state", answers)?;
+            let scene = if value.get("answers").is_some_and(Value::is_object) {
+                self.0.pmi_scene_state(&self::state(answers)?)
+            } else {
+                self.0.pmi_scene(&self::answers(answers)?)
+            };
+            scene.map(|value| value.to_string()).map_err(js_error)
+        }
+
         pub fn snapshot(&self) -> String {
             self.0.snapshot().to_string()
         }
@@ -214,6 +225,15 @@ mod wasm {
         session::diff((old_name, old), (new_name, new), &answers, title)
             .map(|value| value.to_string())
             .map_err(|error| JsValue::from_str(&error))
+    }
+
+    /// View-only scene without an interview; `part` selects an assembly part.
+    #[wasm_bindgen(js_name = pmiScene)]
+    pub fn pmi_scene(bytes: &[u8], part: Option<usize>) -> Result<String, JsValue> {
+        input::size("STEP input", bytes.len(), input::STEP_LIMIT).map_err(js_error)?;
+        specify_core::pmi_scene::pmi_scene(bytes, part)
+            .map(|value| value.to_string())
+            .map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = review)]

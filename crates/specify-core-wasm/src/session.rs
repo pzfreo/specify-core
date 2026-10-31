@@ -97,6 +97,7 @@ fn diff_assembly(
 pub struct Session {
     loaded: LoadedPart,
     analysis: Value,
+    scene: specify_core::pmi_scene::Scene,
 }
 
 impl Session {
@@ -199,7 +200,24 @@ impl Session {
         };
         // A part of an assembly is analysed with the file's other parts, read from these bytes.
         let analysis = api::analyse(&loaded).map_err(|error| error.to_string())?;
-        Ok(Self { loaded, analysis })
+        let scene = specify_core::pmi_scene::Scene::new(&loaded)?;
+        Ok(Self {
+            loaded,
+            analysis,
+            scene,
+        })
+    }
+
+    pub fn pmi_scene(&self, answers: &Map<String, Value>) -> Result<Value, String> {
+        input::answers(&self.analysis, answers).map_err(|e| e.to_string())?;
+        self.scene
+            .scene(&self.loaded, Some(&self.analysis), Some(answers))
+    }
+
+    pub fn pmi_scene_state(&self, state: &tolerancing::State) -> Result<Value, String> {
+        input::answers(&self.analysis, &state.answers).map_err(|e| e.to_string())?;
+        self.scene
+            .scene_with_state(&self.loaded, Some(&self.analysis), state)
     }
 
     pub fn snapshot(&self) -> Value {

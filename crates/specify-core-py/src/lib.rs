@@ -158,6 +158,72 @@ fn mesh(py: Python<'_>, step: &Bound<'_, PyAny>, part: Option<usize>) -> PyResul
     Ok(mesh.to_string())
 }
 
+/// Haecceity PMI/presentation plus Specify metadata, from bytes or an open part.
+#[pyfunction]
+#[pyo3(signature = (step, answers=None, part=None))]
+fn pmi_scene(
+    py: Python<'_>,
+    step: &Bound<'_, PyAny>,
+    answers: Option<&str>,
+    part: Option<usize>,
+) -> PyResult<String> {
+    let value = answers
+        .map(|text| parse("answers or review state", text))
+        .transpose()?;
+    let state = value
+        .as_ref()
+        .filter(|v| v.get("answers").is_some_and(Value::is_object))
+        .map(|v| {
+            serde_json::from_value::<specify_core::tolerancing::State>(v.clone())
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+        .transpose()?;
+    let answers = if state.is_some() {
+        None
+    } else {
+        answers.map(answers_of).transpose()?
+    };
+    if let Ok(bytes) = step.extract::<Vec<u8>>() {
+        if answers.is_some() || state.is_some() {
+            return Err(PyTypeError::new_err(
+                "bytes are view-only; load a part to supply answers",
+            ));
+        }
+        return py
+            .detach(|| specify_core::pmi_scene::pmi_scene(&bytes, part))
+            .map(|v| v.to_string())
+            .map_err(PyValueError::new_err);
+    }
+    let owned;
+    let handle = match loaded(step, part)? {
+        Some(handle) => handle,
+        None => {
+            owned = load_path(py, step, part)?;
+            &owned
+        }
+    };
+    py.detach(|| {
+        let analysis = state
+            .as_ref()
+            .map(|s| &s.answers)
+            .or(answers.as_ref())
+            .map(|answers| {
+                let analysis = api::analyse(&handle.loaded).map_err(|e| e.to_string())?;
+                specify_core::input::answers(&analysis, answers).map_err(|e| e.to_string())?;
+                Ok::<_, String>(analysis)
+            })
+            .transpose()?;
+        let scene = specify_core::pmi_scene::Scene::new(&handle.loaded)?;
+        if let Some(state) = &state {
+            scene.scene_with_state(&handle.loaded, analysis.as_ref(), state)
+        } else {
+            scene.scene(&handle.loaded, analysis.as_ref(), answers.as_ref())
+        }
+    })
+    .map(|v| v.to_string())
+    .map_err(PyValueError::new_err)
+}
+
 /// Write `intent` (JSON) into `step` at `output`, on the part it was made for, or into a part
 /// already loaded, verified by reading back; given the `answers` (JSON) it came from, they are
 /// stored too. The report, as JSON (`api.write`).
@@ -517,6 +583,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(preview, m)?)?;
     m.add_function(wrap_pyfunction!(with_all_defaults, m)?)?;
     m.add_function(wrap_pyfunction!(mesh, m)?)?;
+    m.add_function(wrap_pyfunction!(pmi_scene, m)?)?;
     m.add_function(wrap_pyfunction!(write, m)?)?;
     m.add_function(wrap_pyfunction!(write_parts, m)?)?;
     m.add_function(wrap_pyfunction!(read_existing, m)?)?;

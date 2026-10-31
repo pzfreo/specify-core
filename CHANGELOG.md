@@ -12,6 +12,11 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- For #142: native `pmi_scene::Scene` and raw-byte `pmi_scene`, Python `pmi_scene`
+  and bundled `specify_core/schema/` JSON Schemas. Scenes contain haecceity's
+  semantic/presentation documents plus Specify status, question, number, origin/source.
+  Requirement-based Specify ids survive reviews; face anchors match mesh indices.
+
 - The Python package `specify-core` on this engine (`crates/specify-core-py`): specify-core's
   Python API and the `specify-core` command line, with no Python dependency; abi3 wheels for
   CPython 3.12 and later, built and published by `.github/workflows/python.yml`. See
@@ -24,7 +29,41 @@ All notable changes to specify-core-rust. The format follows
   remains byte-identical. Edition-1 writes upgrade the header to AP242 edition 4.
   See [dimension origin and source](docs/pmi-origin.md).
 
+### WASM API
+
+- Add `IntentEngine.pmiScene(answers)` on the open part session (including `openPart`)
+  and `pmiScene(stepBytes, part?)` for view-only As Drawn PMI without an interview.
+
+### Fixed
+
+- PMI scenes resolve part-setting questions from the rules table and writer's kind
+  mapping, including `part.coating`. Feature-owned thread/knurl attributes inherit
+  their requirement's question/status; supporting rows have no interview overlay.
+  Pattern counts apply only to sizes, locations and tolerances, never datums.
+  Foreign numeric ids become characteristic numbers only with Specify history.
+  Python scene answers use the same input validation as WASM.
+  General locations without a feature id use their face supports for stable identity.
+  Locations shared by a datum member and its pattern keep their question identity;
+  repeated measurements retain distinct characteristic numbers through STEP readback.
+
+- Scene metadata/history ids follow the requirement owner and property name across
+  answer changes. Foreign datum identities and file callouts are reused during a live
+  review, including when adding a control; saved views and planes survive the merge.
+  Part-default surface finishes retain their #65 characteristic number in live and stored scenes;
+  their question and the edge-condition question use `part.surface_finish` and `part.edges`.
+
 ### Changed
+
+- Upgrade quiddity/haecceity to **v0.2.8** (`840b2ad`). Scene export uses only the
+  serialise-only `json` feature in native, WASM and Python; no JSON import API is exposed.
+  Presentation retains text placement, plane/graphic ids, saved views and datum links.
+  Package schemas match v0.2.8. Written mass units use conversion-based gram per
+  CAx-IF Annex C.1. Existing Specify STEP goldens remain byte-identical: its material
+  writer supplies no density and foreign density records are preserved. Recognition stays unchanged.
+
+- Upgrade quiddity/haecceity to **v0.2.7** (`eaa7762`); recognition stays unchanged.
+  Writer expectations change for slash-separated deviations and notes/frame placement.
+  Remove the blank-note drawing workaround: literal blank rows now write valid STEP directly.
 
 - Upgrade quiddity and haecceity to **v0.2.6** (`b9addd9`, quiddity-rust#137/#135),
   including native, WASM and Python. Written STEP now carries dimension and tolerance
@@ -33,12 +72,6 @@ All notable changes to specify-core-rust. The format follows
   feature that also has a size uses separate datum-feature and dimensional-size entities.
   Presentation stays enabled; optional F3D import stays off. Recognition schema 6 and
   fingerprint format 3 are unchanged.
-
-### Fixed
-
-- Preserve literal blank and whitespace-only general notes with v0.2.6 presentation:
-  the notes block renders these rows as `(blank)`, retaining their exact semantic text
-  and note indices, instead of emitting an invalid empty tessellated curve.
 
 ## 0.1.4 (2026-10-30)
 

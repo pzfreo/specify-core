@@ -104,7 +104,6 @@ use serde_json::{Map, Value as Json, json};
 use crate::part::{self, LoadedPart};
 use crate::provenance;
 
-mod blank_notes;
 use crate::pyfmt;
 
 use crate::pyjson;
@@ -731,7 +730,7 @@ fn write_by_modes(
     // The file written so far, when an edit has been applied.
     let mut written: Option<Vec<u8>> = None;
     for mode in [Mode::Replace, Mode::Add] {
-        let mut these: Vec<(PartId, PartPmi)> = items
+        let these: Vec<(PartId, PartPmi)> = items
             .iter()
             .zip(modes)
             .filter(|&(_, &m)| m == mode)
@@ -801,7 +800,6 @@ fn write_by_modes(
             None
         };
         let current = upgraded.as_ref().unwrap_or(current);
-        let blank_notes = blank_notes::prepare(&mut these);
         let (mut edit, _) = pmi::write(current, defs, &these, mode, policy).map_err(refused)?;
         if mode == Mode::Replace {
             // Python's own form of stored answers is not PMI haecceity reads (it reports it as
@@ -819,7 +817,6 @@ fn write_by_modes(
             .map_err(|e| WriteError::Failed(format!("haecceity could not apply the edit: {e}")))?;
         let after =
             Document::parse(applied.bytes).map_err(|e| WriteError::Failed(e.to_string()))?;
-        let after = blank_notes::restore(current, after, defs, &blank_notes)?;
         let marker_edit = provenance::mark_new(current, &after);
         let marked = after
             .apply(&marker_edit)
@@ -1185,6 +1182,26 @@ fn part_pmi(
     before: &PartPmi,
     mode: Mode,
 ) -> Result<(PartPmi, Lines), WriteError> {
+    part_pmi_observed(loaded, intent, before, mode, &mut |_, _, _| {})
+}
+
+pub(crate) fn scene_model(
+    loaded: &LoadedPart,
+    intent: &Intent,
+    before: &PartPmi,
+    mode: Mode,
+    observe: &mut impl FnMut(&str, usize, &Map<String, Json>),
+) -> Result<PartPmi, WriteError> {
+    part_pmi_observed(loaded, intent, before, mode, observe).map(|(p, _)| p)
+}
+
+fn part_pmi_observed(
+    loaded: &LoadedPart,
+    intent: &Intent,
+    before: &PartPmi,
+    mode: Mode,
+    observe: &mut impl FnMut(&str, usize, &Map<String, Json>),
+) -> Result<(PartPmi, Lines), WriteError> {
     let mut p = PartPmi::default();
     let origins = crate::pmi_origin::Planner::new(loaded).map_err(WriteError::Failed)?;
     let mut lines = Lines::default();
@@ -1208,6 +1225,7 @@ fn part_pmi(
             .map_err(|e| WriteError::Invalid(format!("datum {letter}: {}", e.0)))?;
         let datum =
             Datum::new(label, Some(feature), Vec::new()).map_err(|e| WriteError::Invalid(e.0))?;
+        observe("datums", p.datums.len(), d);
         p.datums.push(datum);
         letters.push(letter.to_string());
         if !had.contains(letter) {
@@ -1330,6 +1348,7 @@ fn part_pmi(
                         &format!("size on {}", feature_name()),
                     )?,
                 };
+                observe("dimensions", p.dimensions.len(), req);
                 p.dimensions.push(Dimension {
                     kind: DimensionKind::Size {
                         feature,
@@ -1380,6 +1399,7 @@ fn part_pmi(
                     let what = format!("location to {}", feature_name());
                     (deviations(upper, lower, &what)?, how)
                 };
+                observe("dimensions", p.dimensions.len(), req);
                 p.dimensions.push(Dimension {
                     kind: DimensionKind::Location {
                         from,
@@ -1413,6 +1433,7 @@ fn part_pmi(
                     &format!("the thread on {}", feature_name()),
                 )?;
                 let (pmi_thread, attributes) = thread(req, feature)?;
+                observe("threads", p.threads.len(), req);
                 p.threads.push(pmi_thread);
                 p.attributes.push(attributes);
                 lines.written.push(format!(
@@ -1438,6 +1459,7 @@ fn part_pmi(
                             req.get("faces"),
                             &format!("the knurl on {}", feature_name()),
                         )?;
+                        observe("knurls", p.knurls.len(), req);
                         p.knurls.push(k);
                         lines.warnings.extend(filled);
                         lines
@@ -1452,6 +1474,7 @@ fn part_pmi(
                 match texture(&value) {
                     Some(parameter) if face_ids(req.get("faces")).is_some() => {
                         let on = f.of(req.get("faces"), &format!("the surface finish {value}"))?;
+                        observe("surface_textures", p.surface_textures.len(), req);
                         p.surface_textures.push(SurfaceTexture {
                             on: Some(on),
                             material_removal: MaterialRemoval::AnyProcessAllowed,
@@ -1484,6 +1507,7 @@ fn part_pmi(
                 )?;
                 let value = number(req, "tolerance")?;
                 let mmc = truthy(req.get("mmc"));
+                observe("tolerances", p.tolerances.len(), req);
                 p.tolerances.push(GeometricTolerance {
                     kind: tolerance_kind,
                     target: ToleranceTarget::Feature(target),

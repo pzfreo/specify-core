@@ -57,3 +57,12 @@ written size/location now owns its `specify pmi origin` UDA, with origin and opt
 stable source. Twelve STEP outputs changed; CTC-01 and CTC-05 remain byte-identical.
 The independent Python reader predates these UDAs; readback departures are recorded
 in the cross-engine ledger without removing any fields from the comparison.
+
+For v0.2.7 (`eaa7762`), regenerate all fourteen successful `rust.step.gz` outputs:
+haecceity's deviations now use `+upper/lower`, and its notes and frame placements move.
+Each output contains generated callouts or notes, so its byte golden changes even though
+recognition and semantic intent do not. The two part-index refusals stay unchanged.
+Recapture the independent readbacks and byte hashes with the same schema-2 reference
+(`84c770e`); retain the original Python-written oracle and its evidence. The three
+`characteristic-numbers-legacy.json` settings-only writer hashes change solely because
+v0.2.7 moves the General notes block; their analysis and semantic-read hashes stay fixed.

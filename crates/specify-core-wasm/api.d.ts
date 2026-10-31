@@ -6,6 +6,7 @@ export class IntentEngine {
   free(): void;
   original(): Uint8Array | undefined;
   payload(name: string): string | undefined;
+  pmiScene(answers: string): string;
   rematchAnswers(answers: string, evidence?: string | null, automatic?: string | null): string;
   review(answers: string): string;
   settle(state: string): string;
@@ -28,6 +29,8 @@ export function initSync(module: { module: SyncInitInput } | SyncInitInput): Ini
 export function interpret(analysis: string, answers: string, question_id: string, text: string): string;
 
 export function openedTolerancing(state: string, resume?: string | null): string;
+
+export function pmiScene(bytes: Uint8Array, part?: number | null): string;
 
 export function review(analysis: string, answers: string): string;
 
@@ -53,6 +56,7 @@ export interface InitOutput {
   readonly intentengine_original: (a: number) => [number, number];
   readonly intentengine_parts: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly intentengine_payload: (a: number, b: number, c: number) => [number, number, number, number];
+  readonly intentengine_pmiScene: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_rematchAnswers: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
   readonly intentengine_review: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_settle: (a: number, b: number, c: number) => [number, number, number, number];
@@ -61,6 +65,7 @@ export interface InitOutput {
   readonly interpret: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
   readonly memory: WebAssembly.Memory;
   readonly openedTolerancing: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+  readonly pmiScene: (a: number, b: number, c: number) => [number, number, number, number];
   readonly review: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly start: () => void;
   readonly tolerancingEdit: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
