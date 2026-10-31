@@ -236,7 +236,10 @@ fn the_spool_is_written_verified_and_read_back() {
     // and edges at their defaults, Q3), and the one line counting the dimensions under the general tolerance, #63).
     assert_eq!(
         report.written.len(),
-        intent.datums.len() + intent.requirements.len() + 4 + general_line(&report.written)
+        // This frozen analysis predates the planner. Its missing Basic Ø90 radial
+        // location gets one report line of its own (#75); General dimensions
+        // still share the aggregate report line below (#63).
+        intent.datums.len() + intent.requirements.len() + 5 + general_line(&report.written)
     );
     assert!(report.written.contains(&"material 6082-T6".to_string()));
     assert!(
@@ -250,6 +253,17 @@ fn the_spool_is_written_verified_and_read_back() {
     // The limits: each fit is written as its ISO 286 class (Python wrote bare limits, as
     // OpenCascade writes the grade wrongly), including g6 wholly below nominal and p6 above.
     let read = pmi_of(&out, 0);
+    assert_eq!(
+        read.dimensions
+            .iter()
+            .filter(|d| d.tolerance == DimTolerance::Basic
+                && d.nominal
+                    .as_ref()
+                    .is_some_and(|n| matches!(&n.quantity,pmi::Quantity::Length(l)
+            if l.value.to_f64()==90.)))
+            .count(),
+        1
+    );
     let classes: Vec<String> = read
         .dimensions
         .iter()
