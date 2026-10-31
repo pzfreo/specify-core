@@ -19,7 +19,8 @@ All notable changes to specify-core-rust. The format follows
   plate, numbers **6–11 and 21–26** retire. New requirements allocate above the
   previous high-water mark. Deferred feature owners retain their existing path.
   Locations require real face supports; thread drills and duplicate legacy spans
-  are stated once. Answered fits and Basic locations retain their contracts.
+  are stated once. Answered fits and Basic locations retain their contracts, including the radial
+  bolt-circle diameter belonging to a position frame.
   Determined enlargement depths are reference dimensions. Unknown-bottom depths
   and bounded shoulder stations that lack unambiguous semantic supports are
   reported instead of adding inspection constraints; physical-plane witnesses

@@ -820,3 +820,49 @@ fn coincident_basics_on_unpatterned_holes_share_a_real_feature_group() {
         .collect();
     assert_eq!(faces, BTreeSet::from([5, 17]));
 }
+
+#[test]
+fn a_position_frames_bolt_circle_is_basic_even_without_cartesian_basics() {
+    let Some(corpus) = common::corpus_dir() else {
+        return;
+    };
+    let p = part::load(&corpus.join("cadgenbench/flanged_spool_132.step"), None).unwrap();
+    let a = api::analyse(&p).unwrap();
+    let given = json!({"part.material":"steel"});
+    let i = rules::apply_with_defaults(&a, given.as_object().unwrap(), true).unwrap();
+    let rs = required(&i);
+    let circles: Vec<_> = rs
+        .iter()
+        .filter(|r| {
+            matches!(&r.kind,
+        quiddity::dimensioning::Kind::Size {role,..} if role=="bolt_circle.diameter")
+        })
+        .collect();
+    assert_eq!(circles.len(), 3);
+    assert!(
+        circles
+            .iter()
+            .any(|r| r.nominal == 90. && r.tolerance == Tolerance::Basic)
+    );
+    assert_eq!(
+        circles
+            .iter()
+            .filter(|r| r.tolerance == Tolerance::General)
+            .count(),
+        2
+    );
+    let (bytes, _) = writer::write_bytes(&p, &i, None).unwrap();
+    let p = part::load_bytes("basic-circle.step", bytes).unwrap();
+    let read = model(&p);
+    assert_eq!(
+        read.parts[0]
+            .dimensions
+            .iter()
+            .filter(|d| d.tolerance == pmi::DimTolerance::Basic
+                && d.nominal.as_ref().is_some_and(
+                    |n| matches!(&n.quantity,pmi::Quantity::Length(l) if l.value.to_f64()==90.)
+                ))
+            .count(),
+        1
+    );
+}

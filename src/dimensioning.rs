@@ -187,6 +187,19 @@ fn contract(r: &Map<String, Value>) -> Tolerance {
         )
     }
 }
+// A position frame defines its pattern geometry with Basic dimensions, even
+// when an axial datum supplies no Cartesian plane-location witness.
+fn location_contract(row: &Map<String, Value>) -> Map<String, Value> {
+    if row.get("kind").and_then(Value::as_str) != Some("position") {
+        return row.clone();
+    }
+    json!({"kind":"location", "feature":row.get("feature"),
+        "faces":row.get("faces"), "question":row.get("question"), "basic":true})
+    .as_object()
+    .unwrap()
+    .clone()
+}
+
 fn support(input: &Input, faces: &[usize], groups: &[Support]) -> Option<Support> {
     input
         .holes
@@ -319,12 +332,13 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
     // Index support witnesses once: corpus parts can contain hundreds of locations.
     let mut witnesses_by_hole: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     let mut planes_by_question: BTreeMap<String, BTreeSet<Vec<usize>>> = BTreeMap::new();
-    for (index, r) in intent
-        .requirements
-        .iter()
-        .enumerate()
-        .filter(|(_, r)| generated_location(r))
-    {
+    for (index, r) in intent.requirements.iter().enumerate().filter(|(_, r)| {
+        generated_location(r)
+            || r.get("kind").and_then(Value::as_str) == Some("position")
+                && r.get("question")
+                    .and_then(Value::as_str)
+                    .is_some_and(|q| q.starts_with("hole.position:"))
+    }) {
         let faces = ids(r, "faces");
         for h in input
             .holes
@@ -335,6 +349,9 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
                 .entry(h.support.feature.clone())
                 .or_default()
                 .push(index);
+        }
+        if !generated_location(r) {
+            continue;
         }
         planes_by_question
             .entry(
@@ -355,13 +372,13 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             .and_then(|v| v.first())
         {
             // Indices above enumerate this unchanged requirement list.
-            let answer = &intent.requirements[*index];
+            let answer = location_contract(&intent.requirements[*index]);
             let question = answer.get("question").and_then(Value::as_str).unwrap_or("");
             let planes = planes_by_question
                 .get(question)
                 .cloned()
                 .unwrap_or_default();
-            let key = json!([contract(answer), planes]).to_string();
+            let key = json!([contract(&answer), planes]).to_string();
             contracts
                 .entry(key)
                 .or_insert_with(|| (answer.clone(), vec![]))
@@ -418,15 +435,20 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             }
         }
         for mut required in claims {
-            let Kind::Location { from, .. } = &required.kind else {
-                continue;
-            };
-            if !matches!(required.pattern, Some(shared::PatternRole::Pitch { .. }))
-                && !planes
-                    .iter()
-                    .any(|p| !p.is_empty() && p.iter().all(|i| from.faces.contains(i)))
-            {
-                continue;
+            match &required.kind {
+                Kind::Location { from, .. } => {
+                    if !matches!(required.pattern, Some(shared::PatternRole::Pitch { .. }))
+                        && !planes
+                            .iter()
+                            .any(|p| !p.is_empty() && p.iter().all(|i| from.faces.contains(i)))
+                    {
+                        continue;
+                    }
+                }
+                // A bolt circle's diameter is radial location geometry, not the
+                // member bore's size. Position intent makes it Basic as well.
+                Kind::Size { role, .. } if role == "bolt_circle.diameter" => {}
+                _ => continue,
             }
             let indices: BTreeSet<_> = required
                 .covers
@@ -451,9 +473,10 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
                 })
                 .or_else(|| witnesses.first().copied())
                 .unwrap_or(&answer);
+            let witness = location_contract(witness);
             required.id = format!("answered:{}", required.id);
-            required.tolerance = contract(witness);
-            authorities.insert(required.id.clone(), witness.clone());
+            required.tolerance = contract(&witness);
+            authorities.insert(required.id.clone(), witness);
             input.specified.push(required);
         }
     }

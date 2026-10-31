@@ -7,7 +7,9 @@ not select an independent set of holes, pitches or plane intervals.
 A live analysis adds `dimensioning`, the shared `Input::from_recognition` result.
 Rules supply the chosen datum face sets and answered/stored dimension contracts to
 that input. Hole-position answers supply Basic contracts to the pattern's own
-origin and pitches, rather than preserving the generated per-member witnesses.
+origin, pitches and bolt-circle diameter, rather than preserving the generated per-member witnesses.
+A position frame makes the bolt-circle diameter Basic even when an axial datum
+supplies no Cartesian plane-location witnesses.
 Hole-only contract passes use the shared planner before the final consolidation;
 this prevents a General neighbour swallowing a Basic pattern origin. No additional
 basic dimensions are kept beyond the final returned set. Explicit face-picked and
