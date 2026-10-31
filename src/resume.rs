@@ -5,8 +5,8 @@
 //! answers back, and writing it again replaces its PMI rather than adding to it. The payload is
 //! Python's: `{schema, answers, part, face_count, faces}` as compact JSON, base64-encoded (a
 //! Part 21 string then needs no escapes), `faces` being a [`fingerprint`] of the part's faces
-//! that is checked before any answer is trusted. Schema 2 is written (zeros unsigned in the
-//! fingerprint, question Q14); schema 1 is still read.
+//! that is checked before unnamed face indices are trusted. Named parts write schema 3 with
+//! authored STEP names; wholly unnamed parts keep schema 2 and its bytes. Schemas 1/2 still read.
 //!
 //! **Where it is stored.** Python appends its own text: `PROPERTY_DEFINITION('pmi-assist
 //! answers','schema 1',#pd)` with a representation holding one
@@ -20,6 +20,8 @@
 //!
 //! In an assembly each part's answers are stored on that part and say which part they are for;
 //! a part with none stored has not been written by specify-core.
+
+pub(crate) mod names;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -35,14 +37,13 @@ use crate::part::LoadedPart;
 use crate::pyfmt::round_half_even;
 use crate::pyjson;
 
-/// The payload's schema as written: 2, whose fingerprint writes zeros unsigned
-/// ([`fingerprint`]). A payload of schema 1 (Python's, and this port's before schema 2) is
-/// still read and resumed when its own fingerprint matches; one of any other schema is ignored,
-/// as Python ignores it.
-pub const SCHEMA: i64 = 2;
+/// Latest stored-answer schema: 3 adds indexed `face_names` (null for unnamed faces),
+/// with geometric fingerprints only for mixed parts. Wholly unnamed parts still write 2.
+/// Readers unaware of 3 ignore the entire stored-answer item, keeping standard STEP PMI.
+pub const SCHEMA: i64 = 3;
 
-/// The schemas read: 1 (fingerprint with zeros' signs kept) and 2 (zeros unsigned).
-pub const SCHEMAS: [i64; 2] = [1, SCHEMA];
+/// Accepted schemas: signed-zero legacy 1, unsigned-zero 2, and authored-name 3.
+pub const SCHEMAS: [i64; 3] = [1, 2, SCHEMA];
 
 /// The name of the stored item (and of the attribute set holding it): Python's, kept from
 /// before specify-core was renamed so that older files still resume.
@@ -118,13 +119,20 @@ pub fn fingerprint_of(faces: &Value, schema: i64) -> String {
 
 /// The payload Python's `embed` stores for `answers` given for `loaded`, in its key order.
 pub fn payload(loaded: &LoadedPart, answers: &Map<String, Value>) -> Result<Value, FeatureError> {
-    Ok(json!({
-        "schema": SCHEMA,
+    let evidence = evidence(loaded)?;
+    let mut payload = json!({
+        "schema": evidence["schema"],
         "answers": answers,
         "part": loaded.binding.part,
         "face_count": loaded.binding.face_count,
-        "faces": fingerprint(loaded)?,
-    }))
+        "faces": evidence["faces"],
+    });
+    for key in ["face_names", "geometry"] {
+        if let Some(value) = evidence.get(key) {
+            payload[key] = value.clone();
+        }
+    }
+    Ok(payload)
 }
 
 /// `payload` as stored: compact JSON (`separators=(",", ":")`), base64.
@@ -290,6 +298,10 @@ pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, Fe
     let Some((payload, form)) = stored_with_form(&doc).remove(&loaded.binding.part) else {
         return Ok(None);
     };
+    if schema_of(&payload) == Some(3) {
+        let features = crate::features::recognise(loaded)?;
+        return Ok(report_for_parsed(loaded, Some(&doc), &features)?.map(|r| r.answers));
+    }
     Ok(match check(loaded, &payload, form)? {
         Check::Mismatch => None,
         Check::Verified | Check::Legacy => {
@@ -397,6 +409,18 @@ pub fn report_for_parsed(
     let Some(answers) = payload.get("answers").and_then(Value::as_object) else {
         return Ok(None);
     };
+    if schema_of(&payload) == Some(3) {
+        return Ok(Some(
+            rematch_answers(
+                loaded,
+                features,
+                answers,
+                Some(&Value::Object(payload.clone())),
+                None,
+            )
+            .unwrap_or_else(|error| open(answers, &error.to_string(), true)),
+        ));
+    }
     Ok(match check(loaded, &payload, form)? {
         Check::Verified => Some(rematch(answers, features)),
         Check::Legacy => Some(by_id(answers, features, loaded, LEGACY)),
@@ -404,15 +428,27 @@ pub fn report_for_parsed(
     })
 }
 
-/// The evidence a caller keeps beside answers it holds outside the STEP, so that
-/// [`rematch_answers`] can later match them by face support: `{schema, face_count, faces}`,
-/// the same fields (and schema 2 fingerprint) the writer stores with answers in the file.
+/// Evidence kept beside external answers. Unnamed parts keep `{schema:2, face_count, faces}`.
+/// Named parts use schema 3 and add `face_names`, an indexed array of names/null; mixed
+/// parts also carry `geometry` (quiddity fingerprints) for their unnamed faces. The writer
+/// embeds these same fields. Names are opaque STEP strings, never inferred from geometry.
 pub fn evidence(loaded: &LoadedPart) -> Result<Value, FeatureError> {
-    Ok(json!({
-        "schema": SCHEMA,
+    let named = loaded.face_names.iter().any(Option::is_some);
+    let mut evidence = json!({
+        "schema": if named { SCHEMA } else { 2 },
         "face_count": loaded.binding.face_count,
         "faces": fingerprint(loaded)?,
-    }))
+    });
+    if named {
+        evidence["face_names"] = json!(loaded.face_names);
+        // Only mixed parts need geometric evidence across revisions. All-named parts
+        // use names alone; unnamed parts keep their existing schema and bytes.
+        if loaded.face_names.iter().any(Option::is_none) {
+            evidence["geometry"] =
+                json!(quiddity::correspondence::recognise(&loaded.part).fingerprints);
+        }
+    }
+    Ok(evidence)
 }
 
 /// Why [`rematch_answers`] refused.
@@ -435,7 +471,11 @@ impl std::error::Error for RematchError {}
 /// Answers held outside the STEP (a saved project's), matched to `features`, this part's as
 /// now recognised, as answers stored in the file are on opening ([`report_for_parsed`]).
 ///
-/// With `evidence` ([`evidence`] of the part when the answers were saved, or a stored
+/// Schema 3 resolves stored names exactly first, refusing missing/duplicate names without
+/// geometric fallback. Stored nulls use verified indices or saved geometric correspondence.
+/// Datum lists and extras (including distance references) follow the same per-face mapping.
+///
+/// With schema 1/2 `evidence` ([`evidence`] of the part when the answers were saved, or a stored
 /// payload) whose face count and fingerprint match this part, feature answers move to a
 /// unique same-family feature containing their saved faces ([`rematch`]). Without evidence
 /// (a project saved before it kept evidence), the answers are trusted by ID: a feature answer
@@ -474,9 +514,13 @@ pub fn rematch_answers(
                     "face_count must be a count and faces a fingerprint".into(),
                 ));
             }
-            match check(loaded, payload, false).map_err(RematchError::Faces)? {
-                Check::Verified => rematch(answers, features),
-                _ => open(answers, MISMATCH),
+            if schema_of(payload) == Some(3) {
+                rematch_named(loaded, features, answers, payload)?
+            } else {
+                match check(loaded, payload, false).map_err(RematchError::Faces)? {
+                    Check::Verified => rematch(answers, features),
+                    _ => open(answers, MISMATCH, false),
+                }
             }
         }
     };
@@ -501,6 +545,81 @@ pub fn rematch_answers(
     Ok(out)
 }
 
+/// Schema 3: exact names override every geometric proposal, including a verified
+/// same-index fingerprint. Only stored `None` entries may use geometry.
+fn rematch_named(
+    loaded: &LoadedPart,
+    features: &[crate::features::Feature],
+    answers: &Map<String, Value>,
+    payload: &Map<String, Value>,
+) -> Result<Resumed, RematchError> {
+    let invalid = |why: &str| RematchError::Evidence(why.into());
+    let old_names: Vec<Option<String>> = serde_json::from_value(
+        payload
+            .get("face_names")
+            .cloned()
+            .ok_or_else(|| invalid("schema 3 requires face_names"))?,
+    )
+    .map_err(|_| invalid("face_names must be an array of names or null"))?;
+    if Some(old_names.len() as u64) != payload.get("face_count").and_then(Value::as_u64)
+        || old_names.iter().flatten().any(String::is_empty)
+    {
+        return Err(invalid(
+            "face_names must have one nonempty name or null per saved face",
+        ));
+    }
+    let mut faces: BTreeMap<usize, Result<usize, String>> =
+        names::match_names(&old_names, &loaded.face_names)
+            .into_iter()
+            .map(|(i, binding)| (i, binding.result()))
+            .collect();
+    if old_names.iter().all(Option::is_some) {
+        return Ok(rematch_by(answers, features, Matching::Mapped(&faces)));
+    }
+    if check(loaded, payload, false).map_err(RematchError::Faces)? == Check::Verified {
+        faces.extend(
+            old_names
+                .iter()
+                .enumerate()
+                .filter(|(_, name)| name.is_none())
+                .map(|(i, _)| (i, Ok(i))),
+        );
+    } else if old_names.iter().any(Option::is_none)
+        && let Some(geometry) = payload.get("geometry")
+    {
+        let old: quiddity::correspondence::Fingerprints = serde_json::from_value(geometry.clone())
+            .map_err(|_| invalid("invalid saved geometry"))?;
+        if old.faces.len() != old_names.len()
+            || old.faces.iter().enumerate().any(|(i, f)| f.index != i)
+        {
+            return Err(invalid(
+                "saved geometry must have one face in index order per saved face",
+            ));
+        }
+        let new = quiddity::correspondence::recognise(&loaded.part).fingerprints;
+        // A future incompatible fingerprint format must leave unnamed faces open. Names
+        // remain usable independently of the geometry format and kernel version.
+        if let Ok(correspondence) = quiddity::correspondence::correspond(&old, &new) {
+            for face in correspondence.faces {
+                use quiddity::correspondence::Class;
+                let binding = match face.class {
+                    Class::Carried | Class::Adapted => face
+                        .new
+                        .ok_or_else(|| format!("face {} has no geometric match", face.old)),
+                    Class::Ambiguous => {
+                        Err(format!("ambiguous geometric support for face {}", face.old))
+                    }
+                    _ => Err(format!("face {} has no geometric match", face.old)),
+                };
+                if old_names.get(face.old).is_some_and(Option::is_none) {
+                    faces.insert(face.old, binding);
+                }
+            }
+        }
+    }
+    Ok(rematch_by(answers, features, Matching::Mapped(&faces)))
+}
+
 /// Answers without face evidence, `why`, trusted by ID: a feature answer is kept on the
 /// feature with the same ID, a datum when its faces exist ([`Matching::Exact`]).
 fn by_id(
@@ -522,13 +641,13 @@ fn by_id(
 
 /// Answers whose evidence contradicts this part, `why`: those on features or datums
 /// ([`is_geometric`]) are left open with their values, the rest kept.
-fn open(answers: &Map<String, Value>, why: &str) -> Resumed {
+fn open(answers: &Map<String, Value>, why: &str, extras: bool) -> Resumed {
     let mut out = Resumed {
         unverified: Some(format!("{why}; {UNVERIFIED_ALL}")),
         ..Resumed::default()
     };
     for (id, answer) in answers {
-        if is_geometric(id) {
+        if is_geometric(id) || (extras && id.starts_with("extra.")) {
             out.unresolved.push(UnresolvedAnswer {
                 id: id.clone(),
                 feature: answer_feature(id).map(|(_, f)| f.into()),
@@ -570,12 +689,15 @@ fn answer_feature(id: &str) -> Option<(&str, &str)> {
 /// partial overlap, a family change or a choice between candidates. Collisions, even with
 /// How saved feature IDs are matched to this part's features.
 #[derive(Clone, Copy)]
-enum Matching {
+enum Matching<'a> {
     /// By geometric face support: the saved face indices are proven to be this part's.
     Support,
+    Mapped(&'a BTreeMap<usize, Result<usize, String>>),
     /// Only to the feature with the same ID; face indices are not proven, so a datum's faces
     /// must at least exist on the part.
-    Exact { face_count: usize },
+    Exact {
+        face_count: usize,
+    },
 }
 
 /// Match geometric supports, never feature list positions or dimensions. Defining faces
@@ -589,12 +711,37 @@ pub fn rematch(answers: &Map<String, Value>, features: &[crate::features::Featur
 fn rematch_by(
     answers: &Map<String, Value>,
     features: &[crate::features::Feature],
-    matching: Matching,
+    matching: Matching<'_>,
 ) -> Resumed {
     let mut out = Resumed::default();
-    let mut proposals: BTreeMap<String, Vec<(&str, &Value)>> = BTreeMap::new();
+    let mut proposals: BTreeMap<String, Vec<(&str, Value)>> = BTreeMap::new();
     let mut sources: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
     for (id, answer) in answers {
+        let refuse = |reason: String| UnresolvedAnswer {
+            id: id.clone(),
+            feature: answer_feature(id).map(|(_, f)| f.into()),
+            answer: answer.clone(),
+            reason,
+            automatic: false,
+        };
+        let mapped = |i: usize| match matching {
+            Matching::Mapped(faces) => faces
+                .get(&i)
+                .cloned()
+                .unwrap_or_else(|| Err(format!("face {i} has no verified geometric match"))),
+            _ => Ok(i),
+        };
+        let value = match if matches!(matching, Matching::Mapped(_)) {
+            names::map_value(id, answer, mapped)
+        } else {
+            Ok(answer.clone())
+        } {
+            Ok(value) => value,
+            Err(reason) => {
+                out.unresolved.push(refuse(reason));
+                continue;
+            }
+        };
         let Some((question, old)) = answer_feature(id) else {
             if let Matching::Exact { face_count } = matching
                 && id.starts_with("datum.")
@@ -612,7 +759,7 @@ fn rematch_by(
                 });
                 continue;
             }
-            proposals.entry(id.clone()).or_default().push((id, answer));
+            proposals.entry(id.clone()).or_default().push((id, value));
             continue;
         };
         let Some((family, support)) = old.split_once(':') else {
@@ -626,6 +773,16 @@ fn rematch_by(
             continue;
         };
         let support: Option<Vec<usize>> = support.split('.').map(|s| s.parse().ok()).collect();
+        let support = match support
+            .map(|s| s.into_iter().map(mapped).collect::<Result<Vec<_>, _>>())
+            .transpose()
+        {
+            Ok(support) => support,
+            Err(reason) => {
+                out.unresolved.push(refuse(reason));
+                continue;
+            }
+        };
         let candidates: Vec<_> = support
             .as_ref()
             .filter(|s| !s.is_empty())
@@ -646,13 +803,14 @@ fn rematch_by(
             Matching::Exact { .. } => exact,
             Matching::Support if exact.is_empty() => candidates,
             Matching::Support => exact,
+            Matching::Mapped(_) => candidates,
         };
         if let [feature] = candidates.as_slice() {
             sources.entry(&feature.id).or_default().insert(old);
             proposals
                 .entry(format!("{question}:{}", feature.id))
                 .or_default()
-                .push((id, answer));
+                .push((id, value));
         } else {
             out.unresolved.push(UnresolvedAnswer {
                 id: id.clone(),
@@ -682,7 +840,8 @@ fn rematch_by(
             .and_then(|(_, feature)| sources.get(feature))
             .is_some_and(|sources| sources.len() > 1);
         if old.len() == 1 && !merged_features {
-            let (id, answer) = old[0];
+            let (id, answer) = &old[0];
+            let id = *id;
             out.answers.insert(new.clone(), answer.clone());
             if id != new {
                 out.migrated.push((id.into(), new));
@@ -779,7 +938,7 @@ mod tests {
     #[test]
     fn what_is_not_a_payload_is_passed_over() {
         assert!(decode("not base64!").is_none());
-        assert!(decode(&STANDARD.encode(r#"{"schema":3,"answers":{}}"#)).is_none());
+        assert!(decode(&STANDARD.encode(r#"{"schema":4,"answers":{}}"#)).is_none());
         assert!(decode(&STANDARD.encode(r#"{"schema":2,"answers":{}}"#)).is_some());
         assert!(decode(&STANDARD.encode(r#"{"schema":2.0,"answers":{}}"#)).is_some());
         assert!(decode(&STANDARD.encode(r#"{"schema":"2","answers":{}}"#)).is_none());

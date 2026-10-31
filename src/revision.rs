@@ -44,6 +44,7 @@ enum Bind {
     To(usize),
     Orphaned,
     Ambiguous(Vec<usize>),
+    NamedRefusal { reason: String, ambiguous: bool },
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1304,6 +1305,7 @@ fn feature_answer(id: &str) -> Option<(&str, &str, Vec<usize>)> {
 }
 
 struct Matching<'a> {
+    named: bool,
     faces: BTreeMap<usize, Bind>,
     old_features: &'a [Feature],
     new_features: &'a [Feature],
@@ -1354,6 +1356,11 @@ impl Matching<'_> {
             })
         };
         let gone = |(face, bind): (usize, Bind)| match bind {
+            Bind::NamedRefusal { reason, ambiguous } => unresolved(
+                if ambiguous { "ambiguous" } else { "unresolved" },
+                reason,
+                Vec::new(),
+            ),
             Bind::Ambiguous(c) => unresolved(
                 "ambiguous",
                 format!("face {face} matches more than one face of the new part"),
@@ -1404,7 +1411,23 @@ impl Matching<'_> {
                 Value::Array(now.into_iter().map(Value::from).collect()),
             ));
         }
-        Ok((id.into(), answer.clone()))
+        let value = if self.named {
+            let mut failure = None;
+            crate::resume::names::map_value(id, answer, |i| {
+                self.faces(&[i]).map(|v| v[0]).map_err(|error| {
+                    let refusal = gone(error);
+                    let reason = refusal.reason.clone();
+                    failure = Some(refusal);
+                    reason
+                })
+            })
+            .map_err(|reason| {
+                failure.unwrap_or_else(|| unresolved("unresolved", reason, Vec::new()))
+            })?
+        } else {
+            answer.clone()
+        };
+        Ok((id.into(), value))
     }
 }
 
@@ -1434,7 +1457,7 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
     let (old_features, new_features) = (features(&old_analysis)?, features(&new_analysis)?);
     let corr =
         qc::correspond(&old_q.fingerprints, &new_q.fingerprints).map_err(api::Error::Analysis)?;
-    let faces = corr
+    let mut faces: BTreeMap<usize, Bind> = corr
         .faces
         .iter()
         .map(|e| {
@@ -1446,7 +1469,23 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
             (e.old, bind)
         })
         .collect();
+    for (i, binding) in crate::resume::names::match_names(&old.face_names, &new.face_names) {
+        use crate::resume::names::NameMatch;
+        let bind = match binding {
+            NameMatch::To(i) => Bind::To(i),
+            NameMatch::Missing(reason) => Bind::NamedRefusal {
+                reason,
+                ambiguous: false,
+            },
+            NameMatch::Ambiguous(reason) => Bind::NamedRefusal {
+                reason,
+                ambiguous: true,
+            },
+        };
+        faces.insert(i, bind);
+    }
     let matching = Matching {
+        named: old.face_names.iter().any(Option::is_some),
         faces,
         old_features: &old_features,
         new_features: &new_features,

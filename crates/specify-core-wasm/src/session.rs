@@ -169,7 +169,11 @@ impl Session {
                 "The browser loader cannot preserve this part's ordered STEP face identity.".into(),
             );
         }
+        let doc =
+            haecceity::p21::Document::parse(bytes.to_vec()).map_err(|error| error.to_string())?;
+        let face_names = haecceity::json::Anchors::read(&doc, &definition).names;
         let loaded = LoadedPart {
+            face_names,
             path: PathBuf::from(name),
             bytes: Arc::new(bytes.to_vec()),
             binding: Binding {
@@ -251,7 +255,7 @@ impl Session {
     }
 
     /// The face evidence to keep with answers held outside the STEP, for
-    /// [`Session::rematch_answers`]: `{schema, face_count, faces}` (`resume::evidence`).
+    /// [`Session::rematch_answers`]: `AnswerEvidence` JSON (`resume::evidence`).
     pub fn evidence(&self) -> Result<Value, String> {
         resume::evidence(&self.loaded).map_err(|error| error.to_string())
     }

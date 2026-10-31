@@ -48,6 +48,9 @@ pub const HOLE_PATTERN_KINDS: [(&str, &str); 4] = [
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Face {
     pub id: usize,
+    /// The STEP face name exactly as authored, absent when unnamed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     /// `plane`, `cylinder`, `cone`, `torus` or `other`.
     pub kind: String,
     pub area: f64,
@@ -186,6 +189,7 @@ pub fn describe_faces(loaded: &LoadedPart) -> Result<Vec<Face>, FeatureError> {
             let face = &part.faces[index];
             let mut out = Face {
                 id: index,
+                name: loaded.face_names.get(index).cloned().flatten(),
                 kind: "other".into(),
                 area: moments.area,
                 centroid: moments.centroid.map(|x| round_half_even(x, 6)),

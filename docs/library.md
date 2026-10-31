@@ -44,3 +44,6 @@ Characteristic numbers are read with `characteristics::read` and appear in analy
 `characteristics` list and `ExistingPmi.number`. Writers allocate them from the file's history;
 when writing a revision, retain the opaque number-history member in `revision::diff`'s returned
 answers. See [the STEP storage and carry contract](characteristic-numbers.md).
+
+Authored STEP names persist across code-first CAD rebuilds through the existing
+resume and revision APIs; see [face names and schema compatibility](face-names.md).
