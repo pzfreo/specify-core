@@ -55,8 +55,8 @@ pub struct Binding {
 /// One part of a STEP file, loaded (Python's `LoadedPart`). Not `Clone`, as `haecceity::Part`
 /// is not; everything downstream takes it by reference.
 ///
-/// Its fields are public and kept as they were, so a caller that builds one itself (the
-/// editor's session) still compiles.
+/// Fields are public for callers that construct a part themselves (the editor's session).
+/// Such callers must populate `face_names` with haecceity's `Anchors::read` in face order.
 #[derive(Debug)]
 pub struct LoadedPart {
     /// The file it was read from (or the name standing for it, for bytes held in memory).
@@ -69,6 +69,9 @@ pub struct LoadedPart {
     /// haecceity's account of the part: its product definition, face and edge `#N`s, placements,
     /// name and product id.
     pub definition: PartDefinition,
+    /// Authored STEP representation-item names, indexed exactly like `part.faces`.
+    /// Read by haecceity `Anchors::read`; unnamed faces are `None`.
+    pub face_names: Vec<Option<String>>,
     /// How many parts the file holds; this is part `binding.part` of them.
     pub part_count: usize,
     /// The part's name in the file (Python's `_part_name`; see [`parts`]).
@@ -247,6 +250,7 @@ pub struct File {
     bytes: Arc<Vec<u8>>,
     sha256: String,
     step: StepFile,
+    face_names: Vec<Vec<Option<String>>>,
 }
 
 impl File {
@@ -284,6 +288,16 @@ impl File {
                 path: path.to_path_buf(),
             });
         }
+        let doc =
+            haecceity::p21::Document::parse(bytes.to_vec()).map_err(|e| LoadError::Unreadable {
+                path: path.to_path_buf(),
+                reason: e.to_string(),
+            })?;
+        let face_names = step
+            .parts
+            .iter()
+            .map(|definition| haecceity::json::Anchors::read(&doc, definition).names)
+            .collect();
         let sha256 = Sha256::digest(bytes.as_slice())
             .iter()
             .map(|b| format!("{b:02x}"))
@@ -293,6 +307,7 @@ impl File {
             bytes,
             sha256,
             step,
+            face_names,
         })
     }
 
@@ -391,6 +406,7 @@ impl File {
             },
             part,
             definition: definition.clone(),
+            face_names: self.face_names[index].clone(),
             part_count: self.step.parts.len(),
             name: definition.name.clone(),
             placements: definition.placements.iter().map(|p| p.placement).collect(),

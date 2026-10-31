@@ -48,6 +48,9 @@ pub const HOLE_PATTERN_KINDS: [(&str, &str); 4] = [
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Face {
     pub id: usize,
+    /// A unique authored STEP identity in the `f:` namespace, absent for generic/shared labels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     /// `plane`, `cylinder`, `cone`, `torus` or `other`.
     pub kind: String,
     pub area: f64,
@@ -175,6 +178,7 @@ pub fn feature_id(family: &str, faces: &[usize]) -> String {
 /// a degraded part (tests/features.rs, `recognition_refuses_a_degraded_part`).
 pub fn describe_faces(loaded: &LoadedPart) -> Result<Vec<Face>, FeatureError> {
     let part = &loaded.part;
+    let names = crate::resume::names::identities(&loaded.face_names);
     let unresolved: BTreeSet<usize> = loaded.unresolved_faces.iter().copied().collect();
     (0..part.faces.len())
         .map(|index| {
@@ -186,6 +190,7 @@ pub fn describe_faces(loaded: &LoadedPart) -> Result<Vec<Face>, FeatureError> {
             let face = &part.faces[index];
             let mut out = Face {
                 id: index,
+                name: names.get(index).cloned().flatten(),
                 kind: "other".into(),
                 area: moments.area,
                 centroid: moments.centroid.map(|x| round_half_even(x, 6)),

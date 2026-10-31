@@ -62,6 +62,26 @@ mod wasm {
     /// Types for the JSON report returned by `diff`; ids/numbers match `pmiScene`.
     #[wasm_bindgen(typescript_custom_section)]
     const PMI_DIFF_TYPES: &str = r#"
+/** Faces in analysis/snapshot JSON; `name` is a unique authored STEP `f:` identity. */
+export interface AnalysisFace {
+  id: number;
+  name?: string;
+  kind: string;
+  area: number;
+  centroid: [number, number, number];
+  direction?: [number, number, number];
+  origin?: [number, number, number];
+  radius?: number;
+  contact?: unknown;
+}
+/** JSON returned by evidence(), also embedded alongside stored answers. */
+export interface AnswerEvidence {
+  schema: 1 | 2 | 3;
+  face_count: number;
+  faces: string;
+  face_names?: (string | null)[];
+  geometry?: unknown;
+}
 export interface PmiItemChange {
   class: "added" | "removed" | "changed" | "renumbered";
   number?: number;
@@ -147,7 +167,7 @@ export interface DiffPmi {
                 .map_err(|error| JsValue::from_str(&error))
         }
 
-        /// `{schema, face_count, faces}`: keep it with answers saved outside the STEP.
+        /// `AnswerEvidence` JSON: keep it with answers saved outside the STEP.
         pub fn evidence(&self) -> Result<String, JsValue> {
             self.0
                 .evidence()
@@ -158,8 +178,10 @@ export interface DiffPmi {
         /// Saved answers matched to this part: `{answers, unresolved?, migrated?, unverified?,
         /// automatic?}`. `evidence` is what `evidence()` gave when they were saved; `automatic`
         /// a JSON list of the IDs the default path answered. Without evidence answers are
-        /// matched by feature ID; with evidence that does not match every answer on a feature
-        /// or a datum is in `unresolved`, with its value.
+        /// matched by feature ID. Schema 3 matches exact authored names first; a missing or
+        /// duplicate name is unresolved without geometric fallback. Unnamed faces use
+        /// verified indices or saved geometric correspondence. Schema 1/2 retain their
+        /// fingerprint checks. Extras and datum lists follow their face supports.
         #[wasm_bindgen(js_name = rematchAnswers)]
         pub fn rematch_answers(
             &self,

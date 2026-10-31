@@ -1,14 +1,13 @@
 //! Revisions: a part's answers carried from one revision of its STEP file to the next, and what
 //! changed.
 //!
-//! [`crate::resume::rematch_answers`] resumes answers on the same geometry: with face evidence
-//! that does not match, every answer on a feature or a datum is left unresolved. A revision is
-//! different geometry by design, so here quiddity matches the two parts
-//! (`quiddity::correspondence::correspond`): it aligns them and classifies each recognised
-//! feature and face as carried, adapted, ambiguous, orphaned or new.
+//! Answers bind exact authored STEP names where present, sharing resume's name matcher.
+//! Unnamed faces use quiddity's correspondence (`quiddity::correspondence::correspond`),
+//! which aligns the two parts and classifies each recognised feature and face as carried,
+//! adapted, ambiguous, orphaned or new. Existing CAD PMI keeps its geometric comparison.
 //!
 //! An answer names its feature by family and defining faces (`hole.function:holes:12.13`) or,
-//! for a datum, lists faces (`datum.A: [4]`). Each face is mapped through the correspondence;
+//! for a datum, lists faces (`datum.A: [4]`). Each face is mapped by name or unnamed correspondence;
 //! the answer is then carried to the new part's feature of that family holding the mapped faces.
 //! An answer is never guessed: when a face is gone (*orphaned*), matches several faces
 //! (*ambiguous*), or no single feature holds the mapped faces, it is left unresolved with its
@@ -44,6 +43,7 @@ enum Bind {
     To(usize),
     Orphaned,
     Ambiguous(Vec<usize>),
+    NamedRefusal { reason: String, ambiguous: bool },
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1304,6 +1304,7 @@ fn feature_answer(id: &str) -> Option<(&str, &str, Vec<usize>)> {
 }
 
 struct Matching<'a> {
+    named: bool,
     faces: BTreeMap<usize, Bind>,
     old_features: &'a [Feature],
     new_features: &'a [Feature],
@@ -1354,6 +1355,11 @@ impl Matching<'_> {
             })
         };
         let gone = |(face, bind): (usize, Bind)| match bind {
+            Bind::NamedRefusal { reason, ambiguous } => unresolved(
+                if ambiguous { "ambiguous" } else { "unresolved" },
+                reason,
+                Vec::new(),
+            ),
             Bind::Ambiguous(c) => unresolved(
                 "ambiguous",
                 format!("face {face} matches more than one face of the new part"),
@@ -1404,7 +1410,23 @@ impl Matching<'_> {
                 Value::Array(now.into_iter().map(Value::from).collect()),
             ));
         }
-        Ok((id.into(), answer.clone()))
+        let value = if self.named {
+            let mut failure = None;
+            crate::resume::names::map_value(id, answer, |i| {
+                self.faces(&[i]).map(|v| v[0]).map_err(|error| {
+                    let refusal = gone(error);
+                    let reason = refusal.reason.clone();
+                    failure = Some(refusal);
+                    reason
+                })
+            })
+            .map_err(|reason| {
+                failure.unwrap_or_else(|| unresolved("unresolved", reason, Vec::new()))
+            })?
+        } else {
+            answer.clone()
+        };
+        Ok((id.into(), value))
     }
 }
 
@@ -1434,7 +1456,7 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
     let (old_features, new_features) = (features(&old_analysis)?, features(&new_analysis)?);
     let corr =
         qc::correspond(&old_q.fingerprints, &new_q.fingerprints).map_err(api::Error::Analysis)?;
-    let faces = corr
+    let geometric_faces: BTreeMap<usize, Bind> = corr
         .faces
         .iter()
         .map(|e| {
@@ -1446,7 +1468,27 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
             (e.old, bind)
         })
         .collect();
+    // Stored answers bind authored names. Existing CAD PMI keeps its independent
+    // geometric comparison: generic duplicate CAD labels are not saved answer anchors.
+    let mut faces = geometric_faces.clone();
+    let identities = crate::resume::names::identities(&old.face_names);
+    for (i, binding) in crate::resume::names::match_names(&identities, &new.face_names) {
+        use crate::resume::names::NameMatch;
+        let bind = match binding {
+            NameMatch::To(i) => Bind::To(i),
+            NameMatch::Missing(reason) => Bind::NamedRefusal {
+                reason,
+                ambiguous: false,
+            },
+            NameMatch::Ambiguous(reason) => Bind::NamedRefusal {
+                reason,
+                ambiguous: true,
+            },
+        };
+        faces.insert(i, bind);
+    }
     let matching = Matching {
+        named: identities.iter().any(Option::is_some),
         faces,
         old_features: &old_features,
         new_features: &new_features,
@@ -1875,7 +1917,7 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
         existing: compare_existing(
             &old_existing,
             &new_existing,
-            &matching.faces,
+            &geometric_faces,
             &old_features,
             &new_features,
         ),
@@ -1886,7 +1928,7 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
             (&old_analysis, &new_analysis),
             (!given.is_empty()).then_some(given),
             &carried,
-            &matching.faces,
+            &geometric_faces,
             (&old_features, &new_features),
         )?,
     };

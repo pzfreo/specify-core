@@ -513,10 +513,10 @@ fn each_schema_is_checked_against_its_own_fingerprint() {
             }
         );
     }
-    // A schema neither engine writes is passed over.
-    payload["schema"] = json!(3);
+    // Schema 3 now carries authored names; a future unsupported schema is passed over.
+    payload["schema"] = json!(4);
     payload["faces"] = json!(v2);
-    let path = dir.join("s3.step");
+    let path = dir.join("s4.step");
     std::fs::write(&path, with_payload(&text, &payload)).unwrap();
     assert!(stored(&std::fs::read(&path).unwrap()).is_empty());
 }
