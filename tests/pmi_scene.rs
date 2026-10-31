@@ -21,21 +21,80 @@ fn given() -> Map<String, Value> {
         .clone()
 }
 fn validate(scene: &Value) {
-    haecceity::json::validate_schema(&scene["pmi"]).unwrap();
-    haecceity::json::presentation::validate(&scene["presentation"]).unwrap();
-    let semantic = haecceity::json::from_value(
-        &scene["pmi"],
-        &haecceity::json::Anchors {
-            names: vec![None; 100000],
-            edge_count: 100000,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    let graphics = serde_json::from_value(scene["presentation"].clone()).unwrap();
-    haecceity::json::presentation::validate_links(&graphics, &semantic).unwrap();
-    for id in scene["presentation"]["items"].as_object().unwrap().keys() {
+    assert_eq!(scene["pmi"]["schema"], "haecceity.pmi/1");
+    assert_eq!(scene["presentation"]["schema"], "haecceity.presentation/1");
+    let mut ids = BTreeSet::new();
+    for rows in scene["pmi"]["pmi"]
+        .as_object()
+        .unwrap()
+        .values()
+        .filter_map(Value::as_array)
+        .chain(
+            scene["pmi"]["units"]
+                .as_object()
+                .unwrap()
+                .values()
+                .filter_map(Value::as_array),
+        )
+    {
+        for row in rows {
+            assert!(
+                ids.insert(row["id"].as_str().unwrap()),
+                "duplicate {}",
+                row["id"]
+            );
+        }
+    }
+    let listed: BTreeSet<_> = scene["presentation"]["semantic_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| id.as_str().unwrap())
+        .collect();
+    assert_eq!(ids, listed);
+    let planes: BTreeSet<_> = scene["presentation"]["planes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|p| p["id"].as_str().unwrap())
+        .collect();
+    let mut graphics = BTreeSet::new();
+    for (id, rows) in scene["presentation"]["items"].as_object().unwrap() {
+        assert!(ids.contains(id.as_str()));
         assert!(scene["specify"].get(id).is_some(), "{id}");
+        for graphic in rows.as_array().unwrap() {
+            validate_graphic(graphic, &planes, &mut graphics);
+        }
+    }
+    for graphic in scene["presentation"]["unlinked"].as_array().unwrap() {
+        validate_graphic(graphic, &planes, &mut graphics);
+    }
+    for view in scene["presentation"]["views"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        for id in view["graphics"].as_array().unwrap() {
+            assert!(graphics.contains(id.as_str().unwrap()));
+        }
+    }
+}
+fn validate_graphic<'a>(graphic: &'a Value, planes: &BTreeSet<&str>, ids: &mut BTreeSet<&'a str>) {
+    if let Some(id) = graphic["id"].as_str() {
+        ids.insert(id);
+    }
+    if let Some(id) = graphic["plane_id"].as_str() {
+        assert!(planes.contains(id));
+    }
+    for placement in graphic["text_placements"].as_array().into_iter().flatten() {
+        if let Some(index) = placement["text_index"].as_u64() {
+            assert!(index < graphic["text"].as_array().unwrap().len() as u64);
+        }
+        for field in ["origin", "x_axis", "normal"] {
+            let vector = placement[field].as_array().unwrap();
+            assert_eq!(vector.len(), 3);
+            assert!(vector.iter().all(|v| v.as_f64().unwrap().is_finite()));
+        }
     }
 }
 #[test]
@@ -175,14 +234,54 @@ fn foreign_nist_ctc01_is_view_only_and_keeps_as_drawn_graphics() {
 }
 #[test]
 fn python_schemas_match_the_pinned_kernel() {
-    for (name, schema) in [
-        ("pmi", haecceity::json::PMI_SCHEMA),
-        ("presentation", haecceity::json::PRESENTATION_SCHEMA),
-    ] {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
-            "crates/specify-core-py/python/specify_core/schema/haecceity.{name}-1.json"
-        ));
-        assert_eq!(std::fs::read_to_string(path).unwrap(), schema);
+    // Resolve the actual locked dependency without enabling json-import just to
+    // access its schema constants. Production and test builds stay serialise-only.
+    let output = std::process::Command::new("cargo")
+        .args(["metadata", "--locked", "--offline", "--format-version", "1"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cargo: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let kernel = cargo["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "haecceity")
+        .unwrap();
+    let node = cargo["resolve"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == kernel["id"])
+        .unwrap();
+    assert!(
+        node["features"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("json"))
+    );
+    assert!(
+        !node["features"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("json-import"))
+    );
+    let directory = Path::new(kernel["manifest_path"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    for name in ["pmi", "presentation"] {
+        let file = format!("haecceity.{name}-1.json");
+        let packaged = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("crates/specify-core-py/python/specify_core/schema")
+            .join(&file);
+        assert_eq!(
+            std::fs::read(packaged).unwrap(),
+            std::fs::read(directory.join("schema").join(file)).unwrap()
+        );
     }
 }
 #[test]
@@ -213,5 +312,38 @@ fn patterned_requirements_put_the_count_in_notation_and_first_cell() {
             assert!(graphic["name"].as_str().unwrap().starts_with("6×"));
             assert!(graphic["text"][0].as_str().unwrap().starts_with("6×"));
         }
+    }
+}
+
+#[test]
+fn generated_graphics_expose_model_space_placement_and_plane_ids() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let answers = specify_core::rules::with_all_defaults(&analysis, &given()).unwrap();
+    let scene = Scene::new(&loaded)
+        .unwrap()
+        .scene(&loaded, Some(&analysis), Some(&answers))
+        .unwrap();
+    validate(&scene);
+    assert!(
+        !scene["presentation"]["planes"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    for rows in scene["presentation"]["items"].as_object().unwrap().values() {
+        for graphic in rows.as_array().unwrap() {
+            assert!(graphic["id"].is_string());
+            assert!(graphic["plane_id"].is_string());
+            assert!(!graphic["text_placements"].as_array().unwrap().is_empty());
+        }
+    }
+    for datum in scene["pmi"]["pmi"]["datums"].as_array().unwrap() {
+        assert!(
+            !scene["presentation"]["items"][datum["id"].as_str().unwrap()]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
     }
 }

@@ -161,3 +161,7 @@ def test_pmi_scene_and_packaged_schemas(plate):
     for name in ("pmi", "presentation"):
         schema = json.loads(root.joinpath(f"haecceity.{name}-1.json").read_text())
         assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+        from jsonschema import Draft202012Validator
+        Draft202012Validator.check_schema(schema)
+        Draft202012Validator(schema).validate(scene[name])
+        Draft202012Validator(schema).validate(empty[name])

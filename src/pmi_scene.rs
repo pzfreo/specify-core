@@ -453,8 +453,30 @@ fn merge(target: &mut Value, other: Value) -> Result<(), String> {
             ids.dedup();
         }
     }
-    wire::validate_schema(&target["pmi"]).map_err(|e| e.to_string())?;
-    presentation::validate(&target["presentation"]).map_err(|e| e.to_string())
+    // Both inputs are trusted haecceity exports. Keep import/schema validation out
+    // of production builds; package tests validate the complete merged documents.
+    for field in ["planes", "views"] {
+        if let Some(rows) = other["presentation"][field].as_array() {
+            let presentation = target["presentation"]
+                .as_object_mut()
+                .ok_or("invalid graphics")?;
+            let output = presentation
+                .entry(field)
+                .or_insert_with(|| json!([]))
+                .as_array_mut()
+                .ok_or("invalid presentation collection")?;
+            for row in rows {
+                if let Some(old) = output.iter().find(|old| old["id"] == row["id"]) {
+                    if old != row {
+                        return Err(format!("conflicting presentation {field} id {}", row["id"]));
+                    }
+                } else {
+                    output.push(row.clone());
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Raw STEP view-only form. Select an assembly part by its `parts()` index.

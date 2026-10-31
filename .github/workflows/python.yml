@@ -115,7 +115,7 @@ jobs:
       - run: uv venv --python ${{ matrix.python }} .venv
       - name: Install the wheel, and pytest
         run: |
-          uv pip install --python .venv pytest
+          uv pip install --python .venv pytest jsonschema
           uv pip install --python .venv --no-index --find-links dist specify-core
       - name: The wheel carries the licence
         run: |

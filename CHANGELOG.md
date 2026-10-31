@@ -34,6 +34,12 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Upgrade quiddity/haecceity to **v0.2.8** (`840b2ad`). Scene export uses only the
+  serialise-only `json` feature in native, WASM and Python; no JSON import API is exposed.
+  Presentation retains text placement, plane/graphic ids, saved views and datum links.
+  Package schemas match v0.2.8. Written mass units use conversion-based gram per
+  CAx-IF Annex C.1, changing density-bearing STEP goldens while recognition stays unchanged.
+
 - Upgrade quiddity/haecceity to **v0.2.7** (`eaa7762`); recognition stays unchanged.
   Writer expectations change for slash-separated deviations and notes/frame placement.
   Remove the blank-note drawing workaround: literal blank rows now write valid STEP directly.
