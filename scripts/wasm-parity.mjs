@@ -98,6 +98,7 @@ for (const [part, path] of parts) {
     });
     assert.equal(native.status, 0, native.error?.message ?? native.stderr);
     const expected = JSON.parse(native.stdout);
+    compare(JSON.parse(engine.pmiScene(answersJson)), expected.pmi_scene);
     const { mesh: actualMesh, ...actualSnapshot } = snapshot;
     const { mesh: expectedMesh, ...expectedSnapshot } = expected.snapshot;
     compare(actualSnapshot, expectedSnapshot);

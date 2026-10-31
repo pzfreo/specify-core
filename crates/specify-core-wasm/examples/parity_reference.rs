@@ -33,6 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "{}",
         json!({
             "snapshot": snapshot,
+            "pmi_scene": session.pmi_scene(&answers)?,
             "review": session.review(&answers)?,
             "free_review": api::review(&analysis, &answers)?,
             "accepted": accepted,

@@ -8,6 +8,18 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- For #142: native `pmi_scene::Scene` and raw-byte `pmi_scene`, Python `pmi_scene`
+  and bundled `specify_core/schema/` JSON Schemas. Scenes contain haecceity's
+  semantic/presentation documents plus Specify status, question, number, origin/source.
+  Requirement-based Specify ids survive reviews; face anchors match mesh indices.
+
+### WASM API
+
+- Add `IntentEngine.pmiScene(answers)` on the open part session (including `openPart`)
+  and `pmiScene(stepBytes, part?)` for view-only As Drawn PMI without an interview.
+
+### Added
+
 - The Python package `specify-core` on this engine (`crates/specify-core-py`): specify-core's
   Python API and the `specify-core` command line, with no Python dependency; abi3 wheels for
   CPython 3.12 and later, built and published by `.github/workflows/python.yml`. See

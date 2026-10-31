@@ -139,3 +139,25 @@ def test_cli_main_returns_the_exit_code(capsys):
 
     assert main(["parts", "/no/such/file.step"]) == 1
     assert "error:" in capsys.readouterr().err
+
+
+def test_pmi_scene_and_packaged_schemas(plate):
+    import importlib.resources
+    import json
+    import specify_core
+    from specify_core import api
+
+    scene = specify_core.pmi_scene(plate, {
+        "part.general_tolerance": "ISO 2768-m",
+        "hole.function:holes:9": "fit:H7",
+    })
+    assert scene["pmi"]["schema"] == "haecceity.pmi/1"
+    assert scene["presentation"]["schema"] == "haecceity.presentation/1"
+    assert scene["specify"]["size:holes:9"]["status"] == "answered"
+    assert scene["specify"]["size:holes:9"]["question"] == "hole.function:holes:9"
+    empty = api.pmi_scene(plate.read_bytes())
+    assert empty["pmi"]["pmi"]["dimensions"] == []
+    root = importlib.resources.files("specify_core").joinpath("schema")
+    for name in ("pmi", "presentation"):
+        schema = json.loads(root.joinpath(f"haecceity.{name}-1.json").read_text())
+        assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"

@@ -1182,6 +1182,26 @@ fn part_pmi(
     before: &PartPmi,
     mode: Mode,
 ) -> Result<(PartPmi, Lines), WriteError> {
+    part_pmi_observed(loaded, intent, before, mode, &mut |_, _, _| {})
+}
+
+pub(crate) fn scene_model(
+    loaded: &LoadedPart,
+    intent: &Intent,
+    before: &PartPmi,
+    mode: Mode,
+    observe: &mut impl FnMut(&str, usize, &Map<String, Json>),
+) -> Result<PartPmi, WriteError> {
+    part_pmi_observed(loaded, intent, before, mode, observe).map(|(p, _)| p)
+}
+
+fn part_pmi_observed(
+    loaded: &LoadedPart,
+    intent: &Intent,
+    before: &PartPmi,
+    mode: Mode,
+    observe: &mut impl FnMut(&str, usize, &Map<String, Json>),
+) -> Result<(PartPmi, Lines), WriteError> {
     let mut p = PartPmi::default();
     let origins = crate::pmi_origin::Planner::new(loaded).map_err(WriteError::Failed)?;
     let mut lines = Lines::default();
@@ -1205,6 +1225,7 @@ fn part_pmi(
             .map_err(|e| WriteError::Invalid(format!("datum {letter}: {}", e.0)))?;
         let datum =
             Datum::new(label, Some(feature), Vec::new()).map_err(|e| WriteError::Invalid(e.0))?;
+        observe("datums", p.datums.len(), d);
         p.datums.push(datum);
         letters.push(letter.to_string());
         if !had.contains(letter) {
@@ -1327,6 +1348,7 @@ fn part_pmi(
                         &format!("size on {}", feature_name()),
                     )?,
                 };
+                observe("dimensions", p.dimensions.len(), req);
                 p.dimensions.push(Dimension {
                     kind: DimensionKind::Size {
                         feature,
@@ -1377,6 +1399,7 @@ fn part_pmi(
                     let what = format!("location to {}", feature_name());
                     (deviations(upper, lower, &what)?, how)
                 };
+                observe("dimensions", p.dimensions.len(), req);
                 p.dimensions.push(Dimension {
                     kind: DimensionKind::Location {
                         from,
@@ -1410,6 +1433,7 @@ fn part_pmi(
                     &format!("the thread on {}", feature_name()),
                 )?;
                 let (pmi_thread, attributes) = thread(req, feature)?;
+                observe("threads", p.threads.len(), req);
                 p.threads.push(pmi_thread);
                 p.attributes.push(attributes);
                 lines.written.push(format!(
@@ -1435,6 +1459,7 @@ fn part_pmi(
                             req.get("faces"),
                             &format!("the knurl on {}", feature_name()),
                         )?;
+                        observe("knurls", p.knurls.len(), req);
                         p.knurls.push(k);
                         lines.warnings.extend(filled);
                         lines
@@ -1449,6 +1474,7 @@ fn part_pmi(
                 match texture(&value) {
                     Some(parameter) if face_ids(req.get("faces")).is_some() => {
                         let on = f.of(req.get("faces"), &format!("the surface finish {value}"))?;
+                        observe("surface_textures", p.surface_textures.len(), req);
                         p.surface_textures.push(SurfaceTexture {
                             on: Some(on),
                             material_removal: MaterialRemoval::AnyProcessAllowed,
@@ -1481,6 +1507,7 @@ fn part_pmi(
                 )?;
                 let value = number(req, "tolerance")?;
                 let mmc = truthy(req.get("mmc"));
+                observe("tolerances", p.tolerances.len(), req);
                 p.tolerances.push(GeometricTolerance {
                     kind: tolerance_kind,
                     target: ToleranceTarget::Feature(target),
