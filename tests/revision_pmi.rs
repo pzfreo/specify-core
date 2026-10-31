@@ -231,12 +231,16 @@ fn foreign_flatness(part: &part::LoadedPart, faces: &[usize], value: &str) -> pa
         }],
         ..PartPmi::default()
     };
+    foreign_model(part, model)
+}
+
+fn foreign_model(part: &part::LoadedPart, model: haecceity::pmi::PartPmi) -> part::LoadedPart {
     let doc = haecceity::p21::Document::parse(part.bytes.to_vec()).unwrap();
     let defs = haecceity::step::read_part_definitions(&part.bytes).unwrap();
     let (edit, _) = haecceity::pmi::write::write(
         &doc,
         &defs,
-        &[(PartId(0), model)],
+        &[(haecceity::pmi::PartId(0), model)],
         haecceity::pmi::write::Mode::Add,
         haecceity::pmi::write::PresentationPolicy::RemovePresentation,
     )
@@ -279,4 +283,91 @@ fn a_face_split_matches_the_foreign_control_through_correspondence() {
     assert_eq!(report.pmi.items[0].class, "changed");
     assert_eq!(report.pmi.items[0].status, "existing");
     assert_scene_ids(&report, &new);
+}
+
+#[test]
+fn a_fit_class_hidden_by_equal_stated_limits_is_still_changed() {
+    use haecceity::pmi::*;
+    let bare = load("parts/plate.step");
+    let length = |s| Value::length(Decimal::parse(s).unwrap(), LengthUnit::Millimetre);
+    let model = |grade| PartPmi {
+        features: vec![Feature::Items(vec![Anchor::Face(FaceIndex(9))])],
+        dimensions: vec![Dimension {
+            kind: DimensionKind::Size {
+                feature: FeatureId(0),
+                kind: SizeKind::Diameter,
+                path: None,
+                angle: None,
+            },
+            nominal: Some(length("8.0")),
+            tolerance: DimTolerance::Fit {
+                class: Iso286Class {
+                    deviation: FundamentalDeviation::parse("H").unwrap(),
+                    grade: ToleranceGrade::parse(grade).unwrap(),
+                },
+                limits: Some(Bounds::new(length("8.02"), length("8.0")).unwrap()),
+            },
+            qualifier: None,
+            modifiers: vec![],
+            principle: None,
+        }],
+        ..PartPmi::default()
+    };
+    let old = foreign_model(&bare, model("7"));
+    let new = foreign_model(&bare, model("8"));
+    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    assert_eq!(report.pmi.items.len(), 1, "{:?}", report.pmi.items);
+    let change = &report.pmi.items[0];
+    assert_eq!(change.class, "changed");
+    assert_eq!(
+        change.old, change.new,
+        "equal limits deliberately hide the fit class"
+    );
+    assert_eq!(change.reason.as_deref(), Some("semantic fields changed"));
+}
+
+#[test]
+fn moving_a_hole_recomputes_default_basic_locations() {
+    let before = load("revisions/hole_moved.old.step.gz");
+    let new = load("revisions/hole_moved.new.step.gz");
+    let supplied = answers(
+        json!({"part.general_tolerance":"ISO 2768-m", "part.locating":"position tolerances", "hole.function:holes:8":"clearance"}),
+    );
+    let supplied =
+        specify_core::rules::with_all_defaults(&api::analyse(&before).unwrap(), &supplied).unwrap();
+    let old = write(&before, &supplied);
+    let scene = pmi_scene::pmi_scene(&old.bytes, None).unwrap();
+    let basic: Vec<_> = scene["pmi"]["pmi"]["dimensions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["value"]["tolerance"] == "basic")
+        .map(|row| row["id"].as_str().unwrap())
+        .collect();
+    assert!(!basic.is_empty());
+    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    assert!(
+        report.pmi.items.iter().all(|c| c.kind == "dimension"),
+        "{:?}",
+        report.pmi.items
+    );
+    let written_new = write(&new, &report.answers);
+    let saved_report = revision::diff(&old, &written_new, &Map::new()).unwrap();
+    assert_scene_ids(&saved_report, &written_new);
+    assert!(
+        saved_report
+            .pmi
+            .items
+            .iter()
+            .any(|c| c.class == "changed" && basic.contains(&c.id.as_str()))
+    );
+    assert!(
+        report
+            .pmi
+            .items
+            .iter()
+            .any(|c| c.class == "changed" && basic.contains(&c.id.as_str()) && c.number.is_some()),
+        "{:?}",
+        report.pmi.items
+    );
 }

@@ -64,7 +64,7 @@ pub struct Revised {
     pub features: Vec<FeatureChange>,
     /// The whole part's volume, area, box and face count, before and after.
     pub measures: Measures,
-    /// The PMI in the two files: Specify's (stored answers) and the files' own (from CAD).
+    /// Requirement changes on pmiScene identities, plus deprecated legacy comparisons.
     pub pmi: Pmi,
     /// Questions open on the new part that were not open on the old one.
     pub questions: Vec<OpenQuestion>,
@@ -179,9 +179,11 @@ pub struct Pmi {
     pub new_stored: bool,
     /// The new file's Specify PMI against the answers carried to it, where it has some: an
     /// answer `added`, `removed` or `changed` there.
+    /// Deprecated for one release: use `items` for semantic requirements.
     pub stored: Vec<PmiChange>,
     /// The files' own PMI (dimensions, tolerances, datums and notes from CAD), matched by the
     /// faces it is on: `added`, `removed` or `changed`.
+    /// Deprecated for one release: use `items` for complete notation and semantics.
     pub existing: Vec<PmiChange>,
     /// How many items of their own PMI the old and new files state.
     pub existing_count: [usize; 2],

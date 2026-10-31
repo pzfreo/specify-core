@@ -17,31 +17,73 @@ struct Item {
     semantic: Value,
 }
 
+// Only reference slots carry ids. Decimal strings and note text may themselves
+// equal numeric STEP identities and must never be expanded as references.
+fn reference_slot(key: &str) -> bool {
+    matches!(
+        key,
+        "feature"
+            | "from"
+            | "to"
+            | "path"
+            | "members"
+            | "datum"
+            | "datum_target"
+            | "targets"
+            | "dimension"
+            | "tolerance"
+            | "geometry"
+            | "on"
+            | "area"
+            | "curve"
+            | "unit"
+            | "length_unit"
+            | "supplemental"
+            | "relating"
+            | "related"
+    )
+}
+
 // Resolve support and unit identities, so file-local hashes/indices are not changes.
 // Topology is matched separately, including one old face becoming several new faces.
-fn resolve(value: &Value, rows: &BTreeMap<&str, (&str, &Value)>, depth: usize) -> Value {
+fn resolve(
+    value: &Value,
+    rows: &BTreeMap<&str, (&str, &Value)>,
+    depth: usize,
+    reference: bool,
+) -> Value {
     if depth > 32 {
         return json!("recursive support");
     }
     match value {
-        Value::String(id) if rows.contains_key(id.as_str()) => {
+        Value::String(id) if reference && rows.contains_key(id.as_str()) => {
             let (collection, value) = rows[id.as_str()];
             if collection == "features" {
                 json!("feature support")
+            } else if ["dimensions", "tolerances", "threads", "knurls"].contains(&collection) {
+                json!({"requirement support":collection})
             } else {
-                resolve(value, rows, depth + 1)
+                resolve(value, rows, depth + 1, false)
             }
         }
         Value::Object(object) => Value::Object(
             object
                 .iter()
                 .filter(|(key, _)| !["face", "edge", "deriving_faces"].contains(&key.as_str()))
-                .map(|(key, v)| (key.clone(), resolve(v, rows, depth + 1)))
+                .map(|(key, v)| {
+                    (
+                        key.clone(),
+                        resolve(v, rows, depth + 1, reference_slot(key)),
+                    )
+                })
                 .collect(),
         ),
-        Value::Array(array) => {
-            Value::Array(array.iter().map(|v| resolve(v, rows, depth + 1)).collect())
-        }
+        Value::Array(array) => Value::Array(
+            array
+                .iter()
+                .map(|v| resolve(v, rows, depth + 1, reference))
+                .collect(),
+        ),
         _ => value.clone(),
     }
 }
@@ -51,15 +93,16 @@ fn supports(
     rows: &BTreeMap<&str, (&str, &Value)>,
     seen: &mut BTreeSet<String>,
     out: &mut Vec<usize>,
+    reference: bool,
 ) {
     match value {
-        Value::String(id) => {
+        Value::String(id) if reference => {
             if let Some((collection, v)) = rows.get(id.as_str())
                 // Datum references describe the frame, not the controlled feature.
                 && !["datums", "datum_targets"].contains(collection)
                 && seen.insert(id.clone())
             {
-                supports(v, rows, seen, out);
+                supports(v, rows, seen, out, false);
             }
         }
         Value::Object(object) => {
@@ -75,13 +118,13 @@ fn supports(
                             .map(|n| n as usize),
                     );
                 } else if key != "datums" {
-                    supports(v, rows, seen, out);
+                    supports(v, rows, seen, out, reference_slot(key));
                 }
             }
         }
         Value::Array(array) => {
             for v in array {
-                supports(v, rows, seen, out);
+                supports(v, rows, seen, out, reference);
             }
         }
         _ => {}
@@ -152,7 +195,7 @@ fn items(scene: &Value) -> Vec<Item> {
                 .collect::<Vec<_>>()
         );
         let mut faces = Vec::new();
-        supports(value, &rows, &mut BTreeSet::new(), &mut faces);
+        supports(value, &rows, &mut BTreeSet::new(), &mut faces, false);
         faces.sort_unstable();
         faces.dedup();
         result.push(Item {
@@ -175,7 +218,13 @@ fn items(scene: &Value) -> Vec<Item> {
             on_faces: {
                 let mut primary = Vec::new();
                 let target = value.pointer("/kind/location/to").unwrap_or(value);
-                supports(target, &rows, &mut BTreeSet::new(), &mut primary);
+                supports(
+                    target,
+                    &rows,
+                    &mut BTreeSet::new(),
+                    &mut primary,
+                    value.pointer("/kind/location/to").is_some(),
+                );
                 primary.sort_unstable();
                 primary.dedup();
                 primary
@@ -184,7 +233,22 @@ fn items(scene: &Value) -> Vec<Item> {
             faces,
             text,
             cells,
-            semantic: resolve(value, &rows, 0),
+            semantic: {
+                let mut semantic = resolve(value, &rows, 0, false);
+                if collection == "attributes" {
+                    // AP242's UDA writer fills these boilerplate descriptors when
+                    // the plan leaves them unset; they are the same requirement.
+                    if semantic["description"] == "user defined attribute" {
+                        semantic["description"] = Value::Null;
+                    }
+                    if semantic["general_property"]
+                        == json!({"id":"", "name":semantic["name"], "description":null})
+                    {
+                        semantic["general_property"] = Value::Null;
+                    }
+                }
+                semantic
+            },
         });
     }
     result
@@ -297,8 +361,31 @@ fn compare(
     for (i, was) in old.iter().enumerate() {
         if let Some(&j) = pairs.get(&i) {
             let now = &new[j];
-            if was.text != now.text || was.cells != now.cells || was.semantic != now.semantic {
-                let reason = (was.text == now.text).then(|| "semantic fields changed".into());
+            let support_changed = was
+                .faces
+                .iter()
+                .map(|face| match faces.get(face) {
+                    Some(Bind::To(face)) => Some(*face),
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>()
+                .is_some_and(|mut mapped| {
+                    mapped.sort_unstable();
+                    mapped.dedup();
+                    mapped != now.faces
+                });
+            if was.text != now.text
+                || was.cells != now.cells
+                || was.semantic != now.semantic
+                || support_changed
+            {
+                let reason = (was.text == now.text).then(|| {
+                    if support_changed {
+                        "support changed".into()
+                    } else {
+                        "semantic fields changed".into()
+                    }
+                });
                 result.push(change("changed", Some(was), Some(now), reason));
             }
             if was.number != now.number {
@@ -352,15 +439,129 @@ pub(super) fn diff(
     };
     let (old_analysis, new_analysis) = analyses;
     let before = scene(old, old_analysis, given)?;
-    // A written new revision owns its requirements. Otherwise show what writing
-    // carried answers would produce, alongside the new CAD file's own PMI.
-    let answers = (!new_analysis["resume"].is_object() && !carried.is_empty()).then_some(carried);
-    let after = scene(new, new_analysis, answers)?;
-    Ok(compare(
-        &items(&before),
-        &items(&after),
-        faces,
-        features.0,
-        features.1,
-    ))
+    let before = items(&before);
+    let projected = scene(new, new_analysis, (!carried.is_empty()).then_some(carried))?;
+    let mut changes = if new_analysis["resume"].is_object() {
+        let actual = scene(new, new_analysis, None)?;
+        let mut changes = compare(&before, &items(&actual), faces, features.0, features.1);
+        // Compare the two plans too: generated requirements can follow geometry
+        // without any answer changing. File edits own the final requirement when
+        // they differ; otherwise retain the geometry-derived change from the plan.
+        let source = given.or_else(|| old_analysis["resume"]["answers"].as_object());
+        if let Some(source) = source {
+            let old_plan = scene(old, old_analysis, Some(source))?;
+            for mut change in compare(
+                &items(&old_plan),
+                &items(&projected),
+                faces,
+                features.0,
+                features.1,
+            ) {
+                if !changes.iter().any(|actual| {
+                    actual.id == change.id
+                        || (actual.number.is_some() && actual.number == change.number)
+                }) {
+                    change.reason = Some("carried requirement differs from the new file".into());
+                    changes.push(change);
+                }
+            }
+        }
+        changes
+    } else {
+        compare(&before, &items(&projected), faces, features.0, features.1)
+    };
+    changes.sort_by(|a, b| {
+        (a.number.is_none(), a.number, &a.id, &a.class).cmp(&(
+            b.number.is_none(),
+            b.number,
+            &b.id,
+            &b.class,
+        ))
+    });
+    Ok(changes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn control(id: &str, faces: Vec<usize>, text: &str) -> Item {
+        Item {
+            id: id.into(),
+            number: None,
+            kind: "geometric_tolerance".into(),
+            match_kind: "flatness".into(),
+            status: "existing".into(),
+            on_faces: faces.clone(),
+            faces,
+            text: text.into(),
+            cells: json!([text]),
+            semantic: json!({"magnitude":text}),
+        }
+    }
+
+    #[test]
+    fn multiple_split_supports_match_without_falling_back_to_unique_kind() {
+        let old = [
+            control("old-a", vec![0], "⏥ 0.2"),
+            control("old-b", vec![1], "⏥ 0.4"),
+        ];
+        let new = [
+            control("new-b", vec![20, 21], "⏥ 0.3"),
+            control("new-a", vec![10, 11], "⏥ 0.1"),
+        ];
+        let faces = BTreeMap::from([
+            (0, Bind::Ambiguous(vec![10, 11])),
+            (1, Bind::Ambiguous(vec![20, 21])),
+        ]);
+        let result = compare(&old, &new, &faces, &[], &[]);
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().all(|c| c.class == "changed"));
+        assert_eq!(result[0].id, "new-a");
+        assert_eq!(result[0].old.as_deref(), Some("⏥ 0.2"));
+    }
+
+    #[test]
+    fn numbers_reserve_matches_before_ids_and_ambiguous_kinds_stay_unmatched() {
+        let mut old = [
+            control("same-id", vec![0], "0.2"),
+            control("old-b", vec![1], "0.3"),
+        ];
+        old[1].number = Some(7);
+        let mut new = [
+            control("same-id", vec![2], "0.1"),
+            control("new-b", vec![3], "0.4"),
+        ];
+        new[0].number = Some(7);
+        let result = compare(&old, &new, &BTreeMap::new(), &[], &[]);
+        let numbered = result.iter().find(|c| c.number == Some(7)).unwrap();
+        assert_eq!(numbered.old.as_deref(), Some("0.3"));
+        assert_eq!(numbered.new.as_deref(), Some("0.1"));
+        let old = [control("a", vec![0], "0.2"), control("b", vec![1], "0.3")];
+        let new = [control("c", vec![2], "0.1"), control("d", vec![3], "0.4")];
+        let result = compare(&old, &new, &BTreeMap::new(), &[], &[]);
+        assert_eq!(result.iter().filter(|c| c.class == "removed").count(), 2);
+        assert_eq!(result.iter().filter(|c| c.class == "added").count(), 2);
+    }
+
+    #[test]
+    fn numeric_decimal_and_note_strings_are_not_step_references() {
+        let feature = json!({"items":[{"face":4}]});
+        let rows = BTreeMap::from([("7", ("features", &feature))]);
+        let requirement = json!({"nominal":{"value":"7"}, "text":"7", "on":"7"});
+        let resolved = resolve(&requirement, &rows, 0, false);
+        assert_eq!(resolved["nominal"]["value"], "7");
+        assert_eq!(resolved["text"], "7");
+        let mut faces = Vec::new();
+        supports(
+            &json!({"text":"7"}),
+            &rows,
+            &mut BTreeSet::new(),
+            &mut faces,
+            false,
+        );
+        assert!(faces.is_empty());
+        supports(&requirement, &rows, &mut BTreeSet::new(), &mut faces, false);
+        assert_eq!(faces, [4]);
+    }
 }

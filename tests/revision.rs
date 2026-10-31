@@ -361,7 +361,7 @@ fn a_changed_cad_tolerance_is_reported() {
         (Some("flatness 0.2"), Some("flatness 0.1"))
     );
     let md = r.markdown("CTC 01", None);
-    assert!(md.contains(": flatness 0.2 → 0.1"), "{md}");
+    assert!(md.contains("- ⏥ 0.2 → ⏥ 0.1 (50 thick plate)"), "{md}");
     assert!(
         md.starts_with("### CTC 01: Specify\n\n✅ 1 change to the PMI."),
         "{md}"
@@ -470,7 +470,7 @@ fn a_real_part_s_report_names_what_a_person_changed() {
     // The holes first; the rounds and drafted surfaces that follow them counted after.
     assert!(
         r.summary
-            .starts_with("2 holes changed, 8 rounds and surfaces with them."),
+            .starts_with("2 holes changed, 8 rounds and surfaces with them, 1 change to the PMI."),
         "{}",
         r.summary
     );
