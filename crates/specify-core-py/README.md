@@ -104,9 +104,9 @@ file is read back and checked before it is kept.
 
 ## Links
 
-- Source and issues: [github.com/pzfreo/specify-core-rust](https://github.com/pzfreo/specify-core-rust)
-- Changelog: [CHANGELOG.md](https://github.com/pzfreo/specify-core-rust/blob/main/CHANGELOG.md)
-- Building and testing this package: [docs/python.md](https://github.com/pzfreo/specify-core-rust/blob/main/docs/python.md#the-python-package)
+- Source and issues: [github.com/pzfreo/specify-core](https://github.com/pzfreo/specify-core)
+- Changelog: [CHANGELOG.md](https://github.com/pzfreo/specify-core/blob/main/CHANGELOG.md)
+- Building and testing this package: [docs/python.md](https://github.com/pzfreo/specify-core/blob/main/docs/python.md#the-python-package)
 - Try it in the browser: [editor.draftwright.io/specify](https://editor.draftwright.io/specify)
 
 Status: early (0.x). The JSON formats may change between minor versions; changes are listed in

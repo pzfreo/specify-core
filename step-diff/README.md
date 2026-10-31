@@ -26,7 +26,7 @@ The [demo repository](https://github.com/pzfreo/step-diff-demo) is a working exa
      diff:
        runs-on: ubuntu-latest
        steps:
-         - uses: pzfreo/specify-core-rust/step-diff@main
+         - uses: pzfreo/specify-core/step-diff@main
    ```
 
 2. Commit it to the default branch.
@@ -113,7 +113,7 @@ A part with no answers still gets the comment: what changed, the picture and the
 ## Options
 
 ```yaml
-      - uses: pzfreo/specify-core-rust/step-diff@main
+      - uses: pzfreo/specify-core/step-diff@main
         with:
           version: v0.1.5         # the specify-core release to run
           token: ${{ secrets.MY_TOKEN }}

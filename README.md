@@ -1,82 +1,149 @@
 # Specify
 
-Specify adds manufacturing intent to STEP parts and keeps it with the part as the model
-changes.
+**Add manufacturing intent to a STEP part, write it as AP242 semantic PMI, and keep it with the
+part as the model changes.**
 
-- **It specifies a part.** It recognises the part's features (holes, threads, slots, bosses,
-  turned diameters) and asks what a drawing would need to say: the material, what each hole is
-  for, which faces are datums, the fits, threads, positions, finish and general tolerance. Each
-  question comes with a proposed answer and the reason for it. It writes the answers into the
-  STEP file as AP242 semantic PMI, and verifies the file by reading it back.
-- **It reviews a revision.** Given two versions of a part, `diff` says what changed, in words
-  a person can check against the model, draws the change, and carries the answers to the new
-  revision. Nothing is guessed: an answer it can't place is listed, never silently moved.
-- **It comments on pull requests.** The [STEP diff action](step-diff/README.md) puts that review
-  on each GitHub pull request that changes a STEP file.
+Specify reads a STEP part and recognises its features: holes, threads, hole patterns, slots,
+bosses and turned diameters. It then asks what a drawing would need to say, and proposes an
+answer, with its reason, for each question:
+
+- the material;
+- what each hole is for;
+- which faces are datums;
+- fits, threads, positions;
+- surface finish and the general tolerance.
+
+It writes your answers into the STEP file as AP242 semantic PMI, which CAD and inspection tools
+can read, and verifies the file by reading it back. The answers are stored in the file too. When
+the part changes, Specify carries them to the new revision and says what changed. An answer it
+can't place is listed, never silently moved.
+
+It is deterministic (rules and standards tables, no AI) and pure Rust: no OpenCascade, no
+Python. Feature recognition and the STEP/AP242 kernel come from
+[quiddity-rust](https://github.com/pzfreo/quiddity-rust).
+
+**Try it in the browser, with nothing to install:**
+- [**draftwright.io/specify**](https://draftwright.io/specify): open a STEP part, answer the questions in 3D, and download the STEP with its PMI.
+- [**draftwright.io/diff**](https://draftwright.io/diff): compare two revisions of a part and see what changed.
 
 ![The STEP diff action's comment on a pull request](step-diff/comment.png)
 
-Specify is one engine for three front ends: a command line, a JSON-lines service and a
-WebAssembly module, which the Specify editor at [draftwright.io](https://draftwright.io) runs
-in the browser. It is pure Rust, with no OpenCascade or Python. Feature recognition and the STEP and
-AP242 kernel come from [quiddity-rust](https://github.com/pzfreo/quiddity-rust).
+## Ways to use it
 
-Specify began as a port of the Python [specify-core](https://github.com/pzfreo/specify-core),
-and still reads and writes the same files; see [docs/python.md](docs/python.md). The Python
-package `specify-core` is now this engine (`crates/specify-core-py`; see
-[docs/python.md](docs/python.md#the-python-package)).
+One engine, one set of answers and files, whichever way you call it:
 
-## Status
+| Use | Install | Guide |
+| --- | --- | --- |
+| **In the browser** | nothing: [draftwright.io/specify](https://draftwright.io/specify) and [draftwright.io/diff](https://draftwright.io/diff) | |
+| **Command line** | a [release](https://github.com/pzfreo/specify-core/releases) binary, or `cargo build --release` | [below](#command-line) |
+| **Python** | `pip install specify-core` (CPython 3.12+, no dependencies) | [below](#python), [package README](crates/specify-core-py/README.md) |
+| **Rust** | `specify-core = { git = "https://github.com/pzfreo/specify-core", tag = "v0.1.5" }` | [below](#rust), [docs/library.md](docs/library.md) |
+| **Browser** (WebAssembly) | `specify-core-wasm-<version>.tgz` on each release | [docs/wasm.md](docs/wasm.md) |
+| **Host process** (JSON lines) | `specify-core serve` | [below](#host-process) |
+| **GitHub pull requests** | `uses: pzfreo/specify-core/step-diff@main` | [step-diff/README.md](step-diff/README.md) |
 
-**0.1.5** (2026-10-31). 0.1.0 was the first release. Until 1.0, a minor release (0.2, 0.3) may change the
-command line, the JSON formats or answer IDs, and its CHANGELOG entry says how to upgrade; a
-patch release (0.1.1) doesn't. See [CHANGELOG.md](CHANGELOG.md). What each part does and how it's verified is in
-[docs/design.md](docs/design.md).
-
-## Install
-
-Each [release](https://github.com/pzfreo/specify-core-rust/releases) has the command line for
-Linux (x86_64), macOS (Apple Silicon) and Windows (x86_64), each with a SHA-256 checksum:
-
-```bash
-v=v0.1.5; t=aarch64-apple-darwin   # or x86_64-unknown-linux-gnu
-gh release download $v -R pzfreo/specify-core-rust -p "specify-core-$v-$t.tar.gz*"
-shasum -a 256 -c specify-core-$v-$t.tar.gz.sha256 && tar -xzf specify-core-$v-$t.tar.gz
-./specify-core-$v-$t/specify-core --help
-```
-
-On Windows, the `.zip` holds `specify-core.exe`. To build from source with Rust 1.99
-(`rust-toolchain.toml`):
-
-```bash
-cargo build --release          # target/release/specify-core
-```
+[draftwright.io/specify](https://draftwright.io/specify) and
+[draftwright.io/diff](https://draftwright.io/diff) run the WebAssembly build in the browser.
 
 ## Specify a part
 
+The flow is the same everywhere:
+
+1. **Analyse** the part.
+2. **Answer** the questions. Each answer is a question id and a value, for example
+   `{"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"}`. Accept the proposed
+   defaults for the rest, or answer every one.
+3. **Write** a verified STEP file.
+
+### Command line
+
 ```bash
-specify-core analyse part.step -o analysis.json               # its features and existing PMI
-specify-core questions analysis.json --answers a.json --open  # what is still unanswered
-specify-core write part.step analysis.json a.json -o out.step --accept-defaults
+specify-core analyse plate.step -o plate.analysis.json          # features, faces, existing PMI
+specify-core questions plate.analysis.json --open                # what is still unanswered
+echo '{"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"}' > answers.json
+specify-core write plate.step plate.analysis.json answers.json -o plate-pmi.step --accept-defaults
 ```
 
-- **Answers:** `a.json` maps each question id to its answer, for example
-  `{"part.material": "6082-T6", "hole.function:hole_patterns.grid:…": "fit:H7"}`.
-- **Writing:** `write` refuses until every question has an answer, or a default with
-  `--accept-defaults`. It then writes AP242 into the original document and checks it by reading
-  it back. It prints a JSON report (`output`, `written`, `not_written`, `warnings`).
-- **Resuming:** the answers are stored in the file too, so a later `analyse` resumes them.
-- **Exit codes:** 0 done; 1 for a write that didn't verify, or a file that can't be read; 2 for
-  a refusal (unanswered questions, an invalid answer, bad arguments).
+`write` refuses until every question has an answer, or `--accept-defaults` supplies the rest.
+It prints a JSON report with `output`, `written`, `not_written` and `warnings`.
 
-`specify-core mesh part.step -o part.mesh.json` writes the part's triangles by face, for a
-picker that selects faces.
+Exit codes:
+- **0:** done.
+- **1:** a write that didn't verify, or a file that can't be read.
+- **2:** a refusal, such as an unanswered question, an invalid answer or bad arguments.
+
+`specify-core mesh plate.step -o plate.mesh.json` writes the part's triangles grouped by face,
+for a face picker.
+
+### Python
+
+```python
+from specify_core import api
+
+analysis = api.analyse("plate.step")
+
+for q in api.questions(analysis, {}):                 # what is still unknown
+    print(q.id, "|", q.prompt, "| default:", q.default)
+
+answers = {"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"}
+intent = api.apply(analysis, answers, accept_defaults=True)
+report = api.write("plate.step", intent, "plate-pmi.step", answers=answers)
+
+print(report.written)       # ['datum A', 'Ø8 H7 on holes:9', 'position 0.05 on holes:9', ...]
+print(report.not_written)   # anything not written, with the reason
+```
+
+The other functions are listed in the [package README](crates/specify-core-py/README.md):
+- `parts` and `load`, for assemblies and reading a file once;
+- `preview`;
+- `write_parts`;
+- `mesh`;
+- `diff`;
+- `pmi_scene`.
+
+### Rust
+
+```rust
+use std::path::Path;
+
+use serde_json::{Map, Value, json};
+use specify_core::{api, part, writer};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let loaded = part::load(Path::new("plate.step"), None)?;
+    let analysis = api::analyse(&loaded)?;
+
+    let answers: Map<String, Value> = serde_json::from_value(json!({
+        "part.material": "6082-T6",
+        "hole.function:holes:9": "fit:H7",
+    }))?;
+    for q in api::questions(&analysis, &answers)? {
+        println!("{}", q.id);
+    }
+
+    let intent = api::apply(&analysis, &answers, true)?;
+    let report = writer::write(&loaded, &intent, Path::new("plate-pmi.step"), Some(&answers))?;
+    println!("{:?}", report.written);
+    Ok(())
+}
+```
+
+`writer::write_bytes` returns the verified STEP in memory instead. In-memory loading, extras
+and characteristic numbers are covered in [docs/library.md](docs/library.md).
+
+### Opening the file again
+
+The answers are stored in the written file, so analysing it again resumes them. In Python,
+`api.analyse("plate-pmi.step")["resume"]["answers"]` returns them. Parts made by code-first CAD
+tools that name their faces (cadgen today) keep their answers on the same faces across rebuilds;
+see [docs/face-names.md](docs/face-names.md).
 
 ### Assemblies
 
-An assembly is specified a part at a time. `parts` lists its distinct parts (a part placed twice is
-one part with two placements). `analyse` and `mesh` take `--part N`. `write` takes an analysis and
-answers for each part and writes them all at once, each part's PMI on its own product definition:
+An assembly is specified a part at a time. `parts` lists its distinct parts; a part placed
+twice is one part with two placements. `analyse` and `mesh` take a part index. `write` takes an
+analysis and answers for each part and writes them all at once, each part's PMI on its own
+product definition:
 
 ```bash
 specify-core parts asm.step
@@ -85,74 +152,123 @@ specify-core analyse asm.step --part 1 -o pin.json
 specify-core write asm.step plate.json plate-a.json pin.json pin-a.json -o out.step --accept-defaults
 ```
 
-Writing a part again replaces its PMI and answers. A part written alone
-(`write asm.step pin.json pin-a.json -o out.step`) leaves the other parts as they were.
+Writing a part again replaces its PMI and answers. A part written alone leaves the other parts
+as they were.
 
 ## Review a revision
+
+Given two versions of a part, Specify says what changed in words a person can check against
+the model, draws the change, and carries the answers to the new revision.
 
 ```bash
 specify-core diff old.step new.step --answers old.answers.json -o changes
 ```
 
 `changes/` gets:
+- `report.md`: the review, written to post as a pull request comment;
+- `model.png`: the new part, with changed faces orange, new faces green, and gone or moved faces
+  in translucent red;
+- `answers.json`: the carried answers, to commit;
+- `report.json`: all of the above as data.
 
-- `report.md`, the review, written to be posted as a pull request comment;
-- `model.png`, the new part with changed faces orange, new faces green, and the old part's gone
-  or moved faces in translucent red;
-- `answers.json`, the answers carried to the new revision, to commit;
-- `report.json`, all of the above as data.
+PMI changes are listed by characteristic number (for example `#7 ⌀6.6 H7 → ⌀6.6 H8`). Without
+`--answers`, the answers stored in the old file are carried.
 
-Without `--answers`, the answers Specify stored in the old file are carried.
+In Python, `api.diff("old.step", "new.step")` returns the same `{report, markdown}`. To compare
+two revisions without installing anything, use [draftwright.io/diff](https://draftwright.io/diff).
 [docs/diff.md](docs/diff.md) explains how the two parts are matched and what carries.
 
-To have the review posted on every pull request, add the [STEP diff action](step-diff/README.md):
+To post the review on every pull request that changes a STEP file, add the
+[STEP diff action](step-diff/README.md):
 
 ```yaml
-      - uses: pzfreo/specify-core-rust/step-diff@main
+      - uses: pzfreo/specify-core/step-diff@main
 ```
 
 [pzfreo/step-diff-demo](https://github.com/pzfreo/step-diff-demo) is a working example.
 
-## In the browser and in other programs
+## Install the command line
 
-- **WebAssembly:** each release attaches `specify-core-wasm-<version>.tgz`, an ES module with
-  TypeScript types, and its checksum. `IntentEngine` opens STEP bytes, returns the analysis,
-  questions and review as JSON, and writes verified PMI. The free `diff` function compares two
-  revisions in the browser. The API, install and checks are in
-  [docs/wasm.md](docs/wasm.md).
-- **Service:** `specify-core serve` answers JSON-line requests on stdin, one reply per line on
-  stdout, for a host process. Its ops are `parts`, `analyse`, `questions`, `preview`, `interpret`
-  and `write`; the protocol is in `src/serve.rs`.
+Each [release](https://github.com/pzfreo/specify-core/releases) has the command line for Linux
+(x86_64), macOS (Apple silicon) and Windows (x86_64), each with a SHA-256 checksum:
 
-  ```bash
-  echo '{"id": 1, "op": "analyse", "step": "part.step"}' | specify-core serve
-  ```
+```bash
+v=v0.1.5; t=aarch64-apple-darwin   # or x86_64-unknown-linux-gnu
+gh release download $v -R pzfreo/specify-core -p "specify-core-$v-$t.tar.gz*"
+shasum -a 256 -c specify-core-$v-$t.tar.gz.sha256 && tar -xzf specify-core-$v-$t.tar.gz
+./specify-core-$v-$t/specify-core --help
+```
 
-- **Rust library:** [docs/library.md](docs/library.md).
+On Windows, the `.zip` holds `specify-core.exe`. To build from source with the toolchain in
+`rust-toolchain.toml`, run `cargo build --release`, which produces `target/release/specify-core`.
+
+## Host process
+
+`specify-core serve` answers JSON requests, one per line on stdin, with one reply per line on
+stdout. Each request carries everything it needs, so a restarted process loses nothing.
+
+```bash
+echo '{"id": 1, "op": "analyse", "step": "part.step"}' | specify-core serve
+```
+
+- **Ops:** `parts`, `analyse`, `questions`, `preview`, `interpret` and `write`.
+- **Replies:** each reply is `{"id", "ok": true, "result"}` or `{"id", "ok": false, "error": {"code", "message"}}`.
+- **Protocol:** defined in `src/serve.rs`.
+
+## What it writes
+
+AP242 semantic PMI:
+- datums and datum systems;
+- size dimensions with ± and fit tolerances, and location dimensions;
+- position, flatness, perpendicularity, parallelism, profile and runout tolerances;
+- threads and knurls;
+- surface texture;
+- material;
+- notes and the general tolerance;
+- characteristic numbers for inspection.
+
+Every file is read back and checked before it is kept.
+
+## Status
+
+**0.1.5** (2026-10-31). Until 1.0:
+- a minor release (0.2, 0.3) may change the command line, the JSON formats or answer ids, and its
+  [CHANGELOG](CHANGELOG.md) entry says how to upgrade;
+- a patch release doesn't.
+
+The design and how each part is verified are in [docs/design.md](docs/design.md).
+
+Specify began as a port of the Python implementation, now archived as
+[specify-core-python](https://github.com/pzfreo/specify-core-python). It still reads the files
+that implementation wrote. The `specify-core` Python package is now this engine; see
+[docs/python.md](docs/python.md).
 
 ## More
 
 | | |
 | --- | --- |
 | [docs/diff.md](docs/diff.md) | how revisions are compared and answers carried |
-| [step-diff/README.md](step-diff/README.md) | the pull request action |
+| [docs/face-names.md](docs/face-names.md) | answers on named faces (code-first CAD) |
+| [docs/characteristic-numbers.md](docs/characteristic-numbers.md) | characteristic numbers |
 | [docs/wasm.md](docs/wasm.md) | the WebAssembly module |
 | [docs/library.md](docs/library.md) | the Rust API |
+| [crates/specify-core-py/README.md](crates/specify-core-py/README.md) | the Python package |
+| [step-diff/README.md](step-diff/README.md) | the pull request action |
 | [docs/part-notes.md](docs/part-notes.md) | part notes in the STEP file |
+| [docs/python.md](docs/python.md) | building the Python package; compatibility with the Python implementation |
 | [docs/design.md](docs/design.md) | design and status |
-| [docs/python.md](docs/python.md) | the Python package, and the Python specify-core: compatibility and differences |
 | [docs/questions.md](docs/questions.md) | decisions taken and open |
 
 ## Tests
 
 ```bash
 cargo test --release
-SPECIFY_CORPUS=/path/to/quiddity/tests/corpus cargo test --workspace --release   # with the corpus
+SPECIFY_CORPUS=/path/to/quiddity-corpus/tests/corpus cargo test --workspace --release   # with the corpus
 ```
 
-CI runs the whole workspace against the pinned corpus with `QUIDDITY_CORPUS_REQUIRED=1`, which
-fails when the corpus or a captured input is missing. Set it locally to require the same.
-Comparisons with the Python implementation are described in [docs/python.md](docs/python.md#tests).
+CI runs the whole workspace against the pinned [quiddity-corpus](https://github.com/pzfreo/quiddity-corpus)
+with `QUIDDITY_CORPUS_REQUIRED=1`, which fails when the corpus or a captured input is missing.
+Set it locally to require the same.
 
 ## Licence
 

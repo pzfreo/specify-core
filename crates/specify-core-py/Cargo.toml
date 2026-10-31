@@ -4,7 +4,7 @@ version = "0.1.5"
 edition = "2024"
 license = "Apache-2.0"
 description = "Python bindings for specify-core: the Python package's API on the Rust engine"
-repository = "https://github.com/pzfreo/specify-core-rust"
+repository = "https://github.com/pzfreo/specify-core"
 readme = "README.md"
 publish = false
 

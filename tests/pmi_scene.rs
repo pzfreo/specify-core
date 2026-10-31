@@ -258,8 +258,10 @@ fn foreign_nist_ctc01_is_view_only_and_keeps_as_drawn_graphics() {
 fn python_schemas_match_the_pinned_kernel() {
     // Resolve the actual locked dependency without enabling json-import just to
     // access its schema constants. Production and test builds stay serialise-only.
+    // Not --offline: metadata resolves every target's dependencies (the WASM crate's
+    // too), which a native test build never downloads, so offline depended on the cache.
     let output = std::process::Command::new("cargo")
-        .args(["metadata", "--locked", "--offline", "--format-version", "1"])
+        .args(["metadata", "--locked", "--format-version", "1"])
         .output()
         .unwrap();
     assert!(

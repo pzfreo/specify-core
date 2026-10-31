@@ -101,7 +101,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=ROOT / "Cargo.toml")
     parser.add_argument("--release", help="on mismatch append a Kernel note to this Specify release with gh release edit")
-    parser.add_argument("--repository", default=os.environ.get("GH_REPO", "pzfreo/specify-core-rust"))
+    parser.add_argument("--repository", default=os.environ.get("GH_REPO", "pzfreo/specify-core"))
     args = parser.parse_args()
     try:
         local = pins(tomllib.loads(args.manifest.read_text()))
