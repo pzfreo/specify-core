@@ -1337,11 +1337,12 @@ fn part_pmi_observed(
         .iter()
         .chain(&intent.general)
         .any(|r| r.contains_key("planner"))
-        && intent
-            .requirements
-            .iter()
-            .chain(&intent.datums)
-            .any(|r| r.contains_key("question"))
+        && (!intent.general.is_empty()
+            || intent
+                .requirements
+                .iter()
+                .chain(&intent.datums)
+                .any(|r| r.contains_key("question")))
     {
         upgraded = intent.clone();
         if mode == Mode::Add {

@@ -316,3 +316,31 @@ fn stored_pattern_origin_is_a_specified_authority_not_a_second_origin() {
         "stored origin is already present exactly once"
     );
 }
+
+#[test]
+fn an_old_general_only_analysis_is_upgraded_at_the_writer_boundary() {
+    let p = plate();
+    let a = api::analyse(&p).unwrap();
+    let given = json!({"part.general_tolerance":"ISO 2768-m"});
+    let current = api::preview(&a, given.as_object().unwrap()).unwrap();
+    let expected = required(&current).len();
+    assert!(expected > 0);
+    let mut old = a.clone();
+    old.as_object_mut().unwrap().shift_remove("dimensioning");
+    let i = api::preview(&old, given.as_object().unwrap()).unwrap();
+    assert!(i.requirements.is_empty());
+    assert!(i.datums.is_empty());
+    assert!(required(&i).is_empty());
+    let (bytes, _) = writer::write_bytes(&p, &i, None).unwrap();
+    let written = part::load_bytes("old-general.step", bytes).unwrap();
+    let read = model(&written);
+    assert_eq!(read.parts[0].dimensions.len(), expected);
+    assert_eq!(
+        read.parts[0]
+            .attributes
+            .iter()
+            .filter(|a| a.name == "specify dimension plan")
+            .count(),
+        expected
+    );
+}
