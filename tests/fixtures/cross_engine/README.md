@@ -45,3 +45,9 @@ are composite, locations own their aspects, and datum sizes use separate entitie
 The files include #65 characteristic ids and history and are checked byte for byte again.
 Python readbacks are recaptured with the documented `cc341dd` + ISO/fingerprint reference;
 the Python-written oracle inputs and their evidence remain independent and unchanged.
+
+The pre-numbering Python reader still returns identical readbacks. The newly numbered
+fixtures expose 97 number-field differences across 10 parts after existing semantic
+ledger entries are applied; `known_differences/cross_engine.json` records this measured
+reader limitation. Numbers are compared with their actual standard roots in the native
+characteristic tests, rather than removed from this comparison.

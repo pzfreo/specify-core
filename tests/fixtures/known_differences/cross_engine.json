@@ -54,5 +54,12 @@
     "pattern": "Specify's own dimensions under the general tolerance (nominal only, #63) are not read back as existing PMI",
     "verdict": "rust-correct",
     "evidence": "Issue #63 (https://github.com/pzfreo/specify-core-rust/issues/63): the writer writes the dimensions the general tolerance covers (general.rs: plain sizes, plane levels and hole locations) with their nominal alone, so the STEP states every dimension a drawing would. existing.rs skips a dimension that is both Specify-marked (specify-core:written:v1) and nominal only: it states nothing the geometry does not, and read back without its answers it must not settle a question (tests/writer.rs pmi_is_added_to_a_part_that_has_some). Python reads every dimension, so each such dimension is in Python's existing list and not in Rust's. Every difference here is a Size_Diameter or Location_LinearDistance with no upper or lower; the toleranced and basic dimensions agree."
-  }
+  },
+{
+  "case": "*",
+  "path": "python_readback.existing[key=*].number",
+  "pattern": "The independent Python reader does not expose characteristic ID_ATTRIBUTE values",
+  "verdict": "rust-correct",
+  "evidence": "quiddity-rust#137 (v0.2.6) requires recapturing the writer fixtures for presentation and the new aspect shapes; the current writer also includes #65's numeric ID_ATTRIBUTE records and number history. The documented cc341dd + ISO/fingerprint Python reference does not read requirement identifiers. Its recaptured readback is unchanged, while Rust reads the numbers on the actual semantic roots (#135 exposes the same ids). Measured: 97 newly visible number-field differences on 10 parts after the existing semantic difference entries are applied: NIST CTC-03 (1), a_hole_along_x (2), assembly parts 0/1 (19/3), four_corner_holes (12), identical_holes (8), pin (3), plate (19), stack parts 0/1 (15/15). tests/characteristic_numbers.rs verifies the standard slots, uniqueness, history, face supports and rewrite stability, including separate datum/size and composite/location aspects, and the frozen category-order input. This entry covers only the Python API's absent number field; no semantic values or face targets are projected out. Analysis/read hashes of unchanged inputs remain unchanged."
+}
 ]
