@@ -51,3 +51,9 @@ fixtures expose 97 number-field differences across 10 parts after existing seman
 ledger entries are applied; `known_differences/cross_engine.json` records this measured
 reader limitation. Numbers are compared with their actual standard roots in the native
 characteristic tests, rather than removed from this comparison.
+
+After merging #77 (PR #78), recaptured the v0.2.6 writer fixtures again: each newly
+written size/location now owns its `specify pmi origin` UDA, with origin and optional
+stable source. Twelve STEP outputs changed; CTC-01 and CTC-05 remain byte-identical.
+The independent Python reader predates these UDAs; readback departures are recorded
+in the cross-engine ledger without removing any fields from the comparison.

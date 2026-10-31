@@ -256,6 +256,7 @@ fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() 
     // quiddity-rust#134: only shaft analysis was recaptured (boss 36.1 → 37.6,
     // retained plate and its six-decimal published centre). Analysis and read hashes stay
     // unchanged for quiddity-rust#137; settings-only writes gain its General notes callout.
+    // #77 leaves these settings-only hashes unchanged: no size/location UDA is written.
     // Float serialization varies by platform; portable absence checks run separately above.
     if !cfg!(target_os = "macos") {
         return;

@@ -93,7 +93,8 @@ fn notes_round_trip_as_semantic_text_and_answers_with_a_byte_stable_rewrite() {
         "",
         "None",
         "   ",
-        "(blank)"
+        "(blank)",
+        "  \nVisible note\n  "
     ]);
     let answers = given(notes.clone());
     let intent = api::apply(&analysis, &answers, true).unwrap();

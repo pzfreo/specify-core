@@ -2,10 +2,11 @@
 //! can move a part between engines.
 //!
 //! - (a) `rust_written_files_match_the_current_presentation_writer`: the committed files
-//!   are exactly what `examples/write_fixtures.rs` produces, including #65 ids/history and
+//!   are exactly what `examples/write_fixtures.rs` produces, including #65 ids/history,
+//!   #77 dimension origin/source UDAs and
 //!   quiddity-rust#137 presentation and aspect shapes. Deliberate changes require regenerating
 //!   them and independently recapturing Python's read-back (the example documents how).
-//!   The Python reference predates inspection numbers; their absence is an explicit ledger
+//!   The Python reference predates inspection numbers and origin/source UDAs; their absence is an explicit ledger
 //!   difference, while the native characteristic tests check their exact standard slots.
 //!   Stored-answer schema 2 writes zeros unsigned, keeping these bytes portable.
 //! - (b) Python's read-back of each Rust-written file (`python_readback.json.gz`, captured by
@@ -87,7 +88,8 @@ fn rust_written_files_match_the_current_presentation_writer() {
         match (write_fixtures::write(case, &output), step.is_file()) {
             (Ok(bytes), true) if gunzip(&step) == bytes => {}
             // quiddity-rust#137 adds presentation and changes semantic aspect structure.
-            // The recaptured fixtures include #65 numbering too: require exact bytes again.
+            // The recaptured fixtures include #65 numbering and #77 origin/source UDAs:
+            // require exact bytes again.
             (Ok(_), true) => stale.push(format!("{}: writer bytes changed", case.name)),
             (Ok(_), false) => stale.push(format!("{}: written now, not committed", case.name)),
             (Err(why), false)

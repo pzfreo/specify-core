@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
 | [cli](#cli) | 143 | 0 | 52 | 0 | 2 | 1 | 198 |
-| [cross_engine](#cross_engine) | 6 | 1 | 0 | 1 | 1 | 0 | 9 |
+| [cross_engine](#cross_engine) | 8 | 1 | 0 | 1 | 1 | 0 | 11 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 0 | 33 |
 | [features](#features) | 3413 | 1415 | 514 | 2483 | 1066 | 1686 | 10577 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
@@ -21,7 +21,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 89 | 0 | 615 | 0 | 0 | 0 | 704 |
 | [writer](#writer) | 16 | 0 | 0 | 0 | 15 | 0 | 31 |
-| **all** | 3703 | 1433 | 1192 | 2489 | 1101 | 1687 | 11605 |
+| **all** | 3705 | 1433 | 1192 | 2489 | 1101 | 1687 | 11607 |
 
 ## anchors
 
@@ -161,7 +161,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cross_engine
 
-### cross_engine: rust-correct (6 entries)
+### cross_engine: rust-correct (8 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `python_readback.existing[key=*].provenance`)
 
@@ -186,6 +186,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **The independent Python reader does not expose characteristic ID_ATTRIBUTE values** (`*` at `python_readback.existing[key=*].number`)
 
   quiddity-rust#137 (v0.2.6) requires recapturing the writer fixtures for presentation and the new aspect shapes; the current writer also includes #65's numeric ID_ATTRIBUTE records and number history. The documented cc341dd + ISO/fingerprint Python reference does not read requirement identifiers. Its recaptured readback is unchanged, while Rust reads the numbers on the actual semantic roots (#135 exposes the same ids). Measured: 97 newly visible number-field differences on 10 parts after the existing semantic difference entries are applied: NIST CTC-03 (1), a_hole_along_x (2), assembly parts 0/1 (19/3), four_corner_holes (12), identical_holes (8), pin (3), plate (19), stack parts 0/1 (15/15). tests/characteristic_numbers.rs verifies the standard slots, uniqueness, history, face supports and rewrite stability, including separate datum/size and composite/location aspects, and the frozen category-order input. This entry covers only the Python API's absent number field; no semantic values or face targets are projected out. Analysis/read hashes of unchanged inputs remain unchanged.
+
+- **The independent Python reader predates Specify's dimension origin/source UDAs** (2 entries, 1 case glob)
+
+  The evidence is stated per entry (2 distinct; all in `cross_engine.json`). The first, for `*` at `python_readback.existing[key=dimension|*].origin`: Specify #77 (PR #78) adds a specify pmi origin UDA to each newly written size/location. Recapturing the quiddity-rust#137 v0.2.6 writer fixtures changes 12 STEP outputs and their SHA metadata, while the documented cc341dd + ISO/fingerprint Python reader returns exactly the same readbacks: it does not expose this UDA. Measured after existing semantic entries: 69 absent origin fields on eight parts: NIST CTC-03 (1), assembly part 0 (15), four_corner_holes (9), identical_holes (5), plate (15), stack parts 0/1/2 (11/12/1). Rust reads requirement origin on these dimensions. tests/pmi_origin.rs additionally checks every newly written dimension including general-tolerance dimensions, the actual DIMENSIONAL_SIZE/DIMENSIONAL_LOCATION UDA owner under split datum/size and composite/location aspects, exact readback, no-op bytes and changed-value rewrites. Frozen v0.2.4 inputs and legacy analysis/read hashes remain unchanged. Only this absent API field is covered; no dimensional value or support is projected out.
 
 ### cross_engine: rust-wrong (1 entry)
 
