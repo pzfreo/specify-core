@@ -15,6 +15,16 @@ All notable changes to specify-core-rust. The format follows
 - Its PyPI page (0.1.4.post1, packaging only): a README for users, with examples checked
   against the published package, plus project links, keywords and classifiers.
 
+### Changed
+
+- Upgrade quiddity and haecceity to **v0.2.6** (`b9addd9`, quiddity-rust#137/#135),
+  including native, WASM and Python. Written STEP now carries dimension and tolerance
+  callouts, ISO 1302 face surface symbols and a `General notes` block for part settings.
+  Multi-face aspects are composite, locations reference their own aspects, and a datum
+  feature that also has a size uses separate datum-feature and dimensional-size entities.
+  Presentation stays enabled; optional F3D import stays off. Recognition schema 6 and
+  fingerprint format 3 are unchanged.
+
 ## 0.1.4 (2026-10-30)
 
 ### Added
