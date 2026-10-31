@@ -879,10 +879,15 @@ fn a_nist_part_keeps_all_its_pmi() {
     let text = std::fs::read_to_string(&out).unwrap();
     assert!(!text.contains("DRAUGHTING_CALLOUT('Datum "));
     assert!(stored(text.as_bytes()).is_empty());
-    // Every original byte is kept, and the schema with it (an AP242 file stays AP242).
+    // #75 adds dimension-owned origin/planner UDAs. As for #77, AP242 ed1 excludes
+    // those owners, so the existing writer policy upgrades only FILE_SCHEMA to ed4.
+    // Require that exact header change and every other original byte to survive.
     let original = std::fs::read_to_string(&input).unwrap();
-    let end = original.rfind("ENDSEC;").unwrap();
-    assert!(text.starts_with(&original[..end]) && text.ends_with(&original[end..]));
+    let schema = "AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 }";
+    assert_eq!(original.matches(schema).count(), 1);
+    let expected = original.replacen(schema, haecceity::express::TARGET_SCHEMA, 1);
+    let end = expected.rfind("ENDSEC;").unwrap();
+    assert!(text.starts_with(&expected[..end]) && text.ends_with(&expected[end..]));
 }
 
 // --- test_threads.py, test_mmc_finish_notes.py (write side) ------------------------------------

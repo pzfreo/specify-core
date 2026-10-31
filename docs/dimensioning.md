@@ -34,6 +34,8 @@ context's length unit using the same step-io reader as the kernel (including inc
 Persistent planner metadata canonicalizes frame noise to nine decimal places;
 generated PMI measurements retain Specify's six decimal places in millimetres.
 References use the standard `DimensionModifier::Reference` (auxiliary dimension).
+Dimension-owned metadata inherits #77's AP242 ed1-to-ed4 header upgrade when needed;
+all original entity records remain byte-identical.
 Scene IDs and characteristic matching retain the planner's face-derived role IDs,
 so different quantities on one support remain distinct. Old numbers are matched
 before new numbers are allocated, including reversed undirected linear spans.
@@ -46,6 +48,9 @@ Every empty-`by` conveyance is a later-slice ownership claim; it is not evidence
 that the legacy dimension was conveyed by another dimension. Add-mode writing
 retains foreign PMI once and adds the planner's missing slice-one quantities.
 Later-slice General rows keep their existing Add-mode omission.
+Hole-location contracts whose supports cannot be represented by slice one's principal-plane
+grammar retain their existing writer path (the frozen cgb202 locations); faceless rows
+remain Q17 diagnostics.
 
 The default plate's all-General planner has 11 quantities. Specify writes 13 when
 position frames are accepted: the General centre-hole offsets 50 and 30 cannot
