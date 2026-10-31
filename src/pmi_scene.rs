@@ -515,6 +515,12 @@ fn requirement_id(req: &Map<String, Value>) -> String {
             ":{}",
             req.get("reference").unwrap_or(&Value::Null)
         ));
+        // A member hole and its pattern can both state this measurement. The
+        // question identifies which requirement it is, independently of value.
+        if !question.is_empty() {
+            id.push(':');
+            id.push_str(question);
+        }
     }
     id
 }

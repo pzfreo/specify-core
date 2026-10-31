@@ -428,7 +428,9 @@ item. Render text as DOM text. Face anchors are `{face: meshIndex}`, including n
 faces and assembly parts; indices address `snapshot().mesh.faces` and the analysis face list.
 
 Specify ids come from the requirement, such as `size:holes:9`, `datum:A`, or an extra's
-question, with reference supports distinguishing location axes. Changing a value leaves
+question, with reference supports distinguishing location axes and the question
+distinguishing a member's measurement from its pattern's. General locations without a
+feature id use their face supports. Changing a value leaves
 the id intact. Foreign items retain haecceity's `ID_ATTRIBUTE` or content-derived id.
 The same ids key semantic references, presentation and the requirement overlay `specify`.
 Supporting features, geometry and units remain in the haecceity documents but are omitted

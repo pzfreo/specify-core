@@ -604,13 +604,17 @@ pub(crate) fn allocate(
 /// Numbers allocated by the same history/inspection walk as the STEP writer.
 pub(crate) fn planned_numbers(p: &PartPmi) -> Result<Vec<Option<u64>>, String> {
     let h = history(p)?.unwrap_or_default();
+    let mut used = BTreeSet::new();
     Ok(items(p, None, None)
         .iter()
         .map(|item| {
             h.entries
                 .iter()
-                .find(|entry| entry.key == item.key)
-                .map(|entry| entry.number)
+                .find(|entry| entry.key == item.key && !used.contains(&entry.number))
+                .map(|entry| {
+                    used.insert(entry.number);
+                    entry.number
+                })
         })
         .collect())
 }

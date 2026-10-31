@@ -39,6 +39,8 @@ All notable changes to specify-core-rust. The format follows
   Foreign numeric ids become characteristic numbers only with Specify history.
   Python scene answers use the same input validation as WASM.
   General locations without a feature id use their face supports for stable identity.
+  Locations shared by a datum member and its pattern keep their question identity;
+  repeated measurements retain distinct characteristic numbers through STEP readback.
 
 - Scene metadata/history ids follow the requirement owner and property name across
   answer changes. Foreign datum identities and file callouts are reused during a live

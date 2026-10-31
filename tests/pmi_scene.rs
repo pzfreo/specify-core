@@ -821,3 +821,81 @@ fn feature_owned_manufacturing_attributes_inherit_the_thread_or_knurl_question()
         }
     }
 }
+
+#[test]
+fn a_pattern_and_its_datum_member_keep_distinct_location_ids_and_numbers() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let pattern = analysis["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["family"] == "hole_patterns")
+        .unwrap();
+    let supplied = json!({
+        "datum.A":[pattern["faces"][0]], "part.locating":"position tolerances",
+        format!("hole.function:{}", pattern["id"].as_str().unwrap()):"fit:H7"
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+    let answers = specify_core::rules::with_all_defaults(&analysis, &supplied).unwrap();
+    let cache = Scene::new(&loaded).unwrap();
+    let live = cache
+        .scene(&loaded, Some(&analysis), Some(&answers))
+        .unwrap();
+    validate(&live);
+    let mut altered = answers.clone();
+    altered.insert(
+        format!("hole.function:{}", pattern["id"].as_str().unwrap()),
+        json!("fit:H8"),
+    );
+    let changed = cache
+        .scene(&loaded, Some(&analysis), Some(&altered))
+        .unwrap();
+    let ids = |s: &Value| {
+        s["pmi"]["pmi"]["dimensions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["id"].clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&live), ids(&changed));
+    let bytes = writer::write_bytes(
+        &loaded,
+        &api::preview(&analysis, &answers).unwrap(),
+        Some(&answers),
+    )
+    .unwrap()
+    .0;
+    let written = part::load_bytes("pattern.step", bytes.clone()).unwrap();
+    let characteristics = specify_core::characteristics::read(&written).unwrap();
+    let file = pmi_scene::pmi_scene(&bytes, None).unwrap();
+    validate(&file);
+    assert_eq!(ids(&live), ids(&file));
+    for scene in [&live, &file] {
+        let numbers: Vec<_> = scene["pmi"]["pmi"]["dimensions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                scene["specify"][row["id"].as_str().unwrap()]["number"]
+                    .as_u64()
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(
+            numbers.len(),
+            numbers.iter().copied().collect::<BTreeSet<_>>().len()
+        );
+        assert_eq!(
+            numbers.iter().copied().collect::<BTreeSet<_>>(),
+            characteristics
+                .iter()
+                .filter(|c| c.kind == "dimension")
+                .map(|c| c.number)
+                .collect()
+        );
+    }
+}
