@@ -20,7 +20,10 @@ All notable changes to specify-core-rust. The format follows
   previous high-water mark. Deferred feature owners retain their existing path.
   Locations require real face supports; thread drills and duplicate legacy spans
   are stated once. Answered fits and Basic locations retain their contracts.
-  Determined enlargement depths are reference dimensions.
+  Determined enlargement depths are reference dimensions. Unknown-bottom depths
+  and bounded shoulder stations that lack unambiguous semantic supports are
+  reported instead of adding inspection constraints; physical-plane witnesses
+  keep their legacy path.
 
 - For #87 fix round 1: only unique names in the authored `f:` namespace become
   face identities. Shared names and generic/class labels (including singletons)

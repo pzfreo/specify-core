@@ -386,6 +386,7 @@ fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
         std::fs::create_dir_all(dir).unwrap();
     }
     let mut counts = Vec::new();
+    let errors = std::cell::RefCell::new(Vec::new());
     for path in paths {
         eprintln!("dimension corpus: {}", path.display());
         let file = part::File::read(&path).unwrap();
@@ -453,11 +454,13 @@ fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
                         break;
                     }
                 }
-                assert!(
-                    !reached.contains(&b),
-                    "closed chain: {} axis {axis} {a}->{b}",
-                    path.display()
-                );
+                if reached.contains(&b) {
+                    errors.borrow_mut().push(format!(
+                        "closed chain: {} axis {axis} {a}->{b}",
+                        path.display()
+                    ));
+                    return;
+                }
                 if add {
                     edges.push((body, axis, a, b));
                 }
@@ -467,11 +470,12 @@ fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
                     continue;
                 };
                 let (mut a, mut b) = (faces(pmi, *from), faces(pmi, *to));
-                assert!(
-                    !a.is_empty() && !b.is_empty(),
-                    "faceless location: {} {d:?}",
-                    path.display()
-                );
+                if a.is_empty() || b.is_empty() {
+                    errors
+                        .borrow_mut()
+                        .push(format!("faceless location: {} {d:?}", path.display()));
+                    continue;
+                }
                 // A one-face witness and its coplanar face group state the same support.
                 let canonical = |f: BTreeSet<usize>| {
                     input
@@ -485,11 +489,11 @@ fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
                 if a > b {
                     std::mem::swap(&mut a, &mut b);
                 }
-                assert!(
-                    pairs.insert((a.clone(), b.clone())),
-                    "duplicate pair: {} {a:?} {b:?}",
-                    path.display()
-                );
+                if !pairs.insert((a.clone(), b.clone())) {
+                    errors
+                        .borrow_mut()
+                        .push(format!("duplicate pair: {} {a:?} {b:?}", path.display()));
+                }
                 if d.modifiers.contains(&pmi::DimensionModifier::Reference) {
                     continue;
                 }
@@ -500,7 +504,13 @@ fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
                         .find(|p| f.iter().all(|id| p.support.faces.contains(id)))
                 };
                 if let (Some(a), Some(b)) = (plane(&a), plane(&b)) {
-                    assert_eq!(a.axis, b.axis);
+                    if a.axis != b.axis {
+                        errors.borrow_mut().push(format!(
+                            "nonparallel plane supports: {} {a:?} {b:?}",
+                            path.display()
+                        ));
+                        continue;
+                    }
                     edge(
                         a.support.body,
                         a.axis,
@@ -545,6 +555,8 @@ fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
         )
         .unwrap();
     }
+    let errors = errors.into_inner();
+    assert!(errors.is_empty(), "{}", errors.join("\n"));
 }
 
 #[test]
@@ -600,4 +612,37 @@ fn an_unknown_bottom_is_reported_without_inventing_a_blind_depth() {
     let back = part::load_bytes("unknown.step", bytes).unwrap();
     assert!(!model(&back).parts[0].dimensions.iter().any(|d|
         matches!(d.nominal.as_ref().map(|v| &v.quantity),Some(pmi::Quantity::Length(n)) if n.value.to_f64()==5.4)));
+}
+
+#[test]
+fn add_mode_references_never_depend_on_unwritten_legacy_baselines() {
+    let Some(corpus) = common::corpus_dir() else {
+        return;
+    };
+    let p = part::load(&corpus.join("cadgenbench/flanged_spool_132.step"), None).unwrap();
+    let mut foreign = rules::Intent::new(json!(p.binding));
+    foreign.requirements.push(
+        json!({"kind":"flatness","faces":[3],"tolerance":0.01})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+    let (bytes, _) = writer::write_bytes(&p, &foreign, None).unwrap();
+    let p = part::load_bytes("foreign.step", bytes).unwrap();
+    let given = json!({"part.material":"steel"});
+    let i =
+        rules::apply_with_defaults(&api::analyse(&p).unwrap(), given.as_object().unwrap(), true)
+            .unwrap();
+    let (bytes, _) = writer::write_bytes(&p, &i, None).unwrap();
+    let back = part::load_bytes("added.step", bytes).unwrap();
+    let read = model(&back);
+    let depths: Vec<_> = read.parts[0].dimensions.iter().filter(|d|
+        matches!(d.kind,pmi::DimensionKind::Size {kind:pmi::SizeKind::CurveLength,..})
+        && matches!(d.nominal.as_ref().map(|v| &v.quantity),Some(pmi::Quantity::Length(n)) if n.value.to_f64()==10.)).collect();
+    assert_eq!(depths.len(), 1);
+    assert!(
+        !depths[0]
+            .modifiers
+            .contains(&pmi::DimensionModifier::Reference)
+    );
 }

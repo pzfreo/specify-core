@@ -21,7 +21,9 @@ carry a feature field (empty for planes), so general-only saved rule results als
 Invalid planner input is a write
 failure, not a silently selected alternative planner.
 
-Each returned `Required` has one row with `planner` lowering information. Sizes and
+Each independently written `Required` has one row with `planner` lowering information.
+Requirements already carried by threads do not need separate dimensions; quantities
+without physical supports or a reconciled contract are omitted or reported below. Sizes and
 locations lower through the shared `dimension_kind` helper with a real feature
 arena. Actual patterns use `PatternOfFeatures`, counted unpatterned groups use
 `MultipleElements`. Locations require nonempty face supports at both ends.
@@ -61,6 +63,12 @@ as unresolved instead of being treated as an established blind drilling depth;
 explicit stored depths remain authoritative. Answered bores whose legacy radius comparison left no
 faces are reconciled by exact stable recognition identity, preserving H11 and
 Basic contracts instead of generating General substitutes.
+
+Bounded shoulder point stations require point/edge-specific semantic aspects that
+Specify's writer does not yet encode. They are reported as unresolved; their
+legacy physical-plane witnesses (within the planner's 0.001 mm station rounding)
+keep the existing path. Writing two station values to the same face pair would
+be ambiguous, so no arbitrary station is chosen.
 
 Deferred legacy spans are dropped when the planner states the same physical
 plane interval in either direction. Hole floors are excluded from part lengths,

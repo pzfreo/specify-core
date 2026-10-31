@@ -1511,8 +1511,19 @@ fn part_pmi_observed(
             continue;
         }
         if let Some(planned) = req.get("planner") {
-            let planned: crate::dimensioning::Planned = serde_json::from_value(planned.clone())
+            let mut planned: crate::dimensioning::Planned = serde_json::from_value(planned.clone())
                 .map_err(|e| WriteError::Invalid(format!("planned dimension: {e}")))?;
+            // Add mode omits later-slice General rows. A reference must not rely
+            // on those unwritten baselines (stored dimension proofs remain valid).
+            if mode == Mode::Add
+                && planned
+                    .required
+                    .reference
+                    .as_ref()
+                    .is_some_and(|by| by.iter().any(|id| id.starts_with("legacy:")))
+            {
+                planned.required.reference = None;
+            }
             if matches!(&planned.required.kind,
                 quiddity::dimensioning::Kind::Location { from, to, .. }
                 if from.faces.is_empty() || to.faces.is_empty())

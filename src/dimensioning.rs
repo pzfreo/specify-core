@@ -1,4 +1,6 @@
-//! Boundary to quiddity's shared requirement planner (#75). No dimension selection lives here.
+//! Boundary to quiddity's shared requirement planner (#75). Shared rules select
+//! holes, patterns and plane levels; this adapter reconciles intent, existing
+//! thread carriers, physical PMI supports and retained later-slice dimensions.
 //!
 //! Analyses carry the typed recognition input so rules can plan without reopening geometry.
 //! Older snapshots are upgraded at the writer boundary using the loaded part. Legacy rows
@@ -50,6 +52,11 @@ fn deferred(input: &Input, r: &Map<String, Value>) -> bool {
         return true;
     }
     input.deferred.iter().any(|d| overlaps(&faces, &d.faces))
+        // Bounded shoulder stations need a point/edge-specific PMI aspect. Keep
+        // their old physical-plane witnesses until that lowering is supported.
+        || input.planes.iter().any(|p| overlaps(&faces,&p.support.faces)
+            && input.steps.shoulders.iter().any(|s| s.axis == p.axis && s.body == p.body
+                && (s.support.at[p.axis]-p.support.at[p.axis]).abs() <= 0.00051))
 }
 fn contract(r: &Map<String, Value>) -> Tolerance {
     if r.get("basic") == Some(&json!(true)) {
@@ -105,7 +112,8 @@ pub(crate) struct Planned {
     pub frame: quiddity::frames::PartFrame,
 }
 
-/// Replace slice-one rows by exactly the shared planner's output. Answered location *contracts*
+/// Lower the shared slice-one requirements, accounting for existing carriers and
+/// reporting quantities that cannot be reconciled. Answered location *contracts*
 /// apply to the pattern's own origin and pitch; old per-member basics are generated witnesses,
 /// not independently authored dimensions. Explicit face-picked dimensions remain authorities.
 pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String> {
@@ -481,6 +489,17 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
                     .and_then(Value::as_f64).is_some_and(|n| (n-r.nominal).abs()<1e-4)))))
     });
     let mut unresolved = Vec::new();
+    required.retain(|r| {
+        if matches!(&r.kind, Kind::Location { from,to,.. }
+            if from.feature.starts_with("shoulder:") || to.feature.starts_with("shoulder:"))
+        {
+            unresolved.push(json!({"kind":"location", "feature":r.covers.join(","),
+                "faces":[], "nominal":r.nominal,
+                "not_written_reason":format!("shared planner {}: bounded shoulder station needs point/edge-specific PMI; not written; legacy physical-plane path retained where available",r.id)})
+                .as_object().unwrap().clone());
+            false
+        } else { true }
+    });
     // An answered fit/location is never replaced by a General guess when the
     // principal-plane grammar cannot represent its support or complete group.
     required.retain(|r| {
@@ -579,10 +598,13 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
     // Check depth references against both the planner and retained legacy spans.
     // This is boundary validation, not another selection pass: all independent
     // hole/plane requirements still come from the shared planner.
+    let stored_dimensions = authorities
+        .values()
+        .any(|r| r.get("stored") == Some(&json!(true)));
     let baselines: Vec<_> = intent
         .general
         .iter()
-        .filter(|row| deferred(&input, row))
+        .filter(|row| !stored_dimensions && deferred(&input, row))
         .filter_map(|row| {
             let a = support(&input, &ids(row, "reference"), &[])?;
             let b = support(&input, &ids(row, "faces"), &[])?;
@@ -603,7 +625,7 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
         let Kind::Size { role, .. } = &r.kind else {
             continue;
         };
-        if !role.ends_with(".depth") {
+        if !role.ends_with(".depth") || authorities.contains_key(&r.id) {
             continue;
         }
         for h in input
