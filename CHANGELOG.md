@@ -25,6 +25,12 @@ All notable changes to specify-core-rust. The format follows
   Presentation stays enabled; optional F3D import stays off. Recognition schema 6 and
   fingerprint format 3 are unchanged.
 
+### Fixed
+
+- Preserve literal blank and whitespace-only general notes with v0.2.6 presentation:
+  the notes block renders these rows as `(blank)`, retaining their exact semantic text
+  and note indices, instead of emitting an invalid empty tessellated curve.
+
 ## 0.1.4 (2026-10-30)
 
 ### Added

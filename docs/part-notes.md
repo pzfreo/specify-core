@@ -65,3 +65,7 @@ byte-stable rewrite, edits and removal, foreign attribute sets without a resume 
 assembly ownership, invalid inputs and a live OpenCascade import when the Python venv is
 available. The complete Python/Rust rules departures are pinned in
 `tests/fixtures/rule_defaults_oracle.json.gz`; CLI envelopes have a separate exact snapshot.
+
+With quiddity-rust v0.2.6 (#137), written notes appear in the `General notes` callout.
+Blank and whitespace-only rows display `(blank)` to avoid an empty tessellated curve;
+their semantic strings, note indices and saved answers retain the exact original text.
