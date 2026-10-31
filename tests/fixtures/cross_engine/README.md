@@ -39,8 +39,9 @@ another working repository on the host. The capture records the reconstructed co
 The provenance-only readback departures have explicit `rust-correct` verdicts backed by #22;
 the original Python oracle is unchanged. See `docs/pmi-provenance.md` for reader matching.
 
-For #65 these files remain independent, pre-numbering specimens. The writer check permits
-only standard numeric ids and the part's number history to be added; after removing those
-records it compares every remaining entity and reference to this frozen graph. The Python
-readbacks therefore still refer to the original bytes. Number allocation and current-output
-readbacks are tested separately in `tests/characteristic_numbers.rs`.
+For quiddity-rust#137, regenerated with v0.2.6 (`b9addd9`): dimension/tolerance
+callouts, ISO 1302 surface symbols and General notes are now present, multi-face aspects
+are composite, locations own their aspects, and datum sizes use separate entities.
+The files include #65 characteristic ids and history and are checked byte for byte again.
+Python readbacks are recaptured with the documented `cc341dd` + ISO/fingerprint reference;
+the Python-written oracle inputs and their evidence remain independent and unchanged.

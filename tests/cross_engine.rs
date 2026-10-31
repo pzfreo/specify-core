@@ -77,7 +77,7 @@ fn rust_written(case: &str) -> Option<PathBuf> {
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn rust_written_files_only_gain_characteristic_numbers() {
+fn rust_written_files_match_the_current_presentation_writer() {
     let scratch = write_fixtures::scratch();
     let cases = write_fixtures::cases();
     assert!(!cases.is_empty(), "no synthetic or NIST oracle cases");
@@ -88,11 +88,9 @@ fn rust_written_files_only_gain_characteristic_numbers() {
         let (step, refused) = (dir.join("rust.step.gz"), dir.join("rust.refused.txt"));
         match (write_fixtures::write(case, &output), step.is_file()) {
             (Ok(bytes), true) if gunzip(&step) == bytes => {}
-            (Ok(bytes), true) => {
-                if let Err(why) = common::numbering::only_numbering_added(&gunzip(&step), &bytes) {
-                    stale.push(format!("{}: {why}", case.name));
-                }
-            }
+            // quiddity-rust#137 adds presentation and changes semantic aspect structure.
+            // The recaptured fixtures include #65 numbering too: require exact bytes again.
+            (Ok(_), true) => stale.push(format!("{}: writer bytes changed", case.name)),
             (Ok(_), false) => stale.push(format!("{}: written now, not committed", case.name)),
             (Err(why), false)
                 if std::fs::read_to_string(&refused).ok().as_deref()
