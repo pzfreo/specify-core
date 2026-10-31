@@ -422,15 +422,23 @@ optional `id`, `plane_id` and `text_placements` retain model-space text origins,
 heights/alignment when stated; document `planes` and `views` preserve annotation planes
 and saved-view membership. Datum-feature graphics also appear under their datum ids.
 These fields survive a live review that adds PMI beside a file's existing callouts.
-Pattern notation includes
-`6×` in the name and first cell. `presentation.unlinked` retains graphics with no semantic
+Pattern sizes, locations and tolerances include `6×` in the name and first cell;
+datum labels carry only their letter. `presentation.unlinked` retains graphics with no semantic
 item. Render text as DOM text. Face anchors are `{face: meshIndex}`, including named STEP
 faces and assembly parts; indices address `snapshot().mesh.faces` and the analysis face list.
 
 Specify ids come from the requirement, such as `size:holes:9`, `datum:A`, or an extra's
 question, with reference supports distinguishing location axes. Changing a value leaves
 the id intact. Foreign items retain haecceity's `ID_ATTRIBUTE` or content-derived id.
-The same ids key semantic references, presentation and `specify`. Stored #77 origin and
+The same ids key semantic references, presentation and the requirement overlay `specify`.
+Supporting features, geometry and units remain in the haecceity documents but are omitted
+from `specify`, as are saved-answer and number-history attributes. Their graphics may
+therefore have no overlay entry. Thread/knurl manufacturing attributes inherit the owning
+requirement's question and status. Part settings use the rules' question ids, including
+`part.coating`; unreviewed values marked by `auto` are `default`, and absent or empty
+settings produce no PMI, as in the writer. Foreign numeric `ID_ATTRIBUTE` values stay ids;
+`number` is exposed only when the item also matches Specify's characteristic-number history.
+Stored #77 origin and
 source are read from the file; `general_tolerance` maps to `general`, `requirement` to
 `answered` (or `default` when the review state marks it automatic), and foreign PMI to
 `existing`. Legacy files without metadata do not gain inferred origin/source.

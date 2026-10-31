@@ -203,11 +203,21 @@ fn pmi_scene(
         }
     };
     py.detach(|| {
+        let analysis = state
+            .as_ref()
+            .map(|s| &s.answers)
+            .or(answers.as_ref())
+            .map(|answers| {
+                let analysis = api::analyse(&handle.loaded).map_err(|e| e.to_string())?;
+                specify_core::input::answers(&analysis, answers).map_err(|e| e.to_string())?;
+                Ok::<_, String>(analysis)
+            })
+            .transpose()?;
         let scene = specify_core::pmi_scene::Scene::new(&handle.loaded)?;
         if let Some(state) = &state {
-            scene.scene_with_state(&handle.loaded, None, state)
+            scene.scene_with_state(&handle.loaded, analysis.as_ref(), state)
         } else {
-            scene.scene(&handle.loaded, None, answers.as_ref())
+            scene.scene(&handle.loaded, analysis.as_ref(), answers.as_ref())
         }
     })
     .map(|v| v.to_string())

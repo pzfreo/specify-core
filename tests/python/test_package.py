@@ -194,3 +194,17 @@ def test_foreign_pmi_scene_schema_and_as_drawn_metadata():
     graphics = [g for rows in presentation["items"].values() for g in rows]
     assert all(g["source"] == "file" for g in graphics)
     assert any(g.get("plane_id") for g in graphics)
+
+
+@pytest.mark.parametrize("answers", [
+    {"part.surface_finish": []},
+    {"diameter.fit:missing-feature": "fit:h6"},
+    {"datum.A": [999999]},
+])
+def test_pmi_scene_rejects_malformed_answers(plate, answers):
+    from specify_core import api
+
+    with pytest.raises(ValueError, match="Invalid answers"):
+        api.pmi_scene(plate, answers)
+    with pytest.raises(ValueError, match="Invalid answers"):
+        api.pmi_scene(plate, {"answers": answers, "auto": []})

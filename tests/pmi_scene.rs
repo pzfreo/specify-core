@@ -61,7 +61,18 @@ fn validate(scene: &Value) {
     let mut graphics = BTreeSet::new();
     for (id, rows) in scene["presentation"]["items"].as_object().unwrap() {
         assert!(ids.contains(id.as_str()));
-        assert!(scene["specify"].get(id).is_some(), "{id}");
+        // Datum-feature aliases and other supports can have graphics without an
+        // interview status. Only requirement rows belong in the overlay.
+        if scene["specify"].get(id).is_none() {
+            assert!(
+                ["features", "geometry"]
+                    .iter()
+                    .any(|key| scene["pmi"]["pmi"][key]
+                        .as_array()
+                        .is_some_and(|rows| rows.iter().any(|row| row["id"] == *id))),
+                "{id}"
+            );
+        }
         for graphic in rows.as_array().unwrap() {
             validate_graphic(graphic, &planes, &mut graphics);
         }
@@ -476,4 +487,337 @@ fn part_finish_keeps_its_characteristic_number_live_and_from_the_file() {
         file["specify"]["part.surface_finish"]["question"],
         "part.surface_finish"
     );
+}
+
+#[test]
+fn every_part_setting_uses_the_rules_question_before_and_after_review_and_write() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let answers = json!({
+        "part.coating":"Zinc plated", "part.heat_treatment":"Harden to 40 HRC",
+        "part.edges":"Break sharp edges 0.2 max", "part.surface_finish":"Ra 3.2",
+        "part.general_tolerance":"ISO 2768-m", "part.notes":["Keep dry"]
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+    let cache = Scene::new(&loaded).unwrap();
+    let state = specify_core::tolerancing::State {
+        answers: answers.clone(),
+        auto: Some(answers.keys().cloned().collect()),
+        gdt: None,
+    };
+    let unreviewed = cache
+        .scene_with_state(&loaded, Some(&analysis), &state)
+        .unwrap();
+    let answered = cache
+        .scene(&loaded, Some(&analysis), Some(&answers))
+        .unwrap();
+    let written = writer::write_bytes(
+        &loaded,
+        &api::preview(&analysis, &answers).unwrap(),
+        Some(&answers),
+    )
+    .unwrap()
+    .0;
+    let file = pmi_scene::pmi_scene(&written, None).unwrap();
+    let questions = api::questions(&analysis, &Map::new()).unwrap();
+    for (scene, status) in [
+        (&unreviewed, "default"),
+        (&answered, "answered"),
+        (&file, "answered"),
+    ] {
+        validate(scene);
+        for question in answers.keys() {
+            assert!(questions.iter().any(|q| &q.id == question));
+            let rows: Vec<_> = scene["specify"]
+                .as_object()
+                .unwrap()
+                .iter()
+                .filter(|(_, meta)| meta["question"] == *question)
+                .collect();
+            assert!(!rows.is_empty(), "{question}: {scene}");
+            for (id, meta) in rows {
+                assert!(id.starts_with(question), "{id}");
+                assert_eq!(meta["status"], status, "{question}");
+            }
+        }
+    }
+}
+
+#[test]
+fn supporting_rows_have_no_interview_status_live_or_from_the_file() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let answers = given();
+    let live = Scene::new(&loaded)
+        .unwrap()
+        .scene(&loaded, Some(&analysis), Some(&answers))
+        .unwrap();
+    let bytes = writer::write_bytes(
+        &loaded,
+        &api::preview(&analysis, &answers).unwrap(),
+        Some(&answers),
+    )
+    .unwrap()
+    .0;
+    let file = pmi_scene::pmi_scene(&bytes, None).unwrap();
+    for scene in [live, file] {
+        for collection in ["features", "geometry"] {
+            for row in scene["pmi"]["pmi"][collection].as_array().unwrap() {
+                assert!(scene["specify"].get(row["id"].as_str().unwrap()).is_none());
+            }
+        }
+        for rows in scene["pmi"]["units"].as_object().unwrap().values() {
+            for row in rows.as_array().unwrap() {
+                assert!(scene["specify"].get(row["id"].as_str().unwrap()).is_none());
+            }
+        }
+        for row in scene["pmi"]["pmi"]["attributes"].as_array().unwrap() {
+            if matches!(
+                row["value"]["name"].as_str(),
+                Some("specify characteristic numbers" | "pmi-assist answers")
+            ) {
+                assert!(scene["specify"].get(row["id"].as_str().unwrap()).is_none());
+            }
+        }
+    }
+}
+
+#[test]
+fn patterned_datums_have_no_count_but_sizes_and_tolerances_do() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let pattern = analysis["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["family"] == "hole_patterns")
+        .unwrap();
+    let question = format!("hole.function:{}", pattern["id"].as_str().unwrap());
+    let mut answers = given();
+    answers.insert(question.clone(), json!("fit:H7"));
+    answers.insert("datum.A".into(), json!([pattern["faces"][0]]));
+    answers.insert("part.locating".into(), json!("position tolerances"));
+    answers.insert(
+        format!("hole.position:{}", pattern["id"].as_str().unwrap()),
+        json!("0.05"),
+    );
+    let defaults = specify_core::rules::with_all_defaults(&analysis, &answers).unwrap();
+    for (id, value) in defaults {
+        if id.starts_with("datum.") || id.starts_with("hole.frame:") {
+            answers.entry(id).or_insert(value);
+        }
+    }
+    let scene = Scene::new(&loaded)
+        .unwrap()
+        .scene(&loaded, Some(&analysis), Some(&answers))
+        .unwrap_or_else(|e| {
+            panic!(
+                "{e}\n{}",
+                api::preview(&analysis, &answers).unwrap().to_dict()
+            )
+        });
+    let datum = scene["presentation"]["items"]["datum:A"]
+        .as_array()
+        .unwrap();
+    assert!(!datum.is_empty());
+    for graphic in datum {
+        assert!(!graphic["name"].as_str().unwrap().contains("×"));
+        assert!(
+            graphic["text"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|cell| !cell.as_str().unwrap().contains("×"))
+        );
+    }
+    for collection in ["dimensions", "tolerances"] {
+        let expected_question = if collection == "dimensions" {
+            question.clone()
+        } else {
+            format!("hole.position:{}", pattern["id"].as_str().unwrap())
+        };
+        let graphics: Vec<_> = scene["pmi"]["pmi"][collection]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| {
+                scene["specify"][row["id"].as_str().unwrap()]["question"] == expected_question
+            })
+            .flat_map(|row| {
+                scene["presentation"]["items"][row["id"].as_str().unwrap()]
+                    .as_array()
+                    .unwrap()
+            })
+            .collect();
+        assert!(!graphics.is_empty(), "{collection}");
+        for graphic in graphics {
+            assert!(graphic["name"].as_str().unwrap().starts_with("6×"));
+            assert!(graphic["text"][0].as_str().unwrap().starts_with("6×"));
+        }
+    }
+}
+
+#[test]
+fn foreign_numeric_ids_are_not_characteristic_numbers_without_specify_history() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let face = analysis["faces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["kind"] == "plane")
+        .unwrap()["id"]
+        .clone();
+    let mut answers = given();
+    answers.insert("datum.A".into(), json!([face]));
+    // No saved interview: the history alone still identifies Specify's numbers.
+    let bytes = writer::write_bytes(&loaded, &api::preview(&analysis, &answers).unwrap(), None)
+        .unwrap()
+        .0;
+    let numbered = pmi_scene::pmi_scene(&bytes, None).unwrap();
+    for collection in ["datums", "dimensions"] {
+        let rows = numbered["pmi"]["pmi"][collection].as_array().unwrap();
+        assert!(!rows.is_empty());
+        for row in rows {
+            let id = row["id"].as_str().unwrap();
+            assert_eq!(
+                numbered["specify"][id]["number"],
+                id.parse::<u64>().unwrap()
+            );
+        }
+    }
+    // Model a foreign producer's numeric ids with no Specify history or origin.
+    let foreign = String::from_utf8(bytes)
+        .unwrap()
+        .replace(
+            specify_core::characteristics::PROPERTY,
+            "producer identity records",
+        )
+        .replace(
+            specify_core::pmi_origin::PROPERTY,
+            "producer dimension records",
+        )
+        .into_bytes();
+    let loaded = part::load_bytes("foreign.step", foreign.clone()).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let added = json!({"extra.1":{"kind":"flatness", "faces":[face], "value":"0.05"}})
+        .as_object()
+        .unwrap()
+        .clone();
+    let live = Scene::new(&loaded)
+        .unwrap()
+        .scene(&loaded, Some(&analysis), Some(&added))
+        .unwrap();
+    let file = pmi_scene::pmi_scene(&foreign, None).unwrap();
+    for collection in ["datums", "dimensions"] {
+        for row in numbered["pmi"]["pmi"][collection].as_array().unwrap() {
+            let id = row["id"].as_str().unwrap();
+            for scene in [&file, &live] {
+                assert!(
+                    scene["pmi"]["pmi"][collection]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|r| r["id"] == id)
+                );
+                assert_eq!(scene["specify"][id]["status"], "existing");
+                assert!(scene["specify"][id].get("number").is_none(), "{id}");
+            }
+        }
+    }
+}
+
+#[test]
+fn feature_owned_manufacturing_attributes_inherit_the_thread_or_knurl_question() {
+    use haecceity::pmi::{AttributeSet, AttributeValue, FeatureId, NoteOwner};
+    let loaded = part::load(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/pin.step"),
+        None,
+    )
+    .unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let question = api::questions(&analysis, &Map::new())
+        .unwrap()
+        .into_iter()
+        .find(|q| {
+            q.id.starts_with("diameter.fit:") && q.options.iter().any(|v| v.starts_with("thread:"))
+        })
+        .unwrap();
+    let thread = question
+        .options
+        .iter()
+        .find(|v| v.starts_with("thread:"))
+        .unwrap();
+    for (collection, answer, name) in [
+        ("threads", thread.as_str(), "thread manufacturing"),
+        ("knurls", "knurl:straight", "knurl manufacturing"),
+    ] {
+        let answers = json!({question.id.clone():answer})
+            .as_object()
+            .unwrap()
+            .clone();
+        let cache = Scene::new(&loaded).unwrap();
+        let live = cache
+            .scene(&loaded, Some(&analysis), Some(&answers))
+            .unwrap();
+        let primary = &live["pmi"]["pmi"][collection][0];
+        let owner = &primary["value"]["feature"];
+        let feature = live["pmi"]["pmi"]["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|row| row["id"] == *owner)
+            .unwrap();
+        let extra = AttributeSet {
+            name: name.into(),
+            description: None,
+            general_property: None,
+            on: Some(NoteOwner::Feature(FeatureId(feature))),
+            items: vec![("process".into(), AttributeValue::Text("Controlled".into()))],
+        };
+        let bytes = writer::write_bytes_with(
+            &loaded,
+            &api::preview(&analysis, &answers).unwrap(),
+            Some(&answers),
+            &[extra],
+        )
+        .unwrap()
+        .0;
+        let file = pmi_scene::pmi_scene(&bytes, None).unwrap();
+        let default = cache
+            .scene_with_state(
+                &loaded,
+                Some(&analysis),
+                &specify_core::tolerancing::State {
+                    answers: answers.clone(),
+                    auto: Some(vec![question.id.clone()]),
+                    gdt: None,
+                },
+            )
+            .unwrap();
+        for (scene, status) in [
+            (&live, "answered"),
+            (&default, "default"),
+            (&file, "answered"),
+        ] {
+            let attributes: Vec<_> = scene["pmi"]["pmi"]["attributes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|row| row["value"]["name"] == name)
+                .collect();
+            // Live knurl parameters are typed semantics; this producer's extra UDA
+            // exists only in the written file. Threads also author a live UDA.
+            if collection == "threads" || std::ptr::eq(scene, &file) {
+                assert!(!attributes.is_empty());
+            }
+            for attribute in attributes {
+                let meta = &scene["specify"][attribute["id"].as_str().unwrap()];
+                assert_eq!(meta["question"], question.id);
+                assert_eq!(meta["status"], status);
+            }
+        }
+    }
 }

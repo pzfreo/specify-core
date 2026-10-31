@@ -1,8 +1,8 @@
 #![cfg_attr(not(test), warn(clippy::unwrap_used, clippy::expect_used))]
 
 use serde_json::{Map, Value, json};
+use specify_core::input;
 use specify_core::{api, choices};
-mod input;
 pub mod session;
 
 /// Accept every unanswered default to the same fixed point as CLI/serve apply.

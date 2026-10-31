@@ -13,13 +13,6 @@ All notable changes to specify-core-rust. The format follows
   semantic/presentation documents plus Specify status, question, number, origin/source.
   Requirement-based Specify ids survive reviews; face anchors match mesh indices.
 
-### WASM API
-
-- Add `IntentEngine.pmiScene(answers)` on the open part session (including `openPart`)
-  and `pmiScene(stepBytes, part?)` for view-only As Drawn PMI without an interview.
-
-### Added
-
 - The Python package `specify-core` on this engine (`crates/specify-core-py`): specify-core's
   Python API and the `specify-core` command line, with no Python dependency; abi3 wheels for
   CPython 3.12 and later, built and published by `.github/workflows/python.yml`. See
@@ -32,7 +25,20 @@ All notable changes to specify-core-rust. The format follows
   remains byte-identical. Edition-1 writes upgrade the header to AP242 edition 4.
   See [dimension origin and source](docs/pmi-origin.md).
 
+### WASM API
+
+- Add `IntentEngine.pmiScene(answers)` on the open part session (including `openPart`)
+  and `pmiScene(stepBytes, part?)` for view-only As Drawn PMI without an interview.
+
 ### Fixed
+
+- PMI scenes resolve part-setting questions from the rules table and writer's kind
+  mapping, including `part.coating`. Feature-owned thread/knurl attributes inherit
+  their requirement's question/status; supporting rows have no interview overlay.
+  Pattern counts apply only to sizes, locations and tolerances, never datums.
+  Foreign numeric ids become characteristic numbers only with Specify history.
+  Python scene answers use the same input validation as WASM.
+  General locations without a feature id use their face supports for stable identity.
 
 - Scene metadata/history ids follow the requirement owner and property name across
   answer changes. Foreign datum identities and file callouts are reused during a live

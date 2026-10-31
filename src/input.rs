@@ -39,7 +39,7 @@ fn bad(id: &str, why: impl Into<String>) -> Error {
 pub fn answers_shape(answers: &Map<String, Value>) -> Result<(), Error> {
     for (id, value) in answers {
         let invalid = |why| bad(id, why);
-        if id == specify_core::characteristics::CARRY {
+        if id == crate::characteristics::CARRY {
             if !value.is_object() {
                 return Err(invalid("characteristic number transport must be an object"));
             }

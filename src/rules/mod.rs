@@ -688,7 +688,7 @@ fn all_questions(
 }
 
 /// The material, general tolerance and notes questions.
-fn part_questions() -> Vec<Question> {
+pub(crate) fn part_questions() -> Vec<Question> {
     let choice =
         |id: &str, prompt: &str, default: &str, options: &[&str], why: &str, basis: &str| {
             Question {

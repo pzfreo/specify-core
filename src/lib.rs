@@ -15,6 +15,7 @@ pub mod existing;
 pub mod extras;
 pub mod features;
 pub mod general;
+pub mod input;
 pub mod locations;
 pub mod materials;
 pub mod mates;

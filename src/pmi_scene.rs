@@ -16,6 +16,15 @@ type PlannedScene = (Semantic, Map<String, Value>, BTreeMap<String, usize>);
 
 type Bindings = BTreeMap<(String, usize), (String, Value, usize)>;
 
+const NUMBERED: [&str; 6] = [
+    "datums",
+    "dimensions",
+    "tolerances",
+    "surface_textures",
+    "threads",
+    "knurls",
+];
+
 pub struct Scene {
     doc: Document,
     read: pmi::PmiRead,
@@ -226,7 +235,9 @@ impl Scene {
                     if metadata.insert(id.clone(), meta).is_some() {
                         return Err(format!("ambiguous Specify requirement id {id}"));
                     }
-                    counts.insert(id, count);
+                    if matches!(collection, "dimensions" | "tolerances") {
+                        counts.insert(id, count);
+                    }
                 } else if let Some(number) = number {
                     // Part-level surface textures are numbered too; their question/id
                     // is assigned below alongside the other part settings.
@@ -243,6 +254,7 @@ impl Scene {
                 Some(&self.read.identifiers.parts[self.index]),
             )
             .map_err(|e| e.to_string())?;
+            let recorded = recorded_numbers(&original)?;
             for (i, datum) in semantic.pmi.datums.iter().enumerate() {
                 if let Some(old) = before
                     .datums
@@ -257,7 +269,10 @@ impl Scene {
                     metadata.remove(&previous);
                     counts.remove(&previous);
                     let mut meta = json!({"status":"existing"});
-                    if let Some(number) = id.parse::<u64>().ok().filter(|n| *n > 0) {
+                    if let Some(number) = recorded
+                        .get(&("datums", old))
+                        .filter(|n| id.parse::<u64>().ok() == Some(**n))
+                    {
                         meta["number"] = json!(number);
                     }
                     metadata.insert(id, meta);
@@ -266,7 +281,7 @@ impl Scene {
         }
         part_metadata(&mut semantic, &mut metadata, answers)?;
         attribute_ids(&mut semantic, &mut metadata)?;
-        fill_metadata(&semantic, &mut metadata, "general");
+        fill_metadata(&semantic, &mut metadata, "default");
         Ok((semantic, metadata, counts))
     }
 
@@ -280,11 +295,18 @@ impl Scene {
         let mut semantic =
             wire::identify(p.clone(), Some(&self.read.identifiers.parts[self.index]))
                 .map_err(|e| e.to_string())?;
+        let recorded = recorded_numbers(&semantic)?;
         let mut metadata = Map::new();
         for (collection, ids) in &mut semantic.ids {
             for (i, id) in ids.iter_mut().enumerate() {
+                if !is_requirement(p, collection, i) {
+                    continue;
+                }
                 let mut meta = json!({"status":"existing"});
-                if let Some(n) = id.parse::<u64>().ok().filter(|n| *n > 0) {
+                if let Some(&n) = recorded
+                    .get(&(collection.as_str(), i))
+                    .filter(|n| id.parse::<u64>().ok() == Some(**n))
+                {
                     meta["number"] = json!(n);
                     if let Some((stable, saved)) =
                         planned.and_then(|m| m.iter().find(|(_, v)| v["number"] == n))
@@ -319,12 +341,16 @@ fn part_metadata(
     metadata: &mut Map<String, Value>,
     answers: &Map<String, Value>,
 ) -> Result<(), String> {
+    let questions = crate::rules::part_questions();
     for collection in ["general", "surface_textures", "attributes"] {
         for i in 0..semantic.ids[collection].len() {
             let key = match collection {
                 "general" => Some("general_tolerance"),
                 "surface_textures" if semantic.pmi.surface_textures[i].on.is_none() => {
-                    Some("surface_finish")
+                    crate::existing::PART_NOTES
+                        .iter()
+                        .find(|(_, kind)| *kind == "surface texture")
+                        .map(|(key, _)| *key)
                 }
                 "attributes"
                     if semantic.pmi.attributes[i].name == writer::SEMANTIC_TEXT
@@ -333,19 +359,23 @@ fn part_metadata(
                     semantic.pmi.attributes[i]
                         .items
                         .first()
-                        .map(|(k, _)| k.as_str())
+                        .and_then(|(kind, _)| {
+                            crate::existing::PART_NOTES
+                                .iter()
+                                .find(|(_, stored)| *stored == kind)
+                                .map(|(key, _)| *key)
+                        })
                 }
                 _ => None,
             };
             if let Some(key) = key {
-                let question = match key {
-                    "general note" => "part.notes".to_owned(),
-                    "surface treatment" => "part.surface_treatment".into(),
-                    "heat treatment" => "part.heat_treatment".into(),
-                    "edge condition" => "part.edges".into(),
-                    _ => format!("part.{key}"),
-                };
-                let id = if key == "general note" {
+                let question = questions
+                    .iter()
+                    .find(|q| q.id.strip_prefix("part.") == Some(key))
+                    .ok_or_else(|| format!("no part question for {key}"))?
+                    .id
+                    .clone();
+                let id = if key == "notes" {
                     let index = semantic.pmi.attributes[i]
                         .items
                         .iter()
@@ -395,7 +425,26 @@ fn attribute_ids(semantic: &mut Semantic, metadata: &mut Map<String, Value>) -> 
             continue;
         }
         let owner = match attribute.on {
-            Some(NoteOwner::Feature(id)) => Some(("features", id.0)),
+            Some(NoteOwner::Feature(id)) => {
+                let thread = semantic
+                    .pmi
+                    .threads
+                    .iter()
+                    .position(|t| t.feature == id)
+                    .map(|i| ("threads", i));
+                let knurl = semantic
+                    .pmi
+                    .knurls
+                    .iter()
+                    .position(|k| k.feature == id)
+                    .map(|i| ("knurls", i));
+                if attribute.name.starts_with("knurl") {
+                    knurl.or(thread)
+                } else {
+                    thread.or(knurl)
+                }
+                .or(Some(("features", id.0)))
+            }
             Some(NoteOwner::Dimension(id)) => Some(("dimensions", id.0)),
             Some(NoteOwner::Tolerance(id)) => Some(("tolerances", id.0)),
             Some(NoteOwner::DatumTarget(id)) => Some(("datum_targets", id.0)),
@@ -415,13 +464,13 @@ fn attribute_ids(semantic: &mut Semantic, metadata: &mut Map<String, Value>) -> 
         let occurrence = occurrences.entry(base.clone()).or_insert(0usize);
         let id = format!("{base}:{}", *occurrence);
         *occurrence += 1;
-        let mut meta = json!({"status":"general"});
-        if let Some(parent) = metadata.get(&owner) {
-            meta["status"] = parent["status"].clone();
+        let parent = metadata.get(&owner).map(|parent| {
+            let mut meta = json!({"status":parent["status"]});
             if let Some(question) = parent.get("question") {
                 meta["question"] = question.clone();
             }
-        }
+            meta
+        });
         let old = std::mem::replace(
             &mut semantic
                 .ids
@@ -429,8 +478,10 @@ fn attribute_ids(semantic: &mut Semantic, metadata: &mut Map<String, Value>) -> 
                 .ok_or("missing attribute ids")?[index],
             id.clone(),
         );
-        metadata.remove(&old);
-        metadata.insert(id, meta);
+        let old_meta = metadata.remove(&old);
+        if let Some(meta) = parent.or(old_meta) {
+            metadata.insert(id, meta);
+        }
     }
     Ok(())
 }
@@ -449,7 +500,11 @@ fn requirement_id(req: &Map<String, Value>) -> String {
     let question = req.get("question").and_then(Value::as_str).unwrap_or("");
     let target = if question.starts_with("extra.") {
         question.to_string()
-    } else if let Some(feature) = req.get("feature").and_then(Value::as_str) {
+    } else if let Some(feature) = req
+        .get("feature")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+    {
         feature.to_owned()
     } else {
         format!("faces:{}", req.get("faces").unwrap_or(&Value::Null))
@@ -486,13 +541,43 @@ fn stored_metadata(p: &PartPmi, collection: &str, i: usize, meta: &mut Value) {
 }
 
 fn fill_metadata(semantic: &Semantic, metadata: &mut Map<String, Value>, status: &str) {
-    for ids in semantic.ids.values() {
-        for id in ids {
-            metadata
-                .entry(id.clone())
-                .or_insert_with(|| json!({"status":status}));
+    for (collection, ids) in &semantic.ids {
+        for (i, id) in ids.iter().enumerate() {
+            if is_requirement(&semantic.pmi, collection, i) {
+                metadata
+                    .entry(id.clone())
+                    .or_insert_with(|| json!({"status":status}));
+            }
         }
     }
+}
+
+// The documents retain all support rows, but the interview overlay describes PMI only.
+fn is_requirement(pmi: &PartPmi, collection: &str, index: usize) -> bool {
+    match collection {
+        "attributes" => {
+            let a = &pmi.attributes[index];
+            !resume::is_answers(a) && a.name != characteristics::PROPERTY
+        }
+        "datums" | "datum_targets" | "dimensions" | "tolerances" | "surface_textures"
+        | "threads" | "knurls" | "notes" | "general" => true,
+        _ => false,
+    }
+}
+
+// This walk returns numbers only from validated Specify history, never arbitrary
+// numeric ID_ATTRIBUTE values. The caller also checks the actual id on each item.
+fn recorded_numbers(semantic: &Semantic) -> Result<BTreeMap<(&'static str, usize), u64>, String> {
+    let mut numbers = characteristics::planned_numbers(&semantic.pmi)?.into_iter();
+    let mut result = BTreeMap::new();
+    for collection in NUMBERED {
+        for i in 0..semantic.ids[collection].len() {
+            if let Some(number) = numbers.next().flatten() {
+                result.insert((collection, i), number);
+            }
+        }
+    }
+    Ok(result)
 }
 
 fn encode(
