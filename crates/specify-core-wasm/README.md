@@ -1,6 +1,6 @@
 # specify-core-wasm
 
-Browser bindings for specify-core. See [the WASM guide](https://github.com/pzfreo/specify-core-rust/blob/main/docs/wasm.md)
+Browser bindings for specify-core. See [the WASM guide](https://github.com/pzfreo/specify-core/blob/main/docs/wasm.md)
 for the JSON API, build instructions and release installation.
 
 Initialize the web module, then use `IntentEngine`, `review` and `interpret`.

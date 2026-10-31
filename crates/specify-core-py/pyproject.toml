@@ -29,10 +29,10 @@ dependencies = []
 
 [project.urls]
 Homepage = "https://editor.draftwright.io/specify"
-Source = "https://github.com/pzfreo/specify-core-rust"
-Issues = "https://github.com/pzfreo/specify-core-rust/issues"
-Changelog = "https://github.com/pzfreo/specify-core-rust/blob/main/CHANGELOG.md"
-Documentation = "https://github.com/pzfreo/specify-core-rust/blob/main/crates/specify-core-py/README.md"
+Source = "https://github.com/pzfreo/specify-core"
+Issues = "https://github.com/pzfreo/specify-core/issues"
+Changelog = "https://github.com/pzfreo/specify-core/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/pzfreo/specify-core/blob/main/crates/specify-core-py/README.md"
 
 [project.scripts]
 # The engine's command line; specify-core's second name for it, pmi-assist, is not kept.

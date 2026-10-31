@@ -4,7 +4,7 @@ version = "0.1.5"
 edition = "2024"
 license = "Apache-2.0"
 description = "Browser bindings for Specify's questions and manufacturing intent"
-repository = "https://github.com/pzfreo/specify-core-rust"
+repository = "https://github.com/pzfreo/specify-core"
 readme = "README.md"
 
 [lib]

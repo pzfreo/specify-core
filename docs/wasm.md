@@ -17,7 +17,7 @@ extracting it:
 ```sh
 version=0.1.5 # choose a release that includes the WASM assets
 archive="specify-core-wasm-${version}.tgz"
-gh release download "v${version}" --repo pzfreo/specify-core-rust \
+gh release download "v${version}" --repo pzfreo/specify-core \
   --pattern "$archive" --pattern "$archive.sha256"
 sha256sum -c "$archive.sha256" # macOS: shasum -a 256 -c "$archive.sha256"
 tar -xzf "$archive"
