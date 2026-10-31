@@ -20,6 +20,7 @@ pub mod materials;
 pub mod mates;
 pub mod mesh;
 pub mod part;
+pub mod pmi_origin;
 pub mod problems;
 mod provenance;
 pub mod pyfmt;

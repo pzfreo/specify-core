@@ -1,5 +1,7 @@
-//! quiddity-rust#137 emits an invalid empty tessellated curve for a blank note row.
-//! Render an explicit `(blank)` row, then restore its exact literal semantic text.
+//! Temporary workaround for quiddity-rust#137: haecceity draws an invalid empty curve
+//! for a blank line. Only an empty/whitespace-only general note gets `(blank)` in drawn
+//! text; restore its exact semantic text before verification or returning bytes.
+//! Remove this workaround when quiddity-rust fixes blank-line drawing.
 use super::*;
 
 const BLANK: &str = "(blank)";

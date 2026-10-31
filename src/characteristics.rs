@@ -29,6 +29,10 @@ pub struct Characteristic {
     pub faces: Vec<usize>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub reference: Vec<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<crate::pmi_origin::Origin>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<crate::pmi_origin::Source>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -330,6 +334,12 @@ pub(crate) fn read_parsed(
     items(p, Some(prov), Some(doc))
         .into_iter()
         .filter_map(|item| {
+            let metadata = prov
+                .dimensions
+                .iter()
+                .position(|ids| ids.contains(&item.entity))
+                .map(|i| crate::pmi_origin::read(p, pmi::NoteOwner::Dimension(pmi::DimensionId(i))))
+                .unwrap_or_default();
             Some(Characteristic {
                 number: number(doc, item.entity)?,
                 entity: item.entity,
@@ -337,6 +347,8 @@ pub(crate) fn read_parsed(
                 r#type: item.key.r#type,
                 faces: item.key.faces,
                 reference: item.key.reference,
+                origin: metadata.origin,
+                source: metadata.source,
             })
         })
         .collect()
@@ -540,6 +552,30 @@ pub(crate) fn allocate(
             old.high_water
         };
         allocations[n] = Some(number);
+    }
+    if replace {
+        for (n, _) in new
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| item.key.kind == "dimension")
+        {
+            if let Some(matched) = matched[n]
+                && let Some(old_item) = before_items
+                    .iter()
+                    .find(|i| number(doc, i.entity) == Some(old.entries[matched].number))
+                && let Some(index) = prov
+                    .dimensions
+                    .iter()
+                    .position(|ids| ids.contains(&old_item.entity))
+                && let Some(source) = crate::pmi_origin::read(
+                    before,
+                    pmi::NoteOwner::Dimension(pmi::DimensionId(index)),
+                )
+                .source
+            {
+                crate::pmi_origin::carry_source(p, n - p.datums.len(), &source, &fingerprint);
+            }
+        }
     }
     // History and annotation emission keep semantic order, including on the first write:
     // only the assigned values change. This also keeps unchanged rewrites byte-identical.

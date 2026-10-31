@@ -92,7 +92,24 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
             assert_eq!((expected[0].number, expected[1].number), (Some(4), Some(3)));
             expected.swap(0, 1);
         }
-        assert_eq!(existing::read_existing(&back).unwrap(), expected);
+        let rows = existing::read_existing(&back).unwrap();
+        for row in rows.iter().filter(|r| r.kind == "dimension") {
+            assert_eq!(
+                row.origin,
+                Some(specify_core::pmi_origin::Origin::Requirement)
+            );
+        }
+        // #77 adds stored metadata to rewritten old files; compare every legacy field,
+        // and verify the new metadata independently in tests/pmi_origin.rs.
+        let legacy = rows
+            .into_iter()
+            .map(|mut row| {
+                row.origin = None;
+                row.source = None;
+                row
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(legacy, expected);
 
         for evidence in [Some(&base["evidence"]), None] {
             let out = resume::rematch_answers(&loaded, &fs, answers, evidence, None).unwrap();

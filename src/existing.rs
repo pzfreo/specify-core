@@ -88,6 +88,8 @@ pub struct ExistingPmi {
     pub provenance: Option<String>,
     /// Stable inspection number read from this requirement's AP242 id, when present.
     pub number: Option<u64>,
+    pub origin: Option<crate::pmi_origin::Origin>,
+    pub source: Option<crate::pmi_origin::Source>,
 }
 
 impl ExistingPmi {
@@ -103,6 +105,8 @@ impl ExistingPmi {
             datums: Vec::new(),
             provenance: None,
             number: None,
+            origin: None,
+            source: None,
         }
     }
 }
@@ -138,6 +142,12 @@ impl Serialize for ExistingPmi {
         }
         if let Some(number) = self.number {
             map.serialize_entry("number", &number)?;
+        }
+        if let Some(origin) = &self.origin {
+            map.serialize_entry("origin", origin)?;
+        }
+        if let Some(source) = &self.source {
+            map.serialize_entry("source", source)?;
         }
         if self.faces.is_empty() {
             map.serialize_entry("faces", &self.faces)?;
@@ -291,6 +301,10 @@ impl Reading {
             }
             let mut item = ExistingPmi::new("dimension", r#type, first);
             item.provenance = owned.then(|| provenance::MARKER.into());
+            let metadata =
+                crate::pmi_origin::read(pmi, pmi::NoteOwner::Dimension(pmi::DimensionId(i)));
+            item.origin = metadata.origin;
+            item.source = metadata.source;
             item.number = crate::characteristics::on(
                 doc,
                 &prov.dimensions[i],
