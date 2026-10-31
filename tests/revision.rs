@@ -467,10 +467,10 @@ fn a_real_part_s_report_names_what_a_person_changed() {
             "datum.A": [17]
         }),
     );
-    // The shared planner adds the changed bore-depth quantity (#75); holes remain first.
+    // The holes first; the rounds and drafted surfaces that follow them counted after.
     assert!(
         r.summary
-            .starts_with("2 holes changed, 8 rounds and surfaces with them, 2 changes to the PMI."),
+            .starts_with("2 holes changed, 8 rounds and surfaces with them, 1 change to the PMI."),
         "{}",
         r.summary
     );

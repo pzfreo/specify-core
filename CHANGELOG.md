@@ -12,7 +12,8 @@ All notable changes to specify-core-rust. The format follows
   origins/pitches and prismatic plane levels/extents follow the shared planner.
   Inspection plans contain fewer rows: the default cross-engine plate changes from
   21 dimensions / 28 characteristics to 13 / 20 (11 with all-General contracts).
-  Existing numbers win; removed rows retire permanently. On the frozen pre-planner
+  Existing numbers win; removed rows retire permanently and the write report
+  lists their numbers. On the frozen pre-planner
   plate, numbers **6–11 and 21–26** retire. New requirements allocate above the
   previous high-water mark. Deferred feature owners retain their existing path.
 
@@ -29,6 +30,10 @@ All notable changes to specify-core-rust. The format follows
   existing bytes. See [face-name compatibility](docs/face-names.md).
 
 ### WASM API
+
+- For #75: live analysis snapshots carry optional shared-planner input and stored
+  dimension contracts. Planned scene dimension IDs include stable face-derived
+  roles; pitch callouts use interval counts and datum members leave group counts.
 
 - For #87: snapshot faces add optional `name`; evidence adds schema 3 `face_names`
   and optional mixed-part `geometry`. Add descriptive `AnalysisFace` and

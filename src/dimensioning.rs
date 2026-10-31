@@ -36,6 +36,10 @@ fn on_holes(input: &Input, faces: &[usize]) -> bool {
 }
 fn deferred(input: &Input, r: &Map<String, Value>) -> bool {
     let faces = ids(r, "faces");
+    // An unanchored legacy requirement remains a diagnostic, never an invented support.
+    if faces.is_empty() {
+        return true;
+    }
     if on_holes(input, &faces) {
         return false;
     }
@@ -64,7 +68,7 @@ fn contract(r: &Map<String, Value>) -> Tolerance {
         )
     }
 }
-fn support(input: &Input, faces: &[usize]) -> Option<Support> {
+fn support(input: &Input, faces: &[usize], groups: &[Support]) -> Option<Support> {
     input
         .holes
         .iter()
@@ -72,6 +76,23 @@ fn support(input: &Input, faces: &[usize]) -> Option<Support> {
         .chain(input.planes.iter().map(|p| &p.support))
         .find(|s| !faces.is_empty() && faces.iter().all(|i| s.faces.contains(i)))
         .cloned()
+        .or_else(|| {
+            let members: BTreeSet<_> = input
+                .holes
+                .iter()
+                .filter(|h| overlaps(faces, &h.support.faces))
+                .map(|h| h.support.feature.as_str())
+                .collect();
+            let pattern = input.patterns.iter().find(|p| {
+                !members.is_empty()
+                    && p.members
+                        .iter()
+                        .map(String::as_str)
+                        .collect::<BTreeSet<_>>()
+                        == members
+            })?;
+            groups.iter().find(|s| s.feature == pattern.id()).cloned()
+        })
 }
 
 /// Complete lowering information travels with a row, including support coordinates and the
@@ -110,31 +131,76 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
     holes.cartesian_envelope = false;
     holes.deferred.clear();
     let (hole_requirements, _) = shared::plan(&holes);
+    // Resolve an already-stated pattern origin through the shared planner, including
+    // origins that its all-General pass conveyed through a coincident neighbouring hole.
+    let mut group_supports = Vec::new();
+    for p in &input.patterns {
+        let mut pattern = holes.clone();
+        pattern
+            .holes
+            .retain(|h| p.members.contains(&h.support.feature));
+        pattern.patterns = vec![p.clone()];
+        for r in shared::plan(&pattern).0 {
+            if let Kind::Location { to, .. } = r.kind
+                && to.feature == p.id()
+                && !group_supports.contains(&to)
+            {
+                group_supports.push(to);
+            }
+        }
+    }
+    let mut covered_locations = BTreeSet::new();
     let generated_location = |r: &Map<String, Value>| {
         r.get("kind").and_then(Value::as_str) == Some("location")
             && r.get("question")
                 .and_then(Value::as_str)
                 .is_some_and(|q| q.starts_with("hole.position:") || q.starts_with("hole.location:"))
     };
+    // Index support witnesses once: corpus parts can contain hundreds of locations.
+    let mut witnesses_by_hole: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    let mut planes_by_question: BTreeMap<String, BTreeSet<Vec<usize>>> = BTreeMap::new();
+    for (index, r) in intent
+        .requirements
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| generated_location(r))
+    {
+        let faces = ids(r, "faces");
+        for h in input
+            .holes
+            .iter()
+            .filter(|h| overlaps(&faces, &h.support.faces))
+        {
+            witnesses_by_hole
+                .entry(h.support.feature.clone())
+                .or_default()
+                .push(index);
+        }
+        planes_by_question
+            .entry(
+                r.get("question")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .into(),
+            )
+            .or_default()
+            .insert(ids(r, "reference"));
+    }
     // Feed each answered contract to the planner before coincident-span consolidation.
     // A General neighbour must not swallow the pattern origin needed by a position FCF.
     let mut contracts: BTreeMap<String, (Map<String, Value>, Vec<String>)> = BTreeMap::new();
     for h in &input.holes {
-        if let Some(answer) = intent
-            .requirements
-            .iter()
-            .find(|r| generated_location(r) && overlaps(&ids(r, "faces"), &h.support.faces))
+        if let Some(index) = witnesses_by_hole
+            .get(&h.support.feature)
+            .and_then(|v| v.first())
         {
+            // Indices above enumerate this unchanged requirement list.
+            let answer = &intent.requirements[*index];
             let question = answer.get("question").and_then(Value::as_str).unwrap_or("");
-            let planes: BTreeSet<Vec<usize>> = intent
-                .requirements
-                .iter()
-                .filter(|r| {
-                    generated_location(r)
-                        && r.get("question").and_then(Value::as_str) == Some(question)
-                })
-                .map(|r| ids(r, "reference"))
-                .collect();
+            let planes = planes_by_question
+                .get(question)
+                .cloned()
+                .unwrap_or_default();
             let key = json!([contract(answer), planes]).to_string();
             contracts
                 .entry(key)
@@ -152,14 +218,10 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             .patterns
             .retain(|p| p.members.iter().all(|m| members.contains(m)));
         let question = answer.get("question").and_then(Value::as_str).unwrap_or("");
-        let planes: BTreeSet<_> = intent
-            .requirements
-            .iter()
-            .filter(|r| {
-                generated_location(r) && r.get("question").and_then(Value::as_str) == Some(question)
-            })
-            .map(|r| ids(r, "reference"))
-            .collect();
+        let planes = planes_by_question
+            .get(question)
+            .cloned()
+            .unwrap_or_default();
         contracted.datums.retain(|d| planes.contains(&d.faces));
         for mut required in shared::plan(&contracted).0 {
             let Kind::Location { from, .. } = &required.kind else {
@@ -172,17 +234,20 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             {
                 continue;
             }
-            let witnesses: Vec<_> = intent
-                .requirements
+            let indices: BTreeSet<_> = required
+                .covers
                 .iter()
-                .filter(|r| {
-                    generated_location(r)
-                        && input.holes.iter().any(|h| {
-                            required.covers.contains(&h.support.feature)
-                                && overlaps(&ids(r, "faces"), &h.support.faces)
-                        })
-                })
+                .filter_map(|id| witnesses_by_hole.get(id))
+                .flatten()
+                .copied()
                 .collect();
+            let witnesses: Vec<_> = indices
+                .into_iter()
+                .map(|i| &intent.requirements[i])
+                .collect();
+            if let Kind::Location { axis, .. } = &required.kind {
+                covered_locations.extend(required.covers.iter().map(|id| (id.clone(), *axis)));
+            }
             let witness = witnesses
                 .iter()
                 .copied()
@@ -198,9 +263,36 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             input.specified.push(required);
         }
     }
+    let generation_covered = |r: &Map<String, Value>| {
+        if !generated_location(r) {
+            return false;
+        }
+        if r.get("distance")
+            .and_then(Value::as_f64)
+            .is_some_and(|d| d.abs() < 1e-4)
+        {
+            return true;
+        }
+        let reference = ids(r, "reference");
+        let Some(plane) = input.planes.iter().find(|p| {
+            !reference.is_empty() && reference.iter().all(|i| p.support.faces.contains(i))
+        }) else {
+            return false;
+        };
+        let faces = ids(r, "faces");
+        let members: Vec<_> = input
+            .holes
+            .iter()
+            .filter(|h| overlaps(&faces, &h.support.faces))
+            .collect();
+        !members.is_empty()
+            && members
+                .iter()
+                .all(|h| covered_locations.contains(&(h.support.feature.clone(), plane.axis)))
+    };
     for r in &intent.requirements {
         let kind = r.get("kind").and_then(Value::as_str).unwrap_or("");
-        if generated_location(r) || !matches!(kind, "size" | "location") || deferred(&input, r) {
+        if generation_covered(r) || !matches!(kind, "size" | "location") || deferred(&input, r) {
             continue;
         }
         let faces = ids(r, "faces");
@@ -214,7 +306,10 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             let whole = hole_requirements
                 .iter()
                 .find(|s| {
-                    matches!(&s.kind, Kind::Size {role,..} if role=="bore.diameter")
+                    matches!(&s.kind, Kind::Size {role,kind,..} if
+                        if r.get("stored")==Some(&json!(true)) {
+                            serde_json::to_value(kind).ok().as_ref()==r.get("size_kind") && r.get("nominal").and_then(Value::as_f64).is_some_and(|n|(n-s.nominal).abs()<1e-4)
+                        } else {role=="bore.diameter"})
                         && s.covers.iter().cloned().collect::<BTreeSet<_>>() == selected
                 })
                 .cloned();
@@ -228,11 +323,28 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
                     )
                 };
                 Some(Required {
-                    id: format!("dim:{feature}/bore.diameter"),
+                    id: format!(
+                        "dim:{feature}/{}",
+                        r.get("size_kind")
+                            .and_then(Value::as_str)
+                            .unwrap_or("bore.diameter")
+                    ),
                     kind: Kind::Size {
                         feature,
-                        role: "bore.diameter".into(),
-                        kind: shared::SizeKind::Diameter,
+                        role: if r
+                            .get("size_kind")
+                            .and_then(Value::as_str)
+                            .is_some_and(|k| k != "diameter")
+                        {
+                            "stored.length".into()
+                        } else {
+                            "bore.diameter".into()
+                        },
+                        kind: r
+                            .get("size_kind")
+                            .cloned()
+                            .and_then(|v| serde_json::from_value(v).ok())
+                            .unwrap_or(shared::SizeKind::Diameter),
                     },
                     nominal: r.get("nominal")?.as_f64()?,
                     count: selected.len(),
@@ -243,8 +355,8 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
                 })
             })
         } else {
-            let to = support(&input, &faces);
-            let from = support(&input, &ids(r, "reference"));
+            let to = support(&input, &faces, &group_supports);
+            let from = support(&input, &ids(r, "reference"), &group_supports);
             match (from, to) {
                 (Some(from), Some(to)) => {
                     let axis = input
@@ -287,6 +399,23 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
                 },
                 s.id
             );
+            if let Some(q) = r
+                .get("question")
+                .and_then(Value::as_str)
+                .filter(|q| q.starts_with("extra."))
+            {
+                s.id = format!("{}:{q}", s.id);
+            }
+            if r.get("stored") == Some(&json!(true)) {
+                s.id = format!(
+                    "{}:{}:{}",
+                    s.id,
+                    r.get("nominal")
+                        .or_else(|| r.get("distance"))
+                        .unwrap_or(&Value::Null),
+                    r.get("stored_tolerance").unwrap_or(&Value::Null)
+                );
+            }
             s.nominal = r
                 .get(if kind == "size" {
                     "nominal"
@@ -301,6 +430,7 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
         }
     }
     let (required, _) = shared::plan(&input);
+
     let mut supports: Vec<_> = input
         .holes
         .iter()
@@ -334,7 +464,7 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
         let kind = r.get("kind").and_then(Value::as_str).unwrap_or("");
         !matches!(kind, "size" | "location")
             || deferred(&input, r)
-            || (!generated_location(r) && !is_authority(r))
+            || (!generation_covered(r) && !is_authority(r))
     });
     intent.general.retain(|r| deferred(&input, r));
     for required in required {
@@ -371,7 +501,7 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
                 if feature.starts_with("hole:") {
                     json!(feature.replacen("hole:", "holes:", 1))
                 } else {
-                    json!("")
+                    row.get("feature").cloned().unwrap_or_else(|| json!(""))
                 }
             });
         row.insert("kind".into(), json!(kind));
@@ -399,8 +529,17 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             }
             Tolerance::General => {
                 row.insert("general".into(), json!(true));
-                if let Some(t) =
-                    general.and_then(|g| crate::general::deviation(g, required.nominal))
+                if let Some(t) = general
+                    .filter(|_| {
+                        !matches!(
+                            required.kind,
+                            Kind::Size {
+                                kind: shared::SizeKind::Angle,
+                                ..
+                            }
+                        )
+                    })
+                    .and_then(|g| crate::general::deviation(g, required.nominal))
                 {
                     row.insert("upper".into(), json!(t));
                     row.insert("lower".into(), json!(-t));
@@ -467,9 +606,25 @@ pub(crate) fn stated(p: &haecceity::pmi::PartPmi) -> Vec<Map<String, Value>> {
             match &d.kind {
                 DimensionKind::Size {
                     feature,
-                    kind: haecceity::pmi::SizeKind::Diameter,
+                    kind,
+                    angle,
                     ..
-                } => {
+                } if angle.is_some()
+                    || matches!(
+                        kind,
+                        haecceity::pmi::SizeKind::Diameter | haecceity::pmi::SizeKind::CurveLength
+                    ) =>
+                {
+                    r.insert(
+                        "size_kind".into(),
+                        json!(if angle.is_some() {
+                            "angle"
+                        } else if *kind == haecceity::pmi::SizeKind::Diameter {
+                            "diameter"
+                        } else {
+                            "length"
+                        }),
+                    );
                     r.insert("kind".into(), json!("size"));
                     r.insert(
                         "faces".into(),
@@ -504,4 +659,24 @@ pub(crate) fn stated(p: &haecceity::pmi::PartPmi) -> Vec<Map<String, Value>> {
             Some(r)
         })
         .collect()
+}
+
+/// Persistent metadata is text, so canonicalize insignificant floating-point frame noise
+/// before it crosses native/WASM boundaries. Selection, IDs, roles and counts are unchanged.
+pub(crate) fn metadata(planned: &Planned) -> Result<String, serde_json::Error> {
+    fn canonical(value: &mut Value) {
+        match value {
+            Value::Number(n) if n.is_f64() => {
+                if let Some(x) = n.as_f64() {
+                    *value = json!(crate::rules::round(x, 9) + 0.0);
+                }
+            }
+            Value::Array(a) => a.iter_mut().for_each(canonical),
+            Value::Object(m) => m.values_mut().for_each(canonical),
+            _ => {}
+        }
+    }
+    let mut value = serde_json::to_value(planned)?;
+    canonical(&mut value);
+    serde_json::to_string(&value)
 }

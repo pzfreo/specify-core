@@ -617,7 +617,7 @@ fn write_verified(
     for (&(loaded, intent, answers), &mode) in jobs.iter().zip(&modes) {
         // The binding was checked against these same bytes' parts; Source::of verifies reader counts.
         let before = &source.read.parts[loaded.binding.part];
-        let (mut pmi, lines) = part_pmi(loaded, intent, before, mode)?;
+        let (mut pmi, mut lines) = part_pmi(loaded, intent, before, mode)?;
         let payload = match answers {
             Some(answers) if mode == Mode::Replace => {
                 let mut saved = answers.clone();
@@ -639,6 +639,25 @@ fn write_verified(
             mode == Mode::Replace,
         )
         .map_err(WriteError::Invalid)?;
+        if mode == Mode::Replace {
+            let retired = crate::characteristics::retired(
+                before,
+                &source.read.provenance.parts[loaded.binding.part],
+                &source.doc,
+                &pmi,
+            )
+            .map_err(WriteError::Invalid)?;
+            if !retired.is_empty() {
+                lines.warnings.push(format!(
+                    "retired characteristic numbers: {}",
+                    retired
+                        .iter()
+                        .map(u64::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+        }
         planned.push(Planned {
             loaded,
             pmi,
@@ -1126,6 +1145,7 @@ fn planned_kind(
     planned: &crate::dimensioning::Planned,
     features: &mut Features<'_>,
     geometry: &mut Vec<pmi::Geometry>,
+    unit: &LengthUnit,
 ) -> Result<DimensionKind, WriteError> {
     fn resolve(
         id: &str,
@@ -1133,6 +1153,7 @@ fn planned_kind(
         f: &mut Features<'_>,
         geometry: &mut Vec<pmi::Geometry>,
         cache: &mut std::collections::BTreeMap<String, FeatureId>,
+        unit: &LengthUnit,
     ) -> Result<FeatureId, WriteError> {
         if let Some(id) = cache.get(id) {
             return Ok(*id);
@@ -1140,7 +1161,7 @@ fn planned_kind(
         let feature = if let Some(members) = planned.groups.get(id) {
             let members = members
                 .iter()
-                .map(|id| resolve(id, planned, f, geometry, cache))
+                .map(|id| resolve(id, planned, f, geometry, cache, unit))
                 .collect::<Result<Vec<_>, _>>()?;
             Feature::Group {
                 members,
@@ -1165,10 +1186,13 @@ fn planned_kind(
                         .collect(),
                 )
             } else {
-                let point = planned.frame.to_world(support.at);
+                let point = planned
+                    .frame
+                    .to_world(support.at)
+                    .map(|v| v / unit.millimetres());
                 let coords = point
                     .into_iter()
-                    .map(decimal)
+                    .map(|v| decimal(crate::rules::round(v, 9) + 0.0))
                     .collect::<Result<Vec<_>, _>>()?;
                 let item = pmi::GeometryItem {
                     leaves: vec![(
@@ -1184,7 +1208,7 @@ fn planned_kind(
                 let i = geometry.len();
                 geometry.push(pmi::Geometry {
                     item,
-                    length_unit: Some(LengthUnit::Millimetre),
+                    length_unit: Some(unit.clone()),
                 });
                 Feature::Items(vec![Anchor::Geometry(pmi::GeometryId(i))])
             }
@@ -1201,11 +1225,11 @@ fn planned_kind(
     let mut ids = std::collections::BTreeMap::new();
     match &planned.required.kind {
         quiddity::dimensioning::Kind::Size { feature, .. } => {
-            resolve(feature, planned, features, geometry, &mut ids)?;
+            resolve(feature, planned, features, geometry, &mut ids, unit)?;
         }
         quiddity::dimensioning::Kind::Location { from, to, .. } => {
-            resolve(&from.feature, planned, features, geometry, &mut ids)?;
-            resolve(&to.feature, planned, features, geometry, &mut ids)?;
+            resolve(&from.feature, planned, features, geometry, &mut ids, unit)?;
+            resolve(&to.feature, planned, features, geometry, &mut ids, unit)?;
         }
     }
     // Both (or the sole size) resolver keys were checked above.
@@ -1331,6 +1355,41 @@ fn part_pmi_observed(
     } else {
         intent
     };
+    let has_points = intent
+        .requirements
+        .iter()
+        .chain(&intent.general)
+        .filter_map(|r| r.get("planner"))
+        .filter_map(|p| p.get("supports").and_then(Json::as_array))
+        .flatten()
+        .any(|s| {
+            s.get("faces")
+                .and_then(Json::as_array)
+                .is_some_and(Vec::is_empty)
+        });
+    let point_unit = if has_points {
+        let (model, _) = step_io::read(loaded.bytes.as_slice())
+            .map_err(|e| WriteError::Failed(format!("planner point units: {e}")))?;
+        let u =
+            model.scene().units().length.ok_or_else(|| {
+                WriteError::Invalid("planner point has no source length unit".into())
+            })?;
+        // step-io's unit factor is a float: INCH may arrive as 0.025400000000000002.
+        // Recover standard exact units before comparing with the kernel's decimal units.
+        [
+            LengthUnit::Millimetre,
+            LengthUnit::Micrometre,
+            LengthUnit::Centimetre,
+            LengthUnit::Metre,
+            LengthUnit::Inch,
+            LengthUnit::Foot,
+        ]
+        .into_iter()
+        .find(|unit| (unit.millimetres() / 1000. - u.to_si).abs() <= u.to_si.abs() * 1e-12)
+        .unwrap_or(LengthUnit::from_metres(&u.name, decimal(u.to_si)?))
+    } else {
+        LengthUnit::Millimetre
+    };
     let mut p = PartPmi::default();
     let origins = crate::pmi_origin::Planner::new(loaded).map_err(WriteError::Failed)?;
     let mut lines = Lines::default();
@@ -1403,16 +1462,15 @@ fn part_pmi_observed(
 
     // The dimensions the general tolerance covers (`general.rs`) follow the requirements, each
     // written with its nominal alone: the general tolerance written for the part governs it, as
-    // on a drawing, so the file states every size and hole location, not only those specified
-    // (#63). They are counted in one line of the report, not listed. A part with PMI from
-    // elsewhere (`Mode::Add`) gets none: its own dimensions are the ones its designer chose, and
-    // these would repeat them, on faces its PMI already uses.
+    // on a drawing (#63). They are counted in one report line. Shared slice-one rows account
+    // for stored PMI; deferred General rows keep their original Add-mode omission.
     let mut general = 0usize;
-    let covered: &[Map<String, Json>] = if mode == Mode::Replace {
-        &intent.general
-    } else {
-        &[]
-    };
+    // The shared planner has accounted for stored dimensions. Its slice-one rows are
+    // required in Add mode too; only later-slice legacy General rows retain the old omission.
+    let covered = intent
+        .general
+        .iter()
+        .filter(|r| mode == Mode::Replace || r.contains_key("planner"));
     for req in intent.requirements.iter().chain(covered) {
         if truthy(req.get("stored")) {
             continue;
@@ -1449,7 +1507,16 @@ fn part_pmi_observed(
         if let Some(planned) = req.get("planner") {
             let planned: crate::dimensioning::Planned = serde_json::from_value(planned.clone())
                 .map_err(|e| WriteError::Invalid(format!("planned dimension: {e}")))?;
-            let dimension_kind = planned_kind(&planned, &mut f, &mut p.geometry)?;
+            let dimension_kind = planned_kind(&planned, &mut f, &mut p.geometry, &point_unit)?;
+            // Keep generated measurements at Specify's established six decimal places in mm;
+            // sub-nanometre frame-inference noise must not create inspection revisions.
+            let measured = if planned.required.id.starts_with("specified:")
+                || planned.required.id.starts_with("stored:")
+            {
+                planned.required.nominal
+            } else {
+                crate::rules::round(planned.required.nominal, 6)
+            };
             let nominal = if matches!(
                 &planned.required.kind,
                 quiddity::dimensioning::Kind::Size {
@@ -1457,9 +1524,9 @@ fn part_pmi_observed(
                     ..
                 }
             ) {
-                Value::angle(decimal(planned.required.nominal)?, pmi::AngleUnit::Degree)
+                Value::angle(decimal(measured)?, pmi::AngleUnit::Degree)
             } else {
-                mm(planned.required.nominal)?
+                mm(measured)?
             };
             let tolerance = match &planned.required.tolerance {
                 quiddity::dimensioning::Tolerance::Basic => DimTolerance::Basic,
@@ -1515,7 +1582,7 @@ fn part_pmi_observed(
                 items: vec![(
                     "requirement".into(),
                     AttributeValue::Text(
-                        serde_json::to_string(&planned)
+                        crate::dimensioning::metadata(&planned)
                             .map_err(|e| WriteError::Failed(e.to_string()))?,
                     ),
                 )],
@@ -1535,12 +1602,18 @@ fn part_pmi_observed(
                 let how = if truthy(req.get("basic")) {
                     "basic".into()
                 } else {
-                    format!("±{}", pyfmt::g(number(req, "upper")?))
+                    let (upper, lower) = (number(req, "upper")?, number(req, "lower")?);
+                    if upper == -lower {
+                        format!("±{}", pyfmt::g(upper))
+                    } else {
+                        format!("+{}/{}", pyfmt::g(upper), pyfmt::signed_g(lower))
+                    }
                 };
                 lines.written.push(format!(
-                    "{} {how} to {}",
+                    "location {} {how} to {} from faces {}",
                     pyfmt::g(planned.required.nominal),
-                    feature_name()
+                    feature_name(),
+                    face_list(req.get("reference"))
                 ));
             }
             continue;

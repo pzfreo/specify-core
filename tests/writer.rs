@@ -1256,8 +1256,14 @@ fn write_the_rest(name: &str, faceless: &[&str]) {
     let Some(input) = case.input() else {
         return;
     };
-    let intent = Intent::from_dict(&case.artifact("apply").unwrap()).unwrap();
     let given = case.meta["answers"].as_object().cloned();
+    let loaded = load(&input, None).unwrap();
+    // Keep the oracle's faceless feature evidence, but expect the shared requirement set,
+    // rather than counting its obsolete per-member dimension witnesses (#75).
+    let mut analysis = case.artifact("analysis").unwrap();
+    analysis["dimensioning"] = specify_core::api::analyse(&loaded).unwrap()["dimensioning"].clone();
+    let intent =
+        specify_core::rules::apply_with_defaults(&analysis, given.as_ref().unwrap(), true).unwrap();
     let dir = temp(&name.replace('/', "_"));
     let out = dir.join("written.step");
     let report = write(&load(&input, None).unwrap(), &intent, &out, given.as_ref()).unwrap();

@@ -87,7 +87,21 @@ fn plate_writes_every_required_quantity_and_basics_use_the_pattern_origin() {
         })
         .collect();
     stored.sort_by(|a, b| a.id.cmp(&b.id));
-    assert_eq!(stored, rs);
+    // Persistent JSON text rounds frame noise to nine places for native/WASM parity.
+    // Requirement identities, grouping and tolerance classes remain exact.
+    let mut expected = serde_json::to_value(&rs).unwrap();
+    fn canonical(v: &mut Value) {
+        match v {
+            Value::Number(n) if n.is_f64() => {
+                *v = json!((n.as_f64().unwrap() * 1e9).round() / 1e9 + 0.0);
+            }
+            Value::Array(a) => a.iter_mut().for_each(canonical),
+            Value::Object(m) => m.values_mut().for_each(canonical),
+            _ => {}
+        }
+    }
+    canonical(&mut expected);
+    assert_eq!(serde_json::to_value(stored).unwrap(), expected);
     assert!(read.parts[0].features.iter().any(|f| matches!(
         f,
         pmi::Feature::Group {
@@ -111,7 +125,10 @@ fn an_existing_written_plate_retires_member_numbers_and_never_reuses_them() {
     let a = api::analyse(&old).unwrap();
     let given = a["resume"]["answers"].as_object().unwrap();
     let i = rules::apply_with_defaults(&a, given, true).unwrap();
-    let (bytes, _) = writer::write_bytes(&old, &i, Some(given)).unwrap();
+    let (bytes, report) = writer::write_bytes(&old, &i, Some(given)).unwrap();
+    assert!(report.warnings.contains(
+        &"retired characteristic numbers: 6, 7, 8, 9, 10, 11, 21, 22, 23, 24, 25, 26".into()
+    ));
     let new = part::load_bytes("planned.step", bytes).unwrap();
     let after = characteristics::read(&new).unwrap();
     assert_eq!(after.len(), 20);
@@ -238,5 +255,64 @@ fn stored_dimensions_enter_the_planner_and_are_kept_once_in_add_mode() {
             ))
             .count(),
         1
+    );
+}
+
+#[test]
+fn synthetic_supports_are_converted_to_the_source_inch_context() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/nist/nist_ctc_05_asme1_ap242.stp.gz");
+    let p = part::load(&path, Some(0)).unwrap();
+    let given = json!({"part.general_tolerance":"ISO 2768-m"});
+    let i = api::preview(&api::analyse(&p).unwrap(), given.as_object().unwrap()).unwrap();
+    let (bytes, _) = writer::write_bytes(&p, &i, None).unwrap();
+    let p = part::File::of_bytes(Path::new("inch.step"), bytes)
+        .unwrap()
+        .load(Some(0))
+        .unwrap();
+    let read = model(&p);
+    let points: Vec<_> = read.parts[0]
+        .geometry
+        .iter()
+        .filter(|g| {
+            g.item.leaves.iter().any(|(name, attrs)| {
+                name == "CARTESIAN_POINT"
+                    && attrs.first()
+                        == Some(&pmi::GeometryValue::Text(writer::PMI_PROVENANCE.into()))
+            })
+        })
+        .collect();
+    assert!(!points.is_empty());
+    assert!(
+        points
+            .iter()
+            .all(|g| g.length_unit == Some(pmi::LengthUnit::Inch))
+    );
+}
+
+#[test]
+fn stored_pattern_origin_is_a_specified_authority_not_a_second_origin() {
+    let p = plate();
+    let mut i = rules::Intent::new(json!(p.binding));
+    i.requirements.push(json!({"kind":"location", "faces":[6,7,8,10,11,13], "reference":[0], "distance":50., "upper":0.03, "lower":-0.03}).as_object().unwrap().clone());
+    let (bytes, _) = writer::write_bytes(&p, &i, None).unwrap();
+    let imported = part::load_bytes("origin.step", bytes).unwrap();
+    let a = api::analyse(&imported).unwrap();
+    let given = json!({"part.general_tolerance":"ISO 2768-m"});
+    let i = api::preview(&a, given.as_object().unwrap()).unwrap();
+    let rs = required(&i);
+    let stored: Vec<_> = rs.iter().filter(|r| r.id.starts_with("stored:")).collect();
+    assert_eq!(stored.len(), 1);
+    assert!(
+        matches!(&stored[0].kind, quiddity::dimensioning::Kind::Location { to, .. } if to.feature.starts_with("pattern["))
+    );
+    assert!(!rs.iter().any(|r| matches!(&r.kind, quiddity::dimensioning::Kind::Location { from, to, axis } if matches!(&stored[0].kind, quiddity::dimensioning::Kind::Location { from: a, to: b, axis: c } if from==a && to==b && axis==c)) && !r.id.starts_with("stored:")));
+    let (bytes, _) = writer::write_bytes(&imported, &i, None).unwrap();
+    let written = part::load_bytes("origin-added.step", bytes).unwrap();
+    let read = model(&written);
+    assert_eq!(
+        read.parts[0].dimensions.len(),
+        rs.len(),
+        "stored origin is already present exactly once"
     );
 }

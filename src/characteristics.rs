@@ -813,3 +813,24 @@ pub(crate) fn carry_revision(
     );
     Ok(())
 }
+
+/// Only numbers actually carried by former characteristic roots count as retired; gaps below
+/// the high-water mark may instead be reserved foreign feature identifiers.
+pub(crate) fn retired(
+    before: &PartPmi,
+    prov: &PartProvenance,
+    doc: &Document,
+    after: &PartPmi,
+) -> Result<Vec<u64>, String> {
+    let live: BTreeSet<_> = history(after)?
+        .unwrap_or_default()
+        .entries
+        .into_iter()
+        .map(|e| e.number)
+        .collect();
+    let old: BTreeSet<_> = items(before, Some(prov), Some(doc))
+        .into_iter()
+        .filter_map(|i| number(doc, i.entity))
+        .collect();
+    Ok(old.difference(&live).copied().collect())
+}

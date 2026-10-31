@@ -27,6 +27,10 @@ arena. Actual patterns use `PatternOfFeatures`, counted unpatterned groups use
 name is rejected by the kernel's own reader); angular quantities use degrees.
 The exact role, count, pitch intervals, covered IDs, supports, frame and optional
 reference proof round-trip in a dimension-owned `specify dimension plan` UDA.
+Synthetic support coordinates are converted from millimetres into the source
+context's length unit using the same step-io reader as the kernel (including inches).
+Persistent planner metadata canonicalizes frame noise to nine decimal places;
+generated PMI measurements retain Specify's six decimal places in millimetres.
 References use the standard `DimensionModifier::Reference` (auxiliary dimension).
 Scene IDs and characteristic matching retain the planner's face-derived role IDs,
 so different quantities on one support remain distinct. Old numbers are matched
@@ -38,7 +42,8 @@ through-step sections, plate thickness owners, chamfers, fillets and other
 explicitly deferred or non-step planes. There is no new dimension-scheme handling.
 Every empty-`by` conveyance is a later-slice ownership claim; it is not evidence
 that the legacy dimension was conveyed by another dimension. Add-mode writing
-continues to retain foreign PMI and to omit generated General dimensions.
+retains foreign PMI once and adds the planner's missing slice-one quantities.
+Later-slice General rows keep their existing Add-mode omission.
 
 The default plate's all-General planner has 11 quantities. Specify writes 13 when
 position frames are accepted: the General centre-hole offsets 50 and 30 cannot
@@ -47,3 +52,14 @@ not extra basics or a second pattern location. The drill diameter 4.2 is now als
 stated beside its M5 thread. `tests/planner_dimensions.rs` independently checks the
 shared set, its complete STEP readback, reference modifiers, stored-PMI authority,
 and an actual pre-planner numbered plate resumed twice.
+
+The exact deferred-family predicate is every accepted defining family except
+`holes`, `countersinks`, `step_levels`, `risers`, `through_steps` and `plates`, plus
+the explicit `through_step section`, `plate thickness`, `turned profile`,
+`turned envelope`, `polygonal_stock` and `non-step plane` ownership claims.
+Derived pattern families have no defining claims of their own. This also retains
+flats, grooves/annular and face grooves, blends, cylindrical profiles, freeform
+surfaces, modelled threads, angled/paired/oblique/circular blind steps, oriented
+chamfers, ribs, thin walls, interior voids, all slot/pocket/channel/notch/recess
+variants, sheet-metal bodies, polygonal bosses/stock and raised pads. Schemes
+continue on the existing path; Specify introduces no scheme interpretation here.

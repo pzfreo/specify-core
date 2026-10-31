@@ -145,15 +145,18 @@ impl Planner {
             },
             _ => None,
         });
-        let planned_parameter = req
-            .get("planner")
-            .and_then(|p| serde_json::from_value::<crate::dimensioning::Planned>(p.clone()).ok())
-            .map(|p| match p.required.kind {
-                quiddity::dimensioning::Kind::Size { role, .. } => role,
-                quiddity::dimensioning::Kind::Location { axis, .. } => {
-                    format!("location.length.{}", ["x", "y", "z"][axis])
-                }
-            });
+        let planned_parameter = feature.filter(|_| !support.is_empty()).and_then(|_| {
+            req.get("planner")
+                .and_then(|p| {
+                    serde_json::from_value::<crate::dimensioning::Planned>(p.clone()).ok()
+                })
+                .map(|p| match p.required.kind {
+                    quiddity::dimensioning::Kind::Size { role, .. } => role,
+                    quiddity::dimensioning::Kind::Location { axis, .. } => {
+                        format!("location.length.{}", ["x", "y", "z"][axis])
+                    }
+                })
+        });
         let parameter = planned_parameter.or_else(|| {
             feature.and_then(|f| {
                 if size {
