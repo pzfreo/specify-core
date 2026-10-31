@@ -409,6 +409,26 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
             out.extend(compare_readback(&name, python, &rust));
         }
     }
+    if let Some(dump) = std::env::var_os("SPECIFY_DUMP")
+        && output.is_file()
+    {
+        let dump = PathBuf::from(dump).join("writes");
+        std::fs::create_dir_all(&dump).unwrap();
+        std::fs::copy(&output, dump.join(output.file_name().unwrap())).unwrap();
+        let rows: Vec<_> = out
+            .iter()
+            .map(|d| {
+                json!({"case":d.case,"path":d.path,
+            "python":d.python,"rust":d.rust})
+            })
+            .collect();
+        std::fs::write(
+            dump.join(output.file_name().unwrap())
+                .with_extension("differences.json"),
+            serde_json::to_vec_pretty(&rows).unwrap(),
+        )
+        .unwrap();
+    }
     let _ = std::fs::remove_file(&output);
     out
 }

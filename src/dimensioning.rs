@@ -47,12 +47,32 @@ fn deferred(input: &Input, r: &Map<String, Value>) -> bool {
         return true;
     }
     if on_holes(input, &faces) {
-        return false;
+        // Slice one's location grammar requires principal drilling directions.
+        // Oblique hole locations keep their existing physical reference path.
+        return r.get("kind").and_then(Value::as_str) == Some("location")
+            && input
+                .holes
+                .iter()
+                .filter(|h| overlaps(&faces, &h.support.faces))
+                .any(|h| h.direction.iter().filter(|v| v.abs() >= 1e-6).count() != 1);
     }
     if r.get("kind").and_then(Value::as_str) == Some("size") {
         return true;
     }
     if !input.cartesian_envelope {
+        return true;
+    }
+    // Nonprincipal plane directions are outside the shared Cartesian ladder.
+    let physical_principal = |faces: &[usize]| {
+        !faces.is_empty()
+            && input
+                .planes
+                .iter()
+                .any(|p| faces.iter().all(|f| p.support.faces.contains(f)))
+    };
+    if r.get("kind").and_then(Value::as_str) == Some("location")
+        && (!physical_principal(&faces) || !physical_principal(&ids(r, "reference")))
+    {
         return true;
     }
     input.deferred.iter().any(|d| overlaps(&faces, &d.faces))
@@ -65,13 +85,15 @@ fn deferred(input: &Input, r: &Map<String, Value>) -> bool {
             && plane_mismatch(input,s,input.steps.axis))
 }
 fn plane_mismatch(input: &Input, s: &Support, axis: usize) -> bool {
-    s.plane
-        && input.planes.iter().any(|p| {
-            p.axis == axis
-                && p.support.body == s.body
-                && overlaps(&p.support.faces, &s.faces)
-                && (p.support.at[axis] - s.at[axis]).abs() > 1e-4
-        })
+    if !s.plane || s.faces.is_empty() {
+        return false;
+    }
+    let physical = input.planes.iter().find(|p| {
+        p.axis == axis
+            && p.support.body == s.body
+            && s.faces.iter().all(|f| p.support.faces.contains(f))
+    });
+    physical.is_none_or(|p| (p.support.at[axis] - s.at[axis]).abs() > 1e-4)
 }
 
 fn pitch_witnesses(input: &Input, r: &Required) -> Result<Option<[Support; 2]>, String> {
@@ -630,7 +652,7 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
         if matches!(&r.kind,Kind::Location {from,to,axis}
             if plane_mismatch(&input,from,*axis) || plane_mismatch(&input,to,*axis)) {
             unresolved.push(json!({"kind":"location","feature":r.covers.join(","),"faces":[],
-                "not_written_reason":format!("shared planner {}: support station disagrees with its physical plane; retained legacy measured plane dimension",r.id)})
+                "not_written_reason":format!("shared planner {}: support has no matching physical principal-plane station; retained legacy measured plane dimension",r.id)})
                 .as_object().unwrap().clone());
             false
         } else {true}

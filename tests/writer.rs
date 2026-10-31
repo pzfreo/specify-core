@@ -863,9 +863,10 @@ fn a_nist_part_keeps_all_its_pmi() {
     assert_eq!(
         report.written,
         [
-            // #75: stored PMI is supplied to the shared planner in Add mode. Its 17
-            // remaining slice-one General quantities are appended; the 12 originals stay.
-            "17 dimensions under the general tolerance",
+            // #75: three raw counted General bore groups overlap stored fits and
+            // cannot replace their contracts. Report them; append the 14 reconciled
+            // requirements and preserve the 12 original dimensions.
+            "14 dimensions under the general tolerance",
             "material CZ121",
             "general tolerance ISO 2768-m",
             "surface finish Ra 3.2",
@@ -875,7 +876,12 @@ fn a_nist_part_keeps_all_its_pmi() {
     let old = read_existing(&loaded).unwrap();
     let new = read_existing(&load(&out, None).unwrap()).unwrap();
     assert_eq!(old, new);
-    assert_eq!(pmi_of(&out, 0).dimensions.len(), 29); // 12 original + 17 shared requirements.
+    assert_eq!(pmi_of(&out, 0).dimensions.len(), 26); // 12 original + 14 reconciled quantities.
+    assert_eq!(report.not_written.iter().cloned().collect::<std::collections::BTreeSet<_>>(),[
+        "shared planner dim:multiple[hole:50.51.56.57,hole:52.53.58.59]/bore.diameter: General contract conflicts with an answered requirement; retained answered intent instead",
+        "shared planner dim:pattern[hole:0.1,hole:91.92,hole:93.94,hole:95.96]/bore.diameter: General contract conflicts with an answered requirement; retained answered intent instead",
+        "shared planner dim:pattern[hole:71.72,hole:73.74,hole:75.76,hole:89.90]/bore.diameter: General contract conflicts with an answered requirement; retained answered intent instead",
+    ].into_iter().map(String::from).collect());
     let text = std::fs::read_to_string(&out).unwrap();
     assert!(!text.contains("DRAUGHTING_CALLOUT('Datum "));
     assert!(stored(text.as_bytes()).is_empty());
@@ -1257,9 +1263,9 @@ fn writing_twice_gives_identical_bytes() {
 // --- requirements on no faces (question Q17) -----------------------------------------------------
 
 /// Python's own accept-defaults intent of a corpus case whose rules give a hole's requirements
-/// `faces: []` is written: each such requirement is listed in `not_written` with the reason and
-/// everything else is written, verified by reading back (Python fails inside OpenCascade on
-/// these). Skipped without the corpus.
+/// `faces: []` is reconciled by stable recognition identity where possible. Truly unbound
+/// requirements remain Q17 diagnostics; unsupported planner quantities are reported too.
+/// Every writable requirement is verified by reading back. Skipped without the corpus.
 fn write_the_rest(name: &str, faceless: &[&str]) {
     let case = common::case(name);
     let Some(input) = case.input() else {
@@ -1267,8 +1273,8 @@ fn write_the_rest(name: &str, faceless: &[&str]) {
     };
     let given = case.meta["answers"].as_object().cloned();
     let loaded = load(&input, None).unwrap();
-    // Keep the oracle's faceless feature evidence, but expect the shared requirement set,
-    // rather than counting its obsolete per-member dimension witnesses (#75).
+    // Retain the frozen radius-filter evidence. The shared input supplies exact
+    // recognition identities, so generated answered bores can recover their supports.
     let mut analysis = case.artifact("analysis").unwrap();
     analysis["dimensioning"] = specify_core::api::analyse(&loaded).unwrap()["dimensioning"].clone();
     let intent =
@@ -1285,15 +1291,25 @@ fn write_the_rest(name: &str, faceless: &[&str]) {
         .collect();
     let wanted: Vec<String> = faceless.iter().map(|w| format!("{w}{reason}")).collect();
     assert_eq!(listed, wanted.iter().collect::<Vec<_>>());
-    // Every other requirement, each datum, the material, the general tolerance and the part's
-    // notes are written.
+    let deferred: Vec<_> = intent
+        .requirements
+        .iter()
+        .filter_map(|r| r.get("not_written_reason").and_then(Value::as_str))
+        .collect();
+    assert!(
+        deferred
+            .iter()
+            .all(|reason| report.not_written.iter().any(|r| r == *reason))
+    );
+    // Reported deferrals do not masquerade as written requirements. Every other
+    // requirement, datum, setting and note still contributes its exact report line.
     let notes = specify_core::rules::NOTES
         .iter()
         .filter(|k| intent.part.get(**k).is_some_and(|v| v.as_str() != Some("")))
         .count();
     assert_eq!(
         report.written.len(),
-        intent.datums.len() + intent.requirements.len() - faceless.len()
+        intent.datums.len() + intent.requirements.len() - faceless.len() - deferred.len()
             + 2
             + notes
             + general_line(&report.written),
@@ -1348,16 +1364,33 @@ fn a_pattern_on_no_faces_is_listed_and_the_rest_written() {
 }
 
 #[test]
-fn a_hole_on_no_faces_is_listed_and_the_rest_written() {
-    write_the_rest(
-        "corpus/mfcadpp/1004",
-        &[
-            "the size on holes:16",
-            "the location of holes:16",
-            "the location of holes:16",
-            "the position tolerance on holes:16",
-        ],
+fn a_recognised_bore_recovers_its_answered_supports_instead_of_becoming_q17() {
+    // Its H11 size, two basics and position were previously lost to an exact
+    // radius comparison. Stable face-derived identity makes them writable (#75).
+    write_the_rest("corpus/mfcadpp/1004", &[]);
+}
+
+#[test]
+fn an_unbound_raw_requirement_is_listed_and_the_rest_written() {
+    let dir = temp("unbound");
+    let p = load(&fixture("plate"), None).unwrap();
+    let mut i = Intent::new(json!(p.binding));
+    i.requirements.push(answers(
+        json!({"kind":"size","feature":"unbound","faces":[],"nominal":8.,"upper":0.1,"lower":-0.1}),
+    ));
+    i.requirements.push(answers(
+        json!({"kind":"flatness","faces":[0],"tolerance":0.01}),
+    ));
+    let out = dir.join("written.step");
+    let report = write(&p, &i, &out, None).unwrap();
+    assert_eq!(
+        report.not_written,
+        ["the size on unbound names no faces, so nothing in the file can carry it (question Q17)"]
     );
+    let read = pmi_of(&out, 0);
+    assert!(read.dimensions.is_empty());
+    assert_eq!(read.tolerances.len(), 1);
+    assert_conformant(&out);
 }
 
 // --- knurls (questions Q4, Q15) ----------------------------------------------------------------

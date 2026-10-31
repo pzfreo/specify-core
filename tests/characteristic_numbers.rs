@@ -417,7 +417,11 @@ fn older_quiddity_written_pmi_keeps_numbers_on_upgrade_to_024() {
             assert!(n.reference.iter().all(|f| c.reference.contains(f)));
             retained += 1;
         } else {
-            // Shared pattern origins retire the old per-member locations (#75).
+            // Complete coincident groups and aligned pattern witnesses supersede
+            // these old individual location rows; no surviving number is reused.
+            if [103, 106, 108, 153, 155].contains(&n.number) {
+                eprintln!("replaced old member location: {n:?}");
+            }
             assert_eq!(
                 n.r#type, "Location_LinearDistance",
                 "unexpected retirement: {n:?}"
@@ -429,14 +433,16 @@ fn older_quiddity_written_pmi_keeps_numbers_on_upgrade_to_024() {
             .filter(|c| !old_ids.contains(&c.number))
             .all(|c| c.number > old_max)
     );
-    // Exactly forty old member offsets disappear into shared origins/pitches (#75).
-    assert_eq!(retained, 20);
+    // Coincident basics now carry their complete semantic feature groups, and
+    // pitches use aligned member witnesses. Superseded per-member rows retire.
+    eprintln!("retired old-kernel location numbers: {retired:?}");
+    assert_eq!(retained, 15);
     assert_eq!(
         retired,
         [
-            110, 111, 112, 113, 114, 115, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127,
-            128, 129, 130, 131, 132, 134, 135, 136, 137, 138, 141, 142, 143, 144, 145, 149, 150,
-            151, 152, 157, 158, 159, 160
+            103, 106, 108, 110, 111, 112, 113, 114, 115, 117, 118, 119, 120, 121, 122, 123, 124,
+            125, 126, 127, 128, 129, 130, 131, 132, 134, 135, 136, 137, 138, 141, 142, 143, 144,
+            145, 149, 150, 151, 152, 153, 155, 157, 158, 159, 160
         ]
         .into_iter()
         .collect()
@@ -975,7 +981,7 @@ fn first_shaft_walk_uses_front_shoulders_then_end_on_holes_and_side_width() {
             ("dimension", "Location_LinearDistance", &[8], &[10]),
             ("dimension", "Location_LinearDistance", &[2, 6], &[10]),
             ("dimension", "Size_Diameter", &[14], &[]),
-            ("dimension", "Location_LinearDistance", &[14], &[2, 6]),
+            ("dimension", "Location_LinearDistance", &[14, 15], &[2, 6]),
             ("geometric_tolerance", "Position", &[15], &[]),
             ("geometric_tolerance", "Position", &[14], &[]),
             ("thread", "Internal", &[15], &[]),

@@ -84,8 +84,10 @@ turned baselines determine a generated hole enlargement's depth, that depth
 is retained as a reference with both baseline witnesses. This avoids introducing
 an independent closed chain across the slice boundary. The same check makes a
 generated plane span a reference when retained baselines already determine it.
-A clustered step proposal whose station disagrees with its actual support plane
-is reported and deferred; the measured legacy plane dimension remains.
+A step proposal without a matching physical principal plane (including tilted
+faces and inconsistent clustered stations) is reported and deferred; measured
+legacy plane dimensions remain. Nonprincipal plane dimensions and oblique hole
+locations retain the existing path.
 Projected grid pitches resolve to aligned existing member-hole witnesses, so
 orthogonal pitches never become two different values on one diagonal face pair.
 Their shared requirement IDs, nominal values and interval counts are unchanged;
