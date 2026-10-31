@@ -889,7 +889,21 @@ fn category_order_fixture_from_the_013_era_keeps_numbers_on_noop_and_rewrite() {
     ];
     assert_walk(&old, &category);
     let i = intent(&old);
-    assert_eq!(old.bytes, write(&old, &i).bytes);
+    // #77 upgrades written legacy dimensions with origin/source; their stored numbers
+    // and original category walk still win. A subsequent unchanged write keeps its bytes.
+    let upgraded = write(&old, &i);
+    assert_walk(&upgraded, &category);
+    assert!(numbers(&old).iter().all(|n| n.origin.is_none()));
+    assert!(
+        numbers(&upgraded)
+            .iter()
+            .filter(|n| n.kind == "dimension")
+            .all(|n| n.origin.is_some())
+    );
+    assert_eq!(
+        upgraded.bytes,
+        write(&upgraded, &rebind(&i, &upgraded)).bytes
+    );
     let mut i = i;
     i.requirements[0].insert("upper".into(), json!(0.2)); // force rewrite, carry unique support
     requirement(

@@ -1,15 +1,17 @@
-//! Strict projection of #65's additions for the frozen pre-numbering cross-engine corpus.
+//! Strict projection of #65/#77 metadata additions for the frozen pre-numbering cross-engine corpus.
 //! Keep those files and their independent Python readbacks; do not recapture old evidence.
 use haecceity::p21::{Attribute, Document, RawEntity, Record};
 use specify_core::{characteristics, existing::ExistingPmi};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Erase only inspection identity for comparisons with Python's pre-#65 reader. Its note
+/// Erase only inspection identity and stored dimension intent for comparisons with Python's pre-#65 reader. Its note
 /// rows aggregate equal kinds; the numbered API now keeps each requirement separate.
 pub fn legacy_existing(items: Vec<ExistingPmi>) -> Vec<ExistingPmi> {
     let mut out: Vec<ExistingPmi> = Vec::new();
     for mut item in items {
         item.number = None;
+        item.origin = None;
+        item.source = None;
         if item.kind == "note"
             && let Some(old) = out.iter_mut().find(|old| {
                 old.kind == "note" && old.r#type == item.r#type && old.provenance == item.provenance
@@ -26,7 +28,7 @@ pub fn legacy_existing(items: Vec<ExistingPmi>) -> Vec<ExistingPmi> {
 }
 
 /// Require every non-numbering entity and every reference to remain exactly the same,
-/// allowing only the numeric-id/history additions and the consequent new-record numbering.
+/// allowing only the numeric-id/history and dimension-intent additions and the consequent new-record numbering.
 /// In particular, this is stronger than comparing only the semantic PMI a reader models.
 pub fn only_numbering_added(old: &[u8], new: &[u8]) -> Result<(), String> {
     let old = Document::parse(old.to_vec()).map_err(|e| e.to_string())?;
@@ -35,14 +37,16 @@ pub fn only_numbering_added(old: &[u8], new: &[u8]) -> Result<(), String> {
     let read = haecceity::pmi::read(&new, &defs).map_err(|e| e.to_string())?;
     let mut removed = BTreeSet::new();
     for (p, prov) in read.parts.iter().zip(&read.provenance.parts) {
-        for (i, a) in p
-            .attributes
-            .iter()
-            .enumerate()
-            .filter(|(_, a)| a.name == characteristics::PROPERTY)
-        {
-            if a.on.is_some() {
+        for (i, a) in p.attributes.iter().enumerate().filter(|(_, a)| {
+            a.name == characteristics::PROPERTY || a.name == specify_core::pmi_origin::PROPERTY
+        }) {
+            if a.name == characteristics::PROPERTY && a.on.is_some() {
                 return Err("number history attached to a feature".into());
+            }
+            if a.name == specify_core::pmi_origin::PROPERTY
+                && !matches!(a.on, Some(haecceity::pmi::NoteOwner::Dimension(_)))
+            {
+                return Err("dimension origin attached to another entity".into());
             }
             removed.extend(&prov.attributes[i]);
         }

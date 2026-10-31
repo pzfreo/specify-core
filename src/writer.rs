@@ -352,6 +352,12 @@ pub fn write_parts_bytes_with(
 fn check_extra(jobs: &[Job<'_>], extra: &[AttributeSet]) -> Result<(), WriteError> {
     if extra
         .iter()
+        .any(|set| set.name == crate::pmi_origin::PROPERTY)
+    {
+        return invalid("extra attribute set name 'specify pmi origin' is reserved");
+    }
+    if extra
+        .iter()
         .any(|set| set.name == crate::characteristics::PROPERTY)
     {
         return invalid(format!(
@@ -610,7 +616,7 @@ fn write_verified(
     for (&(loaded, intent, answers), &mode) in jobs.iter().zip(&modes) {
         // The binding was checked against these same bytes' parts; Source::of verifies reader counts.
         let before = &source.read.parts[loaded.binding.part];
-        let (mut pmi, lines) = part_pmi(intent, before, mode)?;
+        let (mut pmi, lines) = part_pmi(loaded, intent, before, mode)?;
         let payload = match answers {
             Some(answers) if mode == Mode::Replace => {
                 let mut saved = answers.clone();
@@ -764,6 +770,35 @@ fn write_by_modes(
             None
         };
         let current = stripped.as_ref().unwrap_or(current);
+        // Edition 1 excludes sizes/tolerances from characterized_definition. Upgrade
+        // only the header, using the lossless editor; original entity records stay intact.
+        let schemas = current
+            .file_schema()
+            .map_err(|e| WriteError::Failed(e.to_string()))?;
+        let upgrade = these.iter().any(|(_, p)| {
+            p.attributes
+                .iter()
+                .any(|a| a.name == crate::pmi_origin::PROPERTY)
+        }) && schemas
+            .first()
+            .and_then(|s| haecceity::express::edition(s))
+            .is_some_and(|e| e.type_decl("characterized_item").is_none());
+        let upgraded = if upgrade {
+            let mut edit = haecceity::p21::Edit::new();
+            edit.set_file_schema(vec![haecceity::express::TARGET_SCHEMA.into()]);
+            Some(
+                Document::parse(
+                    current
+                        .apply(&edit)
+                        .map_err(|e| WriteError::Failed(e.to_string()))?
+                        .bytes,
+                )
+                .map_err(|e| WriteError::Failed(e.to_string()))?,
+            )
+        } else {
+            None
+        };
+        let current = upgraded.as_ref().unwrap_or(current);
         let (mut edit, _) = pmi::write(current, defs, &these, mode, policy).map_err(refused)?;
         if mode == Mode::Replace {
             // Python's own form of stored answers is not PMI haecceity reads (it reports it as
@@ -1140,8 +1175,14 @@ fn deviations(upper: f64, lower: f64, what: &str) -> Result<DimTolerance, WriteE
 
 /// The intent of one part as haecceity's model, and the report's lines for it. `before` is the
 /// part's PMI as read: in add mode a datum it already has is its own (no "datum" line).
-fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, Lines), WriteError> {
+fn part_pmi(
+    loaded: &LoadedPart,
+    intent: &Intent,
+    before: &PartPmi,
+    mode: Mode,
+) -> Result<(PartPmi, Lines), WriteError> {
     let mut p = PartPmi::default();
+    let origins = crate::pmi_origin::Planner::new(loaded).map_err(WriteError::Failed)?;
     let mut lines = Lines::default();
     let mut features = Vec::new();
     let mut f = Features(&mut features);
@@ -1298,6 +1339,7 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
                     modifiers: Vec::new(),
                     principle: None,
                 });
+                origins.dimension(&mut p, req, under_general);
                 if under_general {
                     general += 1;
                 } else {
@@ -1349,6 +1391,7 @@ fn part_pmi(intent: &Intent, before: &PartPmi, mode: Mode) -> Result<(PartPmi, L
                     modifiers: Vec::new(),
                     principle: None,
                 });
+                origins.dimension(&mut p, req, under_general);
                 if under_general {
                     general += 1;
                 } else {

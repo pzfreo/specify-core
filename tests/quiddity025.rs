@@ -85,7 +85,15 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
         let back = part::load_bytes("rewritten.step", bytes).unwrap();
         assert_eq!(resume::answers_for(&back).unwrap().as_ref(), Some(answers));
         assert_eq!(
-            existing::read_existing(&back).unwrap(),
+            existing::read_existing(&back)
+                .unwrap()
+                .into_iter()
+                .map(|mut row| {
+                    row.origin = None;
+                    row.source = None;
+                    row
+                })
+                .collect::<Vec<_>>(),
             existing::read_existing(&loaded).unwrap()
         );
 

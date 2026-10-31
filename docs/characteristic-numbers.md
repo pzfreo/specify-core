@@ -154,7 +154,7 @@ text notes and caller metadata are settings rather than individual inspection ch
 Files without numeric characteristic ids have no extra analysis or PMI JSON fields. Their
 legacy serialization and note aggregation/order are unchanged. No write adds a history
 property to a part that has never allocated a characteristic number. No-op resumed writes
-retain their original bytes; lossless Add keeps every original entity record unchanged.
+retain their original bytes once their dimensions carry the current origin attributes; lossless Add keeps every original entity record unchanged.
 
 ## General ISO 2768 rows
 
@@ -178,7 +178,7 @@ slots. First-allocation tests pin every number and geometric support on the pris
 (14 characteristics), turned pin (12), and GRM-02 shaft (15), with each station explained
 in the test. They also prove that a later top-left hole appends despite sorting first on
 a fresh part. `characteristic-numbers-category.step.gz`, captured from unmodified
-`68f375c` with the test's `intent()`, pins the old category order through both a no-op
+`68f375c` with the test's `intent()`, pins the old category order through the origin-metadata upgrade, a subsequent no-op,
 and a changed-value rewrite with an addition. `tests/characteristic_numbers.rs` covers
 all characteristic kinds, repeat writes,
 additions, value edits, removal/re-addition/empty writes, foreign append, old-file compatibility,
@@ -210,3 +210,6 @@ so Specify removes just those numeric inverse annotations before Replace. For up
 first-class support, haecceity could expose optional ids alongside each semantic root, and
 consume definition-shape `ID_ATTRIBUTE`s in the thread/knurl provenance; that is not required
 for this implementation and no quiddity files are edited here.
+
+For #77, per-dimension records also expose optional stored `origin` and `source`.
+See [dimension origin and source](pmi-origin.md) for the UDA and geometric source grammar.
