@@ -863,6 +863,9 @@ fn a_nist_part_keeps_all_its_pmi() {
     assert_eq!(
         report.written,
         [
+            // #75: stored PMI is supplied to the shared planner in Add mode. Its 17
+            // remaining slice-one General quantities are appended; the 12 originals stay.
+            "17 dimensions under the general tolerance",
             "material CZ121",
             "general tolerance ISO 2768-m",
             "surface finish Ra 3.2",
@@ -872,6 +875,7 @@ fn a_nist_part_keeps_all_its_pmi() {
     let old = read_existing(&loaded).unwrap();
     let new = read_existing(&load(&out, None).unwrap()).unwrap();
     assert_eq!(old, new);
+    assert_eq!(pmi_of(&out, 0).dimensions.len(), 29); // 12 original + 17 shared requirements.
     let text = std::fs::read_to_string(&out).unwrap();
     assert!(!text.contains("DRAUGHTING_CALLOUT('Datum "));
     assert!(stored(text.as_bytes()).is_empty());

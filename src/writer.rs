@@ -1331,13 +1331,14 @@ fn part_pmi_observed(
 ) -> Result<(PartPmi, Lines), WriteError> {
     // Old JSON analyses/intents lack the typed planner input. Upgrade only rule-generated
     // intent here; a caller's hand-authored dimensions remain authoritative as stated.
+    // Rule-produced General rows always carry a feature key (empty for plane levels).
     let mut upgraded;
     let intent = if !intent
         .requirements
         .iter()
         .chain(&intent.general)
         .any(|r| r.contains_key("planner"))
-        && (!intent.general.is_empty()
+        && (intent.general.iter().any(|r| r.contains_key("feature"))
             || intent
                 .requirements
                 .iter()

@@ -16,8 +16,9 @@ counterparts. Stored foreign PMI is already present and is not appended twice.
 
 Older JSON analyses have no typed geometry input. Their rule results remain
 provisional, and the writer upgrades rule-generated intent using the loaded part.
-Hand-authored requirements remain authoritative; `general` rows are generated, including
-general-only saved intents. Invalid planner input is a write
+Unmarked, hand-authored writer rows remain authoritative. Rule-produced General rows
+carry a feature field (empty for planes), so general-only saved rule results also upgrade.
+Invalid planner input is a write
 failure, not a silently selected alternative planner.
 
 Each returned `Required` has one row with `planner` lowering information. Sizes and
