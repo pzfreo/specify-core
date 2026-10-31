@@ -279,18 +279,13 @@ fn schema_of(payload: &Map<String, Value>) -> Option<i64> {
     SCHEMAS.into_iter().find(|&s| s as f64 == n)
 }
 
-/// The stored answers for this part, if the file holds them for it and its faces are the ones
-/// they were given for (same face count, same fingerprint of the payload's schema: [`fingerprint`]
-/// for 2, [`fingerprint_v1`] for 1, or a schema 1 payload this port stored whose fingerprint
-/// cannot be reproduced, [`Check::Legacy`]); `None` otherwise. An error when the part's faces
-/// cannot be described, so the fingerprint cannot be checked.
-///
-/// This low-level payload reader preserves the original keys for callers holding the saved
-/// analysis (and for byte-for-byte round trips), and says whether the file's answers are
-/// specify-core's: for a [`Check::Legacy`] payload they are returned as stored, although their
-/// face indices are not verified. To resume against newly recognised geometry, use
-/// [`report_for_parsed`] or [`crate::api::analyse`], which migrate and report unresolved keys
-/// and match the answers of an unverified payload by feature ID.
+/// Stored answers for this part. Schemas 1/2 require their existing face-count and
+/// fingerprint checks (including [`Check::Legacy`]); their original keys are preserved.
+/// Schema 3 rematches authored names and unnamed evidence to the current geometry and
+/// returns only applicable answers, even across a rebuild. Missing or ambiguous supports
+/// are excluded. Use [`report_for_parsed`] or [`crate::api::analyse`] to retain those
+/// unresolved values and their diagnostics. [`stored`] exposes the original raw payload.
+/// An error describing faces or recognising named supports is returned to the caller.
 pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, FeatureError> {
     let Ok(doc) = Document::parse(loaded.bytes.to_vec()) else {
         return Ok(None);

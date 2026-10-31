@@ -62,6 +62,9 @@ datum; extras map both `faces` and distance `reference` lists. Feature answers
 then require a unique same-family feature containing the mapped support. Colliding
 answers remain refusals, and automatic-answer IDs follow successful migrations.
 
+Existing foreign CAD PMI comparisons retain their geometric support matching; the
+name refusal policy applies to saved answers and extras.
+
 The CLI's analyse/write/diff, Python's analyse/write/diff, and WASM session methods
 all use these core paths. Names persist only as long as the author keeps them
 stable and unique; renaming a face deliberately breaks its saved binding.

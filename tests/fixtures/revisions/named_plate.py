@@ -11,6 +11,7 @@ import sys
 
 from OCP.BRep import BRep_Builder
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
 from OCP.IFSelect import IFSelect_ReturnStatus
 from OCP.Interface import Interface_Static
@@ -69,6 +70,7 @@ def build(thickness, reverse, path):
     solid = TopoDS_Solid()
     builder.MakeSolid(solid)
     builder.Add(solid, shell)
+    assert BRepCheck_Analyzer(solid).IsValid()
     doc = TDocStd_Document(TCollection_ExtendedString("BinXCAF"))
     shapes = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
     label = shapes.AddShape(solid, False)

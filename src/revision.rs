@@ -1,14 +1,13 @@
 //! Revisions: a part's answers carried from one revision of its STEP file to the next, and what
 //! changed.
 //!
-//! [`crate::resume::rematch_answers`] resumes answers on the same geometry: with face evidence
-//! that does not match, every answer on a feature or a datum is left unresolved. A revision is
-//! different geometry by design, so here quiddity matches the two parts
-//! (`quiddity::correspondence::correspond`): it aligns them and classifies each recognised
-//! feature and face as carried, adapted, ambiguous, orphaned or new.
+//! Answers bind exact authored STEP names where present, sharing resume's name matcher.
+//! Unnamed faces use quiddity's correspondence (`quiddity::correspondence::correspond`),
+//! which aligns the two parts and classifies each recognised feature and face as carried,
+//! adapted, ambiguous, orphaned or new. Existing CAD PMI keeps its geometric comparison.
 //!
 //! An answer names its feature by family and defining faces (`hole.function:holes:12.13`) or,
-//! for a datum, lists faces (`datum.A: [4]`). Each face is mapped through the correspondence;
+//! for a datum, lists faces (`datum.A: [4]`). Each face is mapped by name or unnamed correspondence;
 //! the answer is then carried to the new part's feature of that family holding the mapped faces.
 //! An answer is never guessed: when a face is gone (*orphaned*), matches several faces
 //! (*ambiguous*), or no single feature holds the mapped faces, it is left unresolved with its
@@ -1457,7 +1456,7 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
     let (old_features, new_features) = (features(&old_analysis)?, features(&new_analysis)?);
     let corr =
         qc::correspond(&old_q.fingerprints, &new_q.fingerprints).map_err(api::Error::Analysis)?;
-    let mut faces: BTreeMap<usize, Bind> = corr
+    let geometric_faces: BTreeMap<usize, Bind> = corr
         .faces
         .iter()
         .map(|e| {
@@ -1469,6 +1468,9 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
             (e.old, bind)
         })
         .collect();
+    // Stored answers bind authored names. Existing CAD PMI keeps its independent
+    // geometric comparison: generic duplicate CAD labels are not saved answer anchors.
+    let mut faces = geometric_faces.clone();
     for (i, binding) in crate::resume::names::match_names(&old.face_names, &new.face_names) {
         use crate::resume::names::NameMatch;
         let bind = match binding {
@@ -1914,7 +1916,7 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
         existing: compare_existing(
             &old_existing,
             &new_existing,
-            &matching.faces,
+            &geometric_faces,
             &old_features,
             &new_features,
         ),
@@ -1925,7 +1927,7 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
             (&old_analysis, &new_analysis),
             (!given.is_empty()).then_some(given),
             &carried,
-            &matching.faces,
+            &geometric_faces,
             (&old_features, &new_features),
         )?,
     };
