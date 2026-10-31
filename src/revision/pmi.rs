@@ -41,6 +41,12 @@ fn reference_slot(key: &str) -> bool {
             | "supplemental"
             | "relating"
             | "related"
+            | "non_uniform"
+            | "affected_plane"
+            | "end"
+            | "partial_area"
+            | "runout"
+            | "features"
     )
 }
 

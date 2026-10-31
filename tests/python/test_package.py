@@ -208,3 +208,22 @@ def test_pmi_scene_rejects_malformed_answers(plate, answers):
         api.pmi_scene(plate, answers)
     with pytest.raises(ValueError, match="Invalid answers"):
         api.pmi_scene(plate, {"answers": answers, "auto": []})
+
+
+def test_diff_exposes_numbered_pmi_with_scene_identities(plate, tmp_path):
+    from specify_core import api
+
+    old = tmp_path / "old.step"
+    new = tmp_path / "new.step"
+    before = {"hole.function:holes:9": "fit:H7"}
+    after = {"hole.function:holes:9": "fit:H8"}
+    analysis = api.analyse(plate)
+    api.write(plate, api.preview(analysis, before), old, answers=before)
+    api.write(old, api.preview(api.analyse(old), after), new, answers=after)
+    result = api.diff(api.load(old), new)
+    scene = api.pmi_scene(new)
+    changed = [c for c in result["report"]["pmi"]["items"] if c["class"] == "changed"]
+    assert changed
+    for item in changed:
+        assert scene["specify"][item["id"]]["number"] == item["number"]
+    assert "→" in result["markdown"]

@@ -145,3 +145,42 @@ fn an_assembly_is_compared_part_by_part_each_changed_part_shaped_as_a_part_s_dif
         .collect();
     assert_eq!(changed, ["GRM-02 shaft", "GRM-04 drive plate"]);
 }
+
+#[test]
+fn numbered_requirement_changes_use_the_same_identity_as_pmi_scene() {
+    use serde_json::json;
+    use specify_core::{api, pmi_scene, writer};
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/parts/plate.step");
+    let bare = part::load(&fixture, None).unwrap();
+    let write = |p: &part::LoadedPart, fit| {
+        let answers = json!({"hole.function:holes:9":fit})
+            .as_object()
+            .unwrap()
+            .clone();
+        let bytes = writer::write_bytes(
+            p,
+            &api::preview(&api::analyse(p).unwrap(), &answers).unwrap(),
+            Some(&answers),
+        )
+        .unwrap()
+        .0;
+        part::load_bytes("written.step", bytes).unwrap()
+    };
+    let old = write(&bare, "fit:H7");
+    let new = write(&old, "fit:H8");
+    let result = session::diff(
+        ("old.step", &old.bytes),
+        ("new.step", &new.bytes),
+        &Map::new(),
+        "Fit",
+    )
+    .unwrap();
+    let scene = pmi_scene::pmi_scene(&new.bytes, None).unwrap();
+    let items = result["report"]["pmi"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["class"], "changed");
+    let meta = &scene["specify"][items[0]["id"].as_str().unwrap()];
+    assert_eq!(items[0]["number"], meta["number"]);
+    assert_eq!(items[0]["status"], meta["status"]);
+}

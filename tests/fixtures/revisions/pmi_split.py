@@ -1,6 +1,6 @@
 """PMI correspondence control: retain the seam between two fused half plates.
 
-build123d 0.11.1, cadquery-ocp 7.9; same geometry, one planar face becomes two.
+build123d 0.11.1; identical geometry, planar faces split into two.
 The unequal bores disambiguate the part alignment. PMI is constructed by the test.
 """
 from pathlib import Path

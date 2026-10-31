@@ -59,6 +59,32 @@ mod wasm {
     use specify_core::tolerancing;
     use wasm_bindgen::prelude::*;
 
+    /// Types for the JSON report returned by `diff`; ids/numbers match `pmiScene`.
+    #[wasm_bindgen(typescript_custom_section)]
+    const PMI_DIFF_TYPES: &str = r#"
+export interface PmiItemChange {
+  class: "added" | "removed" | "changed" | "renumbered";
+  number?: number;
+  id: string;
+  kind: string;
+  status: "answered" | "default" | "general" | "existing";
+  on: string;
+  old?: string;
+  new?: string;
+  reason?: string;
+}
+export interface DiffPmi {
+  items: PmiItemChange[];
+  /** @deprecated Legacy answer comparison, retained for one release. */
+  stored: unknown[];
+  /** @deprecated Legacy CAD comparison, retained for one release. */
+  existing: unknown[];
+  existing_count: [number, number];
+  answers_from: "given" | "stored" | "none";
+  new_stored: boolean;
+}
+"#;
+
     #[wasm_bindgen]
     pub struct IntentEngine(session::Session);
 

@@ -158,6 +158,41 @@ fn mesh(py: Python<'_>, step: &Bound<'_, PyAny>, part: Option<usize>) -> PyResul
     Ok(mesh.to_string())
 }
 
+/// Revision report and Markdown, including numbered semantic PMI changes.
+#[pyfunction]
+#[pyo3(signature = (old, new, answers="{}", title="Revision", part=None))]
+fn diff(
+    py: Python<'_>,
+    old: &Bound<'_, PyAny>,
+    new: &Bound<'_, PyAny>,
+    answers: &str,
+    title: &str,
+    part: Option<usize>,
+) -> PyResult<String> {
+    let answers = answers_of(answers)?;
+    let old_owned;
+    let old = match loaded(old, part)? {
+        Some(handle) => handle,
+        None => {
+            old_owned = load_path(py, old, part)?;
+            &old_owned
+        }
+    };
+    let new_owned;
+    let new = match loaded(new, part)? {
+        Some(handle) => handle,
+        None => {
+            new_owned = load_path(py, new, part)?;
+            &new_owned
+        }
+    };
+    py.detach(|| {
+        let report = specify_core::revision::diff(&old.loaded, &new.loaded, &answers)?;
+        Ok(json!({"markdown": report.markdown(title, None), "report": report}).to_string())
+    })
+    .map_err(raised)
+}
+
 /// Haecceity PMI/presentation plus Specify metadata, from bytes or an open part.
 #[pyfunction]
 #[pyo3(signature = (step, answers=None, part=None))]
@@ -584,6 +619,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(with_all_defaults, m)?)?;
     m.add_function(wrap_pyfunction!(mesh, m)?)?;
     m.add_function(wrap_pyfunction!(pmi_scene, m)?)?;
+    m.add_function(wrap_pyfunction!(diff, m)?)?;
     m.add_function(wrap_pyfunction!(write, m)?)?;
     m.add_function(wrap_pyfunction!(write_parts, m)?)?;
     m.add_function(wrap_pyfunction!(read_existing, m)?)?;
