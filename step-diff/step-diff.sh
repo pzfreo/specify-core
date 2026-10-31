@@ -22,8 +22,8 @@ if [ -z "$VERSION" ]; then
   case "$ACTION_REF" in
     v[0-9]*) VERSION=$ACTION_REF ;;
     *)
-      for tag in $(gh release list -R pzfreo/specify-core-rust -L 5 --exclude-drafts --json tagName --jq '.[].tagName'); do
-        if gh release view "$tag" -R pzfreo/specify-core-rust --json assets --jq '.assets[].name' \
+      for tag in $(gh release list -R pzfreo/specify-core -L 5 --exclude-drafts --json tagName --jq '.[].tagName'); do
+        if gh release view "$tag" -R pzfreo/specify-core --json assets --jq '.assets[].name' \
           | grep -qx "$(release "$tag").tar.gz"; then
           VERSION=$tag
           break
@@ -33,7 +33,7 @@ if [ -z "$VERSION" ]; then
   esac
 fi
 name=$(release "$VERSION")
-gh release download "$VERSION" -R pzfreo/specify-core-rust -p "$name.tar.gz" -p "$name.tar.gz.sha256" -D "$RUNNER_TEMP"
+gh release download "$VERSION" -R pzfreo/specify-core -p "$name.tar.gz" -p "$name.tar.gz.sha256" -D "$RUNNER_TEMP"
 (cd "$RUNNER_TEMP" && sha256sum -c "$name.tar.gz.sha256" && tar -xzf "$name.tar.gz")
 PATH="$RUNNER_TEMP/$name:$PATH"
 
@@ -179,7 +179,7 @@ body="$RUNNER_TEMP/comment.md"
     esac
   done
   if [ ${#kinds[@]} -eq 0 ]; then printf 'This pull request no longer changes a STEP file.\n\n'; fi
-  echo "<sub>Compared by [specify-core](https://github.com/pzfreo/specify-core-rust) $VERSION at ${PR_HEAD:0:7}.</sub>"
+  echo "<sub>Compared by [specify-core](https://github.com/pzfreo/specify-core) $VERSION at ${PR_HEAD:0:7}.</sub>"
 } > "$body"
 # GitHub refuses a comment over 65,536 characters.
 if [ "$(wc -m < "$body")" -gt 65000 ]; then
