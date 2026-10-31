@@ -424,21 +424,22 @@ pub fn report_for_parsed(
 }
 
 /// Evidence kept beside external answers. Unnamed parts keep `{schema:2, face_count, faces}`.
-/// Named parts use schema 3 and add `face_names`, an indexed array of names/null; mixed
-/// parts also carry `geometry` (quiddity fingerprints) for their unnamed faces. The writer
+/// Unique authored `f:` identities use schema 3 and add indexed `face_names`; mixed
+/// parts also carry `geometry` for unnamed, shared or generic-labelled faces. The writer
 /// embeds these same fields. Names are opaque STEP strings, never inferred from geometry.
 pub fn evidence(loaded: &LoadedPart) -> Result<Value, FeatureError> {
-    let named = loaded.face_names.iter().any(Option::is_some);
+    let names = names::identities(&loaded.face_names);
+    let named = names.iter().any(Option::is_some);
     let mut evidence = json!({
         "schema": if named { SCHEMA } else { 2 },
         "face_count": loaded.binding.face_count,
         "faces": fingerprint(loaded)?,
     });
     if named {
-        evidence["face_names"] = json!(loaded.face_names);
+        evidence["face_names"] = json!(names);
         // Only mixed parts need geometric evidence across revisions. All-named parts
         // use names alone; unnamed parts keep their existing schema and bytes.
-        if loaded.face_names.iter().any(Option::is_none) {
+        if names.iter().any(Option::is_none) {
             evidence["geometry"] =
                 json!(quiddity::correspondence::recognise(&loaded.part).fingerprints);
         }

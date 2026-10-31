@@ -62,7 +62,7 @@ mod wasm {
     /// Types for the JSON report returned by `diff`; ids/numbers match `pmiScene`.
     #[wasm_bindgen(typescript_custom_section)]
     const PMI_DIFF_TYPES: &str = r#"
-/** Faces in analysis/snapshot JSON; `name` is the authored STEP string, if present. */
+/** Faces in analysis/snapshot JSON; `name` is a unique authored STEP `f:` identity. */
 export interface AnalysisFace {
   id: number;
   name?: string;

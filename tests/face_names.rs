@@ -89,6 +89,15 @@ fn haecceity_names_are_indexed_optional_and_flow_into_analysis() {
     assert_eq!(names.len(), 7);
     assert_eq!(names.len(), p.binding.face_count);
     assert_eq!(names, p.face_names);
+    assert_eq!(
+        names
+            .iter()
+            .flatten()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        p.binding.face_count,
+        "cadgen gives each face a unique name"
+    );
     assert!(
         names
             .iter()
@@ -283,4 +292,93 @@ fn unnamed_revision_keeps_pre87_payload_and_written_bytes() {
         sha,
         "08a3a5734223e7d7e3d311ec2d236219b015465b46b90e409227423359dcc224"
     );
+}
+
+#[test]
+fn shared_source_names_are_unnamed_and_new_unique_bindings_still_work() {
+    let (old, new) = pair();
+    let before = answers(&old);
+    let expected = answers(&new);
+    let shared = |p: &part::LoadedPart| {
+        renamed(
+            p,
+            &[
+                (face(p, "body_make_box1", 5), "f:shared.class"),
+                (face(p, "body_make_box1", 6), "f:shared.class"),
+            ],
+        )
+    };
+    let old = shared(&old);
+    let new = shared(&new);
+    let evidence = resume::evidence(&old).unwrap();
+    assert_eq!(evidence["schema"], 3);
+    assert!(evidence["geometry"].is_object());
+    for (i, name) in old.face_names.iter().enumerate() {
+        if name.as_deref() == Some("f:shared.class") {
+            assert!(evidence["face_names"][i].is_null());
+            assert!(
+                api::analyse(&old).unwrap()["faces"][i]
+                    .get("name")
+                    .is_none()
+            );
+        }
+    }
+    let out = rematch(&new, &before, &evidence);
+    assert!(out.unresolved.is_empty(), "{out:?}");
+    assert_eq!(out.answers, expected);
+    assert_eq!(
+        revision::diff(&old, &new, &before).unwrap().answers,
+        expected
+    );
+    // Writing answers on the shared faces succeeds and resumes by geometry.
+    let bytes = writer::write_bytes(
+        &old,
+        &api::preview(&api::analyse(&old).unwrap(), &before).unwrap(),
+        Some(&before),
+    )
+    .unwrap()
+    .0;
+    let back = part::load_bytes("shared.step", bytes).unwrap();
+    assert_eq!(
+        api::analyse(&back).unwrap()["resume"]["answers"],
+        json!(before)
+    );
+}
+
+#[test]
+fn shared_or_incidentally_unique_generic_labels_keep_schema_two() {
+    let (p, _) = pair();
+    // Even a namespace label is unusable when it occurs several times. Numeric
+    // class labels and CAD's generic names are not authored identities, even once.
+    for unique_generic in ["24", "Fill.1", "1103|1066129779", "f:"] {
+        let labels: Vec<_> = (0..p.binding.face_count)
+            .map(|i| {
+                (
+                    i,
+                    if i == 0 {
+                        unique_generic
+                    } else {
+                        "f:shared.class"
+                    },
+                )
+            })
+            .collect();
+        let generic = renamed(&p, &labels);
+        let evidence = resume::evidence(&generic).unwrap();
+        assert_eq!(evidence["schema"], 2);
+        assert!(evidence.get("face_names").is_none());
+        assert!(evidence.get("geometry").is_none());
+        let analysis = api::analyse(&generic).unwrap();
+        assert!(
+            analysis["faces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|f| f.get("name").is_none())
+        );
+        let a = object(json!({"part.material":"steel", "datum.A":[0]}));
+        let out = rematch(&generic, &a, &evidence);
+        assert_eq!(out.answers, a);
+        assert!(out.unresolved.is_empty());
+    }
 }

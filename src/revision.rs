@@ -1471,7 +1471,8 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
     // Stored answers bind authored names. Existing CAD PMI keeps its independent
     // geometric comparison: generic duplicate CAD labels are not saved answer anchors.
     let mut faces = geometric_faces.clone();
-    for (i, binding) in crate::resume::names::match_names(&old.face_names, &new.face_names) {
+    let identities = crate::resume::names::identities(&old.face_names);
+    for (i, binding) in crate::resume::names::match_names(&identities, &new.face_names) {
         use crate::resume::names::NameMatch;
         let bind = match binding {
             NameMatch::To(i) => Bind::To(i),
@@ -1487,7 +1488,7 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
         faces.insert(i, bind);
     }
     let matching = Matching {
-        named: old.face_names.iter().any(Option::is_some),
+        named: identities.iter().any(Option::is_some),
         faces,
         old_features: &old_features,
         new_features: &new_features,

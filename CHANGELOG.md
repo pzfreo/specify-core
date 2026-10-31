@@ -6,6 +6,13 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Changed
+
+- For #87 fix round 1: only unique names in the authored `f:` namespace become
+  face identities. Shared names and generic/class labels (including singletons)
+  retain geometric evidence and schema 2 when no usable identities remain. Omit
+  unusable labels from analysis; retain the full oracle comparison unchanged.
+
 ### Added
 
 - For #87: carry authored STEP face names in analysis and stored-answer schema 3.

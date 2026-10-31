@@ -17,6 +17,30 @@ impl NameMatch {
     }
 }
 
+/// Names usable for newly saved face identities. Cadgen's explicit `f:` namespace
+/// distinguishes authored bindings from class numbers and generic CAD labels, which
+/// can occur once by accident. Every accepted string must also be unique in the part.
+/// Keep the raw table separately: a saved identity becoming shared must be ambiguous,
+/// not disappear into an unnamed geometric fallback.
+pub(crate) fn identities(names: &[Option<String>]) -> Vec<Option<String>> {
+    let mut counts = BTreeMap::new();
+    for name in names.iter().flatten() {
+        *counts.entry(name.as_str()).or_insert(0) += 1;
+    }
+    names
+        .iter()
+        .map(|name| {
+            name.as_ref()
+                .filter(|name| {
+                    name.starts_with("f:")
+                        && name.len() > 2
+                        && counts.get(name.as_str()) == Some(&1)
+                })
+                .cloned()
+        })
+        .collect()
+}
+
 /// Entries only for stored names. An absent entry permits the caller's existing geometric
 /// path. A failed named entry is authoritative: it must never fall back to geometry.
 pub(crate) fn match_names(
