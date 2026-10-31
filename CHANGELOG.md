@@ -22,6 +22,10 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Upgrade quiddity/haecceity to **v0.2.7** (`eaa7762`); recognition stays unchanged.
+  Writer expectations change for slash-separated deviations and notes/frame placement.
+  Remove the blank-note drawing workaround: literal blank rows now write valid STEP directly.
+
 - Upgrade quiddity and haecceity to **v0.2.6** (`b9addd9`, quiddity-rust#137/#135),
   including native, WASM and Python. Written STEP now carries dimension and tolerance
   callouts, ISO 1302 face surface symbols and a `General notes` block for part settings.
@@ -29,12 +33,6 @@ All notable changes to specify-core-rust. The format follows
   feature that also has a size uses separate datum-feature and dimensional-size entities.
   Presentation stays enabled; optional F3D import stays off. Recognition schema 6 and
   fingerprint format 3 are unchanged.
-
-### Fixed
-
-- Preserve literal blank and whitespace-only general notes with v0.2.6 presentation:
-  the notes block renders these rows as `(blank)`, retaining their exact semantic text
-  and note indices, instead of emitting an invalid empty tessellated curve.
 
 ## 0.1.4 (2026-10-30)
 
