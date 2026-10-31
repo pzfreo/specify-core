@@ -122,6 +122,45 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
     let general = intent.part.get("general_tolerance").and_then(Value::as_str);
     input.policy.general_tolerance = general.is_some();
     input.specified.clear();
+    // A rounded legacy radius comparison may leave an answered bore faceless.
+    // Reconcile it by stable recognition identity, preserving the answered contract.
+    for row in &mut intent.requirements {
+        if !ids(row, "faces").is_empty() {
+            continue;
+        }
+        let Some(feature) = row.get("feature").and_then(Value::as_str) else {
+            continue;
+        };
+        let recovered = input
+            .holes
+            .iter()
+            .find(|h| h.support.feature.replacen("hole:", "holes:", 1) == feature)
+            .map(|h| h.support.faces.clone())
+            .or_else(|| {
+                if !feature.starts_with("hole_patterns.") {
+                    return None;
+                }
+                let named: BTreeSet<usize> = feature
+                    .rsplit(':')
+                    .next()?
+                    .split('.')
+                    .map(str::parse)
+                    .collect::<Result<_, _>>()
+                    .ok()?;
+                input.patterns.iter().find_map(|p| {
+                    let faces: BTreeSet<_> = input
+                        .holes
+                        .iter()
+                        .filter(|h| p.members.contains(&h.support.feature))
+                        .flat_map(|h| h.support.faces.iter().copied())
+                        .collect();
+                    (faces == named && !faces.is_empty()).then(|| faces.into_iter().collect())
+                })
+            });
+        if let Some(faces) = recovered {
+            row.insert("faces".into(), json!(faces));
+        }
+    }
     let mut authorities = BTreeMap::new();
 
     // Ask the planner for hole grammar independently of plane consolidation so a Basic
@@ -129,7 +168,6 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
     let mut holes = input.clone();
     holes.steps = Default::default();
     holes.cartesian_envelope = false;
-    holes.deferred.clear();
     let (hole_requirements, _) = shared::plan(&holes);
     // Resolve an already-stated pattern origin through the shared planner, including
     // origins that its all-General pass conveyed through a coincident neighbouring hole.
@@ -429,7 +467,188 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             input.specified.push(s.clone());
         }
     }
-    let (required, _) = shared::plan(&input);
+    let (mut required, _) = shared::plan(&input);
+    // The thread callout already carries these atomic drilling requirements.
+    // Keep enlargements (counterbores, spotfaces, countersinks) independent.
+    required.retain(|r| {
+        !matches!(&r.kind, Kind::Size { role, .. }
+        if matches!(role.as_str(), "bore.diameter" | "bore.depth")
+        && r.covers.iter().all(|id| input.holes.iter().find(|h| &h.support.feature == id)
+            .is_some_and(|h| intent.requirements.iter().any(|a|
+                a.get("kind").and_then(Value::as_str) == Some("thread")
+                && overlaps(&ids(a, "faces"), &h.support.faces)
+                && a.get(if role == "bore.depth" { "drill_depth" } else { "drill_diameter" })
+                    .and_then(Value::as_f64).is_some_and(|n| (n-r.nominal).abs()<1e-4)))))
+    });
+    let mut unresolved = Vec::new();
+    // An answered fit/location is never replaced by a General guess when the
+    // principal-plane grammar cannot represent its support or complete group.
+    required.retain(|r| {
+        if r.tolerance != Tolerance::General { return true; }
+        let requested = match &r.kind {
+            Kind::Size { role,.. } if role == "bore.diameter" => "size",
+            Kind::Location { to,.. } if !to.plane => "location",
+            _ => return true,
+        };
+        let conflict = intent.requirements.iter().any(|row| {
+            if row.get("kind").and_then(Value::as_str) != Some(requested)
+                || row.get("general") == Some(&json!(true)) { return false; }
+            if requested == "size" && row.get("size_kind").and_then(Value::as_str)
+                .is_some_and(|kind| kind != "diameter") { return false; }
+            if let Kind::Location { axis,.. } = &r.kind
+                && let Some(reference) = support(&input,&ids(row,"reference"),&group_supports)
+                && let Some(plane) = input.planes.iter().find(|p| p.support == reference)
+                && plane.axis != *axis { return false; }
+            let mut faces = ids(row,"faces");
+            if faces.is_empty() && let Some(feature) = row.get("feature").and_then(Value::as_str)
+                && (feature.starts_with("holes:") || feature.starts_with("hole_patterns.")) {
+                faces = feature.rsplit(':').next().unwrap_or("").split('.')
+                    .filter_map(|n| n.parse().ok()).collect();
+            }
+            r.covers.iter().any(|id| input.holes.iter().any(|h|
+                &h.support.feature == id && overlaps(&faces,&h.support.faces)
+                && match &r.kind {
+                    Kind::Location { to,.. } => overlaps(&to.faces,&h.support.faces),
+                    _ => true,
+                }))
+        });
+        if conflict {
+            unresolved.push(json!({"kind":requested, "feature":r.covers.join(","),
+                "faces":[], "nominal":r.nominal,
+                "not_written_reason":format!("shared planner {}: General contract conflicts with an answered requirement; retained answered intent instead",r.id)})
+                .as_object().unwrap().clone());
+        }
+        !conflict
+    });
+    required.retain(|r| {
+        if !authorities.contains_key(&r.id)
+            && matches!(&r.kind, Kind::Size { role,.. } if role == "bore.depth")
+            && r.covers.iter().any(|id| input.holes.iter().any(|h|
+                &h.support.feature == id && h.bottom == quiddity::features::holes::Bottom::Unknown))
+        {
+            unresolved.push(json!({"kind":"size", "feature":r.covers.join(","),
+                "faces":[], "nominal":r.nominal,
+                "not_written_reason":format!("shared planner {}: bottom is unknown; bore extent is not an established blind drilling depth",r.id)})
+                .as_object().unwrap().clone());
+            false
+        } else { true }
+    });
+    // Synthetic envelope supports are useful to a drawing, but cannot anchor our
+    // semantic location PMI. Keep the recognition deferrals and never invent faces.
+    required.retain(|r| {
+        !matches!(&r.kind, Kind::Location { from, to, .. }
+        if from.faces.is_empty() || to.faces.is_empty())
+    });
+    let same_span = |row: &Map<String, Value>| {
+        let from = support(&input, &ids(row, "reference"), &group_supports);
+        let to = support(&input, &ids(row, "faces"), &group_supports);
+        match (from, to) {
+            (Some(a), Some(b)) => required.iter().any(|r| {
+                matches!(&r.kind,
+                Kind::Location { from, to, axis } if
+                ((a.at[*axis]-from.at[*axis]).abs()<1e-4 && (b.at[*axis]-to.at[*axis]).abs()<1e-4
+                || (a.at[*axis]-to.at[*axis]).abs()<1e-4 && (b.at[*axis]-from.at[*axis]).abs()<1e-4)
+                && (a.at[*axis]-b.at[*axis]).abs()>1e-4
+                && a.plane && b.plane && from.plane && to.plane
+                && a.body == from.body && b.body == to.body)
+            }),
+            _ => false,
+        }
+    };
+    // A deferred owner does not license a second statement of a planned span.
+    // Hole floors belong to the drilling callout, including floors absent from
+    // the legacy recogniser's defining-face list (notably the pin's flat floor).
+    let hole_floor = |row: &Map<String, Value>| {
+        input.planes.iter().any(|p| {
+            overlaps(&p.support.faces, &ids(row, "faces"))
+                && input.holes.iter().any(|h| {
+                    h.bottom != quiddity::features::holes::Bottom::Unknown
+                        && h.depth.is_some_and(|depth| {
+                            h.direction[p.axis].abs() > 0.999
+                                && (p.support.at[p.axis]
+                                    - h.support.at[p.axis]
+                                    - h.direction[p.axis] * depth)
+                                    .abs()
+                                    < 1e-4
+                        })
+                })
+        })
+    };
+    intent.general.retain(|r| !same_span(r) && !hole_floor(r));
+
+    // Check depth references against both the planner and retained legacy spans.
+    // This is boundary validation, not another selection pass: all independent
+    // hole/plane requirements still come from the shared planner.
+    let baselines: Vec<_> = intent
+        .general
+        .iter()
+        .filter(|row| deferred(&input, row))
+        .filter_map(|row| {
+            let a = support(&input, &ids(row, "reference"), &[])?;
+            let b = support(&input, &ids(row, "faces"), &[])?;
+            let axis = input.planes.iter().find(|p| p.support == a)?.axis;
+            (a.plane && b.plane)
+                .then(|| (format!("legacy:{}/to/{}", a.feature, b.feature), axis, a, b))
+        })
+        .chain(required.iter().filter_map(|r| match &r.kind {
+            Kind::Location { from, to, axis }
+                if from.plane && to.plane && r.reference.is_none() =>
+            {
+                Some((r.id.clone(), *axis, from.clone(), to.clone()))
+            }
+            _ => None,
+        }))
+        .collect();
+    for r in &mut required {
+        let Kind::Size { role, .. } = &r.kind else {
+            continue;
+        };
+        if !role.ends_with(".depth") {
+            continue;
+        }
+        for h in input
+            .holes
+            .iter()
+            .filter(|h| r.covers.contains(&h.support.feature))
+        {
+            for axis in 0..3 {
+                if h.direction[axis].abs() < 0.999 {
+                    continue;
+                }
+                let entry = h.support.at[axis];
+                let end = entry + h.direction[axis] * r.nominal;
+                let mut reached = vec![(entry, Vec::<String>::new())];
+                let mut cursor = 0;
+                while cursor < reached.len() {
+                    let (station, proof) = reached[cursor].clone();
+                    cursor += 1;
+                    if (station - end).abs() < 1e-4 {
+                        r.reference = Some(proof);
+                        break;
+                    }
+                    for (id, k, a, b) in &baselines {
+                        if *k != axis || a.body != h.support.body || b.body != h.support.body {
+                            continue;
+                        }
+                        let next = if (a.at[axis] - station).abs() < 1e-4 {
+                            Some(b.at[axis])
+                        } else if (b.at[axis] - station).abs() < 1e-4 {
+                            Some(a.at[axis])
+                        } else {
+                            None
+                        };
+                        if let Some(next) = next
+                            && !reached.iter().any(|(at, _)| (at - next).abs() < 1e-4)
+                        {
+                            let mut by = proof.clone();
+                            by.push(id.clone());
+                            reached.push((next, by));
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     let mut supports: Vec<_> = input
         .holes
@@ -591,6 +810,7 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             intent.requirements.push(row);
         }
     }
+    intent.requirements.extend(unresolved);
     Ok(())
 }
 

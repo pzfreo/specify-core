@@ -1493,6 +1493,10 @@ fn part_pmi_observed(
         {
             continue;
         }
+        if let Some(reason) = req.get("not_written_reason").and_then(Json::as_str) {
+            lines.not_written.push(reason.into());
+            continue;
+        }
         let feature_name = || py_str(req.get("feature").unwrap_or(&Json::Null));
         // A requirement on no faces (a hole whose bores the rules keep no cylinder for) is
         // listed and the rest written (question Q17).
@@ -1509,6 +1513,16 @@ fn part_pmi_observed(
         if let Some(planned) = req.get("planner") {
             let planned: crate::dimensioning::Planned = serde_json::from_value(planned.clone())
                 .map_err(|e| WriteError::Invalid(format!("planned dimension: {e}")))?;
+            if matches!(&planned.required.kind,
+                quiddity::dimensioning::Kind::Location { from, to, .. }
+                if from.faces.is_empty() || to.faces.is_empty())
+            {
+                lines.not_written.push(format!(
+                    "location {} has a support with no faces; not written",
+                    planned.required.id
+                ));
+                continue;
+            }
             let dimension_kind = planned_kind(&planned, &mut f, &mut p.geometry, &point_unit)?;
             // Keep generated measurements at Specify's established six decimal places in mm;
             // sub-nanometre frame-inference noise must not create inspection revisions.

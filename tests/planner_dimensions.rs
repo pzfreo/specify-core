@@ -37,8 +37,9 @@ fn plate_writes_every_required_quantity_and_basics_use_the_pattern_origin() {
     let given = json!({"part.material":"steel"});
     let i = rules::apply_with_defaults(&a, given.as_object().unwrap(), true).unwrap();
     let rs = required(&i);
-    // 11 all-General quantities + two general offsets that cannot merge with Basic origins.
-    assert_eq!(rs.len(), 13);
+    // Eleven raw quantities, minus the tapping drill carried by the thread,
+    // plus two General offsets that cannot merge with Basic origins.
+    assert_eq!(rs.len(), 12);
     let mut input: Input = serde_json::from_value(a["dimensioning"].clone()).unwrap();
     input.datums = i
         .datums
@@ -54,7 +55,10 @@ fn plate_writes_every_required_quantity_and_basics_use_the_pattern_origin() {
         .filter(|r| r.id.starts_with("specified:") || r.id.starts_with("answered:"))
         .cloned()
         .collect();
-    assert_eq!(quiddity::dimensioning::plan(&input).0, rs);
+    let mut planned = quiddity::dimensioning::plan(&input).0;
+    // M5's thread manufacturing attribute already states the 4.2 tapping drill.
+    planned.retain(|r| r.id != "dim:hole:12/bore.diameter");
+    assert_eq!(planned, rs);
     let centres: Vec<_> = rs
         .iter()
         .filter(|r| r.tolerance == Tolerance::Basic && r.pattern == Some(PatternRole::Centre))
@@ -109,7 +113,7 @@ fn plate_writes_every_required_quantity_and_basics_use_the_pattern_origin() {
             ..
         }
     )));
-    assert_eq!(characteristics::read(&written).unwrap().len(), 20);
+    assert_eq!(characteristics::read(&written).unwrap().len(), 19);
 }
 
 #[test]
@@ -131,7 +135,7 @@ fn an_existing_written_plate_retires_member_numbers_and_never_reuses_them() {
     ));
     let new = part::load_bytes("planned.step", bytes).unwrap();
     let after = characteristics::read(&new).unwrap();
-    assert_eq!(after.len(), 20);
+    assert_eq!(after.len(), 19);
     let max = before.iter().map(|c| c.number).max().unwrap();
     for prior in &before {
         if let Some(now) = after.iter().find(|c| {
@@ -152,7 +156,7 @@ fn an_existing_written_plate_retires_member_numbers_and_never_reuses_them() {
             .difference(&old_numbers)
             .copied()
             .collect::<BTreeSet<_>>(),
-        (29..=32).collect()
+        (29..=31).collect()
     );
     assert_eq!(
         after
@@ -259,7 +263,7 @@ fn stored_dimensions_enter_the_planner_and_are_kept_once_in_add_mode() {
 }
 
 #[test]
-fn synthetic_supports_are_converted_to_the_source_inch_context() {
+fn inch_parts_do_not_acquire_synthetic_location_supports() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/nist/nist_ctc_05_asme1_ap242.stp.gz");
     let p = part::load(&path, Some(0)).unwrap();
@@ -282,12 +286,7 @@ fn synthetic_supports_are_converted_to_the_source_inch_context() {
             })
         })
         .collect();
-    assert!(!points.is_empty());
-    assert!(
-        points
-            .iter()
-            .all(|g| g.length_unit == Some(pmi::LengthUnit::Inch))
-    );
+    assert!(points.is_empty(), "location supports must name real faces");
 }
 
 #[test]
@@ -343,4 +342,262 @@ fn an_old_general_only_analysis_is_upgraded_at_the_writer_boundary() {
             .count(),
         expected
     );
+}
+
+mod common;
+
+/// Check the written PMI, including retained later-slice rows, rather than only
+/// the shared planner's output. References do not add independent constraints.
+#[test]
+fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
+    fn faces(p: &pmi::PartPmi, id: pmi::FeatureId) -> BTreeSet<usize> {
+        match &p.features[id.0] {
+            pmi::Feature::Items(items) => items
+                .iter()
+                .filter_map(|a| match a {
+                    pmi::Anchor::Face(f) => Some(f.0),
+                    _ => None,
+                })
+                .collect(),
+            pmi::Feature::Group { members, .. } => {
+                members.iter().flat_map(|id| faces(p, *id)).collect()
+            }
+            pmi::Feature::Derived { from, .. } => {
+                from.iter().flat_map(|id| faces(p, *id)).collect()
+            }
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let corpus = common::corpus_dir();
+    let mut paths = vec![root.join("parts/plate.step"), root.join("parts/pin.step")];
+    if let Some(corpus) = corpus {
+        for name in common::corpus::SUBSET {
+            paths.push(
+                ["step", "stp", "step.gz", "stp.gz"]
+                    .iter()
+                    .map(|ext| corpus.join(format!("{name}.{ext}")))
+                    .find(|p| p.exists())
+                    .unwrap_or_else(|| panic!("missing {name}")),
+            );
+        }
+    }
+    let dump = std::env::var_os("SPECIFY_DIMENSION_COUNTS").map(std::path::PathBuf::from);
+    if let Some(dir) = &dump {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    let mut counts = Vec::new();
+    for path in paths {
+        eprintln!("dimension corpus: {}", path.display());
+        let file = part::File::read(&path).unwrap();
+        for k in 0..file.parts().len() {
+            let p = file.load(Some(k)).unwrap();
+            let a = api::analyse(&p).unwrap();
+            let given = json!({"part.material":"steel"});
+            let i = rules::apply_with_defaults(&a, given.as_object().unwrap(), true).unwrap();
+            let (bytes, report) = writer::write_bytes(&p, &i, None).unwrap();
+            let back = part::load_bytes("checked.step", bytes).unwrap();
+            let read = model(&back);
+            let pmi = &read.parts[0];
+            let chars = characteristics::read(&back).unwrap();
+            let name = path
+                .strip_prefix(&root)
+                .or_else(|_| path.strip_prefix(common::corpus_dir().unwrap_or_default()))
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .to_string();
+            counts.push(json!({"part":name,"dimensions":pmi.dimensions.len(),"characteristics":chars.len()}));
+            if let Some(dir) = &dump {
+                let stem = name.replace('/', "_");
+                std::fs::write(
+                    dir.join(format!("{stem}.report.json")),
+                    serde_json::to_vec_pretty(&report.to_dict()).unwrap(),
+                )
+                .unwrap();
+                std::fs::write(
+                    dir.join(format!("{stem}.intent.json")),
+                    serde_json::to_vec_pretty(&i.to_dict()).unwrap(),
+                )
+                .unwrap();
+                std::fs::write(
+                    dir.join(format!("{stem}.analysis.json")),
+                    serde_json::to_vec_pretty(&a).unwrap(),
+                )
+                .unwrap();
+                std::fs::write(
+                    dir.join(format!("{stem}.chars.json")),
+                    serde_json::to_vec_pretty(&chars).unwrap(),
+                )
+                .unwrap();
+                std::fs::write(dir.join(format!("{stem}.step")), back.bytes.as_slice()).unwrap();
+            }
+            let mut pairs = BTreeSet::new();
+            let input: Input = serde_json::from_value(a["dimensioning"].clone()).unwrap();
+            let mut edges: Vec<(Option<usize>, usize, i64, i64)> = Vec::new();
+            let mut edge = |body: Option<usize>, axis: usize, a: f64, b: f64, add: bool| {
+                let (a, b) = ((a * 1e4).round() as i64, (b * 1e4).round() as i64);
+                if a == b {
+                    return;
+                }
+                let mut reached = BTreeSet::from([a]);
+                loop {
+                    let old = reached.len();
+                    for &(owner, k, x, y) in &edges {
+                        if owner == body
+                            && k == axis
+                            && (reached.contains(&x) || reached.contains(&y))
+                        {
+                            reached.extend([x, y]);
+                        }
+                    }
+                    if reached.len() == old {
+                        break;
+                    }
+                }
+                assert!(
+                    !reached.contains(&b),
+                    "closed chain: {} axis {axis} {a}->{b}",
+                    path.display()
+                );
+                if add {
+                    edges.push((body, axis, a, b));
+                }
+            };
+            for d in &pmi.dimensions {
+                let pmi::DimensionKind::Location { from, to, .. } = &d.kind else {
+                    continue;
+                };
+                let (mut a, mut b) = (faces(pmi, *from), faces(pmi, *to));
+                assert!(
+                    !a.is_empty() && !b.is_empty(),
+                    "faceless location: {} {d:?}",
+                    path.display()
+                );
+                // A one-face witness and its coplanar face group state the same support.
+                let canonical = |f: BTreeSet<usize>| {
+                    input
+                        .planes
+                        .iter()
+                        .find(|p| f.iter().all(|id| p.support.faces.contains(id)))
+                        .map_or_else(|| f.clone(), |p| p.support.faces.iter().copied().collect())
+                };
+                a = canonical(a);
+                b = canonical(b);
+                if a > b {
+                    std::mem::swap(&mut a, &mut b);
+                }
+                assert!(
+                    pairs.insert((a.clone(), b.clone())),
+                    "duplicate pair: {} {a:?} {b:?}",
+                    path.display()
+                );
+                if d.modifiers.contains(&pmi::DimensionModifier::Reference) {
+                    continue;
+                }
+                let plane = |f: &BTreeSet<usize>| {
+                    input
+                        .planes
+                        .iter()
+                        .find(|p| f.iter().all(|id| p.support.faces.contains(id)))
+                };
+                if let (Some(a), Some(b)) = (plane(&a), plane(&b)) {
+                    assert_eq!(a.axis, b.axis);
+                    edge(
+                        a.support.body,
+                        a.axis,
+                        a.support.at[a.axis],
+                        b.support.at[b.axis],
+                        true,
+                    );
+                }
+            }
+            for r in required(&i) {
+                if r.reference.is_some() {
+                    continue;
+                }
+                if let quiddity::dimensioning::Kind::Size { role, .. } = &r.kind
+                    && role.ends_with(".depth")
+                {
+                    for h in input
+                        .holes
+                        .iter()
+                        .filter(|h| r.covers.contains(&h.support.feature))
+                    {
+                        for axis in 0..3 {
+                            if h.direction[axis].abs() > 0.999 {
+                                edge(
+                                    h.support.body,
+                                    axis,
+                                    h.support.at[axis],
+                                    h.support.at[axis] + h.direction[axis] * r.nominal,
+                                    false,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if let Some(dir) = dump {
+        std::fs::write(
+            dir.join("counts.json"),
+            serde_json::to_vec_pretty(&counts).unwrap(),
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn answered_h11_bores_keep_their_fit_and_basic_locations() {
+    let Some(corpus) = common::corpus_dir() else {
+        return;
+    };
+    let p = part::load(&corpus.join("mfcadpp/10224.step"), None).unwrap();
+    let a = api::analyse(&p).unwrap();
+    let given = json!({"part.material":"steel"});
+    let i = rules::apply_with_defaults(&a, given.as_object().unwrap(), true).unwrap();
+    let sizes: Vec<_> = i
+        .requirements
+        .iter()
+        .filter(|r| r.get("fit") == Some(&json!("H11")))
+        .collect();
+    assert_eq!(sizes.len(), 3);
+    assert!(
+        sizes
+            .iter()
+            .all(|r| r["faces"].as_array().is_some_and(|f| !f.is_empty()))
+    );
+    assert_eq!(
+        i.requirements
+            .iter()
+            .filter(|r| r.get("basic") == Some(&json!(true)))
+            .count(),
+        6
+    );
+    assert!(!required(&i).iter().any(|r| r.tolerance == Tolerance::General
+        && matches!(&r.kind, quiddity::dimensioning::Kind::Location { to,.. } if to.feature.starts_with("hole:"))));
+    assert!(!required(&i).iter().any(|r| r.tolerance == Tolerance::General
+        && matches!(&r.kind, quiddity::dimensioning::Kind::Size { role,.. } if role == "bore.diameter")));
+}
+
+#[test]
+fn an_unknown_bottom_is_reported_without_inventing_a_blind_depth() {
+    let Some(corpus) = common::corpus_dir() else {
+        return;
+    };
+    let p = part::load(&corpus.join("gramel/string_post.step"), None).unwrap();
+    let a = api::analyse(&p).unwrap();
+    let given = json!({"part.material":"steel"});
+    let i = rules::apply_with_defaults(&a, given.as_object().unwrap(), true).unwrap();
+    assert!(!required(&i).iter().any(|r| r.id == "dim:hole:5/bore.depth"));
+    let (bytes, report) = writer::write_bytes(&p, &i, None).unwrap();
+    assert!(
+        report
+            .not_written
+            .iter()
+            .any(|r| r.contains("dim:hole:5/bore.depth: bottom is unknown"))
+    );
+    let back = part::load_bytes("unknown.step", bytes).unwrap();
+    assert!(!model(&back).parts[0].dimensions.iter().any(|d|
+        matches!(d.nominal.as_ref().map(|v| &v.quantity),Some(pmi::Quantity::Length(n)) if n.value.to_f64()==5.4)));
 }

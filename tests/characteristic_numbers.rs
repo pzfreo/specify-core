@@ -964,8 +964,8 @@ fn first_shaft_walk_uses_front_shoulders_then_end_on_holes_and_side_width() {
     assert_walk(
         &written,
         &[
-            // Shared planner: blind-hole depth/drill, synthetic supports and extents
-            // enter the walk; the former floor interval is conveyed by depth (#75).
+            // A thread carries its drill. Locations require real face supports;
+            // the drill floor is not an independent part length (#75).
             ("datum", "A", &[0], &[]),
             ("datum", "B", &[7, 11], &[]),
             ("dimension", "Location_LinearDistance", &[5], &[7, 11]),
@@ -975,16 +975,11 @@ fn first_shaft_walk_uses_front_shoulders_then_end_on_holes_and_side_width() {
             ("dimension", "Location_LinearDistance", &[8], &[10]),
             ("dimension", "Location_LinearDistance", &[2, 6], &[10]),
             ("dimension", "Size_Diameter", &[14], &[]),
-            ("dimension", "Size_CurveLength", &[15], &[]),
-            ("dimension", "Size_Diameter", &[15], &[]),
-            ("dimension", "Location_LinearDistance", &[14], &[]),
             ("dimension", "Location_LinearDistance", &[14], &[2, 6]),
             ("geometric_tolerance", "Position", &[15], &[]),
             ("geometric_tolerance", "Position", &[14], &[]),
             ("thread", "Internal", &[15], &[]),
             ("dimension", "Location_LinearDistance", &[12], &[4]),
-            ("dimension", "Location_LinearDistance", &[], &[]),
-            ("dimension", "Location_LinearDistance", &[], &[2, 6]),
             ("surface_texture", "Ra", &[], &[]),
         ],
     );

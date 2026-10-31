@@ -67,14 +67,13 @@ fn pin_lengths_are_baseline_from_the_shoulder_datum_b() {
         .collect();
     assert!(!lengths.is_empty(), "{:?}", intent.general);
     assert!(lengths.iter().all(|g| g["reference"] == b["faces"]));
-    // Live recognition omits this flat floor from the hole's defining faces.
-    // The turned/deferred legacy path retains its existing 8 mm interval (#75).
+    // The tap drill's floor is the hole's, not a length of the part.
     let mut distances: Vec<f64> = lengths
         .iter()
         .map(|g| g["distance"].as_f64().unwrap())
         .collect();
     distances.sort_by(f64::total_cmp);
-    assert_eq!(distances, [8.0, 20.0, 32.0]);
+    assert_eq!(distances, [20.0, 32.0]);
     for g in lengths {
         let upper = g["upper"].as_f64().unwrap();
         assert_eq!(g["general"], json!(true));

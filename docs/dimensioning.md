@@ -24,13 +24,13 @@ failure, not a silently selected alternative planner.
 Each returned `Required` has one row with `planner` lowering information. Sizes and
 locations lower through the shared `dimension_kind` helper with a real feature
 arena. Actual patterns use `PatternOfFeatures`, counted unpatterned groups use
-`MultipleElements`, and synthetic supports use supplemental geometry. AP242 Table
+`MultipleElements`. Locations require nonempty face supports at both ends.
+The turned-envelope deferrals survive the hole-only passes; faceless box offsets
+are not written. The writer also rejects faceless planned locations defensively. AP242 Table
 4's `curve length` names axial length quantities (the helper's generic `length`
 name is rejected by the kernel's own reader); angular quantities use degrees.
 The exact role, count, pitch intervals, covered IDs, supports, frame and optional
 reference proof round-trip in a dimension-owned `specify dimension plan` UDA.
-Synthetic support coordinates are converted from millimetres into the source
-context's length unit using the same step-io reader as the kernel (including inches).
 Persistent planner metadata canonicalizes frame noise to nine decimal places;
 generated PMI measurements retain Specify's six decimal places in millimetres.
 References use the standard `DimensionModifier::Reference` (auxiliary dimension).
@@ -52,13 +52,25 @@ Hole-location contracts whose supports cannot be represented by slice one's prin
 grammar retain their existing writer path (the frozen cgb202 locations); faceless rows
 remain Q17 diagnostics.
 
-The default plate's all-General planner has 11 quantities. Specify writes 13 when
-position frames are accepted: the General centre-hole offsets 50 and 30 cannot
-merge with Basic pattern-origin quantities. This is a tolerance-class constraint,
-not extra basics or a second pattern location. The drill diameter 4.2 is now also
-stated beside its M5 thread. `tests/planner_dimensions.rs` independently checks the
-shared set, its complete STEP readback, reference modifiers, stored-PMI authority,
-and an actual pre-planner numbered plate resumed twice.
+The default plate's raw all-General planner has 11 quantities. Specify writes 12
+when position frames are accepted: two General centre-hole offsets (50 and 30)
+cannot merge with Basic pattern origins, and the M5 thread already carries the
+4.2 tapping drill. A thread's stated tapping drill diameter/depth never gets a
+second inspection row. A generated bore depth with an unknown bottom is reported
+as unresolved instead of being treated as an established blind drilling depth;
+explicit stored depths remain authoritative. Answered bores whose legacy radius comparison left no
+faces are reconciled by exact stable recognition identity, preserving H11 and
+Basic contracts instead of generating General substitutes.
+
+Deferred legacy spans are dropped when the planner states the same physical
+plane interval in either direction. Hole floors are excluded from part lengths,
+including floors absent from legacy defining-face lists. When two retained
+turned baselines determine a generated hole enlargement's depth, that depth
+is retained as a reference with both baseline witnesses. This avoids introducing
+an independent closed chain across the slice boundary.
+`tests/planner_dimensions.rs` checks complete STEP readback, reference modifiers,
+stored-PMI authority, a pre-planner numbered plate resumed twice, and physical
+supports, unique face pairs and independent plane chains across the test corpus.
 
 The exact deferred-family predicate is every accepted defining family except
 `holes`, `countersinks`, `step_levels`, `risers`, `through_steps` and `plates`, plus
