@@ -6,6 +6,10 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Changed
+
+- The reviewed WASM size ceiling is raised from 12,980,000 to **15,000,000** bytes (maintainer, 2026-10-31), after `pmiScene` measured 12,903,620 bytes.
+
 ### Added
 
 - The Python package `specify-core` on this engine (`crates/specify-core-py`): specify-core's
