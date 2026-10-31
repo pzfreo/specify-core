@@ -22,6 +22,10 @@ It is deterministic (rules and standards tables, no AI) and pure Rust: no OpenCa
 Python. Feature recognition and the STEP/AP242 kernel come from
 [quiddity-rust](https://github.com/pzfreo/quiddity-rust).
 
+**Try it in the browser, with nothing to install:**
+- [**draftwright.io/specify**](https://draftwright.io/specify): open a STEP part, answer the questions in 3D, and download the STEP with its PMI.
+- [**draftwright.io/diff**](https://draftwright.io/diff): compare two revisions of a part and see what changed.
+
 ![The STEP diff action's comment on a pull request](step-diff/comment.png)
 
 ## Ways to use it
@@ -30,6 +34,7 @@ One engine, one set of answers and files, whichever way you call it:
 
 | Use | Install | Guide |
 | --- | --- | --- |
+| **In the browser** | nothing: [draftwright.io/specify](https://draftwright.io/specify) and [draftwright.io/diff](https://draftwright.io/diff) | |
 | **Command line** | a [release](https://github.com/pzfreo/specify-core/releases) binary, or `cargo build --release` | [below](#command-line) |
 | **Python** | `pip install specify-core` (CPython 3.12+, no dependencies) | [below](#python), [package README](crates/specify-core-py/README.md) |
 | **Rust** | `specify-core = { git = "https://github.com/pzfreo/specify-core", tag = "v0.1.5" }` | [below](#rust), [docs/library.md](docs/library.md) |
@@ -37,8 +42,8 @@ One engine, one set of answers and files, whichever way you call it:
 | **Host process** (JSON lines) | `specify-core serve` | [below](#host-process) |
 | **GitHub pull requests** | `uses: pzfreo/specify-core/step-diff@main` | [step-diff/README.md](step-diff/README.md) |
 
-The Specify editor at [draftwright.io](https://editor.draftwright.io/specify) runs the
-WebAssembly build in the browser.
+[draftwright.io/specify](https://draftwright.io/specify) and
+[draftwright.io/diff](https://draftwright.io/diff) run the WebAssembly build in the browser.
 
 ## Specify a part
 
@@ -169,7 +174,8 @@ specify-core diff old.step new.step --answers old.answers.json -o changes
 PMI changes are listed by characteristic number (for example `#7 ⌀6.6 H7 → ⌀6.6 H8`). Without
 `--answers`, the answers stored in the old file are carried.
 
-In Python, `api.diff("old.step", "new.step")` returns the same `{report, markdown}`.
+In Python, `api.diff("old.step", "new.step")` returns the same `{report, markdown}`. To compare
+two revisions without installing anything, use [draftwright.io/diff](https://draftwright.io/diff).
 [docs/diff.md](docs/diff.md) explains how the two parts are matched and what carries.
 
 To post the review on every pull request that changes a STEP file, add the
