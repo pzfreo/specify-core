@@ -52,6 +52,26 @@ impl Scene {
         analysis: Option<&Value>,
         answers: Option<&Map<String, Value>>,
     ) -> Result<Value, String> {
+        self.scene_mode(loaded, analysis, answers, false)
+    }
+
+    // Revision comparisons need current semantic notation, never stale As Drawn text.
+    pub(crate) fn comparison(
+        &self,
+        loaded: &LoadedPart,
+        analysis: &Value,
+        answers: Option<&Map<String, Value>>,
+    ) -> Result<Value, String> {
+        self.scene_mode(loaded, Some(analysis), answers, true)
+    }
+
+    fn scene_mode(
+        &self,
+        loaded: &LoadedPart,
+        analysis: Option<&Value>,
+        answers: Option<&Map<String, Value>>,
+        comparison: bool,
+    ) -> Result<Value, String> {
         let before = &self.read.parts[self.index];
         let foreign = self.stored.is_none() && has_pmi(before);
         if let Some(answers) = answers {
@@ -71,7 +91,7 @@ impl Scene {
                     .values()
                     .any(|meta| matches!(meta["status"].as_str(), Some("answered" | "default")))
             {
-                return self.file(loaded, None);
+                return self.file(loaded, None, comparison);
             }
             let mut graphics =
                 presentation::generated(&semantic, &loaded.part).map_err(|e| e.to_string())?;
@@ -89,7 +109,8 @@ impl Scene {
                 graphics.planes.retain(|plane| !planes.contains(&plane.id));
             }
             for (id, count) in counts {
-                if count > 1
+                if !comparison
+                    && count > 1
                     && let Some(items) = graphics.items.get_mut(&id)
                 {
                     for item in items {
@@ -102,7 +123,48 @@ impl Scene {
             }
             let mut result = encode(&semantic, graphics, metadata)?;
             if foreign {
-                merge(&mut result, self.file(loaded, None)?)?;
+                merge(&mut result, self.file(loaded, None, comparison)?)?;
+            } else if comparison {
+                // Replace plans rebuild Specify requirements; keep CAD requirements even
+                // when the source also contains saved interview answers.
+                let mut file = self.scene_mode(loaded, Some(analysis), None, true)?;
+                let existing: std::collections::BTreeSet<String> = file["specify"]
+                    .as_object()
+                    .ok_or("invalid metadata")?
+                    .iter()
+                    .filter(|(_, meta)| meta["status"] == "existing")
+                    .map(|(id, _)| id.clone())
+                    .collect();
+                let overlay = file["specify"]
+                    .as_object()
+                    .ok_or("invalid metadata")?
+                    .clone();
+                for rows in file["pmi"]["pmi"]
+                    .as_object_mut()
+                    .ok_or("invalid PMI")?
+                    .values_mut()
+                {
+                    if let Some(rows) = rows.as_array_mut() {
+                        rows.retain(|row| {
+                            row["id"].as_str().is_some_and(|id| {
+                                existing.contains(id) || !overlay.contains_key(id)
+                            })
+                        });
+                    }
+                }
+                file["specify"]
+                    .as_object_mut()
+                    .ok_or("invalid metadata")?
+                    .retain(|id, _| existing.contains(id));
+                file["presentation"]["items"]
+                    .as_object_mut()
+                    .ok_or("invalid graphics")?
+                    .retain(|id, _| existing.contains(id));
+                // Only notation is consumed here; the two generated layouts may place
+                // the same part note differently when the file has extra foreign PMI.
+                file["presentation"]["planes"] = json!([]);
+                file["presentation"]["views"] = json!([]);
+                merge(&mut result, file)?;
             }
             return Ok(result);
         }
@@ -121,7 +183,7 @@ impl Scene {
         } else {
             None
         };
-        self.file(loaded, planned.as_ref())
+        self.file(loaded, planned.as_ref(), comparison)
     }
 
     /// Use the editor's review state to distinguish automatic defaults from answers.
@@ -289,6 +351,7 @@ impl Scene {
         &self,
         _loaded: &LoadedPart,
         planned: Option<&Map<String, Value>>,
+        comparison: bool,
     ) -> Result<Value, String> {
         let p = &self.read.parts[self.index];
         // identify (without named anchor bindings) deliberately exports mesh indices.
@@ -330,8 +393,12 @@ impl Scene {
             let ids: std::collections::BTreeSet<_> = semantic.ids.values().flatten().collect();
             metadata.retain(|id, _| ids.contains(id));
         }
-        let graphics = presentation::read(&self.doc, &self.read, PartId(self.index), &semantic)
-            .map_err(|e| e.to_string())?;
+        let graphics = if comparison {
+            presentation::generated(&semantic, &_loaded.part)
+        } else {
+            presentation::read(&self.doc, &self.read, PartId(self.index), &semantic)
+        }
+        .map_err(|e| e.to_string())?;
         encode(&semantic, graphics, metadata)
     }
 }

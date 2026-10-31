@@ -38,6 +38,15 @@ export function start(): void;
 
 export function tolerancingEdit(state: string, mode: string | null | undefined, answers: string): string;
 
+export interface DiffPmi {
+  answers_from: "given" | "stored" | "none";
+  existing: unknown[];
+  existing_count: [number, number];
+  items: PmiItemChange[];
+  new_stored: boolean;
+  stored: unknown[];
+}
+
 export interface InitOutput {
   readonly __externref_table_dealloc: (a: number) => void;
   readonly __wbg_intentengine_free: (a: number, b: number) => void;
@@ -69,6 +78,18 @@ export interface InitOutput {
   readonly review: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly start: () => void;
   readonly tolerancingEdit: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+}
+
+export interface PmiItemChange {
+  class: "added" | "removed" | "changed" | "renumbered";
+  id: string;
+  kind: string;
+  new?: string;
+  number?: number;
+  old?: string;
+  on: string;
+  reason?: string;
+  status: "answered" | "default" | "general" | "existing";
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;

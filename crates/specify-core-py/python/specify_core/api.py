@@ -31,6 +31,7 @@ __all__ = [
     "write_parts",
     "mesh",
     "pmi_scene",
+    "diff",
 ]
 
 ANALYSIS_SCHEMA = _native.ANALYSIS_SCHEMA
@@ -139,4 +140,23 @@ def pmi_scene(
     source = step if isinstance(step, bytes) else _step(step)
     return json.loads(_native.pmi_scene(
         source, None if answers is None else json.dumps(answers), part
+    ))
+
+
+def diff(
+    old: str | Path | LoadedPart,
+    new: str | Path | LoadedPart,
+    answers: dict[str, Any] | None = None,
+    *,
+    title: str = "Revision",
+    part: int | None = None,
+) -> dict[str, Any]:
+    """Compare revisions of a selected part: ``{report, markdown}``.
+
+    ``report["pmi"]["items"]`` uses pmi_scene identities, numbers and statuses.
+    Omitted answers carry the old file's saved answers. Paths accept a part index;
+    loaded handles already select their part.
+    """
+    return json.loads(_native.diff(
+        _step(old), _step(new), json.dumps(answers or {}), title, part
     ))

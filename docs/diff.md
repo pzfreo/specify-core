@@ -71,10 +71,61 @@ the old part (a hole, a pattern, a boss, a slot, a fillet) is then:
 - **Answers to check** were carried to a feature that changed. They're applied, but a fit or a
   clearance chosen for the old size may be wrong for the new one.
 - **New questions** are the questions the new part asks that the old one didn't.
-- **PMI** compares the PMI in the two files:
-  - **Specify's own:** the new file's stored answers, set against the answers carried.
-  - **The files' own:** dimensions, tolerances, datums and notes from the CAD system, added,
-    removed or changed. Each is named by the feature it's on ("flatness 0.2 → 0.1").
+- **PMI** compares requirements from both revisions as `haecceity.pmi/1`, using
+  the same ids, characteristic numbers and `answered` / `default` / `general` /
+  `existing` statuses as `pmiScene`. This includes CAD PMI in Specify-written files,
+  general-tolerance dimensions and geometry-derived basic locations.
+  A new file without saved answers shows what writing the carried answers would
+  produce alongside its own PMI; a new file with saved answers supplies its actual
+  requirements. The two carried-answer plans are also compared for geometry-derived
+  requirements; actual file edits take precedence, and planned changes absent from
+  that comparison carry a reason. Explicit `--answers` override the old interview.
+
+### PMI requirements
+
+Items match by characteristic number, then stable requirement id (or haecceity id
+for foreign PMI), then corresponding faces, with kind resolving multiple items on
+one support, then a unique remaining item of the same kind. Numbered items with
+different numbers are kept distinct at the weaker matching stages. A split can map
+one old face to several new faces. Ambiguous item matches stay added/removed rather than choosing arbitrarily.
+
+Comparison uses haecceity's full semantic notation and frame cells, including
+material and datum modifiers, diameter zones, fits, qualifiers and note text.
+Semantic fields are compared too, including the datum system, basic flag and fit
+class even when equal stated limits hide the class in the notation. Topology and
+file-local support/unit identities are compared through their correspondence or
+resolved meaning rather than their JSON ids. A semantic-only change carries a
+`reason` even when its displayed text stays equal.
+
+`report.json` adds `pmi.items`, an ordered list of changes:
+
+```json
+{"class":"changed","number":7,"id":"size:holes:9","kind":"dimension",
+ "status":"answered","on":"⌀6.6 holes","old":"⌀6.6 H7","new":"⌀6.6 H8"}
+```
+
+Each item has `class` (`added`, `removed`, `changed`, or `renumbered`), optional
+`number`, `id`, `kind`, `status`, `on` (feature words), and optional `old`, `new`
+and `reason`. A numbered removal has `reason: "retired"`; numbers are never
+reused. Renumbering is reported if detected, though ordinary editing preserves
+numbers. Changes sort by characteristic number, then unnumbered id. Markdown
+prints one line per change, for example:
+
+```text
+#7 ⌀6.6 H7 → ⌀6.6 H8 (4× ⌀6.6 holes)
+#12 added: ⌖ ⌀0.1 Ⓜ A B C (hole pattern)
+#5 retired: 50 (hole moved)
+```
+
+`pmi.stored`, `pmi.existing` and `pmi.existing_count` retain their legacy meanings
+for one release; **`stored` and `existing` are deprecated**. They omit requirements
+and notation details covered by `items`; new clients should use `items`.
+
+WASM `diff` returns these items in `report.pmi.items` (and in each assembly part's
+report), with ids and numbers suitable for highlighting `pmiScene` characteristics
+in `/diff`. The Python package exposes `specify_core.api.diff(old, new, answers=None,
+*, title="Revision", part=None)`, returning `{report, markdown}` for the selected
+part. It accepts paths or loaded part handles; paths accept a part index.
 
 ## How answers carry
 

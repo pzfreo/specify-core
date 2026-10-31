@@ -8,6 +8,12 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Revision PMI reports compare haecceity semantic requirements and full notation,
+  with `pmiScene` ids/statuses and inspection numbers, geometry-derived dimensions,
+  foreign PMI in resumed files, and support matching across face splits. Add
+  `pmi.items`; retain deprecated `stored`/`existing` for one release. Numbered
+  removals read “retired”; Markdown lists changes in inspection order.
+
 - The reviewed WASM size ceiling is raised from 12,980,000 to **15,000,000** bytes (maintainer, 2026-10-31), after `pmiScene` measured 12,903,620 bytes.
 
 ### Added
@@ -30,6 +36,10 @@ All notable changes to specify-core-rust. The format follows
   See [dimension origin and source](docs/pmi-origin.md).
 
 ### WASM API
+
+- `diff` reports add `pmi.items` with ids/numbers matching `pmiScene`; export
+  `PmiItemChange` and `DiffPmi` TypeScript interfaces. Python adds `api.diff`
+  returning the same selected-part report plus Markdown.
 
 - Add `IntentEngine.pmiScene(answers)` on the open part session (including `openPart`)
   and `pmiScene(stepBytes, part?)` for view-only As Drawn PMI without an interview.

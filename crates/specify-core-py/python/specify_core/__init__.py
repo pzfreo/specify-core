@@ -1,5 +1,5 @@
 """specify-core: interview-driven PMI authoring."""
 
-from .api import pmi_scene
+from .api import diff, pmi_scene
 
-__all__ = ["pmi_scene"]
+__all__ = ["diff", "pmi_scene"]

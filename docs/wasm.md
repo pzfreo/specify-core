@@ -383,6 +383,11 @@ including default part textures and resumed PMI. `diff` carries number history i
 those answers to the revised part's `writePmi`. It is geometry-checked and consumed on write.
 Numberless files omit the list. See [characteristic numbers](characteristic-numbers.md).
 
+`diff` also returns `report.pmi.items`, with `pmiScene` ids, numbers and statuses for
+highlighting changed requirements. The exported `PmiItemChange` and `DiffPmi`
+TypeScript interfaces describe this JSON. The old `stored` / `existing` PMI lists
+are deprecated for one release. See [PMI requirement comparison](diff.md#pmi-requirements).
+
 For #77, dimension entries in `snapshot().analysis.characteristics` also expose optional
 stored `origin` and `source`, including nominal-only general dimensions. `writePmi` writes
 the same per-dimension UDAs as native. See [dimension origin and source](pmi-origin.md).

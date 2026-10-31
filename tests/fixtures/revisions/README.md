@@ -74,3 +74,8 @@ plane; three fixed, unequal bores anchor correspondence. The second removes a
 10 × 50 × 50 upright from a 100 × 50 × 10 bracket with a Ø16 × 12 boss. The
 fixture script gives all positions and dimensions. These guard against treating
 plane equality or the presence of a chamfer as sufficient reason to hide a change.
+
+`pmi_split` is a plate with two unequal bores, made by `pmi_split.py`. The new
+revision retains the seam of two fused half plates (`SkipClean`): 8 faces become
+12 with identical geometry. `tests/revision_pmi.rs` adds foreign flatness controls
+on a planar face and its split supports, changing 0.2 to 0.1.
