@@ -61,7 +61,93 @@ fn deferred(input: &Input, r: &Map<String, Value>) -> bool {
         || input.planes.iter().any(|p| overlaps(&faces,&p.support.faces)
             && input.steps.shoulders.iter().any(|s| s.axis == p.axis && s.body == p.body
                 && (s.support.at[p.axis]-p.support.at[p.axis]).abs() <= 0.00051))
+        || input.steps.heights.iter().any(|s| overlaps(&faces,&s.faces)
+            && plane_mismatch(input,s,input.steps.axis))
 }
+fn plane_mismatch(input: &Input, s: &Support, axis: usize) -> bool {
+    s.plane
+        && input.planes.iter().any(|p| {
+            p.axis == axis
+                && p.support.body == s.body
+                && overlaps(&p.support.faces, &s.faces)
+                && (p.support.at[axis] - s.at[axis]).abs() > 1e-4
+        })
+}
+
+fn pitch_witnesses(input: &Input, r: &Required) -> Result<Option<[Support; 2]>, String> {
+    let Kind::Location { from, to, axis } = &r.kind else {
+        return Ok(None);
+    };
+    if !matches!(r.pattern, Some(shared::PatternRole::Pitch { .. })) {
+        return Ok(None);
+    }
+    let hole = input
+        .holes
+        .iter()
+        .find(|h| h.support.feature == from.feature)
+        .ok_or("pitch origin is not a recognised hole")?;
+    let drill = hole
+        .direction
+        .iter()
+        .position(|d| d.abs() > 0.999)
+        .ok_or("pitch drilling direction is not principal")?;
+    // A projected pitch may use diagonal lexical witnesses. Resolve the same
+    // quantity to an aligned pair of real pattern members for semantic PMI.
+    let target = input
+        .holes
+        .iter()
+        .filter(|h| {
+            r.covers.contains(&h.support.feature)
+                && h.support.body == from.body
+                && (h.support.at[*axis] - to.at[*axis]).abs() < 1e-4
+                && (0..3)
+                    .filter(|k| *k != *axis && *k != drill)
+                    .all(|k| (h.support.at[k] - from.at[k]).abs() < 1e-4)
+        })
+        .min_by_key(|h| &h.support.feature)
+        .ok_or("pitch has no aligned physical member witness")?;
+    Ok((target.support.feature != to.feature).then(|| [from.clone(), target.support.clone()]))
+}
+
+fn station_path(
+    edges: &[(String, usize, Support, Support)],
+    body: Option<usize>,
+    axis: usize,
+    start: f64,
+    end: f64,
+    near: f64,
+) -> Option<Vec<String>> {
+    let mut reached = vec![(start, Vec::<String>::new())];
+    let mut cursor = 0;
+    while cursor < reached.len() {
+        let (station, proof) = reached[cursor].clone();
+        cursor += 1;
+        if !proof.is_empty() && (station - end).abs() < near {
+            return Some(proof);
+        }
+        for (id, k, a, b) in edges {
+            if *k != axis || a.body != body || b.body != body {
+                continue;
+            }
+            let next = if (a.at[axis] - station).abs() < 1e-4 {
+                Some(b.at[axis])
+            } else if (b.at[axis] - station).abs() < 1e-4 {
+                Some(a.at[axis])
+            } else {
+                None
+            };
+            if let Some(next) = next
+                && !reached.iter().any(|(at, _)| (at - next).abs() < 1e-4)
+            {
+                let mut by = proof.clone();
+                by.push(id.clone());
+                reached.push((next, by));
+            }
+        }
+    }
+    None
+}
+
 fn contract(r: &Map<String, Value>) -> Tolerance {
     if r.get("basic") == Some(&json!(true)) {
         Tolerance::Basic
@@ -114,6 +200,8 @@ pub(crate) struct Planned {
     pub supports: Vec<Support>,
     pub groups: BTreeMap<String, Vec<String>>,
     pub frame: quiddity::frames::PartFrame,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub witnesses: Option<[Support; 2]>,
 }
 
 /// Lower the shared slice-one requirements, accounting for existing carriers and
@@ -538,6 +626,15 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             false
         } else { true }
     });
+    required.retain(|r| {
+        if matches!(&r.kind,Kind::Location {from,to,axis}
+            if plane_mismatch(&input,from,*axis) || plane_mismatch(&input,to,*axis)) {
+            unresolved.push(json!({"kind":"location","feature":r.covers.join(","),"faces":[],
+                "not_written_reason":format!("shared planner {}: support station disagrees with its physical plane; retained legacy measured plane dimension",r.id)})
+                .as_object().unwrap().clone());
+            false
+        } else {true}
+    });
     // An answered fit/location is never replaced by a General guess when the
     // principal-plane grammar cannot represent its support or complete group.
     required.retain(|r| {
@@ -640,7 +737,7 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
     let stored_dimensions = authorities
         .values()
         .any(|r| r.get("stored") == Some(&json!(true)));
-    let baselines: Vec<_> = intent
+    let mut baselines: Vec<_> = intent
         .general
         .iter()
         .filter(|row| !stored_dimensions && deferred(&input, row))
@@ -651,15 +748,55 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             (a.plane && b.plane)
                 .then(|| (format!("legacy:{}/to/{}", a.feature, b.feature), axis, a, b))
         })
-        .chain(required.iter().filter_map(|r| match &r.kind {
-            Kind::Location { from, to, axis }
-                if from.plane && to.plane && r.reference.is_none() =>
-            {
-                Some((r.id.clone(), *axis, from.clone(), to.clone()))
+        .chain(required.iter().filter_map(|r| {
+            let Kind::Location { from, to, axis } = &r.kind else {
+                return None;
+            };
+            if !from.plane || r.reference.is_some() {
+                return None;
             }
-            _ => None,
+            // A coincident point survivor can carry a physical-plane interval.
+            // Its covered plane still owns an edge, just as in the shared lint.
+            let plane = if to.plane {
+                Some(to)
+            } else {
+                input
+                    .planes
+                    .iter()
+                    .map(|p| &p.support)
+                    .chain(input.steps.heights.iter())
+                    .find(|s| {
+                        r.covers.contains(&s.feature)
+                            && s.body == to.body
+                            && (s.at[*axis] - to.at[*axis]).abs() < 1e-4
+                    })
+            }?;
+            Some((r.id.clone(), *axis, from.clone(), plane.clone()))
         }))
         .collect();
+    // Keep legacy and authored edges first, then admit each planned plane span
+    // only if independent. Determined generated spans remain reference quantities.
+    let all_planes = baselines.clone();
+    baselines.retain(|(id, _, _, _)| id.starts_with("legacy:") || authorities.contains_key(id));
+    for r in &mut required {
+        if authorities.contains_key(&r.id) {
+            continue;
+        }
+        if let Some((id, axis, from, to)) = all_planes.iter().find(|(id, _, _, _)| id == &r.id) {
+            if let Some(by) = station_path(
+                &baselines,
+                from.body,
+                *axis,
+                from.at[*axis],
+                to.at[*axis],
+                1e-4,
+            ) {
+                r.reference = Some(by);
+            } else {
+                baselines.push((id.clone(), *axis, from.clone(), to.clone()));
+            }
+        }
+    }
     for r in &mut required {
         let Kind::Size { role, .. } = &r.kind else {
             continue;
@@ -678,34 +815,10 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
                 }
                 let entry = h.support.at[axis];
                 let end = entry + h.direction[axis] * r.nominal;
-                let mut reached = vec![(entry, Vec::<String>::new())];
-                let mut cursor = 0;
-                while cursor < reached.len() {
-                    let (station, proof) = reached[cursor].clone();
-                    cursor += 1;
-                    if (station - end).abs() < DEPTH_NEAR {
-                        r.reference = Some(proof);
-                        break;
-                    }
-                    for (id, k, a, b) in &baselines {
-                        if *k != axis || a.body != h.support.body || b.body != h.support.body {
-                            continue;
-                        }
-                        let next = if (a.at[axis] - station).abs() < 1e-4 {
-                            Some(b.at[axis])
-                        } else if (b.at[axis] - station).abs() < 1e-4 {
-                            Some(a.at[axis])
-                        } else {
-                            None
-                        };
-                        if let Some(next) = next
-                            && !reached.iter().any(|(at, _)| (at - next).abs() < 1e-4)
-                        {
-                            let mut by = proof.clone();
-                            by.push(id.clone());
-                            reached.push((next, by));
-                        }
-                    }
+                if let Some(by) =
+                    station_path(&baselines, h.support.body, axis, entry, end, DEPTH_NEAR)
+                {
+                    r.reference = Some(by);
                 }
             }
         }
@@ -793,6 +906,19 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
         if general.is_none() && !authorities.contains_key(&required.id) {
             continue;
         }
+        let witnesses = match pitch_witnesses(&input, &required) {
+            Ok(w) => w,
+            Err(why) => {
+                unresolved.push(
+                    json!({"kind":"location","faces":[],"feature":required.covers.join(","),
+                    "not_written_reason":format!("shared planner {}: {why}",required.id)})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+                );
+                continue;
+            }
+        };
         let mut row = authorities.get(&required.id).cloned().unwrap_or_default();
         let (kind, feature, faces, reference) = match &required.kind {
             Kind::Size { feature, .. } => {
@@ -813,6 +939,11 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
                 from.faces.clone(),
             ),
         };
+        let (faces, reference) = witnesses
+            .as_ref()
+            .map_or((faces.clone(), reference.clone()), |[from, to]| {
+                (to.faces.clone(), from.faces.clone())
+            });
         // Keep Specify's recognised feature spelling for origin/source and question consumers.
         let named = old
             .iter()
@@ -906,6 +1037,10 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             .filter(|(id, _)| used.contains(*id))
             .map(|(id, members)| (id.clone(), members.clone()))
             .collect();
+        if let Some([from, to]) = &witnesses {
+            used.insert(from.feature.clone());
+            used.insert(to.feature.clone());
+        }
         let used_supports = supports
             .iter()
             .filter(|s| used.contains(&s.feature))
@@ -918,6 +1053,7 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
                 supports: used_supports,
                 groups: used_groups,
                 frame: input.frame,
+                witnesses,
             })
             .map_err(|e| e.to_string())?,
         );

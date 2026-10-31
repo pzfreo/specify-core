@@ -1230,6 +1230,12 @@ fn planned_kind(
         quiddity::dimensioning::Kind::Location { from, to, .. } => {
             resolve(&from.feature, planned, features, geometry, &mut ids, unit)?;
             resolve(&to.feature, planned, features, geometry, &mut ids, unit)?;
+            if let Some([a, b]) = &planned.witnesses {
+                let af = resolve(&a.feature, planned, features, geometry, &mut ids, unit)?;
+                let bf = resolve(&b.feature, planned, features, geometry, &mut ids, unit)?;
+                ids.insert(from.feature.clone(), af);
+                ids.insert(to.feature.clone(), bf);
+            }
             let alias = format!("coincident:{}", planned.required.id);
             if let Some(members) = planned.groups.get(&alias) {
                 let target = if members.len() == 1 {
@@ -1536,7 +1542,8 @@ fn part_pmi_observed(
             }
             if matches!(&planned.required.kind,
                 quiddity::dimensioning::Kind::Location { from, to, .. }
-                if from.faces.is_empty() || to.faces.is_empty())
+                if from.faces.is_empty() || to.faces.is_empty()
+                    || planned.witnesses.as_ref().is_some_and(|pair| pair.iter().any(|s| s.faces.is_empty())))
             {
                 lines.not_written.push(format!(
                     "location {} has a support with no faces; not written",

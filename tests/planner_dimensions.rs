@@ -478,6 +478,35 @@ fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
                 .unwrap();
                 std::fs::write(dir.join(format!("{stem}.step")), back.bytes.as_slice()).unwrap();
             }
+            let claims: std::collections::BTreeMap<usize, Required> = pmi
+                .attributes
+                .iter()
+                .filter(|a| a.name == "specify dimension plan")
+                .map(|a| {
+                    let Some(pmi::NoteOwner::Dimension(id)) = &a.on else {
+                        panic!("dimension plan owner")
+                    };
+                    let pmi::AttributeValue::Text(text) = &a.items[0].1 else {
+                        panic!("dimension plan text")
+                    };
+                    let value: Value = serde_json::from_str(text).unwrap();
+                    (
+                        id.0,
+                        serde_json::from_value(value["required"].clone()).unwrap(),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                claims
+                    .values()
+                    .map(|r| r.id.clone())
+                    .collect::<BTreeSet<_>>(),
+                required(&i)
+                    .iter()
+                    .map(|r| r.id.clone())
+                    .collect::<BTreeSet<_>>(),
+                "every eligible requirement must reach written PMI"
+            );
             let mut pairs = BTreeSet::new();
             let input: Input = serde_json::from_value(a["dimensioning"].clone()).unwrap();
             let mut edges: Vec<(Option<usize>, usize, i64, i64)> = Vec::new();
@@ -512,7 +541,7 @@ fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
                     edges.push((body, axis, a, b));
                 }
             };
-            for d in &pmi.dimensions {
+            for (dimension_index, d) in pmi.dimensions.iter().enumerate() {
                 let pmi::DimensionKind::Location { from, to, .. } = &d.kind else {
                     continue;
                 };
@@ -550,14 +579,48 @@ fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
                         .iter()
                         .find(|p| f.iter().all(|id| p.support.faces.contains(id)))
                 };
-                if let (Some(a), Some(b)) = (plane(&a), plane(&b)) {
-                    if a.axis != b.axis {
-                        errors.borrow_mut().push(format!(
-                            "nonparallel plane supports: {} {a:?} {b:?}",
-                            path.display()
-                        ));
-                        continue;
+                if let (Some(a), Some(b)) = (plane(&a), plane(&b))
+                    && a.axis != b.axis
+                {
+                    errors.borrow_mut().push(format!(
+                        "nonparallel plane supports: {} {a:?} {b:?}",
+                        path.display()
+                    ));
+                }
+                // An axis feature can include a planar hole floor among its
+                // defining faces. Only an explicit covered plane claim makes
+                // that floor a graph edge; locating an axis does not locate its floor.
+                let interval = if let Some(r) = claims.get(&dimension_index) {
+                    if let quiddity::dimensioning::Kind::Location { from, to, axis } = &r.kind {
+                        let from_plane = input.planes.iter().find(|p| {
+                            from.plane
+                                && !from.faces.is_empty()
+                                && from.faces.iter().all(|f| p.support.faces.contains(f))
+                        });
+                        let to_plane = input.planes.iter().find(|p| {
+                            p.axis == *axis
+                                && if to.plane {
+                                    !to.faces.is_empty()
+                                        && to.faces.iter().all(|f| p.support.faces.contains(f))
+                                } else {
+                                    (r.covers.contains(&p.support.feature)
+                                        || input.steps.heights.iter().any(|s| {
+                                            r.covers.contains(&s.feature)
+                                                && s.faces
+                                                    .iter()
+                                                    .any(|f| p.support.faces.contains(f))
+                                        }))
+                                        && (p.support.at[*axis] - to.at[*axis]).abs() < 1e-4
+                                }
+                        });
+                        from_plane.zip(to_plane)
+                    } else {
+                        None
                     }
+                } else {
+                    plane(&a).zip(plane(&b))
+                };
+                if let Some((a, b)) = interval {
                     edge(
                         a.support.body,
                         a.axis,

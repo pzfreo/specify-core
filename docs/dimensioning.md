@@ -82,7 +82,14 @@ to 0.01 mm upstream; floor ownership and reference proofs account for that round
 while keeping the planner's nominal unchanged. When two retained
 turned baselines determine a generated hole enlargement's depth, that depth
 is retained as a reference with both baseline witnesses. This avoids introducing
-an independent closed chain across the slice boundary.
+an independent closed chain across the slice boundary. The same check makes a
+generated plane span a reference when retained baselines already determine it.
+A clustered step proposal whose station disagrees with its actual support plane
+is reported and deferred; the measured legacy plane dimension remains.
+Projected grid pitches resolve to aligned existing member-hole witnesses, so
+orthogonal pitches never become two different values on one diagonal face pair.
+Their shared requirement IDs, nominal values and interval counts are unchanged;
+optional `witnesses` metadata records the physical PMI endpoints.
 `tests/planner_dimensions.rs` checks complete STEP readback, reference modifiers,
 stored-PMI authority, a pre-planner numbered plate resumed twice, and physical
 supports, unique face pairs and independent plane chains across the test corpus.
