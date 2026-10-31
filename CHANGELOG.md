@@ -6,6 +6,10 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.5 (2026-10-31)
+
+On quiddity/haecceity 0.2.8. Adds `pmiScene` (one PMI scene for the editor's Specify, diff and viewer), rebuilds `diff`'s PMI section on haecceity PMI with characteristic numbers, records dimension origins (#77), and adds `pmi_scene` and `api.diff` to the `specify-core` Python package. `diff`'s `pmi.stored`/`pmi.existing` are deprecated in favour of `pmi.items`. The WASM ceiling is now 15,000,000 bytes.
+
 ### Changed
 
 - Revision PMI reports compare haecceity semantic requirements and full notation,
@@ -13,7 +17,6 @@ All notable changes to specify-core-rust. The format follows
   foreign PMI in resumed files, and support matching across face splits. Add
   `pmi.items`; retain deprecated `stored`/`existing` for one release. Numbered
   removals read “retired”; Markdown lists changes in inspection order.
-
 - The reviewed WASM size ceiling is raised from 12,980,000 to **15,000,000** bytes (maintainer, 2026-10-31), after `pmiScene` measured 12,903,620 bytes.
 
 ### Added
@@ -22,7 +25,6 @@ All notable changes to specify-core-rust. The format follows
   and bundled `specify_core/schema/` JSON Schemas. Scenes contain haecceity's
   semantic/presentation documents plus Specify status, question, number, origin/source.
   Requirement-based Specify ids survive reviews; face anchors match mesh indices.
-
 - The Python package `specify-core` on this engine (`crates/specify-core-py`): specify-core's
   Python API and the `specify-core` command line, with no Python dependency; abi3 wheels for
   CPython 3.12 and later, built and published by `.github/workflows/python.yml`. See
@@ -40,7 +42,6 @@ All notable changes to specify-core-rust. The format follows
 - `diff` reports add `pmi.items` with ids/numbers matching `pmiScene`; export
   `PmiItemChange` and `DiffPmi` TypeScript interfaces. Python adds `api.diff`
   returning the same selected-part report plus Markdown.
-
 - Add `IntentEngine.pmiScene(answers)` on the open part session (including `openPart`)
   and `pmiScene(stepBytes, part?)` for view-only As Drawn PMI without an interview.
 
@@ -55,7 +56,6 @@ All notable changes to specify-core-rust. The format follows
   General locations without a feature id use their face supports for stable identity.
   Locations shared by a datum member and its pattern keep their question identity;
   repeated measurements retain distinct characteristic numbers through STEP readback.
-
 - Scene metadata/history ids follow the requirement owner and property name across
   answer changes. Foreign datum identities and file callouts are reused during a live
   review, including when adding a control; saved views and planes survive the merge.
@@ -70,7 +70,6 @@ All notable changes to specify-core-rust. The format follows
   Package schemas match v0.2.8. Written mass units use conversion-based gram per
   CAx-IF Annex C.1. Existing Specify STEP goldens remain byte-identical: its material
   writer supplies no density and foreign density records are preserved. Recognition stays unchanged.
-
 - Upgrade quiddity/haecceity to **v0.2.7** (`eaa7762`); recognition stays unchanged.
   Writer expectations change for slash-separated deviations and notes/frame placement.
   Remove the blank-note drawing workaround: literal blank rows now write valid STEP directly.
