@@ -35,6 +35,7 @@ use crate::part::LoadedPart;
 use haecceity::Part;
 
 pub mod assembly;
+mod pmi;
 mod treatments;
 
 /// What one old face is in the new part.
@@ -184,6 +185,25 @@ pub struct Pmi {
     pub existing: Vec<PmiChange>,
     /// How many items of their own PMI the old and new files state.
     pub existing_count: [usize; 2],
+    /// Requirement changes, using pmiScene identities, numbers and review statuses.
+    pub items: Vec<PmiItemChange>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PmiItemChange {
+    pub class: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub number: Option<u64>,
+    pub id: String,
+    pub kind: String,
+    pub status: String,
+    pub on: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1858,6 +1878,15 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
             &new_features,
         ),
         existing_count: [old_existing.len(), new_existing.len()],
+        items: pmi::diff(
+            old,
+            new,
+            (&old_analysis, &new_analysis),
+            (!given.is_empty()).then_some(given),
+            &carried,
+            &matching.faces,
+            (&old_features, &new_features),
+        )?,
     };
     let open_count = unresolved.len() + questions.len();
     let verdict = if !problems.added.is_empty() {
@@ -1927,7 +1956,7 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
             )
         });
     }
-    let pmi_changes = pmi.stored.len() + pmi.existing.len();
+    let pmi_changes = pmi.items.len();
     if pmi_changes > 0 {
         part.push(format!(
             "{} to the PMI",
@@ -2329,56 +2358,25 @@ impl Revised {
                         .into(),
                 );
             }
-            for c in &p.stored {
-                let on = if c.on.is_empty() {
-                    format!("`{}`", c.id)
-                } else {
-                    format!("{} (`{}`)", c.on, c.id)
+            for c in &p.items {
+                let prefix = c.number.map_or(String::new(), |n| format!("#{n} "));
+                let was = c.old.as_deref().unwrap_or_default();
+                let now = c.new.as_deref().unwrap_or_default();
+                let text = match c.class.as_str() {
+                    "changed" => format!("{was} → {now}"),
+                    "removed" if c.number.is_some() => format!("retired: {was}"),
+                    "removed" => format!("removed: {was}"),
+                    "renumbered" => {
+                        format!("{now}: {}", c.reason.as_deref().unwrap_or("renumbered"))
+                    }
+                    _ => format!("added: {now}"),
                 };
-                let (was, now) = (
-                    c.old.clone().unwrap_or_default(),
-                    c.new.clone().unwrap_or_default(),
-                );
-                lines.push(match c.class.as_str() {
-                    "changed" => format!("{on}: **{was}** → **{now}** in the new file's PMI"),
-                    "removed" => format!("{on}: **{was}** carried, but not in the new file's PMI"),
-                    _ => format!("{on}: **{now}** added in the new file's PMI"),
-                });
-            }
-            for c in &p.existing {
-                let (was, now) = (
-                    c.old.clone().unwrap_or_default(),
-                    c.new.clone().unwrap_or_default(),
-                );
-                // `flatness 0.2 → 0.1`, not `flatness 0.2 → flatness 0.1`.
-                let same = was
-                    .split(' ')
-                    .zip(now.split(' '))
-                    .take_while(|(a, b)| a == b)
-                    .count();
-                let (was_words, now_words): (Vec<&str>, Vec<&str>) =
-                    (was.split(' ').collect(), now.split(' ').collect());
-                let changed = if same > 0 && same < was_words.len() && same < now_words.len() {
-                    format!(
-                        "{} {} → {}",
-                        was_words[..same].join(" "),
-                        was_words[same..].join(" "),
-                        now_words[same..].join(" ")
-                    )
-                } else {
-                    format!("{was} → {now}")
-                };
-                lines.push(match c.class.as_str() {
-                    "changed" => format!("{}: {changed}", c.on),
-                    "removed" => format!("{}: {was} removed", c.on),
-                    _ => format!("{}: {now} added", c.on),
-                });
-            }
-            if p.existing.is_empty() && p.existing_count[0] > 0 {
-                lines.push(format!(
-                    "The files' own PMI is unchanged ({}).",
-                    plural_of(p.existing_count[0], "item")
-                ));
+                let reason = c
+                    .reason
+                    .as_deref()
+                    .filter(|r| !["retired"].contains(r) && c.class != "renumbered")
+                    .map_or(String::new(), |r| format!("; {r}"));
+                lines.push(format!("{prefix}{text} ({}{reason})", c.on));
             }
             if !lines.is_empty() {
                 s += "**PMI**\n\n";
