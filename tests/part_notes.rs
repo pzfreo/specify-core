@@ -5,7 +5,7 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use haecceity::p21::Document;
+use haecceity::p21::{Attribute, Document};
 use haecceity::pmi::{self, AttributeSet, AttributeValue};
 use serde_json::{Map, Value, json};
 use specify_core::part::{self, LoadedPart};
@@ -91,7 +91,10 @@ fn notes_round_trip_as_semantic_text_and_answers_with_a_byte_stable_rewrite() {
         "None",
         "  Keep dry  ",
         "",
-        "None"
+        "None",
+        "   ",
+        "(blank)",
+        "  \nVisible note\n  "
     ]);
     let answers = given(notes.clone());
     let intent = api::apply(&analysis, &answers, true).unwrap();
@@ -100,6 +103,14 @@ fn notes_round_trip_as_semantic_text_and_answers_with_a_byte_stable_rewrite() {
     assert!(report.not_written.is_empty());
     let defs = haecceity::step::read_part_definitions(&bytes).unwrap();
     let doc = Document::parse(bytes.clone()).unwrap();
+    // quiddity-rust#137 must not produce an empty coordinates/curve list for the blank row.
+    assert!(haecceity::express::validate_document(doc.graph()).is_empty());
+    assert!(haecceity::express_rules::check_all(&doc).is_empty());
+    assert!(doc.ids().any(|id| matches!(doc.get(id),
+        Some(haecceity::p21::RawEntity::Simple { name, attributes, .. })
+            if name == "TESSELLATED_CURVE_SET" && matches!(attributes.first(),
+                Some(Attribute::String(text)) if text.starts_with("GENERAL NOTES\n")
+                    && text.matches("(blank)").count() == 3))));
     let read = pmi::read(&doc, &defs).unwrap();
     let sets: Vec<_> = read.parts[0]
         .attributes

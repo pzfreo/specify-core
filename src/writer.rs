@@ -103,6 +103,8 @@ use serde_json::{Map, Value as Json, json};
 
 use crate::part::{self, LoadedPart};
 use crate::provenance;
+
+mod blank_notes;
 use crate::pyfmt;
 
 use crate::pyjson;
@@ -729,7 +731,7 @@ fn write_by_modes(
     // The file written so far, when an edit has been applied.
     let mut written: Option<Vec<u8>> = None;
     for mode in [Mode::Replace, Mode::Add] {
-        let these: Vec<(PartId, PartPmi)> = items
+        let mut these: Vec<(PartId, PartPmi)> = items
             .iter()
             .zip(modes)
             .filter(|&(_, &m)| m == mode)
@@ -799,6 +801,7 @@ fn write_by_modes(
             None
         };
         let current = upgraded.as_ref().unwrap_or(current);
+        let blank_notes = blank_notes::prepare(&mut these);
         let (mut edit, _) = pmi::write(current, defs, &these, mode, policy).map_err(refused)?;
         if mode == Mode::Replace {
             // Python's own form of stored answers is not PMI haecceity reads (it reports it as
@@ -816,6 +819,7 @@ fn write_by_modes(
             .map_err(|e| WriteError::Failed(format!("haecceity could not apply the edit: {e}")))?;
         let after =
             Document::parse(applied.bytes).map_err(|e| WriteError::Failed(e.to_string()))?;
+        let after = blank_notes::restore(current, after, defs, &blank_notes)?;
         let marker_edit = provenance::mark_new(current, &after);
         let marked = after
             .apply(&marker_edit)

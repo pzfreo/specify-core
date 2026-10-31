@@ -284,3 +284,99 @@ fn unique_support_growth_carries_the_stored_source_even_if_recognition_renames_i
     assert_eq!(after.faces, vec![9, 10]);
     assert_eq!(after.source, before.source);
 }
+
+#[test]
+fn v026_split_datum_composite_size_and_location_own_their_origin_and_source() {
+    // #77 + quiddity-rust#137: metadata belongs to the dimension, despite the
+    // split sized datum, composite supports and independent location aspects.
+    let plate = load("parts/plate.step");
+    let mut intent = rules::Intent::new(json!(plate.binding));
+    for datum in [
+        json!({"letter":"A","faces":[9]}),
+        json!({"letter":"B","faces":[4]}),
+    ] {
+        intent.datums.push(datum.as_object().unwrap().clone());
+    }
+    for req in [
+        json!({"kind":"size","faces":[9],"feature":"holes:9","nominal":10.,"upper":0.1,"lower":-0.1}),
+        json!({"kind":"size","faces":[6,7,8,10,11,13],"nominal":6.6,"upper":0.1,"lower":-0.1}),
+        json!({"kind":"location","faces":[6,7,8,10,11,13],"reference":[4],"distance":20.,"upper":0.1,"lower":-0.1}),
+    ] {
+        intent.requirements.push(req.as_object().unwrap().clone());
+    }
+    let written = back(
+        writer::write_bytes(&plate, &intent, Some(&Map::new()))
+            .unwrap()
+            .0,
+    );
+    let doc = Document::parse(written.bytes.to_vec()).unwrap();
+    let read = read(&written);
+    let p = &read.parts[0];
+    assert_eq!(p.dimensions.len(), 3);
+    assert!(doc.ids().any(|id| matches!(doc.get(id),
+        Some(RawEntity::Simple {name,..}) if name == "COMPOSITE_SHAPE_ASPECT")));
+    for (i, dimension) in p.dimensions.iter().enumerate() {
+        let owner = NoteOwner::Dimension(DimensionId(i));
+        let metadata = pmi_origin::read(p, owner);
+        assert_eq!(metadata.origin, Some(Origin::Requirement));
+        let source = metadata.source.unwrap();
+        assert_eq!(source.faces, resume::fingerprint(&plate).unwrap());
+        assert_eq!(
+            source.parameter,
+            if matches!(dimension.kind, pmi::DimensionKind::Size { .. }) {
+                "bore.diameter".to_owned()
+            } else {
+                "location.length.z".to_owned()
+            }
+        );
+        let set = p
+            .attributes
+            .iter()
+            .position(|a| a.name == pmi_origin::PROPERTY && a.on == Some(owner))
+            .unwrap();
+        let root = read.provenance.parts[0].dimensions[i].iter().copied().find(|&id|
+            matches!(doc.get(id), Some(RawEntity::Simple {name,..}) if name == "DIMENSIONAL_SIZE" || name == "DIMENSIONAL_LOCATION")).unwrap();
+        let requirement = characteristics::read(&written)
+            .unwrap()
+            .into_iter()
+            .find(|n| n.entity == root)
+            .unwrap();
+        assert_eq!(source.support, requirement.faces);
+        assert!(read.provenance.parts[0].attributes[set].iter().any(|&id|
+            matches!(doc.get(id), Some(RawEntity::Simple {name,attributes,..})
+                if name == "PROPERTY_DEFINITION" && attributes.get(2) == Some(&Attribute::EntityRef(root)))));
+    }
+    assert!(haecceity::express::validate_document(doc.graph()).is_empty());
+    assert!(haecceity::express_rules::check_all(&doc).is_empty());
+    let signature = |p: &part::LoadedPart| {
+        characteristics::read(p)
+            .unwrap()
+            .into_iter()
+            .map(|n| {
+                (
+                    n.number,
+                    n.kind,
+                    n.r#type,
+                    n.faces,
+                    n.reference,
+                    n.origin,
+                    n.source,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    intent.binding = json!(written.binding);
+    assert_eq!(
+        writer::write_bytes(&written, &intent, Some(&Map::new()))
+            .unwrap()
+            .0,
+        written.bytes.as_slice()
+    );
+    intent.requirements[0].insert("upper".into(), json!(0.2));
+    let rewritten = back(
+        writer::write_bytes(&written, &intent, Some(&Map::new()))
+            .unwrap()
+            .0,
+    );
+    assert_eq!(signature(&rewritten), signature(&written));
+}

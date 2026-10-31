@@ -1,15 +1,14 @@
 //! The cross-engine check: what each engine reads of the other's files, so Draftwright Specify
 //! can move a part between engines.
 //!
-//! - (a) `rust_written_files_only_gain_characteristic_numbers`: the committed Rust-written
-//!   files (`tests/fixtures/cross_engine/<case>/rust.step.gz`, or `rust.refused.txt` for a
-//!   case the example or the writer refuses) are still exactly what `examples/write_fixtures.rs` produces,
-//!   byte for byte, except #65's ids and history, whose strict entity/reference projection
-//!   must reproduce the old graph exactly (`common::numbering`). This keeps the numberless
-//!   fixtures and independent Python readbacks. A deliberate change is regenerated with that example (its doc comment says
-//!   how), together with Python's read-back of the new files. The bytes are the same on every
-//!   platform: nothing written depends on a platform's maths library beyond the signs of zero
-//!   that stored-answer schema 1 hashed, which schema 2 writes unsigned (the fixtures' README).
+//! - (a) `rust_written_files_match_the_current_presentation_writer`: the committed files
+//!   are exactly what `examples/write_fixtures.rs` produces, including #65 ids/history,
+//!   #77 dimension origin/source UDAs and
+//!   quiddity-rust#137 presentation and aspect shapes. Deliberate changes require regenerating
+//!   them and independently recapturing Python's read-back (the example documents how).
+//!   The Python reference predates inspection numbers and origin/source UDAs; their absence is an explicit ledger
+//!   difference, while the native characteristic tests check their exact standard slots.
+//!   Stored-answer schema 2 writes zeros unsigned, keeping these bytes portable.
 //! - (b) Python's read-back of each Rust-written file (`python_readback.json.gz`, captured by
 //!   `tools/capture.py cross-engine`: specify-core's `read_existing`, `part_settings` and
 //!   `resume.answers_for` per part, each in a process of its own) against the intent as
@@ -77,7 +76,7 @@ fn rust_written(case: &str) -> Option<PathBuf> {
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn rust_written_files_only_gain_characteristic_numbers() {
+fn rust_written_files_match_the_current_presentation_writer() {
     let scratch = write_fixtures::scratch();
     let cases = write_fixtures::cases();
     assert!(!cases.is_empty(), "no synthetic or NIST oracle cases");
@@ -88,11 +87,10 @@ fn rust_written_files_only_gain_characteristic_numbers() {
         let (step, refused) = (dir.join("rust.step.gz"), dir.join("rust.refused.txt"));
         match (write_fixtures::write(case, &output), step.is_file()) {
             (Ok(bytes), true) if gunzip(&step) == bytes => {}
-            (Ok(bytes), true) => {
-                if let Err(why) = common::numbering::only_numbering_added(&gunzip(&step), &bytes) {
-                    stale.push(format!("{}: {why}", case.name));
-                }
-            }
+            // quiddity-rust#137 adds presentation and changes semantic aspect structure.
+            // The recaptured fixtures include #65 numbering and #77 origin/source UDAs:
+            // require exact bytes again.
+            (Ok(_), true) => stale.push(format!("{}: writer bytes changed", case.name)),
             (Ok(_), false) => stale.push(format!("{}: written now, not committed", case.name)),
             (Err(why), false)
                 if std::fs::read_to_string(&refused).ok().as_deref()

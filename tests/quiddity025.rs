@@ -84,18 +84,32 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
         let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(answers)).unwrap();
         let back = part::load_bytes("rewritten.step", bytes).unwrap();
         assert_eq!(resume::answers_for(&back).unwrap().as_ref(), Some(answers));
-        assert_eq!(
-            existing::read_existing(&back)
-                .unwrap()
-                .into_iter()
-                .map(|mut row| {
-                    row.origin = None;
-                    row.source = None;
-                    row
-                })
-                .collect::<Vec<_>>(),
-            existing::read_existing(&loaded).unwrap()
-        );
+        let mut expected = existing::read_existing(&loaded).unwrap();
+        if name == "chamfer" {
+            // quiddity-rust#137: the datum's size is now a separate DIMENSIONAL_SIZE,
+            // emitted after the bore size, rather than on its earlier datum aspect.
+            // Pin the new order while comparing every field to the untouched old input.
+            assert_eq!((expected[0].number, expected[1].number), (Some(4), Some(3)));
+            expected.swap(0, 1);
+        }
+        let rows = existing::read_existing(&back).unwrap();
+        for row in rows.iter().filter(|r| r.kind == "dimension") {
+            assert_eq!(
+                row.origin,
+                Some(specify_core::pmi_origin::Origin::Requirement)
+            );
+        }
+        // #77 adds stored metadata to rewritten old files; compare every legacy field,
+        // and verify the new metadata independently in tests/pmi_origin.rs.
+        let legacy = rows
+            .into_iter()
+            .map(|mut row| {
+                row.origin = None;
+                row.source = None;
+                row
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(legacy, expected);
 
         for evidence in [Some(&base["evidence"]), None] {
             let out = resume::rematch_answers(&loaded, &fs, answers, evidence, None).unwrap();

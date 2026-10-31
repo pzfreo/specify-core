@@ -254,8 +254,9 @@ fn legacy_numberless_files_expose_no_number_fields_on_every_platform() {
 fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() {
     // Captured on macOS by unmodified main a49dc3d in a separate checkout and target dir.
     // quiddity-rust#134: only shaft analysis was recaptured (boss 36.1 → 37.6,
-    // retained plate and its six-decimal published centre). PMI and settings-only
-    // writer hashes remain the original ones.
+    // retained plate and its six-decimal published centre). Analysis and read hashes stay
+    // unchanged for quiddity-rust#137; settings-only writes gain its General notes callout.
+    // #77 leaves these settings-only hashes unchanged: no size/location UDA is written.
     // Float serialization varies by platform; portable absence checks run separately above.
     if !cfg!(target_os = "macos") {
         return;
@@ -290,7 +291,7 @@ fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() 
         assert_eq!(
             hash(output),
             baseline["settings_only_writer_sha256"],
-            "{name}: unchanged settings-only writer"
+            "{name}: settings-only writer with quiddity-rust#137 notes"
         );
     }
 }
@@ -603,8 +604,16 @@ fn a_datum_requirement_number_is_not_overridden_by_its_geometric_features_id() {
     let feature = doc
         .ids()
         .find(|id| {
-            matches!(doc.get(*id),
-        Some(RawEntity::Simple {name,..}) if name == "DATUM_FEATURE")
+            // quiddity-rust#137 can split datum/size and use complex datum features.
+            match doc.get(*id) {
+                Some(RawEntity::Simple { name, .. }) => {
+                    haecceity::express::is_a(&name.to_ascii_lowercase(), "datum_feature")
+                }
+                Some(RawEntity::Complex { parts, .. }) => parts.iter().any(|p| {
+                    haecceity::express::is_a(&p.name.to_ascii_lowercase(), "datum_feature")
+                }),
+                None => false,
+            }
         })
         .unwrap();
     let mut edit = Edit::new();
@@ -985,5 +994,94 @@ fn bore_to_bore_location_uses_the_end_on_view_even_when_both_axes_are_parallel()
             ("dimension", "Size_Diameter", &[9], &[]), // top, (0,0): size wins over location
             ("dimension", "Location_LinearDistance", &[9], &[12]), // top, same site
         ],
+    );
+}
+
+#[test]
+fn presentation_shapes_keep_requirement_ids_history_and_face_supports() {
+    // quiddity-rust#137: a sized datum is split, multi-face supports are composite and
+    // locations own non-datum aspects. #135 must report #65 ids on the semantic roots.
+    let p = load("parts/GRM-02_shaft.step");
+    let mut i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
+    for d in [
+        json!({"letter":"A","faces":[0]}),
+        json!({"letter":"B","faces":[7,11]}),
+    ] {
+        i.datums.push(d.as_object().unwrap().clone());
+    }
+    for r in [
+        json!({"kind":"size","faces":[0],"nominal":8.,"upper":0.1,"lower":-0.1}),
+        json!({"kind":"location","faces":[13],"reference":[7,11],"distance":37.6,"upper":0.1,"lower":-0.1}),
+        json!({"kind":"flatness","faces":[7,11],"tolerance":0.05}),
+        json!({"kind":"finish","faces":[0],"value":"Ra 3.2"}),
+    ] {
+        requirement(&mut i, r);
+    }
+    i.part.insert("material".into(), json!("steel"));
+    let written = write(&p, &i);
+    let ns = numbers(&written);
+    assert_eq!(ns.len(), 6);
+    let doc = Document::parse(written.bytes.to_vec()).unwrap();
+    assert!(doc.ids().any(|id| match doc.get(id) {
+        Some(RawEntity::Simple { name, .. }) => name == "COMPOSITE_SHAPE_ASPECT",
+        Some(RawEntity::Complex { parts, .. }) =>
+            parts.iter().any(|p| p.name == "COMPOSITE_SHAPE_ASPECT"),
+        None => false,
+    }));
+    for id in doc.ids() {
+        if let Some(RawEntity::Simple {
+            name, attributes, ..
+        }) = doc.get(id)
+            && name == "DIMENSIONAL_LOCATION"
+        {
+            for a in &attributes[2..4] {
+                let Attribute::EntityRef(target) = a else {
+                    panic!("location aspect reference")
+                };
+                assert!(
+                    !matches!(doc.get(*target), Some(RawEntity::Simple { name, .. }) if name == "DATUM_FEATURE")
+                );
+                assert!(
+                    !matches!(doc.get(*target), Some(RawEntity::Complex { parts, .. }) if parts.iter().any(|p| p.name == "DATUM_FEATURE"))
+                );
+            }
+        }
+    }
+    let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
+    let read = haecceity::pmi::read(&doc, &defs).unwrap();
+    let ids = &read.identifiers.parts[0];
+    let decoded: BTreeSet<_> = ids
+        .datums
+        .iter()
+        .chain(&ids.dimensions)
+        .chain(&ids.tolerances)
+        .chain(&ids.surface_textures)
+        .map(|id| id.as_ref().unwrap().parse::<u64>().unwrap())
+        .collect();
+    assert_eq!(decoded, ns.iter().map(|n| n.number).collect());
+    assert!(
+        read.parts[0]
+            .attributes
+            .iter()
+            .any(|a| a.name == characteristics::PROPERTY)
+    );
+    assert!(haecceity::express::validate_document(doc.graph()).is_empty());
+    assert!(haecceity::express_rules::check_all(&doc).is_empty());
+    assert_eq!(written.bytes, write(&written, &rebind(&i, &written)).bytes);
+    i.requirements[0].insert("upper".into(), json!(0.2));
+    let rewritten = write(&written, &rebind(&i, &written));
+    let signature = |p: &part::LoadedPart| {
+        numbers(p)
+            .into_iter()
+            .map(|n| (n.number, n.kind, n.r#type, n.faces, n.reference))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(signature(&written), signature(&rewritten));
+    let existing = existing::read_existing(&rewritten).unwrap();
+    assert!(
+        existing
+            .iter()
+            .all(|e| e.number.is_some()
+                && e.provenance.as_deref() == Some("specify-core:written:v1"))
     );
 }

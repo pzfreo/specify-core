@@ -24,7 +24,7 @@ This is the same `AttributeSet` path as characteristic-number history, through
 `writer::write_bytes_with` / `write_parts_bytes_with` and haecceity's lossless append.
 The property name is reserved against caller attributes.
 
-Checked against the pinned **quiddity v0.2.5 / haecceity 6110b4c** EXPRESS tables:
+Checked against the pinned **quiddity v0.2.6 / haecceity b9addd9** EXPRESS tables:
 `property_definition.definition` selects `characterized_definition`, whose `shape_definition`
 branch includes `shape_aspect_relationship`. Locations inherit that relationship and are
 valid owners in both available editions. Sizes do **not** inherit `shape_aspect`.
@@ -42,6 +42,10 @@ and [NIST SFA's UDA checks in `sfa-valprop.tcl`](https://github.com/usnistgov/SF
 SFA checks the general-property association and equal property names and reads descriptive
 representation items. The Specify property/item names above are a producer convention,
 not names prescribed by CAx-IF or NIST. No Windows SFA executable is required by the tests.
+
+The v0.2.6 writer (quiddity-rust#137) splits a sized datum's feature and size, uses
+composite multi-face aspects, and gives locations their own aspects. Origin/source UDAs
+still belong to the dimensional-size/location root, never the datum feature or any aspect.
 
 ## Meaning and absence
 

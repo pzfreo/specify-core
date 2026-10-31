@@ -15,10 +15,11 @@
 //! /Users/paul/repos/specify-core/.venv/bin/python tools/capture.py cross-engine tests/fixtures/cross_engine
 //! ```
 //!
-//! **For #65.** The frozen numberless files and their independent Python readbacks remain.
-//! `common::numbering::only_numbering_added` removes only the new ids/history and verifies
-//! that every remaining entity/reference equals the old graph, allowing consequent ids of
-//! new records to shift. All other writer changes still require the recapture below.
+//! **For quiddity-rust#137.** Recaptured with v0.2.6: default presentation adds callouts,
+//! surface symbols and notes; composite and location aspects change semantic structure.
+//! These files include #65 ids/history and #77 dimension origin/source UDAs, checked byte
+//! for byte with independent Python readbacks. Historical category-order and alpha.7
+//! specimens remain unchanged.
 //!
 //! **Regenerating.** `tests/cross_engine.rs` checks that each committed file is still exactly
 //! what the writer produces today (the decompressed bytes, byte for byte; the writer is
