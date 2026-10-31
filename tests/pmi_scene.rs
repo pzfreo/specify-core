@@ -447,3 +447,33 @@ fn new_foreign_control_preserves_saved_views_planes_and_datum_callouts() {
         assert_eq!(review["specify"][id]["status"], "existing");
     }
 }
+
+#[test]
+fn part_finish_keeps_its_characteristic_number_live_and_from_the_file() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let mut answers = given();
+    answers.insert("part.surface_finish".into(), json!("Ra 3.2"));
+    answers.insert("part.edges".into(), json!("Break sharp edges 0.2 max"));
+    let live = Scene::new(&loaded)
+        .unwrap()
+        .scene(&loaded, Some(&analysis), Some(&answers))
+        .unwrap();
+    let number = live["specify"]["part.surface_finish"]["number"]
+        .as_u64()
+        .expect("part finish is an inspection characteristic");
+    assert!(number > 0);
+    assert_eq!(live["specify"]["part.edges"]["question"], "part.edges");
+    assert_eq!(live["specify"]["part.edges"]["status"], "answered");
+    let intent = api::preview(&analysis, &answers).unwrap();
+    let written = writer::write_bytes(&loaded, &intent, Some(&answers))
+        .unwrap()
+        .0;
+    let file = pmi_scene::pmi_scene(&written, None).unwrap();
+    validate(&file);
+    assert_eq!(file["specify"]["part.surface_finish"]["number"], number);
+    assert_eq!(
+        file["specify"]["part.surface_finish"]["question"],
+        "part.surface_finish"
+    );
+}

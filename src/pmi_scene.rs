@@ -227,6 +227,13 @@ impl Scene {
                         return Err(format!("ambiguous Specify requirement id {id}"));
                     }
                     counts.insert(id, count);
+                } else if let Some(number) = number {
+                    // Part-level surface textures are numbered too; their question/id
+                    // is assigned below alongside the other part settings.
+                    metadata.insert(
+                        semantic.ids[collection][i].clone(),
+                        json!({"number":number}),
+                    );
                 }
             }
         }
@@ -317,7 +324,7 @@ fn part_metadata(
             let key = match collection {
                 "general" => Some("general_tolerance"),
                 "surface_textures" if semantic.pmi.surface_textures[i].on.is_none() => {
-                    Some("finish")
+                    Some("surface_finish")
                 }
                 "attributes"
                     if semantic.pmi.attributes[i].name == writer::SEMANTIC_TEXT
@@ -335,7 +342,7 @@ fn part_metadata(
                     "general note" => "part.notes".to_owned(),
                     "surface treatment" => "part.surface_treatment".into(),
                     "heat treatment" => "part.heat_treatment".into(),
-                    "edge condition" => "part.edge_condition".into(),
+                    "edge condition" => "part.edges".into(),
                     _ => format!("part.{key}"),
                 };
                 let id = if key == "general note" {
@@ -358,11 +365,21 @@ fn part_metadata(
                 } else {
                     question.clone()
                 };
-                semantic
-                    .ids
-                    .get_mut(collection)
-                    .ok_or("missing id collection")?[i] = id.clone();
-                metadata.insert(id, json!({"status": if answers.contains_key(&question) {"answered"} else {"default"}, "question":question}));
+                let old = std::mem::replace(
+                    &mut semantic
+                        .ids
+                        .get_mut(collection)
+                        .ok_or("missing id collection")?[i],
+                    id.clone(),
+                );
+                let mut meta = metadata.remove(&old).unwrap_or_else(|| json!({}));
+                meta["status"] = json!(if answers.contains_key(&question) {
+                    "answered"
+                } else {
+                    "default"
+                });
+                meta["question"] = json!(question);
+                metadata.insert(id, meta);
             }
         }
     }

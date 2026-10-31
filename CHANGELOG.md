@@ -37,6 +37,8 @@ All notable changes to specify-core-rust. The format follows
 - Scene metadata/history ids follow the requirement owner and property name across
   answer changes. Foreign datum identities and file callouts are reused during a live
   review, including when adding a control; saved views and planes survive the merge.
+  Part-default surface finishes retain their #65 characteristic number in live and stored scenes;
+  their question and the edge-condition question use `part.surface_finish` and `part.edges`.
 
 ### Changed
 

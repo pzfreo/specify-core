@@ -150,11 +150,13 @@ def test_pmi_scene_and_packaged_schemas(plate):
     scene = specify_core.pmi_scene(plate, {
         "part.general_tolerance": "ISO 2768-m",
         "hole.function:holes:9": "fit:H7",
+        "part.surface_finish": "Ra 3.2",
     })
     assert scene["pmi"]["schema"] == "haecceity.pmi/1"
     assert scene["presentation"]["schema"] == "haecceity.presentation/1"
     assert scene["specify"]["size:holes:9"]["status"] == "answered"
     assert scene["specify"]["size:holes:9"]["question"] == "hole.function:holes:9"
+    assert scene["specify"]["part.surface_finish"]["number"] > 0
     empty = api.pmi_scene(plate.read_bytes())
     assert empty["pmi"]["pmi"]["dimensions"] == []
     root = importlib.resources.files("specify_core").joinpath("schema")
