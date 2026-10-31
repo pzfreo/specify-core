@@ -31,7 +31,7 @@
 // Each test crate uses a different part of this module.
 #![allow(dead_code)]
 
-mod corpus;
+pub(crate) mod corpus;
 pub mod numbering;
 
 use std::collections::{BTreeMap, HashMap};

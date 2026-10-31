@@ -55,6 +55,35 @@ try {
       assert.match(out.unresolved[0].reason, reason);
     } finally { engine.free(); }
   }
+  // Shared source labels are not saved identities and never refuse a fresh write.
+  const sharedBytes = renamed(renamed(oldBytes, hole, 'f:shared.class'), name('body_make_cylinder2', 1), 'f:shared.class');
+  const shared = new IntentEngine('shared.step', sharedBytes);
+  try {
+    const evidence = JSON.parse(shared.evidence());
+    assert.equal(evidence.schema, 3);
+    assert.equal(evidence.face_names[face(old, hole)], null);
+    assert.equal(evidence.face_names[face(old, name('body_make_cylinder2', 1))], null);
+    assert.ok(evidence.geometry);
+    const written = JSON.parse(shared.writePmi(JSON.stringify(given)));
+    const back = new IntentEngine('shared-written.step', Uint8Array.from(written.bytes));
+    try { assert.deepEqual(JSON.parse(back.snapshot()).analysis.resume.answers, given); }
+    finally { back.free(); }
+  } finally { shared.free(); }
+  let genericBytes = oldBytes;
+  for (const [i, f] of JSON.parse(old.snapshot()).analysis.faces.entries()) {
+    genericBytes = renamed(genericBytes, f.name, i === 0 ? '24' : i === 1 ? 'Fill.1' : 'PartBody');
+  }
+  const generic = new IntentEngine('generic.step', genericBytes);
+  try {
+    const evidence = JSON.parse(generic.evidence());
+    assert.equal(evidence.schema, 2);
+    assert.equal(evidence.face_names, undefined);
+    assert.ok(JSON.parse(generic.snapshot()).analysis.faces.every(f => f.name === undefined));
+    const written = JSON.parse(generic.writePmi(JSON.stringify(given)));
+    const back = new IntentEngine('generic-written.step', Uint8Array.from(written.bytes));
+    try { assert.deepEqual(JSON.parse(back.snapshot()).analysis.resume.answers, given); }
+    finally { back.free(); }
+  } finally { generic.free(); }
   const mixedOld = new IntentEngine('mixed-old.step', renamed(oldBytes, bottom, ''));
   const mixedNew = new IntentEngine('mixed-new.step', renamed(newBytes, bottom, ''));
   try {
@@ -65,4 +94,4 @@ try {
     assert.equal(out.unresolved, undefined);
   } finally { mixedOld.free(); mixedNew.free(); }
 } finally { old.free(); next.free(); }
-console.log('STEP face names: WASM rematchAnswers/diff, shifted indices, automatic answers, refusals and mixed support passed');
+console.log('STEP face names: WASM rematchAnswers/diff, shifted indices, automatic answers, refusals, shared/generic labels and mixed support passed');

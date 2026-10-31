@@ -54,3 +54,35 @@ def test_python_named_rebuild_resume_and_diff(tmp_path):
     resumed = api.analyse(written[1])["resume"]
     assert len(resumed["unresolved"]) == 1
     assert "not in this revision" in resumed["unresolved"][0]["reason"]
+
+
+def test_python_shared_and_generic_source_labels_write_and_resume(tmp_path):
+    original = gzip.decompress((FIXTURES / "named_plate.old.step.gz").read_bytes()).decode()
+    old = tmp_path / "old.step"
+    old.write_text(original)
+    faces = api.analyse(old)["faces"]
+    first = "f:named_plate.body_make_cylinder1.1;M:named_plate.body"
+    second = "f:named_plate.body_make_cylinder2.1;M:named_plate.body"
+    hole = next(f["id"] for f in faces if f.get("name") == first)
+    other = next(f["id"] for f in faces if f.get("name") == second)
+    answers = {"part.material": "steel", f"hole.function:holes:{hole}": "fit:H7"}
+    shared = original.replace(f"'{first}'", "'f:shared.class'").replace(f"'{second}'", "'f:shared.class'")
+    generic = original
+    for i, face in enumerate(faces):
+        label = "24" if i == 0 else "Fill.1" if i == 1 else "PartBody"
+        generic = generic.replace(f"'{face['name']}'", f"'{label}'")
+    for name, source, schema in [("shared", shared, 3), ("generic", generic, 2)]:
+        path = tmp_path / f"{name}.step"
+        path.write_text(source)
+        analysis = api.analyse(path)
+        assert "name" not in analysis["faces"][hole]
+        out = tmp_path / f"{name}-written.step"
+        api.write(path, api.preview(analysis, answers), out, answers=answers)
+        assert api.analyse(out)["resume"]["answers"] == answers
+        payload = json.loads(base64.b64decode(ITEM.search(out.read_text()).group(2)))
+        assert payload["schema"] == schema
+        if schema == 3:
+            assert payload["face_names"][hole] is None and payload["face_names"][other] is None
+            assert "geometry" in payload
+        else:
+            assert "face_names" not in payload
