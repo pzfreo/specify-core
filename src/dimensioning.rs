@@ -15,6 +15,10 @@ use serde_json::{Map, Value, json};
 
 use crate::rules::Intent;
 
+// quiddity's hole/enlargement depths are published to 0.01 mm. Ownership and
+// reference checks must account for that quantisation, not invent a new floor.
+const DEPTH_NEAR: f64 = 0.0051;
+
 pub(crate) fn input(part: &haecceity::Part) -> Result<Input, String> {
     Input::from_recognition(part, vec![], Policy::default())
 }
@@ -269,7 +273,41 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             .cloned()
             .unwrap_or_default();
         contracted.datums.retain(|d| planes.contains(&d.faces));
-        for mut required in shared::plan(&contracted).0 {
+        let (mut claims, conveyed) = shared::plan(&contracted);
+        // Specified-wins needs every original coincident claim before it merges
+        // with a neighbour. Replay only the planner's coincident conveyances,
+        // never the per-member locations conveyed by a pattern's grammar.
+        let coincident: BTreeSet<_> = conveyed
+            .iter()
+            .filter(|c| c.why.starts_with("same physical span and tolerance class"))
+            .map(|c| c.id.clone())
+            .collect();
+        if !coincident.is_empty() {
+            let subsets: Vec<Vec<String>> = contracted
+                .patterns
+                .iter()
+                .map(|p| p.members.clone())
+                .chain(
+                    contracted
+                        .holes
+                        .iter()
+                        .map(|h| vec![h.support.feature.clone()]),
+                )
+                .collect();
+            for members in subsets {
+                let mut isolated = contracted.clone();
+                isolated
+                    .holes
+                    .retain(|h| members.contains(&h.support.feature));
+                isolated.patterns.retain(|p| p.members == members);
+                for r in shared::plan(&isolated).0 {
+                    if coincident.contains(&r.id) && !claims.iter().any(|c| c.id == r.id) {
+                        claims.push(r);
+                    }
+                }
+            }
+        }
+        for mut required in claims {
             let Kind::Location { from, .. } = &required.kind else {
                 continue;
             };
@@ -582,13 +620,14 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             overlaps(&p.support.faces, &ids(row, "faces"))
                 && input.holes.iter().any(|h| {
                     h.bottom != quiddity::features::holes::Bottom::Unknown
+                        && h.support.body == p.support.body
                         && h.depth.is_some_and(|depth| {
                             h.direction[p.axis].abs() > 0.999
                                 && (p.support.at[p.axis]
                                     - h.support.at[p.axis]
                                     - h.direction[p.axis] * depth)
                                     .abs()
-                                    < 1e-4
+                                    < DEPTH_NEAR
                         })
                 })
         })
@@ -644,7 +683,7 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
                 while cursor < reached.len() {
                     let (station, proof) = reached[cursor].clone();
                     cursor += 1;
-                    if (station - end).abs() < 1e-4 {
+                    if (station - end).abs() < DEPTH_NEAR {
                         r.reference = Some(proof);
                         break;
                     }
@@ -677,6 +716,8 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
         .iter()
         .map(|h| h.support.clone())
         .chain(input.planes.iter().map(|p| p.support.clone()))
+        .chain(input.steps.heights.iter().cloned())
+        .chain(group_supports.iter().cloned())
         .collect();
     let mut groups = BTreeMap::new();
     for r in &required {
@@ -698,6 +739,46 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
     }
     for p in &input.patterns {
         groups.insert(p.id(), p.members.clone());
+    }
+    // The helper maps IDs into the feature arena; the consumer must populate
+    // groups for all coincident claims in covers, including pattern origins.
+    for r in &required {
+        let Kind::Location { to, axis, .. } = &r.kind else {
+            continue;
+        };
+        if matches!(r.pattern, Some(shared::PatternRole::Pitch { .. })) {
+            continue;
+        }
+        let mut members = BTreeSet::from([to.feature.clone()]);
+        let mut consumed = BTreeSet::new();
+        for p in &input.patterns {
+            if p.members.iter().all(|id| r.covers.contains(id))
+                && let Some(s) = group_supports.iter().find(|s| s.feature == p.id())
+                && s.body == to.body
+                && (s.at[*axis] - to.at[*axis]).abs() < 1e-4
+            {
+                members.insert(p.id());
+                consumed.extend(p.members.iter().cloned());
+            }
+        }
+        if consumed.contains(&to.feature) {
+            members.remove(&to.feature);
+        }
+        for s in &supports {
+            if r.covers.contains(&s.feature)
+                && !consumed.contains(&s.feature)
+                && s.body == to.body
+                && (s.at[*axis] - to.at[*axis]).abs() < 1e-4
+            {
+                members.insert(s.feature.clone());
+            }
+        }
+        if !members.is_empty() && (members.len() > 1 || !members.contains(&to.feature)) {
+            groups.insert(
+                format!("coincident:{}", r.id),
+                members.into_iter().collect(),
+            );
+        }
     }
     let old = intent.requirements.clone();
     let is_authority = |r: &Map<String, Value>| authorities.values().any(|a| a == r);
@@ -803,14 +884,28 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
                 used.insert(to.feature.clone());
             }
         }
+        if let Kind::Location { .. } = &required.kind {
+            let alias = format!("coincident:{}", required.id);
+            if groups.contains_key(&alias) {
+                used.insert(alias);
+            }
+        }
+        loop {
+            let before = used.len();
+            for (id, members) in &groups {
+                if used.contains(id) {
+                    used.extend(members.iter().cloned());
+                }
+            }
+            if used.len() == before {
+                break;
+            }
+        }
         let used_groups: BTreeMap<_, _> = groups
             .iter()
             .filter(|(id, _)| used.contains(*id))
             .map(|(id, members)| (id.clone(), members.clone()))
             .collect();
-        for members in used_groups.values() {
-            used.extend(members.iter().cloned());
-        }
         let used_supports = supports
             .iter()
             .filter(|s| used.contains(&s.feature))

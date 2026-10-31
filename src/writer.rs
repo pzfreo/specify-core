@@ -1230,6 +1230,16 @@ fn planned_kind(
         quiddity::dimensioning::Kind::Location { from, to, .. } => {
             resolve(&from.feature, planned, features, geometry, &mut ids, unit)?;
             resolve(&to.feature, planned, features, geometry, &mut ids, unit)?;
+            let alias = format!("coincident:{}", planned.required.id);
+            if let Some(members) = planned.groups.get(&alias) {
+                let target = if members.len() == 1 {
+                    &members[0]
+                } else {
+                    &alias
+                };
+                let group = resolve(target, planned, features, geometry, &mut ids, unit)?;
+                ids.insert(to.feature.clone(), group);
+            }
         }
     }
     // Both (or the sole size) resolver keys were checked above.

@@ -55,6 +55,28 @@ fn plate_writes_every_required_quantity_and_basics_use_the_pattern_origin() {
         .filter(|r| r.id.starts_with("specified:") || r.id.starts_with("answered:"))
         .cloned()
         .collect();
+    // The pattern's answered Y origin remains an authority even when its Basic
+    // claim coincides with the M5's origin. Reconstruct that source claim using
+    // the shared planner on the isolated pattern, before final consolidation.
+    let pattern = input
+        .patterns
+        .iter()
+        .find(|p| p.members.len() == 6)
+        .unwrap()
+        .clone();
+    let mut isolated = input.clone();
+    isolated.specified.clear();
+    isolated
+        .holes
+        .retain(|h| pattern.members.contains(&h.support.feature));
+    isolated.patterns = vec![pattern.clone()];
+    isolated.steps = Default::default();
+    isolated.cartesian_envelope = false;
+    let mut origin = quiddity::dimensioning::plan(&isolated).0.into_iter().find(|r|
+        matches!(&r.kind,quiddity::dimensioning::Kind::Location {to,axis:1,..} if to.feature == pattern.id())).unwrap();
+    origin.id = format!("answered:{}", origin.id);
+    origin.tolerance = Tolerance::Basic;
+    input.specified.push(origin);
     let mut planned = quiddity::dimensioning::plan(&input).0;
     // M5's thread manufacturing attribute already states the 4.2 tapping drill.
     planned.retain(|r| r.id != "dim:hole:12/bore.diameter");
@@ -78,6 +100,13 @@ fn plate_writes_every_required_quantity_and_basics_use_the_pattern_origin() {
     let written = part::load_bytes("planned.step", bytes).unwrap();
     let read = model(&written);
     assert_eq!(read.parts[0].dimensions.len(), rs.len());
+    assert!(read.parts[0].dimensions.iter().any(|d| {
+        if d.tolerance != pmi::DimTolerance::Basic { return false; }
+        let pmi::DimensionKind::Location {to,..} = &d.kind else { return false; };
+        let pmi::Feature::Group {kind:pmi::GroupKind::MultipleElements,members} = &read.parts[0].features[to.0] else { return false; };
+        members.iter().any(|m| matches!(&read.parts[0].features[m.0],
+            pmi::Feature::Group {kind:pmi::GroupKind::PatternOfFeatures,members} if members.len()==6))
+    }), "the shared Basic origin must reach the pattern's semantic aspect");
     let mut stored: Vec<Required> = read.parts[0]
         .attributes
         .iter()
@@ -392,7 +421,30 @@ fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
         let file = part::File::read(&path).unwrap();
         for k in 0..file.parts().len() {
             let p = file.load(Some(k)).unwrap();
-            let a = api::analyse(&p).unwrap();
+            // Local count audits can reuse recognition from an identical source;
+            // writes, PMI readback and every invariant always run afresh. The
+            // default CI path still performs live analysis for every part.
+            let name = path
+                .strip_prefix(&root)
+                .or_else(|_| path.strip_prefix(common::corpus_dir().unwrap_or_default()))
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .to_string();
+            let cached = std::env::var_os("SPECIFY_DIMENSION_ANALYSES")
+                .map(std::path::PathBuf::from)
+                .map(|dir| dir.join(format!("{}.analysis.json", name.replace('/', "_"))))
+                .filter(|p| p.exists());
+            let a = if let Some(cached) = cached {
+                let a: Value = serde_json::from_slice(&std::fs::read(cached).unwrap()).unwrap();
+                assert_eq!(
+                    a["binding"],
+                    json!(p.binding),
+                    "cached recognition must bind this exact source part"
+                );
+                a
+            } else {
+                api::analyse(&p).unwrap()
+            };
             let given = json!({"part.material":"steel"});
             let i = rules::apply_with_defaults(&a, given.as_object().unwrap(), true).unwrap();
             let (bytes, report) = writer::write_bytes(&p, &i, None).unwrap();
@@ -400,12 +452,7 @@ fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
             let read = model(&back);
             let pmi = &read.parts[0];
             let chars = characteristics::read(&back).unwrap();
-            let name = path
-                .strip_prefix(&root)
-                .or_else(|_| path.strip_prefix(common::corpus_dir().unwrap_or_default()))
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .to_string();
+
             counts.push(json!({"part":name,"dimensions":pmi.dimensions.len(),"characteristics":chars.len()}));
             if let Some(dir) = &dump {
                 let stem = name.replace('/', "_");
@@ -534,13 +581,25 @@ fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
                     {
                         for axis in 0..3 {
                             if h.direction[axis].abs() > 0.999 {
-                                edge(
-                                    h.support.body,
-                                    axis,
-                                    h.support.at[axis],
-                                    h.support.at[axis] + h.direction[axis] * r.nominal,
-                                    false,
-                                );
+                                let floor = h.support.at[axis] + h.direction[axis] * r.nominal;
+                                // Recognition publishes depths to 0.01 mm. Check the
+                                // actual nearby floor plane, not an artificial station
+                                // displaced by nominal rounding.
+                                let floor = input
+                                    .planes
+                                    .iter()
+                                    .filter(|p| {
+                                        p.axis == axis
+                                            && p.support.body == h.support.body
+                                            && (p.support.at[axis] - floor).abs() < 0.0051
+                                    })
+                                    .min_by(|a, b| {
+                                        (a.support.at[axis] - floor)
+                                            .abs()
+                                            .total_cmp(&(b.support.at[axis] - floor).abs())
+                                    })
+                                    .map_or(floor, |p| p.support.at[axis]);
+                                edge(h.support.body, axis, h.support.at[axis], floor, false);
                             }
                         }
                     }
@@ -574,6 +633,13 @@ fn answered_h11_bores_keep_their_fit_and_basic_locations() {
         .filter(|r| r.get("fit") == Some(&json!("H11")))
         .collect();
     assert_eq!(sizes.len(), 3);
+    // The 3.52 blind depth ends at face 24's unrounded 3.5204636 floor.
+    // It must not also become a baseline part length from datum A.
+    assert!(
+        !i.general
+            .iter()
+            .any(|r| r["kind"] == "location" && r["faces"] == json!([24]))
+    );
     assert!(
         sizes
             .iter()
@@ -645,4 +711,49 @@ fn add_mode_references_never_depend_on_unwritten_legacy_baselines() {
             .modifiers
             .contains(&pmi::DimensionModifier::Reference)
     );
+}
+
+#[test]
+fn coincident_basics_on_unpatterned_holes_share_a_real_feature_group() {
+    let Some(corpus) = common::corpus_dir() else {
+        return;
+    };
+    let p = part::load(&corpus.join("gramel/string_post.step"), None).unwrap();
+    // The frozen answered intent states 1.2 from face 11 to both hole axes.
+    // This is a coincident span, not a hole pattern or an invented envelope.
+    let captured = common::case("corpus/gramel/string_post")
+        .artifact("apply")
+        .unwrap();
+    let i = rules::Intent::from_dict(&captured).unwrap();
+    let (bytes, _) = writer::write_bytes(&p, &i, None).unwrap();
+    let back = part::load_bytes("coincident.step", bytes).unwrap();
+    let read = model(&back);
+    let basics: Vec<_> = read.parts[0].dimensions.iter().filter(|d|
+        d.tolerance == pmi::DimTolerance::Basic
+        && matches!(d.nominal.as_ref().map(|v| &v.quantity),Some(pmi::Quantity::Length(n)) if n.value.to_f64()==1.2)).collect();
+    assert_eq!(basics.len(), 1);
+    let pmi::DimensionKind::Location { to, .. } = &basics[0].kind else {
+        panic!("basic location")
+    };
+    let pmi::Feature::Group {
+        kind: pmi::GroupKind::MultipleElements,
+        members,
+    } = &read.parts[0].features[to.0]
+    else {
+        panic!("both hole axes must carry the shared basic")
+    };
+    let faces: BTreeSet<_> = members
+        .iter()
+        .flat_map(|m| match &read.parts[0].features[m.0] {
+            pmi::Feature::Items(items) => items
+                .iter()
+                .filter_map(|a| match a {
+                    pmi::Anchor::Face(f) => Some(f.0),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            _ => panic!("individual hole support"),
+        })
+        .collect();
+    assert_eq!(faces, BTreeSet::from([5, 17]));
 }

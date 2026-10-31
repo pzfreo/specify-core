@@ -13,6 +13,11 @@ this prevents a General neighbour swallowing a Basic pattern origin. No addition
 basic dimensions are kept beyond the final returned set. Explicit face-picked and
 stored dimensions enter `specified`; specified-wins replaces their generated
 counterparts. Stored foreign PMI is already present and is not appended twice.
+Coincident source authorities are recovered through the planner's own conveyances
+before specified-wins runs. Their final shared dimension lowers to a real
+`MultipleElements` aspect containing every covered origin, including the pattern
+aspect itself. This also handles coincident basics on unpatterned holes; `covers`
+is not merely stored as metadata. No extra Basic row is introduced.
 
 Older JSON analyses have no typed geometry input. Their rule results remain
 provisional, and the writer upgrades rule-generated intent using the loaded part.
@@ -72,7 +77,9 @@ be ambiguous, so no arbitrary station is chosen.
 
 Deferred legacy spans are dropped when the planner states the same physical
 plane interval in either direction. Hole floors are excluded from part lengths,
-including floors absent from legacy defining-face lists. When two retained
+including floors absent from legacy defining-face lists. Hole depths are published
+to 0.01 mm upstream; floor ownership and reference proofs account for that rounding
+while keeping the planner's nominal unchanged. When two retained
 turned baselines determine a generated hole enlargement's depth, that depth
 is retained as a reference with both baseline witnesses. This avoids introducing
 an independent closed chain across the slice boundary.
