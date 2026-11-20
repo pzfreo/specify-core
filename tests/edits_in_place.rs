@@ -602,3 +602,23 @@ fn the_session_saves_an_edit_list_in_place_on_its_own_copy() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_part_setting_change_replaces_only_the_setting() {
+    let plate = fixture("resume-p9/edited-plate.step.gz");
+    let saved = applied(
+        &plate,
+        json!({"change": {"part.material": {"to": "6061-T6", "expect": "6082-T6"}}}),
+    );
+    let after = reload(&saved.bytes);
+    untouched_but(&plate, &after, &[]);
+    assert_eq!(rewritten(&plate.bytes, &saved.bytes), []);
+    let (was, now) = (rows(&table(&plate)), rows(&table(&after)));
+    for ((id, s0, v0), (_, s1, v1)) in was.iter().zip(&now) {
+        if id == "part.material" {
+            assert_eq!(v1, "6061-T6");
+        } else {
+            assert_eq!((s0, v0), (s1, v1), "{id}");
+        }
+    }
+}

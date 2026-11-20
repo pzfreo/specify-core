@@ -57,9 +57,17 @@ Read first:
   path, and validated all or nothing against the file's state (a differing fill, a stale
   `expect`, an unknown id or number, an unsupported item change, contradictory entries). A 0.2
   answers file is read as fills plus nones. `write STEP EDITS.json --check` validates and writes
-  nothing; Python `api.validate_edits`. Until the feature table is read from a file, these check
-  a list only against itself (`checked_against_file: false`); applying a list comes with the
-  in-place writer.
+  nothing; Python `api.validate_edits`. The WASM and Python checks still check a list only
+  against itself (`checked_against_file: false`) until the page's save takes a list.
+- Saving edits in place (proposal specify-0.3.0 use cases 3, 4 and 7; ADR P11):
+  `write STEP EDITS.json -o OUT` applies an edit list all or nothing, and `--check` now checks it
+  against the file's feature table. A save touches only what the list names: every other
+  requirement keeps its bytes and its number, whoever wrote it, and a rules change never alters a
+  file. A change keeps the number when only its limits change; a different measurement gets a new
+  number and the old one is retired; a removed requirement's number is retired; retired numbers
+  are never reused. Only decided-none (and how holes are located) and the number history are
+  stored. Rust: `writer::apply::{apply, apply_bytes, check}`, `session::save_edits`. Not yet:
+  changing one requirement by its number (`items.change`), and a part of an assembly.
 
 ### WASM API
 

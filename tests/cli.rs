@@ -1920,13 +1920,15 @@ fn exit_codes_say_what_happened() {
     );
     assert_eq!(ran.stdout, "");
 
-    // Help and usage errors are clap's (Python specify-core is retired): exit 2 and the
-    // message, not argparse's `specify-core: error:` line.
+    // One JSON after STEP is an edit list (proposal specify-0.3.0, use case 7): an analysis
+    // given alone is refused as one, every unknown field named, and nothing written.
     let ran = run(&["write", &s(&plate), &s(&a), "-o", &s(&dir.join("o.step"))]);
     assert_eq!(ran.code, 2);
+    assert!(!dir.join("o.step").exists());
     assert!(
-        ran.stderr
-            .starts_with("error: write takes an analysis and its answers for each part\n"),
+        ran.stderr.starts_with(
+            "cannot write: nothing was written. An edit list is applied all or nothing"
+        ) && ran.stderr.contains("- schema: unknown field"),
         "{}",
         ran.stderr
     );
@@ -1978,7 +1980,10 @@ fn usage_or_help(case: &str, exit: i64, stdout: &str, stderr: &str) {
             "<ANALYSIS ANSWERS>",
             "--output",
         ],
-        "10" | "11" => &["error: write takes an analysis and its answers for each part"],
+        // One JSON after STEP is an edit list (proposal specify-0.3.0, use case 7): no longer a
+        // usage error, so the missing file is what is reported.
+        "10" => &["a.json: No such file"],
+        "11" => &["error: write takes an analysis and its answers for each part"],
         "12" => &["unexpected argument 'extra'"],
         "13" => &["unexpected argument 'z'"],
         "14" => &["unexpected argument '--bogus'"],

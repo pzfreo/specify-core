@@ -326,7 +326,7 @@ fn parse(argv: &[String]) -> Result<Cmd, clap::Error> {
         let write = parser.find_subcommand_mut("write").expect("a command");
         return Err(write.error(
             ErrorKind::WrongNumberOfValues,
-            "write takes one edit list, or an analysis and its answers for each part",
+            "write takes an analysis and its answers for each part",
         ));
     }
     Ok(cli.command)
