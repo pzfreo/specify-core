@@ -5,9 +5,7 @@ use std::path::Path;
 use std::process::Command;
 
 use serde_json::{Map, Value, json};
-use specify_core::edits::{
-    self, EditList, FileState, KindState, MemoryState, Number, Requirement, equal_fill_is_a_no_op,
-};
+use specify_core::edits::{self, EditList, FileState, KindState, MemoryState, Number, Requirement};
 
 fn stated(value: Value) -> KindState {
     KindState::Stated { value }
@@ -186,7 +184,6 @@ fn one_bad_entry_refuses_the_whole_list() {
 
 #[test]
 fn a_fill_equal_to_what_the_file_states_does_nothing() {
-    assert!(equal_fill_is_a_no_op());
     let l = list(json!({
         "fill": {"hole.position:holes:14": "0.2", "hole.function:holes:14": " tapped:M5 "},
         "none": ["part.coating"]

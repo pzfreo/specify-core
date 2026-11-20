@@ -179,12 +179,6 @@ impl FileState for MemoryState {
 
 // ----- rules -----
 
-/// Whether a fill equal to what the file already states is a no-op (true) or an error
-/// (false). The proposal builds on "a no-op" while Paul confirms it (2026-11-20); flip it here.
-pub const fn equal_fill_is_a_no_op() -> bool {
-    true
-}
-
 /// Whether two values are the same answer: equal JSON, or the same text (`0.2` and `"0.2"`,
 /// blanks around a string ignored).
 pub fn same_value(a: &Value, b: &Value) -> bool {
@@ -521,7 +515,8 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
         match state.kind(id) {
             None => failures.push(unknown_id(entry, id)),
             Some(KindState::Stated { value: stated }) => {
-                if same_value(&stated, value) && equal_fill_is_a_no_op() {
+                // A fill equal to what the file states does nothing (Paul, 2026-11-20).
+                if same_value(&stated, value) {
                     unchanged.push(entry);
                 } else {
                     failures.push(failure(
