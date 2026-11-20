@@ -10,6 +10,8 @@
 //!                        [--resolve-defaults --step STEP [--accept-defaults FILE]]
 //! specify-core write STEP ANALYSIS ANSWERS [ANALYSIS ANSWERS ...] -o OUT
 //!                    [--accept-defaults] [--bom] [--intent INTENT]
+//! specify-core write STEP EDITS.json --check
+//!                    validate an edit list (edits.rs); writes nothing
 //! specify-core diff OLD NEW -o DIR [--answers ANSWERS] [--part K] [--title TITLE]
 //!                    [--viewer URL] [--pmi-scenes]
 //!                    what changed between two revisions of a part, its answers carried
@@ -162,11 +164,16 @@ wasm-pack pkg/; a build made without the app needs SPECIFY_APP_DIR. See docs/mcp
     /// write intent as AP242 PMI
     Write {
         step: PathBuf,
-        /// analysis and answers JSON; in an assembly, a pair for each part to write
+        /// analysis and answers JSON; in an assembly, a pair for each part to write. With
+        /// --check: one edit list (EDITS.json), or a 0.2 answers file
         #[arg(required = true, num_args = 1.., value_name = "ANALYSIS ANSWERS")]
         pairs: Vec<String>,
-        #[arg(short, long)]
-        output: String,
+        #[arg(short, long, required_unless_present = "check")]
+        output: Option<String>,
+        /// validate an edit list (write STEP EDITS.json --check) and print the result; writes
+        /// nothing
+        #[arg(long, conflicts_with_all = ["output", "accept_defaults", "bom", "intent"])]
+        check: bool,
         /// take PMI defaults for the rest
         #[arg(long)]
         accept_defaults: bool,
@@ -295,7 +302,20 @@ fn parse(argv: &[String]) -> Result<Cmd, clap::Error> {
     let mut matches = command()
         .try_get_matches_from(std::iter::once(PROG).chain(argv.iter().map(String::as_str)))?;
     let cli = Cli::from_arg_matches_mut(&mut matches)?;
-    if let Cmd::Write { pairs, .. } = &cli.command
+    if let Cmd::Write { pairs, check, .. } = &cli.command
+        && *check
+        && pairs.len() != 1
+    {
+        let mut parser = command();
+        parser.build();
+        let write = parser.find_subcommand_mut("write").expect("a command");
+        return Err(write.error(
+            ErrorKind::WrongNumberOfValues,
+            "write --check takes one edit list: write STEP EDITS.json --check",
+        ));
+    }
+    if let Cmd::Write { pairs, check, .. } = &cli.command
+        && !*check
         && !pairs.len().is_multiple_of(2)
     {
         let mut parser = command();
@@ -479,16 +499,20 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             print(out, &indent1_keeping_non_ascii(&Value::Array(shown)))
         }
         Cmd::Write {
+            step, pairs, check, ..
+        } if check => check_edits(&step, Path::new(&pairs[0]), out),
+        Cmd::Write {
             step,
             pairs,
             output,
             accept_defaults,
             bom,
             intent,
+            ..
         } => write(
             &step,
             &pairs,
-            &output,
+            output.as_deref().expect("clap requires -o without --check"),
             accept_defaults,
             bom,
             intent.as_deref(),
@@ -651,6 +675,27 @@ fn write(
         }
     })?;
     print(out, &indent1_keeping_non_ascii(&report.to_dict()))
+}
+
+/// `write STEP EDITS.json --check`: the edit list (or a 0.2 answers file) parsed and validated,
+/// the outcome printed as JSON; exit 2 with its message when any entry fails. Nothing is
+/// written. Until the feature table can be read from STEP, the list is checked only against
+/// itself (`checked_against_file: false`, said on stderr).
+fn check_edits(step: &Path, edits: &Path, out: &mut impl Write) -> Result<(), Exit> {
+    if !step.is_file() {
+        return Err(Exit::error(format!("{}: no such file", step.display())));
+    }
+    let text = std::fs::read_to_string(edits)
+        .map_err(|e| Exit::error(format!("{}: {e}", edits.display())))?;
+    let outcome = crate::edits::check(&text, None);
+    print(out, &indent1_keeping_non_ascii(&outcome.to_json()))?;
+    if !outcome.failures.is_empty() {
+        return Err(Exit::new(2, format!("cannot write: {}", outcome.message())));
+    }
+    if !outcome.checked_against_file {
+        let _ = writeln!(io::stderr(), "{}", outcome.message());
+    }
+    Ok(())
 }
 
 /// The rules' refusal as the command line words it: exit 2, `incomplete: ...` or `invalid

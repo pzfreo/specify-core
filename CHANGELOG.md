@@ -50,6 +50,21 @@ Read first:
   not touch `ui/` or a shared file skips the UI jobs. Main and releases run everything. `ci-ok` is
   the one check to require.
 
+### Added
+
+- The edit list (`src/edits.rs`, proposal specify-0.3.0 use case 7): `{fill, change, items:
+  {change, remove}, none, accept_suggestions}`, parsed with every malformed part named by its
+  path, and validated all or nothing against the file's state (a differing fill, a stale
+  `expect`, an unknown id or number, an unsupported item change, contradictory entries). A 0.2
+  answers file is read as fills plus nones. `write STEP EDITS.json --check` validates and writes
+  nothing; Python `api.validate_edits`. Until the feature table is read from a file, these check
+  a list only against itself (`checked_against_file: false`); applying a list comes with the
+  in-place writer.
+
+### WASM API
+
+- `IntentEngine.validateEdits(json)`: the edit-list check above, as JSON; writes nothing.
+
 ## 0.2.1 (2026-11-20)
 
 Read first:
