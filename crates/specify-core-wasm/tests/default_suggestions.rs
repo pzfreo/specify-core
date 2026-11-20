@@ -8,35 +8,42 @@ fn alpha7_answered_tap_keeps_computed_depth_in_write_pmi_and_resave() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
     let baseline =
         specify_core::part::load(&root.join("thread-depth-alpha7.step.gz"), None).unwrap();
-    let saved = Session::open("shaft.step", &baseline.bytes).unwrap();
-    let given = saved.snapshot()["analysis"]["resume"]["answers"]
-        .as_object()
+    // The answers the alpha.7 file stored (ADR P11: reopening resumes only those that leave no
+    // PMI behind, so they are read from the payload).
+    let given = specify_core::resume::answers_for(&baseline)
         .unwrap()
-        .clone();
-    for bytes in [
-        std::fs::read(root.join("parts/GRM-02_shaft.step")).unwrap(),
-        baseline.bytes.to_vec(),
+        .unwrap();
+    for (bare, bytes) in [
+        (
+            true,
+            std::fs::read(root.join("parts/GRM-02_shaft.step")).unwrap(),
+        ),
+        (false, baseline.bytes.to_vec()),
     ] {
         let session = Session::open("shaft.step", &bytes).unwrap();
-        let review = session.review(&given).unwrap();
-        let q = review["questions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|q| q["id"].as_str().unwrap().starts_with("hole.full_thread:"))
-            .unwrap();
-        assert_eq!(q["attention"], "refine");
-        assert!(!review["open"].as_array().unwrap().contains(&q["id"]));
-        assert!(!given.contains_key(q["id"].as_str().unwrap()));
-        assert_eq!(
-            review["intent"]["requirements"]
+        // ADR P11: the saved file states its thread, so it is not asked again; its resave
+        // keeps the thread and its computed depth as they are.
+        if bare {
+            let review = session.review(&given).unwrap();
+            let q = review["questions"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .find(|r| r["kind"] == "thread")
-                .unwrap()["full_thread"],
-            2.0
-        );
+                .find(|q| q["id"].as_str().unwrap().starts_with("hole.full_thread:"))
+                .unwrap();
+            assert_eq!(q["attention"], "refine");
+            assert!(!review["open"].as_array().unwrap().contains(&q["id"]));
+            assert!(!given.contains_key(q["id"].as_str().unwrap()));
+            assert_eq!(
+                review["intent"]["requirements"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|r| r["kind"] == "thread")
+                    .unwrap()["full_thread"],
+                2.0
+            );
+        }
         let out = session.write_pmi(&given, None, None).unwrap();
         let bytes: Vec<u8> = serde_json::from_value(out["bytes"].clone()).unwrap();
         let defs = read_part_definitions(&bytes).unwrap();
@@ -88,11 +95,21 @@ fn full_thread_edit_is_optional_and_survives_a_session_write() {
     );
     let written = session.write_pmi(&given, None, None).unwrap();
     let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
+    // ADR P11: the depth is the file's thread PMI, not a stored answer.
     let reopened = Session::open("edited.step", &bytes).unwrap();
-    assert_eq!(
-        reopened.snapshot()["analysis"]["resume"]["answers"][id],
-        "1.8"
+    assert!(
+        reopened.snapshot()["analysis"]["resume"]["answers"]
+            .get(id)
+            .is_none()
     );
+    let defs = haecceity::step::read_part_definitions(&bytes).unwrap();
+    let read = haecceity::pmi::read(
+        &haecceity::p21::Document::parse(bytes.clone()).unwrap(),
+        &defs,
+    )
+    .unwrap();
+    assert!(read.parts[0].attributes.iter().flat_map(|a| &a.items).any(|(n, v)| n == "minimum full thread"
+        && matches!(v, haecceity::pmi::AttributeValue::Measure(m) if matches!(&m.quantity, haecceity::pmi::Quantity::Length(l) if l.mm() == 1.8))));
     let bad = json!({function:"tapped:M2", id:"3"})
         .as_object()
         .unwrap()
@@ -152,7 +169,11 @@ fn answering_material_does_not_write_unanswered_defaults() {
         let reopened = Session::open("shaft-written.step", &bytes)
             .unwrap()
             .snapshot();
-        assert_eq!(reopened["analysis"]["resume"]["answers"], json!(answers));
+        // ADR P11: only answers that leave no PMI behind are stored.
+        assert_eq!(
+            reopened["analysis"]["resume"]["answers"],
+            json!(specify_core::feature_table::storable(&answers))
+        );
         // A resumed analysis hides its PMI in favour of stored answers; inspect the actual
         // semantic records independently to prove which defaults were (not) written.
         let loaded = specify_core::part::load_bytes("shaft-written.step", bytes).unwrap();
@@ -325,10 +346,11 @@ fn check_bulk_acceptance(path: &std::path::Path, given: Map<String, Value>) {
     let (expected_bytes, _) =
         specify_core::writer::write_bytes(&loaded, &expected, Some(&accepted)).unwrap();
     assert_eq!(bytes, expected_bytes);
+    // ADR P11: only answers that leave no PMI behind are stored.
     let reopened = Session::open("accepted.step", &bytes).unwrap();
     assert_eq!(
         reopened.snapshot()["analysis"]["resume"]["answers"],
-        json!(accepted)
+        json!(specify_core::feature_table::storable(&accepted))
     );
     let semantic = specify_core::part::load_bytes("accepted.step", bytes).unwrap();
     let pmi = specify_core::existing::read_existing(&semantic).unwrap();

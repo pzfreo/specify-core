@@ -111,19 +111,16 @@ pub fn is_none_value(value: &Value) -> bool {
     }
 }
 
-/// Whether an answer leaves no PMI of its own behind: "none", or a hole left to the general
-/// tolerance (`general`), which needs no requirement of its own. Such an answer is stored.
+/// Whether an answer leaves no PMI of its own behind ("none"): such an answer is stored. A
+/// hole left to the general tolerance (`general`) writes its size dimension, so it is not.
 pub fn leaves_nothing(value: &Value) -> bool {
-    is_none_value(value) || value == "general"
+    is_none_value(value)
 }
 
-/// Whether the question `id` is a requirement of a feature (a row of the table) rather than
-/// a choice that writes no PMI of its own, or bookkeeping.
+/// Whether the answer `id` writes a requirement (a question's feature-and-kind, or an added
+/// requirement, `extra.*`) rather than a choice that writes no PMI of its own, or bookkeeping.
 pub fn is_requirement(id: &str) -> bool {
-    !(id.starts_with('_')
-        || id.starts_with("bom.")
-        || id.starts_with(crate::extras::PREFIX)
-        || NOT_REQUIREMENTS.contains(&id))
+    !(id.starts_with('_') || id.starts_with("bom.") || NOT_REQUIREMENTS.contains(&id))
 }
 
 /// The answers worth storing in the file (ADR P11): those that leave no PMI behind, being
@@ -245,20 +242,88 @@ fn states(kind: &str, faces: &BTreeSet<usize>, item: &Value) -> bool {
         };
     }
     match family {
+        // A hole located by position tolerance: its frame, and the basic dimensions that go
+        // with one. A toleranced or general location dimension is the `location` kind.
         "position" | "frame" => {
             (item_kind == "geometric_tolerance" && r#type == "Position" && on("faces"))
-                || (item_kind == "dimension" && r#type.starts_with("Location_") && on_either)
+                || (item_kind == "dimension"
+                    && r#type.starts_with("Location_")
+                    && item["basic"] == Value::Bool(true)
+                    && on_either)
         }
         "location" => item_kind == "dimension" && r#type.starts_with("Location_") && on_either,
+        // A hole's or a diameter's size: its dimension, or the thread or knurl callout that
+        // states it.
         "function" | "fit" | "size" => {
             (item_kind == "dimension" && r#type.starts_with("Size_") && on("faces"))
-                || (item_kind == "note" && r#type.ends_with("thread") && on("faces"))
+                || (item_kind == "note"
+                    && (r#type.ends_with("thread") || r#type == "knurl")
+                    && on("faces"))
         }
-        "full_thread" => item_kind == "note" && r#type.ends_with("thread") && on("faces"),
-        "runout" => item_kind == "geometric_tolerance" && r#type.contains("Runout") && on("faces"),
+        "full_thread" | "thread" => {
+            item_kind == "note" && r#type.ends_with("thread") && on("faces")
+        }
+        "knurl" => item_kind == "note" && r#type == "knurl" && on("faces"),
+        "note" => item_kind == "note" && on("faces"),
+        "finish" => item_kind == "note" && r#type.starts_with("surface") && on("faces"),
+        "flatness" => item_kind == "geometric_tolerance" && r#type == "Flatness" && on("faces"),
+        "runout" | "total_runout" => {
+            item_kind == "geometric_tolerance" && r#type.contains("Runout") && on("faces")
+        }
         _ => item_kind != "datum" && on("faces"),
     }
 }
+
+/// Whether the file's `existing` PMI states the feature-and-kind a writer's requirement
+/// (`intent.requirements` or `intent.general`) fills: the table's matching, by the faces it
+/// sits on and its kind (the question it answers, or its own kind for a direct intent).
+pub(crate) fn requirement_stated(req: &serde_json::Map<String, Value>, existing: &[Value]) -> bool {
+    // An added requirement (`extra.*`) names no feature-and-kind: its own kind does.
+    let question = req
+        .get("question")
+        .and_then(Value::as_str)
+        .filter(|q| !q.starts_with(crate::extras::PREFIX));
+    let kind = match question {
+        Some(question) => kind_and_feature(question).0,
+        // The dimension planner's own rows (a depth, a pitch) are no feature-and-kind of the
+        // table; the writer compares them measure by measure.
+        None if req.contains_key("planner") => return false,
+        None => match req.get("kind").and_then(Value::as_str) {
+            // A control on a datum feature (perpendicularity, parallelism, ...).
+            Some(k) if !KNOWN_KINDS.contains(&k) => "datum.X.control".to_string(),
+            Some(k) => format!("requirement.{k}"),
+            None => return false,
+        },
+    };
+    let faces: BTreeSet<usize> = req
+        .get("faces")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_u64)
+        .map(|f| f as usize)
+        .collect();
+    if faces.is_empty() || kind.starts_with("part.") {
+        return false;
+    }
+    existing.iter().any(|item| states(&kind, &faces, item))
+}
+
+/// The requirement kinds [`states`] knows by name; any other is a datum control.
+const KNOWN_KINDS: [&str; 12] = [
+    "note",
+    "size",
+    "location",
+    "position",
+    "flatness",
+    "runout",
+    "total_runout",
+    "thread",
+    "knurl",
+    "finish",
+    "fit",
+    "frame",
+];
 
 /// The setting key a part question reads (`part.notes` → `notes`).
 fn setting(id: &str) -> Option<&str> {
@@ -315,6 +380,7 @@ pub fn build(
         object.insert("existing".into(), Value::Array(Vec::new()));
         object.insert("part".into(), Value::Object(Map::new()));
         object.remove("resume");
+        object.remove("table");
         object.remove("dimensioning_stated");
         object.remove("process");
     }

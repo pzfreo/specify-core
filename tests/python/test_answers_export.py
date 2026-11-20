@@ -9,6 +9,8 @@ from specify_core.load import load
 from specify_core.rules import with_all_defaults
 from specify_core.serve import reply
 
+from p11 import storable
+
 
 def test_export_answers_roundtrip_approvals_and_carry_blocks(tmp_path):
     fixtures = Path(__file__).resolve().parents[1] / 'fixtures' / 'revisions'
@@ -35,7 +37,8 @@ def test_export_answers_roundtrip_approvals_and_carry_blocks(tmp_path):
     assert api.apply(analysis, saved).to_dict() == api.apply(analysis, given, accept_defaults=True).to_dict()
     out = tmp_path / 'written.step'
     api.write(old, api.apply(analysis, saved), out, answers=saved)
-    assert api.analyse(out)['resume']['answers'] == {k: v for k, v in saved.items() if k != '_specify'}
+    # ADR P11: only the answers that leave no PMI behind are stored.
+    assert api.analyse(out)['resume']['answers'] == storable({k: v for k, v in saved.items() if k != '_specify'})
     response = reply({'op': 'export_answers', 'step': str(old), 'analysis': analysis, 'answers': given,
                       'accept_defaults': approved})
     assert response['ok'], response

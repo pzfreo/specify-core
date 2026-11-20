@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 
 use haecceity::p21::{Attribute, Document, Edit, RawEntity};
 use serde_json::{Map, Value, json};
-use sha2::{Digest, Sha256};
 use specify_core::{api, characteristics, existing, part, resume, revision, rules, writer};
 
 fn fixture(name: &str) -> PathBuf {
@@ -297,72 +296,53 @@ fn legacy_numberless_files_expose_no_number_fields_on_every_platform() {
     }
 }
 
+/// Legacy numberless files (captured by older engines) read the same requirements, numberless,
+/// and a settings-only write adds the material without numbering or restating anything.
+/// Structural, not byte hashes (no output-hash tests).
 #[test]
-fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() {
-    // Captured on macOS by unmodified main a49dc3d in a separate checkout and target dir.
-    // quiddity-rust#134: only shaft analysis was recaptured (boss 36.1 → 37.6,
-    // retained plate and its six-decimal published centre). Analysis and read hashes stay
-    // unchanged for quiddity-rust#137; settings-only writes gain its General notes callout.
-    // #77 leaves these settings-only hashes unchanged: no size/location UDA is written.
-    // v0.2.7 moves the General notes block; only settings-only writer hashes change.
-    // v0.4.1 regenerates the numbered GENERAL NOTES block and its plane view;
-    // only settings-only writer hashes change, never analysis or semantic-read hashes.
-    // v0.4.8 changes only the three settings-only writer hashes: #198's Notes saved view
-    // and material description, #193's RP 4.1 FILE_DESCRIPTION reference and `note` name.
-    // Basic dimensions gain `"basic":true` in the existing read: only the alpha6 plate's
-    // PMI read hash changes (its 14 basics); stripped of that key it is the old hash.
-    // #216 changes only the alpha6 shaft analysis hash: its hole ID gains floor 16,
-    // and the saved answers report their exact key migrations. PMI and writer hashes stay fixed.
-    // ADR P11 (feature table): the material is no longer stored as an answer (all three
-    // writer hashes), and the alpha6 files' analyses show their whole PMI, stored answers that
-    // repeat it ignored (their analysis hashes). PMI read hashes stay fixed.
-    // Float serialization varies by platform; portable absence checks run separately above.
-    if !cfg!(target_os = "macos") {
-        return;
-    }
-    let hash = |bytes: Vec<u8>| {
-        Sha256::digest(bytes)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>()
-    };
-    for (name, baseline) in legacy_cases() {
+fn legacy_numberless_files_read_and_take_a_settings_only_write_unnumbered() {
+    for (name, expected) in legacy_cases() {
         let p = load(&name);
-        let mut a = api::analyse(&p).unwrap();
-        // #75 adds typed planner input; the pre-existing analysis fields still match exactly.
-        let input = a
-            .as_object_mut()
-            .unwrap()
-            .shift_remove("dimensioning")
-            .unwrap();
-        serde_json::from_value::<quiddity::dimensioning::Input>(input).unwrap();
-        a.as_object_mut()
-            .unwrap()
-            .shift_remove("dimensioning_stated");
-        // ADR P11 adds the feature table; the pre-existing fields still match exactly.
-        a.as_object_mut().unwrap().shift_remove("table");
-        let pmi = existing::read_existing(&p).unwrap();
+        let kinds = |l: &part::LoadedPart| {
+            let mut out = Map::new();
+            for e in existing::read_existing(l).unwrap() {
+                let key = format!("{}/{}", e.kind, e.r#type);
+                let n = out.get(&key).and_then(Value::as_u64).unwrap_or(0);
+                out.insert(key, json!(n + 1));
+            }
+            Value::Object(out)
+        };
+        assert_eq!(kinds(&p), expected["existing"], "{name}: PMI read");
+        let a = api::analyse(&p).unwrap();
         assert_eq!(
-            hash(serde_json::to_vec(&a).unwrap()),
-            baseline["analysis_sha256"],
-            "{name}: analysis bytes"
+            a["table"]["rows"].as_array().unwrap().len() as u64,
+            expected["table_rows"].as_u64().unwrap(),
+            "{name}: feature table"
         );
-        assert_eq!(
-            hash(serde_json::to_vec(&pmi).unwrap()),
-            baseline["pmi_sha256"],
-            "{name}: PMI read bytes"
-        );
+        assert!(a.get("characteristics").is_none(), "{name}");
         let mut i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
         i.part.insert("material".into(), json!("steel"));
         let answers = json!({"part.material":"steel"})
             .as_object()
             .unwrap()
             .clone();
-        let output = writer::write_bytes(&p, &i, Some(&answers)).unwrap().0;
+        let written = back(writer::write_bytes(&p, &i, Some(&answers)).unwrap().0);
+        // The file's requirements stay as they were, unnumbered; the material is the file's
+        // (ADR P11: not stored as an answer).
         assert_eq!(
-            hash(output),
-            baseline["settings_only_writer_sha256"],
-            "{name}: settings-only writer with v0.4.1 GENERAL NOTES layout"
+            kinds(&written),
+            expected["existing"],
+            "{name}: after the write"
+        );
+        assert!(numbers(&written).is_empty(), "{name}");
+        assert_eq!(
+            existing::part_settings(&written).unwrap()["material"],
+            "steel"
+        );
+        assert!(
+            resume::stored(&written.bytes)[&0]["answers"]
+                .get("part.material")
+                .is_none()
         );
     }
 }
@@ -1181,4 +1161,71 @@ fn presentation_shapes_keep_requirement_ids_history_and_face_supports() {
             .all(|e| e.number.is_some()
                 && e.provenance.as_deref() == Some("specify-core:written:v1"))
     );
+}
+
+/// A rules change alters nothing (ADR P11, use case 4): a file Specify 0.1.15 wrote with the
+/// old curve-length depth keeps characteristic 13, with its type and faces, on a save, though
+/// today's rules would state that depth as a linear distance.
+#[test]
+fn a_rules_change_alters_nothing_the_enclosure_depth_keeps_13_and_its_type() {
+    let old = load("characteristic-numbers-enclosure-curve-depth.step.gz");
+    let prior = numbers(&old);
+    let depth = prior.iter().find(|c| c.number == 13).unwrap();
+    assert_eq!(depth.r#type, "Size_CurveLength");
+    assert_eq!(depth.faces, [3, 24, 25, 26]);
+    let answers = resume::answers_for(&old).unwrap().unwrap();
+    let analysis = api::analyse(&old).unwrap();
+    let intent = rules::apply_with_defaults(&analysis, &answers, true).unwrap();
+    let saved = back(
+        writer::write_bytes(&old, &intent, Some(&answers))
+            .unwrap()
+            .0,
+    );
+    let current = numbers(&saved);
+    let depth = current.iter().find(|c| c.number == 13).unwrap();
+    assert_eq!(depth.r#type, "Size_CurveLength");
+    assert_eq!(depth.faces, [3, 24, 25, 26]);
+    let shape = |rows: &[characteristics::Characteristic]| {
+        rows.iter()
+            .map(|c| (c.number, c.kind.clone(), c.r#type.clone(), c.faces.clone()))
+            .collect::<BTreeSet<_>>()
+    };
+    assert_eq!(shape(&current), shape(&prior));
+}
+
+/// The same for CTC-04 (both captures): the old depth keeps 59 as a curve length, and the
+/// legacy General span keeps 67; nothing retires.
+#[test]
+fn a_rules_change_alters_nothing_ctc04_keeps_its_depth_and_span() {
+    for name in [
+        "characteristic-numbers-ctc04-main.step.gz",
+        "characteristic-numbers-ctc04-main-equal-span.step.gz",
+    ] {
+        let old = load(name);
+        let prior = numbers(&old);
+        assert_eq!(
+            prior.iter().find(|c| c.number == 59).unwrap().r#type,
+            "Size_CurveLength"
+        );
+        let answers = resume::answers_for(&old).unwrap().unwrap();
+        let intent =
+            rules::apply_with_defaults(&api::analyse(&old).unwrap(), &answers, true).unwrap();
+        let (bytes, report) = writer::write_bytes(&old, &intent, Some(&answers)).unwrap();
+        let current = numbers(&back(bytes));
+        let depth = current.iter().find(|c| c.number == 59).unwrap();
+        assert_eq!(depth.r#type, "Size_CurveLength", "{name}");
+        let span = current.iter().find(|c| c.number == 67).unwrap();
+        assert_eq!(span.r#type, "Location_LinearDistance", "{name}");
+        assert_eq!(span.faces, [393, 400]);
+        assert!(
+            !report.warnings.iter().any(|w| w.contains("retired")),
+            "{name}: {:?}",
+            report.warnings
+        );
+        assert_eq!(
+            current.iter().map(|c| c.number).collect::<BTreeSet<_>>(),
+            prior.iter().map(|c| c.number).collect::<BTreeSet<_>>(),
+            "{name}"
+        );
+    }
 }

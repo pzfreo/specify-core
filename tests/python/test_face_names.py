@@ -7,6 +7,8 @@ from pathlib import Path
 
 from specify_core import api
 
+from p11 import storable
+
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "revisions"
 ITEM = re.compile(r"(DESCRIPTIVE_REPRESENTATION_ITEM\('pmi-assist answers',')([A-Za-z0-9+/=]+)('\))")
 
@@ -41,20 +43,24 @@ def test_python_named_rebuild_resume_and_diff(tmp_path):
     carried = tmp_path / "carried.step"
     api.write(new, api.preview(api.analyse(new), report["answers"]), carried,
               answers=report["answers"])
-    assert api.analyse(carried)["resume"]["answers"] == after
+    # ADR P11: the file states these answers' requirements, so none is stored.
+    assert api.analyse(carried)["resume"]["answers"] == storable(after)
     written = []
     for path, given in [(old, before), (new, after)]:
         out = tmp_path / f"{path.stem}-pmi.step"
         api.write(path, api.preview(api.analyse(path), given), out, answers=given)
-        assert api.analyse(out)["resume"]["answers"] == given
+        assert api.analyse(out)["resume"]["answers"] == storable(given)
         written.append(out)
-    # Carry the stored schema-3 evidence into a rebuilt file, as a CAD author would.
+    # Carry the stored schema-3 evidence into a rebuilt file, as a CAD author would, with the
+    # feature answers an older engine stored beside it.
     source, target = (p.read_text() for p in written)
-    payload = ITEM.search(source).group(2)
-    assert json.loads(base64.b64decode(payload))["schema"] == 3
+    stored = json.loads(base64.b64decode(ITEM.search(source).group(2)))
+    assert stored["schema"] == 3
+    stored["answers"] = before
+    payload = base64.b64encode(json.dumps(stored, separators=(",", ":")).encode()).decode()
     target = ITEM.sub(lambda m: m[1] + payload + m[3], target)
     written[1].write_text(target)
-    assert api.analyse(written[1])["resume"]["answers"] == after
+    assert api.analyse(written[1])["resume"]["answers"] == storable(after)
     missing, count = re.subn(r"(ADVANCED_FACE\s*\(\s*)'f:named_plate\.body_make_cylinder1\.1;M:named_plate\.body'", r"\1''", target)
     assert count == 1
     written[1].write_text(missing)
@@ -85,7 +91,7 @@ def test_python_shared_and_generic_source_labels_write_and_resume(tmp_path):
         assert "name" not in analysis["faces"][hole]
         out = tmp_path / f"{name}-written.step"
         api.write(path, api.preview(analysis, answers), out, answers=answers)
-        assert api.analyse(out)["resume"]["answers"] == answers
+        assert api.analyse(out)["resume"]["answers"] == storable(answers)
         payload = json.loads(base64.b64decode(ITEM.search(out.read_text()).group(2)))
         assert payload["schema"] == schema
         if schema == 3:

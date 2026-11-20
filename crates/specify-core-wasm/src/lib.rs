@@ -632,7 +632,7 @@ mod tests {
     #[test]
     fn blind_thread_interpretation_summary_matches_the_intent() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/fixtures/spindle.step");
+            .join("../../tests/fixtures/parts/pin.step");
         let analysis = api::analyse_file(&path, None).unwrap();
         let questions = api::questions(&analysis, &Map::new()).unwrap();
         let hole = questions

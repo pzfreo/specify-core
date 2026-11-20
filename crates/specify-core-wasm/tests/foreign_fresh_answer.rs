@@ -1,7 +1,7 @@
-//! ADR P9 through the editor's session: another tool re-authored Specify's hole position 0.5
-//! as its own 1.5. A save keeps 1.5 and drops the stored answer; after reopening (no
-//! conflict), answering 0.5 afresh and writing (`acceptDefaults`, then `writePmi`, as the
-//! editor's worker does) must keep the other tool's 1.5 alone and say why 0.5 wasn't written.
+//! ADR P11 through the editor's session: another tool re-authored Specify's hole position 0.5
+//! as its own 1.5. Reopening shows 1.5 (no conflict); a save keeps it; answering 0.5 afresh
+//! and writing (`acceptDefaults`, then `writePmi`, as the editor's worker does) must keep the
+//! file's 1.5 alone and say why 0.5 wasn't written (changing it is an explicit edit).
 use serde_json::{Map, Value, json};
 use specify_core::{api, existing::read_existing, part::load_bytes};
 use specify_core_wasm::session::Session;
@@ -61,15 +61,10 @@ fn positions(bytes: &[u8]) -> Vec<(f64, bool)> {
         .collect()
 }
 
-/// The editor's answers on opening (`reconcileStepEdits`): the resumed answers, conflicts
-/// and file-answered questions left out, with `keep` carried over.
-fn opened(session: &Session, keep: &[&str]) -> Map<String, Value> {
+/// The editor's answers on opening: the resumed answers.
+fn opened(session: &Session) -> Map<String, Value> {
     let resume = session.snapshot()["analysis"]["resume"].clone();
-    let mut answers = resume["answers"].as_object().unwrap().clone();
-    if !keep.is_empty() {
-        answers.insert("_specify".into(), json!({"keep": keep}));
-    }
-    answers
+    resume["answers"].as_object().unwrap().clone()
 }
 
 /// The editor's Save: `writePmi(acceptDefaults(answers))`.
@@ -80,56 +75,38 @@ fn save(session: &Session, answers: &Map<String, Value>) -> (Vec<u8>, Value) {
     (bytes, written["report"].clone())
 }
 
-fn scenario(keep: bool) {
+#[test]
+fn the_editor_does_not_replace_another_tools_position_with_a_fresh_answer() {
     let edited = re_authored();
     assert_eq!(positions(&edited), [(1.5, false)]);
     let session = Session::open("plate.step", &edited).unwrap();
     let analysis = session.snapshot()["analysis"].clone();
     assert!(
-        analysis["resume"]["conflicts"]
-            .as_array()
-            .is_some_and(|c| c.iter().any(|c| c["id"] == HOLE && c["foreign"] == true)),
+        analysis["resume"].get("conflicts").is_none(),
         "{}",
         analysis["resume"]
     );
-    let keep: &[&str] = if keep { &[HOLE] } else { &[] };
-    let (saved, _) = save(&session, &opened(&session, keep));
+    let (saved, _) = save(&session, &opened(&session));
     assert_eq!(positions(&saved), [(1.5, false)]);
     let session = Session::open("plate.step", &saved).unwrap();
     let resume = session.snapshot()["analysis"]["resume"].clone();
     assert!(resume.get("conflicts").is_none(), "{resume}");
     assert!(resume["answers"].get(HOLE).is_none(), "{resume}");
-    let mut answers = opened(&session, keep);
+    let mut answers = opened(&session);
     answers.insert(HOLE.into(), json!("0.5"));
     let (answered, report) = save(&session, &answers);
-    assert_eq!(
-        positions(&answered),
-        [(1.5, false)],
-        "keep {keep:?}: {report}"
-    );
+    assert_eq!(positions(&answered), [(1.5, false)], "{report}");
     assert!(
         report["not_written"]
             .as_array()
             .unwrap()
             .iter()
             .filter_map(Value::as_str)
-            .any(|l| l.starts_with(HOLE)
-                && l.contains("another tool's requirement holds this question")
-                && l.contains("keep it, or change it in that tool")),
+            .any(|l| l.starts_with(HOLE) && l.contains("the file already states this requirement")),
         "{report}"
     );
     // Reopened once more: still the other tool's 1.5, and no answer stored for it.
     let again = Session::open("plate.step", &answered).unwrap();
     let resume = again.snapshot()["analysis"]["resume"].clone();
     assert!(resume["answers"].get(HOLE).is_none(), "{resume}");
-}
-
-#[test]
-fn the_editor_does_not_replace_another_tools_position_with_a_fresh_answer() {
-    scenario(false);
-}
-
-#[test]
-fn the_editor_does_not_replace_a_kept_foreign_position_with_a_fresh_answer() {
-    scenario(true);
 }

@@ -151,129 +151,45 @@ are not refused on reopening: the unknown ID is left out of the resumed answers,
 `resume.unresolved` with its value, and named in an analysis warning
 (`saved answer bogus.question: unknown answer ID: …`), so `questions` and `diff` still work.
 
-## Reopening a file Specify wrote: the PMI is the truth
+## Reopening a file: the file is the only copy
 
-Specify stores the answers it wrote with in the STEP, but they are only a private helper for
-resuming the questions ([ADR P9](https://github.com/pzfreo/draftwright-project/blob/main/adr/P9-pmi-is-the-truth.md)):
-the file's PMI is what any tool reads, and it may have been edited since. On reopening,
-`analyse` reads the file's PMI and part settings first, as for any file, and compares them
-item by item with what the stored answers would write: their preview (defaults left as
-suggestions) and, where defaults merged requirements, their plan with every default taken.
-The comparison is the revision diff's PMI item matching (`revision::against_plan`), every
-face corresponding to itself, an exact match always taken first. A requirement on a face set
-the file states otherwise is a conflict (an edit), except for recognition drift: in a file
-whose recognition changed since it was written (answers in `resume.migrated`, or matched by ID
-without face evidence), any answer's requirement on overlapping faces; otherwise one face set
-holding the other with every face only one has of a kind the other has none of (a hole's tip
-cone or floor claimed since).
+[ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md):
+the file's PMI is the state, whoever wrote it. Reopening any file, whether Specify, another
+tool or both wrote it, reads it the same way: `existing` and `part` are the file's whole PMI
+and settings, and `analyse` adds the **feature table**, `table`:
 
-- **Same in both:** the answer resumes (`resume.answers`) and its items are not repeated in
-  `existing`.
-- **A default the file states** (written with defaults accepted, but not stored as an
-  answer): present. When the file states it exactly as the default would be written, it is
-  `resume.present: {id: value}`: the file answers the question with its default, so it is
-  neither open nor a conflict, it is not repeated in `existing`, and it can still be answered
-  otherwise (the answer then replaces it). `resume.answers` stays the stored answers.
-- **Only in the file**, added by another tool (no Specify provenance marker), is shown in
-  `existing` and kept. It can contradict a stored answer. Its question is settled wherever
-  the file's PMI already states it.
-- **Specify's own requirement that no stored answer states, stated otherwise than its
-  default** (a default another tool changed while keeping Specify's marker, or a requirement
-  Specify wrote from an intent rather than from answers): the file answers that question,
-  `resume.file: [id]`. It is not a conflict and its default is not restated: the file's
-  requirement is in `existing`, tagged `question: <id>`, the question is not asked, and
-  every write keeps it until the question is answered (which gives it way). Specify's own
-  requirements that no question accounts for at all are Specify's to state from the answers.
-- **An answer that writes no PMI** can resume after the file comparison. A face question
-  withholds it when a file item on its target faces has no exact match in either the plan
-  for all stored answers or the plan with remaining defaults accepted, when that alternative
-  is available. A match has the same kind, faces, value and tolerance. A location
-  dimension's target faces are the faces it locates. A datum question checks both the
-  stored datum's faces and the file datum's faces for the same letter.
-  For a part setting, every file entry must match an entry in the stored answer. This
-  includes every note, regardless of who wrote it. The ordinary file-PMI rules handle a
-  withheld answer (`resume.present`, `resume.file`, or `existing`). The question opens again
-  if those rules leave it open. Withholding creates no conflict. A save keeps the file's
-  requirements and carries the withheld answer for reevaluation on later opens.
-- **When planning or comparison fails**, Specify withholds the saved answers and treats the
-  readable PMI and part settings as the file's own. A save protects that PMI and carries the
-  withheld answers for reevaluation. The CLI, serve, MCP and Python report an analysis
-  warning; the WASM engine (the editor) and the page's session do not yet, so the page
-  shows only the questions asked again. Known limit: the answer that made comparison fail
-  (a notes list) is carried forward as it is and its question is not asked, so every
-  reopen of that file withholds the saved answers until the notes are answered again.
-- **Different, or only in the answers (removed in the file):** a conflict,
-  `resume.conflicts: [{id, stored, file}]` (`file` is the file's notation, `null` when the
-  file has none), with an analysis warning each. Until it is decided the file's state is
-  what is shown and what would be written: the file's items stay in `existing`, tagged
-  `question: <id>`; the stored answer is not resumed and the question is not asked.
+- `rows`: one per feature and kind of requirement it can need, with the id of its question
+  (`hole.position:holes:12`, the position of hole 12). Each is
+  - `stated`: the file has a requirement of that kind on the feature's faces, whoever wrote
+    it. `value` is its notation and `requirements` its items, with their characteristic
+    numbers (`#N`). It is not asked.
+  - `gap`: nothing is there. `suggestion` is Specify's default (`null` when there is none).
+    It is asked. `open` is false when the suggestion is "none": leaving it and accepting
+    "none" give the same file.
+  - `decided_none`: an answer that nothing is needed, stored in the file.
+- `file_pmi`: the file's requirements on no recognised feature and kind.
+- `decided_none`: the decided-none ids, read back from the file.
 
-Part settings (material, general tolerance, finish, coating, heat treatment, edges, notes)
-use the file's value in `part` when the file answers the question or the setting is in conflict.
+A requirement is matched to a feature and kind by the faces it sits on and its kind. Specify's
+provenance marker plays no part. Questions follow the table: every gap is asked, and nothing
+the file states is.
 
-When the file's requirement in conflict is another tool's (not marked as Specify's, and not
-one the person kept), the conflict says so (`foreign: true`): no answer replaces it, not even
-answers saved before the edit that still hold the old value; its question is not asked and
-the file's requirement is written as it is. Keeping is its only choice, and a Keep is not
-stored as permission to replace it later. Writing also leaves the contradicted answer out of
-the stored answers, so once the file is saved, reopening reads the file's requirement as the
-truth, with no conflict. When that question's requirements also include Specify's own (a
-hole's basic location dimensions beside the other tool's position tolerance), reopening lists
-it in `resume.file` and in `resume.foreign`: it is still keep-only. An answer to it is not
-written or stored, and the report's `not_written` says "another tool's requirement holds this
-question; keep it, or change it in that tool", as it does for any answer another tool's PMI
-keeps from being asked. A file saved by 0.2.0, or by a development build before this fix, with a Keep of
-another tool's conflict still lists the question in `_specify.keep`, which cannot be told
-apart from a Keep of Specify's own requirement, so an answer there can still replace it.
+Only answers that leave no PMI behind are stored in the file: "none" answers and choices that
+are not requirements (`part.locating`). `resume.answers` holds those. Stored answers that
+repeat the file's PMI (as Specify 0.2 stored every answer) are ignored on reading and dropped
+at the next save. A stored answer whose PMI is no longer in the file leaves a gap: the deletion
+stands, and the analysis warns about it once. If someone edited a requirement elsewhere, the
+table shows the new value. There is nothing to conflict with, so there are no conflicts, no
+keep and no `resume.present`, `resume.file` or `resume.foreign`.
 
-Otherwise a conflict is **decided** when the current answers answer its question, or list it
-in `_specify.keep`:
-
-- **Restore:** answer the question with the stored value (`resume.conflicts[].stored`). The
-  file's tagged items give way (they leave `existing` for the rules, and the writer removes
-  them), so the written file has the restored value, not both.
-- **Keep the file's:** add the id to `_specify.keep` (`{"_specify": {"keep": ["hole.position:holes:12"]}}`).
-  For Specify-marked requirements and kept removals, the writer stores the Keep in the
-  payload's `kept` list, restored as `_specify.keep`. Keeping a marked requirement removes
-  its provenance marker. A later answer clears the Keep and states the new requirement.
-  Keeping a foreign process clears the conflict without storing permission to replace it.
-  A later answer replaces an unmarked process only if its property-set name and ordered
-  items match the recorded UDA that Specify unmarked when keeping it. Legacy value-only
-  records leave an unmarked process foreign.
-
-`review` lists the undecided conflicts as questions (`conflicts`, only when there are some),
-each `{id, kind: "conflict", text, stored, file, choices}`, `text` reading "Saved answer H7,
-file says ⌀10 H8. Keep the file's ⌀10 H8, or restore H7?" or "Saved answer 0.05: removed in
-the file. Restore it, or leave it removed?", and `choices` `[{choice: "keep", label},
-{choice: "restore", label, answer}]`. A front end or agent puts them to the person and never
-decides them itself. Conflicts are not `open` questions: they do not block a write.
-
-Answers that write no PMI are stored whenever they are answers: given, or defaults approved
-(the page's Save, MCP's `save`, `write_pmi` and `export_answers` with `accept_defaults`).
-`write --accept-defaults` (and serve's `write` with `accept_defaults`), the person's "accept
-all", stores the defaults it takes that write no PMI as well; the defaults it takes that write
-PMI are not stored, and reopening reads them from the file as `resume.present`.
-
-**Known limits.** Outside the scope of withheld answers, ADR P9 still has two cases where
-Specify-marked PMI can be dropped on rewrite: a default whose faces another tool moved
-(it no longer pairs with its default), and a requirement written from a raw intent where no
-default exists (no question accounts for it). Keeping them needs the writer to match restated
-requirements by meaning rather than by characteristic key, so that what a rewrite states
-again is not written twice.
-When another tool strips all of Specify's markers from a replace-written STEP file and
-leaves no process evidence, rewrites restore saved answers and drop edited items, as in 0.2.0.
-
-When the writer rewrites a reopened part, it replaces Specify's own (provenance-marked)
-requirements from the answers and keeps every other one: PMI another tool added (unmarked),
-PMI in the scope of withheld answers, and a conflict's file items until decided. A part written by
-replace that holds such PMI is rewritten as a scoped Add (`pmi_scope`), so only its marked
-requirements are replaced; with nothing to keep the write is as before (a replace, and an
-unchanged rewrite keeps the file's bytes). A file written before Specify marked its
-requirements (#22) has none marked: all its PMI is its answers', so it opens and is rewritten
-as before (no reconciliation), and none of it is stated twice.
-In a legacy Replace file with marks only on part settings, the interview's `existing` list
-shows face PMI tied to a conflict or a file answer. Revision scenes read the full PMI and
-rewrites keep the unmarked requirements.
+A save never re-plans what the file states. A part with PMI is added to: every requirement in
+the file keeps its bytes and its number, and only the stored answers and the
+characteristic-number record are replaced. A requirement whose feature and kind the file
+already states is not written again, whatever its value. It is reported in `not_written`
+("the file already states it"), and changing it is an explicit edit. An answer to a question
+the file states is not written, and the report says "the file already states this
+requirement". A save that adds nothing keeps the file's bytes. Leaving an answer out removes
+nothing.
 
 ## Specify metadata
 

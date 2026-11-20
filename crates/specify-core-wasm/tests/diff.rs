@@ -167,8 +167,10 @@ fn numbered_requirement_changes_use_the_same_identity_as_pmi_scene() {
         .0;
         part::load_bytes("written.step", bytes).unwrap()
     };
+    // ADR P11: a save does not change a stated fit (a change is an explicit edit), so the
+    // new revision is the bare part written with H8.
     let old = write(&bare, "fit:H7");
-    let new = write(&old, "fit:H8");
+    let new = write(&bare, "fit:H8");
     let result = session::diff(
         ("old.step", &old.bytes),
         ("new.step", &new.bytes),
@@ -247,8 +249,9 @@ fn spindle_diff_scenes_obey_the_editor_link_rule() {
     let engine = session::Session::open("old.step", &old).unwrap();
     let answers = engine
         .accept_defaults(
+            // ADR P11: the material the file states (another would be refused).
             &serde_json::from_value(serde_json::json!({
-                "part.material":"steel"
+                "part.material":"Aluminium 6082-T6"
             }))
             .unwrap(),
         )
@@ -261,20 +264,8 @@ fn spindle_diff_scenes_obey_the_editor_link_rule() {
         revision::DiffOptions { scenes: true },
     )
     .unwrap();
-    let thread: Vec<_> = result["report"]["pmi"]["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|i| {
-            i["id"]
-                .as_str()
-                .is_some_and(|id| id.contains("thread:holes:14"))
-        })
-        .collect();
-    assert_eq!(thread.len(), 1, "{thread:?}");
-    assert_eq!(thread[0]["id"], "thread:holes:14");
-    assert_eq!(thread[0]["old"], "M4×0.7-6H THRU");
-    assert_eq!(thread[0]["class"], "removed");
+    // ADR P11: the old file states hole 14's size, so no thread is planned for it from the
+    // defaults (the removed M4 thread this scenario used to show); the link rule still holds.
     for side in ["old", "new"] {
         let scene = &result["report"]["pmi"]["scenes"][side];
         let ids: std::collections::BTreeSet<_> = ["pmi", "units"]

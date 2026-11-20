@@ -654,10 +654,10 @@ fn requirements(pmi: &PartPmi) -> BTreeSet<(String, usize)> {
 }
 
 /// [`part_pmi`] in add mode (ADR P11): what the file already states stays as it is and is
-/// never stated twice. A requirement of `intent` whose every item measures what `before`
-/// states (the same kind and type on the same faces and reference, whatever its value) is
-/// left out of the plan and reported as not written; any other such item the plan makes
-/// (the dimension planner's own) is dropped from it.
+/// never stated twice. A requirement of `intent` whose feature-and-kind the file states (the
+/// feature table's matching: the faces it sits on and its kind, whatever its value, type or
+/// reference) is left out and reported as not written; so is any item the plan makes that
+/// measures exactly what `before` states.
 fn part_pmi_added(
     loaded: &LoadedPart,
     intent: &Intent,
@@ -673,12 +673,27 @@ fn part_pmi_added(
         .filter(|((collection, _), _)| *collection != "datums")
         .map(|(_, key)| key)
         .collect();
-    let restated: std::collections::BTreeMap<(String, usize), String> =
+    let mut restated: std::collections::BTreeMap<(String, usize), String> =
         crate::characteristics::measures(&planned)
             .into_iter()
             .filter(|((collection, _), key)| *collection != "datums" && stated.contains(key))
             .map(|((collection, i), key)| ((collection.to_string(), i), key))
             .collect();
+    // The feature table's matching of each requirement to the file's PMI.
+    let existing: Vec<Json> = crate::existing::read(loaded)
+        .ok()
+        .and_then(|reading| reading.existing_all(loaded).ok())
+        .and_then(|items| serde_json::to_value(items).ok())
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    for (at, req) in &sources {
+        if at.0 != "datums" && crate::feature_table::requirement_stated(req, &existing) {
+            restated
+                .entry(at.clone())
+                .or_insert_with(|| format!("{} {}", at.0, at.1));
+        }
+    }
+    let by_kind: BTreeSet<(String, usize)> = restated.keys().cloned().collect();
     // A requirement of the intent is left out when all it makes is stated already.
     let mut whole: Vec<(&Map<String, Json>, bool)> = Vec::new();
     for (at, req) in &sources {
@@ -743,7 +758,7 @@ fn part_pmi_added(
         lines.written.retain(|line| less.written.contains(line));
     }
     lines.not_written.extend(said);
-    for what in drop_stated(&mut pmi, before) {
+    for what in drop_stated(&mut pmi, before, &by_kind) {
         lines.not_written.push(format!(
             "{what}: the file already states it; not written again"
         ));
@@ -794,10 +809,14 @@ fn part_pmi_added(
 }
 
 /// Drop from `planned` every requirement that measures what `before` already states (the
-/// same kind and type on the same faces and reference, whatever its value), with what depends
-/// on it, and say which. The file's requirement stands (ADR P11): changing it is an explicit
+/// same kind and type on the same faces and reference, whatever its value), and those `also`
+/// names (whose feature-and-kind the file states), with what depends on it, and say which. The file's requirement stands (ADR P11): changing it is an explicit
 /// edit, never a side effect of writing answers again.
-fn drop_stated(planned: &mut PartPmi, before: &PartPmi) -> Vec<String> {
+fn drop_stated(
+    planned: &mut PartPmi,
+    before: &PartPmi,
+    also: &BTreeSet<(String, usize)>,
+) -> Vec<String> {
     use pmi::{DimensionId, ToleranceId};
     let stated: BTreeSet<String> = crate::characteristics::measures(before)
         .into_iter()
@@ -807,7 +826,9 @@ fn drop_stated(planned: &mut PartPmi, before: &PartPmi) -> Vec<String> {
     let mut drop: BTreeSet<(&'static str, usize)> = BTreeSet::new();
     let mut said = Vec::new();
     for ((collection, i), key) in crate::characteristics::measures(planned) {
-        if collection != "datums" && stated.contains(&key) {
+        if collection != "datums"
+            && (stated.contains(&key) || also.contains(&(collection.to_string(), i)))
+        {
             drop.insert((collection, i));
             said.push(key);
         }
@@ -1398,12 +1419,12 @@ fn write_by_modes(
             );
         // AddPreservation is a refusal, never a reason to retry with Replace:
         // Replace would re-author the caller's foreign PMI.
-        if mode == Mode::Replace {
-            // Python's own form of stored answers is not PMI haecceity reads (it reports it as
-            // not modelled and keeps it), so a replace takes it out here: the answers stored
-            // now are the only ones.
-            for (part, _) in &these {
-                // these retains the same validated part ids; replace edits do not change geometry or definitions.
+        // Python's own form of stored answers is not PMI haecceity reads (it reports it as not
+        // modelled and keeps it), so a replace, or an add that stores answers anew, takes it
+        // out here: the answers stored now are the only ones.
+        for (part, pmi) in &these {
+            if mode == Mode::Replace || pmi.attributes.iter().any(resume::is_answers) {
+                // these retains the same validated part ids; edits do not change geometry or definitions.
                 for id in python_answers(current, &defs[part.0]) {
                     edit.remove(id);
                 }
@@ -3509,8 +3530,8 @@ fn part_pmi_observed(
             Ok(false)
         }
         Some(old) => invalid(format!(
-            "the part already states {what} {old}; adding {new} would give it two (it was \
-             not written by specify-core, so it is added to, not replaced)"
+            "the part already states {what} {old}; adding {new} would give it two (the \
+             file's value stands whoever wrote it: changing it is an explicit edit)"
         )),
         None => Ok(true),
     };
