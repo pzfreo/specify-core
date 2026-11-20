@@ -15,6 +15,7 @@ export class IntentEngine {
   static bom(bytes: Uint8Array): string;
   static openPart(name: string, bytes: Uint8Array, part: number): IntentEngine;
   static parts(name: string, bytes: Uint8Array): string;
+  validateEdits(edits: string): string;
   writePmi(answers: string, project?: string | null, payload?: string | null, bom?: boolean | null): string;
 }
 
@@ -108,6 +109,7 @@ export interface InitOutput {
   readonly intentengine_review: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_settle: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_snapshot: (a: number, b: number, c: number) => [number, number, number, number];
+  readonly intentengine_validateEdits: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_writePmi: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
   readonly interpret: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
   readonly memory: WebAssembly.Memory;

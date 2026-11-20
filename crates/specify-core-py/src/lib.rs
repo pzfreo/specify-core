@@ -488,6 +488,17 @@ impl Server {
     }
 }
 
+/// An edit list (or a 0.2 answers file) validated all or nothing, as JSON (`edits::check`).
+/// Writes nothing. Until the feature table can be read, it is checked only against itself.
+#[pyfunction]
+fn validate_edits(py: Python<'_>, edits: &str) -> String {
+    py.detach(|| {
+        specify_core::edits::check(edits, None)
+            .to_json()
+            .to_string()
+    })
+}
+
 /// What may be wrong with the answers so far, as JSON (`problems.problems`).
 #[pyfunction]
 fn problems(py: Python<'_>, analysis: &str, answers: &str) -> PyResult<String> {
@@ -733,6 +744,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Server>()?;
     m.add_function(wrap_pyfunction!(cli, m)?)?;
     m.add_function(wrap_pyfunction!(problems, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_edits, m)?)?;
     m.add_function(wrap_pyfunction!(choices_interpret, m)?)?;
     m.add_function(wrap_pyfunction!(choices_check, m)?)?;
     m.add_function(wrap_pyfunction!(choices_describe, m)?)?;

@@ -34,6 +34,7 @@ __all__ = [
     "mesh",
     "pmi_scene",
     "diff",
+    "validate_edits",
 ]
 
 ANALYSIS_SCHEMA = _native.ANALYSIS_SCHEMA
@@ -215,3 +216,14 @@ def diff(
     if image is not None:
         result["image"] = image
     return result
+
+
+def validate_edits(edits: dict[str, Any] | str) -> dict[str, Any]:
+    """Validate an edit list (or a 0.2 answers file), all or nothing; writes nothing.
+
+    Returns ``{well_formed, checked_against_file, applicable, entries, unchanged, failures,
+    written, message}``. Until the feature table can be read from a file, the list is checked
+    only against itself (``checked_against_file`` is false).
+    """
+    text = edits if isinstance(edits, str) else json.dumps(edits)
+    return json.loads(_native.validate_edits(text))

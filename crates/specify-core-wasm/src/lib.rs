@@ -438,6 +438,18 @@ export interface PmiScene {
                 .map_err(|error| JsValue::from_str(&error))
         }
 
+        /// Validates an edit list (or a 0.2 answers file) for this file, all or nothing:
+        /// `{well_formed, checked_against_file, applicable, entries, unchanged, failures,
+        /// written: false, message}`. Writes nothing. Until the session reads the feature
+        /// table, the list is checked only against itself (`checked_against_file: false`).
+        #[wasm_bindgen(js_name = validateEdits)]
+        pub fn validate_edits(&self, edits: &str) -> Result<String, JsValue> {
+            limit("Edits", edits, input::JSON_LIMIT)?;
+            Ok(specify_core::edits::check(edits, None)
+                .to_json()
+                .to_string())
+        }
+
         #[wasm_bindgen(js_name = acceptDefaults)]
         pub fn accept_defaults(&self, answers: &str) -> Result<String, JsValue> {
             self.0

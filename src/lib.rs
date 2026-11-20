@@ -12,6 +12,7 @@ pub mod characteristics;
 pub mod choices;
 #[cfg(all(feature = "cli", not(target_arch = "wasm32")))]
 pub mod cli;
+pub mod edits;
 pub mod existing;
 pub mod extras;
 pub mod feature_table;
