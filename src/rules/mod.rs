@@ -514,7 +514,14 @@ fn all_questions(
     answers: &Map<String, Value>,
     propose: &str,
 ) -> Result<Vec<Question>> {
-    every_question(ctx, answers, propose)
+    let mut out = every_question(ctx, answers, propose)?;
+    // ADR P11: with the file's feature table, a question is asked for each feature-and-kind
+    // the file does not state (a gap, or decided none), and only for those.
+    let stated = ctx.table_stated();
+    if !stated.is_empty() {
+        out.retain(|q| !stated.contains(q.id.as_str()));
+    }
+    Ok(out)
 }
 
 fn every_question(
@@ -610,7 +617,7 @@ fn every_question(
     };
     let located = |hole: &Feature<'_>| -> Result<Vec<String>> {
         let bores = bores_of(hole, &ctx.faces)?;
-        if !by_position || bores.iter().any(|i| ctx.positioned.contains(i)) {
+        if !by_position || (!ctx.has_table() && bores.iter().any(|i| ctx.positioned.contains(i))) {
             return Ok(Vec::new());
         }
         // ISO 1101 diametral position with zero nominal offset controls the hole's
@@ -624,7 +631,9 @@ fn every_question(
         }
         Ok(datums::hole_frames(&bores, &datums, &controls, &frames))
     };
-    let covered = |ids: &[i64]| ids.iter().any(|i| ctx.covered.contains(i));
+    // With the file's feature table, a feature is asked per kind (`all_questions`), never left
+    // out whole because the file states one of its requirements.
+    let covered = |ids: &[i64]| !ctx.has_table() && ids.iter().any(|i| ctx.covered.contains(i));
 
     let pattern_members: BTreeSet<&str> = ctx
         .features
@@ -685,9 +694,10 @@ fn every_question(
                 };
                 let mut positions = false;
                 for m in &rest {
-                    if bores_of(m, &ctx.faces)?
-                        .iter()
-                        .any(|i| ctx.positioned.contains(i))
+                    if !ctx.has_table()
+                        && bores_of(m, &ctx.faces)?
+                            .iter()
+                            .any(|i| ctx.positioned.contains(i))
                     {
                         positions = true;
                         break;
@@ -1240,12 +1250,17 @@ fn intent(
     }
 
     let process = crate::process::current(ctx, answers);
+    // ADR P11: what the file states stays as it is (see `unasked`).
+    let stated = ctx.table_stated();
     for key in ["material", "general_tolerance"].into_iter().chain(NOTES) {
         // What the process does not ask is not written (see `unasked`).
         if !crate::process::asks(process, key) {
             continue;
         }
         let id = format!("part.{key}");
+        if stated.contains(id.as_str()) {
+            continue;
+        }
         if key == "notes" {
             if let Some(value) = answers.get(&id)
                 && !note_strings(value)?.is_empty()
@@ -1265,6 +1280,7 @@ fn intent(
         }
     }
     if crate::process::applies(ctx, answers)
+        && !stated.contains(crate::process::QUESTION)
         && let Some(answer) = answers.get(crate::process::QUESTION)
     {
         intent
@@ -1513,10 +1529,12 @@ fn unasked(
                 || (id == crate::process::QUESTION && !crate::process::applies(ctx, answers))
         })
     };
+    // ADR P11: an answer to a part setting the file states is not written either.
+    let stated = ctx.table_stated();
     let ids: Vec<&String> = answers
         .keys()
         .filter(|id| {
-            !((id.starts_with("part.") && !lapsed(id))
+            !((id.starts_with("part.") && !lapsed(id) && !stated.contains(id.as_str()))
                 || id.starts_with("bom.")
                 || id.starts_with(extras::PREFIX)
                 || id.starts_with('_'))
@@ -1583,7 +1601,10 @@ fn unasked(
             .filter(|l| l.len() == 1)
             .and_then(|l| l.chars().next());
         let mut foreign_held = false;
-        let why = if let Some(letter) = letter.filter(|&l| ctx.file_datum(l).is_some()) {
+        let why = if stated.contains(id.as_str()) {
+            foreign_held = true;
+            format!("is not asked: {held}")
+        } else if let Some(letter) = letter.filter(|&l| ctx.file_datum(l).is_some()) {
             format!("is not asked: the file already states datum {letter}")
         } else if id == crate::process::QUESTION {
             "is not asked of a bought part".to_string()

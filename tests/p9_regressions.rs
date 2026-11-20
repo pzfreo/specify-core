@@ -324,6 +324,32 @@ fn pmi_another_tool_added_to_a_replace_written_part_is_kept() {
     );
 }
 
+/// A file Specify wrote before it marked its requirements (#22): its PMI is the file's (ADR
+/// P11), and writing it again states nothing twice: each datum letter once, every
+/// requirement once.
+#[test]
+fn an_unmarked_replace_written_part_is_rewritten_with_nothing_stated_twice() {
+    let path = common::fixtures().join("legacy-schema1/legacy_specify.step");
+    let loaded = load(std::fs::read(path).unwrap());
+    let before = read_existing(&loaded).unwrap();
+    assert!(before.iter().all(|e| e.provenance.is_none()));
+    let analysis = api::analyse(&loaded).unwrap();
+    assert!(!analysis["existing"].as_array().unwrap().is_empty());
+    assert!(analysis["resume"].get("conflicts").is_none());
+    let rewritten = cli_rewrite(&loaded.bytes, "unmarked");
+    let after = read_existing(&rewritten).unwrap();
+    let letters: Vec<String> = after
+        .iter()
+        .filter(|e| e.kind == "datum")
+        .map(|e| e.r#type.clone())
+        .collect();
+    let mut unique = letters.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(letters.len(), unique.len(), "{letters:?}");
+    assert_eq!(after.len(), before.len(), "nothing is stated twice");
+}
+
 /// Case 2: a file `write --accept-defaults` wrote, storing only the given answers. Reopened,
 /// its defaulted requirements are present (not open questions, no conflict), and the editor's
 /// write of the resumed answers keeps them.

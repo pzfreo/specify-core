@@ -18,6 +18,8 @@ from specify_core.problems import problems
 from specify_core.rules import IncompleteError, Intent, Question, with_all_defaults
 from specify_core.writer import WriteReport
 
+from p11 import stated, storable
+
 STEEL = {"part.material": "steel"}
 BIN = Path(sys.executable).parent
 
@@ -76,22 +78,21 @@ def test_write_writes_a_step_that_reads_back(plate, tmp_path):
     assert "material steel" in report.written
     existing = read_existing(load(out))
     assert existing and all(isinstance(e, ExistingPmi) for e in existing)
-    # The answer given resumes as an answer; the defaults written with accept_defaults are
-    # what the file states (ADR P9: resume.present), not answers the person gave.
-    resume = api.analyse(out)["resume"]
-    assert set(resume) == {"answers", "present"}
-    assert resume["answers"] == STEEL
+    # ADR P11: the material is the file's (stated), not a stored answer; the defaults written
+    # with accept_defaults are what the file states.
+    reopened = api.analyse(out)
+    resume = reopened["resume"]
+    assert set(resume) == {"answers"}
+    assert resume["answers"] == storable(STEEL) == {}
+    assert "part.material" in stated(reopened)
     defaults = with_all_defaults(api.analyse(loaded), STEEL)
     taken = {k: v for k, v in defaults.items() if k not in STEEL}
-    # Every default the file states resumes as present, with the value taken.
-    assert all(taken.get(k) == v for k, v in resume["present"].items())
     # The rest are defaults that write no PMI, so the file cannot state them.
-    assert set(taken) - set(resume["present"]) == {
+    assert set(taken) - stated(reopened) == {
         "part.coating",
         "part.heat_treatment",
         "part.notes",
         "part.locating",
-        "hole.function:holes:9",
         "datum.A.flatness",
         "datum.B.control",
         "datum.C.control",
@@ -277,8 +278,9 @@ def test_diff_exposes_numbered_pmi_with_scene_identities(plate, tmp_path):
     before = {"hole.function:holes:9": "fit:H7"}
     after = {"hole.function:holes:9": "fit:H8"}
     analysis = api.analyse(plate)
+    # ADR P11: a save does not change a stated fit, so the new revision is the plate with H8.
     api.write(plate, api.preview(analysis, before), old, answers=before)
-    api.write(old, api.preview(api.analyse(old), after), new, answers=after)
+    api.write(plate, api.preview(analysis, after), new, answers=after)
     result = api.diff(api.load(old), new)
     scene = api.pmi_scene(new)
     changed = [c for c in result["report"]["pmi"]["items"] if c["class"] == "changed"]
@@ -314,7 +316,7 @@ def test_bom_write_requires_explicit_acceptance(assembly, tmp_path):
     rows = bom(out)
     assert rows[0]["item_number"]["value"] == 1
     assert rows[0]["description"]["source"] == "default"
-    assert api.analyse(out, part=0)["resume"]["answers"] == STEEL
+    assert api.analyse(out, part=0)["resume"]["answers"] == storable(STEEL)
 
 
 def test_diff_scenes_are_optional_and_match_pmi_scene(plate):
@@ -339,7 +341,7 @@ def test_limits_and_combined_iso_class_round_trip(plate, tmp_path):
     assert len(question.options) == 16 and "ISO 2768-mK" in question.options
     out = tmp_path / "limits.step"
     api.write(plate, api.preview(analysis, given), out, answers=given)
-    assert api.analyse(out)["resume"]["answers"] == given
+    assert api.analyse(out)["resume"]["answers"] == storable(given)
     limits = [d for d in read_existing(out) if d.limits is not None]
     assert {d.limits for d in limits} == {(7.8, 8.2), (9.8, 10.2)}
     assert all(d.to_dict()["limits"] == list(d.limits) for d in limits)
@@ -365,11 +367,8 @@ def test_spindle_diff_scenes_obey_editor_links():
             break
         answers.update(defaults)
     report = api.diff(old, new, answers, scenes=True)["report"]
-    thread = [item for item in report["pmi"]["items"] if "thread:holes:14" in item["id"]]
-    assert len(thread) == 1
-    assert thread[0]["id"] == "thread:holes:14"
-    assert thread[0]["class"] == "removed"
-    assert thread[0]["old"] == "M4×0.7-6H THRU"
+    # ADR P11: the old file states hole 14's size, so no thread is planned for it from the
+    # defaults (the removed M4 thread this scenario used to show); the link rule still holds.
     for side in ("old", "new"):
         scene = report["pmi"]["scenes"][side]
         ids = {

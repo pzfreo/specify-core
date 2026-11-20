@@ -284,3 +284,167 @@ fn pmi_on_no_recognised_feature_is_file_pmi() {
         }
     }
 }
+
+/// The ids `review` asks and counts open, for `analysis` with its resumed answers.
+fn asked(analysis: &Value) -> (Vec<String>, Vec<String>) {
+    let answers = analysis["resume"]["answers"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    let review = api::review(analysis, &answers).unwrap();
+    let ids = |v: &Value| -> Vec<String> {
+        v.as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|q| q.as_str().or_else(|| q["id"].as_str()).map(str::to_owned))
+            .collect()
+    };
+    (ids(&review["questions"]), ids(&review["open"]))
+}
+
+/// Questions and the table agree: nothing the file states is asked, and every row the table
+/// counts open is asked and open.
+fn agree(analysis: &Value) {
+    let (questions, open) = asked(analysis);
+    for r in analysis["table"]["rows"].as_array().unwrap() {
+        let id = r["id"].as_str().unwrap().to_string();
+        if r["state"] == "stated" {
+            assert!(!questions.contains(&id), "{id} is stated but asked");
+        }
+        if r["open"] == true {
+            assert!(
+                open.contains(&id),
+                "{id} is open in the table, not in questions"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_hole_with_its_position_stated_is_still_asked_its_thread() {
+    let plate = plate();
+    let analysis = api::analyse(&plate).unwrap();
+    let answers = map(json!({"part.material": "6082-T6"}));
+    let mut intent = specify_core::rules::apply_with_defaults(&analysis, &answers, true).unwrap();
+    // Only the hole's position is written: its thread (hole.function) is left out.
+    intent
+        .requirements
+        .retain(|r| r.get("question") != Some(&json!("hole.function:holes:12")));
+    let bytes = api::write_bytes(plate.bytes.to_vec(), &[(intent, Some(answers))])
+        .unwrap()
+        .0;
+    let reopened = api::analyse(&load_bytes("plate.step", bytes).unwrap()).unwrap();
+    let t = &reopened["table"];
+    assert_eq!(row(t, "hole.position:holes:12")["state"], "stated");
+    assert_eq!(row(t, "hole.function:holes:12")["state"], "gap");
+    let (questions, open) = asked(&reopened);
+    assert!(
+        questions.contains(&"hole.function:holes:12".to_string()),
+        "{questions:?}"
+    );
+    assert!(
+        open.contains(&"hole.function:holes:12".to_string()),
+        "{open:?}"
+    );
+    assert!(!questions.contains(&"hole.position:holes:12".to_string()));
+    agree(&reopened);
+}
+
+#[test]
+fn a_knurl_states_its_diameter_on_the_spindle() {
+    let spindle = load(&common::fixtures().join("spindle.step"), None).unwrap();
+    let (analysis, warnings) = api::analyse_reporting(&spindle).unwrap();
+    let t = &analysis["table"];
+    let knurled = row(t, "diameter.fit:turned_steps:9");
+    assert_eq!(knurled["state"], "stated", "{knurled}");
+    assert!(knurled["value"].as_str().unwrap().contains("knurl"));
+    assert!(
+        !t["file_pmi"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["type"] == "knurl"),
+        "{t}"
+    );
+    assert!(
+        !warnings.iter().any(|w| w.contains("no longer in the file")),
+        "{warnings:?}"
+    );
+    // The thread the file states is not asked; the other hole is.
+    let (questions, _) = asked(&analysis);
+    assert!(!questions.contains(&"hole.function:holes:3.5".to_string()));
+    assert!(questions.contains(&"hole.function:holes:7".to_string()));
+    agree(&analysis);
+}
+
+#[test]
+fn a_general_hole_writes_its_size_so_its_answer_is_not_stored() {
+    let plate = plate();
+    let analysis = api::analyse(&plate).unwrap();
+    let answers = map(json!({"part.material": "6082-T6", "hole.function:holes:9": "general"}));
+    let intent = specify_core::rules::apply_with_defaults(&analysis, &answers, true).unwrap();
+    let bytes = api::write_bytes(
+        plate.bytes.to_vec(),
+        &[(intent.clone(), Some(answers.clone()))],
+    )
+    .unwrap()
+    .0;
+    let stored = &resume::stored(&bytes)[&0]["answers"];
+    assert!(stored.get("hole.function:holes:9").is_none(), "{stored}");
+    let (t, _) = table(&load_bytes("plate.step", bytes).unwrap());
+    assert_eq!(row(&t, "hole.function:holes:9")["state"], "stated");
+    // Its dimension deleted (the file written without it): a gap, not decided none.
+    let mut without = intent;
+    let on_nine = |r: &Map<String, Value>| r.get("faces") == Some(&json!([9]));
+    without.general.retain(|r| !on_nine(r));
+    without.requirements.retain(|r| !on_nine(r));
+    let bytes = api::write_bytes(plate.bytes.to_vec(), &[(without, Some(answers))])
+        .unwrap()
+        .0;
+    let (t, _) = table(&load_bytes("plate.step", bytes).unwrap());
+    let hole = row(&t, "hole.function:holes:9");
+    assert_eq!(hole["state"], "gap", "{hole}");
+    assert!(
+        !t["decided_none"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("hole.function:holes:9"))
+    );
+}
+
+#[test]
+fn a_direct_intent_measuring_a_stated_feature_otherwise_is_not_added() {
+    let p = plate();
+    let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
+    intent.datums.push(map(json!({"letter":"A", "faces":[4]})));
+    intent.requirements.push(map(
+        json!({"kind":"location", "faces":[9], "reference":[4], "distance":20., "basic":true}),
+    ));
+    let first = api::write_bytes(p.bytes.to_vec(), &[(intent.clone(), None)])
+        .unwrap()
+        .0;
+    let first = load_bytes("plate.step", first).unwrap();
+    let locations = |l: &LoadedPart| {
+        specify_core::existing::read_existing(l)
+            .unwrap()
+            .iter()
+            .filter(|e| e.r#type.starts_with("Location_"))
+            .count()
+    };
+    assert_eq!(locations(&first), 1);
+    // The same feature-and-kind measured from another reference: the file's stands.
+    let mut other = specify_core::rules::Intent::new(serde_json::to_value(&first.binding).unwrap());
+    other.requirements.push(map(
+        json!({"kind":"location", "faces":[9], "reference":[5], "distance":30., "basic":true}),
+    ));
+    let (bytes, report) = api::write_bytes(first.bytes.to_vec(), &[(other, None)]).unwrap();
+    assert_eq!(locations(&load_bytes("plate.step", bytes).unwrap()), 1);
+    assert!(
+        report
+            .not_written
+            .iter()
+            .any(|l| l.contains("the file already states it")),
+        "{:?}",
+        report.not_written
+    );
+}

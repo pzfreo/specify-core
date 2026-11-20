@@ -184,9 +184,10 @@ fn a_part_of_an_assembly_is_written_into_the_original_file() {
         let before = &Session::parts("assembly.step", &original).unwrap()[k];
         assert_eq!(part["placements"], before["placements"], "part {k}");
         let session = Session::open_part("both.step", &after_plate, k).unwrap();
+        // ADR P11: the material is the file's PMI, so it is not a stored answer.
         assert_eq!(
             session.snapshot()["analysis"]["resume"]["answers"],
-            json!(answers(k)),
+            json!(specify_core::feature_table::storable(&answers(k))),
             "part {k}"
         );
     }
@@ -256,9 +257,10 @@ fn a_part_placed_twice_is_opened_and_written() {
     assert_eq!(out, cli_write(&bytes, 0, &given));
     assert_kept(&bytes, &out);
     let back = Session::open_part("twice.step", &out, 0).unwrap();
+    // ADR P11: the material is the file's PMI, so it is not a stored answer.
     assert_eq!(
         back.snapshot()["analysis"]["resume"]["answers"],
-        json!(given)
+        json!(specify_core::feature_table::storable(&given))
     );
     assert_eq!(
         Session::parts("twice.step", &out).unwrap()[0]["instances"],

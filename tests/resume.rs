@@ -73,6 +73,135 @@ fn long_saved_answers_resume_from_ordered_text_chunks() {
 
 // --- test_resume.py --------------------------------------------------------------------------
 
+fn feature(analysis: &Value, family: &str, diameter: f64) -> String {
+    analysis["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["family"] == family && f["record"]["diameter"].as_f64() == Some(diameter))
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+fn flat(path: &Path) -> String {
+    let text = String::from_utf8_lossy(&std::fs::read(path).unwrap()).into_owned();
+    Regex::new(r"\s*\n\s*")
+        .unwrap()
+        .replace_all(&text, " ")
+        .into_owned()
+}
+
+/// Counts of what a written file holds, as Python's `_counts` (`saved` counts the stored
+/// answers' items).
+fn counts(path: &Path) -> (usize, usize, usize) {
+    let text = flat(path);
+    let n = |pattern: &str| Regex::new(pattern).unwrap().find_iter(&text).count();
+    (
+        n(r"= ?DATUM\("),
+        n(r"POSITION_TOLERANCE"),
+        n(r"DESCRIPTIVE_REPRESENTATION_ITEM\('pmi-assist answers'"),
+    )
+}
+
+// test_resume.py::test_a_written_file_resumes_its_answers_and_is_rewritten_not_added_to, to
+// ADR P11: the stored answers are those that leave no PMI behind, and a save with the same
+// answers adds nothing: equal counts, one answers payload, the same bytes.
+#[test]
+fn a_written_file_resumes_its_answers_and_is_rewritten_not_added_to() {
+    let dir = temp("resume");
+    let pin = load(&fixture("pin"), None).unwrap();
+    let base = specify_core::api::analyse(&pin).unwrap();
+    let knurl = feature(&base, "turned_steps", 10.0);
+    let given = json!({
+        "part.material": "brass",
+        format!("diameter.fit:{knurl}"): "knurl:straight",
+        "part.coating": "None (as machined)",
+    });
+    let first = dir.join("first.step");
+    write(
+        &pin,
+        &apply(&base, given.clone()),
+        &first,
+        given.as_object(),
+    )
+    .unwrap();
+    let loaded = load(&first, None).unwrap();
+    let storable = specify_core::feature_table::storable(given.as_object().unwrap());
+    assert_eq!(answers_for(&loaded).unwrap(), Some(storable.clone()));
+    let again = specify_core::api::analyse(&loaded).unwrap();
+    assert!(again["resume"].get("conflicts").is_none());
+    assert_eq!(again["resume"]["answers"], json!(storable));
+
+    let second = dir.join("second.step");
+    write(
+        &loaded,
+        &apply(&again, given.clone()),
+        &second,
+        given.as_object(),
+    )
+    .unwrap();
+    assert_eq!(counts(&first), counts(&second));
+    assert_eq!(counts(&second).2, 1);
+    assert_eq!(
+        std::fs::read(&first).unwrap(),
+        std::fs::read(&second).unwrap()
+    );
+}
+
+// A file Python wrote (schema 1, Python's own PROPERTY_DEFINITION form) is written again:
+// its payload is replaced by one schema-2 payload, not kept beside it.
+#[test]
+fn a_python_written_files_schema_one_payload_is_replaced_not_duplicated() {
+    let dir = temp("python-written");
+    let written = common::case("parts/plate").written_step().unwrap();
+    let text = std::fs::read_to_string(&written).unwrap();
+    let ours = fingerprint_v1(&load(&fixture("plate"), None).unwrap()).unwrap();
+    let mut payload = Value::Object(stored(text.as_bytes()).remove(&0).unwrap());
+    assert_eq!(payload["schema"], json!(1));
+    payload["faces"] = json!(ours);
+    let pattern = Regex::new(r"('pmi-assist answers',')[A-Za-z0-9+/=]*'").unwrap();
+    let patched = dir.join("python.step");
+    std::fs::write(
+        &patched,
+        pattern
+            .replace(
+                &text,
+                format!("${{1}}{}'", resume::encode(&payload)).as_str(),
+            )
+            .as_ref(),
+    )
+    .unwrap();
+    let loaded = load(&patched, None).unwrap();
+    let given = json!({"part.coating": "None (as machined)"});
+    let base = specify_core::api::analyse(&loaded).unwrap();
+    let out = dir.join("out.step");
+    write(
+        &loaded,
+        &apply(&base, given.clone()),
+        &out,
+        given.as_object(),
+    )
+    .unwrap();
+    let after = flat(&out);
+    assert!(!after.contains("PROPERTY_DEFINITION('pmi-assist answers','schema 1'"));
+    assert_eq!(
+        after
+            .matches("DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist answers'")
+            .count(),
+        1
+    );
+    let back = load(&out, None).unwrap();
+    assert_eq!(stored(&back.bytes)[&0]["schema"], json!(2));
+    assert_eq!(
+        answers_for(&back).unwrap(),
+        Some(specify_core::feature_table::storable(
+            given.as_object().unwrap()
+        ))
+    );
+}
+
 // test_resume.py::test_without_answers_nothing_is_stored
 #[test]
 fn without_answers_nothing_is_stored() {

@@ -369,14 +369,16 @@ fn an_assembly_part_with_only_approved_defaults_is_written() {
     let written = saved.report["written"].to_string();
     assert!(written != "[]", "{}", saved.report);
     let again = api::analyse_file(Path::new(&saved.path), Some(1)).unwrap();
-    // ADR P11: stored when they leave no PMI behind, else stated by the file.
+    // ADR P11: stored when they leave no PMI behind; the others are not (the file states
+    // what they wrote).
     let answers = again["resume"]["answers"].as_object().unwrap();
+    let storable = specify_core::feature_table::storable(&defaults);
     for (id, value) in &defaults {
-        if !stated(&again, id) {
-            assert_eq!(answers.get(id), Some(value), "{id}: {}", again["resume"]);
+        match storable.get(id) {
+            Some(_) => assert_eq!(answers.get(id), Some(value), "{id}: {}", again["resume"]),
+            None => assert!(answers.get(id).is_none(), "{id}: {}", again["resume"]),
         }
     }
-    resumed_or_stated(&again, defaults.keys());
 }
 
 /// `bytes` with `added` written by haecceity's own writer (Add): another tool's PMI, without
@@ -437,15 +439,17 @@ fn silent_answers_resume_on_clean_plate_and_enclosure_faces() {
                 .is_empty()
         );
         let again = api::analyse(&back).unwrap();
-        // ADR P11: the hole's general size is the file's; the rest is stored.
+        // ADR P11: what leaves no PMI behind is stored. The hole's `general` is a requirement
+        // answer, so it is not stored; written by preview it wrote nothing, so the hole is a
+        // gap again and asked.
         assert_eq!(
             again["resume"]["answers"],
             json!(specify_core::feature_table::storable(&answers))
         );
-        resumed_or_stated(&again, answers.keys());
         assert!(again["resume"].get("conflicts").is_none());
+        let open = asked(&again).1;
         for id in answers.keys() {
-            assert!(!asked(&again).1.contains(id), "{id}");
+            assert_eq!(open.contains(id), *id == hole.id, "{id}");
         }
     }
 }

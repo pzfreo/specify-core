@@ -467,6 +467,24 @@ impl<'a> Ctx<'a> {
         })
     }
 
+    /// Whether the analysis carries the file's feature table (ADR P11).
+    pub(crate) fn has_table(&self) -> bool {
+        self.analysis.get("table").is_some_and(Value::is_object)
+    }
+
+    /// The feature-and-kinds the file's feature table says the file states.
+    pub(crate) fn table_stated(&self) -> std::collections::BTreeSet<&str> {
+        self.analysis
+            .get("table")
+            .and_then(|t| t.get("rows"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|r| r["state"] == "stated")
+            .filter_map(|r| r["id"].as_str())
+            .collect()
+    }
+
     /// The feature `id`; the analysis is expected to have it (a pattern's member).
     pub fn feature(&self, id: &str) -> Result<&Feature<'a>> {
         self.by_id

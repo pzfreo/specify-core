@@ -18,6 +18,8 @@ fn bytes(result: &Value) -> Vec<u8> {
 }
 
 #[test]
+#[ignore = "ADR P11: a revision no longer carries the old file's stored answers; numbers \
+            travel file to file with `carry` (new-model piece 4)"]
 fn snapshot_exposes_file_numbers_and_diff_answers_carry_them_through_write_pmi() {
     let old = fixture("revisions/hole_removed.old.step.gz");
     let new = fixture("revisions/hole_removed.new.step.gz");

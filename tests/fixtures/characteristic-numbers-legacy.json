@@ -1,17 +1,28 @@
 {
   "parts/plate.step": {
-    "settings_only_writer_sha256": "a6aa514e0440b4b0be4b8c678325f378f980d84576e98bfa2d9bc81faf4c7a25",
-    "analysis_sha256": "87fa03dc320a80624fa15e4a09ffad2da8e2f817fad36664c7878b3de13bfbe6",
-    "pmi_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    "existing": {},
+    "table_rows": 19
   },
   "resume-alpha6/plate.step.gz": {
-    "settings_only_writer_sha256": "11c35164fe82c8f466d7830e7a8d2ead83f9134304ce5b8550ae933975ad2afd",
-    "analysis_sha256": "c6df5a136d3826ad137bbf7a4b879ff4b4ba7bffac3d554628410da59c929731",
-    "pmi_sha256": "7fe51fc896a51490c9650f074559f611b3c9b5541f5a07437ff117e2c0da4103"
+    "existing": {
+      "datum/A": 1,
+      "datum/B": 1,
+      "datum/C": 1,
+      "dimension/Location_LinearDistance": 14,
+      "dimension/Size_Diameter": 1,
+      "geometric_tolerance/Position": 2,
+      "note/internal thread": 1
+    },
+    "table_rows": 19
   },
   "resume-alpha6/shaft.step.gz": {
-    "settings_only_writer_sha256": "f3a2a86a0306c67120d618792344bb5a84b34250e3ea038da139a41347feaf26",
-    "analysis_sha256": "e0f81d08e7674e0166ab2c83eefac2ef2ea388bd70cb5867c9357cb1259929c3",
-    "pmi_sha256": "2d92823734856810ff457b23d1730c323cf1a72733dd3a25973cfc20e3232222"
+    "existing": {
+      "datum/A": 1,
+      "datum/B": 1,
+      "dimension/Size_Diameter": 1,
+      "geometric_tolerance/Position": 2,
+      "note/internal thread": 1
+    },
+    "table_rows": 17
   }
 }
