@@ -381,6 +381,33 @@ pub(crate) fn measures(p: &PartPmi) -> Vec<((&'static str, usize), String)> {
         .collect()
 }
 
+/// A numbered kind of requirement in the file (as [`measures`] lists them), with where it
+/// is in haecceity's collections and its characteristic number, if it has one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Located {
+    pub at: (&'static str, usize),
+    pub kind: String,
+    pub r#type: String,
+    pub faces: Vec<usize>,
+    pub reference: Vec<usize>,
+    pub number: Option<u64>,
+}
+
+/// Every requirement of [`measures`]'s kinds in `p`, located, with its number in `doc`.
+pub(crate) fn located(p: &PartPmi, prov: &PartProvenance, doc: &Document) -> Vec<Located> {
+    let at = measures(p).into_iter().map(|(at, _)| at);
+    at.zip(items(p, Some(prov), Some(doc)))
+        .map(|(at, item)| Located {
+            at,
+            number: number(doc, item.entity),
+            kind: item.key.kind,
+            r#type: item.key.r#type,
+            faces: item.key.faces,
+            reference: item.key.reference,
+        })
+        .collect()
+}
+
 /// The pinned reader does not consume ids on thread/knurl definition shapes. Strip just
 /// these inverse annotations before its replace planner checks for outside references.
 pub(crate) fn before_replace(doc: &Document, parts: &[PartProvenance]) -> Edit {
@@ -571,9 +598,13 @@ fn legacy_depth_key(p: &PartPmi, index: usize) -> Option<Key> {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum Allocation {
+pub(crate) enum Allocation<'a> {
     Add,
     Replace,
+    /// Add after an edit took the requirements with these numbers out (ADR P11): a new
+    /// requirement measuring the same as one of them (a change of limits) takes its number
+    /// back; the others are retired, and the high-water mark keeps them from being reused.
+    Edit(&'a BTreeSet<u64>),
 }
 
 /// First allocate in inspection order; later additions use stable model order after matching
@@ -586,9 +617,14 @@ pub(crate) fn allocate(
     prov: &PartProvenance,
     doc: &Document,
     answers: Option<&Map<String, Value>>,
-    mode: Allocation,
+    mode: Allocation<'_>,
 ) -> Result<(), String> {
     let replace = matches!(mode, Allocation::Replace);
+    let none = BTreeSet::new();
+    let removed = match mode {
+        Allocation::Edit(removed) => removed,
+        _ => &none,
+    };
     let fingerprint = resume::fingerprint(loaded).map_err(|e| e.to_string())?;
     let saved = history(before)?;
     let carried = answers
@@ -684,10 +720,13 @@ pub(crate) fn allocate(
     let supports = |entry: &Entry, n: usize| {
         same_support(&entry.key, &new[n].key) || depth_predecessor(entry, n)
     };
-    if !replace && new.is_empty() {
+    if !replace && new.is_empty() && removed.is_empty() {
         return Ok(());
     }
-    let eligible = |item: &Item| replace || item.key.kind == "datum";
+    let eligible = |item: &Item| replace || item.key.kind == "datum" || !removed.is_empty();
+    // In an edit, a new requirement other than a datum may only take a removed one's number.
+    let allowed =
+        |e: &Entry, item: &Item| replace || item.key.kind == "datum" || removed.contains(&e.number);
     let mut used = BTreeSet::new();
     // A unique structural key (including a planner role) wins even after a value edit.
     // Only indistinguishable coexisting controls need value hints, so an insertion cannot
@@ -698,6 +737,7 @@ pub(crate) fn allocate(
             && new.iter().filter(|other| other.key == item.key).count() == 1;
         if let Some((i, _)) = old.entries.iter().enumerate().find(|(i, e)| {
             !used.contains(i)
+                && allowed(e, item)
                 && e.key == item.key
                 && (unique
                     || value_hints
@@ -719,7 +759,7 @@ pub(crate) fn allocate(
             .entries
             .iter()
             .enumerate()
-            .filter(|(i, e)| !used.contains(i) && depth_predecessor(e, n))
+            .filter(|(i, e)| !used.contains(i) && allowed(e, item) && depth_predecessor(e, n))
             .collect();
         if let [(i, entry)] = candidates.as_slice()
             && new
@@ -748,6 +788,7 @@ pub(crate) fn allocate(
             .enumerate()
             .filter(|(i, e)| {
                 !used.contains(i)
+                    && allowed(e, item)
                     && supports(e, n)
                     && value_hints
                         .get(&e.number)
@@ -780,7 +821,7 @@ pub(crate) fn allocate(
             .entries
             .iter()
             .enumerate()
-            .filter(|(i, e)| !used.contains(i) && supports(e, n))
+            .filter(|(i, e)| !used.contains(i) && allowed(e, item) && supports(e, n))
             .collect();
         if let [(i, e)] = candidates.as_slice()
             && new
@@ -850,6 +891,7 @@ pub(crate) fn allocate(
     // History and annotation emission keep semantic order, including on the first write:
     // only the assigned values change. This also keeps unchanged rewrites byte-identical.
     let mut entries = if replace { vec![] } else { old.entries.clone() };
+    entries.retain(|e| !removed.contains(&e.number));
     for (item, number) in new.iter().zip(allocations) {
         if let Some(number) = number
             && !entries.iter().any(|e| e.number == number)

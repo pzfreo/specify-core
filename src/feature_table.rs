@@ -15,7 +15,7 @@
 
 use std::collections::BTreeSet;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 /// Questions that are not a requirement of a feature: how holes are located is a choice
@@ -26,7 +26,7 @@ const NOT_REQUIREMENTS: [&str; 1] = ["part.locating"];
 const NEVER_OPEN: [&str; 2] = ["hole.full_thread", crate::process::QUESTION];
 
 /// The state of one feature-and-kind.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum State {
     /// The file has a requirement of this kind on the feature's faces.
@@ -38,7 +38,7 @@ pub enum State {
 }
 
 /// One requirement in the file: a PMI item, or a part setting.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Requirement {
     /// Its characteristic number, `#N`, when it has one.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -55,7 +55,7 @@ pub struct Requirement {
 }
 
 /// One feature-and-kind.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Row {
     /// The feature-and-kind's id, the question's (`hole.position:holes:12`).
     pub id: String,
@@ -71,7 +71,7 @@ pub struct Row {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<Value>,
     /// Stated: the requirements that state it.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requirements: Vec<Requirement>,
     /// Gap: Specify's suggestion (`null` when it has none).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -82,7 +82,7 @@ pub struct Row {
 }
 
 /// The table, the file's PMI on no recognised feature-and-kind, and the decided-none list.
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FeatureTable {
     pub rows: Vec<Row>,
     pub file_pmi: Vec<Requirement>,

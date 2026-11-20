@@ -10,8 +10,10 @@
 //!                        [--resolve-defaults --step STEP [--accept-defaults FILE]]
 //! specify-core write STEP ANALYSIS ANSWERS [ANALYSIS ANSWERS ...] -o OUT
 //!                    [--accept-defaults] [--bom] [--intent INTENT]
+//! specify-core write STEP EDITS.json -o OUT
+//!                    apply an edit list in place, all or nothing (writer/apply.rs)
 //! specify-core write STEP EDITS.json --check
-//!                    validate an edit list (edits.rs); writes nothing
+//!                    validate an edit list against the file (edits.rs); writes nothing
 //! specify-core diff OLD NEW -o DIR [--answers ANSWERS] [--part K] [--title TITLE]
 //!                    [--viewer URL] [--pmi-scenes]
 //!                    what changed between two revisions of a part, its answers carried
@@ -164,8 +166,8 @@ wasm-pack pkg/; a build made without the app needs SPECIFY_APP_DIR. See docs/mcp
     /// write intent as AP242 PMI
     Write {
         step: PathBuf,
-        /// analysis and answers JSON; in an assembly, a pair for each part to write. With
-        /// --check: one edit list (EDITS.json), or a 0.2 answers file
+        /// analysis and answers JSON; in an assembly, a pair for each part to write. Or one
+        /// edit list (EDITS.json), or a 0.2 answers file, applied all or nothing
         #[arg(required = true, num_args = 1.., value_name = "ANALYSIS ANSWERS")]
         pairs: Vec<String>,
         #[arg(short, long, required_unless_present = "check")]
@@ -316,6 +318,7 @@ fn parse(argv: &[String]) -> Result<Cmd, clap::Error> {
     }
     if let Cmd::Write { pairs, check, .. } = &cli.command
         && !*check
+        && pairs.len() != 1
         && !pairs.len().is_multiple_of(2)
     {
         let mut parser = command();
@@ -323,7 +326,7 @@ fn parse(argv: &[String]) -> Result<Cmd, clap::Error> {
         let write = parser.find_subcommand_mut("write").expect("a command");
         return Err(write.error(
             ErrorKind::WrongNumberOfValues,
-            "write takes an analysis and its answers for each part",
+            "write takes one edit list, or an analysis and its answers for each part",
         ));
     }
     Ok(cli.command)
@@ -509,6 +512,29 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             bom,
             intent,
             ..
+        } if pairs.len() == 1 => {
+            if accept_defaults || bom || intent.is_some() {
+                return Err(Exit::new(
+                    2,
+                    "write STEP EDITS.json -o OUT takes no --accept-defaults, --bom or --intent: \
+                     the edit list says everything that is written",
+                ));
+            }
+            write_edits(
+                &step,
+                Path::new(&pairs[0]),
+                output.as_deref().expect("clap requires -o without --check"),
+                out,
+            )
+        }
+        Cmd::Write {
+            step,
+            pairs,
+            output,
+            accept_defaults,
+            bom,
+            intent,
+            ..
         } => write(
             &step,
             &pairs,
@@ -677,25 +703,41 @@ fn write(
     print(out, &indent1_keeping_non_ascii(&report.to_dict()))
 }
 
-/// `write STEP EDITS.json --check`: the edit list (or a 0.2 answers file) parsed and validated,
-/// the outcome printed as JSON; exit 2 with its message when any entry fails. Nothing is
-/// written. Until the feature table can be read from STEP, the list is checked only against
-/// itself (`checked_against_file: false`, said on stderr).
+/// `write STEP EDITS.json --check`: the edit list (or a 0.2 answers file) parsed and validated
+/// against the file's feature table, the outcome printed as JSON; exit 2 with its message when
+/// any entry fails. Nothing is written.
 fn check_edits(step: &Path, edits: &Path, out: &mut impl Write) -> Result<(), Exit> {
-    if !step.is_file() {
-        return Err(Exit::error(format!("{}: no such file", step.display())));
-    }
+    let loaded = part::load(step, None).map_err(Exit::error)?;
     let text = std::fs::read_to_string(edits)
         .map_err(|e| Exit::error(format!("{}: {e}", edits.display())))?;
-    let outcome = crate::edits::check(&text, None);
+    let outcome = crate::writer::apply::check(&loaded, &text);
     print(out, &indent1_keeping_non_ascii(&outcome.to_json()))?;
     if !outcome.failures.is_empty() {
         return Err(Exit::new(2, format!("cannot write: {}", outcome.message())));
     }
-    if !outcome.checked_against_file {
-        let _ = writeln!(io::stderr(), "{}", outcome.message());
-    }
     Ok(())
+}
+
+/// `write STEP EDITS.json -o OUT`: the edit list (or a 0.2 answers file) applied to the file
+/// in place, all or nothing, and the report printed. A list that cannot be applied writes
+/// nothing: exit 2, every failing entry named.
+fn write_edits(step: &Path, edits: &Path, output: &str, out: &mut impl Write) -> Result<(), Exit> {
+    let loaded = part::load(step, None).map_err(Exit::error)?;
+    let text = std::fs::read_to_string(edits)
+        .map_err(|e| Exit::error(format!("{}: {e}", edits.display())))?;
+    let cannot = |failures: Vec<crate::edits::Failure>| {
+        let mut message = "cannot write: nothing was written. An edit list is applied all or \
+                           nothing, and these entries cannot be applied:"
+            .to_string();
+        for f in &failures {
+            message.push_str(&format!("\n- {}: {}", f.entry, f.reason));
+        }
+        Exit::new(2, message)
+    };
+    let list = crate::edits::read(&text).map_err(cannot)?;
+    let applied =
+        crate::writer::apply::apply_to(&loaded, &list, Path::new(output)).map_err(cannot)?;
+    print(out, &indent1_keeping_non_ascii(&applied.to_dict()))
 }
 
 /// The rules' refusal as the command line words it: exit 2, `incomplete: ...` or `invalid

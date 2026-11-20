@@ -780,6 +780,86 @@ pub fn save(
     Ok(saved)
 }
 
+/// Applies the edit list `list` (ADR P11: all or nothing, touching only what it names) to the
+/// session's file as it now is (the input, or what the last in-place save left), and saves the
+/// result as [`save`] does: in place, or beside the input. A list that cannot be applied writes
+/// nothing; the refusal names every failing entry. Every subscriber gets a `saved` event.
+pub fn save_edits(
+    shared: &Shared,
+    list: &crate::edits::EditList,
+    source: &'static str,
+) -> Result<Saved, SaveError> {
+    let save_lock = Arc::clone(&lock(shared).save_lock);
+    let _one_at_a_time = save_lock.lock().unwrap_or_else(|p| p.into_inner());
+    let (current, file, in_place, gz, mut backup, rev) = {
+        let s = lock(shared);
+        s.check_allowed()?;
+        if s.in_place {
+            let now = fs::read(&s.file.path)
+                .map(|b| sha256(&b))
+                .map_err(|e| SaveError::Failed(format!("{}: {e}", s.file.path.display())))?;
+            if !s.is_ours(&now) {
+                return Err(SaveError::Changed(format!(
+                    "{} has changed on disk since it was opened: nothing is written over it",
+                    s.file.path.display()
+                )));
+            }
+        }
+        (
+            s.current(),
+            s.file.clone(),
+            s.in_place,
+            s.gz,
+            s.backup.clone(),
+            s.rev,
+        )
+    };
+    let loaded = part::File::of_shared(&file.path, current)
+        .and_then(|f| f.load(None))
+        .map_err(|e| SaveError::Refused(e.to_string()))?;
+    let applied = crate::writer::apply::apply(&loaded, list).map_err(|failures| {
+        let mut message = "nothing was written: an edit list is applied all or nothing, and \
+                           these entries cannot be applied:"
+            .to_string();
+        for f in &failures {
+            message.push_str(&format!("\n- {}: {}", f.entry, f.reason));
+        }
+        SaveError::Refused(message)
+    })?;
+    let cannot = |e: io::Error| SaveError::Failed(format!("cannot save: {e}"));
+    let text = applied.bytes.clone();
+    let (path, bytes, stored, sha) = if in_place {
+        let stored = replace_input(shared, &file.path, gz, &mut backup, text).map_err(cannot)?;
+        let sha = sha256(&stored);
+        (file.path.clone(), stored.len(), Some(stored), sha)
+    } else {
+        let bytes = text.len();
+        let sha = sha256(&text);
+        (write_new(&file, &text).map_err(cannot)?, bytes, None, sha)
+    };
+    let shown = path.display().to_string();
+    let mut report = applied.to_dict();
+    report["output"] = json!(shown);
+    let saved = Saved {
+        path: shown,
+        bytes,
+        rev,
+        report,
+        complete: true,
+        missing: Vec::new(),
+    };
+    let mut s = lock(shared);
+    if let Some(stored) = stored {
+        s.backup = backup;
+        s.current = Arc::new(stored);
+    }
+    s.last_saved = Some((path, sha));
+    let data = json!({"path": saved.path, "bytes": saved.bytes, "rev": saved.rev,
+                      "source": source});
+    s.publish(&event("saved", None, &data));
+    Ok(saved)
+}
+
 /// A save beside the input under the first free candidate name, taken with `create_new`
 /// (nothing is overwritten, even in a race), the written temporary file renamed onto it.
 fn write_new(file: &Opened, body: &[u8]) -> io::Result<PathBuf> {

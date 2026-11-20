@@ -106,6 +106,7 @@ use crate::pyjson;
 use crate::resume;
 use crate::rules::Intent;
 
+pub mod apply;
 #[cfg(test)]
 mod tests;
 
@@ -299,8 +300,18 @@ pub fn write_parts_with(
 ) -> Result<WriteReport, WriteError> {
     check_jobs(jobs)?;
     check_extra(jobs, extra)?;
+    let (bytes, mut report) = write_verified(jobs, extra)?;
+    put(output, bytes)?;
+    report.output = output.to_path_buf();
+    Ok(report)
+}
 
-    // Written and verified beside the destination, which is replaced only once all is well.
+/// `bytes` written to `output`: staged and read back beside the destination, which is
+/// replaced only once all is well (a symbolic link is written through, an existing file keeps
+/// its permissions, a `.gz` destination is gzipped). Any failure leaves the destination as it
+/// was.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn put(output: &Path, bytes: Vec<u8>) -> Result<(), WriteError> {
     let target = match std::fs::symlink_metadata(output) {
         Ok(m) if m.file_type().is_symlink() => std::fs::canonicalize(output)
             .map_err(|e| WriteError::Failed(format!("{}: {e}", output.display())))?,
@@ -313,7 +324,7 @@ pub fn write_parts_with(
         )));
     };
     let staged = target.with_file_name(format!(".{name}.{}.{}.part", std::process::id(), tag()));
-    let result = write_verified(jobs, extra).and_then(|(bytes, report)| {
+    let result = (|| {
         // Gzipped only when the destination is named `.gz` (a write in place to a `.gz` input
         // stays gzipped); the STEP text is verified before it is compressed.
         let bytes = if output
@@ -338,15 +349,12 @@ pub fn write_parts_with(
                 .map_err(|e| WriteError::Failed(format!("{}: {e}", output.display())))?;
         }
         std::fs::rename(&staged, &target)
-            .map_err(|e| WriteError::Failed(format!("{}: {e}", output.display())))?;
-        Ok(report)
-    });
+            .map_err(|e| WriteError::Failed(format!("{}: {e}", output.display())))
+    })();
     if result.is_err() {
         let _ = std::fs::remove_file(&staged);
     }
-    let mut report = result?;
-    report.output = output.to_path_buf();
-    Ok(report)
+    result
 }
 
 /// `bytes` gzipped, deterministically (no name, no time stamp).

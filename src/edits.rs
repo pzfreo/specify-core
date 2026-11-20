@@ -18,8 +18,8 @@
 //! 2026-11-20): if any entry cannot be applied, nothing is written and every failing entry is
 //! named with its reason.
 //!
-//! This module only parses and validates. Applying a list to a file is the writer's (piece 2).
-//! The file's state comes through [`FileState`], which the feature table implements.
+//! This module parses and validates; [`crate::writer::apply`] applies a list to a file. The
+//! file's state comes through [`FileState`], which the feature table implements.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -458,7 +458,7 @@ impl Outcome {
         value
     }
 
-    fn malformed(failures: Vec<Failure>) -> Self {
+    pub(crate) fn malformed(failures: Vec<Failure>) -> Self {
         Outcome {
             well_formed: false,
             checked_against_file: false,
@@ -746,6 +746,110 @@ fn item_contradictions(
     }
     for n in &list.items.remove {
         check("items.remove", n, &["none"]);
+    }
+    out
+}
+
+// ----- the feature table as the file's state -----
+
+/// Whether a kind's answer is a geometric tolerance's magnitude (`hole.position` → `"0.2"`).
+pub fn answered_by_tolerance(kind: &str) -> bool {
+    matches!(kind, "hole.position" | "diameter.runout")
+        || kind.ends_with(".flatness")
+        || kind.ends_with(".control")
+}
+
+/// The value a stated row has in the form a fill gives it: a datum's faces (`[2]`), a
+/// tolerance's magnitude (`"0.2"`) for the kinds answered by one, a part setting's text; else
+/// the row's value as the table shows it.
+pub fn stated_value(row: &crate::feature_table::Row) -> Value {
+    let kind = row.kind.as_str();
+    if kind
+        .strip_prefix("datum.")
+        .is_some_and(|l| !l.contains('.'))
+    {
+        let faces: BTreeSet<usize> = row
+            .requirements
+            .iter()
+            .filter(|r| r.kind == "datum")
+            .flat_map(|r| r.faces.iter().copied())
+            .collect();
+        if !faces.is_empty() {
+            return json!(faces);
+        }
+    }
+    if answered_by_tolerance(kind) {
+        let magnitudes: BTreeSet<&str> = row
+            .requirements
+            .iter()
+            .filter(|r| r.kind == "geometric_tolerance")
+            .filter_map(|r| r.text.split_whitespace().nth(1))
+            .collect();
+        if let [one] = magnitudes.into_iter().collect::<Vec<_>>().as_slice() {
+            return Value::String((*one).to_owned());
+        }
+    }
+    row.value.clone().unwrap_or(Value::Null)
+}
+
+impl FileState for crate::feature_table::FeatureTable {
+    fn kind(&self, id: &str) -> Option<KindState> {
+        use crate::feature_table::State;
+        let row = self.row(id)?;
+        Some(match row.state {
+            State::Stated => KindState::Stated {
+                value: stated_value(row),
+            },
+            State::Gap => KindState::Gap {
+                suggestion: row.suggestion.clone().filter(|v| !v.is_null()),
+            },
+            State::DecidedNone => KindState::DecidedNone,
+        })
+    }
+
+    fn requirement(&self, number: u64) -> Option<Requirement> {
+        let tag = Number(number).to_string();
+        let numbered = |r: &&crate::feature_table::Requirement| r.number.as_deref() == Some(&tag);
+        self.rows
+            .iter()
+            .find_map(|row| {
+                row.requirements.iter().find(numbered).map(|r| Requirement {
+                    tolerance: r.text.clone(),
+                    feature: Some(row.id.clone()),
+                })
+            })
+            .or_else(|| {
+                self.file_pmi.iter().find(numbered).map(|r| Requirement {
+                    tolerance: r.text.clone(),
+                    feature: None,
+                })
+            })
+    }
+}
+
+/// `list` with each `expect` (and each fill) that gives a stated row's value as the table
+/// shows it (`"Position 0.2 | A | B"`) given in the fill's form instead (`"0.2"`), so the
+/// caller may send back either of the values it saw.
+pub fn normalise(list: &EditList, table: &crate::feature_table::FeatureTable) -> EditList {
+    let mut out = list.clone();
+    let stated = |id: &str, value: &Value| {
+        let row = table
+            .row(id)
+            .filter(|r| r.state == crate::feature_table::State::Stated)?;
+        row.value
+            .as_ref()
+            .filter(|shown| same_value(shown, value))
+            .map(|_| stated_value(row))
+    };
+    for (id, change) in &mut out.change {
+        if let Some(value) = stated(id, &change.expect) {
+            change.expect = value;
+        }
+    }
+    for (id, value) in &mut out.fill {
+        if let Some(form) = stated(id, value) {
+            *value = form;
+        }
     }
     out
 }

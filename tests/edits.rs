@@ -419,15 +419,25 @@ fn the_cli_checks_an_edit_list_and_writes_nothing() {
     let step = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/spindle.step");
     let step = step.to_str().unwrap();
 
+    // Checked against the file's feature table (piece 2): its ids are the file's.
     let good = dir.join("good.json");
-    std::fs::write(&good, r#"{"fill": {"a.b": "1"}, "none": ["c.d"]}"#).unwrap();
+    std::fs::write(
+        &good,
+        r#"{"fill": {"part.material": "6082-T6"}, "none": ["part.coating"]}"#,
+    )
+    .unwrap();
     let (code, stdout, stderr) = cli(&["write", step, good.to_str().unwrap(), "--check"]);
     assert_eq!(code, 0, "{stderr}");
     let shown: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(shown["well_formed"], json!(true));
-    assert_eq!(shown["checked_against_file"], json!(false));
+    assert_eq!(shown["checked_against_file"], json!(true));
+    assert_eq!(shown["applicable"], json!(true));
     assert_eq!(shown["written"], json!(false));
-    assert!(stderr.contains("not checked against the file"));
+    let unknown = dir.join("unknown.json");
+    std::fs::write(&unknown, r#"{"fill": {"a.b": "1"}}"#).unwrap();
+    let (code, _, stderr) = cli(&["write", step, unknown.to_str().unwrap(), "--check"]);
+    assert_eq!(code, 2);
+    assert!(stderr.contains("no feature-and-kind"), "{stderr}");
 
     let bad = dir.join("bad.json");
     std::fs::write(
@@ -443,11 +453,15 @@ fn the_cli_checks_an_edit_list_and_writes_nothing() {
     assert!(stderr.contains("items.remove[0]"), "{stderr}");
 
     let contradictory = dir.join("contradictory.json");
-    std::fs::write(&contradictory, r#"{"fill": {"a.b": "1"}, "none": ["a.b"]}"#).unwrap();
+    std::fs::write(
+        &contradictory,
+        r#"{"fill": {"part.material": "1"}, "none": ["part.material"]}"#,
+    )
+    .unwrap();
     let (code, _, stderr) = cli(&["write", step, contradictory.to_str().unwrap(), "--check"]);
     assert_eq!(code, 2);
     assert!(
-        stderr.contains(r#"fill["a.b"] and none["a.b"]"#),
+        stderr.contains(r#"fill["part.material"] and none["part.material"]"#),
         "{stderr}"
     );
 
