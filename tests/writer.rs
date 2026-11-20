@@ -925,9 +925,12 @@ fn a_nist_part_keeps_all_its_pmi() {
     ].into_iter().map(String::from).collect());
     let text = std::fs::read_to_string(&out).unwrap();
     assert!(!text.contains("DRAUGHTING_CALLOUT('Datum "));
+    // ADR P11: answers that write PMI are not stored; the file states them.
     assert_eq!(
         answers_for(&load(&out, None).unwrap()).unwrap(),
-        given.as_object().cloned()
+        Some(specify_core::feature_table::storable(
+            given.as_object().unwrap()
+        ))
     );
     // #75 adds dimension-owned origin/planner UDAs. As for #77, AP242 ed1 excludes
     // those owners, so the existing writer policy upgrades only FILE_SCHEMA to ed4.
@@ -978,9 +981,12 @@ fn a_typed_thread_depth_is_written_and_read_back() {
     let text = flat(&out);
     assert!(Regex::new(r"MEASURE_WITH_UNIT\(LENGTH_MEASURE\(5\.6\),#\d+\)REPRESENTATION_ITEM\('minimum full thread'\)").unwrap().is_match(&text));
     assert!(Regex::new(r"MEASURE_WITH_UNIT\(LENGTH_MEASURE\(8\.\),#\d+\)REPRESENTATION_ITEM\('tapping drill depth'\)").unwrap().is_match(&text));
+    // ADR P11: answers that write PMI are not stored; the file states them.
     assert_eq!(
         answers_for(&load(&out, None).unwrap()).unwrap(),
-        given.as_object().cloned()
+        Some(specify_core::feature_table::storable(
+            given.as_object().unwrap()
+        ))
     );
 }
 
@@ -1536,7 +1542,8 @@ fn a_straight_knurl_is_written_through_turned_knurl() {
             .iter()
             .any(|e| e.kind == "note" && e.r#type == "knurl")
     );
-    // Written again from its stored answers (a replace of a part with a knurl).
+    // Written again with its stored answers (ADR P11): the file's knurl stays as it is, and
+    // is not written a second time.
     let back = load(&out, None).unwrap();
     let given = answers_for(&back).unwrap().expect("answers stored");
     let again = dir.join("again.step");
@@ -1551,7 +1558,7 @@ fn a_straight_knurl_is_written_through_turned_knurl() {
     )
     .unwrap();
     assert!(
-        report
+        !report
             .written
             .contains(&"straight knurl on turned_steps:0".to_string())
     );

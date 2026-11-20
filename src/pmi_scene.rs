@@ -1,6 +1,6 @@
 //! Haecceity's semantic/presentation documents with Specify's interview metadata.
 //! `Scene` caches the parsed source; answering never reloads STEP or geometry.
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use haecceity::{
     json::{self as wire, Semantic, presentation},
@@ -35,8 +35,6 @@ pub struct Scene {
     read: pmi::PmiRead,
     index: usize,
     stored: Option<Map<String, Value>>,
-    foreign: Option<(Document, pmi::PmiRead)>,
-    reconciling: bool,
 }
 
 impl Scene {
@@ -57,93 +55,16 @@ impl Scene {
             None => resume::answers_for(loaded),
         }
         .map_err(|e| e.to_string())?;
-        let foreign = if stored.is_some() && resume::scoped(&doc, loaded.binding.part) {
-            let bytes = crate::provenance::without_owned(&doc, &read, &[loaded.binding.part])?;
-            let doc = Document::parse(bytes).map_err(|e| e.to_string())?;
-            let read = pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
-            Some((doc, read))
-        } else {
-            None
-        };
         Ok(Self {
             doc,
             read,
             index: loaded.binding.part,
             stored,
-            foreign,
-            reconciling: false,
         })
-    }
-
-    /// Compare saved answers even when an unmarked process would prevent writing them.
-    pub(crate) fn for_resume(
-        loaded: &LoadedPart,
-        features: &[crate::features::Feature],
-    ) -> Result<Self, String> {
-        let mut scene = Self::with(loaded, Some(features))?;
-        scene.reconciling = true;
-        Ok(scene)
     }
 
     pub(crate) fn carries_numbers(&self, answers: &Map<String, Value>) -> Result<bool, String> {
         characteristics::carries_history(&self.read.parts[self.index], answers)
-    }
-
-    /// The file's PMI, with the requirements not marked as Specify's. `saved_process`: the
-    /// stored answers hold a process, evidence that the part's attributes carry provenance.
-    pub(crate) fn file_pmi(&self, saved_process: bool) -> (&PartPmi, BTreeSet<(String, usize)>) {
-        let part = &self.read.parts[self.index];
-        let mut unmarked: BTreeSet<_> =
-            crate::provenance::unmarked(&self.doc, &self.read, self.index)
-                .into_iter()
-                .collect();
-        if self.foreign.is_some()
-            || saved_process
-            || part.attributes.iter().any(crate::process::is_process_set)
-        {
-            // In scoped files, other attributes also carry provenance, including
-            // manufacturing details attached to requirements. Process answers and
-            // attributes identify the same in files whose markers were stripped.
-            for (i, ids) in self.read.provenance.parts[self.index]
-                .attributes
-                .iter()
-                .enumerate()
-            {
-                if !resume::is_answers(&part.attributes[i])
-                    && !crate::provenance::marked(&self.doc, ids, "attribute")
-                {
-                    unmarked.insert(("attributes".to_string(), i));
-                }
-            }
-        }
-        (part, unmarked)
-    }
-
-    /// The file's process attribute: its index, the field with its authorship, and the
-    /// identity (set name and items) a Keep of it is bound to.
-    pub(crate) fn file_process(&self) -> Option<(usize, crate::bom::Field, Value)> {
-        let pmi = &self.read.parts[self.index];
-        crate::process::file_pmi(&self.doc, pmi, &self.read.provenance.parts[self.index]).map(
-            |(i, field)| {
-                let set = &pmi.attributes[i];
-                (i, field, json!({"name": set.name, "items": set.items}))
-            },
-        )
-    }
-
-    /// The identity of the process attribute a stored Keep was bound to.
-    pub(crate) fn kept_process(&self) -> Option<Value> {
-        resume::stored_in(&self.doc)
-            .remove(&self.index)
-            .and_then(|mut payload| payload.remove(resume::KEPT_PROCESS))
-    }
-
-    pub(crate) fn legacy_part_attributes(&self) -> bool {
-        self.foreign.is_none()
-            && !self.read.provenance.parts[self.index]
-                .attributes
-                .iter()
-                .any(|ids| crate::provenance::marked(&self.doc, ids, "attribute"))
     }
 
     /// `None` shows only the file; `Some` shows the current answers. Stored origin/source are authoritative when showing the file.
@@ -167,12 +88,8 @@ impl Scene {
     }
 
     fn plans_add(&self) -> bool {
-        let before = &self
-            .foreign
-            .as_ref()
-            .map_or(&self.read, |(_, read)| read)
-            .parts[self.index];
-        (self.stored.is_none() || self.foreign.is_some()) && has_pmi(before)
+        // ADR P11: answers are added to the file's PMI, whoever wrote it.
+        has_pmi(&self.read.parts[self.index])
     }
 
     fn scene_mode(
@@ -183,11 +100,7 @@ impl Scene {
         comparison: bool,
         prepared: Option<(PlannedScene, &Value)>,
     ) -> Result<Value, String> {
-        let before = &self
-            .foreign
-            .as_ref()
-            .map_or(&self.read, |(_, read)| read)
-            .parts[self.index];
+        let before = &self.read.parts[self.index];
         let foreign = self.plans_add();
         if let Some(answers) = answers {
             let owned;
@@ -209,11 +122,7 @@ impl Scene {
                     .values()
                     .any(|meta| matches!(meta["status"].as_str(), Some("answered" | "default")))
             {
-                return if let Some((doc, read)) = &self.foreign {
-                    self.file_from(loaded, None, comparison, Some((doc, read)))
-                } else {
-                    self.file(loaded, None, comparison)
-                };
+                return self.file(loaded, None, comparison);
             }
             let mut graphics =
                 presentation::generated(&semantic, &loaded.part).map_err(|e| e.to_string())?;
@@ -245,11 +154,7 @@ impl Scene {
             }
             let mut result = encode(&semantic, graphics, metadata)?;
             if foreign {
-                let file = if let Some((doc, read)) = &self.foreign {
-                    self.file_from(loaded, None, comparison, Some((doc, read)))?
-                } else {
-                    self.file(loaded, None, comparison)?
-                };
+                let file = self.file(loaded, None, comparison)?;
                 merge(&mut result, file, comparison)?;
             } else if comparison {
                 // Replace plans rebuild Specify requirements; keep CAD requirements even
@@ -427,28 +332,12 @@ impl Scene {
                 });
             bindings.insert((collection.into(), index), (id, meta, count));
         };
-        let (baseline_doc, baseline_read) = self
-            .foreign
-            .as_ref()
-            .map_or((&self.doc, &self.read), |(doc, read)| (doc, read));
+        let (baseline_doc, baseline_read) = (&self.doc, &self.read);
         let before = &baseline_read.parts[self.index];
-        // The historical plan uses the saved process for its other requirements. The file's
-        // UDA is compared separately, and must not block construction of that plan in Add mode.
-        let mut baseline = std::borrow::Cow::Borrowed(before);
-        if self.reconciling
-            && foreign
-            && intent.part.contains_key(crate::process::INTENT_KEY)
-            && before.attributes.iter().any(crate::process::is_process_set)
-        {
-            baseline
-                .to_mut()
-                .attributes
-                .retain(|set| !crate::process::is_process_set(set));
-        }
         let mut p = writer::scene_model(
             loaded,
             &intent,
-            &baseline,
+            before,
             if foreign {
                 pmi::write::Mode::Add
             } else {
@@ -464,9 +353,7 @@ impl Scene {
             &self.read.provenance.parts[self.index],
             &self.doc,
             Some(answers),
-            if self.foreign.is_some() {
-                characteristics::Allocation::Scoped
-            } else if foreign {
+            if foreign {
                 characteristics::Allocation::Add
             } else {
                 characteristics::Allocation::Replace
@@ -574,44 +461,6 @@ impl Scene {
     ) -> Result<Value, String> {
         self.file_indexed(loaded, planned, comparison, source)
             .map(|(scene, _)| scene)
-    }
-
-    /// Build the stored answers' writer plan once. The file scene uses its numbered
-    /// identities, and reconciliation uses the resulting planned and actual PMI.
-    pub(crate) fn reopening_comparison(
-        &self,
-        loaded: &LoadedPart,
-        analysis: &Value,
-        stored: &Map<String, Value>,
-    ) -> Result<(IndexedScene, Value), String> {
-        let planned = self.planned(loaded, analysis, stored, self.plans_add())?;
-        let file = self.file_indexed(loaded, Some(&planned.1), true, None)?;
-        let comparison = self.scene_mode(
-            loaded,
-            Some(analysis),
-            Some(stored),
-            true,
-            Some((planned, &file.0)),
-        )?;
-        Ok((file, comparison))
-    }
-
-    /// Compare another #204 plan against the file scene already read on reopening.
-    pub(crate) fn comparison_with_file(
-        &self,
-        loaded: &LoadedPart,
-        analysis: &Value,
-        answers: &Map<String, Value>,
-        file: &Value,
-    ) -> Result<Value, String> {
-        let planned = self.planned(loaded, analysis, answers, self.plans_add())?;
-        self.scene_mode(
-            loaded,
-            Some(analysis),
-            Some(answers),
-            true,
-            Some((planned, file)),
-        )
     }
 
     fn file_indexed(

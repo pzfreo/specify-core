@@ -1,8 +1,7 @@
-//! ADR P9: another tool's (unmarked) requirement is keep-only. A file Specify wrote with a hole
-//! position of 0.5 is re-authored by another tool as 1.5: reopening lists a foreign conflict,
-//! a save keeps 1.5 and drops the contradicted answer, and the next reopening has no
-//! conflict. Answering 0.5 afresh then must not replace the other tool's 1.5, on the CLI's
-//! path, the editor's (WASM session `writePmi`, tested in specify-core-wasm) and MCP's.
+//! ADR P11: the file's PMI is the only copy. A file Specify wrote with a hole position of 0.5
+//! is re-authored by another tool as 1.5: reopening shows 1.5 with no conflict, a save keeps
+//! 1.5 and drops the stale answer, and answering 0.5 afresh then must not replace the file's
+//! 1.5 (changing it is an explicit edit), on the CLI's path and MCP's.
 
 mod common;
 
@@ -87,16 +86,6 @@ pub fn positions(l: &LoadedPart) -> Vec<(f64, bool)> {
         .collect()
 }
 
-fn assert_foreign_conflict(analysis: &Value) {
-    assert!(
-        analysis["resume"]["conflicts"]
-            .as_array()
-            .is_some_and(|c| c.iter().any(|c| c["id"] == HOLE && c["foreign"] == true)),
-        "{}",
-        analysis["resume"]
-    );
-}
-
 fn assert_no_conflict(analysis: &Value) {
     assert!(
         analysis["resume"].get("conflicts").is_none(),
@@ -118,9 +107,9 @@ fn assert_held(report: &Value) {
         .filter_map(Value::as_str)
         .collect();
     assert!(
-        lines.iter().any(|l| l.starts_with(HOLE)
-            && l.contains("another tool's requirement holds this question")
-            && l.contains("keep it, or change it in that tool")),
+        lines
+            .iter()
+            .any(|l| l.starts_with(HOLE) && l.contains("the file already states this requirement")),
         "{report}"
     );
 }
@@ -177,11 +166,11 @@ fn cli_write(
     (load(std::fs::read(output).unwrap()), report)
 }
 
-/// Conflict, save without deciding, reopen (no conflict), answer 0.5, save: 1.5 stays alone.
+/// Reopen (no conflict), save, reopen, answer 0.5, save: 1.5 stays alone.
 #[test]
 fn a_fresh_answer_does_not_replace_another_tools_requirement_on_the_cli() {
     let edited = re_authored();
-    assert_foreign_conflict(&api::analyse(&edited).unwrap());
+    assert_no_conflict(&api::analyse(&edited).unwrap());
     let (saved, _) = cli_write(&edited.bytes, None, "save");
     assert_eq!(positions(&saved), [(1.5, false)]);
     let reopened = api::analyse(&saved).unwrap();
@@ -189,26 +178,6 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_on_the_cli() {
     let mut given = reopened["resume"]["answers"].as_object().unwrap().clone();
     given.insert(HOLE.into(), json!("0.5"));
     let (answered, report) = cli_write(&saved.bytes, Some(&given), "answer");
-    assert_eq!(positions(&answered), [(1.5, false)], "{report}");
-    assert_held(&report);
-}
-
-/// The same after the person kept the file's 1.5 (the editor's only choice for a foreign
-/// conflict): the Keep grants no permission to replace it later.
-#[test]
-fn a_fresh_answer_after_keeping_does_not_replace_another_tools_requirement() {
-    let edited = re_authored();
-    let analysis = api::analyse(&edited).unwrap();
-    assert_foreign_conflict(&analysis);
-    let mut kept = analysis["resume"]["answers"].as_object().unwrap().clone();
-    kept.insert("_specify".into(), json!({"keep": [HOLE]}));
-    let (saved, _) = cli_write(&edited.bytes, Some(&kept), "keep");
-    assert_eq!(positions(&saved), [(1.5, false)]);
-    let reopened = api::analyse(&saved).unwrap();
-    assert_no_conflict(&reopened);
-    let mut given = reopened["resume"]["answers"].as_object().unwrap().clone();
-    given.insert(HOLE.into(), json!("0.5"));
-    let (answered, report) = cli_write(&saved.bytes, Some(&given), "keep-answer");
     assert_eq!(positions(&answered), [(1.5, false)], "{report}");
     assert_held(&report);
 }
@@ -233,12 +202,7 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_over_mcp() {
         result["structuredContent"].clone()
     };
     let opened = call("open", json!({"path": input}));
-    assert!(
-        opened["conflicts"]
-            .as_array()
-            .is_some_and(|c| c.iter().any(|c| c["id"] == HOLE)),
-        "{opened}"
-    );
+    assert!(opened.get("conflicts").is_none(), "{opened}");
     let saved = call("save", json!({"doc": opened["doc"], "accept_defaults": {}}));
     let path = saved["path"].as_str().unwrap().to_string();
     let back = load(std::fs::read(&path).unwrap());

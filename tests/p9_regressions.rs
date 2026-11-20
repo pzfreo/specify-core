@@ -227,17 +227,15 @@ fn process_conflict(analysis: &Value) -> Option<&Value> {
         .find(|conflict| conflict["id"] == process::QUESTION)
 }
 
+/// ADR P11: an externally edited process is simply the file's process on reopening, marked
+/// or not: no conflict, and the stored answer is not resumed over it.
 #[test]
-fn externally_edited_process_is_a_conflict_on_reopening() {
+fn externally_edited_process_is_the_files_on_reopening() {
     for marked in [true, false] {
         let loaded = edited_process(marked);
         assert_process(&loaded, process::CAST);
         let analysis = api::analyse(&loaded).unwrap();
-        let conflict =
-            process_conflict(&analysis).expect("edited process conflicts with saved answer");
-        assert_eq!(conflict["stored"], process::MACHINED);
-        assert_eq!(conflict["file"], process::CAST);
-        assert_eq!(conflict["foreign"].as_bool().unwrap_or(false), !marked);
+        assert!(process_conflict(&analysis).is_none());
         assert_eq!(analysis["part"]["process"], process::CAST);
         assert!(
             analysis["resume"]["answers"]
@@ -284,93 +282,8 @@ fn editor_keeps_edited_process(marked: bool) {
     assert!(process_conflict(&reopened).is_none());
     assert_eq!(reopened["part"]["process"], process::CAST);
     assert_eq!(
-        reopened["resume"]["file"]
-            .as_array()
-            .is_some_and(|ids| ids.contains(&json!(process::QUESTION))),
-        marked,
-    );
-    assert_eq!(
         reopened["process"]["source"],
         if marked { "answered" } else { "file" },
-    );
-}
-
-#[test]
-fn a_process_conflict_on_a_scoped_file_keeps_the_foreign_uda() {
-    let loaded = load(with_foreign_flatness(std::fs::read(plate()).unwrap()));
-    let analysis = api::analyse(&loaded).unwrap();
-    let given = map(json!({"part.material": "6082-T6", "part.process": process::MACHINED}));
-    let written = preview_write(&loaded, &analysis, &given);
-    assert_eq!(
-        specify_core::resume::stored(&written.bytes)[&0]["pmi_scope"],
-        specify_core::writer::PMI_PROVENANCE,
-    );
-    let edited = change_process(written.bytes.to_vec(), false);
-    let analysis = api::analyse(&edited).unwrap();
-    assert_eq!(process_conflict(&analysis).unwrap()["foreign"], true);
-    // A stale editor/answers file may still send the saved answer in full.
-    let written = preview_write(&edited, &analysis, &given);
-    assert_process(&written, process::CAST);
-    let reopened = api::analyse(&written).unwrap();
-    assert!(process_conflict(&reopened).is_none());
-    assert!(
-        reopened["resume"]["answers"]
-            .get(process::QUESTION)
-            .is_none()
-    );
-}
-
-#[test]
-fn a_marked_process_conflict_can_be_replaced_before_or_after_keeping() {
-    let edited = edited_process(true);
-    let analysis = api::analyse(&edited).unwrap();
-    let mut resumed = map(analysis["resume"]["answers"].clone());
-    resumed.insert(process::QUESTION.into(), json!(process::MOULDED));
-    assert_process(
-        &preview_write(&edited, &analysis, &resumed),
-        process::MOULDED,
-    );
-
-    resumed.remove(process::QUESTION);
-    resumed.insert("_specify".into(), json!({"keep": [process::QUESTION]}));
-    let kept = preview_write(&edited, &analysis, &resumed);
-    assert_process(&kept, process::CAST);
-    let reopened = api::analyse(&kept).unwrap();
-    assert_eq!(reopened["process"]["source"], "file");
-    assert!(process_conflict(&reopened).is_none());
-    let mut resumed = map(reopened["resume"]["answers"].clone());
-    assert_eq!(resumed["_specify"]["keep"], json!([process::QUESTION]));
-    resumed.insert(process::QUESTION.into(), json!(process::MOULDED));
-    assert_process(&preview_write(&kept, &reopened, &resumed), process::MOULDED);
-}
-
-#[test]
-fn an_external_edit_after_keeping_an_owned_process_has_its_own_provenance() {
-    let edited = edited_process(true);
-    let analysis = api::analyse(&edited).unwrap();
-    let mut resumed = map(analysis["resume"]["answers"].clone());
-    resumed.insert("_specify".into(), json!({"keep": [process::QUESTION]}));
-    let kept = preview_write(&edited, &analysis, &resumed);
-    assert_process(&kept, process::CAST);
-
-    let text = String::from_utf8(kept.bytes.to_vec()).unwrap();
-    let item = |value| {
-        format!(
-            "DESCRIPTIVE_REPRESENTATION_ITEM('{}','{value}')",
-            process::ITEM
-        )
-    };
-    assert_eq!(text.matches(&item(process::CAST)).count(), 1);
-    let changed = load(
-        text.replace(&item(process::CAST), &item(process::SHEET_METAL))
-            .into_bytes(),
-    );
-    let analysis = api::analyse(&changed).unwrap();
-    let mut resumed = map(analysis["resume"]["answers"].clone());
-    resumed.insert(process::QUESTION.into(), json!(process::MOULDED));
-    assert_process(
-        &preview_write(&changed, &analysis, &resumed),
-        process::SHEET_METAL,
     );
 }
 
@@ -411,43 +324,6 @@ fn pmi_another_tool_added_to_a_replace_written_part_is_kept() {
     );
 }
 
-/// Case 1, a file written before Specify marked its requirements (#22): none is marked, so
-/// all its PMI is its answers' and a rewrite replaces it as before, stating none twice.
-#[test]
-fn an_unmarked_replace_written_part_is_rewritten_as_before() {
-    let path = common::fixtures().join("legacy-schema1/legacy_specify.step");
-    let loaded = load(std::fs::read(path).unwrap());
-    assert!(
-        read_existing(&loaded)
-            .unwrap()
-            .iter()
-            .all(|e| e.provenance.is_none())
-    );
-    // Opened as before: its PMI is its answers', none of it the file's own.
-    let analysis = api::analyse(&loaded).unwrap();
-    assert_eq!(analysis["existing"], json!([]));
-    assert!(analysis["resume"].get("conflicts").is_none());
-    // Rewritten by replace from its answers: nothing of the old PMI is kept beside the new,
-    // so nothing is stated twice (each datum letter once).
-    let rewritten = cli_rewrite(&loaded.bytes, "unmarked");
-    let letters: Vec<String> = read_existing(&rewritten)
-        .unwrap()
-        .into_iter()
-        .filter(|e| e.kind == "datum")
-        .map(|e| e.r#type)
-        .collect();
-    let mut unique = letters.clone();
-    unique.dedup();
-    assert_eq!(letters, unique);
-    assert!(
-        read_existing(&rewritten)
-            .unwrap()
-            .iter()
-            .all(|e| e.provenance.is_some()),
-        "every requirement written again is Specify's own"
-    );
-}
-
 /// Case 2: a file `write --accept-defaults` wrote, storing only the given answers. Reopened,
 /// its defaulted requirements are present (not open questions, no conflict), and the editor's
 /// write of the resumed answers keeps them.
@@ -481,9 +357,10 @@ fn defaults_written_without_their_answers_are_kept() {
     ] {
         stored.insert(id.into(), value);
     }
+    // ADR P11: of those, only what leaves no PMI behind; the file states the rest.
     assert_eq!(
         specify_core::resume::answers_for(&loaded).unwrap(),
-        Some(stored)
+        Some(specify_core::feature_table::storable(&stored))
     );
     let pattern = "hole.position:hole_patterns.grid:6.7.8.10.11.13";
     let positions = |l: &LoadedPart| {
@@ -557,11 +434,10 @@ fn a_session_save_keeps_pmi_another_tool_added() {
         added,
         "session save keeps the added flatness"
     );
+    // ADR P11: the coating is the file's (a note), not a stored answer.
     let reopened = api::analyse(&back).unwrap();
-    assert_eq!(
-        reopened["resume"]["answers"]["part.coating"],
-        "Anodise, clear"
-    );
+    assert_eq!(reopened["part"]["coating"], "Anodise, clear");
+    assert!(reopened["resume"]["answers"].get("part.coating").is_none());
 }
 
 /// A case-2 file whose defaulted pattern position another tool changed (0.6 → 0.3), keeping
@@ -593,13 +469,17 @@ fn a_default_another_tool_changed_is_the_files_answer() {
             "{}",
             analysis["resume"]
         );
+        // ADR P11: the file's position is stated, whoever changed it.
+        let row = analysis["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == pattern)
+            .unwrap();
+        assert_eq!(row["state"], "stated", "{row}");
         assert!(
-            analysis["resume"]["file"]
-                .as_array()
-                .unwrap()
-                .contains(&json!(pattern)),
-            "{}",
-            analysis["resume"]
+            row["value"].as_str().unwrap().contains("Position 0.3"),
+            "{row}"
         );
         let resumed = analysis["resume"]["answers"].as_object().unwrap().clone();
         let review = api::review(&analysis, &resumed).unwrap();
@@ -626,53 +506,6 @@ fn a_default_another_tool_changed_is_the_files_answer() {
     assert_eq!(positions(&cli_again), [0.3], "CLI write, again");
 }
 
-/// A conflict kept through the editor's write (WASM `writePmi`): the kept requirement is
-/// written as the file's own, and survives a reopening and another editor write.
-#[test]
-fn a_conflict_kept_through_the_editor_lasts() {
-    // A file Specify wrote whose hole position (stored 0.1) was changed to 0.2 elsewhere.
-    let loaded = specify_core::part::load(
-        &common::fixtures().join("resume-p9/edited-plate.step.gz"),
-        None,
-    )
-    .unwrap();
-    let hole = "hole.position:holes:12";
-    let positions = |l: &LoadedPart| -> Vec<(f64, bool)> {
-        read_existing(l)
-            .unwrap()
-            .into_iter()
-            .filter(|e| e.r#type == "Position" && e.faces == [12])
-            .map(|e| (e.value.unwrap(), e.provenance.is_some()))
-            .collect()
-    };
-    let analysis = api::analyse(&loaded).unwrap();
-    assert!(
-        analysis["resume"]["conflicts"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|c| c["id"] == hole),
-        "{}",
-        analysis["resume"]
-    );
-    let mut kept = analysis["resume"]["answers"].as_object().unwrap().clone();
-    kept.insert(
-        "_specify".into(),
-        json!({"keep": [hole, "datum.A.flatness"]}),
-    );
-    let first = preview_write(&loaded, &analysis, &kept);
-    assert_eq!(positions(&first), [(0.2, false)]);
-    let again = api::analyse(&first).unwrap();
-    assert!(
-        again["resume"].get("conflicts").is_none(),
-        "{}",
-        again["resume"]
-    );
-    let resumed = again["resume"]["answers"].as_object().unwrap().clone();
-    let second = preview_write(&first, &again, &resumed);
-    assert_eq!(positions(&second), [(0.2, false)]);
-}
-
 /// The CLI's write of `answers` on a file: `analyse`, then `write --accept-defaults`.
 fn cli_write(bytes: &[u8], answers: &Map<String, Value>, name: &str) -> LoadedPart {
     let dir = dir(name);
@@ -693,61 +526,6 @@ fn cli_write(bytes: &[u8], answers: &Map<String, Value>, name: &str) -> LoadedPa
         &given,
     ]);
     load(std::fs::read(output).unwrap())
-}
-
-fn hole_positions(l: &LoadedPart) -> Vec<f64> {
-    read_existing(l)
-        .unwrap()
-        .into_iter()
-        .filter(|e| e.r#type == "Position" && e.faces == [12])
-        .map(|e| e.value.unwrap())
-        .collect()
-}
-
-/// Keep, write, then change one's mind: answering the kept question writes the new value and
-/// the kept requirement gives way, on the editor's path and the CLI's, so the file holds one
-/// requirement with the new value and reopens with no conflict.
-#[test]
-fn answering_a_kept_question_replaces_the_kept_requirement() {
-    let edited = specify_core::part::load(
-        &common::fixtures().join("resume-p9/edited-plate.step.gz"),
-        None,
-    )
-    .unwrap();
-    let hole = "hole.position:holes:12";
-    for editor in [true, false] {
-        let analysis = api::analyse(&edited).unwrap();
-        let mut answers = analysis["resume"]["answers"].as_object().unwrap().clone();
-        answers.insert("_specify".into(), json!({"keep": [hole]}));
-        let kept = if editor {
-            preview_write(&edited, &analysis, &answers)
-        } else {
-            cli_write(&edited.bytes, &answers, "keep")
-        };
-        assert_eq!(hole_positions(&kept), [0.2], "kept (editor: {editor})");
-        // Reopened and answered anew.
-        let reopened = api::analyse(&kept).unwrap();
-        assert!(reopened["resume"].get("conflicts").is_none());
-        let mut answers = reopened["resume"]["answers"].as_object().unwrap().clone();
-        answers.insert(hole.into(), json!("0.1"));
-        let answered = if editor {
-            preview_write(&kept, &reopened, &answers)
-        } else {
-            cli_write(&kept.bytes, &answers, "answer")
-        };
-        assert_eq!(
-            hole_positions(&answered),
-            [0.1],
-            "answered (editor: {editor})"
-        );
-        let again = api::analyse(&answered).unwrap();
-        assert!(
-            again["resume"].get("conflicts").is_none(),
-            "{}",
-            again["resume"]
-        );
-        assert_eq!(again["resume"]["answers"][hole], "0.1");
-    }
 }
 
 /// A file Specify wrote (flatness 0.03 on face 2, stored as answered) whose flatness another
@@ -781,26 +559,18 @@ fn another_tools_requirement_stands_against_saved_answers_on_the_cli() {
         flatness(&loaded),
         [json!({"faces": [2], "value": 0.05, "marked": false})]
     );
-    // The conflict is listed, and marked as another tool's.
+    // ADR P11: no conflict; the file's 0.05 is what the table shows.
     let analysis = api::analyse(&loaded).unwrap();
-    let conflicts = analysis["resume"]["conflicts"].as_array().unwrap();
-    assert!(
-        conflicts
-            .iter()
-            .any(|c| c["id"] == "datum.A.flatness" && c["foreign"] == true),
-        "{conflicts:?}"
-    );
+    assert!(analysis["resume"].get("conflicts").is_none());
+    let row = analysis["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == "datum.A.flatness")
+        .unwrap();
+    assert_eq!(row["value"], "Flatness 0.05", "{row}");
     // Answers saved before the edit: they say 0.03.
     let saved = answers("0.03");
-    let review = api::review(&analysis, &saved).unwrap();
-    assert!(
-        review["conflicts"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|c| c["id"] == "datum.A.flatness"),
-        "still undecided: {review}"
-    );
     let written = cli_write(&loaded.bytes, &saved, "saved-answers");
     assert_eq!(
         flatness(&written),
@@ -836,50 +606,13 @@ fn another_tools_requirement_stands_against_an_mcp_answers_file() {
         result["structuredContent"].clone()
     };
     let opened = call("open", json!({"path": input, "answers_file": answers_file}));
-    assert!(
-        opened["conflicts"]
-            .as_array()
-            .is_some_and(|c| c.iter().any(|c| c["id"] == "datum.A.flatness")),
-        "{opened}"
-    );
+    assert!(opened.get("conflicts").is_none(), "{opened}");
     let saved = call("save", json!({"doc": opened["doc"], "accept_defaults": {}}));
     let back = load(std::fs::read(saved["path"].as_str().unwrap()).unwrap());
     assert_eq!(
         flatness(&back),
         [json!({"faces": [2], "value": 0.05, "marked": false})]
     );
-}
-
-/// Keep, write, then restore the stored answer: the kept (unmarked) requirement gives way and
-/// the file holds the restored value alone, with no conflict on reopening.
-#[test]
-fn restoring_after_keeping_replaces_the_kept_requirement() {
-    let edited = specify_core::part::load(
-        &common::fixtures().join("resume-p9/edited-plate.step.gz"),
-        None,
-    )
-    .unwrap();
-    let hole = "hole.position:holes:12";
-    let analysis = api::analyse(&edited).unwrap();
-    let mut answers = analysis["resume"]["answers"].as_object().unwrap().clone();
-    answers.insert("_specify".into(), json!({"keep": [hole]}));
-    let kept = preview_write(&edited, &analysis, &answers);
-    assert_eq!(hole_positions(&kept), [0.2]);
-    let reopened = api::analyse(&kept).unwrap();
-    let mut answers = reopened["resume"]["answers"].as_object().unwrap().clone();
-    answers.insert(hole.into(), json!("0.1"));
-    for written in [
-        preview_write(&kept, &reopened, &answers),
-        cli_write(&kept.bytes, &answers, "restore"),
-    ] {
-        assert_eq!(hole_positions(&written), [0.1]);
-        let again = api::analyse(&written).unwrap();
-        assert!(
-            again["resume"].get("conflicts").is_none(),
-            "{}",
-            again["resume"]
-        );
-    }
 }
 
 /// Saved with the answers from before another tool's edit, the contradicted answer is not

@@ -1437,11 +1437,18 @@ fn two_parts_written(dir: &Path) -> PathBuf {
     let source = part("a_file_with_two_parts_must_say_which");
     let file = specify_core::part::File::read(&source).unwrap();
     let mut jobs = Vec::new();
-    for (k, material) in ["6061-T6", "6082-T6"].into_iter().enumerate() {
+    // Each part has an answer that leaves no PMI behind, so it is stored (ADR P11).
+    for (k, (material, none)) in [
+        ("6061-T6", "part.heat_treatment"),
+        ("6082-T6", "part.coating"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let loaded = file.load(Some(k)).unwrap();
         let (analysis, _) = specify_core::api::analyse_reporting_in(&file, &loaded).unwrap();
         let answers: Map<String, Value> =
-            serde_json::from_value(json!({"part.material": material})).unwrap();
+            serde_json::from_value(json!({"part.material": material, none: "None"})).unwrap();
         let intent = specify_core::api::apply(&analysis, &answers, true).unwrap();
         jobs.push((intent, Some(answers)));
     }
@@ -1502,16 +1509,18 @@ fn an_mcp_session_resumes_every_part_s_stored_answers() {
         .to_string();
     let (status, answers) = page(&url, "GET", "answers", None);
     assert_eq!(status, 200);
+    // ADR P11: the stored decided-none answers resume; the material is the file's.
     assert_eq!(
-        answers["parts"]["0"]["part.material"],
-        json!("6061-T6"),
+        answers["parts"]["0"]["part.heat_treatment"],
+        json!("None"),
         "{answers}"
     );
     assert_eq!(
-        answers["parts"]["1"]["part.material"],
-        json!("6082-T6"),
+        answers["parts"]["1"]["part.coating"],
+        json!("None"),
         "{answers}"
     );
+    assert!(answers["parts"]["0"].get("part.material").is_none());
     // The other part, opened next, is in the same session with its own answers.
     let other = call(&mut server, "open", json!({"path": written, "part": 1}));
     let other = other["structuredContent"]["doc"].clone();
@@ -1520,14 +1529,14 @@ fn an_mcp_session_resumes_every_part_s_stored_answers() {
         "questions",
         json!({"doc": other, "state": "answered"}),
     );
-    let material = answered["structuredContent"]["questions"]
+    let coating = answered["structuredContent"]["questions"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|q| q["id"] == "part.material")
+        .find(|q| q["id"] == "part.coating")
         .cloned()
         .unwrap();
-    assert_eq!(material["answer"], json!("6082-T6"));
+    assert_eq!(coating["answer"], json!("None"));
     drop(server);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -1692,11 +1701,9 @@ fn a_diff_session_is_shown_in_diff_mode_and_saves_new() {
     assert_eq!(status, 200, "{saved}");
     let written = dir.join("plate.new.specified.step");
     assert_eq!(saved["path"], json!(written));
+    // ADR P11: the carried material is the new file's PMI.
     let resumed = specify_core::api::analyse_file(&written, None).unwrap();
-    assert_eq!(
-        resumed["resume"]["answers"]["part.material"],
-        json!("6061-T6")
-    );
+    assert_eq!(resumed["part"]["material"], json!("6061-T6"));
     drop(server);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -2050,7 +2057,18 @@ fn an_approved_default_goes_only_to_its_part() {
             .unwrap()
             .0
     };
-    assert!(analysed(0)["resume"]["answers"].get(&id).is_some());
+    // ADR P11: stored when it leaves no PMI behind, else the file states it.
+    let first = analysed(0);
+    assert!(
+        first["resume"]["answers"].get(&id).is_some()
+            || first["table"]["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["id"] == id && r["state"] == "stated"),
+        "{id}: {}",
+        first["resume"]
+    );
     let other = analysed(1);
     assert!(
         other.get("resume").is_none(),
@@ -2125,9 +2143,17 @@ fn a_part_joining_the_session_moves_the_rev_and_is_not_written_empty() {
     for key in ["existing", "part", "resume"] {
         assert_eq!(after.get(key), before.get(key), "{key}");
     }
-    assert_eq!(
-        analysed(&written, 0)["resume"]["answers"],
-        json!({"part.material": "6061-T6"})
+    // ADR P11: the material is the file's, not a stored answer.
+    let first = analysed(&written, 0);
+    assert_eq!(first["resume"]["answers"], json!({}));
+    assert!(
+        first["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["id"] == "part.material" && r["value"] == "6061-T6"),
+        "{}",
+        first["table"]
     );
     drop(events);
     drop(server);
@@ -2164,8 +2190,10 @@ fn write_pmi_and_export_answers_take_only_approved_defaults() {
     let written = &written["structuredContent"];
     assert_eq!(written["complete"], json!(false), "{written}");
     assert!(written["missing"].as_array().unwrap().contains(&json!(id)));
-    let stored = specify_core::api::analyse_file(&out, None).unwrap()["resume"]["answers"].clone();
-    assert_eq!(stored, json!({"part.material": "6061-T6"}));
+    // ADR P11: the material is written as PMI, so nothing is stored for it.
+    let analysed = specify_core::api::analyse_file(&out, None).unwrap();
+    assert_eq!(analysed["resume"]["answers"], json!({}));
+    assert_eq!(analysed["part"]["material"], json!("6061-T6"));
     let exported = call(&mut server, "export_answers", json!({"doc": doc}));
     let exported = &exported["structuredContent"];
     assert!(exported["answers"].get(&id).is_none());
@@ -2199,8 +2227,18 @@ fn write_pmi_and_export_answers_take_only_approved_defaults() {
         "write_pmi",
         json!({"doc": doc, "output": out, "accept_defaults": {&id: default}}),
     );
-    let stored = specify_core::api::analyse_file(&out, None).unwrap()["resume"]["answers"].clone();
-    assert_eq!(stored[&id], default);
+    // ADR P11: stored when it leaves no PMI behind, else the file states it.
+    let analysed = specify_core::api::analyse_file(&out, None).unwrap();
+    assert!(
+        analysed["resume"]["answers"].get(&id) == Some(&default)
+            || analysed["table"]["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["id"] == id && r["state"] == "stated"),
+        "{id}: {}",
+        analysed["resume"]
+    );
     let exported = call(
         &mut server,
         "export_answers",

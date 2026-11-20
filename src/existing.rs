@@ -313,6 +313,22 @@ impl Reading {
         self.existing_except(loaded, &Selection::default())
     }
 
+    /// Every requirement the file states (ADR P11: whoever wrote it), including the
+    /// dimensions Specify wrote under the general tolerance, which [`Self::existing`] leaves
+    /// out.
+    pub(crate) fn existing_all(
+        &self,
+        loaded: &LoadedPart,
+    ) -> Result<Vec<ExistingPmi>, ExistingError> {
+        let selection = Selection {
+            retained: (0..self.pmi.dimensions.len())
+                .map(|i| ("dimensions".to_string(), i))
+                .collect(),
+            ..Selection::default()
+        };
+        self.existing_except(loaded, &selection)
+    }
+
     /// [`Self::existing`] without the items `selection` leaves out, and with the question it
     /// gives each tagged item (ADR P9: a reopened file's PMI less what its answers explain).
     pub(crate) fn existing_except(

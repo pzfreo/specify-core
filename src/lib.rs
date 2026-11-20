@@ -14,6 +14,7 @@ pub mod choices;
 pub mod cli;
 pub mod existing;
 pub mod extras;
+pub mod feature_table;
 pub mod features;
 pub mod general;
 pub mod input;

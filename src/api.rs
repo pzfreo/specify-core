@@ -171,11 +171,10 @@ pub fn analyse_file(step: &Path, part: Option<usize>) -> Result<Value> {
 
 /// Features, faces and existing PMI of `loaded`, as a JSON snapshot (Python's `analyse`):
 /// `{schema, binding, faces, features}`, then for a part of an assembly its `mates` and each
-/// face's `contact`, then `existing` and `part` (the file's own PMI and settings). For a file
-/// specify-core wrote whose answers fit this part, the PMI is the truth (ADR P9):
-/// `resume.answers` holds the stored answers its PMI agrees with, `existing`/`part` the
-/// file's PMI they do not explain, and `resume.conflicts` the stored answers the file changed
-/// or removed (see docs/answers.md, "Reopening a file Specify wrote").
+/// face's `contact`, then `existing` and `part` (the file's whole PMI and settings, whoever
+/// wrote them: ADR P11), and `table`, the feature table ([`crate::feature_table`]). For a file
+/// specify-core wrote, `resume.answers` holds the stored answers that leave no PMI behind
+/// (decided none, and choices); stored answers that repeat the file's PMI are ignored.
 /// The snapshot is what gets stored: it is never re-derived for the same file.
 ///
 /// New schema-6 families and concave fillets include an optional plain `description` on
@@ -250,33 +249,6 @@ fn analyse_with(
     definitions: Option<&[haecceity::step::PartDefinition]>,
     recognition: Option<&quiddity::correspondence::Recognition>,
 ) -> Result<(Value, Vec<String>)> {
-    analyse_reconciling(loaded, assembly, definitions, recognition)
-        .map(|(analysis, warnings, _)| (analysis, warnings))
-}
-
-/// How the stored answers of `loaded`, a part of a file Specify wrote, stand against the
-/// file's PMI (ADR P9), for the writer: `None` when no answers are resumed.
-pub(crate) fn reconciled(loaded: &LoadedPart) -> Result<Option<resume::truth::Reconciled>> {
-    // The caller's analysis of the same bytes made it already (a page, a session, MCP).
-    if let Some(r) = resume::truth::recall(loaded) {
-        return Ok(r);
-    }
-    let assembly = if loaded.part_count > 1 {
-        let file = part::File::of_shared(&loaded.path, std::sync::Arc::clone(&loaded.bytes))?;
-        Some(file.load_all()?)
-    } else {
-        None
-    };
-    analyse_reconciling(loaded, assembly.as_deref(), None, None).map(|(_, _, r)| r)
-}
-
-/// [`analyse_with`], with the reconciliation of stored answers and file PMI it made.
-fn analyse_reconciling(
-    loaded: &LoadedPart,
-    assembly: Option<&[LoadedPart]>,
-    definitions: Option<&[haecceity::step::PartDefinition]>,
-    recognition: Option<&quiddity::correspondence::Recognition>,
-) -> Result<(Value, Vec<String>, Option<resume::truth::Reconciled>)> {
     let refused = |e: &dyn fmt::Display| Error::Analysis(format!("{}: {e}", loaded.path.display()));
     // Features first: on a part rebuilt without its record of unresolved geometry (U1),
     // recognition's refusal names the part and why, which is the failure to pass on.
@@ -346,271 +318,101 @@ fn analyse_reconciling(
     if let Some(mated) = mated {
         analysis.insert("mates".into(), Value::Object(mated));
     }
-    let doc = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone());
-    match resume::report_for_parsed(loaded, doc.as_ref().ok(), &features)
-        .map_err(|e| refused(&e))?
-    {
-        Some(resumed) => {
-            if loaded.part_count > 1
-                && let Ok(doc) = &doc
-                && definitions.is_some_and(|d| crate::bom::assembly_shape(doc, d).is_ok())
-            {
-                let rows = crate::bom::read_parsed(
-                    doc,
-                    std::slice::from_ref(&loaded.definition),
-                    loaded.binding.part,
-                )
-                .map_err(Error::Analysis)?;
-                analysis.insert(
-                    "bom".into(),
-                    serde_json::to_value(&rows[0]).map_err(|e| refused(&e))?,
-                );
-            }
-            // A file specify-core wrote, opened to be changed: its PMI is the answers', not
-            // the file's to keep, and the answers come back to be edited.
-            analysis.insert("existing".into(), json!([]));
-            analysis.insert("part".into(), json!({}));
-            if let Ok(doc) = &doc
-                && resume::scoped(doc, loaded.binding.part)
-            {
-                let defs = haecceity::step::read_part_definitions(&loaded.bytes)
-                    .map_err(|e| refused(&e))?;
-                let read = haecceity::pmi::read(doc, &defs).map_err(|e| refused(&e))?;
-                let foreign = crate::provenance::without_owned(doc, &read, &[loaded.binding.part])
-                    .map_err(|e| refused(&e))?;
-                let foreign = haecceity::p21::Document::parse(foreign).map_err(|e| refused(&e))?;
-                let reading =
-                    existing::read_parsed(loaded, foreign, &defs).map_err(|e| refused(&e))?;
-                warnings.extend(unresolved_datums(&reading));
-                analysis.insert(
-                    "existing".into(),
-                    serde_json::to_value(reading.existing(loaded).map_err(|e| refused(&e))?)
-                        .map_err(|e| refused(&e))?,
-                );
-                analysis.insert("part".into(), Value::Object(reading.settings(loaded)));
-                let stated = crate::dimensioning::stated(reading.model());
-                if !stated.is_empty() {
-                    analysis.insert("dimensioning_stated".into(), json!(stated));
-                }
-            }
-            if let Ok(doc) = &doc {
-                crate::process::analysis_entries(
-                    doc,
-                    loaded.definition.product_definition,
-                    Some(&resumed.answers),
-                    &mut analysis,
-                );
-            }
-            if let Some(why) = &resumed.unverified {
-                warnings.push(format!("saved answers: {why}"));
-            }
-            for unresolved in &resumed.unresolved {
-                warnings.push(format!(
-                    "saved answer {}: {}; left open",
-                    unresolved.id, unresolved.reason
-                ));
-            }
-            analysis.insert(
-                "resume".into(),
-                serde_json::to_value(resumed).map_err(|e| refused(&e))?,
-            );
-        }
+    let unreadable =
+        |e: &dyn fmt::Display| refused(&existing::ExistingError::Unreadable(e.to_string()));
+    let doc = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone())
+        .map_err(|e| unreadable(&e))?;
+    let resumed =
+        resume::report_for_parsed(loaded, Some(&doc), &features).map_err(|e| refused(&e))?;
+    let process = crate::process::read(&doc, loaded.definition.product_definition);
+    let read_here;
+    let definitions = match definitions {
+        Some(d) => d,
         None => {
-            let unreadable =
-                |e: &dyn fmt::Display| refused(&existing::ExistingError::Unreadable(e.to_string()));
-            let doc = doc.map_err(|e| unreadable(&e))?;
-            let process = crate::process::read(&doc, loaded.definition.product_definition);
-            let read_here;
-            let definitions = match definitions {
-                Some(d) => d,
-                None => {
-                    read_here = haecceity::step::read_part_definitions(&loaded.bytes)
-                        .map_err(|e| unreadable(&e))?;
-                    &read_here
-                }
-            };
-            // BOM questions only where the BOM can be written (#149).
-            let writable =
-                loaded.part_count > 1 && crate::bom::assembly_shape(&doc, definitions).is_ok();
-            let reading =
-                existing::read_parsed(loaded, doc, definitions).map_err(|e| refused(&e))?;
-            if writable {
-                analysis.insert(
-                    "bom".into(),
-                    serde_json::to_value(reading.bom(loaded).map_err(Error::Analysis)?)
-                        .map_err(|e| refused(&e))?,
-                );
-            }
-            warnings.extend(unresolved_datums(&reading));
-            let existing = reading.existing(loaded).map_err(|e| refused(&e))?;
-            let settings = reading.settings(loaded);
-            let stated = crate::dimensioning::stated(reading.model());
-            if !stated.is_empty() {
-                analysis.insert("dimensioning_stated".into(), json!(stated));
-            }
-            analysis.insert(
-                "existing".into(),
-                serde_json::to_value(existing).map_err(|e| refused(&e))?,
-            );
-            analysis.insert("part".into(), Value::Object(settings));
-            crate::process::stated_entries(reading.process().or(process), None, &mut analysis);
+            read_here = haecceity::step::read_part_definitions(&loaded.bytes)
+                .map_err(|e| unreadable(&e))?;
+            &read_here
         }
-    }
-    // ADR P9: on reopening, the PMI is the truth. The stored answers are compared with the
-    // file's PMI; only those it agrees with resume.
-    let mut reconciled = None;
-    // A file written before Specify marked its requirements (#22), by replace, keeps its
-    // behaviour: all its PMI is its answers', rewritten from them.
-    let marked = || -> (bool, bool) {
-        let Ok(doc) = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone()) else {
-            return (false, false);
-        };
-        let part = loaded.binding.part;
-        if resume::scoped(&doc, part) {
-            return (true, false);
-        }
-        let Ok(defs) = haecceity::step::read_part_definitions(&loaded.bytes) else {
-            return (false, false);
-        };
-        let Ok(read) = haecceity::pmi::read(&doc, &defs) else {
-            return (false, false);
-        };
-        // The process question postdates marking, so a saved process answer or a process
-        // attribute is evidence even when the markers were stripped. A legacy file with
-        // marks on part attributes alone keeps its old view.
-        let saved_process = analysis
-            .get("resume")
-            .is_some_and(|resume| resume["answers"].get(crate::process::QUESTION).is_some());
-        (
-            crate::provenance::can_reconcile(&doc, &read, part, saved_process),
-            crate::provenance::any_marked(&doc, &read, part)
-                && !crate::provenance::marked_outside_attributes(&doc, &read, part),
-        )
     };
-    if analysis.contains_key("resume")
-        && let (true, attributes_only) = marked()
-    {
-        let base = Value::Object(analysis.clone());
-        let doc = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone())
+    // BOM questions only where the BOM can be written (#149).
+    let writable = loaded.part_count > 1 && crate::bom::assembly_shape(&doc, definitions).is_ok();
+    let reading = existing::read_parsed(loaded, doc, definitions).map_err(|e| refused(&e))?;
+    if writable {
+        analysis.insert(
+            "bom".into(),
+            serde_json::to_value(reading.bom(loaded).map_err(Error::Analysis)?)
+                .map_err(|e| refused(&e))?,
+        );
+    }
+    warnings.extend(unresolved_datums(&reading));
+    // ADR P11: the file's PMI is the only copy, whoever wrote it. Every requirement is the
+    // file's, including the dimensions Specify wrote under the general tolerance.
+    let existing = reading.existing_all(loaded).map_err(|e| refused(&e))?;
+    let settings = reading.settings(loaded);
+    let stated = crate::dimensioning::stated(reading.model());
+    if !stated.is_empty() {
+        analysis.insert("dimensioning_stated".into(), json!(stated));
+    }
+    analysis.insert(
+        "existing".into(),
+        serde_json::to_value(existing).map_err(|e| refused(&e))?,
+    );
+    analysis.insert("part".into(), Value::Object(settings));
+    crate::process::stated_entries(reading.process().or(process), None, &mut analysis);
+    // Stored answers that leave no PMI behind (decided none, and choices that are not
+    // requirements) are read back; those that repeat the file's PMI are ignored (dropped at
+    // the next save). One whose requirement is no longer in the file is a gap again: the
+    // deletion stands, and is mentioned here.
+    let stored = resumed
+        .as_ref()
+        .map(|r| crate::feature_table::storable(&r.answers))
+        .unwrap_or_default();
+    // The table reads every setting the file states, a part of an assembly's material too.
+    let mut stated_settings = analysis["part"].as_object().cloned().unwrap_or_default();
+    reading.each_setting(false, |key, value| {
+        stated_settings.entry(key).or_insert(value);
+    });
+    let table =
+        crate::feature_table::build(&Value::Object(analysis.clone()), &stated_settings, &stored)
             .map_err(|e| refused(&e))?;
-        let defs =
-            haecceity::step::read_part_definitions(&loaded.bytes).map_err(|e| refused(&e))?;
-        let reading = existing::read_parsed(loaded, doc, &defs).map_err(|e| refused(&e))?;
-        let mut settings = reading.settings(loaded);
-        let r = match resume::truth::reconcile(loaded, &base, &features, &reading) {
-            Ok(r) => r,
-            Err(why) => {
+    if let Some(mut resumed) = resumed {
+        let mut kept = Map::new();
+        for (id, answer) in &resumed.answers {
+            let row = table.row(id);
+            let keep = id.starts_with('_')
+                || id.starts_with("bom.")
+                || !crate::feature_table::is_requirement(id)
+                || (crate::feature_table::leaves_nothing(answer)
+                    && row.is_none_or(|r| r.state != crate::feature_table::State::Stated));
+            if keep {
+                kept.insert(id.clone(), answer.clone());
+            } else if row.is_some_and(|r| r.state == crate::feature_table::State::Gap) {
                 warnings.push(format!(
-                    "saved answers could not be compared with the file's PMI: {why}; saved \
-                     answers are withheld and the file's PMI is kept"
+                    "saved answer {id} ({}): its requirement is no longer in the file; it is a \
+                     gap again",
+                    crate::choices::short_repr(answer, 6)
                 ));
-                resume::truth::Reconciled::uncompared(&base, reading.model())
             }
-        };
-        // Specify's own (marked) requirements the answers do not explain, and that no
-        // question accounts for, are Specify's to state: the rewrite states the part from
-        // the answers. The rest is another tool's PMI, or the file's answer to a
-        // question (tagged), shown and kept.
-        let mut existing = reading
-            .existing_except(loaded, &r.selection())
-            .map_err(|e| refused(&e))?;
-        // A legacy Replace file with marks on part attributes alone keeps the
-        // interview's old face-PMI view. Still reconcile its settings and preserve
-        // every unmarked requirement on writing, including face PMI.
-        let visible = |e: &existing::ExistingPmi| {
-            e.question.is_some() || (!attributes_only && e.provenance.is_none())
-        };
-        if r.retained.is_empty() {
-            existing.retain(visible);
-        } else {
-            let mut ordinary = r.selection();
-            ordinary.skip.extend(r.retained.iter().cloned());
-            let hidden: Vec<_> = reading
-                .existing_except(loaded, &ordinary)
-                .map_err(|e| refused(&e))?
-                .into_iter()
-                .filter(|e| !visible(e))
-                .collect();
-            existing.retain(|e| !hidden.contains(e));
         }
-        let retained_dimensions = crate::dimensioning::stated_where(reading.model(), |i| {
-            r.retained.contains(&("dimensions".into(), i))
-        });
-        if r.uncompared {
-            if !retained_dimensions.is_empty() {
-                analysis.insert("dimensioning_stated".into(), json!(retained_dimensions));
-            }
-        } else if !retained_dimensions.is_empty() {
-            let stated = analysis
-                .entry("dimensioning_stated")
-                .or_insert_with(|| json!([]));
-            stated
-                .as_array_mut()
-                .expect("stated dimensions are a list")
-                .extend(retained_dimensions.into_iter().map(Value::Object));
+        resumed.answers = kept;
+        if let Some(why) = &resumed.unverified {
+            warnings.push(format!("saved answers: {why}"));
+        }
+        for unresolved in &resumed.unresolved {
+            warnings.push(format!(
+                "saved answer {}: {}; left open",
+                unresolved.id, unresolved.reason
+            ));
         }
         analysis.insert(
-            "existing".into(),
-            serde_json::to_value(existing).map_err(|e| refused(&e))?,
+            "resume".into(),
+            serde_json::to_value(resumed).map_err(|e| refused(&e))?,
         );
-        let marked = reading.settings_provenance(loaded);
-        let tagged = |key: &str| {
-            let question = format!("part.{key}");
-            r.conflicts.iter().any(|c| c.id == question) || r.file_answered.contains(&question)
-        };
-        settings.retain(|key, _| {
-            let all_marked = marked.get(key).is_some_and(|value| {
-                value
-                    .as_array()
-                    .is_none_or(|entries| entries.iter().all(|v| !v.is_null()))
-            });
-            r.uncompared || (!r.settings.contains(key) && (!all_marked || tagged(key)))
-        });
-        analysis.insert("part".into(), Value::Object(settings));
-        crate::process::stated_entries(
-            r.process.clone().or_else(|| reading.process()),
-            Some(&r.answers),
-            &mut analysis,
-        );
-        let resume = analysis
-            .get_mut("resume")
-            .and_then(Value::as_object_mut)
-            .ok_or_else(|| refused(&"the resumed answers are not an object"))?;
-        resume.insert("answers".into(), Value::Object(r.answers.clone()));
-        if !r.file_answered.is_empty() {
-            resume.insert("file".into(), json!(r.file_answered));
-        }
-        if !r.foreign_file.is_empty() {
-            resume.insert("foreign".into(), json!(r.foreign_file));
-        }
-        if !r.present.is_empty() {
-            resume.insert("present".into(), Value::Object(r.present.clone()));
-        }
-        if !r.conflicts.is_empty() {
-            resume.insert(
-                "conflicts".into(),
-                serde_json::to_value(&r.conflicts).map_err(|e| refused(&e))?,
-            );
-        }
-        for conflict in &r.conflicts {
-            warnings.push(match &conflict.file {
-                Some(file) => format!(
-                    "saved answer {} ({}) differs from the file's PMI ({file}); the \
-                             file's is kept until decided",
-                    conflict.id, conflict.stored
-                ),
-                None => format!(
-                    "saved answer {} ({}) was removed in the file; left removed until \
-                             decided",
-                    conflict.id, conflict.stored
-                ),
-            });
-        }
-        reconciled = Some(r);
     }
-    if analysis.contains_key("resume") {
-        resume::truth::remember(loaded, reconciled.as_ref());
-    }
+    analysis.insert(
+        "table".into(),
+        serde_json::to_value(&table).map_err(|e| refused(&e))?,
+    );
     let numbers = crate::characteristics::read(loaded).map_err(Error::Analysis)?;
     if !numbers.is_empty() {
         analysis.insert(
@@ -618,7 +420,7 @@ fn analyse_reconciling(
             serde_json::to_value(numbers).map_err(|e| refused(&e))?,
         );
     }
-    Ok((Value::Object(analysis), warnings, reconciled))
+    Ok((Value::Object(analysis), warnings))
 }
 
 // A lost datum must not silently disappear from imported PMI. Reader /15 gives
@@ -642,16 +444,14 @@ pub fn questions(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Q
 /// can be added by the caller with [`anchors`]. All values cross front end boundaries as JSON.
 pub fn review(analysis: &Value, answers: &Map<String, Value>) -> Result<Value> {
     let questions = questions(analysis, answers)?;
-    // A default the reopened file states answers its question (ADR P9, `resume.present`).
-    let answered = resume::truth::answered(analysis, answers);
-    let open: Vec<_> = rules::open_questions(&questions, &answered)
+    let open: Vec<_> = rules::open_questions(&questions, answers)
         .iter()
         .map(|question| question.id.clone())
         .collect();
     let intent = preview(analysis, answers)?;
     let sources = rules::answered_sources(&questions, answers);
     let problems = crate::problems::problems(analysis, answers)?;
-    let mut out = json!({
+    let out = json!({
         "questions": questions.iter().map(|question| {
             let mut value = question.to_presented_dict();
             if let Some(diameter) = question.diameter { value["diameter"] = json!(diameter); }
@@ -663,15 +463,6 @@ pub fn review(analysis: &Value, answers: &Map<String, Value>) -> Result<Value> {
         "sources": sources,
         "problems": problems,
     });
-    // ADR P9: stored answers the reopened file's PMI contradicts, still undecided, each as a
-    // question to ask (`kind: "conflict"`). Present only when there are some.
-    let conflicts: Vec<Value> = resume::truth::open_conflicts(analysis, answers)
-        .iter()
-        .map(resume::truth::question)
-        .collect();
-    if !conflicts.is_empty() {
-        out["conflicts"] = Value::Array(conflicts);
-    }
     Ok(out)
 }
 

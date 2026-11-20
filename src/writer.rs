@@ -14,20 +14,15 @@
 //! standard AP242 fields or representation descriptions. Input PMI stays unmarked; see
 //! `docs/pmi-provenance.md` for the exact STEP-only reader contract.
 //!
-//! **Modes.** A bare part or a legacy resumed Specify part uses `Mode::Replace`.
-//! A part with foreign PMI uses `Mode::Add`, storing answers and characteristic numbers
-//! alongside Specify's provenance-marked requirements. Its payload carries `pmi_scope`
-//! equal to [`PMI_PROVENANCE`]. On resume, only marked requirements belong to those answers;
-//! unmarked PMI stays in `existing` and continues to answer the interview's questions.
-//! Rewriting a mixed part still uses Add: first remove only Specify's marked requirements
-//! with the kernel's removal planner, then append the edited intent and new saved answers.
-//! Foreign requirements and their forward dependencies (including shared features/datums)
-//! are protected against removal or rewriting. Characteristic numbers match Specify's
-//! previous items; foreign numbers are reserved, and reused foreign datums are not numbered.
-//! Payloads without the scope field retain legacy resume semantics. In particular, 0.1.7
-//! Add-mode files without answers still open as existing PMI; a marker alone does not
-//! authorize deletion. Each assembly part follows the same rule independently. Parts not
-//! selected for writing retain their PMI and answers byte for byte (decision D3).
+//! **Modes** (ADR P11: the file's PMI is the only copy). A bare part uses `Mode::Replace`.
+//! A part with PMI, whoever wrote it, uses `Mode::Add`: every requirement in the file stays
+//! as it is, and only Specify's bookkeeping (the stored answers and the characteristic-number
+//! record) is replaced. A requirement the file already states (the same measurement on the
+//! same faces) is not written again, whatever its value: changing it is an explicit edit.
+//! Existing numbers stay; new requirements are numbered after the high-water mark. A save
+//! that adds nothing keeps the file's bytes. Each assembly part follows the same rule
+//! independently. Parts not selected for writing retain their PMI and answers byte for byte
+//! (decision D3).
 //!
 //! **Notes and finish** (question Q3, decided 2026-10-09). A surface finish (`Ra 3.2`, on faces
 //! or the part's default) is a surface texture in ISO 10303-1110's form, 'any process allowed'
@@ -624,15 +619,273 @@ impl Source {
     }
 }
 
-/// The datums another tool's (unmarked) tolerances on part `part` cite, with their features:
-/// kept with those tolerances, so a rewrite's equal datum is that one (ADR P9).
-fn foreign_support(original: &Source, part: usize) -> BTreeSet<(String, usize)> {
-    let tolerances = provenance::unmarked(&original.doc, &original.read, part)
+/// Every item of `pmi` but Specify's bookkeeping (the stored answers and the
+/// characteristic-number record), by haecceity collection and index: what a save keeps.
+fn requirements(pmi: &PartPmi) -> BTreeSet<(String, usize)> {
+    let mut out: BTreeSet<(String, usize)> = [
+        ("features", pmi.features.len()),
+        ("datums", pmi.datums.len()),
+        ("datum_targets", pmi.datum_targets.len()),
+        ("dimensions", pmi.dimensions.len()),
+        ("tolerances", pmi.tolerances.len()),
+        ("general", pmi.general.len()),
+        ("threads", pmi.threads.len()),
+        ("knurls", pmi.knurls.len()),
+        ("notes", pmi.notes.len()),
+        ("surface_textures", pmi.surface_textures.len()),
+        ("material", usize::from(pmi.material.is_some())),
+    ]
+    .into_iter()
+    .flat_map(|(collection, len)| (0..len).map(move |i| (collection.to_string(), i)))
+    .collect();
+    out.extend(pmi.attributes.iter().enumerate().filter_map(|(i, set)| {
+        (!resume::is_answers(set) && set.name != crate::characteristics::PROPERTY)
+            .then_some(("attributes".to_string(), i))
+    }));
+    out
+}
+
+/// [`part_pmi`] in add mode (ADR P11): what the file already states stays as it is and is
+/// never stated twice. A requirement of `intent` whose every item measures what `before`
+/// states (the same kind and type on the same faces and reference, whatever its value) is
+/// left out of the plan and reported as not written; any other such item the plan makes
+/// (the dimension planner's own) is dropped from it.
+fn part_pmi_added(
+    loaded: &LoadedPart,
+    intent: &Intent,
+    before: &PartPmi,
+) -> Result<(PartPmi, Lines), WriteError> {
+    let mut sources: Vec<((String, usize), Map<String, Json>)> = Vec::new();
+    let (planned, full_lines) =
+        part_pmi_observed(loaded, intent, before, Mode::Add, &[], &mut |c, i, r| {
+            sources.push(((c.to_string(), i), r.clone()))
+        })?;
+    let stated: BTreeSet<String> = crate::characteristics::measures(before)
         .into_iter()
-        .filter(|(collection, _)| collection == "tolerances")
-        .map(|(_, i)| i)
+        .filter(|((collection, _), _)| *collection != "datums")
+        .map(|(_, key)| key)
         .collect();
-    resume::truth::datum_support(&original.read.parts[part], &tolerances)
+    let restated: std::collections::BTreeMap<(String, usize), String> =
+        crate::characteristics::measures(&planned)
+            .into_iter()
+            .filter(|((collection, _), key)| *collection != "datums" && stated.contains(key))
+            .map(|((collection, i), key)| ((collection.to_string(), i), key))
+            .collect();
+    // A requirement of the intent is left out when all it makes is stated already.
+    let mut whole: Vec<(&Map<String, Json>, bool)> = Vec::new();
+    for (at, req) in &sources {
+        if at.0 == "datums" {
+            continue;
+        }
+        let here = restated.contains_key(at);
+        match whole.iter_mut().find(|(r, _)| *r == req) {
+            Some((_, all)) => *all &= here,
+            None => whole.push((req, here)),
+        }
+    }
+    let gone: Vec<&Map<String, Json>> = whole
+        .into_iter()
+        .filter_map(|(r, all)| all.then_some(r))
+        .collect();
+    let part_finish = planned
+        .surface_textures
+        .iter()
+        .enumerate()
+        .any(|(i, t)| t.on.is_none() && restated.contains_key(&("surface_textures".into(), i)));
+    let mut said = Vec::new();
+    let replanned;
+    let intent = if gone.is_empty() && !part_finish {
+        intent
+    } else {
+        let mut less = intent.clone();
+        let mut out = |list: &mut Vec<Map<String, Json>>| {
+            list.retain(|r| {
+                let drop = gone.contains(&r);
+                if drop {
+                    let kind = r
+                        .get("kind")
+                        .and_then(Json::as_str)
+                        .unwrap_or("requirement");
+                    let faces = r.get("faces").map(Json::to_string).unwrap_or_default();
+                    said.push(format!(
+                        "{kind} on faces {faces}: the file already states it; not written again"
+                    ));
+                }
+                !drop
+            })
+        };
+        out(&mut less.requirements);
+        out(&mut less.general);
+        if part_finish && let Some(finish) = less.part.shift_remove("surface_finish") {
+            said.push(format!(
+                "surface finish {}: the file already states the part's finish; not written again",
+                py_str(&finish)
+            ));
+        }
+        replanned = less;
+        &replanned
+    };
+    // The plan stays the one made for the whole intent (the dimension planner's choices must
+    // not change because a requirement is already in the file); the plan without what is
+    // stated says which of its lines are still written.
+    let mut pmi = planned;
+    let mut lines = full_lines;
+    if !said.is_empty() {
+        let (_, less) = part_pmi(loaded, intent, before, Mode::Add, &[])?;
+        lines.written.retain(|line| less.written.contains(line));
+    }
+    lines.not_written.extend(said);
+    for what in drop_stated(&mut pmi, before) {
+        lines.not_written.push(format!(
+            "{what}: the file already states it; not written again"
+        ));
+    }
+    // A note the file already holds, as written, on the part or on a feature of the same
+    // faces (a part note, a thread's manufacturing data), is not written twice.
+    let owner = |p: &PartPmi, on: &Option<NoteOwner>| match on {
+        None => Some(Vec::new()),
+        Some(NoteOwner::Feature(f)) => Some(crate::existing::faces_of(p, &[*f])),
+        _ => None,
+    };
+    let planned_owners: Vec<_> = pmi.attributes.iter().map(|a| owner(&pmi, &a.on)).collect();
+    let held = |set: &AttributeSet, on: &Option<Vec<usize>>| {
+        on.is_some()
+            && before.attributes.iter().any(|old| {
+                old.name == set.name && old.items == set.items && owner(before, &old.on) == *on
+            })
+    };
+    let mut gone = Vec::new();
+    let mut at = 0;
+    pmi.attributes.retain(|set| {
+        let on = &planned_owners[at];
+        at += 1;
+        if !held(set, on) {
+            return true;
+        }
+        if set.on.is_some() {
+            return false;
+        }
+        for (kind, value) in &set.items {
+            let key = crate::existing::PART_NOTES
+                .iter()
+                .find(|(_, k)| k == kind)
+                .map_or(kind.as_str(), |(key, _)| key);
+            if let AttributeValue::Text(words) = value {
+                gone.push(format!("{} {words}", key.replace('_', " ")));
+            }
+        }
+        false
+    });
+    for line in gone {
+        lines.written.retain(|l| *l != line);
+        lines.not_written.push(format!(
+            "{line}: the file already states it; not written again"
+        ));
+    }
+    Ok((pmi, lines))
+}
+
+/// Drop from `planned` every requirement that measures what `before` already states (the
+/// same kind and type on the same faces and reference, whatever its value), with what depends
+/// on it, and say which. The file's requirement stands (ADR P11): changing it is an explicit
+/// edit, never a side effect of writing answers again.
+fn drop_stated(planned: &mut PartPmi, before: &PartPmi) -> Vec<String> {
+    use pmi::{DimensionId, ToleranceId};
+    let stated: BTreeSet<String> = crate::characteristics::measures(before)
+        .into_iter()
+        .filter(|((collection, _), _)| *collection != "datums")
+        .map(|(_, key)| key)
+        .collect();
+    let mut drop: BTreeSet<(&'static str, usize)> = BTreeSet::new();
+    let mut said = Vec::new();
+    for ((collection, i), key) in crate::characteristics::measures(planned) {
+        if collection != "datums" && stated.contains(&key) {
+            drop.insert((collection, i));
+            said.push(key);
+        }
+    }
+    if drop.is_empty() {
+        return said;
+    }
+    // A tolerance on a dropped dimension goes with it.
+    for (i, t) in planned.tolerances.iter().enumerate() {
+        if let ToleranceTarget::Dimension(d) = &t.target
+            && drop.contains(&("dimensions", d.0))
+        {
+            drop.insert(("tolerances", i));
+        }
+    }
+    let remap = |collection: &'static str, len: usize| -> Vec<Option<usize>> {
+        let mut next = 0;
+        (0..len)
+            .map(|i| {
+                if drop.contains(&(collection, i)) {
+                    None
+                } else {
+                    next += 1;
+                    Some(next - 1)
+                }
+            })
+            .collect()
+    };
+    let dims = remap("dimensions", planned.dimensions.len());
+    let tols = remap("tolerances", planned.tolerances.len());
+    fn kept<T>(items: Vec<T>, drop: &BTreeSet<(&str, usize)>, collection: &str) -> Vec<T> {
+        items
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| !drop.contains(&(collection, *i)))
+            .map(|(_, item)| item)
+            .collect()
+    }
+    planned.dimensions = kept(std::mem::take(&mut planned.dimensions), &drop, "dimensions");
+    planned.tolerances = kept(std::mem::take(&mut planned.tolerances), &drop, "tolerances");
+    for t in &mut planned.tolerances {
+        if let ToleranceTarget::Dimension(d) = &mut t.target
+            && let Some(n) = dims[d.0]
+        {
+            *d = DimensionId(n);
+        }
+    }
+    planned.surface_textures = kept(
+        std::mem::take(&mut planned.surface_textures),
+        &drop,
+        "surface_textures",
+    );
+    planned.threads = kept(std::mem::take(&mut planned.threads), &drop, "threads");
+    planned.knurls = kept(std::mem::take(&mut planned.knurls), &drop, "knurls");
+    planned
+        .tolerance_relations
+        .retain_mut(|r| match (tols[r.relating.0], tols[r.related.0]) {
+            (Some(a), Some(b)) => {
+                r.relating = ToleranceId(a);
+                r.related = ToleranceId(b);
+                true
+            }
+            _ => false,
+        });
+    let owner = |on: &mut Option<NoteOwner>| -> bool {
+        match on {
+            Some(NoteOwner::Dimension(d)) => match dims[d.0] {
+                Some(n) => {
+                    *d = DimensionId(n);
+                    true
+                }
+                None => false,
+            },
+            Some(NoteOwner::Tolerance(t)) => match tols[t.0] {
+                Some(n) => {
+                    *t = ToleranceId(n);
+                    true
+                }
+                None => false,
+            },
+            _ => true,
+        }
+    };
+    planned.notes.retain_mut(|n| owner(&mut n.on));
+    planned.attributes.retain_mut(|a| owner(&mut a.on));
+    said
 }
 
 /// One part to write, as planned.
@@ -663,122 +916,44 @@ fn write_verified(
     let first = jobs[0].0;
     let bytes: &[u8] = &first.bytes;
     let original = Source::of(bytes)?;
+    // ADR P11: the file's PMI is the only copy. A save never cleans and re-plans: every
+    // requirement in the file stays, whoever wrote it, and what the answers add is appended
+    // (Add). Only Specify's bookkeeping on a part it wrote (the stored answers and the
+    // characteristic-number record) is replaced, by a scoped Add that keeps every other item.
     let mut scoped = Vec::new();
-    // ADR P9: a resumed part keeps PMI another tool added and the file's items of a conflict
-    // not yet decided (or kept), unless the rewrite states them again. A part with nothing to
-    // keep is rewritten as before; a replace-written one with something to keep is rewritten
-    // as a scoped Add, replacing only Specify's marked requirements.
     let mut keep = std::collections::BTreeMap::new();
-    // The file's items of conflicts the answers now decide (restored, or answered anew): they
-    // give way, marked or not.
-    let mut give_way = std::collections::BTreeMap::new();
-    // Replace-written parts taken to a scoped Add only for the Specify-marked PMI they keep.
-    let mut for_keep = BTreeSet::new();
-    let mut reconciled = std::collections::BTreeMap::new();
-    let empty = Map::new();
-    for (loaded, intent, answers) in jobs {
+    // The bookkeeping goes whoever's marker it carries (an older engine's stored answers
+    // are unmarked): it is replaced, never kept beside the new.
+    let mut bookkeeping = std::collections::BTreeMap::new();
+    for (loaded, _, _) in jobs {
         let part = loaded.binding.part;
-        let writes_process = intent.part.contains_key(crate::process::INTENT_KEY);
         let resumed = resume::has_answers(loaded).map_err(|e| WriteError::Failed(e.to_string()))?;
-        // Another tool's PMI: unmarked requirements the resumed answers do not explain.
-        let mut foreign = false;
-        let kept = if resumed {
-            match crate::api::reconciled(loaded).map_err(|e| WriteError::Failed(e.to_string()))? {
-                Some(r) => {
-                    let kept = r.kept_items(
-                        &original.read.parts[part],
-                        answers.unwrap_or(&empty),
-                        writes_process,
-                        &BTreeSet::new(),
-                    );
-                    foreign = provenance::unmarked(&original.doc, &original.read, part)
-                        .iter()
-                        .any(|at| !r.explained.contains(at));
-                    let yields = r.give_way(
-                        &original.read.parts[part],
-                        answers.unwrap_or(&empty),
-                        writes_process,
-                    );
-                    if !yields.is_empty() {
-                        give_way.insert(part, yields);
-                    }
-                    let mut kept = kept;
-                    kept.extend(foreign_support(&original, part));
-                    reconciled.insert(part, r);
-                    kept
-                }
-                None => BTreeSet::new(),
-            }
-        } else {
-            BTreeSet::new()
-        };
-        if resume::scoped(&original.doc, part) && resumed {
+        if resumed && original.has_pmi(part) {
             scoped.push(part);
-        } else if !kept.is_empty() || foreign {
-            // Reconciliation identified this replace-written part's PMI to preserve. Use a
-            // scoped Add so the rewrite only replaces Specify's marked requirements.
-            scoped.push(part);
-            if !foreign {
-                for_keep.insert(part);
-            }
-        }
-        if !kept.is_empty() {
-            keep.insert(part, kept);
+            let all = requirements(&original.read.parts[part]);
+            bookkeeping.insert(
+                part,
+                (0..original.read.parts[part].attributes.len())
+                    .map(|i| ("attributes".to_string(), i))
+                    .filter(|at| !all.contains(at))
+                    .collect::<BTreeSet<_>>(),
+            );
+            keep.insert(part, all);
         }
     }
-    let clean =
-        |scoped: &[usize], keep: &std::collections::BTreeMap<usize, BTreeSet<(String, usize)>>| {
-            provenance::without_owned_except(&original.doc, &original.read, scoped, keep, &give_way)
-                .map_err(WriteError::Refused)
-                .and_then(|bytes| Source::of(&bytes))
-        };
-    let mut cleaned = if scoped.is_empty() {
+    let cleaned = if scoped.is_empty() {
         None
     } else {
-        Some(clean(&scoped, &keep)?)
+        let bytes = provenance::without_owned_except(
+            &original.doc,
+            &original.read,
+            &scoped,
+            &keep,
+            &bookkeeping,
+        )
+        .map_err(WriteError::Refused)?;
+        Some(Source::of(&bytes)?)
     };
-    // What the rewrite states again is not kept beside it: the file's copy gives way.
-    if let Some(first_clean) = &cleaned
-        && !keep.is_empty()
-    {
-        let mut narrowed = keep.clone();
-        for &(loaded, intent, answers) in jobs {
-            let part = loaded.binding.part;
-            let (Some(kept), Some(r)) = (narrowed.get_mut(&part), reconciled.get(&part)) else {
-                continue;
-            };
-            let retained = crate::dimensioning::stated_where(&original.read.parts[part], |i| {
-                r.retained.contains(&("dimensions".into(), i))
-            });
-            let (planned, _) = part_pmi(
-                loaded,
-                intent,
-                &first_clean.read.parts[part],
-                Mode::Add,
-                &retained,
-            )?;
-            let restated = resume::truth::restated(&original.read.parts[part], &planned);
-            *kept = r.kept_items(
-                &original.read.parts[part],
-                answers.unwrap_or(&empty),
-                intent.part.contains_key(crate::process::INTENT_KEY),
-                &restated,
-            );
-            kept.extend(foreign_support(&original, part));
-        }
-        narrowed.retain(|_, kept| !kept.is_empty());
-        if narrowed != keep {
-            keep = narrowed;
-            // A replace-written part whose kept PMI the rewrite states again (an unchanged
-            // rewrite) is written by replace as before, keeping its bytes when unchanged.
-            scoped.retain(|part| !for_keep.contains(part) || keep.contains_key(part));
-            cleaned = if scoped.is_empty() {
-                None
-            } else {
-                Some(clean(&scoped, &keep)?)
-            };
-        }
-    }
     let source = cleaned.as_ref().unwrap_or(&original);
     let failed = |e: crate::features::FeatureError| WriteError::Failed(e.to_string());
 
@@ -827,29 +1002,28 @@ fn write_verified(
         // (haecceity's replace touches only the parts written), so it need not be written
         // again with these; Python's refusal ("write them again with these") is not kept.
     }
-    // Bare/legacy resumed parts use Replace (Q18). Scoped resumed Add parts keep
-    // the foreign baseline above and use Add; only marked requirements were removed.
-    // Unselected assembly parts remain untouched (D3).
-    let mut modes = Vec::new();
-    for (loaded, _, _) in jobs {
-        let foreign = source.has_pmi(loaded.binding.part)
-            && (scoped.contains(&loaded.binding.part)
-                || !resume::has_answers(loaded).map_err(failed)?);
-        modes.push(if foreign { Mode::Add } else { Mode::Replace });
-    }
+    // A part with PMI is added to (ADR P11); a bare part, or one holding only its stored
+    // answers, is written by replace. Unselected assembly parts remain untouched (D3).
+    let modes: Vec<Mode> = jobs
+        .iter()
+        .map(|(loaded, _, _)| {
+            if source.has_pmi(loaded.binding.part) {
+                Mode::Add
+            } else {
+                Mode::Replace
+            }
+        })
+        .collect();
 
     let mut planned = Vec::new();
     for (&(loaded, intent, answers), &mode) in jobs.iter().zip(&modes) {
         // The binding was checked against these same bytes' parts; Source::of verifies reader counts.
         let before = &source.read.parts[loaded.binding.part];
-        let retained = reconciled
-            .get(&loaded.binding.part)
-            .map_or_else(Vec::new, |r| {
-                crate::dimensioning::stated_where(&original.read.parts[loaded.binding.part], |i| {
-                    r.retained.contains(&("dimensions".into(), i))
-                })
-            });
-        let (mut pmi, mut lines) = part_pmi(loaded, intent, before, mode, &retained)?;
+        let (mut pmi, mut lines) = if mode == Mode::Add {
+            part_pmi_added(loaded, intent, before)?
+        } else {
+            part_pmi(loaded, intent, before, Mode::Replace, &[])?
+        };
         if let Some(bom) = intent.part.get("bom").and_then(Json::as_object) {
             for (key, value) in bom {
                 lines.written.push(format!("BOM {key} {value}"));
@@ -857,77 +1031,44 @@ fn write_verified(
         }
         let payload = match answers {
             Some(answers) => {
-                let part = loaded.binding.part;
-                let reconciliation = reconciled.get(&part);
-                let foreign_process = reconciliation.map_or_else(
-                    || {
-                        crate::process::file_pmi(
-                            &original.doc,
-                            &original.read.parts[part],
-                            &original.read.provenance.parts[part],
-                        )
-                        .is_some_and(|(_, field)| field.source == "file")
-                    },
-                    |r| r.foreign_process,
-                );
                 let mut saved = answers.clone();
                 saved.remove(crate::answer_file::META);
                 saved.remove(crate::characteristics::CARRY);
                 saved.remove(crate::bom::CARRY);
                 saved.retain(|key, _| !key.starts_with("bom."));
-                // ADR P9: an answer another tool's requirement holds the question against is
-                // not written, so it is not stored either: reopening reads the file's value.
-                if let Some(r) = reconciliation {
-                    // Keep a withheld answer dormant. On the next reopen, the same file
-                    // PMI still prevents it from becoming an active answer.
-                    for (id, value) in &r.withheld {
-                        if !saved.contains_key(id) {
-                            saved.insert(id.clone(), value.clone());
+                // ADR P11: only what leaves no PMI behind is stored; the file states the rest.
+                // What the file stored already stays unless answered anew: leaving an answer
+                // out removes nothing.
+                // Read as resuming reads them (matched to today's features).
+                let mut kept: Map<String, Json> = resume::answers_for(loaded)
+                    .map_err(failed)?
+                    .as_ref()
+                    .map(|old| {
+                        crate::feature_table::storable(old)
+                            .into_iter()
+                            .filter(|(id, _)| !id.starts_with('_') && !id.starts_with("bom."))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                // An answer given now replaces the stored one, whatever its value.
+                let now = crate::feature_table::storable(&saved);
+                for (id, value) in &saved {
+                    match now.get(id) {
+                        Some(_) => {
+                            kept.insert(id.clone(), value.clone());
+                        }
+                        None => {
+                            kept.shift_remove(id);
                         }
                     }
-                    for c in r.conflicts.iter().filter(|c| c.foreign) {
-                        saved.remove(&c.id);
-                    }
-                    for id in &r.foreign_file {
-                        saved.remove(id);
-                    }
                 }
-                if foreign_process {
-                    saved.remove(crate::process::QUESTION);
-                }
+                let saved = kept;
                 let mut payload = resume::payload(loaded, &saved).map_err(failed)?;
                 // Carry blocks on questions not asked now (#126) are kept beside the answers,
                 // never inside them: older builds refuse `_specify` among answers.
                 let blocks = crate::answer_file::unresolved(answers);
                 if !blocks.is_empty() {
                     payload[resume::UNRESOLVED] = Json::Object(blocks);
-                }
-                // ADR P9: conflicts kept are stored beside the answers (a kept requirement is
-                // also written unmarked, as the file's own), so a later answer to the question
-                // still finds the file's requirement it replaces. Answering clears the keep.
-                // Another tool's requirement (a foreign process or PMI) doesn't acquire that
-                // permission when its conflict is kept: it stays keep-only.
-                let kept: Vec<Json> = resume::truth::kept(answers)
-                    .into_iter()
-                    .filter(|id| !answers.contains_key(*id))
-                    .filter(|id| !foreign_process || *id != crate::process::QUESTION)
-                    .filter(|id| !reconciliation.is_some_and(|r| r.is_foreign(id)))
-                    .map(Json::from)
-                    .collect();
-                if kept.iter().any(|id| id == crate::process::QUESTION)
-                    && let Some((i, identity)) =
-                        reconciliation.and_then(|r| r.process_keep_identity.as_ref())
-                    && keep
-                        .get(&part)
-                        .is_some_and(|items| items.contains(&("attributes".into(), *i)))
-                {
-                    payload[resume::KEPT_PROCESS] = identity.clone();
-                }
-                if !kept.is_empty() {
-                    payload[resume::KEPT] = Json::Array(kept);
-                }
-                if mode == Mode::Add || scoped.contains(&loaded.binding.part) {
-                    payload["pmi_scope"] = Json::String(PMI_PROVENANCE.into());
                 }
                 pmi.attributes.push(resume::attribute_set(&payload));
                 Some(payload)
@@ -942,15 +1083,25 @@ fn write_verified(
             &original.read.provenance.parts[loaded.binding.part],
             &original.doc,
             answers,
-            if scoped.contains(&loaded.binding.part) {
-                crate::characteristics::Allocation::Scoped
-            } else if mode == Mode::Replace {
+            if mode == Mode::Replace {
                 crate::characteristics::Allocation::Replace
             } else {
                 crate::characteristics::Allocation::Add
             },
         )
         .map_err(WriteError::Invalid)?;
+        // The number record was taken off with the stored answers; with nothing new to
+        // number, the file's record is written back as it was.
+        let property = |set: &AttributeSet| set.name == crate::characteristics::PROPERTY;
+        if scoped.contains(&loaded.binding.part) && !pmi.attributes.iter().any(property) {
+            pmi.attributes.extend(
+                original.read.parts[loaded.binding.part]
+                    .attributes
+                    .iter()
+                    .filter(|set| property(set))
+                    .cloned(),
+            );
+        }
         if mode == Mode::Replace || scoped.contains(&loaded.binding.part) {
             let mut retired = crate::characteristics::retired(
                 &original.read.parts[loaded.binding.part],
@@ -1012,33 +1163,6 @@ fn write_verified(
         .collect();
     let (back, kernel_report) = write_by_modes(source, &items, &modes)?;
     verify(source, &items, &modes, &back)?;
-    // ADR P9: a conflict kept by keeping the file's requirement makes it the file's own: it is
-    // written without Specify's provenance marker, so any reader (and Specify reopening it)
-    // sees it as PMI another tool stated, not as Specify's to restate from its answers.
-    let back = {
-        let mut ids = BTreeSet::new();
-        for (&part, r) in &reconciled {
-            let Some(kept) = keep.get(&part) else {
-                continue;
-            };
-            let Some(job) = jobs.iter().find(|(l, _, _)| l.binding.part == part) else {
-                continue;
-            };
-            let empty = Map::new();
-            let answers = job.2.unwrap_or(&empty);
-            ids.extend(r.decided_kept(
-                &original.read.parts[part],
-                &original.read.provenance.parts[part],
-                kept,
-                answers,
-            ));
-        }
-        if ids.is_empty() {
-            back
-        } else {
-            provenance::unmark(&back, &ids).map_err(WriteError::Failed)?
-        }
-    };
     let stored = resume::stored(&back);
     for p in &planned {
         let k = p.loaded.binding.part;
@@ -1068,6 +1192,17 @@ fn write_verified(
                     &source.doc,
                 )
         });
+    // ADR P11: a save whose result states exactly what the file did (the same PMI, answers
+    // and number history: nothing was added) keeps the file's bytes.
+    let adds_nothing = !unchanged
+        && modes.iter().all(|m| *m == Mode::Add)
+        && Source::of(&back).is_ok_and(|after| {
+            items.iter().all(|(part, _)| {
+                differences_as_stated(&original.read.parts[part.0], &after.read.parts[part.0])
+                    .is_empty()
+            })
+        });
+    let unchanged = unchanged || adds_nothing;
     let back = if unchanged { bytes.to_vec() } else { back };
     let back = if jobs
         .iter()

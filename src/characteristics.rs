@@ -355,9 +355,10 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
 }
 
 /// Each numbered requirement of `p` (datums, dimensions, tolerances, surface textures,
-/// threads, knurls) by haecceity collection and index, with its characteristic key as text:
-/// the identity two requirements share when one restates the other.
-pub(crate) fn keyed(p: &PartPmi) -> Vec<((&'static str, usize), String)> {
+/// threads, knurls) by haecceity collection and index, with what it measures: kind, type,
+/// faces and reference. Two requirements with the same are the same measurement, whatever
+/// their values (ADR P11: a save does not state again what the file states).
+pub(crate) fn measures(p: &PartPmi) -> Vec<((&'static str, usize), String)> {
     let lengths = [
         ("datums", p.datums.len()),
         ("dimensions", p.dimensions.len()),
@@ -370,7 +371,13 @@ pub(crate) fn keyed(p: &PartPmi) -> Vec<((&'static str, usize), String)> {
         .into_iter()
         .flat_map(|(collection, len)| (0..len).map(move |i| (collection, i)));
     at.zip(items(p, None, None))
-        .map(|(at, item)| (at, serde_json::to_string(&item.key).unwrap_or_default()))
+        .map(|(at, item)| {
+            let k = item.key;
+            (
+                at,
+                format!("{} {} {:?} {:?}", k.kind, k.r#type, k.faces, k.reference),
+            )
+        })
         .collect()
 }
 
@@ -567,7 +574,6 @@ fn legacy_depth_key(p: &PartPmi, index: usize) -> Option<Key> {
 pub(crate) enum Allocation {
     Add,
     Replace,
-    Scoped,
 }
 
 /// First allocate in inspection order; later additions use stable model order after matching
@@ -582,8 +588,7 @@ pub(crate) fn allocate(
     answers: Option<&Map<String, Value>>,
     mode: Allocation,
 ) -> Result<(), String> {
-    let replace = !matches!(mode, Allocation::Add);
-    let scoped = matches!(mode, Allocation::Scoped);
+    let replace = matches!(mode, Allocation::Replace);
     let fingerprint = resume::fingerprint(loaded).map_err(|e| e.to_string())?;
     let saved = history(before)?;
     let carried = answers
@@ -606,6 +611,7 @@ pub(crate) fn allocate(
         .iter()
         .filter_map(|item| Some((number(doc, item.entity)?, &item.value_hint)))
         .collect();
+    let unchanged = saved.clone();
     let mut old = saved.unwrap_or_default();
     if let Some(h) = carried.filter(|_| !has_saved) {
         old = h;
@@ -633,41 +639,6 @@ pub(crate) fn allocate(
                 .max()
                 .unwrap_or(0),
         );
-    if scoped {
-        // Foreign numbers reserve the high-water mark but cannot be claimed by a new
-        // Specify requirement on the same support. Shared datums retain their numbers.
-        let owned: BTreeSet<_> = before_items
-            .iter()
-            .filter(|item| {
-                item.key.kind == "datum"
-                    || match item.key.kind.as_str() {
-                        "dimension" => prov.dimensions.iter().any(|ids| {
-                            ids.contains(&item.entity) && crate::provenance::dimension(doc, ids)
-                        }),
-                        "geometric_tolerance" => {
-                            prov.tolerances.iter().enumerate().any(|(i, ids)| {
-                                ids.contains(&item.entity)
-                                    && before.tolerances[i].description.as_deref()
-                                        == Some(crate::provenance::MARKER)
-                            })
-                        }
-                        kind => {
-                            let (items, marker) = match kind {
-                                "thread" => (&prov.threads, "thread"),
-                                "knurl" => (&prov.knurls, "knurl"),
-                                _ => (&prov.surface_textures, "surface texture"),
-                            };
-                            items.iter().any(|ids| {
-                                ids.contains(&item.entity)
-                                    && crate::provenance::marked(doc, ids, marker)
-                            })
-                        }
-                    }
-            })
-            .filter_map(|item| number(doc, item.entity))
-            .collect();
-        old.entries.retain(|e| owned.contains(&e.number));
-    }
     let new = items(p, None, None);
     let legacy_depths: BTreeSet<_> = before
         .dimensions
@@ -832,7 +803,7 @@ pub(crate) fn allocate(
     for n in order {
         let item = &new[n];
         let matched = matched[n];
-        if (!replace || scoped)
+        if !replace
             && item.key.kind == "datum"
             && before_items
                 .iter()
@@ -890,12 +861,27 @@ pub(crate) fn allocate(
         }
     }
     if old.high_water > 0 {
-        p.attributes.push(attribute(&History {
+        let history = History {
             schema: 2,
             faces: fingerprint,
             high_water: old.high_water,
             entries,
-        }));
+        };
+        // Added to a part whose record already says the same: the file's record stands as
+        // it is, so a save that adds nothing keeps its bytes (ADR P11).
+        let same = |h: &History| {
+            h.schema == history.schema
+                && h.faces == history.faces
+                && h.high_water == history.high_water
+                && h.entries.len() == history.entries.len()
+                && h.entries.iter().all(|e| history.entries.contains(e))
+        };
+        match before.attributes.iter().find(|a| a.name == PROPERTY) {
+            Some(record) if !replace && unchanged.as_ref().is_some_and(same) => {
+                p.attributes.push(record.clone());
+            }
+            _ => p.attributes.push(attribute(&history)),
+        }
     }
     Ok(())
 }

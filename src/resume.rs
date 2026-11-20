@@ -1,11 +1,9 @@
 //! Answers stored in a written STEP and resumed from it (port of `resume.py`).
 //!
-//! Writing a part, specify-core also stores the answers it was given in the file, so that
-//! opening the file again resumes them. Replace-mode files analyse the geometry alone;
-//! scoped Add-mode files also retain foreign PMI as existing interview answers. A mixed
-//! rewrite removes only provenance-marked Specify requirements before adding replacements.
-//! Add payloads carry `pmi_scope: "specify-core:written:v1"`; legacy payloads without it
-//! retain their previous behavior. The payload is
+//! Writing a part, specify-core also stores in the file the answers that leave no PMI behind
+//! (decided none, and choices): ADR P11, the file's PMI is the only copy of the rest. Older
+//! files store every answer; those that repeat the file's PMI are ignored on reading. Older
+//! Add payloads carry `pmi_scope`, which only picks among several stored frames. The payload is
 //! Python's: `{schema, answers, part, face_count, faces}` as compact JSON, base64-encoded (a
 //! Part 21 string then needs no escapes), `faces` being a [`fingerprint`] of the part's faces
 //! that is checked before unnamed face indices are trusted. Named parts write schema 3 with
@@ -82,31 +80,10 @@ fn without_unknown(out: &mut Resumed) {
     }
 }
 
-/// The payload member holding the questions whose requirement the person decided to leave
-/// removed from the file (ADR P9 conflicts kept, `_specify.keep`): a removal leaves no item to
-/// carry the decision in the PMI itself, so it is kept beside the answers.
-pub const KEPT: &str = "kept";
-
-/// The set name and items of a kept Specify-authored process UDA.
-pub(crate) const KEPT_PROCESS: &str = "kept_process";
-
-/// The payload's carry blocks ([`UNRESOLVED`]) and kept removals ([`KEPT`]) as answers'
-/// metadata, when well formed.
+/// The payload's carry blocks ([`UNRESOLVED`]) as answers' metadata, when well formed. A
+/// 0.2 payload's kept conflicts (`kept`) are ignored: ADR P11 has no conflicts to keep.
 fn restore_blocks(payload: &Map<String, Value>, answers: &mut Map<String, Value>) {
     restore_unresolved(payload, answers);
-    if let Some(kept) = payload.get(KEPT).and_then(Value::as_array)
-        && !kept.is_empty()
-        && kept
-            .iter()
-            .all(|id| id.as_str().is_some_and(|s| !s.is_empty()))
-    {
-        let meta = answers
-            .entry(crate::answer_file::META)
-            .or_insert_with(|| json!({}));
-        if let Some(meta) = meta.as_object_mut() {
-            meta.insert(truth::KEEP.into(), Value::Array(kept.clone()));
-        }
-    }
 }
 
 fn restore_unresolved(payload: &Map<String, Value>, answers: &mut Map<String, Value>) {
@@ -120,14 +97,6 @@ fn restore_unresolved(payload: &Map<String, Value>, answers: &mut Map<String, Va
             json!({ UNRESOLVED: blocks }),
         );
     }
-}
-
-/// Add-mode payloads scope replacement to provenance-marked requirements. Absence keeps
-/// legacy resume semantics, including 0.1.7 Add-mode files with no stored answers.
-pub(crate) fn scoped(doc: &Document, part: usize) -> bool {
-    stored_with_form(doc).get(&part).is_some_and(|(p, _)| {
-        p.get("pmi_scope").and_then(Value::as_str) == Some(crate::provenance::MARKER)
-    })
 }
 
 /// The faces in order, by kind and centroid rounded to 3 decimals: what answers refer to, as

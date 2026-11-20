@@ -1,5 +1,6 @@
-//! Reopening skips stored answers where the file already has PMI in their scope. Ordinary
-//! file reconciliation handles the question, and the file's PMI survives saving.
+//! Answers that leave no PMI behind are stored and read back (ADR P11). Reopening ignores
+//! stored answers where the file already has PMI in their scope: the file states them, and
+//! the file's PMI survives saving.
 
 mod common;
 
@@ -12,13 +13,13 @@ use specify_core::api;
 use specify_core::part::{LoadedPart, load_bytes};
 use specify_core::session::{self, Opened, Session};
 
-/// The plate's answers that write no PMI, with the defaults it is offered.
-const SILENT: [&str; 8] = [
+/// The plate's answers that write no PMI, with the defaults it is offered. (Hole 9's
+/// "general" writes its size under the general tolerance, which the file then states.)
+const SILENT: [&str; 7] = [
     "part.coating",
     "part.heat_treatment",
     "part.notes",
     "part.locating",
-    "hole.function:holes:9",
     "datum.A.flatness",
     "datum.B.control",
     "datum.C.control",
@@ -57,6 +58,27 @@ fn material() -> Map<String, Value> {
 
 fn load(bytes: Vec<u8>) -> LoadedPart {
     load_bytes("plate.step", bytes).unwrap()
+}
+
+/// Whether the feature table says the file states `id`.
+fn stated(analysis: &Value, id: &str) -> bool {
+    analysis["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["id"] == id && r["state"] == "stated")
+}
+
+/// Each of `ids` is resumed when it leaves no PMI behind, else stated by the file.
+fn resumed_or_stated<'a>(analysis: &Value, ids: impl IntoIterator<Item = &'a String>) {
+    let answers = analysis["resume"]["answers"].as_object().unwrap();
+    for id in ids {
+        assert!(
+            answers.contains_key(id) || stated(analysis, id),
+            "{id} is neither resumed nor stated: {}",
+            analysis["resume"]
+        );
+    }
 }
 
 fn asked(analysis: &Value) -> (Vec<String>, Vec<String>) {
@@ -137,8 +159,13 @@ fn approved_defaults_that_write_no_pmi_resume_and_are_not_asked() {
     let resume = &again["resume"];
     assert!(resume.get("conflicts").is_none(), "{resume}");
     let answers = resume["answers"].as_object().unwrap();
-    for id in SILENT.iter().chain(&WRITING) {
-        assert!(answers.contains_key(*id), "{id} is not resumed: {resume}");
+    for id in SILENT {
+        assert!(answers.contains_key(id), "{id} is not resumed: {resume}");
+    }
+    // ADR P11: those that write PMI are not stored; the file states them.
+    for id in WRITING {
+        assert!(!answers.contains_key(id), "{id} is stored: {resume}");
+        assert!(stated(&again, id), "{id} is not stated");
     }
     let (_, open) = asked(&again);
     assert!(open.is_empty(), "asked again: {open:?}");
@@ -184,14 +211,13 @@ fn accept_defaults_on_the_command_line_stores_the_defaults_that_write_no_pmi() {
     let resume = &again["resume"];
     assert!(resume.get("conflicts").is_none(), "{resume}");
     let answers = resume["answers"].as_object().unwrap();
-    let present = resume["present"].as_object().unwrap();
-    assert!(answers.contains_key("part.material"), "{resume}");
+    assert!(stated(&again, "part.material"), "{resume}");
     for id in SILENT {
         assert!(answers.contains_key(id), "{id} is not resumed: {resume}");
     }
     for id in WRITING {
         assert!(!answers.contains_key(id), "{id} is stored: {resume}");
-        assert!(present.contains_key(id), "{id} is not present: {resume}");
+        assert!(stated(&again, id), "{id} is not stated");
     }
     let (_, open) = asked(&again);
     assert!(open.is_empty(), "asked again: {open:?}");
@@ -273,10 +299,12 @@ fn foreign_flatness_withholds_stored_none() {
     }
 }
 
-/// An answer that wrote PMI whose PMI was then removed in the file is still a conflict,
-/// "removed in the file": its answer is not mistaken for one that never wrote anything.
+/// An answer that wrote PMI whose PMI is not in the file: the deletion stands (ADR P11). Its
+/// feature-and-kind is a gap, with no conflict, and the answer is not mistaken for one that
+/// never wrote anything (it is not resumed). The writer no longer stores such an answer, so
+/// there is nothing to mention; `tests/feature_table.rs` reopens a 0.2 file that did.
 #[test]
-fn an_answer_whose_pmi_was_removed_is_still_a_conflict() {
+fn an_answer_whose_pmi_was_removed_is_a_gap_again() {
     let mut given = material();
     given.insert("datum.A.flatness".into(), json!("0.05"));
     let mut wrote = given.clone();
@@ -292,12 +320,28 @@ fn an_answer_whose_pmi_was_removed_is_still_a_conflict() {
     )
     .unwrap()
     .0;
-    let again = api::analyse(&load(bytes)).unwrap();
-    let conflicts = again["resume"]["conflicts"].as_array().unwrap();
-    assert_eq!(conflicts.len(), 1, "{}", again["resume"]);
-    assert_eq!(conflicts[0]["id"], "datum.A.flatness");
-    assert_eq!(conflicts[0]["stored"], "0.05");
-    assert_eq!(conflicts[0]["file"], Value::Null);
+    let (again, warnings) = api::analyse_reporting(&load(bytes)).unwrap();
+    assert!(
+        again["resume"].get("conflicts").is_none(),
+        "{}",
+        again["resume"]
+    );
+    assert!(again["resume"]["answers"].get("datum.A.flatness").is_none());
+    let row = again["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == "datum.A.flatness")
+        .unwrap();
+    assert_eq!(row["state"], "gap", "{row}");
+    assert_eq!(
+        warnings
+            .iter()
+            .filter(|w| w.contains("datum.A.flatness"))
+            .count(),
+        0,
+        "{warnings:?}"
+    );
     // The silent answers stored beside it resume.
     let answers = again["resume"]["answers"].as_object().unwrap();
     for id in SILENT.iter().filter(|id| **id != "datum.A.flatness") {
@@ -325,10 +369,14 @@ fn an_assembly_part_with_only_approved_defaults_is_written() {
     let written = saved.report["written"].to_string();
     assert!(written != "[]", "{}", saved.report);
     let again = api::analyse_file(Path::new(&saved.path), Some(1)).unwrap();
+    // ADR P11: stored when they leave no PMI behind, else stated by the file.
     let answers = again["resume"]["answers"].as_object().unwrap();
     for (id, value) in &defaults {
-        assert_eq!(answers.get(id), Some(value), "{id}: {}", again["resume"]);
+        if !stated(&again, id) {
+            assert_eq!(answers.get(id), Some(value), "{id}: {}", again["resume"]);
+        }
     }
+    resumed_or_stated(&again, defaults.keys());
 }
 
 /// `bytes` with `added` written by haecceity's own writer (Add): another tool's PMI, without
@@ -389,7 +437,12 @@ fn silent_answers_resume_on_clean_plate_and_enclosure_faces() {
                 .is_empty()
         );
         let again = api::analyse(&back).unwrap();
-        assert_eq!(again["resume"]["answers"], json!(answers));
+        // ADR P11: the hole's general size is the file's; the rest is stored.
+        assert_eq!(
+            again["resume"]["answers"],
+            json!(specify_core::feature_table::storable(&answers))
+        );
+        resumed_or_stated(&again, answers.keys());
         assert!(again["resume"].get("conflicts").is_none());
         for id in answers.keys() {
             assert!(!asked(&again).1.contains(id), "{id}");
@@ -480,8 +533,9 @@ fn edited_location_survives_two_saves(old: i32, new: i32, basic: bool, question:
     assert!(location_measure(&part, f64::from(new), basic).is_some());
     for _ in 0..2 {
         let analysis = api::analyse(&part).unwrap();
-        // The basic case has file position PMI. The nominal location leaves function open.
-        assert_withheld(&analysis, question, !basic);
+        // The basic case has file position PMI. In the nominal case the file states the
+        // hole's size under the general tolerance (ADR P11: whoever wrote it).
+        assert_withheld(&analysis, question, false);
         (part, _) = saved_again(&part, &analysis);
         assert!(
             location_measure(&part, f64::from(new), basic).is_some(),
@@ -559,15 +613,9 @@ fn a_marked_position_tolerance_contradicts_stored_none() {
     let resume = &analysis["resume"];
     let (back, again) = saved_again(&edited, &analysis);
     assert_eq!(positions(&back), [(0.2, true)], "{resume}");
-    // The marked position answers the question as file PMI under #204.
+    // The marked position answers the question as file PMI (ADR P11).
     assert_withheld(&analysis, hole, false);
-    assert!(
-        resume["file"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|id| id == hole)
-    );
+    assert!(stated(&analysis, hole), "{resume}");
     let (back, _) = saved_again(&back, &again);
     assert_eq!(positions(&back), [(0.2, true)]);
 }
@@ -806,10 +854,7 @@ fn another_part_resumes_its_silent_answers() {
         let again = api::analyse(&back).unwrap();
         let resume = &again["resume"];
         assert!(resume.get("conflicts").is_none(), "{resume}");
-        let answers = resume["answers"].as_object().unwrap();
-        for id in stored.keys() {
-            assert!(answers.contains_key(id), "{id} is not resumed: {resume}");
-        }
+        resumed_or_stated(&again, stored.keys());
         let (_, open) = asked(&again);
         assert!(open.is_empty(), "asked again: {open:?}");
     }
@@ -875,9 +920,9 @@ fn file_process(part: &LoadedPart) -> (usize, Value) {
     (sets, process::read_pmi(&read.parts[0]).unwrap().value)
 }
 
-/// Both P9 rules on one file: another tool changed the process (#208) and added a flatness on
-/// datum A against the stored "none" (no-PMI answers). Two reopen-and-save rounds keep both:
-/// the process is a foreign conflict on reopening, and the flatness answer is withheld.
+/// Another tool changed the process (#208) and added a flatness on datum A against the stored
+/// "none" (no-PMI answers). Two reopen-and-save rounds keep both: the file states them (ADR
+/// P11), with no conflict, and the stored "none" is dropped.
 #[test]
 fn foreign_process_and_flatness_survive_two_saves() {
     use specify_core::process;
@@ -889,21 +934,12 @@ fn foreign_process_and_flatness_survive_two_saves() {
     assert_eq!(file_process(&part), (1, json!(process::CAST)));
     for round in 0..2 {
         let analysis = api::analyse(&part).unwrap();
-        let conflict = analysis["resume"]["conflicts"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|c| c["id"] == process::QUESTION);
-        if round == 0 {
-            let conflict = conflict.expect("the changed process conflicts with the saved answer");
-            assert_eq!(conflict["stored"], process::MACHINED);
-            assert_eq!(conflict["file"], process::CAST);
-            assert_eq!(conflict["foreign"], true);
-        } else {
-            // #208: a foreign process's answer is not stored again, so the file's process
-            // stands unchallenged on later reopenings.
-            assert!(conflict.is_none(), "{}", analysis["resume"]);
-        }
+        // ADR P11: the file's process is simply the file's: no conflict, in any round.
+        assert!(
+            analysis["resume"].get("conflicts").is_none(),
+            "{}",
+            analysis["resume"]
+        );
         assert!(
             analysis["resume"]["answers"]
                 .get(process::QUESTION)
@@ -928,10 +964,9 @@ fn foreign_process_and_flatness_survive_two_saves() {
                 .any(|e| e.r#type == "Flatness" && e.faces == [2] && e.value == Some(0.05)),
             "round {round}: lost the flatness"
         );
-        // The withheld answer stays dormant in the file, still withheld on the next reopen.
-        assert_eq!(
-            specify_core::resume::stored(&part.bytes)[&0]["answers"]["datum.A.flatness"],
-            "none"
-        );
+        // ADR P11: the file's flatness states the question, so the stored "none" is not read
+        // back. (It stays in the payload until a save from the table drops it: piece 2.)
+        let again = api::analyse(&part).unwrap();
+        assert!(again["resume"]["answers"].get("datum.A.flatness").is_none());
     }
 }

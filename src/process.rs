@@ -341,16 +341,6 @@ fn stated<'a>(ctx: &Ctx<'a>) -> Option<&'a str> {
         .and_then(Value::as_str)
 }
 
-/// A foreign UDA is authoritative on every save. `resume.file` identifies a kept
-/// Specify-authored process that lost its marker and can still be answered anew.
-pub(crate) fn foreign(analysis: &Value) -> bool {
-    analysis["part"]["process"].is_string()
-        && analysis["process"]["source"] == "file"
-        && !analysis["resume"]["file"]
-            .as_array()
-            .is_some_and(|ids| ids.iter().any(|id| id == QUESTION))
-}
-
 /// The material to guess from: the answer, else what the file states.
 fn material<'a>(ctx: &'a Ctx<'_>, answers: &'a Map<String, Value>) -> Option<&'a str> {
     answers
@@ -440,18 +430,6 @@ pub(crate) fn question(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> Option<Qu
     })
 }
 
-/// The process the file holds for a part, as analysis reports it (`analysis.process`), and
-/// whether the file states it (`analysis.part.process`): Specify's answer or another tool's
-/// value is stated unless `answered` (resumed answers) already hold the process.
-pub(crate) fn analysis_entries(
-    doc: &Document,
-    product_definition: u64,
-    answered: Option<&Map<String, Value>>,
-    analysis: &mut Map<String, Value>,
-) {
-    stated_entries(read(doc, product_definition), answered, analysis);
-}
-
 /// [`analysis_entries`] of the process already read.
 pub(crate) fn stated_entries(
     field: Option<Field>,
@@ -482,8 +460,6 @@ pub fn of(
     analysis: &Value,
     answers: &Map<String, Value>,
 ) -> Result<Option<Field>, crate::rules::Error> {
-    let answers = &*crate::resume::truth::answered(analysis, answers);
-    let analysis = &*crate::resume::truth::restored(analysis, answers);
     let ctx = Ctx::new(analysis)?;
     if !applies(&ctx, answers) {
         return Ok(None);

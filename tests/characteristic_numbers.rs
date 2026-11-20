@@ -53,134 +53,6 @@ fn rebind(i: &rules::Intent, p: &part::LoadedPart) -> rules::Intent {
 }
 
 #[test]
-fn the_pre_depth_fix_enclosure_keeps_characteristic_13_on_resume() {
-    // Captured Specify 0.1.15 output supplied with the enclosure case. It uses
-    // origin/main's old curve-length form; never regenerate it with this writer.
-    let old = load("characteristic-numbers-enclosure-curve-depth.step.gz");
-    let prior = numbers(&old);
-    let depth = prior.iter().find(|c| c.number == 13).unwrap();
-    assert_eq!(depth.r#type, "Size_CurveLength");
-    assert_eq!(depth.faces, [3, 24, 25, 26]);
-    assert_eq!(depth.source.as_ref().unwrap().parameter, "bore.depth");
-    let answers = resume::answers_for(&old).unwrap().unwrap();
-    let analysis = api::analyse(&old).unwrap();
-    let intent = rules::apply_with_defaults(&analysis, &answers, true).unwrap();
-    let (bytes, report) = writer::write_bytes(&old, &intent, Some(&answers)).unwrap();
-    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
-    let upgraded = back(bytes);
-    let current = numbers(&upgraded);
-    let depth = current.iter().find(|c| c.number == 13).unwrap();
-    assert_eq!(depth.r#type, "Location_LinearDistance");
-    assert_eq!(depth.faces.len(), 4);
-    assert_eq!(depth.reference.len(), 4);
-    assert_eq!(depth.source.as_ref().unwrap().parameter, "bore.depth");
-    assert_eq!(
-        current.iter().map(|c| c.number).collect::<BTreeSet<_>>(),
-        prior.iter().map(|c| c.number).collect()
-    );
-    let unchanged = |rows: Vec<characteristics::Characteristic>| {
-        rows.into_iter()
-            .filter(|c| c.number != 13)
-            .map(|c| (c.number, c.kind, c.r#type, c.faces, c.reference))
-            .collect::<BTreeSet<_>>()
-    };
-    assert_eq!(unchanged(current), unchanged(prior));
-    assert_eq!(
-        upgraded.bytes.as_slice(),
-        writer::write_bytes(&upgraded, &rebind(&intent, &upgraded), Some(&answers))
-            .unwrap()
-            .0
-            .as_slice()
-    );
-}
-
-#[test]
-fn a_foreign_or_non_depth_curve_length_cannot_claim_the_depth_number() {
-    let captured = load("characteristic-numbers-enclosure-curve-depth.step.gz");
-    for foreign in [false, true] {
-        let doc = Document::parse(captured.bytes.to_vec()).unwrap();
-        let read = haecceity::pmi::read(&doc, std::slice::from_ref(&captured.definition)).unwrap();
-        let i = read.parts[0]
-            .dimensions
-            .iter()
-            .position(|d| {
-                matches!(
-                    d.kind,
-                    haecceity::pmi::DimensionKind::Size {
-                        kind: haecceity::pmi::SizeKind::CurveLength,
-                        ..
-                    }
-                )
-            })
-            .unwrap();
-        let ids = &read.provenance.parts[0].dimensions[i];
-        let mut edit = Edit::new();
-        let mut changed = 0;
-        for (&id, entity) in &doc.graph().entities {
-            let RawEntity::Simple {
-                name, attributes, ..
-            } = entity
-            else {
-                continue;
-            };
-            if foreign {
-                if name == "DESCRIPTION_ATTRIBUTE"
-                    && matches!(attributes.as_slice(),
-                    [Attribute::String(s), Attribute::EntityRef(owner)]
-                    if s == "specify-core:written:v1" && ids.contains(owner))
-                {
-                    edit.remove(id);
-                    changed += 1;
-                }
-            } else if name == "DESCRIPTIVE_REPRESENTATION_ITEM"
-                && let Some(Attribute::String(text)) = attributes.get(1)
-                && let Ok(mut plan) = serde_json::from_str::<Value>(text)
-                && let Some(role) = plan.pointer_mut("/required/kind/size/role")
-                && role == "bore.depth"
-            {
-                *role = json!("bore.path_length");
-                let mut record = entity.clone();
-                let RawEntity::Simple { attributes, .. } = &mut record else {
-                    unreachable!()
-                };
-                attributes[1] = Attribute::String(serde_json::to_string(&plan).unwrap());
-                edit.replace(id, record);
-                changed += 1;
-            }
-        }
-        assert_eq!(changed, 1);
-        let old = back(doc.apply(&edit).unwrap().bytes);
-        let answers = resume::answers_for(&old).unwrap().unwrap();
-        let intent =
-            rules::apply_with_defaults(&api::analyse(&old).unwrap(), &answers, true).unwrap();
-        let rewritten = back(
-            writer::write_bytes(&old, &intent, Some(&answers))
-                .unwrap()
-                .0,
-        );
-        let current = numbers(&rewritten);
-        // ADR P9: a foreign (unmarked) curve length in a file Specify wrote is another tool's
-        // PMI and is kept as it is, its own identifier with it; no Specify item takes 13.
-        assert!(current.iter().filter(|c| c.number == 13).all(|c| {
-            foreign
-                && c.source
-                    .as_ref()
-                    .is_none_or(|s| s.parameter != "bore.depth")
-        }));
-        let depth = current
-            .iter()
-            .find(|c| {
-                c.source
-                    .as_ref()
-                    .is_some_and(|s| s.parameter == "bore.depth")
-            })
-            .unwrap();
-        assert_eq!(depth.r#type, "Location_LinearDistance");
-        assert!(depth.number > 23);
-    }
-}
-
-#[test]
 fn release_016_debug_history_upgrades_every_number_to_schema_2() {
     // Captured by the unmodified v0.1.6 tag (d6f65a8), using this exact intent
     // on parts/pin.step. Never regenerate this fixture with the current writer.
@@ -300,7 +172,7 @@ fn every_kind_round_trips_standard_ids_additively_and_is_exposed_in_analysis_and
 }
 
 #[test]
-fn additions_do_not_renumber_removals_retire_even_after_an_empty_write_and_values_can_change() {
+fn additions_do_not_renumber_and_leaving_out_removes_nothing() {
     let p = load("parts/plate.step");
     let mut i = intent(&p);
     let first = write(&p, &i);
@@ -328,51 +200,22 @@ fn additions_do_not_renumber_removals_retire_even_after_an_empty_write_and_value
         assert_eq!(now.number, n.number);
     }
     assert_eq!(ns.iter().find(|c| c.faces == [5]).unwrap().number, 7);
+    // ADR P11: leaving a requirement out, or writing a stated one with another value, changes
+    // nothing (a change or a remove is an explicit edit); nor does an empty write.
     i = rebind(&i, &added);
     i.requirements.remove(0);
     i.requirements[0].insert("upper".into(), json!(0.2));
-    let removed = write(&added, &i);
-    assert_eq!(
-        numbers(&removed)
-            .iter()
-            .map(|c| c.number)
-            .collect::<Vec<_>>(),
-        old.iter().map(|c| c.number).collect::<Vec<_>>()
-    );
-    i = rebind(&i, &removed);
-    i.requirements.insert(
-        0,
-        json!({"kind":"flatness", "faces":[5], "tolerance":0.02})
-            .as_object()
-            .unwrap()
-            .clone(),
-    );
-    let readded = write(&removed, &i);
-    assert_eq!(
-        numbers(&readded)
-            .iter()
-            .find(|c| c.faces == [5])
-            .unwrap()
-            .number,
-        8
-    );
+    let left_out = write(&added, &i);
+    assert_eq!(left_out.bytes, added.bytes);
     let empty = write(
-        &readded,
-        &rules::Intent::new(serde_json::to_value(&readded.binding).unwrap()),
+        &added,
+        &rules::Intent::new(serde_json::to_value(&added.binding).unwrap()),
     );
-    // ADR P9: no stored answer states the part's finish, which the file states otherwise than
-    // its default: the file answers that question, so even an empty write keeps it (#6).
-    // Every other requirement is Specify's to state from the (empty) intent, and goes.
-    assert_eq!(
-        numbers(&empty)
-            .iter()
-            .map(|c| (c.number, c.kind.as_str(), c.faces.is_empty()))
-            .collect::<Vec<_>>(),
-        [(6, "surface_texture", true)]
-    );
+    assert_eq!(numbers(&empty), ns);
+    // A later addition is numbered after the high-water mark.
     let mut i = rules::Intent::new(serde_json::to_value(&empty.binding).unwrap());
     i.requirements.push(
-        json!({"kind":"flatness", "faces":[5], "tolerance":0.02})
+        json!({"kind":"flatness", "faces":[3], "tolerance":0.02})
             .as_object()
             .unwrap()
             .clone(),
@@ -380,10 +223,10 @@ fn additions_do_not_renumber_removals_retire_even_after_an_empty_write_and_value
     assert_eq!(
         numbers(&write(&empty, &i))
             .iter()
-            .find(|c| c.faces == [5])
+            .find(|c| c.faces == [3])
             .unwrap()
             .number,
-        9
+        8
     );
 }
 
@@ -408,23 +251,15 @@ fn written_general_dimensions_are_numbered_and_entityless_rows_are_not() {
             .all(|n| n.kind == "dimension" && !n.faces.is_empty())
     );
     assert_eq!(api::analyse(&result).unwrap()["characteristics"], json!(ns));
-    // Nominal-only authored dimensions still settle no interview questions (#63).
+    // `read_existing` lists only toleranced requirements (#63); the analysis lists every one
+    // (ADR P11).
     assert!(existing::read_existing(&result).unwrap().is_empty());
     assert_eq!(result.bytes, write(&result, &rebind(&i, &result)).bytes);
+    // ADR P11: leaving one out removes nothing.
     i = rebind(&i, &result);
     i.general.remove(0);
-    let removed = write(&result, &i);
-    assert_eq!(numbers(&removed)[0].number, ns[1].number);
-    i = rebind(&i, &removed);
-    i.general.push(
-        json!({"kind":"size","faces":[9],"nominal":10.,"general":true})
-            .as_object()
-            .unwrap()
-            .clone(),
-    );
-    let added = write(&removed, &i);
-    assert!(numbers(&added).iter().any(|n| n.number == 3));
-    assert!(numbers(&added).iter().any(|n| n.number == ns[1].number));
+    let left_out = write(&result, &i);
+    assert_eq!(numbers(&left_out), ns);
     // With only a row that cannot produce PMI, there is no identity or history to invent.
     i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
     i.general.push(
@@ -478,6 +313,9 @@ fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() 
     // PMI read hash changes (its 14 basics); stripped of that key it is the old hash.
     // #216 changes only the alpha6 shaft analysis hash: its hole ID gains floor 16,
     // and the saved answers report their exact key migrations. PMI and writer hashes stay fixed.
+    // ADR P11 (feature table): the material is no longer stored as an answer (all three
+    // writer hashes), and the alpha6 files' analyses show their whole PMI, stored answers that
+    // repeat it ignored (their analysis hashes). PMI read hashes stay fixed.
     // Float serialization varies by platform; portable absence checks run separately above.
     if !cfg!(target_os = "macos") {
         return;
@@ -501,6 +339,8 @@ fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() 
         a.as_object_mut()
             .unwrap()
             .shift_remove("dimensioning_stated");
+        // ADR P11 adds the feature table; the pre-existing fields still match exactly.
+        a.as_object_mut().unwrap().shift_remove("table");
         let pmi = existing::read_existing(&p).unwrap();
         assert_eq!(
             hash(serde_json::to_vec(&a).unwrap()),
@@ -528,6 +368,8 @@ fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() 
 }
 
 #[test]
+#[ignore = "ADR P11: a revision no longer carries the old file's stored answers; numbers \
+            travel file to file with `carry` (new-model piece 4)"]
 fn revised_part_correspondence_carries_numbers_and_retirement_with_the_answers() {
     let old = load("revisions/hole_removed.old.step.gz");
     let new = load("revisions/hole_removed.new.step.gz");
@@ -584,7 +426,7 @@ fn revised_part_correspondence_carries_numbers_and_retirement_with_the_answers()
 }
 
 #[test]
-fn older_quiddity_written_pmi_keeps_numbers_on_upgrade_to_024() {
+fn older_quiddity_written_pmi_keeps_every_number_on_a_save() {
     let p = load("resume-alpha6/ftc10-reid.step.gz");
     // Add standard numeric ids to the committed OLD writer's PMI without regenerating any
     // old semantic records. This simulates numbering in a producer predating this kernel.
@@ -653,66 +495,29 @@ fn older_quiddity_written_pmi_keeps_numbers_on_upgrade_to_024() {
             .filter(|c| !old_ids.contains(&c.number))
             .all(|c| c.number > old_max)
     );
-    // Coincident basics now carry their complete semantic feature groups, and
-    // pitches use aligned member witnesses. Superseded per-member rows retire.
-    eprintln!("retired old-kernel location numbers: {retired:?}");
-    assert_eq!(retained, 15);
-    assert_eq!(
-        retired,
-        [
-            103, 106, 108, 110, 111, 112, 113, 114, 115, 117, 118, 119, 120, 121, 122, 123, 124,
-            125, 126, 127, 128, 129, 130, 131, 132, 134, 135, 136, 137, 138, 141, 142, 143, 144,
-            145, 149, 150, 151, 152, 153, 155, 157, 158, 159, 160
-        ]
-        .into_iter()
-        .collect()
-    );
+    // ADR P11: a save never re-plans what the file states, so nothing retires: every old
+    // number is kept on its requirement.
+    assert!(retired.is_empty(), "{retired:?}");
+    assert_eq!(retained, old_ids.len());
 }
 
 #[test]
-fn an_added_control_on_the_same_face_cannot_take_an_existing_controls_number() {
+fn foreign_pmi_append_keeps_original_bytes_and_numbers_and_adds_no_equal_requirement() {
     let p = load("parts/plate.step");
-    let mut i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
-    i.requirements.push(
-        json!({"kind":"flatness","faces":[4],"tolerance":0.05})
-            .as_object()
-            .unwrap()
-            .clone(),
-    );
-    let first = write(&p, &i);
-    i = rebind(&i, &first);
-    i.requirements.insert(
-        0,
-        json!({"kind":"flatness","faces":[4],"tolerance":0.02})
-            .as_object()
-            .unwrap()
-            .clone(),
-    );
-    let added = write(&first, &i);
-    assert_eq!(
-        numbers(&added).iter().map(|c| c.number).collect::<Vec<_>>(),
-        [2, 1]
-    );
-    i = rebind(&i, &added);
-    i.requirements.remove(1);
-    let removed = write(&added, &i);
-    assert_eq!(numbers(&removed)[0].number, 2);
-}
-
-#[test]
-fn foreign_pmi_append_keeps_original_bytes_and_numbers_even_for_equal_requirements() {
-    let p = load("parts/plate.step");
-    let i = intent(&p);
+    let mut i = intent(&p);
     // Without stored answers the second write uses lossless Add, including a shared datum.
     let first = back(writer::write_bytes(&p, &i, None).unwrap().0);
     let original = numbers(&first);
+    // ADR P11: what the file states is not written again; a new part note is added beside it
+    // (in the Notes view).
+    i.part.insert("coating".into(), json!("Anodise, clear"));
     let (added, report) = writer::write_bytes(&first, &rebind(&i, &first), None).unwrap();
     let added = back(added);
     let after = numbers(&added);
-    assert_eq!(after.len(), 11); // the existing datum is reused, five new requirements
-    assert_eq!(
-        after.iter().map(|c| c.number).collect::<BTreeSet<_>>(),
-        (1..=11).collect()
+    assert_eq!(after, original); // nothing restated, nothing renumbered
+    assert!(
+        report.written.iter().any(|w| w.contains("Anodise")),
+        "{report:?}"
     );
     for n in original {
         assert!(after.contains(&n));
@@ -766,7 +571,7 @@ fn foreign_pmi_append_keeps_original_bytes_and_numbers_even_for_equal_requiremen
 }
 
 #[test]
-fn stale_revision_transport_cannot_reuse_numbers_retired_in_the_destination_file() {
+fn stale_revision_transport_is_bound_to_its_target_geometry() {
     let old = load("revisions/hole_removed.old.step.gz");
     let new = load("revisions/hole_removed.new.step.gz");
     let answers = json!({"hole.function:holes:6":"fit:H7"})
@@ -776,38 +581,6 @@ fn stale_revision_transport_cannot_reuse_numbers_retired_in_the_destination_file
     let i = api::preview(&api::analyse(&old).unwrap(), &answers).unwrap();
     let old = back(writer::write_bytes(&old, &i, Some(&answers)).unwrap().0);
     let r = revision::diff(&old, &new, &Map::new()).unwrap();
-    let mut i = api::preview(&api::analyse(&new).unwrap(), &r.answers).unwrap();
-    let new = back(writer::write_bytes(&new, &i, Some(&r.answers)).unwrap().0);
-    i = rebind(&i, &new);
-    let extra = json!({"kind":"flatness","faces":[4],"tolerance":0.02})
-        .as_object()
-        .unwrap()
-        .clone();
-    i.requirements.push(extra.clone());
-    let added = back(writer::write_bytes(&new, &i, Some(&r.answers)).unwrap().0);
-    let retired = numbers(&added)
-        .into_iter()
-        .find(|c| c.kind == "geometric_tolerance")
-        .unwrap()
-        .number;
-    i = rebind(&i, &added);
-    i.requirements.pop();
-    let removed = back(writer::write_bytes(&added, &i, Some(&r.answers)).unwrap().0);
-    i = rebind(&i, &removed);
-    i.requirements.push(extra);
-    let readded = back(
-        writer::write_bytes(&removed, &i, Some(&r.answers))
-            .unwrap()
-            .0,
-    );
-    assert!(
-        numbers(&readded)
-            .iter()
-            .find(|c| c.kind == "geometric_tolerance")
-            .unwrap()
-            .number
-            > retired
-    );
     // The transport is also bound to its intended target geometry, even on a direct writer
     // call that does not go through the browser's answer-shape checks.
     let unrelated = load("parts/pin.step");
@@ -863,11 +636,15 @@ fn imported_shared_features_numeric_ids_are_reserved_without_numbering_old_requi
         numbers(&imported).is_empty(),
         "a geometric feature id is not a requirement number"
     );
-    let added = back(
-        writer::write_bytes(&imported, &rebind(&i, &imported), None)
+    // ADR P11: the imported size is the file's, so a new requirement is added beside it.
+    let mut more = rebind(&i, &imported);
+    more.requirements = vec![
+        json!({"kind":"flatness","faces":[4],"tolerance":0.05})
+            .as_object()
             .unwrap()
-            .0,
-    );
+            .clone(),
+    ];
+    let added = back(writer::write_bytes(&imported, &more, None).unwrap().0);
     assert_eq!(numbers(&added)[0].number, 41);
     assert!(
         existing::read_existing(&added).unwrap()[0].number.is_none(),
@@ -1182,17 +959,13 @@ fn category_order_fixture_from_the_013_era_keeps_numbers_on_noop_and_rewrite() {
     ];
     assert_walk(&old, &category);
     let i = intent(&old);
-    // #77 upgrades written legacy dimensions with origin/source; their stored numbers
-    // and original category walk still win. A subsequent unchanged write keeps its bytes.
+    // ADR P11: a save never re-plans what the file states, so the legacy dimensions keep
+    // their form (no #77 origin upgrade), numbers and category walk. A subsequent unchanged
+    // write keeps its bytes.
     let upgraded = write(&old, &i);
     assert_walk(&upgraded, &category);
     assert!(numbers(&old).iter().all(|n| n.origin.is_none()));
-    assert!(
-        numbers(&upgraded)
-            .iter()
-            .filter(|n| n.kind == "dimension")
-            .all(|n| n.origin.is_some())
-    );
+    assert_eq!(numbers(&upgraded), numbers(&old));
     assert_eq!(
         upgraded.bytes,
         write(&upgraded, &rebind(&i, &upgraded)).bytes
@@ -1408,83 +1181,4 @@ fn presentation_shapes_keep_requirement_ids_history_and_face_supports() {
             .all(|e| e.number.is_some()
                 && e.provenance.as_deref() == Some("specify-core:written:v1"))
     );
-}
-
-#[test]
-fn ctc04_main_depth_precedes_the_conveyed_general_span_when_resuming() {
-    check_ctc04_depth_predecessor("characteristic-numbers-ctc04-main.step.gz", false);
-    check_ctc04_depth_predecessor("characteristic-numbers-ctc04-main-equal-span.step.gz", true);
-}
-
-fn check_ctc04_depth_predecessor(name: &str, equal_hint: bool) {
-    // Both were captured by origin/main 68b26e9's unmodified writer on the real
-    // CTC-04 corpus part, steel + defaults, with stored answers. The second
-    // gives the legacy General span the conventional nominal 20 (instead of
-    // 20.000001), so it and the old depth have identical value hints.
-    let old = load(name);
-    let prior = numbers(&old);
-    let depth = prior.iter().find(|c| c.number == 59).unwrap();
-    assert_eq!(depth.r#type, "Size_CurveLength");
-    assert_eq!(
-        depth.source.as_ref().unwrap().parameter,
-        "counterbore.depth"
-    );
-    let span = prior.iter().find(|c| c.number == 67).unwrap();
-    assert_eq!(span.r#type, "Location_LinearDistance");
-    assert_eq!(span.faces, [393, 400]);
-    assert_eq!(span.reference, [68, 73, 82, 87]);
-    if equal_hint {
-        let doc = Document::parse(old.bytes.to_vec()).unwrap();
-        let read = haecceity::pmi::read(&doc, std::slice::from_ref(&old.definition)).unwrap();
-        for entity in [depth.entity, span.entity] {
-            let i = read.provenance.parts[0]
-                .dimensions
-                .iter()
-                .position(|ids| ids.contains(&entity))
-                .unwrap();
-            let haecceity::pmi::Quantity::Length(n) = &read.parts[0].dimensions[i]
-                .nominal
-                .as_ref()
-                .unwrap()
-                .quantity
-            else {
-                panic!("length");
-            };
-            assert_eq!(
-                n.mm(),
-                20.,
-                "the depth and legacy span must have identical value hints"
-            );
-        }
-    }
-    let answers = resume::answers_for(&old).unwrap().unwrap();
-    let intent = rules::apply_with_defaults(&api::analyse(&old).unwrap(), &answers, true).unwrap();
-    let (bytes, report) = writer::write_bytes(&old, &intent, Some(&answers)).unwrap();
-    let rewritten = back(bytes);
-    let current = numbers(&rewritten);
-    let depth = current.iter().find(|c| c.number == 59).unwrap();
-    assert_eq!(depth.r#type, "Location_LinearDistance");
-    assert_eq!(
-        depth.source.as_ref().unwrap().parameter,
-        "counterbore.depth"
-    );
-    assert!(!current.iter().any(|c| c.number == 67));
-    assert!(report.warnings.iter().any(|w|w=="retired characteristic 67: legacy General plane span is conveyed by straight depth"),"{:?}",report.warnings);
-    for old_depth in prior.iter().filter(|c| c.r#type == "Size_CurveLength") {
-        let new = current
-            .iter()
-            .find(|c| c.number == old_depth.number)
-            .unwrap();
-        assert_eq!(new.r#type, "Location_LinearDistance");
-        assert_eq!(
-            new.source.as_ref().unwrap().parameter,
-            old_depth.source.as_ref().unwrap().parameter
-        );
-    }
-    let retired: BTreeSet<_> = prior
-        .iter()
-        .map(|c| c.number)
-        .filter(|n| !current.iter().any(|c| c.number == *n))
-        .collect();
-    assert_eq!(retired, BTreeSet::from([67]));
 }

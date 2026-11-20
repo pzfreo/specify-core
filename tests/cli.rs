@@ -241,7 +241,8 @@ fn freecad_write_roundtrip(name: &str) {
         );
     }
     let reopened = api::analyse_file(&output, None).unwrap();
-    assert_eq!(reopened["resume"]["answers"]["part.material"], "6061-T6");
+    // ADR P11: the material is the file's (stated), not a stored answer.
+    assert_eq!(reopened["part"]["material"], "6061-T6");
     let rewritten = dir.join("rewritten.step");
     let back = dir.join("back.json");
     save(&back, &reopened);
@@ -291,8 +292,19 @@ fn full_thread_depth_uses_the_existing_questions_and_answers_cli() {
         &s(&out),
     ]);
     assert_eq!(written.code, 0, "{}", written.stderr);
+    // ADR P11: the depth is the file's thread PMI, not a stored answer.
+    let text = std::fs::read_to_string(&out)
+        .unwrap()
+        .replace(['\r', '\n'], "");
+    assert!(
+        regex::Regex::new(
+            r"LENGTH_MEASURE\(1\.8\),#\d+\)REPRESENTATION_ITEM\('minimum full thread'\)"
+        )
+        .unwrap()
+        .is_match(&text)
+    );
     let reopened = api::analyse_file(&out, None).unwrap();
-    assert_eq!(reopened["resume"]["answers"][id], "1.8");
+    assert!(reopened["resume"]["answers"].get(id).is_none());
 }
 
 #[test]
@@ -773,9 +785,16 @@ fn composition(dir: &Path) -> Vec<Difference> {
                     let loaded = specify_core::part::load(&input, Some(part)).unwrap();
                     let stored =
                         api::stored_with_defaults(&loaded, analysis, &object(&base)).unwrap();
+                    // ADR P11: of these, the writer stores what leaves no PMI behind.
+                    let storable = specify_core::feature_table::storable;
                     assert_eq!(
-                        stored,
-                        common::accept_all::stored(&input, part, analysis, &object(&base)),
+                        storable(&stored),
+                        storable(&common::accept_all::stored(
+                            &input,
+                            part,
+                            analysis,
+                            &object(&base)
+                        )),
                         "{file} part {part}"
                     );
                     intents.push((intent, Some(stored)));
