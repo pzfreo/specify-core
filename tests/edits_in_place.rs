@@ -87,7 +87,8 @@ fn records(bytes: &[u8]) -> BTreeMap<u64, String> {
 
 /// The original entities that a save changed in place (same id, other text), other than a
 /// set that only lost its references to entities the save removed (a removed requirement's
-/// callout leaving the draughting model's list).
+/// callout leaving the draughting model's list), and Specify's own Notes saved view, which
+/// shows the part's notes and is updated with them (design notes, piece 2).
 fn rewritten(before: &[u8], after: &[u8]) -> Vec<(u64, String, String)> {
     let (old, new) = (records(before), records(after));
     let refs = |text: &str| -> Vec<u64> {
@@ -111,7 +112,10 @@ fn rewritten(before: &[u8], after: &[u8]) -> Vec<(u64, String, String)> {
     old.iter()
         .filter_map(|(id, text)| {
             let now = new.get(id)?;
-            if now == text {
+            if now == text
+                || text.starts_with(&format!("#{id}=DRAUGHTING_MODEL('Notes',"))
+                || text.starts_with(&format!("#{id}=DEFAULT_MODEL_GEOMETRIC_VIEW('Notes',"))
+            {
                 return None;
             }
             let (was, is) = (refs(text), refs(now));

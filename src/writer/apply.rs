@@ -29,7 +29,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use haecceity::pmi::{DimensionKind, Mode, PartPmi, ToleranceTarget};
 use serde_json::{Map, Value as Json};
 
-use super::{Source, WriteReport, part_pmi, part_pmi_added, requirements, verify, write_by_modes};
+use super::{Source, WriteReport, drop_stated, part_pmi, requirements, verify, write_by_modes};
 use crate::edits::{self, EditList, Failure, Outcome};
 use crate::feature_table::{FeatureTable, State};
 use crate::part::{self, LoadedPart};
@@ -598,6 +598,11 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         {
             existing.retain(|item| item["kind"] == "datum");
         }
+        // The list was validated against the table: what it names is asked here, whatever
+        // the table says (a changed row is still stated by what stands of it).
+        if let Some(object) = analysis_clean.as_object_mut() {
+            object.remove("table");
+        }
         let mut answers = choices.clone();
         answers.extend(given.iter().map(|(id, v)| (id.clone(), v.clone())));
         let mut intent =
@@ -672,13 +677,24 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
             }
             !covered
         });
-        let (pmi, planned) = if source.has_pmi(k) {
-            part_pmi_added(&loaded_clean, &intent, clean_before)
+        let mode = if source.has_pmi(k) {
+            Mode::Add
         } else {
-            part_pmi(&loaded_clean, &intent, clean_before, Mode::Replace, &[])
-        }
-        .map_err(|e| whole(e.to_string()))?;
+            Mode::Replace
+        };
+        let (mut pmi, planned) = part_pmi(&loaded_clean, &intent, clean_before, mode, &[])
+            .map_err(|e| whole(e.to_string()))?;
         lines = planned;
+        // Only what the list names is planned, and it was validated against the table; an
+        // item the plan makes that measures exactly what the file states (a planner's own
+        // dimension) is not written twice.
+        if mode == Mode::Add {
+            for what in drop_stated(&mut pmi, clean_before, &BTreeSet::new()) {
+                lines.not_written.push(format!(
+                    "{what}: the file already states it; not written again"
+                ));
+            }
+        }
         lines.not_written.extend(held);
         pmi
     };
