@@ -1874,10 +1874,23 @@ fn an_answer_to_what_the_file_states_is_refused() {
     assert_eq!(
         refused["message"],
         json!(
-            "the file already states \"steel\" for part.material, so there is no gap to fill; \
-             to replace it, use change with \"expect\": \"steel\""
+            "the file states \"steel\" for part.material, so there is no gap to fill; changing \
+             what the file states is an explicit edit, not an answer: an edit list's change, \
+             {\"change\": {\"part.material\": {\"to\": <the new value>, \"expect\": \"steel\"}}}, \
+             applied with `specify-core write STEP EDITS.json -o OUT`"
         ),
         "{refused}"
+    );
+    // A fill equal to what the file states is a no-op, as on the command line.
+    let same = call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "steel"}}),
+    );
+    assert_eq!(same["isError"], json!(false), "{same}");
+    assert_eq!(
+        same["structuredContent"]["set"],
+        json!([{"id": "part.material", "value": "steel", "state": "stated"}])
     );
     // With partial: reported as refused, nothing stored, no new rev.
     let answered = call(
@@ -1889,7 +1902,7 @@ fn an_answer_to_what_the_file_states_is_refused() {
     let reason = out["outcomes"]["hole.function:holes:14"]["refused"]
         .as_str()
         .unwrap();
-    assert!(reason.contains("already states \"⌀3.3 H11\""), "{reason}");
+    assert!(reason.contains("the file states \"⌀3.3 H11\""), "{reason}");
     assert!(out["set"].as_array().unwrap().is_empty(), "{out}");
     let _ = std::fs::remove_dir_all(&dir);
 }
