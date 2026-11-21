@@ -1077,6 +1077,382 @@ fn an_edits_save_is_refused_while_answers_are_unsaved() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// Parts of an assembly (Paul, 2026-11-21: in-place edits on parts inside an assembly are
+// required for 0.3.0). `parts/assembly.step`: a plate (part 0) and a pin (part 1) placed twice.
+
+const PLATE: usize = 0;
+const PIN: usize = 1;
+
+fn assembly() -> Vec<u8> {
+    std::fs::read(common::fixtures().join("parts").join("assembly.step")).unwrap()
+}
+
+/// Part `k` of the assembly `bytes`, as `--part K` and `open_part` load it.
+fn part_of(bytes: &[u8], k: usize) -> LoadedPart {
+    specify_core::part::File::of_bytes(std::path::Path::new("assembly.step"), bytes.to_vec())
+        .unwrap()
+        .load(Some(k))
+        .unwrap()
+}
+
+fn plate_list() -> Value {
+    json!({"fill": {
+        "part.material": "steel",
+        "datum.A": [2], "datum.B": [1], "datum.C": [0],
+        "hole.function:holes:11": "tapped:M5",
+        "hole.position:holes:11": "0.25",
+    }})
+}
+
+fn pin_list() -> Value {
+    json!({"fill": {
+        "part.material": "brass",
+        "datum.A": [0], "datum.B": [6],
+        "hole.function:holes:3.5": "tapped:M5",
+        "hole.position:holes:3.5": "0.25",
+    }})
+}
+
+/// Every entity of part `k`'s PMI (each collection's records, its stored answers and number
+/// record included), as haecceity's reader attributes them.
+fn pmi_entities(bytes: &[u8], k: usize) -> Vec<u64> {
+    let defs = haecceity::step::read_part_definitions(bytes).unwrap();
+    let read = haecceity::pmi::read(&Document::parse(bytes.to_vec()).unwrap(), &defs).unwrap();
+    let p = &read.provenance.parts[k];
+    [
+        &p.features,
+        &p.datums,
+        &p.datum_targets,
+        &p.dimensions,
+        &p.tolerances,
+        &p.general,
+        &p.threads,
+        &p.knurls,
+        &p.notes,
+        &p.surface_textures,
+        &p.attributes,
+    ]
+    .into_iter()
+    .flatten()
+    .flatten()
+    .copied()
+    .chain(p.material.iter().copied())
+    .collect()
+}
+
+/// The records `after` has that `before` has not: what a save wrote.
+fn written_by(before: &[u8], after: &[u8]) -> std::collections::BTreeSet<u64> {
+    let old = records(before);
+    records(after)
+        .into_keys()
+        .filter(|id| !old.contains_key(id))
+        .collect()
+}
+
+/// Asserts that every record of `before` is in `after` with the same text, but those in
+/// `may_go` (the edited part's own items, which the save may take out, and its own callouts
+/// model, which then lists fewer callouts).
+fn only_part_changed(before: &[u8], after: &[u8], may_go: &std::collections::BTreeSet<u64>) {
+    let (old, new) = (records(before), records(after));
+    for (id, text) in &old {
+        match new.get(id) {
+            Some(now) => assert!(
+                now == text || may_go.contains(id),
+                "#{id} changed: {text} -> {now}"
+            ),
+            None => assert!(may_go.contains(id), "#{id} went: {text}"),
+        }
+    }
+}
+
+#[test]
+fn one_part_of_an_assembly_is_edited_and_every_other_part_keeps_its_bytes() {
+    let bare = assembly();
+    let pin_rows = rows(&table(&part_of(&bare, PIN)));
+    // The plate: every record of the file (the pin's definition, both its placements, the
+    // assembly's structure) keeps its bytes, and the pin reads as it did.
+    let plate = applied(&part_of(&bare, PLATE), plate_list());
+    only_part_changed(&bare, &plate.bytes, &Default::default());
+    assert_eq!(rows(&table(&part_of(&plate.bytes, PIN))), pin_rows);
+    let t = table(&part_of(&plate.bytes, PLATE));
+    for id in ["part.material", "hole.position:holes:11", "datum.C"] {
+        assert_eq!(row(&t, id)["state"], "stated", "{id}");
+    }
+    // Then the pin: the plate's PMI, numbers and stored state keep their bytes.
+    let plate_rows = rows(&t);
+    let both = applied(&part_of(&plate.bytes, PIN), pin_list());
+    only_part_changed(&plate.bytes, &both.bytes, &Default::default());
+    untouched_but(
+        &part_of(&plate.bytes, PLATE),
+        &part_of(&both.bytes, PLATE),
+        &[],
+    );
+    assert_eq!(rows(&table(&part_of(&both.bytes, PLATE))), plate_rows);
+    // A change and a removal on the pin, which Specify wrote: only the pin's own items go.
+    let pin = part_of(&both.bytes, PIN);
+    let n = numbers(&pin);
+    let position = n.values().find(|c| c.r#type == "Position").unwrap().number;
+    let edited = applied(
+        &pin,
+        json!({
+            "change": {"hole.position:holes:3.5": {"to": "0.1", "expect": "0.25"}},
+            "none": ["part.coating"],
+        }),
+    );
+    // What goes is the pin's own: what writing the pin wrote (its stored answers and number
+    // record, the changed frame and its presentation).
+    let pins_own = written_by(&plate.bytes, &both.bytes);
+    only_part_changed(&both.bytes, &edited.bytes, &pins_own);
+    assert_eq!(rewritten(&both.bytes, &edited.bytes), []);
+    let after = part_of(&edited.bytes, PIN);
+    untouched_but(&pin, &after, &[position]);
+    assert_eq!(numbers(&after)[&position].r#type, "Position");
+    assert!(
+        row(&table(&after), "hole.position:holes:3.5")["value"]
+            .as_str()
+            .unwrap()
+            .contains("⌖ ⌀0.1"),
+    );
+    assert_eq!(row(&table(&after), "part.coating")["state"], "decided_none");
+    assert_eq!(rows(&table(&part_of(&edited.bytes, PLATE))), plate_rows);
+    // An assembly-level item (anything not of a part: structure, placements) is in the bare
+    // file; every one of its records survived each save.
+    only_part_changed(&bare, &edited.bytes, &Default::default());
+}
+
+#[test]
+fn another_tools_pmi_on_another_part_keeps_its_bytes() {
+    // Both parts' PMI written by another tool (haecceity's own writer, as `another_tool`):
+    // no Specify marker, no stored answers, no numbers.
+    let written = applied(
+        &part_of(
+            &applied(&part_of(&assembly(), PLATE), plate_list()).bytes,
+            PIN,
+        ),
+        pin_list(),
+    )
+    .bytes;
+    let defs = haecceity::step::read_part_definitions(&written).unwrap();
+    let read = haecceity::pmi::read(&Document::parse(written.clone()).unwrap(), &defs).unwrap();
+    let items: Vec<_> = [PLATE, PIN]
+        .into_iter()
+        .map(|k| {
+            let mut copied = read.parts[k].clone();
+            for t in &mut copied.tolerances {
+                t.description = None;
+            }
+            copied
+                .attributes
+                .retain(|set| !resume::is_answers(set) && set.name != characteristics::PROPERTY);
+            (haecceity::pmi::PartId(k), copied)
+        })
+        .collect();
+    // The plate first, then the pin: what the second write adds is the pin's.
+    let write = |bytes: Vec<u8>, item: &(haecceity::pmi::PartId, haecceity::pmi::PartPmi)| {
+        let doc = Document::parse(bytes).unwrap();
+        let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
+        let (edit, _) = haecceity::pmi::write(
+            &doc,
+            &defs,
+            std::slice::from_ref(item),
+            haecceity::pmi::write::Mode::Replace,
+            haecceity::pmi::write::PresentationPolicy::RemovePresentation,
+        )
+        .unwrap();
+        doc.apply(&edit).unwrap().bytes
+    };
+    let plate_only = write(assembly(), &items[0]);
+    let foreign = write(plate_only.clone(), &items[1]);
+    let pins = written_by(&plate_only, &foreign);
+    assert!(resume::stored(&foreign).is_empty());
+    assert!(numbers(&part_of(&foreign, PLATE)).is_empty());
+    let plate_rows = rows(&table(&part_of(&foreign, PLATE)));
+    // A fill, a decided none and a removal on the pin.
+    let pin = part_of(&foreign, PIN);
+    let saved = applied(
+        &pin,
+        json!({"fill": {"part.coating": "Zinc plate"}, "none": ["part.heat_treatment"],
+               "change": {"hole.position:holes:3.5": {"to": "0.1", "expect": "0.25"}}}),
+    );
+    // What goes is the pin's changed frame, of what the pin's write added.
+    only_part_changed(&foreign, &saved.bytes, &pins);
+    assert_eq!(rewritten(&foreign, &saved.bytes), []);
+    // Every entity of the plate's foreign PMI is there, byte for byte.
+    let (old, new) = (records(&foreign), records(&saved.bytes));
+    let plate_ids = pmi_entities(&foreign, PLATE);
+    assert!(!plate_ids.is_empty());
+    for id in plate_ids {
+        assert_eq!(new.get(&id), old.get(&id), "the plate's #{id}");
+    }
+    assert_eq!(rows(&table(&part_of(&saved.bytes, PLATE))), plate_rows);
+    let t = table(&part_of(&saved.bytes, PIN));
+    assert_eq!(row(&t, "part.coating")["value"], "Zinc plate");
+    assert_eq!(row(&t, "part.heat_treatment")["state"], "decided_none");
+    assert!(
+        row(&t, "hole.position:holes:3.5")["value"]
+            .as_str()
+            .unwrap()
+            .contains("⌖ ⌀0.1")
+    );
+}
+
+#[test]
+fn a_part_placed_twice_is_edited_once_and_both_placements_show_it() {
+    let bare = assembly();
+    let placements = |bytes: &[u8]| -> Vec<usize> {
+        haecceity::step::read_part_definitions(bytes)
+            .unwrap()
+            .iter()
+            .map(|d| d.placements.len())
+            .collect()
+    };
+    assert_eq!(placements(&bare), [1, 2]);
+    let saved = applied(&part_of(&bare, PIN), pin_list());
+    // Still two definitions, the pin placed twice; its thread and position are written once,
+    // on the one definition both placements show.
+    assert_eq!(placements(&saved.bytes), [1, 2]);
+    let defs = haecceity::step::read_part_definitions(&saved.bytes).unwrap();
+    let read = haecceity::pmi::read(&Document::parse(saved.bytes.clone()).unwrap(), &defs).unwrap();
+    assert_eq!(read.parts[PIN].threads.len(), 1);
+    assert_eq!(read.parts[PIN].tolerances.len(), 1);
+    assert_eq!(read.parts[PLATE], haecceity::pmi::PartPmi::default());
+    let listed = api::parts_of(
+        &specify_core::part::File::of_bytes(std::path::Path::new("x.step"), saved.bytes.clone())
+            .unwrap(),
+    );
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[PIN]["instances"], 2);
+    let n = numbers(&part_of(&saved.bytes, PIN));
+    assert_eq!(
+        n.values().filter(|c| c.r#type == "Internal").count(),
+        1,
+        "{n:?}"
+    );
+}
+
+#[test]
+fn a_refusal_on_one_part_of_an_assembly_writes_nothing_anywhere() {
+    use specify_core::session::{self, Opened, Session};
+    use std::sync::{Arc, Mutex};
+    let plate = applied(&part_of(&assembly(), PLATE), plate_list()).bytes;
+    // One good entry and one unknown: all or nothing.
+    let bad = json!({"fill": {"part.material": "brass", "hole.size:holes:404": "5"}});
+    let failures = refused(&part_of(&plate, PIN), bad.clone());
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert!(failures[0].entry.contains("holes:404"), "{failures:?}");
+    // The command line and the session write nothing either.
+    let dir = std::env::temp_dir().join(format!("specify-asm-refused-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (step, list, out) = (dir.join("a.step"), dir.join("e.json"), dir.join("o.step"));
+    std::fs::write(&step, &plate).unwrap();
+    std::fs::write(&list, bad.to_string()).unwrap();
+    let s = |p: &std::path::Path| p.to_str().unwrap().to_string();
+    let (code, _, stderr) = cli(&["write", &s(&step), &s(&list), "--part", "1", "-o", &s(&out)]);
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stderr.contains("holes:404"), "{stderr}");
+    assert!(!out.exists());
+    let shared = Arc::new(Mutex::new(
+        Session::open(Opened::read(&step).unwrap(), true).unwrap(),
+    ));
+    let err =
+        session::save_part_edits(&shared, Some(PIN), &edits::parse_value(bad).unwrap(), "mcp")
+            .unwrap_err();
+    assert!(err.to_string().contains("holes:404"), "{err}");
+    assert_eq!(std::fs::read(&step).unwrap(), plate);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn characteristic_numbers_are_per_part_in_an_assembly() {
+    let plate = applied(&part_of(&assembly(), PLATE), plate_list()).bytes;
+    let both = applied(&part_of(&plate, PIN), pin_list()).bytes;
+    let (p, q) = (
+        numbers(&part_of(&both, PLATE)),
+        numbers(&part_of(&both, PIN)),
+    );
+    assert_eq!(
+        p.keys().copied().collect::<Vec<_>>(),
+        (1..=7).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        q.keys().copied().collect::<Vec<_>>(),
+        (1..=4).collect::<Vec<_>>()
+    );
+    // Removing the pin's #3 retires the pin's #3; the plate's #3 stands, and the pin's next
+    // number is its own 5.
+    let removed = applied(&part_of(&both, PIN), json!({"items": {"remove": ["#3"]}}));
+    assert_eq!(removed.retired, [3]);
+    untouched_but(&part_of(&both, PLATE), &part_of(&removed.bytes, PLATE), &[]);
+    let again = applied(
+        &part_of(&removed.bytes, PIN),
+        json!({"fill": {"hole.position:holes:3.5": "0.3"}}),
+    );
+    let q = numbers(&part_of(&again.bytes, PIN));
+    assert!(!q.contains_key(&3), "{q:?}");
+    assert_eq!(q.keys().max(), Some(&5));
+    assert_eq!(numbers(&part_of(&again.bytes, PLATE)), p);
+}
+
+#[test]
+fn write_and_the_session_edit_one_part_of_an_assembly() {
+    use specify_core::session::{self, Opened, Session};
+    use std::sync::{Arc, Mutex};
+    let dir = std::env::temp_dir().join(format!("specify-asm-write-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (step, list, out) = (dir.join("a.step"), dir.join("e.json"), dir.join("o.step"));
+    std::fs::write(&step, assembly()).unwrap();
+    std::fs::write(&list, pin_list().to_string()).unwrap();
+    let s = |p: &std::path::Path| p.to_str().unwrap().to_string();
+    // Without --part the file must say which part.
+    let (code, _, stderr) = cli(&["write", &s(&step), &s(&list), "-o", &s(&out)]);
+    assert_ne!(code, 0, "{stderr}");
+    assert!(!out.exists());
+    let (code, stdout, stderr) = cli(&["write", &s(&step), &s(&list), "--check", "--part", "1"]);
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    let (code, _, stderr) = cli(&["write", &s(&step), &s(&list), "--part", "1", "-o", &s(&out)]);
+    assert_eq!(code, 0, "{stderr}");
+    let written = std::fs::read(&out).unwrap();
+    only_part_changed(&assembly(), &written, &Default::default());
+    assert_eq!(
+        row(&table(&part_of(&written, PIN)), "part.material")["value"],
+        "brass"
+    );
+    // --part is for an edit list; an analysis says its part.
+    let (code, _, stderr) = cli(&[
+        "write",
+        &s(&step),
+        &s(&list),
+        &s(&list),
+        "--part",
+        "1",
+        "-o",
+        &s(&out),
+    ]);
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stderr.contains("takes no --part"), "{stderr}");
+
+    // The session: the plate, then the pin, each saved in place.
+    let shared = Arc::new(Mutex::new(
+        Session::open(Opened::read(&step).unwrap(), true).unwrap(),
+    ));
+    let parse = |v: Value| edits::parse_value(v).unwrap();
+    session::save_part_edits(&shared, Some(PLATE), &parse(plate_list()), "mcp").unwrap();
+    let after_plate = std::fs::read(&step).unwrap();
+    only_part_changed(&assembly(), &after_plate, &Default::default());
+    session::save_part_edits(&shared, Some(PIN), &parse(pin_list()), "mcp").unwrap();
+    let after_pin = std::fs::read(&step).unwrap();
+    only_part_changed(&after_plate, &after_pin, &Default::default());
+    assert_eq!(numbers(&part_of(&after_pin, PIN)).len(), 4);
+    assert_eq!(numbers(&part_of(&after_pin, PLATE)).len(), 7);
+    // A file of several parts needs its part.
+    let err =
+        session::save_edits(&shared, &parse(json!({"none": ["part.coating"]})), "mcp").unwrap_err();
+    assert_eq!(std::fs::read(&step).unwrap(), after_pin, "{err}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Every question id, decided none three ways (none, a fill of "none", a change to "none"):
 /// each is refused, or written and read again by `analyse` without error.
 #[test]
@@ -1332,4 +1708,88 @@ fn a_text_only_requirement_is_refused_a_change_rather_than_losing_parts() {
             "{failures:?}"
         );
     }
+}
+
+/// The assembly with PMI and a property of its own, on its root (`#5`, shape `#4`): a datum,
+/// a flatness on a shape aspect, and a property with its representation. Returned with the
+/// ids of those records.
+fn with_assembly_items() -> (Vec<u8>, Vec<u64>) {
+    let text = String::from_utf8(assembly()).unwrap();
+    let records = [
+        "#5001=SHAPE_ASPECT('assembly face','',#4,.F.);",
+        "#5002=DATUM('assembly datum','',#4,.F.,'A');",
+        "#5003=LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(0.05),#28);",
+        "#5004=FLATNESS_TOLERANCE('assembly flatness','',#5003,#5001);",
+        "#5005=PROPERTY_DEFINITION('assembly note','',#5);",
+        "#5006=DESCRIPTIVE_REPRESENTATION_ITEM('torque','5 Nm');",
+        "#5007=REPRESENTATION('assembly note',(#5006),#27);",
+        "#5008=PROPERTY_DEFINITION_REPRESENTATION(#5005,#5007);",
+    ];
+    let end = text.rfind("ENDSEC;").unwrap();
+    let bytes = format!("{}{}\n{}", &text[..end], records.join("\n"), &text[end..]).into_bytes();
+    (bytes, (5001..=5008).collect())
+}
+
+#[test]
+fn assembly_level_items_keep_their_bytes_through_part_edits() {
+    let (bare, ids) = with_assembly_items();
+    let kept = |bytes: &[u8]| {
+        let (old, new) = (records(&bare), records(bytes));
+        for id in &ids {
+            assert_eq!(new.get(id), old.get(id), "assembly-level #{id}");
+        }
+    };
+    // A fill on the plate, a none on the pin, then a change and a removal on the plate.
+    let filled = applied(&part_of(&bare, PLATE), plate_list());
+    kept(&filled.bytes);
+    let none = applied(
+        &part_of(&filled.bytes, PIN),
+        json!({"none": ["part.coating"]}),
+    );
+    kept(&none.bytes);
+    assert_eq!(
+        row(&table(&part_of(&none.bytes, PIN)), "part.coating")["state"],
+        "decided_none"
+    );
+    let changed = applied(
+        &part_of(&none.bytes, PLATE),
+        json!({"change": {"hole.position:holes:11": {"to": "0.1", "expect": "0.25"}}}),
+    );
+    kept(&changed.bytes);
+    let thread = numbers(&part_of(&changed.bytes, PLATE))
+        .into_values()
+        .find(|c| c.r#type == "Internal")
+        .unwrap()
+        .number;
+    let remove = json!({"items": {"remove": [format!("#{thread}")]}});
+    let removed = applied(&part_of(&changed.bytes, PLATE), remove.clone());
+    assert_eq!(removed.retired, [thread]);
+    kept(&removed.bytes);
+
+    // A record the assembly's items reach that the removal would rewrite (the plate's
+    // callouts model, made to list the assembly's datum too): the removal is refused, and
+    // nothing is written.
+    let text = String::from_utf8(changed.bytes.clone()).unwrap();
+    let model = text
+        .lines()
+        .position(|l| l.contains("DRAUGHTING_MODEL('PMI callouts"))
+        .unwrap();
+    let lines: Vec<String> = text
+        .lines()
+        .enumerate()
+        .map(|(i, l)| {
+            if i == model {
+                l.replacen("',(", "',(#5002,", 1)
+            } else {
+                l.to_string()
+            }
+        })
+        .collect();
+    let mut tied = lines.join("\n");
+    tied.push('\n');
+    let failures = refused(&part_of(tied.as_bytes(), PLATE), remove);
+    assert!(
+        failures[0].reason.contains("items the list does not name"),
+        "{failures:?}"
+    );
 }

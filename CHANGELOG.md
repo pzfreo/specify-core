@@ -181,7 +181,15 @@ Read first:
   finish on the whole part on `part.surface_finish`), so any can be removed by number. After
   `session::save_edits`, the session works on the file saved: a later save of answers keeps the
   edits. Rust: `writer::apply::{apply, apply_bytes, check}`, `session::save_edits`. Not yet:
-  changing one requirement by its number (`items.change`), and a part of an assembly.
+  changing one requirement by its number (`items.change`).
+- Edits in place on a part of an assembly (Paul, 2026-11-21; as 0.2's `write` could):
+  `write STEP EDITS.json --part K -o OUT` (and `--check --part K`), `session::save_part_edits`,
+  and `writer::apply::apply_bytes`'s `part` apply a list to one part of a file of several
+  parts, or of a part placed more than once, with the same rules as a file of one part. A part
+  placed twice is edited once, as its definition. Every other part, placement and instance,
+  their PMI and stored answers, keep their bytes (decision D3), and the save refuses rather
+  than change them; characteristic numbers are each part's own. `write STEP ANALYSIS ANSWERS`
+  takes no `--part` (each analysis says its part).
 - Removal without a number: `items.remove` also takes `{"id": "<stated row>"}` (every
   requirement stating it that no other feature's row shares; `part.material`, a requirement
   with no number) and `{"id": "file_pmi:#<entity>"}`, an item of the file's other PMI. The
