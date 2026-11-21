@@ -171,3 +171,37 @@ fn the_docs_examples_are_real_rows() {
         assert_eq!(row["faces"], json!(faces), "{file}: {id}");
     }
 }
+
+/// The file's other PMI is named `file_pmi:#<entity>` (docs/ids.md): the doc gives the prefix
+/// the table uses, and every id the table gives an item of NIST CTC-01's other PMI has it.
+#[test]
+fn file_pmi_ids_have_the_documented_form() {
+    let doc = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/ids.md"),
+    )
+    .unwrap();
+    let form = format!("`{}#<entity>`", specify_core::edits::FILE_PMI);
+    assert!(doc.contains(&form), "docs/ids.md does not give {form}");
+    let part = specify_core::part::load(
+        &common::fixtures().join("nist/nist_ctc_01_asme1_ap242.stp.gz"),
+        None,
+    )
+    .unwrap();
+    let table = api::analyse(&part).unwrap()["table"].clone();
+    let ids: Vec<&str> = table["file_pmi"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|r| r["id"].as_str())
+        .collect();
+    assert!(!ids.is_empty());
+    for id in ids {
+        let entity = id
+            .strip_prefix(specify_core::edits::FILE_PMI)
+            .and_then(|e| e.strip_prefix('#'));
+        assert!(
+            entity.is_some_and(|e| e.parse::<u64>().is_ok()),
+            "{id} is not file_pmi:#<entity>"
+        );
+    }
+}

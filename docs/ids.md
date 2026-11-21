@@ -94,6 +94,20 @@ same faces when the model is rebuilt: [face-names.md](face-names.md).)
 The family names (`holes`, `hole_patterns.<kind>`, `turned_steps`, …) come from quiddity's
 feature recognition, and can grow with it.
 
+## An item of the file's other PMI has an id from its STEP entity
+
+The feature table lists the file's requirements on no recognised feature-and-kind as
+`file_pmi`. Each that Specify can locate (a dimension, tolerance, datum, thread, knurl or
+finish) has an `id`, **`file_pmi:#<entity>`**: the STEP entity its characteristic number is (or
+would be) on, for example `file_pmi:#1397`. An edit list removes one by it, numbered or not:
+`"items": {"remove": [{"id": "file_pmi:#1397"}]}`. The same form takes a stated row's id, which
+removes every requirement stating it that no other feature's row shares: `{"id": "part.material"}`.
+
+The `file_pmi:#` prefix is in the contract. **The entity number is not:** it holds while the file
+is saved in place (Specify appends and never renumbers), but a tool that rewrites the file may
+renumber its entities. A note that is no thread, knurl or finish, and a setting on no row, have
+no id.
+
 ## Characteristic numbers are in the contract
 
 Each requirement in the file has a characteristic number, `#N` ([characteristic-numbers.md](characteristic-numbers.md)):
