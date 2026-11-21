@@ -242,14 +242,13 @@ fn states(kind: &str, faces: &BTreeSet<usize>, item: &Value) -> bool {
         };
     }
     match family {
-        // A hole located by position tolerance: its frame, and the basic dimensions that go
-        // with one. A toleranced or general location dimension is the `location` kind.
+        // A hole's location, whichever scheme the file uses: a position tolerance, or a
+        // location dimension (basic, toleranced or general). The part's locating setting only
+        // decides what is suggested for a hole the file does not locate; a hole is never
+        // located twice by two schemes (Paul, 2026-11-21).
         "position" | "frame" => {
             (item_kind == "geometric_tolerance" && r#type == "Position" && on("faces"))
-                || (item_kind == "dimension"
-                    && r#type.starts_with("Location_")
-                    && item["basic"] == Value::Bool(true)
-                    && on_either)
+                || (item_kind == "dimension" && r#type.starts_with("Location_") && on_either)
         }
         "location" => item_kind == "dimension" && r#type.starts_with("Location_") && on_either,
         // A hole's or a diameter's size: its dimension, or the thread or knurl callout that

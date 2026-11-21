@@ -171,8 +171,12 @@ and settings, and `analyse` adds the **feature table**, `table`:
 - `decided_none`: the decided-none ids, read back from the file.
 
 A requirement is matched to a feature and kind by the faces it sits on and its kind. Specify's
-provenance marker plays no part. Questions follow the table: every gap is asked, and nothing
-the file states is.
+provenance marker plays no part. A hole the file locates by a location dimension (basic,
+toleranced or general) has its location stated even when holes are located by position
+tolerances: that setting only decides what is suggested for a hole the file does not locate.
+Questions follow the table: every gap is asked, and nothing the file states is. A gap whose
+suggestion is "none" is not open anywhere: not in `questions --open`, a save's still-open
+list, `write`'s report or MCP. Approving its suggestion still decides it none.
 
 Only answers that leave no PMI behind are stored in the file: "none" answers and choices that
 are not requirements (`part.locating`). `resume.answers` holds those. Stored answers that

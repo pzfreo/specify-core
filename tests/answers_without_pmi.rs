@@ -159,10 +159,14 @@ fn approved_defaults_that_write_no_pmi_resume_and_are_not_asked() {
     let resume = &again["resume"];
     assert!(resume.get("conflicts").is_none(), "{resume}");
     let answers = resume["answers"].as_object().unwrap();
+    // ADR P11: a "none" suggestion is not open, so the page never offers it for approval:
+    // left as a gap, it is not stored and is not open on reopening either. The choice that
+    // writes nothing (how holes are located) is offered, approved and stored.
     for id in SILENT {
-        assert!(answers.contains_key(id), "{id} is not resumed: {resume}");
+        let none = id != "part.locating";
+        assert_eq!(!answers.contains_key(id), none, "{id}: {resume}");
     }
-    // ADR P11: those that write PMI are not stored; the file states them.
+    // Those that write PMI are not stored; the file states them.
     for id in WRITING {
         assert!(!answers.contains_key(id), "{id} is stored: {resume}");
         assert!(stated(&again, id), "{id} is not stated");
