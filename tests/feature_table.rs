@@ -302,11 +302,13 @@ fn asked(analysis: &Value) -> (Vec<String>, Vec<String>) {
     (ids(&review["questions"]), ids(&review["open"]))
 }
 
-/// Questions and the table agree: nothing the file states is asked, and every row the table
-/// counts open is asked and open.
+/// Questions and the table agree: nothing the file states is asked, and a feature-and-kind is
+/// open in `questions` exactly when the table counts it open (a gap whose suggestion writes
+/// nothing is open in neither).
 fn agree(analysis: &Value) {
     let (questions, open) = asked(analysis);
-    for r in analysis["table"]["rows"].as_array().unwrap() {
+    let rows = analysis["table"]["rows"].as_array().unwrap();
+    for r in rows {
         let id = r["id"].as_str().unwrap().to_string();
         if r["state"] == "stated" {
             assert!(!questions.contains(&id), "{id} is stated but asked");
@@ -317,6 +319,31 @@ fn agree(analysis: &Value) {
                 "{id} is open in the table, not in questions"
             );
         }
+    }
+    for id in &open {
+        if let Some(r) = rows.iter().find(|r| r["id"] == *id) {
+            assert_eq!(
+                r["open"], true,
+                "{id} is open in questions, not in the table: {r}"
+            );
+        }
+    }
+}
+
+#[test]
+fn questions_and_the_table_agree_on_what_is_open() {
+    for name in [
+        "parts/plate.step",
+        "spindle.step",
+        "revisions/enclosure_pmi.old.step.gz",
+    ] {
+        let part = load(&common::fixtures().join(name), None).unwrap();
+        agree(&api::analyse(&part).unwrap());
+    }
+    // The plate's "none" suggestions are gaps, not open, in both.
+    let (_, open) = asked(&api::analyse(&plate()).unwrap());
+    for id in ["datum.A.flatness", "part.coating", "part.notes"] {
+        assert!(!open.contains(&id.to_string()), "{id}");
     }
 }
 
@@ -447,4 +474,60 @@ fn a_direct_intent_measuring_a_stated_feature_otherwise_is_not_added() {
         "{:?}",
         report.not_written
     );
+}
+
+/// Position mode, one hole located by a ± location dimension and no position tolerance: the
+/// file locates it, so it is stated (Paul, 2026-11-21: a hole is never located twice by two
+/// schemes). It is not asked, and a save writes no position tolerance for it.
+#[test]
+fn a_hole_located_by_a_plus_minus_dimension_is_stated_in_position_mode() {
+    let p = plate();
+    let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
+    for (letter, faces) in [("A", [2]), ("B", [1]), ("C", [0])] {
+        intent
+            .datums
+            .push(map(json!({"letter": letter, "faces": faces})));
+    }
+    intent.requirements.push(map(json!({
+        "kind": "location", "faces": [12], "reference": [0],
+        "distance": 95., "upper": 0.1, "lower": -0.1,
+    })));
+    let bytes = api::write_bytes(p.bytes.to_vec(), &[(intent, None)])
+        .unwrap()
+        .0;
+    let located = load_bytes("plate.step", bytes).unwrap();
+    let analysis = api::analyse(&located).unwrap();
+    let hole = "hole.position:holes:12";
+    let r = row(&analysis["table"], hole);
+    assert_eq!(r["state"], "stated", "{r}");
+    assert!(
+        r["value"]
+            .as_str()
+            .unwrap()
+            .contains("Location_LinearDistance 95"),
+        "{r}"
+    );
+    let (questions, _) = asked(&analysis);
+    assert!(!questions.contains(&hole.to_string()), "{questions:?}");
+    assert_eq!(analysis["part"].get("locating"), None);
+    // A save with every default taken (position tolerances for holes that have nothing).
+    let answers = map(json!({"part.material": "6082-T6", "part.locating": "position tolerances"}));
+    let save = api::apply(&analysis, &answers, true).unwrap();
+    assert!(
+        !save
+            .requirements
+            .iter()
+            .any(|r| r["kind"] == "position" && r["faces"] == json!([12])),
+        "{:?}",
+        save.requirements
+    );
+    let (saved, report) =
+        api::write_bytes(located.bytes.to_vec(), &[(save, Some(answers))]).unwrap();
+    let positions =
+        specify_core::existing::read_existing(&load_bytes("plate.step", saved).unwrap())
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.r#type == "Position" && e.faces == [12])
+            .count();
+    assert_eq!(positions, 0, "{:?}", report.written);
 }

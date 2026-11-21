@@ -70,24 +70,18 @@ fn apply(analysis: &Value, given: Value) -> Intent {
 }
 
 /// The analysis of `loaded` (a file the writer wrote, of the same faces as `base`'s): `base`
-/// with the file's binding and the file's PMI as the Rust reader reads it; a file whose
-/// answers resume is analysed as its geometry alone and carries them (as `api.analyse`).
+/// with the file's binding, and the file's PMI, settings, stored answers and feature table as
+/// `api.analyse` reads them (ADR P11: the same whoever wrote the file).
 fn reanalysed(base: &Value, loaded: &LoadedPart) -> Value {
     let mut out = base.clone();
     out["binding"] = serde_json::to_value(&loaded.binding).unwrap();
-    match answers_for(loaded).unwrap() {
-        Some(_) => {
-            // As `api.analyse` composes it: reopened, the file's PMI is read first (ADR P9);
-            // the answers it agrees with resume, and any other tool's PMI is `existing`.
-            let real = specify_core::api::analyse(loaded).unwrap();
-            for key in ["existing", "part", "resume"] {
-                out[key] = real[key].clone();
+    let real = specify_core::api::analyse(loaded).unwrap();
+    for key in ["existing", "part", "resume", "table"] {
+        match real.get(key) {
+            Some(value) => out[key] = value.clone(),
+            None => {
+                out.as_object_mut().unwrap().remove(key);
             }
-        }
-        None => {
-            out["existing"] = serde_json::to_value(read_existing(loaded).unwrap()).unwrap();
-            out["part"] = Value::Object(part_settings(loaded).unwrap());
-            out.as_object_mut().unwrap().remove("resume");
         }
     }
     out
@@ -780,13 +774,10 @@ fn pmi_is_added_to_a_part_that_has_some() {
         );
     }
     assert!(!qs.iter().any(|q| q.prompt.contains("Ø8")));
-    let six = qs
-        .iter()
-        .find(|q| q.prompt.contains("6×"))
-        .unwrap()
-        .id
-        .clone();
-    let intent = apply(&analysis, json!({ six: "clearance:M6" }));
+    // ADR P11: the file states the six holes' size and location (general dimensions, whoever
+    // wrote them), so they are not asked: a hole is never located twice by two schemes.
+    assert!(!qs.iter().any(|q| q.prompt.contains("6×")));
+    let intent = apply(&analysis, json!({ "datum.A.flatness": "0.05" }));
     let second = dir.join("second.step");
     let report = write(&loaded, &intent, &second, None).unwrap();
     assert!(
@@ -799,10 +790,10 @@ fn pmi_is_added_to_a_part_that_has_some() {
     // The new PMI cites the file's datums: none is written again.
     let joined = report.written.join(" ");
     assert!(
-        Regex::new(r"position [\d.]+ MMC on hole_patterns")
-            .unwrap()
-            .is_match(&joined)
+        Regex::new(r"flatness 0\.05").unwrap().is_match(&joined),
+        "{joined}"
     );
+    assert!(!joined.contains("position"), "{joined}");
     assert!(!report.written.iter().any(|w| w.starts_with("datum ")));
     let letters: Vec<String> = Regex::new(r"DATUM\('[^']*',[^;]*'(\w)'\);")
         .unwrap()
