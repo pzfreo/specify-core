@@ -36,15 +36,12 @@ export class EditsRefused extends Error {
   readonly failures: readonly EditFailure[];
   constructor(message: string, failures: readonly EditFailure[]) { super(message); this.failures = failures; }
 }
-/** Nothing saved: changes this page cannot send as an edit list yet: clearing an answer the file
- * stores (there is no edit that undoes a stored decision), or changes on several parts of an assembly
- * (a list applies to one part). ``ids``: the questions, or the parts, concerned. */
+/** Nothing saved: changes this page cannot send as an edit list yet: changes on several parts of an
+ * assembly (a list applies to one part). ``ids``: the parts concerned. */
 export class CannotSend extends Error {
   readonly ids: readonly string[];
   constructor(message: string, ids: readonly string[]) { super(message); this.ids = ids; }
 }
-const clearing = (ids: readonly string[]) => new CannotSend(
-  `clearing ${ids.join(', ')} cannot be saved yet: there is no edit that undoes a stored decision. Give an answer instead, or reload to go back to the file`, ids);
 const severalParts = (parts: readonly number[]) => new CannotSend(
   `changes on ${parts.length} parts of an assembly cannot be saved together yet: an edit list applies to one part`, parts.map(String));
 
@@ -65,20 +62,20 @@ export function defaultParts(parts: Record<string, PmiAnswers>, indexes: readonl
 }
 
 /** The edit list for a part: each answer the page shows (``after``) that differs from the session's
- * (``base``, what the file stores) is a fill, and each default confirmed (``raw``, the value the person
- * saw, as JSON) is a fill of that value. An answer the file stores and the page cleared cannot be
- * sent (``cannot``). Specify's own `_` records are never sent. */
-export function editsFor(base: PmiAnswers, after: PmiAnswers, defaults: readonly Pick<Default, 'id' | 'raw'>[] = []): { edits: EditList; cannot: string[] } {
+ * (``base``, what the file stores) is a fill, each default confirmed (``raw``, the value the person
+ * saw, as JSON) is a fill of that value, and an answer the file stores that the page cleared is a
+ * clear (the file stores only decisions that leave no PMI). Specify's own `_` records are never sent. */
+export function editsFor(base: PmiAnswers, after: PmiAnswers, defaults: readonly Pick<Default, 'id' | 'raw'>[] = []): EditList {
   const fill: Record<string, unknown> = {};
-  const cannot: string[] = [];
+  const clear: string[] = [];
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
   for (const id of new Set([...Object.keys(base), ...Object.keys(after)])) {
     if (id.startsWith('_') || same(base[id], after[id])) continue;
     if (id in after) fill[id] = after[id];
-    else cannot.push(id);
+    else clear.push(id);
   }
   for (const d of defaults) if (!(d.id in fill)) fill[d.id] = JSON.parse(d.raw);
-  return { edits: Object.keys(fill).length ? { fill } : {}, cannot };
+  return { ...(Object.keys(fill).length ? { fill } : {}), ...(clear.length ? { clear } : {}) };
 }
 
 const given = (answers: PmiAnswers) => JSON.stringify(Object.entries(answers).filter(([id]) => !id.startsWith('_')).sort(([a], [b]) => (a < b ? -1 : 1)));
@@ -112,11 +109,9 @@ export function sessionSaver(store: AnswersStore, session: Pick<AnswersSession, 
       session.signal.throwIfAborted();
       const indexes = [...new Set([...session.changedParts(), ...defaults.map((d) => d.part)])].sort((a, b) => a - b);
       if (indexes.length > 1) throw severalParts(indexes);
-      const made = indexes.length
+      const edits: EditList = indexes.length
         ? editsFor(session.answers(indexes[0]!), session.shown(indexes[0]!), defaults)
-        : { edits: {}, cannot: [] };
-      if (made.cannot.length) throw clearing(made.cannot);
-      const edits: EditList = made.edits;
+        : {};
       try {
         const saved = await write(rev, edits, session.signal);
         // The edits are in the file now.

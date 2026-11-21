@@ -54,11 +54,15 @@ Read first:
     edits)` checks one; the report adds `retired` and `unchanged`. `write(step, intent, output,
     answers=)` and `validate_edits` are gone. The command line's whole-intent `write` stays.
   - **The app** (ui/app) sends its answers as fills and the defaults the person confirmed as fills
-    of the values seen. It cannot send yet: clearing an answer the file stores, changes on two
-    parts of an assembly, or an added requirement (`extra.*`); these come with the review panel
-    (piece 7). After a save the part is opened again
+    of the values seen, and an answer the file stores that the person cleared as a clear. It
+    cannot send changes on two parts of an assembly yet (an edit list applies to one part). After a save the part is opened again
     from the file saved. `@draftwright/specify-ui`'s worker no longer has the `write` and
     `rematch` operations.
+  - The edit list gains `clear`: it takes back a stored decision that leaves no PMI (a decided
+    none, a stored choice), never PMI. A fill of `extra.<name>` adds that requirement, as a 0.2
+    answer did. A 0.2 answers file whose evidence is from another revision is refused as stale
+    (`_specify.evidence`), as 0.2's write refused it. MCP `check` refuses as `save` does while
+    the session holds unsaved answers.
   - An edit list may fill a choice that is not a requirement and has no feature-table row (how
     holes are located, `part.locating`), checked against its options, or decide it none where
     none is an option; it is stored beside the PMI, and the planner reads it for the rest of the

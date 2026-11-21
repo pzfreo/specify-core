@@ -1182,3 +1182,104 @@ fn a_choice_with_no_row_is_filled_and_stored() {
         );
     }
 }
+
+/// An added requirement (`extra.<name>`, the editor's added requirements): a fill of its spec
+/// adds it, as a 0.2 answer did, all or nothing with the rest of the list; a spec the rules refuse
+/// fails its entry and nothing is written.
+#[test]
+fn a_fill_of_an_added_requirement_adds_it() {
+    let part = fixture("parts/plate.step");
+    let saved = applied(
+        &part,
+        json!({"fill": {"part.material": "steel",
+                        "extra.1": {"kind": "size", "faces": [9], "value": "7.8/8.2"}}}),
+    );
+    let limits: Vec<_> = specify_core::existing::read_existing(&reload(&saved.bytes))
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| e.limits)
+        .collect();
+    assert_eq!(limits, [[7.8, 8.2]], "{:?}", saved.report.written);
+    let bad = refused(
+        &part,
+        json!({"fill": {"part.material": "steel",
+                        "extra.1": {"kind": "size", "faces": [9999], "value": "7.8/8.2"}}}),
+    );
+    assert!(bad.iter().any(|f| f.entry.contains("extra.1")), "{bad:?}");
+}
+
+/// `clear` takes back a stored decision that leaves no PMI (a decided none, a stored choice):
+/// the row is a gap, the choice unanswered, again. It never touches PMI: a clear of something
+/// stated, or of a gap, is refused.
+#[test]
+fn clear_takes_back_a_stored_decision_and_never_pmi() {
+    let part = fixture("parts/plate.step");
+    let decided = applied(
+        &part,
+        json!({"none": ["part.coating"], "fill": {"part.material": "steel",
+               "part.locating": "± dimensions"}}),
+    );
+    let after = reload(&decided.bytes);
+    assert_eq!(row(&table(&after), "part.coating")["state"], "decided_none");
+    assert_eq!(
+        stored_answers(&decided.bytes)["part.locating"],
+        "± dimensions"
+    );
+    let cleared = applied(&after, json!({"clear": ["part.coating", "part.locating"]}));
+    let back = reload(&cleared.bytes);
+    assert_eq!(row(&table(&back), "part.coating")["state"], "gap");
+    assert!(
+        stored_answers(&cleared.bytes)
+            .get("part.locating")
+            .is_none()
+    );
+    assert_eq!(
+        row(&table(&back), "part.material")["state"],
+        "stated",
+        "PMI untouched"
+    );
+    for (bad, why) in [
+        (json!({"clear": ["part.material"]}), "never touches PMI"),
+        (
+            json!({"clear": ["part.surface_finish"]}),
+            "nothing is stored",
+        ),
+        (
+            json!({"clear": ["part.coating"], "none": ["part.coating"]}),
+            "keep one of them",
+        ),
+    ] {
+        let failures = refused(&after, bad.clone());
+        assert!(
+            failures.iter().any(|f| f.reason.contains(why)),
+            "{bad}: {failures:?}"
+        );
+    }
+}
+
+/// A 0.2 answers file carries its face evidence: one saved on another revision of the part is
+/// refused as stale, by `check` and by `apply` alike, naming `_specify.evidence`, as 0.2's write
+/// refused it; on its own revision it applies.
+#[test]
+fn an_answers_file_from_another_revision_is_refused_as_stale() {
+    let old = fixture("revisions/plate_split.old.step.gz");
+    let new = fixture("revisions/plate_split.new.step.gz");
+    let given = json!({"part.material": "6061-T6"});
+    let analysis = api::analyse(&old).unwrap();
+    let saved = api::export_answers(
+        &old,
+        &analysis,
+        given.as_object().unwrap(),
+        &Default::default(),
+    )
+    .unwrap()
+    .answers;
+    let text = Value::Object(saved).to_string();
+    let checked = specify_core::writer::apply::check(&new, &text);
+    let stale = |f: &Failure| f.entry == "_specify.evidence" && f.reason.contains("stale answers");
+    assert!(checked.failures.iter().any(stale), "{checked:?}");
+    let list = edits::read(&text).unwrap();
+    let refused = apply(&new, &list).expect_err("refused");
+    assert!(refused.iter().any(stale), "{refused:?}");
+    assert!(apply(&old, &list).is_ok(), "on its own revision it applies");
+}

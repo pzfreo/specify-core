@@ -128,5 +128,31 @@ try {
   assert.throws(() => acceptDefaults(analysis, blocked), incomplete);
   carried['datum.A'] = [4, 8];
   assert.deepEqual(JSON.parse(acceptDefaults(analysis, JSON.stringify(carried)))['datum.A'], [4, 8]);
+  // The explicit replacement applied as an edit (a 0.2 answers file reads as fills): datum A on
+  // both faces, and the transport not stored.
+  const resolved = JSON.parse(after.edit(JSON.stringify(carried)));
+  assert.ok(resolved.written, resolved.message);
+  const back = new IntentEngine('resolved.step', Uint8Array.from(resolved.bytes));
+  try {
+    const datum = JSON.parse(back.table()).rows.find(r => r.id === 'datum.A');
+    assert.equal(datum.state, 'stated');
+    assert.equal(JSON.parse(back.snapshot()).analysis.resume?.answers?._specify, undefined, 'transport is not stored');
+  } finally { back.free(); }
+  // Answers saved with the old geometry's evidence: applied to their own revision, refused as
+  // stale on the new one, by edit and by checkEdits alike.
+  const saved = { ...given, _specify: { evidence: JSON.parse(before.evidence()), unresolved: {} } };
+  assert.ok(JSON.parse(before.edit(JSON.stringify(saved))).written, 'their own revision takes them');
+  const stale = /stale answers.*another revision/;
+  const refused = JSON.parse(after.edit(JSON.stringify(saved)));
+  assert.equal(refused.written, false);
+  assert.match(refused.message, stale);
+  assert.ok(refused.failures.some(f => f.entry === '_specify.evidence' && stale.test(f.reason)), refused.message);
+  const checked = JSON.parse(after.checkEdits(JSON.stringify(saved)));
+  assert.equal(checked.applicable, false);
+  assert.ok(checked.failures.some(f => f.entry === '_specify.evidence' && stale.test(f.reason)), checked.message);
+  // Rematched from their embedded evidence, the answers on the dropped face are blocked, so
+  // taking the defaults for the rest is refused.
+  const rematched = JSON.parse(after.rematchAnswers(JSON.stringify(saved))).answers;
+  assert.throws(() => acceptDefaults(analysis, JSON.stringify(rematched)), e => typeof e === 'string' && /carried answer could not be applied/.test(e));
 } finally { before.free(); after.free(); }
-console.log('Carried answers: WASM blocked defaults and explicit replacement passed');
+console.log('Carried answers: WASM blocked defaults, explicit replacement, stale evidence and embedded-evidence rematching passed');

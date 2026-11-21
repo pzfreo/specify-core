@@ -494,6 +494,7 @@ function App() {
         setProblem(`Not saved: nothing was written, because ${plural(error.failures.length, 'change')} cannot be applied: `
           + error.failures.map((f) => `${f.entry}: ${f.reason}`).join('; '));
       } else if (error instanceof CannotSend) {
+        // Changes on two parts of an assembly: one edit list applies to one part.
         setProblem(`Not saved: ${error.message}.`);
       } else if (error instanceof NotShown && unshown) {
         // The answers that could not be shown: tried again; until they show, Save cannot write them.

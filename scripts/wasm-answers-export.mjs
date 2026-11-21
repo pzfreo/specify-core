@@ -38,6 +38,11 @@ try {
   assert.deepEqual(plain, JSON.parse(acceptDefaults(analysis, JSON.stringify(given))));
   assert.deepEqual(JSON.parse(old.review(text)).open, []);
   refuses(() => next.exportAnswers(text), /stale answers/);
+  // The saved sidecar as an edit list: refused on the other revision as stale, nothing written.
+  for (const result of [JSON.parse(next.edit(text)), JSON.parse(next.checkEdits(text))]) {
+    assert.notEqual(result.written, true);
+    assert.ok(result.failures.some(f => f.entry === '_specify.evidence' && /stale answers/.test(f.reason)), result.message);
+  }
   assert.deepEqual(bare(JSON.parse(old.exportAnswers('{}'))), {});
   // Diff reads the files' PMI only and returns no answers (ADR P11). An answers file carried
   // to the new revision with its datum dropped, as an earlier diff returned one:

@@ -197,6 +197,12 @@ fn choice_questions(table: &FeatureTable, analysis: &Json) -> BTreeMap<String, O
         .collect()
 }
 
+/// Whether `id` is an added requirement (`extra.<name>`): a fill of its spec adds it.
+fn is_extra(id: &str) -> bool {
+    id.strip_prefix("extra.")
+        .is_some_and(|name| !name.is_empty())
+}
+
 /// Whether `id` is a choice that is not a requirement and has no feature-table row.
 fn is_choice(table: &FeatureTable, id: &str) -> bool {
     !crate::feature_table::is_requirement(id)
@@ -205,16 +211,25 @@ fn is_choice(table: &FeatureTable, id: &str) -> bool {
         && table.row(id).is_none()
 }
 
-/// The file's state as an edit list sees it: the feature table, and the choice questions
-/// ([`choice_questions`]), each a gap that a fill, a none or its suggestion may answer.
+/// The file's state as an edit list sees it: the feature table; the choice questions
+/// ([`choice_questions`]), each a gap that a fill, a none or its suggestion may answer, or, once
+/// stored, a decision a clear takes back; and added requirements (`extra.<name>`), which a fill
+/// adds, as a 0.2 answer did.
 struct WithChoices<'a> {
     table: &'a FeatureTable,
     choices: BTreeMap<String, Option<Json>>,
+    stored: Map<String, Json>,
 }
 
 impl edits::FileState for WithChoices<'_> {
     fn kind(&self, id: &str) -> Option<edits::KindState> {
+        if is_extra(id) {
+            return Some(edits::KindState::Gap { suggestion: None });
+        }
         self.table.kind(id).or_else(|| {
+            if self.stored.contains_key(id) && is_choice(self.table, id) {
+                return Some(edits::KindState::DecidedNone);
+            }
             self.choices.get(id).map(|default| edits::KindState::Gap {
                 suggestion: default.clone().filter(|d| !d.is_null()),
             })
@@ -225,13 +240,33 @@ impl edits::FileState for WithChoices<'_> {
     }
 }
 
-fn validated(list: &EditList, table: &FeatureTable, analysis: &Json) -> (EditList, Outcome) {
+fn validated(
+    loaded: &LoadedPart,
+    list: &EditList,
+    table: &FeatureTable,
+    analysis: &Json,
+) -> (EditList, Outcome) {
     let list = edits::normalise(list, table);
     let state = WithChoices {
         table,
         choices: choice_questions(table, analysis),
+        stored: analysis["resume"]["answers"]
+            .as_object()
+            .cloned()
+            .unwrap_or_default(),
     };
     let mut outcome = edits::validate(&list, &state);
+    // A 0.2 answers file carries its face evidence: one saved on another revision of the part
+    // is refused, as 0.2's write refused it ("stale answers").
+    if let Some(answers) = &list.answers_file
+        && answers.contains_key(crate::answer_file::META)
+        && let Err(why) = crate::answer_file::check(loaded, answers)
+    {
+        outcome.failures.push(entry_failure(
+            format!("{}.evidence", crate::answer_file::META),
+            why,
+        ));
+    }
     if outcome.failures.is_empty() {
         outcome.failures = answers_refused(&list, table, analysis);
     }
@@ -254,7 +289,7 @@ pub fn check(loaded: &LoadedPart, text: &str) -> Outcome {
         Ok(found) => found,
         Err(why) => return Outcome::malformed(whole(why)),
     };
-    let mut outcome = validated(&list, &table, &analysis).1;
+    let mut outcome = validated(loaded, &list, &table, &analysis).1;
     if outcome.failures.is_empty()
         && let Err(failures) = apply(loaded, &list)
     {
@@ -527,7 +562,7 @@ pub fn apply_with(
         ));
     }
     let (analysis, table) = table_of(loaded).map_err(whole)?;
-    let (list, outcome) = validated(list, &table, &analysis);
+    let (list, outcome) = validated(loaded, list, &table, &analysis);
     if !outcome.failures.is_empty() {
         return Err(outcome.failures);
     }
@@ -597,6 +632,7 @@ pub fn apply_with(
         }
     }
     if extra.is_empty()
+        && list.clear.is_empty()
         && given.is_empty()
         && none.is_empty()
         && chosen.is_empty()
@@ -851,6 +887,7 @@ pub fn apply_with(
             !crate::feature_table::is_requirement(id)
                 && !id.starts_with('_')
                 && !id.starts_with("bom.")
+                && !list.clear.contains(*id)
         })
         .map(|(id, v)| (id.clone(), v.clone()))
         .chain(chosen.iter().map(|(id, v)| (id.clone(), v.clone())))
@@ -1077,7 +1114,7 @@ pub fn apply_with(
     // The stored state: decided none, and the choices that are not requirements.
     let mut saved = choices;
     for id in &table.decided_none {
-        if !given.contains_key(id) {
+        if !given.contains_key(id) && !list.clear.contains(id) {
             saved.insert(id.clone(), none_answer(&table, id));
         }
     }
@@ -1098,7 +1135,11 @@ pub fn apply_with(
                     })
                 })
         });
-        if shared_only && crate::feature_table::leaves_nothing(value) && !given.contains_key(id) {
+        if shared_only
+            && crate::feature_table::leaves_nothing(value)
+            && !given.contains_key(id)
+            && !list.clear.contains(id)
+        {
             saved.insert(id.clone(), value.clone());
         }
     }

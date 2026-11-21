@@ -184,3 +184,66 @@ fn an_edit_carries_the_editors_project_and_replaces_it() {
         .unwrap();
     assert_eq!(matched["answers"], json!(answers));
 }
+
+/// What the editor does with 0.2's engine through `edit`: an added requirement (`extra.*`) is a
+/// fill that adds it; `clear` takes a stored decision back (a decided none, how holes are
+/// located), never PMI; a 0.2 answers file saved on another revision is refused as stale.
+#[test]
+fn edit_adds_requirements_clears_decisions_and_refuses_stale_answers() {
+    let session = plate();
+    let added = session.edit(
+        r#"{"fill": {"part.material": "steel", "part.locating": "± dimensions",
+                     "extra.1": {"kind": "size", "faces": [9], "value": "7.8/8.2"}},
+            "none": ["part.coating"]}"#,
+    );
+    assert_eq!(added["written"], true, "{added}");
+    let written = Session::open("plate.step", &bytes(&added)).unwrap();
+    let scene = written.pmi_scene(&Default::default()).unwrap().to_string();
+    assert!(scene.contains("7.8"), "the added size is in the file");
+    assert_eq!(
+        row(&written.table(), "part.coating")["state"],
+        "decided_none"
+    );
+    let cleared = written.edit(r#"{"clear": ["part.coating", "part.locating"]}"#);
+    assert_eq!(cleared["written"], true, "{cleared}");
+    let back = Session::open("plate.step", &bytes(&cleared)).unwrap();
+    assert_eq!(row(&back.table(), "part.coating")["state"], "gap");
+    assert_eq!(row(&back.table(), "part.material")["state"], "stated");
+    assert!(
+        back.snapshot()["analysis"]["resume"]["answers"]
+            .get("part.locating")
+            .is_none()
+    );
+    let pmi = back.edit(r#"{"clear": ["part.material"]}"#);
+    assert_eq!(pmi["written"], false, "a clear never touches PMI: {pmi}");
+    let bad =
+        session.edit(r#"{"fill": {"extra.1": {"kind": "size", "faces": [9999], "value": "1"}}}"#);
+    assert_eq!(bad["written"], false, "{bad}");
+    // A 0.2 answers file with face evidence from another revision.
+    let old = Session::open("old.step", &fixture("revisions/plate_split.old.step.gz")).unwrap();
+    let new = Session::open("new.step", &fixture("revisions/plate_split.new.step.gz")).unwrap();
+    let saved = Value::Object(
+        old.export_answers(
+            json!({"part.material": "6061-T6"}).as_object().unwrap(),
+            &Default::default(),
+        )
+        .unwrap(),
+    )
+    .to_string();
+    for result in [new.edit(&saved), new.check_edits(&saved)] {
+        assert!(result.to_string().contains("stale answers"), "{result}");
+        assert_ne!(result["written"], true);
+    }
+    assert_eq!(old.edit(&saved)["written"], true);
+}
+
+/// A gzipped fixture's STEP text (the engine takes it decompressed).
+fn fixture(name: &str) -> Vec<u8> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures")
+        .join(name);
+    specify_core::part::load(&path, None)
+        .unwrap()
+        .bytes
+        .to_vec()
+}

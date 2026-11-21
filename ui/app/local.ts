@@ -81,13 +81,17 @@ export const getAnswers = () => json<SessionAnswers>(fetch('answers', { cache: '
 
 /** An edit list (specify-core docs/session.md, the 0.3.0 edit list): ``fill`` gaps with a value (a
  * value meaning none records "decided: none"), ``change`` what the file states (``expect``: the value
- * seen), ``items`` by characteristic number, ``none`` decided none, ``accept_suggestions``. */
+ * seen), ``items`` by characteristic number, ``none`` decided none, ``accept_suggestions``, ``clear``
+ * a stored decision. */
 export interface EditList {
   fill?: Record<string, unknown>;
   change?: Record<string, { to: unknown; expect: unknown }>;
   items?: { change?: Record<string, { tolerance: string; expect: string }>; remove?: string[] };
   none?: string[];
   accept_suggestions?: string[];
+  /** Stored decisions that leave no PMI to take back (a decided none, a choice such as how holes
+   * are located): a gap, or unanswered, again. Never PMI. */
+  clear?: string[];
 }
 
 /** One entry of an edit list that cannot be applied, and why. */

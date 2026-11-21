@@ -97,8 +97,9 @@ JSON-RPC errors.
 | `check` | `doc`, `edits` | `well_formed`, `applicable`, `entries`, `unchanged`, `failures`, `message`, `rev`: the list checked as `save` would apply it; nothing is written |
 
 The edit list is `{"fill": {id: value}, "change": {id: {"to", "expect"}}, "items": {"remove":
-["#N"]}, "none": [id], "accept_suggestions": [id]}`, as `specify-core write STEP EDITS.json`
-takes it; ids are the feature table's (`table` in the analysis resource). `write_pmi`, which
+["#N"]}, "none": [id], "accept_suggestions": [id], "clear": [id]}`, as `specify-core write STEP
+EDITS.json` takes it; ids are the feature table's (`table` in the analysis resource), a choice
+with no row (`part.locating`), or an added requirement (`extra.<name>`). `clear` takes back a stored decision that leaves no PMI (a decided none, or a choice such as `part.locating`), so the feature-and-kind is a gap, or the choice unanswered, again; it never touches PMI (that is `change` and `items.remove`). A fill of `extra.<name>` with a requirement's spec (`{kind, faces, value, …}`, as an answer gave it) adds that requirement. `write_pmi`, which
 wrote the whole intent of the answers to a path of the agent's choosing, is gone (ADR P11).
 
 `answer` reads free text for a choice question as `serve`'s `interpret` does. `"M6"` on a hole

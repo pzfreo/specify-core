@@ -145,8 +145,9 @@ page sends no STEP bytes.
 - `edits` (required, an object; `{}` for none): the edit list, as `specify-core write STEP EDITS.json` takes it:
   `fill` gaps, `change` stated feature-and-kinds (with the value the person saw as `expect`),
   `items.remove` requirements by characteristic number, `none` feature-and-kinds decided none,
-  and `accept_suggestions`, gaps filled with Specify's suggestion. Ids are the feature table's
-  (`table` in the analysis). Anything the list does not name is left as it is, byte for byte.
+  `accept_suggestions`, gaps filled with Specify's suggestion, and `clear`. Ids are the feature
+  table's (`table` in the analysis), a choice with no row (`part.locating`), or an added
+  requirement (`extra.<name>`). `clear` takes back a stored decision that leaves no PMI (a decided none, or a choice such as `part.locating`), so the feature-and-kind is a gap, or the choice unanswered, again; it never touches PMI (that is `change` and `items.remove`). A fill of `extra.<name>` with a requirement's spec (`{kind, faces, value, …}`, as an answer gave it) adds that requirement. Anything the list does not name is left as it is, byte for byte.
   A suggestion is written only when the list names it (ADR P9).
 
 An edit list applies to a file of one part for now: the save of a file of several parts is

@@ -305,21 +305,20 @@ test('an edit list the command refuses is reported entry by entry, and the chang
   assert.deepEqual(store.session.changedParts(), [0], 'the page\'s change is still there');
 });
 
-// What the current page can express: an answer is a fill (a none answer records decided none); an
-// answer the file stores that the page cleared has no edit yet (piece 7).
-test('answers become fills; clearing a stored answer cannot be sent', async () => {
+// What the page sends: an answer is a fill (a none answer records decided none), and an answer the
+// file stores (a decision that leaves no PMI) that the page cleared is a clear.
+test('answers become fills; clearing a stored answer is a clear', async () => {
   assert.deepEqual(editsFor({ 'part.coating': 'None (as machined)' }, { 'part.coating': 'anodise', 'part.material': 'Steel', _specify: { x: 1 } }),
-    { edits: { fill: { 'part.coating': 'anodise', 'part.material': 'Steel' } }, cannot: [] });
-  assert.deepEqual(editsFor({}, { 'part.notes': [] }), { edits: { fill: { 'part.notes': [] } }, cannot: [] }, 'a none answer is a fill of it');
-  assert.deepEqual(editsFor({ 'part.coating': 'None' }, {}), { edits: {}, cannot: ['part.coating'] });
+    { fill: { 'part.coating': 'anodise', 'part.material': 'Steel' } });
+  assert.deepEqual(editsFor({}, { 'part.notes': [] }), { fill: { 'part.notes': [] } }, 'a none answer is a fill of it');
+  assert.deepEqual(editsFor({ 'part.coating': 'None' }, {}), { clear: ['part.coating'] });
   assert.deepEqual(editsFor({}, { a: 1 }, [{ id: 'm', raw: '"ISO 2768-m"' }, { id: 'e', raw: '{"a":[1,2]}' }]),
-    { edits: { fill: { a: 1, m: 'ISO 2768-m', e: { a: [1, 2] } } }, cannot: [] }, 'the value the person saw, structured values included');
+    { fill: { a: 1, m: 'ISO 2768-m', e: { a: [1, 2] } } }, 'the value the person saw, structured values included');
   const store = createSessionStore(0, 2, { 'part.coating': 'None' }, { 'part.coating': 'None' });
   store.set({}, { 'part.coating': 'None' });
   const { writes, write } = recorder();
-  await assert.rejects(sessionSaver(store, store.session, () => store.get(), none, write).save({ defaults: [] }),
-    (e) => e instanceof CannotSend && e.ids.join() === 'part.coating');
-  assert.deepEqual(writes, []);
+  await sessionSaver(store, store.session, () => store.get(), none, write).save({ defaults: [] });
+  assert.deepEqual(writes, [[2, { clear: ['part.coating'] }]]);
 });
 
 // A save writes only parts with at least one answer, plus a single-part file's only part.

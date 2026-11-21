@@ -601,11 +601,7 @@ pub fn save_edits(
         // The edits are applied to the file and the session then reads it back: answers not
         // yet saved would be lost, so they are saved or discarded first.
         if s.has_unsaved() {
-            return Err(SaveError::Refused(
-                "the session has unsaved answers: save or discard the unsaved answers first; \
-                 nothing was written"
-                    .into(),
-            ));
+            return Err(SaveError::Refused(UNSAVED.into()));
         }
         if s.in_place {
             let now = fs::read(&s.file.path)
@@ -723,7 +719,20 @@ pub fn save_edits(
 /// save left it, as [`save_edits`] would apply it (`writer::apply::check`). Nothing is written
 /// and the session is not changed.
 pub fn check_edits(shared: &Shared, text: &str) -> crate::edits::Outcome {
-    let step = Arc::clone(&lock(shared).step);
+    let (step, unsaved) = {
+        let s = lock(shared);
+        (Arc::clone(&s.step), s.has_unsaved())
+    };
+    // As `save_edits` refuses it: the answers not saved would be lost.
+    if unsaved {
+        let mut outcome = crate::edits::check(text, None);
+        outcome.failures.push(crate::edits::Failure {
+            entry: "(the session)".into(),
+            reason: UNSAVED.into(),
+        });
+        outcome.applicable = false;
+        return outcome;
+    }
     match step.load(None) {
         Ok(loaded) => crate::writer::apply::check(&loaded, text),
         Err(e) => crate::edits::Outcome::malformed(vec![crate::edits::Failure {
@@ -732,6 +741,10 @@ pub fn check_edits(shared: &Shared, text: &str) -> crate::edits::Outcome {
         }]),
     }
 }
+
+/// Why an edit list is refused while the session holds answers not saved.
+const UNSAVED: &str = "the session has unsaved answers: save or discard the unsaved answers first; \
+                       nothing was written";
 
 /// An edit list's refusal in plain words: nothing was written, and each failing entry.
 pub fn edits_refused(failures: &[crate::edits::Failure]) -> String {

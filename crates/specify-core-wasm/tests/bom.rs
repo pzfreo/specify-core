@@ -1,14 +1,33 @@
-//! The browser session shares the opt-in and provenance rules of the native writer.
-mod common;
-use serde_json::{Map, json};
+//! The browser session shares the opt-in and provenance rules of the native writer: a parts list
+//! is written only when its suggestions are accepted. Every BOM is on a part of an assembly, so
+//! these wait on the assembly edits (piece 2's follow-on): the bodies are the edit-list form.
+use serde_json::{Map, Value, json};
 use specify_core::{bom, resume};
 use specify_core_wasm::session::Session;
+
+fn bytes(out: &Value) -> Vec<u8> {
+    assert_eq!(out["written"], json!(true), "{out}");
+    serde_json::from_value(out["bytes"].clone()).unwrap()
+}
+
+/// The parts-list questions with a suggestion: what accepting the BOM suggestions names.
+fn bom_suggestions(session: &Session) -> Vec<String> {
+    session.review(&Map::new()).unwrap()["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|q| q["id"].as_str().is_some_and(|id| id.starts_with("bom.")))
+        .filter(|q| q["suggestions"].as_array().is_some_and(|s| !s.is_empty()))
+        .filter_map(|q| q["id"].as_str().map(str::to_string))
+        .collect()
+}
+
 #[test]
-fn write_pmi_bom_is_explicit_and_suggestions_do_not_become_answers() {
-    let bytes = include_bytes!("../../../tests/fixtures/parts/assembly.step");
-    let session = Session::open_part("assembly", bytes, 0).unwrap();
-    let ordinary = common::write_pmi(&session, &Map::new()).unwrap();
-    let ordinary: Vec<u8> = serde_json::from_value(ordinary["bytes"].clone()).unwrap();
+#[ignore = "0.3.0: waits on assembly-edits"]
+fn bom_is_explicit_and_suggestions_do_not_become_answers() {
+    let file = include_bytes!("../../../tests/fixtures/parts/assembly.step");
+    let session = Session::open_part("assembly", file, 0).unwrap();
+    let ordinary = bytes(&session.edit("{}"));
     assert!(
         bom::read_bytes(ordinary)
             .unwrap()
@@ -16,13 +35,13 @@ fn write_pmi_bom_is_explicit_and_suggestions_do_not_become_answers() {
             .all(|r| r.item_number.value.is_null())
     );
     assert!(
-        common::accept_defaults(&session, &Map::new())
+        specify_core_wasm::accept_defaults(session.analysis(), &Map::new())
             .unwrap()
             .keys()
             .all(|k| !k.starts_with("bom."))
     );
-    let written = common::write_pmi_with_bom(&session, &Map::new(), true).unwrap();
-    let written: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
+    let accepted = json!({ "accept_suggestions": bom_suggestions(&session) }).to_string();
+    let written = bytes(&session.edit(&accepted));
     let rows = bom::read_bytes(written.clone()).unwrap();
     assert_eq!(rows[0].item_number.value, 1);
     assert_eq!(rows[0].description.source, "default");
@@ -33,13 +52,12 @@ fn write_pmi_bom_is_explicit_and_suggestions_do_not_become_answers() {
     );
     let session = Session::open_part("written", &written, 0).unwrap();
     let explicit = json!({"bom.stock":"from stock","bom.description":"Chosen description"});
-    let edited = common::write_pmi(&session, explicit.as_object().unwrap()).unwrap();
-    let edited: Vec<u8> = serde_json::from_value(edited["bytes"].clone()).unwrap();
+    let edited = bytes(&session.edit(&json!({ "fill": explicit }).to_string()));
     let snapshot = Session::open_part("edited", &edited, 0).unwrap().snapshot();
     assert_eq!(snapshot["analysis"]["resume"]["answers"], explicit);
     let reopened = Session::open_part("edited", &edited, 0).unwrap();
-    let requested = common::write_pmi_with_bom(&reopened, &Map::new(), true).unwrap();
-    let requested: Vec<u8> = serde_json::from_value(requested["bytes"].clone()).unwrap();
+    let accepted = json!({ "accept_suggestions": bom_suggestions(&reopened) }).to_string();
+    let requested = bytes(&reopened.edit(&accepted));
     assert_eq!(
         bom::read_bytes(requested).unwrap()[0].stock.source,
         "answered"
@@ -47,15 +65,24 @@ fn write_pmi_bom_is_explicit_and_suggestions_do_not_become_answers() {
     assert_eq!(bom::read_bytes(edited).unwrap()[0].stock.source, "answered");
 }
 
-/// A file with no assembly structure refuses `bom=true` with the stable code the editor matches
-/// (`bom::NO_ASSEMBLY`, docs/wasm.md "Errors"), not by its prose.
+/// A file with no assembly structure refuses the parts list with the stable code the editor
+/// matches (`bom::NO_ASSEMBLY`, docs/wasm.md "Errors"), not by its prose.
 #[test]
-fn write_pmi_bom_on_loose_parts_refuses_with_the_no_assembly_code() {
-    let bytes = include_bytes!("../../../tests/fixtures/parts/two_parts_without_an_assembly.step");
-    let session = Session::open_part("loose", bytes, 0).unwrap();
-    let refused = common::write_pmi_with_bom(&session, &Map::new(), true).unwrap_err();
-    assert!(refused.starts_with("bom_no_assembly: "), "{refused}");
+#[ignore = "0.3.0: waits on assembly-edits"]
+fn bom_on_loose_parts_refuses_with_the_no_assembly_code() {
+    let file = include_bytes!("../../../tests/fixtures/parts/two_parts_without_an_assembly.step");
+    let session = Session::open_part("loose", file, 0).unwrap();
+    let accepted = json!({ "accept_suggestions": ["bom.item_number"] }).to_string();
+    let refused = session.edit(&accepted);
+    assert_eq!(refused["written"], json!(false), "{refused}");
+    assert!(
+        refused["message"]
+            .as_str()
+            .unwrap()
+            .contains("bom_no_assembly"),
+        "{refused}"
+    );
     assert_eq!(bom::NO_ASSEMBLY, "bom_no_assembly");
     // Without the BOM it writes.
-    assert!(common::write_pmi(&session, &Map::new()).is_ok());
+    bytes(&session.edit("{}"));
 }

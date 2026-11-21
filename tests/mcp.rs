@@ -1849,10 +1849,24 @@ fn save_is_refused_while_answers_set_with_answer_are_unsaved() {
         "{refused}"
     );
     assert!(!dir.join("plate.specified.step").exists());
+    // `check` says the same as `save` would: refused while the answers are unsaved.
+    let checked = call(&mut server, "check", json!({"doc": doc, "edits": list}));
+    let checked = &checked["structuredContent"];
+    assert_eq!(checked["applicable"], json!(false), "{checked}");
+    assert!(
+        checked["failures"].to_string().contains("unsaved answers"),
+        "{checked}"
+    );
     call(
         &mut server,
         "answer",
         json!({"doc": doc, "clear": ["part.material"]}),
+    );
+    let checked = call(&mut server, "check", json!({"doc": doc, "edits": list}));
+    assert_eq!(
+        checked["structuredContent"]["applicable"],
+        json!(true),
+        "{checked}"
     );
     let saved = call(&mut server, "save", json!({"doc": doc, "edits": list}));
     assert_eq!(saved["isError"], json!(false), "{saved}");
