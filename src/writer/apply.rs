@@ -240,13 +240,156 @@ impl edits::FileState for WithChoices<'_> {
     }
 }
 
+/// Each added requirement the list fills (`extra.<name>`), planned on its own, against what the
+/// file states: one the file does not state is a gap (written); one it states with the same
+/// value changes nothing (`unchanged`); one it states with another value is refused, as a
+/// differing fill is, unless the list also removes that requirement by number.
+fn extra_states(
+    loaded: &LoadedPart,
+    list: &EditList,
+    analysis: &Json,
+) -> Result<(Vec<Failure>, Vec<String>), String> {
+    let extras: Vec<(&String, &Json)> = list.fill.iter().filter(|(id, _)| is_extra(id)).collect();
+    if extras.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let source = Source::of(&loaded.bytes).map_err(|e| e.to_string())?;
+    let k = loaded.binding.part;
+    let before = &source.read.parts[k];
+    let prov = &source.read.provenance.parts[k];
+    let removed: BTreeSet<u64> = list.items.remove.iter().map(|n| n.0).collect();
+    let choices: Map<String, Json> = analysis["resume"]["answers"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(id, _)| !crate::feature_table::is_requirement(id) && !id.starts_with('_'))
+        .map(|(id, v)| (id.clone(), v.clone()))
+        .collect();
+    let mut failures = Vec::new();
+    let mut unchanged = Vec::new();
+    for (id, value) in extras {
+        let entry = format!("fill[{}]", Json::from(id.as_str()));
+        let states = planned_states(loaded, analysis, &choices, before, prov, &source, id, value);
+        if states.is_empty() {
+            continue;
+        }
+        let differing: Vec<String> = states
+            .iter()
+            .filter_map(|(what, state)| match state {
+                Some((false, numbers)) if !numbers.iter().any(|n| removed.contains(n)) => {
+                    let named: Vec<String> = numbers.iter().map(|n| format!("#{n}")).collect();
+                    Some(format!("{what} ({})", named.join(", ")))
+                }
+                _ => None,
+            })
+            .collect();
+        if !differing.is_empty() {
+            failures.push(entry_failure(
+                entry,
+                format!(
+                    "the file already states {} with another value; to replace it, remove it \
+                     by number in the same list (items.remove)",
+                    differing.join("; ")
+                ),
+            ));
+        } else if states
+            .iter()
+            .all(|(_, state)| matches!(state, Some((true, _))))
+        {
+            unchanged.push(entry);
+        }
+    }
+    Ok((failures, unchanged))
+}
+
+/// The requirements `id` answered `value` plans on its own (with the file's stored choices), each
+/// against what the file states ([`crate::characteristics::against`]); empty when it plans none.
+#[allow(clippy::too_many_arguments)]
+fn planned_states(
+    loaded: &LoadedPart,
+    analysis: &Json,
+    choices: &Map<String, Json>,
+    before: &PartPmi,
+    prov: &haecceity::pmi::PartProvenance,
+    source: &Source,
+    id: &str,
+    value: &Json,
+) -> Vec<crate::characteristics::Against> {
+    let mut answers = choices.clone();
+    answers.insert(id.to_string(), value.clone());
+    // A value the rules refuse is said by `answers_refused`.
+    // Asked as the feature table asks it: the file's PMI set aside but for its datums.
+    let Ok(mut intent) = crate::rules::preview(&bare(analysis), &answers) else {
+        return Vec::new();
+    };
+    intent
+        .requirements
+        .retain(|r| r.get("question").and_then(Json::as_str) == Some(id));
+    intent
+        .datums
+        .retain(|d| d.get("existing") == Some(&Json::Bool(true)));
+    intent.part.clear();
+    let Ok((planned, _)) = part_pmi(loaded, &intent, before, Mode::Add, &[]) else {
+        return Vec::new();
+    };
+    crate::characteristics::against(&planned, before, prov, &source.doc)
+}
+
+/// A fill on a stated feature-and-kind whose value is written otherwise than the table shows
+/// it (`tapped:M2` for the file's "internal thread"): planned on its own, it changes nothing
+/// when every requirement it plans is one the file states with the same value. Such fills
+/// are taken out of the list and named as unchanged.
+fn same_as_stated(
+    loaded: &LoadedPart,
+    list: &mut EditList,
+    table: &FeatureTable,
+    analysis: &Json,
+) -> Vec<String> {
+    let stated: Vec<(String, Json)> = list
+        .fill
+        .iter()
+        .filter(|(id, value)| match edits::FileState::kind(table, id) {
+            Some(edits::KindState::Stated { value: shown }) => !edits::same_value(&shown, value),
+            _ => false,
+        })
+        .map(|(id, value)| (id.clone(), value.clone()))
+        .collect();
+    if stated.is_empty() {
+        return Vec::new();
+    }
+    let Ok(source) = Source::of(&loaded.bytes) else {
+        return Vec::new();
+    };
+    let k = loaded.binding.part;
+    let (before, prov) = (&source.read.parts[k], &source.read.provenance.parts[k]);
+    let choices: Map<String, Json> = analysis["resume"]["answers"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(id, _)| !crate::feature_table::is_requirement(id) && !id.starts_with('_'))
+        .map(|(id, v)| (id.clone(), v.clone()))
+        .collect();
+    let mut out = Vec::new();
+    for (id, value) in stated {
+        let states = planned_states(
+            loaded, analysis, &choices, before, prov, &source, &id, &value,
+        );
+        if !states.is_empty() && states.iter().all(|(_, s)| matches!(s, Some((true, _)))) {
+            list.fill.remove(&id);
+            out.push(format!("fill[{}]", Json::from(id.as_str())));
+        }
+    }
+    out
+}
+
 fn validated(
     loaded: &LoadedPart,
     list: &EditList,
     table: &FeatureTable,
     analysis: &Json,
 ) -> (EditList, Outcome) {
-    let list = edits::normalise(list, table);
+    let mut list = edits::normalise(list, table);
+    let same = same_as_stated(loaded, &mut list, table, analysis);
     let state = WithChoices {
         table,
         choices: choice_questions(table, analysis),
@@ -256,6 +399,8 @@ fn validated(
             .unwrap_or_default(),
     };
     let mut outcome = edits::validate(&list, &state);
+    outcome.entries += same.len();
+    outcome.unchanged.extend(same);
     // A 0.2 answers file carries its face evidence: one saved on another revision of the part
     // is refused, as 0.2's write refused it ("stale answers").
     if let Some(answers) = &list.answers_file
@@ -269,6 +414,17 @@ fn validated(
     }
     if outcome.failures.is_empty() {
         outcome.failures = answers_refused(&list, table, analysis);
+    }
+    if outcome.failures.is_empty() {
+        match extra_states(loaded, &list, analysis) {
+            Ok((failures, unchanged)) => {
+                outcome.failures.extend(failures);
+                outcome.unchanged.extend(unchanged);
+            }
+            Err(why) => outcome
+                .failures
+                .push(entry_failure("(the whole list)".into(), why)),
+        }
     }
     outcome.failures.extend(limits(&list));
     outcome.applicable = outcome.failures.is_empty();
@@ -980,7 +1136,16 @@ pub fn apply_with(
                         .any(|d| d.get("question") == Some(&Json::from(id.as_str())))
                     || id
                         .strip_prefix("part.")
-                        .is_some_and(|key| intent.part.contains_key(key));
+                        .is_some_and(|key| intent.part.contains_key(key))
+                    // A hole's full-thread depth is written in its thread, which the hole's
+                    // function plans.
+                    || id.strip_prefix("hole.full_thread:").is_some_and(|feature| {
+                        let function = format!("hole.function:{feature}");
+                        intent.requirements.iter().any(|r| {
+                            r.get("question").and_then(Json::as_str) == Some(function.as_str())
+                                && r.get("kind").and_then(Json::as_str) == Some("thread")
+                        })
+                    });
                 !written
             })
             .map(|id| {

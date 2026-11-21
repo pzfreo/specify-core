@@ -1,7 +1,6 @@
 //! Pin the binding's compatibility to the independent Python-compatible core rules.
-mod common;
-use serde_json::{Map, json};
-use specify_core::{api, part, rules, tolerancing, writer};
+use serde_json::{Map, Value, json};
+use specify_core::{api, edits, part, rules, tolerancing};
 use specify_core_wasm::session::Session;
 
 #[test]
@@ -30,19 +29,25 @@ fn text_answers_keep_core_truthiness_and_json_values() {
                 .shift_remove("anchors");
             assert_eq!(actual, expected, "{answers:?}");
             assert_eq!(
-                common::accept_defaults(&session, &answers).unwrap(),
+                specify_core_wasm::accept_defaults(session.analysis(), &answers).unwrap(),
                 rules::with_all_defaults(&analysis, &answers).unwrap()
             );
-            let intent = api::preview(&analysis, &answers).unwrap();
-            let (bytes, report) = writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
-            let mut written = common::write_pmi(&session, &answers).unwrap();
-            assert_eq!(written["bytes"], json!(bytes));
-            // The session's report is the writer's plus whether the answers were complete.
-            let extra = written["report"].as_object_mut().unwrap();
-            let complete = extra.shift_remove("complete").unwrap();
-            let missing = extra.shift_remove("missing").unwrap();
-            assert_eq!(written["report"], report.to_dict());
-            assert_eq!(complete, json!(missing.as_array().unwrap().is_empty()));
+            // The engine's `edit` of these answers (a 0.2 answers map, read as fills) is the
+            // library's edit writer's: the same bytes and report, or the same refusal. (Was:
+            // the whole-intent `writePmi` against `writer::write_bytes`.)
+            let text = Value::Object(answers.clone()).to_string();
+            let written = session.edit(&text);
+            match edits::read(&text).and_then(|l| specify_core::writer::apply::apply(&loaded, &l)) {
+                Ok(applied) => {
+                    assert_eq!(written["written"], json!(true), "{answers:?}: {written}");
+                    assert_eq!(written["bytes"], json!(applied.bytes));
+                    assert_eq!(written["report"], applied.to_dict());
+                }
+                Err(failures) => {
+                    assert_eq!(written["written"], json!(false), "{answers:?}: {written}");
+                    assert_eq!(written["failures"], json!(failures));
+                }
+            }
         }
     }
 }
@@ -91,7 +96,7 @@ fn carried_refusals_survive_wasm_defaults_review_and_write() {
     .unwrap()
     .clone();
     assert!(
-        common::accept_defaults(&session, &answers)
+        specify_core_wasm::accept_defaults(session.analysis(), &answers)
             .unwrap_err()
             .contains("carried answer could not be applied")
     );
@@ -102,18 +107,28 @@ fn carried_refusals_survive_wasm_defaults_review_and_write() {
             .unwrap()
             .is_empty()
     );
-    assert!(common::write_pmi(&session, &answers).is_err());
+    let edit =
+        |answers: &Map<String, Value>| session.edit(&Value::Object(answers.clone()).to_string());
+    // Was: the whole-intent write refused the blocked set. An edit list writes only what it
+    // fills (the material): the blocked datum A is never written.
+    let blocked = edit(&answers);
+    let bytes: Vec<u8> = serde_json::from_value(blocked["bytes"].clone()).unwrap();
+    let existing =
+        specify_core::existing::read_existing(&part::load_bytes("b.step", bytes).unwrap()).unwrap();
+    assert!(existing.iter().all(|e| e.kind != "datum"), "{existing:?}");
     answers.insert("datum.A".into(), json!([4]));
-    let accepted = common::accept_defaults(&session, &answers).unwrap();
+    let accepted = specify_core_wasm::accept_defaults(session.analysis(), &answers).unwrap();
     assert_eq!(accepted["datum.A"], json!([4]));
-    common::write_pmi(&session, &accepted).unwrap();
+    // The answers with the blocked datum answered save (an edit of them as fills).
+    assert_eq!(edit(&answers)["written"], json!(true));
     answers["_specify"]["evidence"] = session.evidence().unwrap();
-    common::write_pmi(&session, &answers).unwrap();
+    assert_eq!(edit(&answers)["written"], json!(true));
     answers["_specify"]["evidence"]["face_count"] = json!(999);
+    let stale = edit(&answers);
+    assert_eq!(stale["written"], json!(false));
     assert!(
-        common::write_pmi(&session, &answers)
-            .unwrap_err()
-            .contains("stale answers")
+        stale["message"].as_str().unwrap().contains("stale answers"),
+        "{stale}"
     );
 }
 

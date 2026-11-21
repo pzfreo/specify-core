@@ -1,12 +1,36 @@
-mod common;
+//! The manufacturing process through the engine's `edit` (Specify 0.3.0: a save applies an edit
+//! list; a 0.2 answers map reads as fills). The file's process stands (ADR P11): a fill that
+//! differs from it is refused, all or nothing, and a list that names nothing leaves the bytes.
 use haecceity::p21::{Attribute, Document, Edit, RawEntity};
 use serde_json::{Map, Value, json};
 use specify_core::{process, resume};
 use specify_core_wasm::session::Session;
 
+/// The engine's `edit` of `answers` (a 0.2 answers map, read as fills): its bytes.
 fn write(session: &Session, answers: &Value) -> Vec<u8> {
-    let written = common::write_pmi(session, answers.as_object().unwrap()).unwrap();
+    let written = session.edit(&answers.to_string());
+    assert_eq!(written["written"], json!(true), "{written}");
     serde_json::from_value(written["bytes"].clone()).unwrap()
+}
+
+/// The engine's `edit` of `answers`, refused: what it says. Nothing is written.
+fn refused(session: &Session, answers: &Value) -> Value {
+    let out = session.edit(&answers.to_string());
+    assert_eq!(out["written"], json!(false), "{out}");
+    out
+}
+
+/// The fixtures: a file Specify 0.2 wrote from these answers (the whole intent, the answers
+/// stored), made by the library's writer. Only the edits the tests make go through the engine.
+fn written_by_0_2(answers: &Value) -> Vec<u8> {
+    let plate = include_bytes!("../../../tests/fixtures/parts/plate.step");
+    let loaded = specify_core::part::load_bytes("plate.step", plate.to_vec()).unwrap();
+    let analysis = specify_core::api::analyse(&loaded).unwrap();
+    let answers = answers.as_object().unwrap();
+    let intent = specify_core::api::preview(&analysis, answers).unwrap();
+    specify_core::writer::write_bytes(&loaded, &intent, Some(answers))
+        .unwrap()
+        .0
 }
 
 fn open(bytes: &[u8]) -> Session {
@@ -18,8 +42,7 @@ fn item(name: &str, value: &str) -> String {
 }
 
 fn marked_process(replacement: Option<(&str, &str)>) -> Document {
-    let plate = include_bytes!("../../../tests/fixtures/parts/plate.step");
-    let bytes = write(&open(plate), &json!({process::QUESTION: process::MACHINED}));
+    let bytes = written_by_0_2(&json!({process::QUESTION: process::MACHINED}));
     let original = String::from_utf8(bytes).unwrap();
     let before = item(process::ITEM, process::MACHINED);
     assert_eq!(original.matches(&before).count(), 1);
@@ -102,19 +125,29 @@ fn stale_answer_after_the_first_save(name: &str) {
         opened.snapshot()["analysis"]["part"]["process"],
         process::CAST
     );
+    // The stale answer differs from the file's process: refused, naming it (was: filtered out
+    // of the whole-intent write); the file keeps its process and stores no answer for it.
     let stale = json!({process::QUESTION: process::MACHINED});
-    let first = write(&opened, &stale);
+    let out = refused(&opened, &stale);
+    assert!(
+        out["message"].as_str().unwrap().contains(process::QUESTION),
+        "{out}"
+    );
+    let first = write(&opened, &json!({}));
+    assert_eq!(first, edited, "a list naming nothing leaves the bytes");
     let reopened = open(&first);
     assert!(
         reopened.snapshot()["analysis"]["resume"]
             .get("conflicts")
             .is_none()
     );
-    let second = write(&reopened, &stale);
+    refused(&reopened, &stale);
+    let second = write(&reopened, &json!({}));
     assert_only_process(&second, name, process::CAST);
     assert!(
-        resume::stored(&second)[&0]["answers"]
-            .get(process::QUESTION)
+        resume::stored(&second)
+            .get(&0)
+            .and_then(|p| p["answers"].get(process::QUESTION))
             .is_none()
     );
     assert_eq!(
@@ -139,11 +172,12 @@ fn a_foreign_process_outside_the_options_survives_rewrite() {
     let opened = open(&edited);
     let rewritten = write(&opened, &json!({}));
     assert_only_process(&rewritten, process::ITEM, "laser cut");
-    let stale = write(
+    // A different process is refused (was: not written by the whole-intent write).
+    refused(
         &open(&rewritten),
         &json!({process::QUESTION: process::MACHINED}),
     );
-    assert_only_process(&stale, process::ITEM, "laser cut");
+    assert_only_process(&rewritten, process::ITEM, "laser cut");
 }
 
 /// ADR P11: the deletion stands. The removed process is a gap again, with no conflict, and a
@@ -206,11 +240,12 @@ fn a_replace_written_file_keeps_the_process_when_its_markers_are_stripped() {
     let rewritten = write(&reopened, &json!({}));
     assert_only_process(&rewritten, process::ITEM, process::CAST);
     no_conflict(&reopened.snapshot()["analysis"]);
-    let answered = write(
+    // A different process is refused (was: not written by the whole-intent write).
+    refused(
         &open(&rewritten),
         &json!({process::QUESTION: process::MOULDED}),
     );
-    assert_only_process(&answered, process::ITEM, process::CAST);
+    assert_only_process(&rewritten, process::ITEM, process::CAST);
 }
 
 #[test]
@@ -230,17 +265,13 @@ fn a_replace_written_file_does_not_restore_a_process_removed_along_with_its_mark
 
 #[test]
 fn process_evidence_also_preserves_edited_notes_and_tolerances_after_marker_loss() {
-    let plate = include_bytes!("../../../tests/fixtures/parts/plate.step");
-    let bytes = write(
-        &open(plate),
-        &json!({
-            process::QUESTION: process::MACHINED,
-            "part.notes": ["original note"],
-            "part.general_tolerance": "ISO 2768-m",
-            "datum.A": [2],
-            "datum.A.flatness": "0.03",
-        }),
-    );
+    let bytes = written_by_0_2(&json!({
+        process::QUESTION: process::MACHINED,
+        "part.notes": ["original note"],
+        "part.general_tolerance": "ISO 2768-m",
+        "datum.A": [2],
+        "datum.A.flatness": "0.03",
+    }));
     let text = String::from_utf8(strip_description_markers(bytes)).unwrap();
     let edits = [
         ("original note", "edited note"),

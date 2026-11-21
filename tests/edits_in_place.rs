@@ -1208,6 +1208,42 @@ fn a_fill_of_an_added_requirement_adds_it() {
     assert!(bad.iter().any(|f| f.entry.contains("extra.1")), "{bad:?}");
 }
 
+/// An added requirement's state comes from the file: stated once written. A fill of the same
+/// spec again changes nothing (the bytes are the file's own); a fill with another value is
+/// refused, all or nothing, naming the requirement's number; removing it by number in the same
+/// list and filling the new value replaces it.
+#[test]
+fn an_added_requirement_the_file_states_is_a_no_op_or_refused() {
+    let size = |value: &str| json!({"kind": "size", "faces": [9], "value": value});
+    let part = fixture("parts/plate.step");
+    let first = applied(&part, json!({"fill": {"extra.1": size("7.8/8.2")}}));
+    let written = reload(&first.bytes);
+    let again = applied(&written, json!({"fill": {"extra.1": size("7.8/8.2")}}));
+    assert!(again.unchanged, "{:?}", again.report.written);
+    assert_eq!(
+        again.bytes, first.bytes,
+        "a same-value fill is a byte-identical no-op"
+    );
+    let differing = refused(
+        &written,
+        json!({"fill": {"part.material": "steel", "extra.1": size("7.9/8.1")}}),
+    );
+    assert_eq!(differing.len(), 1, "{differing:?}");
+    assert_eq!(differing[0].entry, r#"fill["extra.1"]"#);
+    assert!(differing[0].reason.contains("#1"), "{differing:?}");
+    let number = *numbers(&written).keys().next().unwrap();
+    let replaced = applied(
+        &written,
+        json!({"items": {"remove": [format!("#{number}")]}, "fill": {"extra.1": size("7.9/8.1")}}),
+    );
+    let limits: Vec<_> = specify_core::existing::read_existing(&reload(&replaced.bytes))
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| e.limits)
+        .collect();
+    assert_eq!(limits, [[7.9, 8.1]]);
+}
+
 /// `clear` takes back a stored decision that leaves no PMI (a decided none, a stored choice):
 /// the row is a gap, the choice unanswered, again. It never touches PMI: a clear of something
 /// stated, or of a gap, is refused.

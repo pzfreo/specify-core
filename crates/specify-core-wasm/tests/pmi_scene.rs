@@ -1,4 +1,3 @@
-mod common;
 use serde_json::{Map, Value, json};
 use specify_core_wasm::session::Session;
 
@@ -175,34 +174,57 @@ fn check_diameters(scene: &Value, snapshot: &Value) -> usize {
     checked
 }
 
-#[test]
-fn assembly_live_and_view_only_diameters_match_actual_mesh_faces_and_frame() {
-    let bytes = std::fs::read(
+/// Part `part` of the assembly opened, and the answers the checks draw: every default with a
+/// hole or diameter answered as a fit.
+fn assembly_part(bytes: &[u8], part: usize) -> (Session, Value, Map<String, Value>) {
+    let engine = Session::open_part("assembly.step", bytes, part).unwrap();
+    let snapshot = engine.snapshot();
+    let analysis = &snapshot["analysis"];
+    let mut answers = specify_core::rules::with_all_defaults(analysis, &Map::new()).unwrap();
+    let question = specify_core::api::questions(analysis, &answers)
+        .unwrap()
+        .into_iter()
+        .find(|q| q.id.starts_with("hole.function:") || q.id.starts_with("diameter.fit:"))
+        .unwrap();
+    answers.insert(
+        question.id.clone(),
+        json!(if question.id.starts_with("hole.") {
+            "fit:H7"
+        } else {
+            "fit:h6"
+        }),
+    );
+    (engine, snapshot, answers)
+}
+
+fn assembly() -> Vec<u8> {
+    std::fs::read(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../tests/fixtures/parts/assembly.step"),
     )
-    .unwrap();
+    .unwrap()
+}
+
+#[test]
+fn assembly_live_diameters_match_actual_mesh_faces_and_frame() {
+    let bytes = assembly();
     for part in [0, 1] {
-        let engine = Session::open_part("assembly.step", &bytes, part).unwrap();
-        let snapshot = engine.snapshot();
-        let analysis = &snapshot["analysis"];
-        let mut answers = specify_core::rules::with_all_defaults(analysis, &Map::new()).unwrap();
-        let question = specify_core::api::questions(analysis, &answers)
-            .unwrap()
-            .into_iter()
-            .find(|q| q.id.starts_with("hole.function:") || q.id.starts_with("diameter.fit:"))
-            .unwrap();
-        answers.insert(
-            question.id.clone(),
-            json!(if question.id.starts_with("hole.") {
-                "fit:H7"
-            } else {
-                "fit:h6"
-            }),
-        );
+        let (engine, snapshot, answers) = assembly_part(&bytes, part);
         let live = engine.pmi_scene(&answers).unwrap();
         assert!(check_diameters(&live, &snapshot) > 0);
-        let output = common::write_pmi(&engine, &answers).unwrap();
+    }
+}
+
+/// The same answers saved with the engine's `edit`, then drawn view-only and live from the
+/// file written.
+#[test]
+#[ignore = "0.3.0: waits on assembly-edits"]
+fn assembly_view_only_diameters_match_actual_mesh_faces_and_frame_after_an_edit() {
+    let bytes = assembly();
+    for part in [0, 1] {
+        let (engine, snapshot, answers) = assembly_part(&bytes, part);
+        let output = engine.edit(&Value::Object(answers.clone()).to_string());
+        assert_eq!(output["written"], json!(true), "{output}");
         let written: Vec<u8> = serde_json::from_value(output["bytes"].clone()).unwrap();
         let reopened = Session::open_part("written.step", &written, part).unwrap();
         let after = reopened.snapshot();

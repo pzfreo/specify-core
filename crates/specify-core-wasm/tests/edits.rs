@@ -247,3 +247,36 @@ fn fixture(name: &str) -> Vec<u8> {
         .bytes
         .to_vec()
 }
+
+/// Through `edit`: an added requirement the file states is a byte-identical no-op when filled
+/// with the same spec, refused (nothing written) with another value, and replaced when the list
+/// also removes it by number.
+#[test]
+fn edit_takes_an_added_requirements_state_from_the_file() {
+    let size = |value: &str| json!({"kind": "size", "faces": [9], "value": value});
+    let first = plate().edit(&json!({"fill": {"extra.1": size("7.8/8.2")}}).to_string());
+    assert_eq!(first["written"], true, "{first}");
+    let written = Session::open("plate.step", &bytes(&first)).unwrap();
+    let same = written.edit(&json!({"fill": {"extra.1": size("7.8/8.2")}}).to_string());
+    assert_eq!(same["report"]["unchanged"], true, "{same}");
+    assert_eq!(bytes(&same), bytes(&first));
+    let differing = written.edit(&json!({"fill": {"extra.1": size("7.9/8.1")}}).to_string());
+    assert_eq!(differing["written"], false, "{differing}");
+    assert!(
+        differing["failures"][0]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("#1")
+    );
+    let replaced = written.edit(
+        &json!({"items": {"remove": ["#1"]}, "fill": {"extra.1": size("7.9/8.1")}}).to_string(),
+    );
+    assert_eq!(replaced["written"], true, "{replaced}");
+    let back = Session::open("plate.step", &bytes(&replaced)).unwrap();
+    assert!(
+        row(&back.table(), "hole.function:holes:9")["value"]
+            .as_str()
+            .unwrap()
+            .contains("[7.9, 8.1]")
+    );
+}

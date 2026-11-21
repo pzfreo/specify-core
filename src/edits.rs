@@ -675,7 +675,9 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
             Some(KindState::Stated { value }) => failures.push(failure(
                 entry,
                 format!(
-                    "the file states {value} for {id}; a clear takes back only a stored                      decision and never touches PMI: use change, or remove its requirement by                      number (items.remove)"
+                    "the file states {value} for {id}; a clear takes back only a stored decision \
+                     and never touches PMI: use change, or remove its requirement by number \
+                     (items.remove)"
                 ),
             )),
         }

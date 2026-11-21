@@ -64,7 +64,8 @@ Read first:
     `rematch` operations.
   - The edit list gains `clear`: it takes back a stored decision that leaves no PMI (a decided
     none, a stored choice), never PMI. A fill of `extra.<name>` adds that requirement, as a 0.2
-    answer did. A 0.2 answers file whose evidence is from another revision is refused as stale
+    answer did; one the file already states is a no-op with the same spec and refused with
+    another (remove it by number in the same list to replace it). A 0.2 answers file whose evidence is from another revision is refused as stale
     (`_specify.evidence`), as 0.2's write refused it. MCP `check` refuses as `save` does while
     the session holds unsaved answers.
   - An edit list may fill a choice that is not a requirement and has no feature-table row (how
