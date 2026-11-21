@@ -2005,7 +2005,6 @@ pub fn tools() -> Vec<Value> {
             }), &["doc", "existing", "part_settings", "resumed"]),
             "annotations": {"readOnlyHint": true, "openWorldHint": false},
         }),
-        json!({}),
         json!({
             "name": "diff",
             "title": "Compare two revisions",

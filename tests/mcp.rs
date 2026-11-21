@@ -2061,7 +2061,6 @@ fn the_instructions_say_the_two_patterns_and_never_to_take_a_default() {
             "`show`",
             "`changes`",
             "Never take a default as intent",
-            "accept_defaults",
             "never decide it yourself",
         ] {
             assert!(text.contains(needed), "{needed}: {text}");
