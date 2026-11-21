@@ -1049,6 +1049,13 @@ fn an_assembly_with_every_part_renamed_keeps_bom_answers_and_numbers() {
     assert_eq!(rows[1].description.value, "Locating pin");
     assert_eq!(rows[0].material.value, "brass");
     assert_eq!(rows[0].stock.value, "from stock");
+    let report = carry::carry(&old, &renamed(&source)).unwrap().report;
+    assert!(report.bom_numbers_carried);
+    assert!(
+        report
+            .markdown()
+            .contains("item numbers with the old BOM history")
+    );
 }
 
 #[test]
@@ -1190,7 +1197,14 @@ fn a_new_assembly_states_its_own_bom_values_and_they_stand() {
         "{report:#?}"
     );
     // The new file numbers its own items: its numbering stands.
-    assert!(!report.numbers_carried);
+    assert!(report.bom_carried && !report.bom_numbers_carried);
+    assert!(
+        report
+            .markdown()
+            .contains("the new file's own item numbers stand"),
+        "{}",
+        report.markdown()
+    );
 }
 
 #[test]

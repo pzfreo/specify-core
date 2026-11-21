@@ -25,7 +25,8 @@ feature-and-kind OLD's feature table states:
 OLD's decided-none answers carry the same way, onto NEW's gaps (`decided_none`).
 
 **Datums** are matched by their faces, not their letters. OLD's datum whose faces carry another
-of NEW's own datums is not carried, nor is what cites it. NEW's datum A on other faces than
+of NEW's own datums is not carried, and what cites it is listed to check (and left out, with the
+writer's reason, when it cannot be written without that datum). NEW's datum A on other faces than
 OLD's A is a difference (`kept`, both face sets shown: `datum A on faces [27]` and `datum A on
 faces [2]`), and OLD's requirements on its datum A (its flatness, a perpendicularity) are not
 written onto NEW's A: they are not carried. A requirement citing a datum that differs is carried
@@ -72,7 +73,8 @@ In an assembly, each new part matched to an old one by its geometry (renamed par
 takes the old part's BOM answers and material where NEW states none; where NEW states one,
 NEW's stands and a difference is listed in `kept` (`plate: bom.description`). OLD's BOM history,
 with its item numbers and retired numbers, carries unless NEW numbers its own items (a BOM
-history of its own, or native find numbers), when NEW's numbering stands ([bom.md](bom.md)). The
+history of its own, or native find numbers), when NEW's numbering stands ([bom.md](bom.md));
+`bom_numbers_carried` and the Markdown say which. The
 BOM is appended and the materials added so that every entity of NEW keeps its bytes. The
 in-place writer edits a file of one part, so in this release a part's own requirements in an
 assembly, and its PMI on no feature-and-kind, are not carried: each is reported `not_carried`
@@ -110,6 +112,7 @@ refused.
   "numbers_carried": true,
   "renumbered": [{"old": 1, "new": 24, "kind": "datum", "type": "A", "faces": [27]}],
   "bom_carried": false,
+  "bom_numbers_carried": false,
   "markdown": "# Carry\n..."
 }
 ```

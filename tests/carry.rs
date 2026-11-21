@@ -467,15 +467,30 @@ fn a_datum_landing_on_the_new_files_own_datum_is_reported_and_the_rest_carried()
         .find(|n| n.id.as_deref() == Some("datum.B"))
         .unwrap_or_else(|| panic!("{report:#?}"));
     assert!(b.reason.contains("datum A"), "{}", b.reason);
-    let position = report
+    // What cites B is to check: written if it can be, else left out with the writer's reason.
+    assert!(
+        !report
+            .carried
+            .iter()
+            .any(|c| c.old.starts_with("hole.position:"))
+    );
+    let checked = report
+        .to_check
+        .iter()
+        .find(|c| c.old.starts_with("hole.position:"))
+        .and_then(|c| c.check.clone());
+    let left_out = report
         .not_carried
         .iter()
         .find(|n| {
             n.id.as_deref()
                 .is_some_and(|i| i.starts_with("hole.position:"))
         })
-        .unwrap();
-    assert!(position.reason.contains("datum B"), "{}", position.reason);
+        .map(|n| n.reason.clone());
+    let why = checked
+        .or(left_out)
+        .unwrap_or_else(|| panic!("{report:#?}"));
+    assert!(why.contains("datum B") || why.contains("datum.B"), "{why}");
     assert!(ids(&report.carried).contains(&"datum.C"));
     assert!(ids(&report.carried).contains(&"part.material"));
     let after = table(&written(&outcome));
@@ -649,6 +664,10 @@ fn a_carried_number_free_in_the_new_file_is_kept_whatever_its_high_water_mark() 
         assert_eq!(now[&n].kind, "datum");
     }
     assert!(!now.contains_key(&20), "the retired #20 was reused");
+    let md = report.markdown();
+    for r in &report.renumbered {
+        assert!(md.contains(&format!("- #{} → #{}", r.old, r.new)), "{md}");
+    }
     assert!(report.numbers_carried);
 }
 

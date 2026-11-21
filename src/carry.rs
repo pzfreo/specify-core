@@ -127,8 +127,11 @@ pub struct Report {
     /// it), each with the number it has now.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub renumbered: Vec<Renumbered>,
-    /// OLD's BOM history went with the assembly's parts.
+    /// OLD's BOM answers went with the assembly's parts (where NEW states none).
     pub bom_carried: bool,
+    /// OLD's BOM history went too: matched parts keep OLD's item numbers. False when NEW
+    /// numbers its own items, which stand.
+    pub bom_numbers_carried: bool,
     /// The characteristic numbers the carry retired (none, ordinarily).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub retired: Vec<u64>,
@@ -251,6 +254,8 @@ enum Datum {
     Differs(String),
     /// Not in NEW, and not carried: why.
     Missing(String),
+    /// Its faces carry one of NEW's own datums: not carried (NEW's stands), why.
+    Clash(String),
 }
 
 fn is_datum_letter(kind: &str) -> bool {
@@ -534,7 +539,7 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
                         && datum_faces(other).iter().any(|f| on.contains(f))
                 }) {
                     // A second datum on the same faces: the new file's stands.
-                    Some(other) => Datum::Missing(format!(
+                    Some(other) => Datum::Clash(format!(
                         "its faces {on:?} in the new revision carry the new file's {}",
                         other.kind.replace('.', " ")
                     )),
@@ -556,7 +561,7 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
                          file's requirement is not written onto the new file's datum"
                     ));
                 }
-                Some(Datum::Missing(why)) => {
+                Some(Datum::Missing(why) | Datum::Clash(why)) => {
                     return Err(format!(
                         "it is on datum {letter}, which is not carried: {why}"
                     ));
@@ -585,6 +590,11 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
                 }
                 Some(Datum::Differs(why)) => {
                     check = Some(format!("it cites datum {letter}, which differs: {why}"));
+                }
+                Some(Datum::Clash(why)) => {
+                    check = Some(format!(
+                        "it cites datum {letter}, which is not carried: {why}"
+                    ));
                 }
                 Some(Datum::Same) => {}
             }
@@ -648,7 +658,8 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
             continue;
         }
         if is_datum_letter(&row.kind)
-            && let Some(Datum::Missing(why)) = datums.get(row.kind.trim_start_matches("datum."))
+            && let Some(Datum::Missing(why) | Datum::Clash(why)) =
+                datums.get(row.kind.trim_start_matches("datum."))
         {
             report.not_carried.push(not_carried_row(row, why.clone()));
             continue;
@@ -977,7 +988,7 @@ fn carry_assembly(old: &File, new: &File) -> Result<Outcome, Error> {
         });
     }
     report.bom_carried = carried.bytes.is_some();
-    report.numbers_carried = carried.numbers;
+    report.bom_numbers_carried = carried.numbers;
     report.written = true;
     Ok(Outcome {
         bytes: Some(
@@ -1124,8 +1135,25 @@ impl Report {
         if self.numbers_carried {
             s.push_str("Characteristic numbers carried with the old file's number history.\n\n");
         }
+        if !self.renumbered.is_empty() {
+            s.push_str("## Renumbered: the new file uses or retired the old number\n\n");
+            for r in &self.renumbered {
+                let _ = writeln!(
+                    s,
+                    "- #{} → #{}: {} {} on faces {:?}",
+                    r.old, r.new, r.kind, r.r#type, r.faces
+                );
+            }
+            s.push('\n');
+        }
         if self.bom_carried {
-            s.push_str("BOM item numbers and answers carried with the old BOM history.\n\n");
+            s.push_str(if self.bom_numbers_carried {
+                "BOM answers carried where the new file states none, and item numbers with the \
+                 old BOM history.\n\n"
+            } else {
+                "BOM answers carried where the new file states none; the new file's own item \
+                 numbers stand.\n\n"
+            });
         }
         if !self.new_unstated.is_empty() {
             let what: Vec<&str> = self.new_unstated.iter().map(|u| u.what.as_str()).collect();
