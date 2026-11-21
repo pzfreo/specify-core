@@ -189,6 +189,9 @@ pub struct Session {
     /// The parts this session changed (a set, a clear, a page's change or an approval) since
     /// they joined: written even with no answers, so a clear reaches the file.
     touched: BTreeSet<usize>,
+    /// Each part's answers as the file last saved (or opened) holds them: answers that differ
+    /// are unsaved.
+    saved: BTreeMap<usize, Map<String, Value>>,
     /// Tests only: called by a save between its two holds of the session's lock.
     #[doc(hidden)]
     pub between_locks: Option<fn(&Shared)>,
@@ -234,6 +237,7 @@ impl Session {
             subscribers: Vec::new(),
             save_lock: Arc::new(Mutex::new(())),
             touched: BTreeSet::new(),
+            saved: BTreeMap::new(),
             between_locks: None,
             page: None,
         }
@@ -261,7 +265,17 @@ impl Session {
                 self.answers.entry(k).or_insert_with(|| resumed.clone());
             }
         }
+        self.saved = self.answers.clone();
         Ok(())
+    }
+
+    /// Whether any part's answers differ from what the file last saved (or opened) holds.
+    fn has_unsaved(&self) -> bool {
+        let empty = Map::new();
+        self.answers
+            .keys()
+            .chain(self.saved.keys())
+            .any(|k| self.answers.get(k).unwrap_or(&empty) != self.saved.get(k).unwrap_or(&empty))
     }
 
     /// `specify-core open --diff OLD NEW` (and MCP's `open` with `old`): `diff OLD NEW` compared
@@ -788,6 +802,7 @@ pub fn save(
         s.backup = backup;
         s.current = Arc::new(stored);
     }
+    s.saved = answers.clone();
     s.last_saved = Some((path, sha));
     let data = json!({"path": saved.path, "bytes": saved.bytes, "rev": saved.rev,
                       "source": source});
@@ -812,6 +827,15 @@ pub fn save_edits(
     let (step, file, in_place, gz, mut backup, copy) = {
         let s = lock(shared);
         s.check_allowed()?;
+        // The edits are applied to the file and the session then reads it back: answers not
+        // yet saved would be lost, so they are saved or discarded first.
+        if s.has_unsaved() {
+            return Err(SaveError::Refused(
+                "the session has unsaved answers: save or discard the unsaved answers first; \
+                 nothing was written"
+                    .into(),
+            ));
+        }
         if s.in_place {
             let now = fs::read(&s.file.path)
                 .map(|b| sha256(&b))
@@ -889,9 +913,9 @@ pub fn save_edits(
         let now = answers.remove(&k).unwrap_or_default();
         s.change(k, now, source, None, Some(at));
     }
-    // Saved: nothing the session holds is unwritten (answers given before the edits were
-    // made are replaced by what the saved file resumes).
+    // Saved: nothing the session holds is unwritten.
     s.touched.clear();
+    s.saved = s.answers.clone();
     s.last_saved = Some((path, sha));
     let saved = Saved {
         path: shown,

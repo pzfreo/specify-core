@@ -436,6 +436,8 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
     // the requirements it shares with other features' rows.
     let mut own_locations: BTreeMap<String, (BTreeSet<usize>, usize, Vec<String>)> =
         BTreeMap::new();
+    // Rows changed to none that a requirement shared with another feature still states.
+    let mut still_stated: Vec<String> = Vec::new();
     let mut remove: BTreeSet<(String, usize)> = BTreeSet::new();
     for n in &list.items.remove {
         match located.iter().find(|l| l.number == Some(n.0)) {
@@ -498,6 +500,13 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
                 ),
             ));
             continue;
+        }
+        if to_none && !shared_texts.is_empty() {
+            still_stated.push(format!(
+                "{id}: changed to none, but {} it shares with another feature still states it; \
+                 if that is removed later, {id} reads decided none",
+                shared_texts.join("; ")
+            ));
         }
         own_locations.insert(
             id.clone(),
@@ -873,6 +882,27 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
             saved.insert(id.clone(), none_answer(&table, id));
         }
     }
+    // A none stored for a row that only requirements shared with other features state (a
+    // change to none that left their dimension) is kept: once that goes, the row reads
+    // decided none.
+    let raw = crate::resume::answers_for(loaded)
+        .map_err(|e| whole(e.to_string()))?
+        .unwrap_or_default();
+    for (id, value) in &raw {
+        let shared_only = table.row(id).is_some_and(|row| {
+            row.state == State::Stated
+                && !row.requirements.is_empty()
+                && row.requirements.iter().all(|req| {
+                    table.rows.iter().any(|r| {
+                        r.feature != row.feature
+                            && r.requirements.iter().any(|q| same_requirement(q, req))
+                    })
+                })
+        });
+        if shared_only && crate::feature_table::leaves_nothing(value) && !given.contains_key(id) {
+            saved.insert(id.clone(), value.clone());
+        }
+    }
     for (id, value) in &none {
         saved.insert(id.clone(), value.clone());
     }
@@ -912,6 +942,7 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
                 .join(", ")
         ));
     }
+    lines.warnings.extend(still_stated);
     for n in &list.items.remove {
         lines.written.push(format!("removed {n}"));
     }

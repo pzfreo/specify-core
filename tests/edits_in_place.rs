@@ -920,6 +920,23 @@ fn a_change_to_none_takes_the_basic_dimensions_only_its_frame_used() {
         .map(|q| &q["number"])
         .collect();
     assert_eq!(left, [&json!("#14")], "{r}");
+    // The report says so, and what follows: with #14 removed later, the row reads decided none.
+    assert!(
+        saved
+            .report
+            .warnings
+            .iter()
+            .any(|w| w.starts_with(
+                "hole.position:holes:12: changed to none, but Location_LinearDistance 30.0 basic"
+            ) && w.ends_with("hole.position:holes:12 reads decided none")),
+        "{:?}",
+        saved.report.warnings
+    );
+    let later = applied(&after, json!({"items": {"remove": ["#14"]}}));
+    assert_eq!(
+        row(&table(&reload(&later.bytes)), "hole.position:holes:12")["state"],
+        "decided_none"
+    );
 }
 
 #[test]
@@ -1011,4 +1028,42 @@ fn accepting_any_one_suggestion_changes_that_row_alone() {
             }
         }
     }
+}
+
+#[test]
+fn an_edits_save_is_refused_while_answers_are_unsaved() {
+    use specify_core::session::{self, Opened, Session};
+    use std::sync::{Arc, Mutex};
+    let dir = std::env::temp_dir().join(format!("specify-unsaved-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("plate.step");
+    std::fs::write(&path, &*fixture("resume-p9/edited-plate.step.gz").bytes).unwrap();
+    let shared = Arc::new(Mutex::new(
+        Session::open(Opened::read(&path).unwrap(), true).unwrap(),
+    ));
+    let before = std::fs::read(&path).unwrap();
+    {
+        let mut s = session::lock(&shared);
+        let mut answers = s.answers(0).cloned().unwrap_or_default();
+        answers.insert("part.coating".into(), json!("anodise clear"));
+        s.set(0, answers, "page");
+    }
+    let remove = edits::parse_value(json!({"items": {"remove": ["#5"]}})).unwrap();
+    let err = session::save_edits(&shared, &remove, "mcp").unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("save or discard the unsaved answers first"),
+        "{err}"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(
+        session::lock(&shared).answers(0).unwrap()["part.coating"],
+        "anodise clear"
+    );
+    // Saved, the answers are no longer unsaved, and the edits save goes ahead.
+    session::save(&shared, None, &Default::default(), "page").unwrap();
+    session::save_edits(&shared, &remove, "mcp").unwrap();
+    let after = load(&path, None).unwrap();
+    assert!(!numbers(&after).contains_key(&5));
+    let _ = std::fs::remove_dir_all(&dir);
 }
