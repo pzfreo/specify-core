@@ -49,11 +49,12 @@ test('the panel reads the feature table: features with each kind stated, gap or 
   assert.deepEqual(model.features.map(g => g.title), ['Ø1.6 hole']);
   assert.deepEqual(model.features[0].rows.map(r => [r.label, r.state, r.numbers]), [['Function', 'gap', []], ['Position', 'stated', ['#2']]]);
   assert.equal(model.features[0].rows[0].suggestionText, 'M2 tapped');
+  assert.equal(model.features[0].rows[0].name, 'Ø1.6 hole function', 'a row is named with its feature and its kind');
   assert.equal(model.features[0].rows[1].expect, 'Position 0.2 | A', 'a change expects the value the file states');
   assert.equal(model.features[0].rows[1].value, '⌖ 0.2 A', 'and shows it as a drawing writes it');
   assert.deepEqual(model.datums.rows.map(r => r.label), ['Datum A']);
   // "Other PMI in the file": by number when it has one.
-  assert.deepEqual(model.other.map(o => [o.key, o.id, o.number, o.value]), [['#3', 'file_pmi:0', '#3', '37.6'], ['item:1', 'file_pmi:1', undefined, 'Location LinearDistance']]);
+  assert.deepEqual(model.other.map(o => [o.key, o.id, o.number, o.value]), [['#3', 'file_pmi:0', '#3', '37.6'], ['item:1', 'file_pmi:1', undefined, 'Linear distance']]);
   // Nothing in the model says who wrote a requirement (decision 6).
   assert.doesNotMatch(JSON.stringify(model), /origin|provenance|from the file|written by/);
 });
@@ -125,10 +126,36 @@ test('the general tolerance: a class, or a block row by row with angles and a no
   assert.deepEqual(parse('ISO 2768-m'), { form: 'class', value: 'ISO 2768-m' });
   // 4. A metric block.
   const metric = { form: 'block', units: 'mm', rows: [{ places: 0, tolerance: '±0.5' }, { places: 1, tolerance: '±0.2' }, { places: 2, tolerance: '±0.05' }], angles: '±0°30′', notes: [] };
-  assert.equal(compose(metric), 'X ±0.5, X.X ±0.2, X.XX ±0.05, angles ±0°30′');
+  assert.equal(compose(metric), 'X ±0.5 mm, X.X ±0.2, X.XX ±0.05, angles ±0°30′');
   assert.deepEqual(parse(compose(metric)), metric);
+  assert.deepEqual(parse(compose(metric), 'in'), metric, 'a line of no places states its unit, whatever the file\'s');
   // Rows left blank are not written; a new block starts with two rows in the file's unit.
-  assert.equal(compose({ ...metric, rows: [...metric.rows, { places: 3, tolerance: ' ' }], angles: '' }), 'X ±0.5, X.X ±0.2, X.XX ±0.05');
+  assert.equal(compose({ ...metric, rows: [...metric.rows, { places: 3, tolerance: ' ' }], angles: '' }), 'X ±0.5 mm, X.X ±0.2, X.XX ±0.05');
   assert.deepEqual(emptyBlock('in').rows.map(r => r.places), [2, 3]);
   assert.equal(emptyBlock('mm').units, 'mm');
+});
+
+test('the general tolerance: no places is "X" with its unit, read back as 0 places in that unit', () => {
+  const inch = { form: 'block', units: 'in', rows: [{ places: 0, tolerance: '±.5' }, { places: 2, tolerance: '±.01' }], angles: '', notes: [] };
+  assert.equal(compose(inch), 'X ±.5 in, .XX ±.01');
+  assert.deepEqual(parse(compose(inch)), inch);
+  assert.deepEqual(parse(compose(inch), 'mm'), inch);
+  const onlyInchX = { form: 'block', units: 'in', rows: [{ places: 0, tolerance: '±.5' }], angles: '', notes: [] };
+  assert.deepEqual(parse(compose(onlyInchX), 'mm'), onlyInchX, 'an inch block of no places alone in a mm file');
+  const mm = { form: 'block', units: 'mm', rows: [{ places: 0, tolerance: '±0.5' }], angles: '', notes: [] };
+  assert.equal(compose(mm, 'in'), 'X ±0.5 mm');
+  assert.deepEqual(parse(compose(mm, 'in'), 'in'), mm);
+  // A mm block with places in an inch file states its unit on its first row.
+  const mmPlaces = { form: 'block', units: 'mm', rows: [{ places: 1, tolerance: '±0.2' }], angles: '', notes: [] };
+  assert.equal(compose(mmPlaces, 'in'), 'X.X ±0.2 mm');
+  assert.deepEqual(parse(compose(mmPlaces, 'in'), 'in'), mmPlaces);
+  // Mixed rows keep the block's unit: no ".XX" turns into "X.XX".
+  assert.equal(compose(parse('X ±1/32 in, .XX ±.01')), 'X ±1/32 in, .XX ±.01');
+  // The engine's own spelling (" · " between lines) reads back too.
+  assert.deepEqual(parse('.XX ±.01 · .XXX ±.005 · ±1/64 · angles ±1°').rows.length, 2);
+  // Angles alone: a block with no length to give a unit to, read in the file's unit.
+  const angles = { form: 'block', units: 'in', rows: [], angles: '±1°', notes: [] };
+  assert.equal(compose(angles, 'in'), 'angles ±1°');
+  assert.deepEqual(parse(compose(angles, 'in'), 'in'), angles);
+  assert.deepEqual(parse(compose({ ...angles, units: 'mm' }), 'mm'), { ...angles, units: 'mm' });
 });

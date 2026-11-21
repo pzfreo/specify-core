@@ -197,12 +197,14 @@ beside its name), a **gap** ("not stated", with Specify's suggestion as a dashed
 - The general tolerance's line is its own editor (#228): a class (ISO 2768-m and so on), or a block row by row
   (decimal places and their tolerance, Add row), an angles line and a note line. It writes one line of text, the form
   the CLI and edit lists take: `.XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°` (inch places written `.XX`,
-  millimetre places `X.XX`; `app/general-tolerance.ts`).
+  millimetre places `X.XX`, no places `X` with its unit, `X ±.5 in`, as the engine spells them; a new block starts
+  in the file's length unit; `app/general-tolerance.ts`).
 - "Other PMI in the file" rows have the bin only (an item without a number is named `{"id": "file_pmi:<index>"}`
   until the table gives items an id).
 - Every edit is checked against the file, with the edits already listed, before it joins the bar (the engine's
   `checkEdits`); one the file cannot take says why on its line. The bar at the bottom lists the edits; **Save**
-  sends them as one edit list (`POST save {rev, edits}`), applied all or nothing, and **Discard** drops them.
+  sends them as one edit list (`POST save {rev, edits}`), applied all or nothing ("Nothing to save." when none are
+  listed: nothing is written), and **Discard** drops them.
   Nothing touches the file before Save. Only edits not yet saved are highlighted; nothing says who wrote a
   requirement. After a save the part opens again from the saved file, and its rows read as the file has them.
 - A part of an assembly shows its rows read only, with a note: an edit list applies to a file of one part until

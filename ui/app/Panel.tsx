@@ -97,20 +97,15 @@ export function Panel(props: PanelProps) {
   useEffect(() => { if (!pending.size) { setEditing(null); setProblem(null); } }, [pending]);
 
   const close = () => { setEditing(null); setProblem(null); };
-  /** ``p`` joins the bar once the file takes it with the edits already listed (as Save would send
-   * them), so the bar always holds a list Save can write; why not, on its line, when it cannot. */
+  /** ``p`` joins the bar once the file takes the whole list with it (every edit already listed, as
+   * Save would send them), so the bar always holds a list Save can write. Any failure, on this edit or
+   * on one listed earlier that it breaks, is said on its line, and it does not join. */
   const apply = async (p: Pending) => {
     setChecking(true);
     try {
       const next = pending.with(p);
       const failures = await props.check(next.list());
-      // A removal's entries are named by number ("#4") or by their place in items.remove.
-      const removing = next.list().items?.remove ?? [];
-      const keys = p.kind === 'remove'
-        ? p.targets.flatMap((t) => [JSON.stringify(t), `items.remove[${removing.findIndex((x) => JSON.stringify(x) === JSON.stringify(t))}]`])
-        : [JSON.stringify(p.id)];
-      const mine = failures.filter((f) => f.entry === '(the whole list)' || keys.some((k) => f.entry.includes(k)));
-      if (mine.length) { setProblem({ id: p.id, text: mine.map((f) => f.reason).join('; ') }); return; }
+      if (failures.length) { setProblem({ id: p.id, text: failures.map((f) => f.reason).join('; ') }); return; }
       onPending(next);
       close();
     } finally { setChecking(false); }
@@ -314,8 +309,8 @@ export function GeneralToleranceEditor({ text, units, classes, onChange }: {
   text: string; units: Units; classes: readonly string[]; onChange(text: string): void;
 }) {
   const [gt, setGt] = useState<GeneralTolerance>(() => (text.trim() ? parse(text, units) : { form: 'class', value: classes[0] ?? '' }));
-  const set = (next: GeneralTolerance) => { setGt(next); onChange(compose(next)); };
-  useEffect(() => { onChange(compose(gt)); }, []);
+  const set = (next: GeneralTolerance) => { setGt(next); onChange(compose(next, units)); };
+  useEffect(() => { onChange(compose(gt, units)); }, []);
   const block = gt.form === 'block' ? gt : null;
   return (
     <div className="spec-gt" role="group" aria-label="General tolerance">
@@ -353,7 +348,7 @@ export function GeneralToleranceEditor({ text, units, classes, onChange }: {
         <label className="spec-gt-line">Angles <input aria-label="Angles" placeholder="±1°" value={block.angles} onChange={(e) => set({ ...block, angles: e.target.value })} /></label>
         <label className="spec-gt-line">Note <input aria-label="Note" placeholder="fractions ±1/64" value={block.notes.join(', ')}
           onChange={(e) => set({ ...block, notes: e.target.value ? [e.target.value] : [] })} /></label>
-        <div className="muted spec-gt-text">Written as: <code>{compose(block) || '…'}</code></div>
+        <div className="muted spec-gt-text">Written as: <code>{compose(block, units) || '…'}</code></div>
       </>)}
     </div>
   );

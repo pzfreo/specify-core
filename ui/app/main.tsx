@@ -26,7 +26,7 @@ import { getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBo
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } from './save';
 import { PendingEdits } from './edits';
 import { EditBar, Panel } from './Panel';
-import { bareAnalysis, panelModel, tableOf, type PanelModel } from './table';
+import { bareAnalysis, fileLengthUnit, panelModel, tableOf, type PanelModel } from './table';
 
 declare const __APP_VERSION__: string;
 const DOCS = 'https://github.com/pzfreo/specify-core#readme';
@@ -52,6 +52,8 @@ interface Opened {
   model: PanelModel;
   /** The decisions the file stores (decided none, choices): an answer in the session that differs is unsaved. */
   stored: PmiAnswers;
+  /** The file's length unit, for a new general tolerance block (#228 decision 3). */
+  units: 'in' | 'mm';
   /** What SpecifyReview starts from; a new object only when the answers change outside the page. */
   external: { answers: PmiAnswers; review: IntentReview };
   /** The answers SpecifyReview shows (and so bases the person's next change on): its own last
@@ -103,7 +105,7 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   return {
     ...at, generation, session, review, engine, drawn: drawn && hasGraphics(drawn) ? drawn : null, bytes, store, shown,
     saver: editsSaver(store, answersSession, () => shown.answers), external: { answers, review }, reviewOf, model,
-    stored: snapshot.analysis.resume?.answers ?? {},
+    stored: snapshot.analysis.resume?.answers ?? {}, units: fileLengthUnit(bytes),
   };
 }
 
@@ -412,9 +414,11 @@ function App() {
   };
 
   // Save sends the panel's edits as one edit list, applied to the file all or nothing, whatever is
-  // still open, and says what is. A save with no edits writes the file as it is.
+  // still open, and says what is.
   const onSave = async () => {
     if (stopped || !opened) return;
+    // Nothing listed: nothing is written (the mock-up's "Nothing to save.").
+    if (!pending.size) { setProblem(null); setSavedNote('Nothing to save.'); return; }
     setSaving(true); setProblem(null);
     const count = pending.size;
     try {
@@ -426,7 +430,7 @@ function App() {
       setSaved({ path: result.path, open: prompts(result.missing, opened.external.review, opened.review), byAgent: false });
       // The edits are in the file now: the part opens again from it, and they read as the file's.
       setPending(new PendingEdits());
-      setSavedNote(`Saved ${inspectionName(result.path)} · ${count ? `${plural(count, 'change')} written, all together.` : 'nothing changed.'}`);
+      setSavedNote(`Saved ${inspectionName(result.path)} · ${plural(count, 'change')} written, all together.`);
       refreshConfig.current();
     } catch (error) {
       if (sessionRef.current?.signal.aborted) return;
@@ -622,7 +626,7 @@ function App() {
           <Panel
             key={opened.session.sessionId}
             filename={opened.session.filename} model={opened.model} pending={pending} onPending={editPending} check={check}
-            unsaved={unsaved} readOnly={opened.several ? ASSEMBLY_NOTE : null} disabled={saving || stopped} units="mm"
+            unsaved={unsaved} readOnly={opened.several ? ASSEMBLY_NOTE : null} disabled={saving || stopped} units={opened.units}
             characteristics={{ element: charsElement.current, count: (opened.session.analysis as { characteristics?: unknown[] }).characteristics?.length ?? 0 }}
             onFaces={(faces) => setLit({ faces, n: Date.now() })}
             focus={focus ? { id: focus.questionId, n: focus.n ?? 0 } : null}

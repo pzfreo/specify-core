@@ -70,6 +70,11 @@ const onlyLocal = (requests, url) => {
   assert.deepEqual(requests.filter(u => !u.startsWith(`${origin}/`) && !/^(blob|data):/.test(u)), [], 'no request leaves 127.0.0.1');
 };
 const question = (page, id) => page.locator(`[data-question="${id}"]`);
+/** None needed on the panel's gap ``id``. */
+async function noneNeeded(page, id) {
+  await question(page, id).getByRole('button', { name: 'None needed', exact: true }).click();
+  await check(page.locator(`.spec-bar [data-pending="${id}"]`)).toBeVisible();
+}
 /** Add on the panel's gap ``id``, pre-filled with its suggestion. */
 async function add(page, id) {
   const row = question(page, id);
@@ -140,7 +145,12 @@ try {
     await check(page.locator('.app-dirty')).toHaveCount(0);
     // The session's copy: later saves update it (#217).
     await check(page.locator('.app-target')).toHaveText(byAgent.path);
-    // The page's Save updates it (an empty list: the page changed nothing), and says what is still open.
+    // Save with no edits writes nothing, and says so (as in the mock-up).
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await check(page.locator('.spec-bar')).toContainText('Nothing to save');
+    await check(page.locator('.app-saved')).toContainText('Your agent saved');
+    // The page's Save of an edit updates it, and says what is still open.
+    await noneNeeded(page, 'part.heat_treatment');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await check(page.locator('.app-saved')).not.toContainText('Your agent saved');
     await check(page.locator('.app-saved')).toContainText(byAgent.path);
@@ -335,6 +345,7 @@ try {
     assert.equal(config.saveTarget, join(dir, 'linked.specified.step'));
     const { context, page } = await load(shown.url);
     await check(page.locator('.app-path')).toHaveText(link);
+    await noneNeeded(page, 'part.heat_treatment');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await check(page.locator('.app-saved')).toContainText(join(dir, 'linked.specified.step'));
     assert.ok(existsSync(join(dir, 'linked.specified.step')) && !existsSync(join(real, 'shaft.specified.step')), 'saved beside the link');

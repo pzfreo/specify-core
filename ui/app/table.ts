@@ -90,6 +90,14 @@ export function answerText(value: unknown, q?: PmiQuestion): string {
   return String(value);
 }
 
+/** The file's length unit, as its STEP declares it (an inch file names `CONVERSION_BASED_UNIT('INCH', …)`
+ * for its lengths); millimetres otherwise. Read from the bytes until the analysis carries the unit the
+ * engine reads (`declared_length_unit`). */
+export function fileLengthUnit(bytes: Uint8Array): 'in' | 'mm' {
+  const text = new TextDecoder('latin1').decode(bytes);
+  return /CONVERSION_BASED_UNIT\s*\(\s*'INCH(ES)?'/i.test(text) ? 'in' : 'mm';
+}
+
 /** A requirement's text as a drawing reads it: "Position 0.2 | A" → "⌖ 0.2 A", "Size_Diameter 3.3" →
  * "Ø3.3", "Location_LinearDistance 37.6" → "37.6"; several joined by "; ". Anything else as it is. */
 export function displayText(text: string): string {
@@ -100,10 +108,13 @@ export function displayText(text: string): string {
     if (symbol) return [symbol, ...tail.split(' | ').map((s) => s.trim()).filter(Boolean)].join(' ');
     if (/^Size_Diameter$/.test(head)) return `Ø${tail}`;
     if (/^Size_Radius$/.test(head)) return `R${tail}`;
-    if (/^[A-Z][a-z]+_[A-Za-z]+$/.test(head)) return tail || head.replace(/_/g, ' ');
+    if (/^[A-Z][a-z]+_[A-Za-z]+$/.test(head)) return tail || readable(head);
     return piece;
   }).join('; ');
 }
+
+/** An engine type name as words: ``Location_LinearDistance`` → "Linear distance". */
+const readable = (name: string) => capital((name.split('_').pop() ?? name).replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase());
 
 /** A changed value as the row will read: a tolerance's new magnitude in its frame ("⌖ 0.2 A" with
  * "0.1" → "⌖ 0.1 A"); otherwise the answer as it reads. */
@@ -141,8 +152,10 @@ export function panelModel(table: FeatureTable, questions: readonly PmiQuestion[
   };
   for (const row of table.rows) {
     const q = byId.get(row.id);
-    const name = q?.label ?? kindWord(row.kind);
     const title = q?.title ?? '';
+    // A row's full name names its feature and its kind ("Ø1.6 hole function"), never the feature alone.
+    const label = q?.label ?? kindWord(row.kind);
+    const name = title && label === title ? `${title} ${kindWord(row.kind).toLowerCase()}` : label;
     const short = title && name.startsWith(title) ? name.slice(title.length).trim() : name;
     const numbers = (row.requirements ?? []).flatMap((r) => (r.number ? [r.number] : []));
     const value = row.state === 'stated' ? displayText(answerText(row.value) || (row.requirements ?? []).map((r) => r.text).join('; '))

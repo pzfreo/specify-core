@@ -57,7 +57,9 @@ Read first:
   agents and the CLI), the questions list it replaces, and the Answers (JSON) export; the 3D view now
   draws the file's PMI only. Values read as drawn ("⌖ 0.2 A"). Every stated row has the bin; a removal
   sends the numbers, or `{"id": …}` in `items.remove` for a requirement without one (the engine refuses
-  that until its id route lands, and the line says so).
+  that until its id route lands, and the line says so). Save with nothing listed says "Nothing to
+  save." and writes nothing. `SpecifyReview` no longer says "from the file" (datum chips, stated part
+  settings) and its Show menu's "PMI from the file" is "Requirements": origin is never shown.
   `@draftwright/specify-ui`'s worker gains a `check-edits` operation (WASM `checkEdits`).
 - **Saving is an edit list everywhere** (proposal specify-0.3.0 piece 6, ADR P11): the page, MCP,
   WASM and Python apply an edit list to the file, all or nothing, as `write STEP EDITS.json` does.
