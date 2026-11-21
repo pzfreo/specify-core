@@ -36,6 +36,12 @@ Read first:
 
 ### Changed
 
+- **`pmiScene` item ids changed** (ADR P11, D3): a planned dimension's id no longer says how it
+  was stated. `planner:specified:dim:…` and `planner:answered:dim:…` are now `planner:dim:…`, and
+  the `planner:stored:dim:…:{nominal}:{tolerance}` form read from a file loses its stored mark and
+  its nominal and tolerance (`planner:dim:…`), so one requirement has one id from preview to the
+  written file, whatever its value. **Hosts that pair callouts with rows by these ids must update
+  them.**
 - **An answer to a question Specify doesn't ask is never dropped silently** (decision D11,
   #126). In a file's stored answers (an older file), one whose question is not asked given the
   other stored answers, or a stored "none" where the file now states the requirement, is reported
