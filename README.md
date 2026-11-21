@@ -350,6 +350,7 @@ that implementation wrote. The `specify-core` Python package is now this engine;
 
 | | |
 | --- | --- |
+| [docs/ids.md](docs/ids.md) | the ids other tools can build on: part-level ids, requirement kinds, feature ids |
 | [docs/diff.md](docs/diff.md) | how revisions are compared and answers carried |
 | [docs/face-names.md](docs/face-names.md) | answers on named faces (code-first CAD) |
 | [docs/characteristic-numbers.md](docs/characteristic-numbers.md) | characteristic numbers |
