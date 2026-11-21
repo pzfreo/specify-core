@@ -112,8 +112,10 @@ fn validate_graphic<'a>(graphic: &'a Value, planes: &BTreeSet<&str>, ids: &mut B
         }
     }
 }
+// ADR P11 (D3): a status is the feature table's state (planned items are gaps, the file's are
+// stated); neither the review's `auto` list nor the stored origin shows, and ids are neutral.
 #[test]
-fn requirement_ids_are_stable_and_statuses_use_review_and_stored_origin() {
+fn requirement_ids_are_stable_and_statuses_are_the_feature_table_state() {
     let loaded = plate();
     let analysis = api::analyse(&loaded).unwrap();
     let cache = Scene::new(&loaded).unwrap();
@@ -124,14 +126,15 @@ fn requirement_ids_are_stable_and_statuses_use_review_and_stored_origin() {
     validate(&first);
     let metadata = first["specify"].as_object().unwrap();
     assert_eq!(
-        metadata["planner:specified:dim:hole:9/bore.diameter"]["status"],
-        "answered"
+        metadata["planner:dim:hole:9/bore.diameter"]["status"],
+        "gap"
     );
     assert_eq!(
-        metadata["planner:specified:dim:hole:9/bore.diameter"]["question"],
+        metadata["planner:dim:hole:9/bore.diameter"]["question"],
         "hole.function:holes:9"
     );
-    assert!(metadata.values().any(|m| m["status"] == "general"));
+    assert!(metadata.values().all(|m| m["status"] == "gap"));
+    assert!(metadata.values().any(|m| m["general"] == true));
     let accepted_defaults = specify_core::rules::with_all_defaults(&analysis, &answers).unwrap();
     let state = specify_core::tolerancing::State {
         auto: Some(
@@ -147,12 +150,12 @@ fn requirement_ids_are_stable_and_statuses_use_review_and_stored_origin() {
     let defaults = cache
         .scene_with_state(&loaded, Some(&analysis), &state)
         .unwrap();
-    assert!(
-        defaults["specify"]
-            .as_object()
-            .unwrap()
-            .values()
-            .any(|m| m["status"] == "default")
+    assert_eq!(
+        defaults["specify"],
+        cache
+            .scene(&loaded, Some(&analysis), Some(&state.answers))
+            .unwrap()["specify"],
+        "an automatically accepted answer is a gap like any other"
     );
     let mut changed = answers.clone();
     changed.insert("hole.function:holes:9".into(), json!("fit:H8"));
@@ -184,22 +187,26 @@ fn requirement_ids_are_stable_and_statuses_use_review_and_stored_origin() {
         .0;
     let stored = pmi_scene::pmi_scene(&bytes, None).unwrap();
     validate(&stored);
+    let bore = &stored["specify"]["planner:dim:hole:9/bore.diameter"];
     assert_eq!(
-        stored["specify"]["planner:specified:dim:hole:9/bore.diameter"]["number"],
-        metadata["planner:specified:dim:hole:9/bore.diameter"]["number"]
+        bore["number"],
+        metadata["planner:dim:hole:9/bore.diameter"]["number"]
     );
-    assert_eq!(
-        stored["specify"]["planner:specified:dim:hole:9/bore.diameter"]["origin"],
-        "requirement"
+    assert_eq!(bore["status"], "stated");
+    assert!(
+        stored["specify"]
+            .as_object()
+            .unwrap()
+            .values()
+            .all(|m| m["status"] == "stated" && m.get("origin").is_none())
     );
     let general: Vec<_> = stored["specify"]
         .as_object()
         .unwrap()
         .values()
-        .filter(|m| m["origin"] == "general_tolerance")
+        .filter(|m| m["general"] == true)
         .collect();
     assert!(!general.is_empty());
-    assert!(general.iter().all(|m| m["status"] == "general"));
 }
 #[test]
 fn scene_face_anchors_are_snapshot_mesh_indices_even_when_step_faces_have_names() {
@@ -214,7 +221,7 @@ fn scene_face_anchors_are_snapshot_mesh_indices_even_when_step_faces_have_names(
         .as_array()
         .unwrap()
         .iter()
-        .find(|v| v["id"] == "planner:specified:dim:hole:9/bore.diameter")
+        .find(|v| v["id"] == "planner:dim:hole:9/bore.diameter")
         .unwrap();
     let fid = &size["value"]["kind"]["size"]["feature"];
     let feature = features.iter().find(|f| f["id"] == *fid).unwrap();
@@ -241,7 +248,7 @@ fn foreign_nist_ctc01_is_view_only_and_keeps_as_drawn_graphics() {
             .as_object()
             .unwrap()
             .values()
-            .all(|m| m["status"] == "existing")
+            .all(|m| m["status"] == "stated")
     );
     let graphics: Vec<_> = scene["presentation"]["items"]
         .as_object()
@@ -465,7 +472,8 @@ fn new_foreign_control_preserves_saved_views_planes_and_datum_callouts() {
         .scene(&loaded, Some(&analysis), Some(&answers))
         .unwrap();
     validate(&review);
-    assert_eq!(review["specify"]["flatness:extra.1"]["status"], "answered");
+    // ADR P11 (D3): the new control is planned for a gap; the file's datums are stated.
+    assert_eq!(review["specify"]["flatness:extra.1"]["status"], "gap");
     assert_eq!(file["pmi"]["pmi"]["datums"], review["pmi"]["pmi"]["datums"]);
     // v0.4.1 adds a plane view for the new control alongside unchanged file views.
     let views = review["presentation"]["views"].as_array().unwrap();
@@ -495,7 +503,7 @@ fn new_foreign_control_preserves_saved_views_planes_and_datum_callouts() {
             file["presentation"]["items"][id],
             review["presentation"]["items"][id]
         );
-        assert_eq!(review["specify"][id]["status"], "existing");
+        assert_eq!(review["specify"][id]["status"], "stated");
     }
 }
 
@@ -515,7 +523,8 @@ fn part_finish_keeps_its_characteristic_number_live_and_from_the_file() {
         .expect("part finish is an inspection characteristic");
     assert!(number > 0);
     assert_eq!(live["specify"]["part.edges"]["question"], "part.edges");
-    assert_eq!(live["specify"]["part.edges"]["status"], "answered");
+    // ADR P11 (D3): a planned part setting is a gap until the file states it.
+    assert_eq!(live["specify"]["part.edges"]["status"], "gap");
     let intent = api::preview(&analysis, &answers).unwrap();
     let written = writer::write_bytes(&loaded, &intent, Some(&answers))
         .unwrap()
@@ -527,6 +536,7 @@ fn part_finish_keeps_its_characteristic_number_live_and_from_the_file() {
         file["specify"]["part.surface_finish"]["question"],
         "part.surface_finish"
     );
+    assert_eq!(file["specify"]["part.surface_finish"]["status"], "stated");
 }
 
 #[test]
@@ -562,11 +572,8 @@ fn every_part_setting_uses_the_rules_question_before_and_after_review_and_write(
     .0;
     let file = pmi_scene::pmi_scene(&written, None).unwrap();
     let questions = api::questions(&analysis, &Map::new()).unwrap();
-    for (scene, status) in [
-        (&unreviewed, "default"),
-        (&answered, "answered"),
-        (&file, "answered"),
-    ] {
+    // ADR P11 (D3): planned settings are gaps, reviewed or not; the written file states them.
+    for (scene, status) in [(&unreviewed, "gap"), (&answered, "gap"), (&file, "stated")] {
         validate(scene);
         for question in answers.keys() {
             assert!(questions.iter().any(|q| &q.id == question));
@@ -722,15 +729,20 @@ fn foreign_numeric_ids_are_not_characteristic_numbers_without_specify_history() 
         .unwrap()
         .0;
     let numbered = pmi_scene::pmi_scene(&bytes, None).unwrap();
+    // ADR P11 (D3): the history names each numbered requirement by its plan, as the live scene
+    // does, so the scene id is no longer the number itself; every row still has its number.
+    let mut numbers = std::collections::BTreeMap::new();
     for collection in ["datums", "dimensions"] {
         let rows = numbered["pmi"]["pmi"][collection].as_array().unwrap();
         assert!(!rows.is_empty());
         for row in rows {
             let id = row["id"].as_str().unwrap();
-            assert_eq!(
-                numbered["specify"][id]["number"],
-                id.parse::<u64>().unwrap()
-            );
+            let number = numbered["specify"][id]["number"].as_u64().unwrap();
+            assert_eq!(numbered["specify"][id]["status"], "stated");
+            numbers
+                .entry(collection)
+                .or_insert_with(BTreeSet::new)
+                .insert(number.to_string());
         }
     }
     // Model a foreign producer's numeric ids with no Specify history or origin.
@@ -756,18 +768,19 @@ fn foreign_numeric_ids_are_not_characteristic_numbers_without_specify_history() 
         .scene(&loaded, Some(&analysis), Some(&added))
         .unwrap();
     let file = pmi_scene::pmi_scene(&foreign, None).unwrap();
+    // The producer's numeric ids stay the items' ids, and are no characteristic numbers.
     for collection in ["datums", "dimensions"] {
-        for row in numbered["pmi"]["pmi"][collection].as_array().unwrap() {
-            let id = row["id"].as_str().unwrap();
+        for id in &numbers[collection] {
             for scene in [&file, &live] {
                 assert!(
                     scene["pmi"]["pmi"][collection]
                         .as_array()
                         .unwrap()
                         .iter()
-                        .any(|r| r["id"] == id)
+                        .any(|r| r["id"] == id.as_str()),
+                    "{id}"
                 );
-                assert_eq!(scene["specify"][id]["status"], "existing");
+                assert_eq!(scene["specify"][id]["status"], "stated");
                 assert!(scene["specify"][id].get("number").is_none(), "{id}");
             }
         }
@@ -842,11 +855,9 @@ fn feature_owned_manufacturing_attributes_inherit_the_thread_or_knurl_question()
                 },
             )
             .unwrap();
-        for (scene, status) in [
-            (&live, "answered"),
-            (&default, "default"),
-            (&file, "answered"),
-        ] {
+        // ADR P11 (D3): planned attributes are gaps, accepted automatically or not; the written
+        // file states them.
+        for (scene, status) in [(&live, "gap"), (&default, "gap"), (&file, "stated")] {
             let attributes: Vec<_> = scene["pmi"]["pmi"]["attributes"]
                 .as_array()
                 .unwrap()
@@ -1102,7 +1113,8 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
         let notes = scene["pmi"]["pmi"]["notes"].as_array().unwrap();
         let edge_row = notes.iter().find(|r| r["value"]["text"] == edge).unwrap();
         let edge_id = edge_row["id"].as_str().unwrap();
-        assert_eq!(scene["specify"][edge_id]["status"], "existing");
+        // ADR P11 (D3): the file's edge note is stated.
+        assert_eq!(scene["specify"][edge_id]["status"], "stated");
         assert_eq!(
             scene["presentation"]["items"][edge_id][0]["id"],
             block["id"]
@@ -1183,13 +1195,14 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
     assert!(text.contains(edge));
     assert!(text.contains("MATERIAL: Alu_G6061_T6"));
     assert!(!text.contains("Break sharp edges 0.2 max"));
-    assert_eq!(reopened["specify"]["part.material"]["status"], "existing");
+    assert_eq!(reopened["specify"]["part.material"]["status"], "stated");
 
     // Retain the real file's legacy DIMENSION wrappers through a resumed edit too.
     let saved = part::load_bytes("xcaf-added.step", after.bytes().to_vec()).unwrap();
+    // ADR P11: the file keeps only the answers that leave no PMI; the rest it states.
     assert_eq!(
         specify_core::resume::answers_for(&saved).unwrap(),
-        Some(answers.clone())
+        Some(specify_core::feature_table::storable(&answers))
     );
     let mut edited_answers = answers.clone();
     edited_answers.insert(
@@ -1218,7 +1231,7 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
     );
     assert_eq!(
         specify_core::resume::answers_for(&edited).unwrap(),
-        Some(edited_answers)
+        Some(specify_core::feature_table::storable(&edited_answers))
     );
 }
 
@@ -1233,8 +1246,8 @@ fn spindle_ctc_and_both_plates_have_one_live_notes_block() {
         let loaded = part::load(&common::fixtures().join(name), None).unwrap();
         let analysis = api::analyse(&loaded).unwrap();
         let answers = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
-        let scene = Scene::new(&loaded)
-            .unwrap()
+        let cache = Scene::new(&loaded).unwrap();
+        let scene = cache
             .scene_with_state(
                 &loaded,
                 Some(&analysis),
@@ -1246,6 +1259,24 @@ fn spindle_ctc_and_both_plates_have_one_live_notes_block() {
             )
             .unwrap();
         validate(&scene);
+        if matches!(
+            name,
+            "revisions/spindle-q137.step.gz" | "revisions/presentation_plate.step.gz"
+        ) {
+            // ADR P11 (D3): these files state every requirement, so the suggestions plan no gap:
+            // the live scene is the file's own, which draws its notes without a block, and
+            // nothing adds a second one.
+            assert!(
+                scene["specify"]
+                    .as_object()
+                    .unwrap()
+                    .values()
+                    .all(|m| m["status"] == "stated")
+            );
+            assert_eq!(scene, cache.scene(&loaded, Some(&analysis), None).unwrap());
+            assert!(notes_blocks(&scene).len() <= 1, "{name}");
+            continue;
+        }
         assert_eq!(notes_blocks(&scene).len(), 1, "{name}");
     }
 }
@@ -1577,7 +1608,8 @@ fn mixed_resume_preview_keeps_foreign_control_and_replaces_owned_control() {
         scene["specify"]["flatness:extra.1"]["number"],
         before["specify"]["flatness:extra.1"]["number"]
     );
-    assert_eq!(scene["specify"]["flatness:extra.1"]["status"], "answered");
+    // ADR P11 (D3): the replanned control is a gap until it is written.
+    assert_eq!(scene["specify"]["flatness:extra.1"]["status"], "gap");
 }
 
 /// Frozen schema-2 output written before floor ownership (#216). Reopening must

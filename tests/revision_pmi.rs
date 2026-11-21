@@ -81,7 +81,8 @@ fn a_moved_holes_general_location_changes_without_a_stored_location_answer() {
     );
     // Each revision written with the same answers: diff compares the two files' PMI.
     let (old, new) = (write(&before, &answers), write(&after, &answers));
-    let report = revision::diff(&old, &new).unwrap();
+    let report =
+        revision::diff_with_options(&old, &new, revision::DiffOptions { scenes: true }).unwrap();
     let changes: Vec<_> = report
         .pmi
         .items
@@ -89,7 +90,16 @@ fn a_moved_holes_general_location_changes_without_a_stored_location_answer() {
         .filter(|c| c.class == "changed" && c.kind == "dimension")
         .collect();
     assert!(!changes.is_empty(), "{:?}", report.pmi.items);
-    assert!(changes.iter().any(|c| c.status == "general"), "{changes:?}");
+    // ADR P11 (D3): both files state the location; that the general tolerance governs it is
+    // the scene item's own flag, not a status.
+    assert!(changes.iter().all(|c| c.status == "stated"), "{changes:?}");
+    let scenes = report.pmi.scenes.as_ref().unwrap();
+    assert!(
+        changes
+            .iter()
+            .any(|c| scenes.new["specify"][c.id.as_str()]["general"] == true),
+        "{changes:?}"
+    );
     println!("MOVE SAMPLE\n{}", report.markdown("Moved hole", None));
 }
 
@@ -240,7 +250,7 @@ fn foreign_pmi_changes_even_in_a_file_with_saved_specify_answers() {
             .as_object()
             .unwrap()
             .values()
-            .any(|m| m["status"] == "existing")
+            .any(|m| m["status"] == "stated")
     );
     let analysis = api::analyse(&old).unwrap();
     assert!(analysis["resume"].is_object());
@@ -259,7 +269,7 @@ fn foreign_pmi_changes_even_in_a_file_with_saved_specify_answers() {
             .pmi
             .items
             .iter()
-            .any(|c| c.class == "changed" && c.status == "existing"),
+            .any(|c| c.class == "changed" && c.status == "stated"),
         "{:?}",
         report.pmi.items
     );
@@ -361,7 +371,8 @@ fn a_face_split_matches_the_foreign_control_through_correspondence() {
     let report = revision::diff(&old, &new).unwrap();
     assert_eq!(report.pmi.items.len(), 1, "{:?}", report.pmi.items);
     assert_eq!(report.pmi.items[0].class, "changed");
-    assert_eq!(report.pmi.items[0].status, "existing");
+    // ADR P11 (D3): the foreign control is stated, as any item the file has.
+    assert_eq!(report.pmi.items[0].status, "stated");
     assert_scene_ids(&report, &new);
 }
 

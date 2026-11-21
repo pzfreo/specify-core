@@ -21,6 +21,13 @@ type IndexedScene = (Value, BTreeMap<String, (String, usize)>);
 
 type Bindings = BTreeMap<(String, usize), (String, Value, usize)>;
 
+/// A scene item's status is the feature table's state of the requirement it belongs to (ADR
+/// P11, D3): the file states it, it is planned for an open gap (a preview), or it was decided
+/// none. Who wrote an item, and whether a value was answered or suggested, is never shown.
+const STATED: &str = "stated";
+const GAP: &str = "gap";
+const DECIDED_NONE: &str = "decided_none";
+
 const NUMBERED: [&str; 6] = [
     "datums",
     "dimensions",
@@ -37,6 +44,8 @@ pub struct Scene {
     stored: Option<Map<String, Value>>,
     /// Read for `diff`: the file's PMI only, whoever wrote it.
     of_file: bool,
+    /// The file's requirements' names ([`Scene::names`]), made once: they depend on the file only.
+    names: std::sync::OnceLock<Option<Map<String, Value>>>,
 }
 
 impl Scene {
@@ -63,6 +72,7 @@ impl Scene {
             index: loaded.binding.part,
             stored,
             of_file: false,
+            names: std::sync::OnceLock::new(),
         })
     }
 
@@ -78,6 +88,7 @@ impl Scene {
             index: loaded.binding.part,
             stored: None,
             of_file: true,
+            names: std::sync::OnceLock::new(),
         })
     }
 
@@ -134,6 +145,10 @@ impl Scene {
                     &owned
                 }
             };
+            if foreign {
+                // The file's datums keep their names in the plan that adds to them.
+                self.names(loaded, Some(analysis))?;
+            }
             let ((semantic, metadata, counts), file) = match prepared {
                 Some((plan, file)) => (plan, Some(file)),
                 None => (self.planned(loaded, analysis, answers, foreign)?, None),
@@ -141,11 +156,9 @@ impl Scene {
             // Reusing a foreign datum does not author a new item or redraw its callout.
             if foreign
                 && semantic.pmi.material.is_none()
-                && !metadata
-                    .values()
-                    .any(|meta| matches!(meta["status"].as_str(), Some("answered" | "default")))
+                && !metadata.values().any(|meta| meta["status"] == GAP)
             {
-                return self.file(loaded, None, comparison);
+                return self.file(loaded, self.names(loaded, Some(analysis))?, comparison);
             }
             let mut graphics =
                 presentation::generated(&semantic, &loaded.part).map_err(|e| e.to_string())?;
@@ -154,7 +167,7 @@ impl Scene {
                 for id in &semantic.ids["datums"] {
                     if metadata
                         .get(id)
-                        .is_some_and(|meta| meta["status"] == "existing")
+                        .is_some_and(|meta| meta["status"] == STATED)
                         && let Some(rows) = graphics.items.remove(id)
                     {
                         planes.extend(rows.into_iter().filter_map(|graphic| graphic.plane_id));
@@ -177,7 +190,7 @@ impl Scene {
             }
             let mut result = encode(&semantic, graphics, metadata)?;
             if foreign {
-                let file = self.file(loaded, None, comparison)?;
+                let file = self.file(loaded, self.names(loaded, Some(analysis))?, comparison)?;
                 merge(&mut result, file, comparison)?;
             } else if comparison {
                 // Replace plans rebuild Specify requirements; keep CAD requirements even
@@ -190,7 +203,7 @@ impl Scene {
                     .as_object()
                     .ok_or("invalid metadata")?
                     .iter()
-                    .filter(|(_, meta)| meta["status"] == "existing")
+                    .filter(|(_, meta)| meta["status"] == STATED)
                     .map(|(id, _)| id.clone())
                     .collect();
                 let replaced: std::collections::BTreeSet<String> = file["specify"]
@@ -244,9 +257,28 @@ impl Scene {
             notes::combined(&mut result, &semantic, original.as_ref(), loaded)?;
             return Ok(result);
         }
-        // Reconstruct only the interview identities/numbers of Specify-written files.
-        // PMI values and #77 metadata below always come from the stored model.
-        let planned = if let Some(saved) = &self.stored {
+        self.file(loaded, self.names(loaded, analysis)?, comparison)
+    }
+
+    /// The names of the file's requirements: each id and interview metadata as the plan names
+    /// it, by its characteristic number, so a requirement keeps its id from the preview to the
+    /// file and back (ADR P11, D3). Only Specify-written files are named; PMI values and #77
+    /// metadata always come from the stored model.
+    fn names(
+        &self,
+        loaded: &LoadedPart,
+        analysis: Option<&Value>,
+    ) -> Result<Option<&Map<String, Value>>, String> {
+        if let Some(names) = self.names.get() {
+            return Ok(names.as_ref());
+        }
+        // A file keeps no answer that writes PMI (ADR P11), so the plan is of what the file
+        // can tell: its stored answers, its datums and the suggestions.
+        let numbered = self.stored.is_some()
+            || !characteristics::read(loaded)
+                .map_err(|e| e.to_string())?
+                .is_empty();
+        let names = if numbered {
             let owned;
             let analysis = match analysis {
                 Some(a) => a,
@@ -255,38 +287,31 @@ impl Scene {
                     &owned
                 }
             };
-            Some(self.planned(loaded, analysis, saved, false)?.1)
+            let (bare, answers) = crate::feature_table::planned_answers(
+                analysis,
+                self.stored.as_ref().unwrap_or(&Map::new()),
+            );
+            // A plan that cannot be made names nothing: the file's own ids stand.
+            let mut planned = self
+                .planned(loaded, &bare, &answers, false)
+                .map_or_else(|_| Map::new(), |plan| plan.1);
+            table_questions(&mut planned, analysis);
+            Some(planned)
         } else {
             None
         };
-        self.file(loaded, planned.as_ref(), comparison)
+        Ok(self.names.get_or_init(|| names).as_ref())
     }
 
-    /// Use the editor's review state to distinguish automatic defaults from answers.
-    /// The state's `auto` list is authoritative; equal values alone never imply a default.
+    /// The scene of the editor's review state. Whether an answer was accepted automatically
+    /// is not shown (ADR P11, D3): an item planned for a gap is a gap either way.
     pub fn scene_with_state(
         &self,
         loaded: &LoadedPart,
         analysis: Option<&Value>,
         state: &crate::tolerancing::State,
     ) -> Result<Value, String> {
-        let mut result = self.scene(loaded, analysis, Some(&state.answers))?;
-        if let Some(automatic) = &state.auto {
-            for meta in result["specify"]
-                .as_object_mut()
-                .ok_or("invalid scene metadata")?
-                .values_mut()
-            {
-                if meta["status"] == "answered"
-                    && meta["question"]
-                        .as_str()
-                        .is_some_and(|q| automatic.iter().any(|id| id == q))
-                {
-                    meta["status"] = json!("default");
-                }
-            }
-        }
-        Ok(result)
+        self.scene(loaded, analysis, Some(&state.answers))
     }
 
     fn planned(
@@ -301,14 +326,15 @@ impl Scene {
         let mut observe = |collection: &str, index: usize, req: &Map<String, Value>| {
             let id = requirement_id(req);
             let question = req.get("question").and_then(Value::as_str);
-            let status = if req.get("general") == Some(&Value::Bool(true)) {
-                "general"
-            } else if question.is_some_and(|q| answers.contains_key(q)) {
-                "answered"
+            let status = if question.is_some_and(|q| decided_none(answers, q)) {
+                DECIDED_NONE
             } else {
-                "default"
+                GAP
             };
             let mut meta = json!({"status":status});
+            if req.get("general") == Some(&Value::Bool(true)) {
+                meta["general"] = json!(true);
+            }
             if let Some(q) = question {
                 meta["question"] = json!(q);
             }
@@ -442,27 +468,39 @@ impl Scene {
                     .iter()
                     .position(|old| old.label() == datum.label())
                 {
-                    let id = original.ids["datums"][old].clone();
+                    let mut id = original.ids["datums"][old].clone();
+                    let mut meta = json!({"status":STATED});
+                    if let Some(&number) = recorded
+                        .get(&("datums", old))
+                        .filter(|n| id.parse::<u64>().ok() == Some(**n))
+                    {
+                        meta["number"] = json!(number);
+                        // Named as the file's scene names it.
+                        if let Some((name, named)) = self
+                            .names
+                            .get()
+                            .and_then(Option::as_ref)
+                            .and_then(|names| names.iter().find(|(_, m)| m["number"] == number))
+                        {
+                            id = name.clone();
+                            if let Some(question) = named.get("question") {
+                                meta["question"] = question.clone();
+                            }
+                        }
+                    }
                     let previous = std::mem::replace(
                         &mut semantic.ids.get_mut("datums").ok_or("missing datum ids")?[i],
                         id.clone(),
                     );
                     metadata.remove(&previous);
                     counts.remove(&previous);
-                    let mut meta = json!({"status":"existing"});
-                    if let Some(number) = recorded
-                        .get(&("datums", old))
-                        .filter(|n| id.parse::<u64>().ok() == Some(**n))
-                    {
-                        meta["number"] = json!(number);
-                    }
                     metadata.insert(id, meta);
                 }
             }
         }
-        part_metadata(&mut semantic, &mut metadata, answers)?;
+        part_metadata(&mut semantic, &mut metadata, Some(answers))?;
         attribute_ids(&mut semantic, &mut metadata)?;
-        fill_metadata(&semantic, &mut metadata, "default");
+        fill_metadata(&semantic, &mut metadata, GAP);
         Ok((semantic, metadata, counts))
     }
 
@@ -510,7 +548,7 @@ impl Scene {
                 if !is_requirement(p, collection, i) {
                     continue;
                 }
-                let mut meta = json!({"status":"existing"});
+                let mut meta = json!({"status":STATED});
                 if let Some(&n) = recorded
                     .get(&(collection.as_str(), i))
                     .filter(|n| id.parse::<u64>().ok() == Some(**n))
@@ -522,17 +560,19 @@ impl Scene {
                         *id = stable.clone();
                         meta = saved.clone();
                         if let Some(object) = meta.as_object_mut() {
-                            object.remove("origin");
                             object.remove("source");
+                            object.remove("general");
                         }
+                        // The file states it, whatever planned it.
+                        meta["status"] = json!(STATED);
                     }
                 }
                 stored_metadata(p, collection, i, &mut meta);
                 metadata.insert(id.clone(), meta);
             }
         }
-        if let Some(answers) = stored {
-            part_metadata(&mut semantic, &mut metadata, answers)?;
+        if stored.is_some() {
+            part_metadata(&mut semantic, &mut metadata, None)?;
             attribute_ids(&mut semantic, &mut metadata)?;
             // Drop obsolete content ids after renaming the part settings.
             let ids: std::collections::BTreeSet<_> = semantic.ids.values().flatten().collect();
@@ -582,7 +622,7 @@ impl Scene {
         if notes::multiple_blocks(&result) {
             notes::combined(&mut result, &semantic, None, loaded)?;
         }
-        notes::material(&mut result, &semantic, stored);
+        notes::material(&mut result, &semantic);
         let index = semantic
             .ids
             .iter()
@@ -596,10 +636,33 @@ impl Scene {
     }
 }
 
+/// The feature table's question of each numbered requirement the plan does not name: the file
+/// states it, under the table's row that matches it (ADR P11, D3). Its id stays the file's.
+fn table_questions(planned: &mut Map<String, Value>, analysis: &Value) {
+    for row in analysis["table"]["rows"].as_array().into_iter().flatten() {
+        for req in row["requirements"].as_array().into_iter().flatten() {
+            let Some(n) = req["number"]
+                .as_str()
+                .and_then(|n| n.strip_prefix('#'))
+                .and_then(|n| n.parse::<u64>().ok())
+            else {
+                continue;
+            };
+            if !planned.values().any(|meta| meta["number"] == n) {
+                planned
+                    .entry(n.to_string())
+                    .or_insert_with(|| json!({"status":STATED, "number":n, "question":row["id"]}));
+            }
+        }
+    }
+}
+
+/// Names the part settings by their question. `answers`: the answers of a planned scene, whose
+/// settings are planned for a gap; `None` for the file's, which states them.
 fn part_metadata(
     semantic: &mut Semantic,
     metadata: &mut Map<String, Value>,
-    answers: &Map<String, Value>,
+    answers: Option<&Map<String, Value>>,
 ) -> Result<(), String> {
     let questions = crate::rules::part_questions();
     for collection in ["general", "surface_textures", "attributes"] {
@@ -676,10 +739,10 @@ fn part_metadata(
                     id.clone(),
                 );
                 let mut meta = metadata.remove(&old).unwrap_or_else(|| json!({}));
-                meta["status"] = json!(if answers.contains_key(&question) {
-                    "answered"
-                } else {
-                    "default"
+                meta["status"] = json!(match answers {
+                    None => STATED,
+                    Some(answers) if decided_none(answers, &question) => DECIDED_NONE,
+                    Some(_) => GAP,
                 });
                 meta["question"] = json!(question);
                 metadata.insert(id, meta);
@@ -765,6 +828,41 @@ fn has_pmi(p: &PartPmi) -> bool {
     p != PartPmi::default()
 }
 
+/// Whether `question`'s answer is decided none: it leaves no requirement (the feature table's
+/// `decided_none`).
+fn decided_none(answers: &Map<String, Value>, question: &str) -> bool {
+    crate::feature_table::is_requirement(question)
+        && answers
+            .get(question)
+            .is_some_and(crate::feature_table::leaves_nothing)
+}
+
+/// The dimension planner's id of a requirement without how it came to be: the planner marks a
+/// requirement an answer specified (`specified:`), one read from the file with its values
+/// (`stored:…:{nominal}:{tolerance}`) and an answered contract (`answered:`). The same
+/// requirement keeps one scene id whoever stated it, and whatever its value (ADR P11, D3).
+pub(crate) fn planner_id(id: &str) -> &str {
+    if let Some(rest) = id
+        .strip_prefix("specified:")
+        .or_else(|| id.strip_prefix("answered:"))
+    {
+        return rest;
+    }
+    let Some(rest) = id.strip_prefix("stored:") else {
+        return id;
+    };
+    // The tolerance is a JSON value: `null`, or a string with no quote inside it.
+    let rest = rest
+        .strip_suffix(":null")
+        .or_else(|| {
+            rest.ends_with('"')
+                .then(|| rest.rfind(":\"").map(|at| &rest[..at]))
+                .flatten()
+        })
+        .unwrap_or(rest);
+    rest.rsplit_once(':').map_or(rest, |(id, _nominal)| id)
+}
+
 fn requirement_id(req: &Map<String, Value>) -> String {
     if let Some(id) = req
         .get("planner")
@@ -772,7 +870,7 @@ fn requirement_id(req: &Map<String, Value>) -> String {
         .and_then(|r| r.get("id"))
         .and_then(Value::as_str)
     {
-        return format!("planner:{id}");
+        return format!("planner:{}", planner_id(id));
     }
     if let Some(letter) = req.get("letter").and_then(Value::as_str) {
         return format!("datum:{letter}");
@@ -817,17 +915,11 @@ fn stored_metadata(p: &PartPmi, collection: &str, i: usize, meta: &mut Value) {
     {
         meta["basic"] = json!(true);
     }
+    // The stored origin says who wrote a dimension, which is never shown (ADR P11, D3); only
+    // whether the general tolerance governs it is.
     let stored = pmi_origin::read(p, NoteOwner::Dimension(pmi::DimensionId(i)));
-    if let Some(origin) = stored.origin {
-        meta["origin"] = json!(origin);
-        match origin {
-            pmi_origin::Origin::GeneralTolerance => meta["status"] = json!("general"),
-            pmi_origin::Origin::Imported => meta["status"] = json!("existing"),
-            pmi_origin::Origin::Requirement if meta["status"] == "existing" => {
-                meta["status"] = json!("answered")
-            }
-            _ => {}
-        }
+    if stored.origin == Some(pmi_origin::Origin::GeneralTolerance) {
+        meta["general"] = json!(true);
     }
     if let Some(source) = stored.source {
         meta["source"] = json!(source);
@@ -1209,6 +1301,23 @@ mod tests {
         p.unlinked = unlinked;
         p.views = views;
         p
+    }
+
+    #[test]
+    fn planner_ids_say_nothing_of_who_stated_a_requirement_or_its_value() {
+        for id in [
+            "dim:hole:9/bore.diameter",
+            "specified:dim:hole:9/bore.diameter",
+            "answered:dim:hole:9/bore.diameter",
+            r#"stored:dim:hole:9/bore.diameter:10.0:"Iso286Class { deviation: H }""#,
+            "stored:dim:hole:9/bore.diameter:10.0:null",
+        ] {
+            assert_eq!(planner_id(id), "dim:hole:9/bore.diameter", "{id}");
+        }
+        assert_eq!(
+            planner_id("specified:dim:plane:0/to/hole:9/0:extra.1"),
+            "dim:plane:0/to/hole:9/0:extra.1"
+        );
     }
 
     #[test]

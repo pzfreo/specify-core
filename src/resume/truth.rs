@@ -13,7 +13,7 @@ pub(crate) fn writing(plan: &Value) -> BTreeSet<String> {
         .as_object()
         .into_iter()
         .flatten()
-        .filter(|(_, meta)| meta["status"] != "existing")
+        .filter(|(_, meta)| meta["status"] != "stated")
         .filter_map(|(_, meta)| meta["question"].as_str().map(str::to_owned))
         .collect();
     if !plan["pmi"]["pmi"]["material"].is_null() {

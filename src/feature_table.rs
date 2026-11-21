@@ -386,41 +386,7 @@ pub fn build(
         .into_iter()
         .flatten()
         .collect();
-    // The rows: every feature-and-kind the part has, with the file's PMI set aside (a stated
-    // feature is not asked, but keeps its row). The file's datums stand for their questions,
-    // so the controls are on the faces the file gives them.
-    let mut bare = analysis.clone();
-    if let Some(object) = bare.as_object_mut() {
-        object.insert("existing".into(), Value::Array(Vec::new()));
-        object.insert("part".into(), Value::Object(Map::new()));
-        object.remove("resume");
-        object.remove("table");
-        object.remove("dimensioning_stated");
-        object.remove("process");
-    }
-    let mut given: Map<String, Value> = answers
-        .iter()
-        .filter(|(id, _)| !id.starts_with('_'))
-        .map(|(id, value)| (id.clone(), value.clone()))
-        .collect();
-    for item in &existing {
-        if item["kind"] == "datum"
-            && let Some(letter) = item["type"].as_str()
-        {
-            let faces = faces_of(item, "faces");
-            let id = format!("datum.{letter}");
-            if !faces.is_empty() && !given.contains_key(&id) {
-                // A file datum the rules cannot take as an answer (faces that form no one
-                // datum feature, NIST FTC-09's E) still names its row; only its controls'
-                // faces fall back to the suggestion's.
-                let mut trial = given.clone();
-                trial.insert(id, Value::from(faces));
-                if crate::rules::questions(&bare, &trial).is_ok() {
-                    given = trial;
-                }
-            }
-        }
-    }
+    let (bare, given) = set_aside(analysis, answers);
     let all = crate::rules::with_all_defaults(&bare, &given).unwrap_or_else(|_| given.clone());
     let questions =
         crate::rules::questions(&bare, &all).or_else(|_| crate::rules::questions(&bare, &given))?;
@@ -531,6 +497,58 @@ pub fn build(
         file_pmi,
         decided_none,
     })
+}
+
+/// `analysis` with the file's PMI set aside, so its questions are every feature-and-kind the
+/// part has (a stated feature is not asked, but keeps its row), and `answers` with the file's
+/// datums standing for their questions, so the controls are on the faces the file gives them.
+fn set_aside(analysis: &Value, answers: &Map<String, Value>) -> (Value, Map<String, Value>) {
+    let mut bare = analysis.clone();
+    if let Some(object) = bare.as_object_mut() {
+        object.insert("existing".into(), Value::Array(Vec::new()));
+        object.insert("part".into(), Value::Object(Map::new()));
+        object.remove("resume");
+        object.remove("table");
+        object.remove("dimensioning_stated");
+        object.remove("process");
+    }
+    let mut given: Map<String, Value> = answers
+        .iter()
+        .filter(|(id, _)| !id.starts_with('_'))
+        .map(|(id, value)| (id.clone(), value.clone()))
+        .collect();
+    for item in analysis["existing"].as_array().into_iter().flatten() {
+        if item["kind"] == "datum"
+            && let Some(letter) = item["type"].as_str()
+        {
+            let faces = faces_of(item, "faces");
+            let id = format!("datum.{letter}");
+            if !faces.is_empty() && !given.contains_key(&id) {
+                // A file datum the rules cannot take as an answer (faces that form no one
+                // datum feature, NIST FTC-09's E) still names its row; only its controls'
+                // faces fall back to the suggestion's.
+                let mut trial = given.clone();
+                trial.insert(id, Value::from(faces));
+                if crate::rules::questions(&bare, &trial).is_ok() {
+                    given = trial;
+                }
+            }
+        }
+    }
+    (bare, given)
+}
+
+/// The analysis and answers that plan what the file states, as nearly as they can be told from
+/// it: the part with its PMI set aside, and the stored `answers`, the file's datums and every
+/// other question's suggestion. A file keeps no answer that writes PMI (ADR P11), so the scene
+/// names a file's requirements by this plan.
+pub(crate) fn planned_answers(
+    analysis: &Value,
+    answers: &Map<String, Value>,
+) -> (Value, Map<String, Value>) {
+    let (bare, given) = set_aside(analysis, answers);
+    let all = crate::rules::with_all_defaults(&bare, &given).unwrap_or(given);
+    (bare, all)
 }
 
 #[cfg(test)]

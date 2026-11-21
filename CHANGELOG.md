@@ -79,6 +79,13 @@ Read first:
 - CI filters pull requests by path: a change only under `ui/` skips the Rust jobs, one that does
   not touch `ui/` or a shared file skips the UI jobs. Main and releases run everything. `ci-ok` is
   the one check to require.
+- `pmiScene` statuses are the feature table's states (ADR P11, D3): `stated` (the file has the
+  item, whoever wrote it), `gap` (planned for an open gap in a preview) or `decided_none`, in
+  place of `answered` / `default` / `general` / `existing`. The `origin` field is gone; a dimension
+  the general tolerance governs has `general: true`. Item ids no longer say how a requirement was
+  stated (`planner:dim:hole:9/bore.diameter`, not `planner:specified:…`), and a Specify-written
+  file names its numbered requirements as the preview did, so an item keeps its id from preview
+  to file. The UI draws stated items as the file's PMI and gaps as Specify's.
 
 ### Removed
 

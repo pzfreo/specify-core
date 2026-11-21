@@ -7,7 +7,7 @@ import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from 
 import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
-import { defaultShowing, drawnShown, drawnViews, partCentre, type DrawnPmi } from './drawn';
+import { defaultShowing, drawnGroup, drawnShown, drawnViews, partCentre, type DrawnPmi } from './drawn';
 import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, byBalloon, characteristics, noteStatements, ranges, toCsv } from './characteristics';
 import { as9102 } from './as9102';
@@ -327,7 +327,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   }, [drawnShow, seen.farSide, drawnPmi, session]);
   // Ways to look square at the drawn PMI shown: the file's saved views, and each plane's front.
   const squares = useMemo(() => (drawnPmi
-    ? drawnViews(drawnPmi, (g, item) => drawnShown(g.source, item === null ? undefined : drawnPmi.links[item]?.status, drawnShow), partCentre(session.mesh.positions))
+    ? drawnViews(drawnPmi, (g, item) => drawnShown(g.source, item === null ? undefined : drawnGroup(drawnPmi.links[item]), drawnShow), partCentre(session.mesh.positions))
     : []), [drawnPmi, drawnShow, session]);
 
   useEffect(() => { picker.current?.setTools?.(moreTools); }, [moreTools, session]);

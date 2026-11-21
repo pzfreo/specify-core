@@ -128,7 +128,7 @@ export interface PmiItemChange {
   old_id?: string;
   on: string;
   reason?: string;
-  status: "answered" | "default" | "general" | "existing";
+  status: PmiSceneStatus;
 }
 
 export interface PmiScene {
@@ -181,9 +181,9 @@ export interface PmiSceneItems {
 
 export interface PmiSceneMetadata {
   basic?: true;
+  general?: true;
   notation?: string;
   number?: number;
-  origin?: "requirement" | "general_tolerance" | "imported";
   question?: string;
   source?: {schema: number; faces: string; support: number[]; parameter: string};
   status: PmiSceneStatus;
@@ -248,7 +248,11 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export type PmiSceneId = string;
 
-export type PmiSceneStatus = "answered" | "default" | "general" | "existing";
+/**
+ * The feature table's state of the requirement an item belongs to (ADR P11): the file states
+ * it, it is planned for an open gap (a preview), or it was decided none.
+ */
+export type PmiSceneStatus = "stated" | "gap" | "decided_none";
 
 export type PmiSceneVector = [number, number, number];
 

@@ -131,7 +131,7 @@ export interface PmiItemChange {
   old_id?: string;
   faces: { old: { face: number }[]; new: { face: number }[] };
   kind: string;
-  status: "answered" | "default" | "general" | "existing";
+  status: PmiSceneStatus;
   on: string;
   old?: string;
   new?: string;
@@ -157,7 +157,9 @@ export interface DiffPmi {
 /** Document-local semantic or graphic identity; never a mesh face index. */
 export type PmiSceneId = string;
 export type PmiSceneVector = [number, number, number];
-export type PmiSceneStatus = "answered" | "default" | "general" | "existing";
+/** The feature table's state of the requirement an item belongs to (ADR P11): the file states
+ * it, it is planned for an open gap (a preview), or it was decided none. */
+export type PmiSceneStatus = "stated" | "gap" | "decided_none";
 /** A lossless semantic/unit row. Values follow the packaged haecceity.pmi/1 schema;
  * decimal quantities are strings and semantic references use PmiSceneId. */
 export interface PmiSceneItem {
@@ -235,10 +237,11 @@ export interface PmiSceneMetadata {
   status: PmiSceneStatus;
   question?: string;
   number?: number;
-  origin?: "requirement" | "general_tolerance" | "imported";
   source?: {schema: number; faces: string; support: number[]; parameter: string};
   /** A basic (theoretically exact) dimension; absent otherwise. */
   basic?: true;
+  /** A dimension the general tolerance governs; absent otherwise. */
+  general?: true;
 }
 /** JSON.parse of either pmiScene call. Supporting rows may lack a specify entry. */
 export interface PmiScene {

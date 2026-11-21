@@ -190,8 +190,9 @@ def test_pmi_scene_and_packaged_schemas(plate, tmp_path):
     for graphic in generated:
         assert len(graphic["polyline_roles"]) == len(graphic["polylines"])
         assert all("cell_box" in run for run in graphic.get("text_placements", []))
-    assert scene["specify"]["planner:specified:dim:hole:9/bore.diameter"]["status"] == "answered"
-    assert scene["specify"]["planner:specified:dim:hole:9/bore.diameter"]["question"] == "hole.function:holes:9"
+    # ADR P11 (D3): a planned item is a gap, and its id says nothing of who stated it.
+    assert scene["specify"]["planner:dim:hole:9/bore.diameter"]["status"] == "gap"
+    assert scene["specify"]["planner:dim:hole:9/bore.diameter"]["question"] == "hole.function:holes:9"
     assert scene["specify"]["part.surface_finish"]["number"] > 0
     empty = api.pmi_scene(plate.read_bytes())
     assert empty["pmi"]["pmi"]["dimensions"] == []

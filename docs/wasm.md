@@ -530,10 +530,13 @@ the same per-dimension UDAs as native. See [dimension origin and source](pmi-ori
 `JSON.parse(engine.pmiScene(JSON.stringify(answers)))` returns the PMI for the current
 answers on the already-open part. `openPart` uses the same API, in the part's own frame.
 The session caches the source STEP and semantic PMI; answering does not reload geometry.
-Pass the editor's full `{answers, auto?, gdt?}` review state instead of just answers when
-available: `auto` identifies the questions whose values are unreviewed automatic defaults.
-An explicitly supplied value is `answered`, even when it equals a question's default.
-Unanswered suggestions produce no PMI, just as in `review` and `writePmi`.
+The editor's full `{answers, auto?, gdt?}` review state may be passed instead of just answers.
+An item's `status` is the feature table's state of the requirement it belongs to (ADR P11):
+`stated` when the file has it, `gap` when it is planned for an open gap, `decided_none` when it
+was decided none. Who wrote an item, and whether a value was answered or accepted
+automatically, is not shown, and item ids do not depend on either: a requirement keeps its id
+from the preview to the written file. Unanswered suggestions produce no PMI, just as in
+`review` and `writePmi`.
 
 Both calls return a JSON string. The generated declarations export `PmiScene`,
 `PmiSceneItem`, `PmiSceneItems`, `PmiSceneGraphic`, `PmiSceneTextPlacement`,
@@ -548,11 +551,12 @@ scene structure and presentation metadata are typed. The result is:
   presentation: /* haecceity.presentation/1 document */,
   specify: {
     [itemId: string]: {
-      status: 'answered' | 'default' | 'general' | 'existing';
+      status: 'stated' | 'gap' | 'decided_none';
       question?: string; // extra.N for a face-picked extra
       number?: number;   // characteristic number, as the STEP writer allocates it
       notation?: string; // this requirement's own semantic note wording
-      origin?: 'requirement' | 'general_tolerance' | 'imported';
+      general?: true;    // a dimension the general tolerance governs
+      basic?: true;      // a basic dimension
       source?: {schema: number; faces: string; support: number[]; parameter: string};
     }
   }

@@ -182,7 +182,7 @@ matching thread, remain separate items. Optional scenes retain all semantic reco
 ```json
 {"class":"changed","number":7,"id":"size:holes:9","kind":"dimension",
  "faces":{"old":[{"face":9}],"new":[{"face":9}]},
- "status":"answered","on":"⌀6.6 holes","old":"⌀6.6 H7","new":"⌀6.6 H8"}
+ "status":"stated","on":"⌀6.6 holes","old":"⌀6.6 H7","new":"⌀6.6 H8"}
 ```
 
 Each item has `class` (`added`, `removed`, `changed`, or `renumbered`), optional
