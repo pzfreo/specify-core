@@ -222,7 +222,19 @@ fn assembly_view_only_diameters_match_actual_mesh_faces_and_frame_after_an_edit(
     let bytes = assembly();
     for part in [0, 1] {
         let (engine, snapshot, answers) = assembly_part(&bytes, part);
-        let output = engine.edit(&Value::Object(answers.clone()).to_string());
+        // The save is an edit list (piece 6): the fitted diameters, the PMI checked here. (Every
+        // default as fills is refused whole: a full-thread depth whose frame cites a datum C
+        // the defaults leave unanswered writes nothing.)
+        let fits: Map<String, Value> = answers
+            .iter()
+            .filter(|(id, v)| {
+                (id.starts_with("hole.function:") || id.starts_with("diameter.fit:"))
+                    && v.as_str().is_some_and(|v| v.starts_with("fit:"))
+            })
+            .map(|(id, v)| (id.clone(), v.clone()))
+            .collect();
+        assert!(!fits.is_empty());
+        let output = engine.edit(&json!({ "fill": fits }).to_string());
         assert_eq!(output["written"], json!(true), "{output}");
         let written: Vec<u8> = serde_json::from_value(output["bytes"].clone()).unwrap();
         let reopened = Session::open_part("written.step", &written, part).unwrap();
