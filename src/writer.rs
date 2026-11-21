@@ -774,6 +774,25 @@ fn part_pmi_added(
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
     for (at, req) in &sources {
+        // A location the planner shares across several features (one dimension from face 9
+        // to holes 37, 51, 53, 54 and 56) is stated only when the file already locates every
+        // feature it locates, not just the one whose requirement made it.
+        let shared;
+        let req = match (at.0.as_str(), planned.dimensions.get(at.1).map(|d| &d.kind)) {
+            ("dimensions", Some(DimensionKind::Location { from, to, .. }))
+                if req.get("kind").and_then(Json::as_str) == Some("location") =>
+            {
+                let mut whole = req.clone();
+                let faces = |f: &FeatureId| {
+                    Json::from(crate::existing::faces_in_arena(&planned.features, &[*f]))
+                };
+                whole.insert("faces".into(), faces(to));
+                whole.insert("reference".into(), faces(from));
+                shared = whole;
+                &shared
+            }
+            _ => req,
+        };
         if at.0 != "datums" && crate::feature_table::requirement_stated(req, &existing, &geometry) {
             restated
                 .entry(at.clone())
