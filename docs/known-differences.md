@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 362 | 0 | 52 | 0 | 2 | 1 | 417 |
+| [cli](#cli) | 267 | 0 | 52 | 0 | 2 | 1 | 322 |
 | [cross_engine](#cross_engine) | 55 | 2 | 0 | 1 | 1 | 20 | 79 |
 | [existing](#existing) | 31 | 0 | 0 | 0 | 7 | 0 | 38 |
 | [features](#features) | 3454 | 1414 | 571 | 2491 | 1066 | 1886 | 10882 |
@@ -22,7 +22,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 1165 | 0 | 0 | 0 | 15 | 1 | 1181 |
-| **all** | 5196 | 1433 | 1249 | 2497 | 1101 | 1908 | 13384 |
+| **all** | 5101 | 1433 | 1249 | 2497 | 1101 | 1908 | 13289 |
 
 ## analysis
 
@@ -76,7 +76,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (362 entries)
+### cli: rust-correct (267 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -181,10 +181,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **how a part is made (part.process) is asked last** (2 entries, 2 case globs)
 
   Maintainer decision (5 November 2026, docs/process.md): part.process is appended after every other question of a made part, so no existing question moves; an unanswered part is machined and its other questions, defaults and writes are unchanged. Python has no such question. tests/process.rs covers the question, its defaults and the STEP attribute.
-
-- **Gaps whose suggestion is none are not open (ADR P11)** (95 entries, 95 case globs)
-
-  ADR P11 / Specify 0.3.0 design (piece 1): a gap whose suggestion writes nothing ("none": coating, heat treatment, notes, datum flatness and controls, datum C) is not open; leaving it and accepting "none" give the same file. The open list therefore leaves those questions out and the remaining ids shift. The exact Python/Rust values are pinned by tests/fixtures/cli_datum_origins.json.gz. tests/feature_table.rs questions_and_the_table_agree_on_what_is_open pins that questions and the feature table agree. Frozen Python captures remain unchanged.
 
 ### cli: equivalent (52 entries)
 
