@@ -120,7 +120,8 @@ as using STEP numbering, including unnumbered settings.
 In the local app, **Inspection list (CSV)** and **AS9102 FAI (Excel)** describe only the last saved
 STEP, or the opened STEP in read-only mode. Before the first Save they are disabled and say
 “Save first: the inspection files describe the saved STEP”. After an in-place Save the label names
-the source file. Further answer edits do not change either export. Answers (JSON) still exports the answers.
+the source file. Further edits do not change either export. Answers (JSON) exports the session's answers (an
+agent's, and the decisions the file stores); the review panel's edits are not answers, they are what Save writes.
 
 `GET file?rev=new` in specify-core 0.2.0 serves the input, updated after an in-place save. It cannot
 serve Save's separate output. After saving a separate copy, inspection exports stay disabled and
@@ -176,12 +177,39 @@ exported too; see `src/index.ts`.
 `app/` is Specify on your own computer: the page served on 127.0.0.1 under the contract in
 [docs/open.md](../docs/open.md) and [docs/session.md](../docs/session.md). An AI agent with Specify as its MCP server (`specify-core mcp`) opens a part,
 answers what it was told and calls `show`; by hand, `specify-core open part.step` (or `open --diff old.step
-new.step`) serves the same page. The answers live in the command's session: the page sends its changes there
-(`PUT answers`, reapplied on a 409) and hears everyone else's (`GET events`); an agent's answer lands in the open
-page with "Updated by your agent", its question opened and its faces lit. Save asks the command to write the
-specified STEP (beside it as `part.specified.step`), the same file the agent's `save` writes. Save never refuses for
-questions still open (many AP242 files have no complete answer to everything): it writes the answers given and says
-which questions are still open. Specify's defaults are written only when approved (ADR P9): Save with defaults first lists every default it would write, by question and value, and saves only once the person confirms that list; Keep all likewise lists what it will keep first.
+new.step`) serves the same page.
+
+**The review panel** (`app/Panel.tsx`; draftwright-project proposals/specify-panel.md, accepted 2026-11-20) lists
+the part's features from the file's feature table (`analysis.table`; ADR P11), and under each feature each kind of
+requirement it can need, in one of three states: **stated** in the file (its value; the feature's balloon numbers
+beside its name), a **gap** ("not stated", with Specify's suggestion as a dashed chip, "suggested: h7"), or
+**none needed** (decided). Requirements on no recognised feature are listed last, as "Other PMI in the file".
+
+- A stated row has two matching, uncoloured icons: a pencil (change) and a bin (remove). Change opens one line
+  under the row with the current value first ("Now: ⌖ 0.2 A") and a box for the new one; the line says that a change
+  of limits keeps the number and a different measurement gets a new one. The bin asks once, in one line, the only red
+  in the panel: "Remove ⌖ 0.2 A? Number #4 is retired and never reused." A setting the file states without a number
+  (the material) has the pencil only, and so does another tool's requirement that carries no number.
+- A gap offers **Add** (its line pre-filled with the suggestion) and **None needed**. A decided none reads "none
+  needed", greyed, with **Undo**, which takes the stored decision back (the edit list's `clear`; it never touches PMI).
+- The general tolerance's line is its own editor (#228): a class (ISO 2768-m and so on), or a block row by row
+  (decimal places and their tolerance, Add row), an angles line and a note line. It writes one line of text, the form
+  the CLI and edit lists take: `.XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°` (inch places written `.XX`,
+  millimetre places `X.XX`; `app/general-tolerance.ts`).
+- "Other PMI in the file" rows have the bin only.
+- Every edit is checked against the file, with the edits already listed, before it joins the bar (the engine's
+  `checkEdits`); one the file cannot take says why on its line. The bar at the bottom lists the edits; **Save**
+  sends them as one edit list (`POST save {rev, edits}`), applied all or nothing, and **Discard** drops them.
+  Nothing touches the file before Save. Only edits not yet saved are highlighted; nothing says who wrote a
+  requirement. After a save the part opens again from the saved file, and its rows read as the file has them.
+- A part of an assembly shows its rows read only, with a note: an edit list applies to a file of one part until
+  edits on parts of an assembly land.
+
+The session's answers live in the command: the page hears everyone else's (`GET events`); an agent's answer lands
+in the open page with "Updated by your agent", on its row, highlighted as unsaved. Save writes the specified STEP
+(beside it as `part.specified.step`), the same file the agent's `save` writes. Save never refuses for questions
+still open (many AP242 files have no complete answer to everything): it writes the edits listed and says which
+questions are still open. Specify's suggestions are written only when the person adds them (ADR P9).
 
 Read only (`--read-only`) shows the part's PMI. In diff mode the page shows what changed (StepDiff) and lists the new revision's requirements
 on features that moved or changed size, to check; the session is the new revision's own (nothing is carried:
@@ -204,11 +232,13 @@ to load a review when `config.api` differs, naming both versions and asking for 
 An absent `config.api` remains compatible with specify-core 0.2.0.
 
 `npm run test:app` builds it and drives it in Chromium under the real command (`SPECIFY_CORE`, default
-`specify-core` on `PATH`; it needs the session contract): `test/app-browser.mjs` by hand (answer, save, read the PMI
-back with `specify-core analyse`, resume, read only, diff on the enclosure fixtures, an `--in-place` save over a
-file changed on disk, the event stream refused and regained) and `test/app-agent.mjs` as an agent (`specify-core
-mcp` over stdio: open, answer, `show`, the page's edit seen by `changes`, both saves, an assembly, a symbolic link,
-a diff). Both check that no request leaves 127.0.0.1. CI and the release workflow run it against the command built
+`specify-core` on `PATH`; it needs the session contract): `test/app-browser.mjs` by hand (the panel's Add, None
+needed, Undo, Change, Remove and Discard, Save, the saved file read back with `specify-core analyse`, reopening,
+read only, an assembly read only, "Other PMI" removed by number, another tool's file left byte for byte, diff on the
+enclosure fixtures, an `--in-place` save over a file changed on disk, the event stream refused and regained) and
+`test/app-agent.mjs` as an agent (`specify-core mcp` over stdio: open, answer, `show`, both saves, an assembly, a
+symbolic link, a diff). `test/app-panel.test.mjs` (in `npm test`) covers the panel's reading of the table, its edit
+list and the general tolerance's text. Both check that no request leaves 127.0.0.1. CI and the release workflow run it against the command built
 from the same commit (`target/release/specify-core`), and a release attaches only an app that passed. It takes about three minutes (it waits for the heartbeat and for the
 command to stop after `closed`).
 

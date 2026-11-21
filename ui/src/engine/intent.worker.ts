@@ -20,7 +20,7 @@ interface IntentModule {
   };
 }
 interface IntentInstance { free(): void; snapshot(): string; review(answers: string): string; settle(state: string): string;
-    evidence(): string; payload(name: string): string | undefined; original(): Uint8Array | undefined; pmiScene(state: string): string }
+    evidence(): string; payload(name: string): string | undefined; original(): Uint8Array | undefined; pmiScene(state: string): string; checkEdits(edits: string): string }
 
 let engine: IntentInstance | undefined;
 // The open engine's analysis as JSON, for the free acceptDefaults (made once per engine).
@@ -94,7 +94,7 @@ self.onmessage = ({ data }) => {
           const { analysis } = JSON.parse(file.snapshot());
           result = inspectionFromStep(analysis, JSON.parse(module.pmiScene(args.bytes, args.part)));
         } finally { file.free(); }
-      } else if (operation === 'open' || operation === 'review' || operation === 'review-given' || operation === 'settle' || operation === 'scene') {
+      } else if (operation === 'open' || operation === 'review' || operation === 'review-given' || operation === 'settle' || operation === 'scene' || operation === 'check-edits') {
         if (!engine || sourceId !== args.sourceId || part !== args.part || operation === 'open') {
           engine?.free(); engine = undefined; analysisJson = undefined;
           engine = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
@@ -114,6 +114,9 @@ self.onmessage = ({ data }) => {
           const answers = JSON.parse(accepted(args.state.answers)) as Record<string, unknown>;
           const auto = [...new Set([...args.state.auto ?? [], ...Object.keys(answers).filter(id => !(id in args.state.answers))])];
           result = JSON.parse(engine.pmiScene(JSON.stringify({ ...args.state, answers, auto })));
+        } else if (operation === 'check-edits') {
+          // An edit list checked against the file, all or nothing (WASM checkEdits): writes nothing.
+          result = JSON.parse(engine.checkEdits(JSON.stringify(args.edits)));
         } else if (operation === 'open') {
           const snapshot = JSON.parse(engine.snapshot());
           analysisJson = JSON.stringify(snapshot.analysis);

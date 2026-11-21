@@ -8,13 +8,14 @@ import { chromium, expect } from '@playwright/test';
 import { mcp } from './mcp-client.mjs';
 // The local app as an agent uses it (specify-core docs/session.md): `specify-core mcp` over stdio,
 // started as an AI client starts it. The agent opens a part and calls `show {browser: false}`; an
-// answer the agent gives while the page is open lands with "Updated by your agent". Saving is an edit
-// list (session API 2): the agent's `save {doc, edits}` (refused while its own `answer`s are unsaved;
-// `check` first) and the page's Save write the same naming, and an incomplete save says what is
-// `missing`. Then an assembly (an agent's answer to a part not shown is said and unsaved; Save with
-// defaults lists every part's defaults; an edit list applies to one part, so an assembly's save is
-// refused until the piece-2 follow-on), a part opened through a symbolic link (the link's path is
-// kept, Save writes beside the link), and a diff the agent opened, which `show` serves in diff mode.
+// answer the agent gives while the page is open lands with "Updated by your agent", on its row of the
+// review panel, as unsaved. Saving is an edit list (session API 2): the agent's `save {doc, edits}`
+// (refused while its own `answer`s are unsaved; `check` first) and the page's Save write the same
+// naming, and an incomplete save says what is `missing`. Then an assembly (an agent's answer to a
+// part not shown is said and unsaved; an edit list applies to one part, so an assembly's rows are read
+// only and its save is refused until the assembly-edits update), a part opened through a symbolic link
+// (the link's path is kept, Save writes beside the link), and a diff the agent opened, which `show`
+// serves in diff mode.
 // `npm run test:app` runs it after app-browser.mjs.
 //
 //   SPECIFY_CORE      the specify-core binary with `mcp`'s `show` (specify-core open-session).
@@ -69,6 +70,13 @@ const onlyLocal = (requests, url) => {
   assert.deepEqual(requests.filter(u => !u.startsWith(`${origin}/`) && !/^(blob|data):/.test(u)), [], 'no request leaves 127.0.0.1');
 };
 const question = (page, id) => page.locator(`[data-question="${id}"]`);
+/** Add on the panel's gap ``id``, pre-filled with its suggestion. */
+async function add(page, id) {
+  const row = question(page, id);
+  await row.locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
+  await row.locator('.spec-edit').getByRole('button', { name: 'Add', exact: true }).click();
+  await check(page.locator(`.spec-bar [data-pending="${id}"]`)).toBeVisible();
+}
 const agents = [];
 
 try {
@@ -154,9 +162,8 @@ try {
     const stopped = page.locator('.app-stopped');
     await check(stopped).toHaveText(`Specify has stopped. Run specify-core open … again (or ask your agent to show it). Your saved file is at ${byAgent.path}.`, { timeout: 30_000 });
     await check(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
-    await check(page.getByRole('button', { name: 'Save with defaults', exact: true })).toBeDisabled();
     await check(page.getByRole('button', { name: 'Answers (JSON)', exact: true })).toBeEnabled();
-    await check(page.locator('.pmi-lab-panel')).toContainText('6061-T6');
+    await check(page.locator('.spec-panel')).toContainText('6061-T6');
     problems.splice(beforeStop, problems.length - beforeStop,
       ...problems.slice(beforeStop).filter(p => !/^console: .*net::ERR_CONNECTION_REFUSED$/.test(p)));
     onlyLocal(requests, shown.url);
@@ -165,8 +172,8 @@ try {
 
   // An assembly: the agent's answers on two parts are shown, a part at a time, and an agent's answer
   // to the part not shown is said, by name, and unsaved. An edit list applies to one part, so an
-  // assembly's save is refused (the piece-2 follow-on brings edits on parts of an assembly) and
-  // nothing is written. Save with defaults lists every part's defaults.
+  // assembly's save is refused (the assembly-edits update brings edits on parts of an assembly) and
+  // nothing is written: the panel shows the rows read only, saying so, and Save is off.
   {
     const asm = join(dir, 'asm.step');
     writeFileSync(asm, gunzipSync(readFileSync('test/fixtures/gramil_assembly_before.step.gz')));
@@ -187,9 +194,9 @@ try {
     const { context, page, requests } = await load(shown.url);
     await check(page.locator('.app-part select')).toBeVisible();
     await check(page.locator('.app-part select')).toHaveValue(String(b));
-    await check(page.locator('.pmi-lab-panel')).toContainText('CW614N');
+    await check(page.locator('.spec-panel')).toContainText('CW614N');
     await page.locator('.app-part select').selectOption(String(a));
-    await check(page.locator('.pmi-lab-panel')).toContainText('1.4301');
+    await check(page.locator('.spec-panel')).toContainText('1.4301');
     // The agent answers the part not shown now: the page says so, by name, and offers to show it.
     await agent.call('answer', { doc: docB, set: { 'part.general_tolerance': 'ISO 2768-f' } });
     const nameB = listed.parts.find(p => p.part === b).name;
@@ -198,17 +205,13 @@ try {
     await check(page.locator('.app-dirty')).toBeVisible();
     await page.getByRole('button', { name: 'Show it' }).click();
     await check(page.locator('.app-part select')).toHaveValue(String(b));
-    await check(page.locator('.pmi-lab-panel')).toContainText('2768-f');
-    // Save with defaults lists the defaults of every part with one, the part not shown too (Paul's
-    // decision, 2026-11-19); confirmed, they are on two parts: one edit list cannot carry them yet.
-    await page.getByRole('button', { name: 'Save with defaults' }).click();
-    const list = page.getByRole('dialog', { name: 'Save with defaults' });
-    await check(list.locator(`[data-part="${a}"]`)).toBeVisible();
-    await check(list.locator(`[data-part="${b}"] h4`)).toContainText(nameB);
-    await check(list.locator(`[data-part="${b}"] [data-default="part.material"]`)).toHaveCount(0);
-    if (shots) await page.screenshot({ path: join(shots, 'assembly-defaults.png') });
-    await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
-    await check(page.getByRole('alert').first()).toContainText('cannot be saved together yet');
+    await check(page.locator('.spec-panel')).toContainText('2768-f');
+    // The agent's answer is on its row, as unsaved; the rows are read only on this version, said once.
+    await check(question(page, 'part.general_tolerance')).toHaveClass(/changed/);
+    await check(page.locator('.spec-readonly')).toContainText('This part is in an assembly');
+    await check(page.locator('.spec-panel .acts')).toHaveCount(0);
+    await check(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+    if (shots) await page.screenshot({ path: join(shots, 'assembly.png') });
     assert.ok(!existsSync(join(dir, 'asm.specified.step')), 'nothing written');
     onlyLocal(requests, shown.url);
     await context.close();
@@ -216,8 +219,7 @@ try {
   }
 
   // A part the agent opens while the page is open joins the session (`joined`): the page takes it
-  // in (said, listed in the picker), a save asked for at the rev before it is stale (409), and the
-  // defaults a save lists include it (every part of the file is listed, answered or not).
+  // in (said, listed in the picker), and a save asked for at the rev before it is stale (409).
   {
     const asm = join(dir, 'asm-join.step');
     writeFileSync(asm, gunzipSync(readFileSync('test/fixtures/gramil_assembly_before.step.gz')));
@@ -244,22 +246,11 @@ try {
     const stale = await post(shown.url, { rev: before.rev, edits: {} });
     assert.equal(stale.status, 409);
     assert.ok(!existsSync(join(dir, 'asm-join.specified.step')), 'nothing written for the stale save');
-    // Changed expectation (Paul's decision, 2026-11-19): Save with defaults lists the defaults of every part
-    // of the file, so b is listed though it has no answers, and approving them is what writes it. It was a
-    // only ("a save writes only parts with answers"), which left an untouched part out of Save with defaults.
-    await page.getByRole('button', { name: 'Save with defaults' }).click();
-    const list = page.getByRole('dialog', { name: 'Save with defaults' });
-    await check(list.locator(`[data-part="${a}"]`)).toBeVisible();
-    await check(list.locator(`[data-part="${b}"] h4`)).toHaveText(nameB);
-    await check(list.locator('[data-written]')).toContainText(nameB);
-    // The old wording is gone, and the written note names part b (it has defaults listed).
-    await check(list.locator('[data-written]')).toContainText('a part with no answers and no default listed is left as it is');
-    await list.getByRole('button', { name: 'Cancel' }).click();
-    // Once b has an answer it is still listed.
-    await agent.call('answer', { doc: docB, set: { 'part.material': 'Brass CW614N' } });
-    await page.getByRole('button', { name: 'Save with defaults' }).click();
-    await check(list.locator(`[data-part="${b}"] h4`)).toHaveText(nameB);
-    await check(list.locator('[data-written]')).toContainText(nameB);
+    // The part joined is shown like the others: its rows, read only.
+    await page.getByRole('button', { name: 'Show it' }).click();
+    await check(page.locator('.app-part select')).toHaveValue(String(b));
+    await check(page.locator('.spec-readonly')).toContainText('This part is in an assembly');
+    void docB;
     await context.close();
     agent.stop();
   }
@@ -284,11 +275,9 @@ try {
     assert.equal((await post(shown.url, { rev, edits: true })).status, 400, 'a boolean is no list');
     assert.equal((await post(shown.url, { rev, acceptDefaults: {} })).status, 400, 'the API 1 body is no list');
     assert.ok(!existsSync(join(dir, 'refused.specified.step')), 'nothing written');
-    await page.getByRole('button', { name: 'Save with defaults' }).click();
-    const list = page.getByRole('dialog', { name: 'Save with defaults' });
-    await check(list.locator('[data-default]').first()).toBeVisible();
+    await add(page, 'part.general_tolerance');
     await page.route('**/save', route => route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify(body) }));
-    await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await check(page.getByRole('alert').first()).toContainText('nothing was written');
     await check(page.getByRole('alert').first()).toContainText('nope.unknown');
     await page.unroute('**/save');
@@ -298,48 +287,9 @@ try {
     agent.stop();
   }
 
-  // The defaults changing before the person confirms (an agent answered one): nothing is sent, and the
-  // page lists the defaults again for the person to confirm.
-  {
-    const asm = join(dir, 'asm-stale.step');
-    writeFileSync(asm, gunzipSync(readFileSync('test/fixtures/gramil_assembly_before.step.gz')));
-    const agent = await mcp(cli, { cwd: dir, env }); agents.push(agent);
-    const listed = await agent.call('open', { path: asm });
-    const [a, b] = listed.parts.map(p => p.part);
-    const nameB = listed.parts.find(p => p.part === b).name;
-    const docA = (await agent.call('open', { path: asm, part: a })).doc;
-    await agent.call('answer', { doc: docA, set: { 'part.material': 'Steel 1.4301' } });
-    const shown = await agent.call('show', { doc: docA, browser: false });
-    const { context, page } = await load(shown.url);
-    await page.getByRole('button', { name: 'Save with defaults' }).click();
-    const list = page.getByRole('dialog', { name: 'Save with defaults' });
-    // Changed expectation (Paul's decision, 2026-11-19): every part of the file is listed from the start,
-    // b too (it was a alone, as only a had an answer). The agent's join below is still a stale save.
-    await check(list.locator(`[data-part="${a}"]`)).toBeVisible();
-    await check(list.locator(`[data-part="${b}"]`)).toBeVisible();
-    // b has open questions with defaults. The agent answers one before the person confirms: what
-    // would be written is no longer the list confirmed, so nothing is sent and the list is made again.
-    const docB = (await agent.call('open', { path: asm, part: b })).doc;
-    const [dq] = (await agent.call('questions', { doc: docB, state: 'open' })).questions.filter(q => q.default !== null && q.default !== undefined);
-    await check(list.locator(`[data-part="${b}"] [data-default="${dq.id}"]`)).toHaveCount(1);
-    await agent.call('answer', { doc: docB, set: { [dq.id]: dq.default } });
-    await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
-    await check(page.getByRole('alert').first()).toContainText('not the ones you confirmed');
-    await check(list.locator(`[data-part="${b}"] h4`)).toHaveText(nameB);
-    await check(list.locator(`[data-part="${b}"] [data-default="${dq.id}"]`)).toHaveCount(0);
-    assert.ok(!existsSync(join(dir, 'asm-stale.specified.step')), 'nothing written when the defaults changed');
-    // Confirmed again: defaults on two parts, which one edit list cannot carry yet (piece-2 follow-on),
-    // so nothing is sent. (A save at an older rev, 409, then a re-list, needs a list that is sent: on a
-    // part of one file it is the `stale` checks above, and the page's handling is app-session.test.mjs's.)
-    await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
-    await check(page.getByRole('alert').first()).toContainText('cannot be saved together yet');
-    assert.ok(!existsSync(join(dir, 'asm-stale.specified.step')), 'nothing written');
-    await context.close();
-    agent.stop();
-  }
-
-  // A failed write (the folder is read-only): the page says Not saved, nothing is written, and the
-  // session is as it was (session API 2: the defaults were fills in the list, never answers in it).
+  // A failed write (the folder is read-only): the page says Not saved, nothing is written, the
+  // session is as it was (session API 2: the panel's edits are an edit list, never answers in it),
+  // and the edit is still listed.
   if (process.getuid?.() !== 0) {
     const locked = join(dir, 'locked');
     mkdirSync(locked);
@@ -350,22 +300,21 @@ try {
     const shown = await agent.call('show', { doc, browser: false });
     const { context, page } = await load(shown.url);
     const answersBefore = (await (await fetch(`${shown.url}answers`)).json()).parts['0'] ?? {};
-    await page.getByRole('button', { name: 'Save with defaults' }).click();
-    const list = page.getByRole('dialog', { name: 'Save with defaults' });
-    await check(list.locator('[data-default]').first()).toBeVisible();
+    await add(page, 'part.general_tolerance');
     chmodSync(locked, 0o555);
     try {
-      await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
       await check(page.getByRole('alert').first()).toContainText('Not saved');
     } finally { chmodSync(locked, 0o755); }
     assert.ok(!existsSync(join(locked, 'shaft.specified.step')), 'nothing written');
     await check(page.locator('.app-saved')).toHaveCount(0);
-    await check(page.locator('.app-dirty')).toHaveCount(0);
+    await check(page.locator('.spec-bar [data-pending="part.general_tolerance"]')).toBeVisible();
     const session = await (await fetch(`${shown.url}answers`)).json();
     assert.deepEqual(given(session.parts['0'] ?? {}), given(answersBefore), 'the session is as it was');
     const open = await agent.call('questions', { doc, state: 'open' });
-    assert.ok(open.questions.some(q => q.id === 'part.general_tolerance'), 'the confirmed default is still an open question');
-    await check(page.locator('.pmi-lab-panel')).toContainText('Suggested: ISO 2768-m');
+    assert.ok(open.questions.some(q => q.id === 'part.general_tolerance'), 'the edit not saved leaves it an open question');
+    // The row still shows the edit, highlighted as not saved.
+    await check(question(page, 'part.general_tolerance')).toHaveClass(/changed/);
     problems.splice(0, problems.length, ...problems.filter(p => !/50\d/.test(p)));
     await context.close();
     agent.stop();

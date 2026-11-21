@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getConfig, keepAlive } from '../app/local.ts';
 import { createSession } from '../app/answers.ts';
-import { sessionSaver } from '../app/save.ts';
+import { editsSaver } from '../app/save.ts';
 import { SESSION_API, SessionApiMismatch } from '../app/session-api.ts';
 
 const config = { name: 'part.step', saveTarget: '/tmp/part.specified.step' };
@@ -238,7 +238,7 @@ test('pagehide cancels an in-flight Save before sending closed', async (t) => {
   const store = session.store(0);
   const heartbeat = keepAlive(() => {}, () => {}, () => session.close());
   clock.cleanup(heartbeat.stop);
-  const saving = sessionSaver(store, session, () => ({}), async () => []).save({ defaults: [] });
+  const saving = editsSaver(store, session, () => ({})).save({});
   const cancelled = assert.rejects(saving, { name: 'AbortError' });
   await flush();
   t.mock.method(navigator, 'sendBeacon', () => {
