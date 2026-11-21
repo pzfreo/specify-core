@@ -38,7 +38,7 @@ const fileOf = (name: string, bytes: Uint8Array, part: number, several: boolean,
 
 /** The defaults a save with defaults lists for the session's answers ``parts``: those of every part
  * of the file (``indexes``), answered or not, in part order. */
-async function defaultsOf(worker: WorkerClient, name: string, bytes: Uint8Array, several: boolean, parts: Record<string, PmiAnswers>, indexes: readonly number[], generation = 0, fillable?: ReadonlyMap<number, ReadonlySet<string>>): Promise<Default[]> {
+async function defaultsOf(worker: WorkerClient, name: string, bytes: Uint8Array, several: boolean, parts: Record<string, PmiAnswers>, indexes: readonly number[], generation = 0): Promise<Default[]> {
   const out: Default[] = [];
   for (const part of defaultParts(parts, indexes, several)) {
     const answers = parts[String(part)] ?? {};
@@ -47,11 +47,7 @@ async function defaultsOf(worker: WorkerClient, name: string, bytes: Uint8Array,
     // The command takes only open questions' defaults (not the process, a full-thread depth or a
     // parts-list row, which are never "open").
     const asked = new Set(open);
-    // Session API 2: a default is saved as an edit list's fill, which names a feature-and-kind of the
-    // file's feature table; a default on anything else (how holes are located) cannot be saved that
-    // way yet (piece 7), so it is not listed.
-    const rows = fillable?.get(part);
-    out.push(...defaultsToWrite(questions, answers).filter((d) => asked.has(d.id) && (!rows || rows.has(d.id))).map((d) => ({ ...d, part, raw: raw.get(d.id)! })));
+    out.push(...defaultsToWrite(questions, answers).filter((d) => asked.has(d.id)).map((d) => ({ ...d, part, raw: raw.get(d.id)! })));
   }
   return out;
 }
@@ -61,8 +57,6 @@ interface Opened {
   part: number; several: boolean;
   /** How many saves ``bytes`` are on from the file as opened. */
   generation: number;
-  /** The feature-and-kinds an edit list can fill, by part (the parts opened: their feature tables). */
-  fillable: ReadonlyMap<number, ReadonlySet<string>>;
   session: PmiLabSession; review: IntentReview; engine: SpecifyEngine; drawn: DrawnPmi | null;
   bytes: Uint8Array; store: AnswersStore; saver: Saver;
   /** What SpecifyReview starts from; a new object only when the answers change outside the page. */
@@ -110,12 +104,9 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   };
   const scene = drawnFromScene(await worker.request('scene', { ...file, state: { answers } }));
   const drawn = scene.ok ? withoutNotesBlock(scene.value) : null;
-  // The feature-and-kinds an edit list can fill on this part: its feature table's rows.
-  const tableRows = (snapshot.analysis as { table?: { rows?: { id: string }[] } }).table?.rows;
-  const fillable = new Map(tableRows ? [[at.part, new Set(tableRows.map((r) => r.id))]] : []);
-  const defaults = (parts: Record<string, PmiAnswers>) => defaultsOf(worker, name, bytes, at.several, parts, indexes(), generation, fillable);
+  const defaults = (parts: Record<string, PmiAnswers>) => defaultsOf(worker, name, bytes, at.several, parts, indexes(), generation);
   return {
-    ...at, generation, fillable, session, review, engine, drawn: drawn && hasGraphics(drawn) ? drawn : null, bytes, store, shown,
+    ...at, generation, session, review, engine, drawn: drawn && hasGraphics(drawn) ? drawn : null, bytes, store, shown,
     saver: sessionSaver(store, answersSession, () => shown.answers, defaults), external: { answers, review }, reviewOf,
   };
 }
@@ -457,7 +448,7 @@ function App() {
       await opened.store.settled();
       const parts = sessionRef.current.parts();
       for (const part of sessionRef.current.changedParts()) parts[String(part)] = sessionRef.current.shown(part);
-      const defaults = await defaultsOf(worker.current, config.name, opened.bytes, opened.several, parts, partIndexes.current, opened.generation, opened.fillable);
+      const defaults = await defaultsOf(worker.current, config.name, opened.bytes, opened.several, parts, partIndexes.current, opened.generation);
       // Written: every part with a default listed, and those with answers (and a file's only part).
       const written = [...new Set([...writtenParts(parts, opened.several), ...defaults.map((d) => d.part)])].sort((a, b) => a - b);
       setConfirming({ defaults, written, shownLeftOut: opened.several && !written.includes(opened.part) });

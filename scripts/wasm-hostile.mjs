@@ -87,6 +87,11 @@ try {
   refuses('oversized interpretation', () => interpret(analysis, '{}', hole.id, large), /exceeds.*limit/);
   refuses('free defaults: oversized answers', () => acceptDefaults(analysis, large), /exceeds.*limit/);
   refuses('oversized payload name', () => engine.payload(' '.repeat(64 * 1024 + 1)), /exceeds.*limit/);
+  refuses('oversized project', () => engine.edit('{}', large), /exceeds.*limit/);
+  refuses('oversized payload', () => engine.edit('{}', null, large), /exceeds.*limit/);
+  refuses('oversized saved answers', () => engine.rematchAnswers(large), /exceeds.*limit/);
+  refuses('oversized evidence', () => engine.rematchAnswers('{}', large), /exceeds.*limit/);
+  refuses('oversized automatic answers', () => engine.rematchAnswers('{}', null, large), /exceeds.*limit/);
   refuses('oversized STEP', () => new IntentEngine('large.step', new Uint8Array(64 * 1024 * 1024 + 1)), /exceeds.*limit/);
   // These values are deliberately accepted by rules/py.rs, not malformed answers.
   let compatible = 0;

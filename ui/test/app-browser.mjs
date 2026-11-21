@@ -108,15 +108,20 @@ const given = answers => Object.fromEntries(Object.entries(answers ?? {}).filter
 const analyse = file => JSON.parse(execFileSync(cli, ['analyse', '--output', '-', file], { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] }));
 /** ADR P11: what the file states, by feature-and-kind (the analysis's table): each row's state and value. */
 const table = file => Object.fromEntries((analyse(file).table?.rows ?? []).map(r => [r.id, r]));
-/** The feature-and-kinds the file holds: stated, or decided none. */
-const held = file => Object.entries(table(file)).filter(([, r]) => r.state === 'stated' || r.state === 'decided_none').map(([id]) => id);
+/** The feature-and-kinds the file holds, stated or decided none, and the choices with no row it
+ * stores (how holes are located, `part.locating`: it writes no PMI, so the file stores it). */
+const held = file => {
+  const rows = table(file);
+  const choices = Object.keys(given(analyse(file).resume?.answers)).filter(id => !(id in rows));
+  return [...Object.entries(rows).filter(([, r]) => r.state === 'stated' || r.state === 'decided_none').map(([id]) => id), ...choices];
+};
 /** The file holds exactly ``ids``: each is stated or decided none, and any other row it holds is stated
  * only by requirements of those (a tapped hole's thread also states its full-thread depth). */
 function holdsExactly(file, ids, message) {
   const rows = table(file);
   assert.deepEqual(ids.filter(id => !held(file).includes(id)), [], `${message}: each is in the file`);
   const theirs = new Set(ids.flatMap(id => (rows[id]?.requirements ?? []).map(r => r.number ?? r.text)));
-  const others = held(file).filter(id => !ids.includes(id) && !(rows[id].state === 'stated'
+  const others = held(file).filter(id => !ids.includes(id) && !(rows[id]?.state === 'stated'
     && rows[id].requirements?.length && rows[id].requirements.every(r => theirs.has(r.number ?? r.text))));
   assert.deepEqual(others, [], `${message}: nothing else`);
 }

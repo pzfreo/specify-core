@@ -55,10 +55,14 @@ Read first:
     answers=)` and `validate_edits` are gone. The command line's whole-intent `write` stays.
   - **The app** (ui/app) sends its answers as fills and the defaults the person confirmed as fills
     of the values seen. It cannot send yet: clearing an answer the file stores, changes on two
-    parts of an assembly, or an answer that is not in the feature table (`part.locating`,
-    `extra.*`); these come with the review panel (piece 7). After a save the part is opened again
+    parts of an assembly, or an added requirement (`extra.*`); these come with the review panel
+    (piece 7). After a save the part is opened again
     from the file saved. `@draftwright/specify-ui`'s worker no longer has the `write` and
     `rematch` operations.
+  - An edit list may fill a choice that is not a requirement and has no feature-table row (how
+    holes are located, `part.locating`), checked against its options, or decide it none where
+    none is an option; it is stored beside the PMI, and the planner reads it for the rest of the
+    list.
   - Rust: `session::save` (answers) and its approvals are gone; `session::save_edits` takes the
     `rev` the caller saw and refuses a list as `SaveError::Edits(failures)`; `session::check_edits`.
 
@@ -132,18 +136,22 @@ Read first:
 
 ### WASM API
 
-- `IntentEngine.edit(editsJson)`: an edit list (or a 0.2 answers file) applied to the file in
-  memory, all or nothing: `{written: true, bytes, report, source_sha256}` (the report with
-  `retired` and `unchanged`), or `{written: false, failures, message}` naming every entry that
-  cannot be applied. The engine is not changed. A part of an assembly is refused for now.
+- `IntentEngine.edit(editsJson, project?, payload?)`: an edit list (or a 0.2 answers file)
+  applied to the file in memory, all or nothing: `{written: true, bytes, report, source_sha256}`
+  (the report with `retired` and `unchanged`), or `{written: false, failures, message}` naming
+  every entry that cannot be applied. The engine is not changed. A part of an assembly is
+  refused for now. `project` (the editor's base64 project) or `payload` (`{name, value}`), at
+  most one, is carried with the record of the original part, as `writePmi` carried it: it
+  replaces what the file carried under its name, and the file is then always written; a plain
+  edit keeps what the file carries.
 - `IntentEngine.checkEdits(editsJson)`: the list checked against the file, as `write --check`
   checks it; writes nothing. It replaces `validateEdits`, which checked a list only against itself
   and is removed.
 - `IntentEngine.table()`: the feature table, `{rows, file_pmi, decided_none}`.
 - Removed (Specify 0.3.0, "What goes away"): `IntentEngine.writePmi` (writing a whole intent; use
   `edit`), `IntentEngine.acceptDefaults` (the free `acceptDefaults(analysis, answers)` stays, for
-  previews) and `IntentEngine.rematchAnswers`. Storing the editor's project or a payload went with
-  `writePmi`; `payload()` and `original()` still read them.
+  previews). `rematchAnswers` stays: the editor matches the answers its project keeps to the
+  part with it.
 - `diff(oldName, oldBytes, newName, newBytes, title, scenes?)`: the unused fifth argument
   (`_answers`) is removed.
 

@@ -89,7 +89,9 @@ fn limits(list: &EditList) -> Vec<Failure> {
 /// reads the file back: the questions of the part with its PMI set aside but for its datums
 /// (every feature-and-kind asked), given that one answer. A value they refuse ("Choose one
 /// of …", "'none' is not an answer") fails its entry.
-fn answers_refused(list: &EditList, table: &FeatureTable, analysis: &Json) -> Vec<Failure> {
+/// The part's analysis with its PMI set aside but for its datums, as the feature table asks its
+/// questions (every feature-and-kind asked).
+fn bare(analysis: &Json) -> Json {
     let mut bare = analysis.clone();
     if let Some(object) = bare.as_object_mut() {
         object.remove("table");
@@ -102,6 +104,11 @@ fn answers_refused(list: &EditList, table: &FeatureTable, analysis: &Json) -> Ve
         object.remove("dimensioning_stated");
         object.remove("process");
     }
+    bare
+}
+
+fn answers_refused(list: &EditList, table: &FeatureTable, analysis: &Json) -> Vec<Failure> {
+    let bare = bare(analysis);
     let choices: Map<String, Json> = analysis["resume"]["answers"]
         .as_object()
         .into_iter()
@@ -139,8 +146,13 @@ fn answers_refused(list: &EditList, table: &FeatureTable, analysis: &Json) -> Ve
             none_answer(table, id),
         ));
     }
+    let choices_asked = choice_questions(table, analysis);
     for id in &list.accept_suggestions {
-        if let Some(s) = table.row(id).and_then(|r| r.suggestion.clone()) {
+        let suggestion = table
+            .row(id)
+            .and_then(|r| r.suggestion.clone())
+            .or_else(|| choices_asked.get(id).cloned().flatten());
+        if let Some(s) = suggestion {
             entries.push((
                 format!("accept_suggestions[{}]", Json::from(id.as_str())),
                 id,
@@ -165,9 +177,61 @@ fn answers_refused(list: &EditList, table: &FeatureTable, analysis: &Json) -> Ve
         .collect()
 }
 
+/// The choices the part asks that are not requirements and have no feature-table row (how holes
+/// are located, `part.locating`): an edit list may fill one (validated against its options) or
+/// decide it none where none is an option; it is stored beside the PMI, as it leaves none. By
+/// id, with the question's default (`accept_suggestions`).
+fn choice_questions(table: &FeatureTable, analysis: &Json) -> BTreeMap<String, Option<Json>> {
+    let stored: Map<String, Json> = analysis["resume"]["answers"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(id, _)| is_choice(table, id))
+        .map(|(id, v)| (id.clone(), v.clone()))
+        .collect();
+    crate::rules::questions(&bare(analysis), &stored)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|q| is_choice(table, &q.id))
+        .map(|q| (q.id, q.default))
+        .collect()
+}
+
+/// Whether `id` is a choice that is not a requirement and has no feature-table row.
+fn is_choice(table: &FeatureTable, id: &str) -> bool {
+    !crate::feature_table::is_requirement(id)
+        && !id.starts_with('_')
+        && !id.starts_with("bom.")
+        && table.row(id).is_none()
+}
+
+/// The file's state as an edit list sees it: the feature table, and the choice questions
+/// ([`choice_questions`]), each a gap that a fill, a none or its suggestion may answer.
+struct WithChoices<'a> {
+    table: &'a FeatureTable,
+    choices: BTreeMap<String, Option<Json>>,
+}
+
+impl edits::FileState for WithChoices<'_> {
+    fn kind(&self, id: &str) -> Option<edits::KindState> {
+        self.table.kind(id).or_else(|| {
+            self.choices.get(id).map(|default| edits::KindState::Gap {
+                suggestion: default.clone().filter(|d| !d.is_null()),
+            })
+        })
+    }
+    fn requirement(&self, number: u64) -> Option<edits::Requirement> {
+        self.table.requirement(number)
+    }
+}
+
 fn validated(list: &EditList, table: &FeatureTable, analysis: &Json) -> (EditList, Outcome) {
     let list = edits::normalise(list, table);
-    let mut outcome = edits::validate(&list, table);
+    let state = WithChoices {
+        table,
+        choices: choice_questions(table, analysis),
+    };
+    let mut outcome = edits::validate(&list, &state);
     if outcome.failures.is_empty() {
         outcome.failures = answers_refused(&list, table, analysis);
     }
@@ -444,6 +508,18 @@ fn kept_bytes(doc: &haecceity::p21::Document, id: u64) -> Option<&[u8]> {
 /// Applies `list` to `loaded`'s part, all or nothing: the whole list, or nothing and every
 /// failing entry with its reason.
 pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failure>> {
+    apply_with(loaded, list, &[])
+}
+
+/// [`apply`], also writing `extra`: attribute sets an application carries in the file (the
+/// editor's project and the record of the original, `carried::attributes`). Each replaces the
+/// file's attribute sets of its name, so a payload is never carried twice; every other item is
+/// left as it is. With extras the file is always written.
+pub fn apply_with(
+    loaded: &LoadedPart,
+    list: &EditList,
+    extra: &[haecceity::pmi::AttributeSet],
+) -> Result<Applied, Vec<Failure>> {
     if loaded.part_count > 1 {
         return Err(whole(
             "an edit list applies to a file of one part; a part of an assembly is not supported \
@@ -472,11 +548,35 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
     for (id, change) in &list.change {
         given.insert(id.clone(), change.to.clone());
     }
+    let choices_asked = choice_questions(&table, &analysis);
     for id in &list.accept_suggestions {
-        if let Some(s) = table.row(id).and_then(|r| r.suggestion.clone()) {
+        let suggestion = table
+            .row(id)
+            .and_then(|r| r.suggestion.clone())
+            .or_else(|| choices_asked.get(id).cloned().flatten());
+        if let Some(s) = suggestion {
             given.insert(id.clone(), s);
         }
     }
+    // A choice with no table row (how holes are located) writes nothing of its own: it is
+    // stored, and the planner reads it for the rest of the list. One equal to what the file
+    // stores changes nothing.
+    let stored_choices = analysis["resume"]["answers"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    let mut chosen: BTreeMap<String, Json> = BTreeMap::new();
+    for id in list.none.iter().filter(|id| is_choice(&table, id)) {
+        chosen.insert(id.clone(), none_answer(&table, id));
+    }
+    given.retain(|id, value| {
+        if !is_choice(&table, id) {
+            return true;
+        }
+        chosen.insert(id.clone(), value.clone());
+        false
+    });
+    chosen.retain(|id, value| stored_choices.get(id) != Some(&*value));
     // A value that writes nothing ("none"; "general", a hole left to the general tolerance)
     // is a decision, stored as given.
     given.retain(|id, value| {
@@ -491,12 +591,17 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         }
         !nothing
     });
-    for id in &list.none {
+    for id in list.none.iter().filter(|id| !is_choice(&table, id)) {
         if !skip("none", id) {
             none.insert(id.clone(), none_answer(&table, id));
         }
     }
-    if given.is_empty() && none.is_empty() && list.change.is_empty() && list.items.remove.is_empty()
+    if extra.is_empty()
+        && given.is_empty()
+        && none.is_empty()
+        && chosen.is_empty()
+        && list.change.is_empty()
+        && list.items.remove.is_empty()
     {
         return Ok(Applied {
             bytes: loaded.bytes.to_vec(),
@@ -646,6 +751,16 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         .filter(|at| !all.contains(at))
         .collect();
     let mut give_way = bookkeeping.clone();
+    // The attribute sets the extras replace.
+    let replaced: BTreeSet<&str> = extra.iter().map(|set| set.name.as_str()).collect();
+    give_way.extend(
+        before
+            .attributes
+            .iter()
+            .enumerate()
+            .filter(|(_, set)| replaced.contains(set.name.as_str()))
+            .map(|(i, _)| ("attributes".to_string(), i)),
+    );
     give_way.extend(remove.iter().cloned());
     let mut features = BTreeSet::new();
     for (c, i) in &remove {
@@ -738,6 +853,7 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
                 && !id.starts_with("bom.")
         })
         .map(|(id, v)| (id.clone(), v.clone()))
+        .chain(chosen.iter().map(|(id, v)| (id.clone(), v.clone())))
         .collect();
     let mut lines = super::Lines::default();
     let mut pmi = if given.is_empty() {
@@ -993,6 +1109,7 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         let payload = crate::resume::payload(loaded, &saved).map_err(|e| whole(e.to_string()))?;
         pmi.attributes.push(crate::resume::attribute_set(&payload));
     }
+    pmi.attributes.extend_from_slice(extra);
     crate::characteristics::allocate(
         loaded,
         &mut pmi,

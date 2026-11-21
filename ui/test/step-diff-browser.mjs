@@ -266,6 +266,8 @@ try {
   const shaft = which => gunzipSync(readFileSync(`test/fixtures/gramil_shaft_${which}.step.gz`));
   // Written with Specify's suggestions (specify-core 0.3.0: an edit list accepting every gap's
   // suggestion that the file can take, all or nothing; a suggestion the check refuses is left out).
+  // The checks below need the shaft's sizes and locations: they fail until feature-table D1 gives
+  // each its own row with a suggestion (Paul, 2026-11-21), which this list then accepts.
   const written = bytes => {
     const e = new IntentEngine('part.step', bytes);
     try {

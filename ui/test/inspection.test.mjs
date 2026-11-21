@@ -37,6 +37,9 @@ function assertNumbers(saved) {
   assert.deepEqual(form3.rows.slice(4).map((row) => row[0]), numbers.map(String));
 }
 
+// Fails until feature-table D1 lands (Paul, 2026-11-21): the general tolerance writes only its
+// note, and each feature's size and location is a gap with a suggestion. Once the table has those
+// rows, this save fills them (or accepts their suggestions) and the eleven dimensions are written.
 test('saved ISO 2768-m exports every dimension in the written STEP', (t) => {
   const saved = readSaved(t, write(open(t), { 'part.general_tolerance': 'ISO 2768-m' }));
   // Decision 2026-11-19: export stored PMI, so the eleven written dimensions are included.

@@ -22,8 +22,8 @@ report = api.write("plate.step", {
 }, "plate.specified.step")
 ```
 
-Ids are the feature table's (`api.analyse(step)["table"]["rows"]`); items are characteristic
-numbers. Anything the list does not name is left as it is, byte for byte. A 0.2 answers map is
+Ids are the feature table's (`api.analyse(step)["table"]["rows"]`), or a choice with no row
+such as `part.locating` (stored, as it writes no PMI); items are characteristic numbers. Anything the list does not name is left as it is, byte for byte. A 0.2 answers map is
 read as a list of fills. A list is all or nothing: if any entry cannot be applied nothing is
 written and `specify_core.writer.EditsRefused` (a `ValueError`) is raised, its `failures` naming
 every failing entry and why. The report (`WriteReport`) adds `retired`, the characteristic

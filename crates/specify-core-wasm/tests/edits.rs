@@ -128,3 +128,59 @@ fn check_edits_checks_against_the_file_and_writes_nothing() {
     assert_eq!(session.edit(&good)["written"], true);
     assert_eq!(session.edit(&bad)["failures"], checked["failures"]);
 }
+
+/// The editor keeps its project in the STEP (0.2's `writePmi(answers, project)`): an edit can
+/// carry it, with the original part, and a later edit carrying it again replaces it rather than
+/// adding a second; a plain edit keeps it as it is. Saved answers are still matched to the part
+/// (`rematchAnswers`).
+#[test]
+fn an_edit_carries_the_editors_project_and_replaces_it() {
+    const PROJECT: &str = "draftwright editor project";
+    let session = plate();
+    let original = include_bytes!("../../../tests/fixtures/parts/plate.step").to_vec();
+    let first = session
+        .edit_carrying(
+            r#"{"fill": {"part.material": "steel"}}"#,
+            Some("eyJ2IjoxfQ=="),
+            None,
+        )
+        .unwrap();
+    assert_eq!(first["written"], true, "{first}");
+    let written = Session::open("plate.step", &bytes(&first)).unwrap();
+    assert_eq!(written.payload(PROJECT), Some(json!({"v": 1})));
+    assert_eq!(written.original(), Some(original.clone()));
+    let again = written
+        .edit_carrying("{}", Some("eyJ2IjoyfQ=="), None)
+        .unwrap();
+    let text = String::from_utf8(bytes(&again)).unwrap();
+    assert_eq!(
+        text.matches(PROJECT).count(),
+        String::from_utf8(bytes(&first))
+            .unwrap()
+            .matches(PROJECT)
+            .count()
+    );
+    let replaced = Session::open("plate.step", &bytes(&again)).unwrap();
+    assert_eq!(replaced.payload(PROJECT), Some(json!({"v": 2})));
+    assert_eq!(replaced.original(), Some(original));
+    // A plain edit leaves the project as it is.
+    let plain = replaced.edit(r#"{"none": ["part.coating"]}"#);
+    assert_eq!(plain["written"], true, "{plain}");
+    let kept = Session::open("plate.step", &bytes(&plain)).unwrap();
+    assert_eq!(kept.payload(PROJECT), Some(json!({"v": 2})));
+    assert!(
+        session
+            .edit_carrying("{}", Some("not base64!"), None)
+            .is_err()
+    );
+    // Saved answers matched to the part by its evidence.
+    let answers = json!({"part.material": "steel"})
+        .as_object()
+        .unwrap()
+        .clone();
+    let evidence = session.evidence().unwrap();
+    let matched = written
+        .rematch_answers(&answers, Some(&evidence), None)
+        .unwrap();
+    assert_eq!(matched["answers"], json!(answers));
+}

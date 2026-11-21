@@ -2,13 +2,14 @@ export class IntentEngine {
   [Symbol.dispose](): void;
   checkEdits(edits: string): string;
   constructor(name: string, bytes: Uint8Array);
-  edit(edits: string): string;
+  edit(edits: string, project?: string | null, payload?: string | null): string;
   evidence(): string;
   exportAnswers(answers: string, approved?: string | null): string;
   free(): void;
   original(): Uint8Array | undefined;
   payload(name: string): string | undefined;
   pmiScene(answers: string): string;
+  rematchAnswers(answers: string, evidence?: string | null, automatic?: string | null): string;
   review(answers: string): string;
   settle(state: string): string;
   snapshot(max_deviation_mm?: number | null): string;
@@ -96,7 +97,7 @@ export interface InitOutput {
   readonly diff: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => [number, number, number, number];
   readonly intentengine_bom: (a: number, b: number) => [number, number, number, number];
   readonly intentengine_checkEdits: (a: number, b: number, c: number) => [number, number, number, number];
-  readonly intentengine_edit: (a: number, b: number, c: number) => [number, number, number, number];
+  readonly intentengine_edit: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
   readonly intentengine_evidence: (a: number) => [number, number, number, number];
   readonly intentengine_exportAnswers: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
   readonly intentengine_open: (a: number, b: number, c: number, d: number) => [number, number, number];
@@ -105,6 +106,7 @@ export interface InitOutput {
   readonly intentengine_parts: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly intentengine_payload: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_pmiScene: (a: number, b: number, c: number) => [number, number, number, number];
+  readonly intentengine_rematchAnswers: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
   readonly intentengine_review: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_settle: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_snapshot: (a: number, b: number, c: number) => [number, number, number, number];

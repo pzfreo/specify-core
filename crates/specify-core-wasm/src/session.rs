@@ -4,6 +4,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use specify_core::{
     api, carried,
+    features::Feature,
     part::{self, Binding, LOADER_VERSION, LoadedPart},
     resume,
     revision::{self, assembly},
@@ -251,9 +252,24 @@ impl Session {
     /// false, failures, message}` naming every entry that cannot be applied. The session is not
     /// changed: open the returned bytes to edit further.
     pub fn edit(&self, text: &str) -> Value {
+        self.edit_carrying(text, None, None)
+            .unwrap_or_else(|why| json!({"written": false, "failures": [{"entry": "(the whole list)", "reason": why}], "message": why}))
+    }
+
+    /// [`Session::edit`], also carrying the editor's base64 `project` (stored as `draftwright
+    /// editor project`) or an application's `{name, value}` `payload`, at most one, with the
+    /// record of the original part (`carried`): each replaces what the file carried under its
+    /// name, and the file is then always written. Err: the project or payload cannot be carried.
+    pub fn edit_carrying(
+        &self,
+        text: &str,
+        project: Option<&str>,
+        payload: Option<&Value>,
+    ) -> Result<Value, String> {
+        let extra = carried_attributes(&self.loaded.bytes, project, payload)?;
         let applied = specify_core::edits::read(text)
-            .and_then(|list| specify_core::writer::apply::apply(&self.loaded, &list));
-        match applied {
+            .and_then(|list| specify_core::writer::apply::apply_with(&self.loaded, &list, &extra));
+        Ok(match applied {
             Ok(applied) => json!({
                 "written": true,
                 "bytes": applied.bytes,
@@ -269,7 +285,24 @@ impl Session {
                 }
                 json!({"written": false, "failures": failures, "message": message})
             }
-        }
+        })
+    }
+
+    /// Answers held outside the STEP (the editor's project) matched to this part's features
+    /// (`resume::rematch_answers`): `{answers, unresolved?, migrated?, unverified?, automatic?}`.
+    /// Reads only; does not change the session.
+    pub fn rematch_answers(
+        &self,
+        answers: &Map<String, Value>,
+        evidence: Option<&Value>,
+        automatic: Option<&[String]>,
+    ) -> Result<Value, String> {
+        let features: Vec<Feature> = serde_json::from_value(self.analysis["features"].clone())
+            .map_err(|error| error.to_string())?;
+        let resumed =
+            resume::rematch_answers(&self.loaded, &features, answers, evidence, automatic)
+                .map_err(|error| error.to_string())?;
+        serde_json::to_value(resumed).map_err(|error| error.to_string())
     }
 
     /// The face evidence to keep with answers held outside the STEP: `AnswerEvidence` JSON (`resume::evidence`).
@@ -347,5 +380,32 @@ impl Session {
             .collect::<Vec<Vec<usize>>>();
         review["intent"]["anchors"] = json!(api::anchors(&self.loaded, &groups));
         review
+    }
+}
+
+/// The editor's base64 `project`, or an application's `{name, value}` `payload`, as the
+/// attributes the writer carries; at most one of them.
+fn carried_attributes(
+    source: &[u8],
+    project: Option<&str>,
+    payload: Option<&Value>,
+) -> Result<Vec<haecceity::pmi::AttributeSet>, String> {
+    const PROJECT: &str = "draftwright editor project";
+    if let Some(text) = project {
+        input::size("Project", text.len(), input::JSON_LIMIT).map_err(|e| e.to_string())?;
+    }
+    match (project, payload) {
+        (Some(_), Some(_)) => Err("give a project or a payload, not both".into()),
+        (Some(text), None) => carried::attributes_encoded(source, PROJECT, text)
+            .map_err(|_| "the project to store is not base64".to_string()),
+        (None, Some(payload)) => {
+            let (Some(name), Some(value)) = (payload["name"].as_str(), payload.get("value")) else {
+                return Err("Invalid payload: expected {name, value}".into());
+            };
+            input::size("Payload name", name.len(), input::TEXT_LIMIT)
+                .map_err(|e| e.to_string())?;
+            carried::attributes(source, name, value).map_err(|e| e.to_string())
+        }
+        (None, None) => Ok(vec![]),
     }
 }

@@ -13,8 +13,8 @@
 //! }
 //! ```
 //!
-//! Ids are feature-and-kind (`hole.position:holes:12`); items are characteristic numbers
-//! (`#N`). Anything the list does not mention is left alone. A list is all or nothing (Paul,
+//! Ids are feature-and-kind (`hole.position:holes:12`), or a choice the part asks that is not a
+//! requirement and has no row (`part.locating`); items are characteristic numbers (`#N`). Anything the list does not mention is left alone. A list is all or nothing (Paul,
 //! 2026-11-20): if any entry cannot be applied, nothing is written and every failing entry is
 //! named with its reason.
 //!

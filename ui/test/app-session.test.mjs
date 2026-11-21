@@ -297,8 +297,8 @@ test('the page sends the edit list with its rev', async () => {
 // keeps the page's changes (nothing was written).
 test('an edit list the command refuses is reported entry by entry, and the changes are kept', async () => {
   const store = createSessionStore(0, 2, {}, {});
-  store.set({ 'part.locating': 'position tolerances' }, {});
-  const failures = [{ entry: 'fill["part.locating"]', reason: 'the file has no feature-and-kind "part.locating"' }];
+  store.set({ 'extra.1': { kind: 'size', faces: [9], value: '±0.1' } }, {});
+  const failures = [{ entry: 'fill["extra.1"]', reason: 'the file has no feature-and-kind "extra.1"' }];
   const write = async () => { throw new Refused('nothing was written', 422, { error: 'nothing was written', failures }); };
   await assert.rejects(sessionSaver(store, store.session, () => store.get(), none, write).save({ defaults: [] }),
     (e) => e instanceof EditsRefused && e.failures.length === 1 && e.failures[0].entry === failures[0].entry);

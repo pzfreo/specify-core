@@ -138,15 +138,6 @@ fn approve_all(path: &Path, given: &Map<String, Value>) -> PathBuf {
         let mut with_given = answers.clone();
         with_given.extend(fill.clone());
         fill.extend(offered(&analysis, &with_given));
-        // An edit list fills the feature table's rows: how holes are located (`part.locating`)
-        // is a choice with no row, so its default cannot be approved this way (piece 7).
-        let rows: Vec<&str> = analysis["table"]["rows"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|r| r["id"].as_str())
-            .collect();
-        fill.retain(|id, _| rows.contains(&id.as_str()));
         if fill.is_empty() {
             break;
         }
@@ -170,14 +161,13 @@ fn approved_defaults_that_write_no_pmi_resume_and_are_not_asked() {
     let again = api::analyse_file(&saved, None).unwrap();
     let resume = &again["resume"];
     assert!(resume.get("conflicts").is_none(), "{resume}");
-    // Nothing stored (no resume block) when every answer wrote PMI or was left a gap.
-    let answers = resume["answers"].as_object().cloned().unwrap_or_default();
+    let answers = resume["answers"].as_object().unwrap();
     // ADR P11: a "none" suggestion is not open, so the page never offers it for approval:
     // left as a gap, it is not stored and is not open on reopening either. The choice that
-    // writes nothing (how holes are located) is offered but has no feature-table row, so an
-    // edit list cannot approve it (piece 6: a gap reported for piece 7); it is not stored.
+    // writes nothing (how holes are located) is offered, approved and stored.
     for id in SILENT {
-        assert!(!answers.contains_key(id), "{id}: {resume}");
+        let none = id != "part.locating";
+        assert_eq!(!answers.contains_key(id), none, "{id}: {resume}");
     }
     // Those that write PMI are not stored; the file states them.
     for id in WRITING {

@@ -125,6 +125,60 @@ for (const [part, path] of parts) {
       } finally { reopened.free(); }
     }
     console.log(`${part}: edit ${edited.written ? 'applied' : `refused (${edited.failures.map(f => f.entry).join(', ')})`}`);
+    // #35: a carried payload (or the editor's project), the original part, and saved answers
+    // matched with face evidence. An edit carrying one always writes it, and a second replaces it.
+    const payload = { name: 'an app', value: { revision: 2, note: '‘α’ it\'s' } };
+    const carried = JSON.parse(engine.edit('{}', null, JSON.stringify(payload)));
+    assert.ok(carried.written, carried.message);
+    const evidence = engine.evidence();
+    const carrying = new IntentEngine(name, Uint8Array.from(carried.bytes));
+    try {
+      assert.deepEqual(JSON.parse(carrying.payload('an app')), payload.value);
+      assert.equal(carrying.payload('another app'), undefined);
+      // The spindle came with datums and their presentation, so it has no original to give back
+      // (as 0.2's writePmi); every other part's is its bytes exactly.
+      const originalOf = engine => engine.original() === undefined ? undefined : Buffer.from(engine.original());
+      if (part === 'spindle') assert.equal(carrying.original(), undefined, 'a part with PMI: no original');
+      else assert.deepEqual(originalOf(carrying), Buffer.from(bytes), 'original part bytes');
+      const again = JSON.parse(carrying.edit('{}', null, JSON.stringify({ ...payload, value: { revision: 3 } })));
+      const twice = Buffer.from(again.bytes).toString();
+      assert.equal(twice.split("'an app'").length - 1, Buffer.from(carried.bytes).toString().split("'an app'").length - 1, 'the payload replaced, not added');
+      const reread = new IntentEngine(name, Uint8Array.from(again.bytes));
+      try {
+        assert.deepEqual(JSON.parse(reread.payload('an app')), { revision: 3 });
+        assert.deepEqual(originalOf(reread), originalOf(carrying), 'the original carried forward');
+      } finally { reread.free(); }
+      const project = Buffer.from(JSON.stringify({ x: 1 })).toString('base64');
+      const withProject = JSON.parse(engine.edit('{}', project));
+      const projected = new IntentEngine(name, Uint8Array.from(withProject.bytes));
+      try { assert.deepEqual(JSON.parse(projected.payload('draftwright editor project')), { x: 1 }); }
+      finally { projected.free(); }
+      assert.deepEqual(JSON.parse(carrying.evidence()), JSON.parse(evidence));
+      const rematched = JSON.parse(carrying.rematchAnswers(answersJson, evidence, '[]'));
+      assert.deepEqual(rematched.answers, answers);
+      assert.deepEqual(rematched.automatic, []);
+      // Without evidence (a legacy project) answers are trusted by feature ID: those on this
+      // part's IDs are kept, and an ID the part lacks is left open with its value.
+      const given = { ...answers, 'hole.function:holes:9999': 'fit:H7' };
+      const unknown = JSON.parse(carrying.rematchAnswers(JSON.stringify(given)));
+      assert.deepEqual(unknown.unresolved.map(u => [u.id, u.answer]), [['hole.function:holes:9999', 'fit:H7']]);
+      assert.deepEqual(unknown.answers, answers);
+      assert.ok(unknown.unverified);
+      // Evidence that contradicts the part leaves every answer on a feature or a datum open.
+      const other = JSON.stringify({ ...JSON.parse(evidence), faces: '0'.repeat(64) });
+      const mismatched = JSON.parse(carrying.rematchAnswers(JSON.stringify(given), other));
+      const geometric = id => /^(hole|diameter|datum)\./.test(id);
+      assert.deepEqual(mismatched.unresolved.map(u => [u.id, u.answer]),
+        Object.entries(given).filter(([id]) => geometric(id)));
+      assert.deepEqual(Object.keys(mismatched.answers), Object.keys(given).filter(id => !geometric(id)));
+      assert.ok(mismatched.unverified);
+    } finally { carrying.free(); }
+    throwsString(() => engine.edit('{}', Buffer.from('{}').toString('base64'), JSON.stringify(payload)), /not both/);
+    throwsString(() => engine.edit('{}', null, '{"name":"pmi-assist answers","value":1}'), /must be named/);
+    throwsString(() => engine.edit('{}', null, '{"value":1}'), /Invalid payload/);
+    throwsString(() => engine.edit('{}', 'not base64!'), /not base64/);
+    throwsString(() => engine.rematchAnswers('{}', '{"schema":3}'), /Invalid evidence/);
+    console.log(`${part}: payload, project, original and rematch passed`);
     const acceptedJson = acceptDefaults(JSON.stringify(snapshot.analysis), answersJson);
     const accepted = JSON.parse(acceptedJson);
     assert.deepEqual(accepted, expected.accepted, 'native/free accepted answers');

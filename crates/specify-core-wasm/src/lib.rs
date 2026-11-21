@@ -394,9 +394,56 @@ export interface PmiScene {
         /// `{written: true, bytes, report, source_sha256}` (the report with `retired` and
         /// `unchanged`), or `{written: false, failures, message}` naming every entry that cannot
         /// be applied. The engine is not changed: open the bytes returned to edit further.
-        pub fn edit(&self, edits: &str) -> Result<String, JsValue> {
+        ///
+        /// `project` is the editor's base64 project, stored as `draftwright editor project`;
+        /// `payload` is any application's `{name, value}` JSON. At most one; each replaces what
+        /// the file carried under its name, with the record of the original part (`original()`
+        /// gives it back), and the file is then always written. Throws when it cannot be
+        /// carried.
+        pub fn edit(
+            &self,
+            edits: &str,
+            project: Option<String>,
+            payload: Option<String>,
+        ) -> Result<String, JsValue> {
             limit("Edits", edits, input::JSON_LIMIT)?;
-            Ok(self.0.edit(edits).to_string())
+            let payload = payload
+                .as_deref()
+                .map(|text| json("Payload", text))
+                .transpose()?;
+            self.0
+                .edit_carrying(edits, project.as_deref(), payload.as_ref())
+                .map(|value| value.to_string())
+                .map_err(|error| JsValue::from_str(&error))
+        }
+
+        /// Saved answers held outside the STEP (the editor's project) matched to this part:
+        /// `{answers, unresolved?, migrated?, unverified?, automatic?}`. `evidence` is what
+        /// `evidence()` gave when they were saved; `automatic` a JSON list of the ids the default
+        /// path answered. Reads only.
+        #[wasm_bindgen(js_name = rematchAnswers)]
+        pub fn rematch_answers(
+            &self,
+            answers: &str,
+            evidence: Option<String>,
+            automatic: Option<String>,
+        ) -> Result<String, JsValue> {
+            let answers = self::answers(answers)?;
+            let evidence = evidence
+                .as_deref()
+                .map(|text| json("Evidence", text))
+                .transpose()?;
+            let automatic: Option<Vec<String>> = automatic
+                .as_deref()
+                .map(|text| {
+                    serde_json::from_value(json("Automatic", text)?)
+                        .map_err(|error| JsValue::from_str(&format!("Invalid automatic: {error}")))
+                })
+                .transpose()?;
+            self.0
+                .rematch_answers(&answers, evidence.as_ref(), automatic.as_deref())
+                .map(|value| value.to_string())
+                .map_err(|error| JsValue::from_str(&error))
         }
     }
 

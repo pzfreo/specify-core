@@ -1139,3 +1139,46 @@ fn every_none_is_refused_or_reads_again() {
         }
     }
 }
+
+/// A choice that is not a requirement and has no feature-table row (how holes are located,
+/// `part.locating`; writer decision 4): a fill sets it, validated against its options, and it is
+/// stored beside the PMI; the same value again changes nothing; a value it does not offer, or
+/// none (not one of its options), refuses the whole list. (Asked of a part with holes and no
+/// datums of its own: the bare plate.)
+#[test]
+fn a_choice_with_no_row_is_filled_and_stored() {
+    let part = fixture("parts/plate.step");
+    let t = table(&part);
+    assert!(
+        t["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["id"] != "part.locating"),
+        "part.locating has no row"
+    );
+    let saved = applied(&part, json!({"fill": {"part.locating": "± dimensions"}}));
+    assert!(!saved.unchanged);
+    let after = reload(&saved.bytes);
+    assert_eq!(
+        stored_answers(&saved.bytes)["part.locating"],
+        "± dimensions"
+    );
+    assert_eq!(
+        api::analyse(&after).unwrap()["resume"]["answers"]["part.locating"],
+        "± dimensions"
+    );
+    let again = applied(&after, json!({"fill": {"part.locating": "± dimensions"}}));
+    assert!(again.unchanged, "the same choice again changes nothing");
+    assert_eq!(again.bytes, saved.bytes);
+    for bad in [
+        json!({"fill": {"part.locating": "by eye"}}),
+        json!({"none": ["part.locating"]}),
+    ] {
+        let failures = refused(&part, bad.clone());
+        assert!(
+            failures.iter().any(|f| f.entry.contains("part.locating")),
+            "{bad}: {failures:?}"
+        );
+    }
+}

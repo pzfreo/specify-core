@@ -1,5 +1,5 @@
-// For #87: STEP face names through the shipped WASM: evidence, diff, and edits on shared and
-// generic labels.
+// For #87: STEP face names through the shipped WASM: rematchAnswers (including moved face
+// indices), evidence, diff, and edits on shared and generic labels.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
@@ -43,7 +43,24 @@ const old = new IntentEngine('old.step', oldBytes), next = new IntentEngine('new
 try {
   const given = answers(old), expected = answers(next);
   assert.notDeepEqual(given, expected);
-  // Diff reads the files' PMI only and carries no answers (ADR P11).
+  const evidence = old.evidence();
+  const automatic = Object.keys(given);
+  const rematched = JSON.parse(next.rematchAnswers(JSON.stringify(given), evidence, JSON.stringify(automatic)));
+  assert.deepEqual(rematched.answers, expected);
+  assert.equal(rematched.unresolved, undefined);
+  assert.deepEqual(rematched.automatic, Object.keys(expected));
+  for (const [changed, reason] of [
+    [renamed(oldBytes, hole, ''), /not in this revision/],
+    [renamed(oldBytes, name('body_make_cylinder2', 1), hole), /ambiguous face name/],
+  ]) {
+    const engine = new IntentEngine('changed.step', changed);
+    try {
+      const out = JSON.parse(engine.rematchAnswers(JSON.stringify(given), evidence));
+      assert.equal(out.unresolved.length, 1);
+      assert.match(out.unresolved[0].reason, reason);
+    } finally { engine.free(); }
+  }
+  // Diff the files' PMI only and carries no answers (ADR P11).
   const report = JSON.parse(diff('old.step', oldBytes, 'new.step', newBytes, 'Named rebuild')).report;
   assert.equal(report.answers, undefined);
   assert.equal(report.unresolved, undefined);
@@ -78,8 +95,17 @@ try {
     try { stated(back, fills(given)); }
     finally { back.free(); }
   } finally { generic.free(); }
+  const mixedOld = new IntentEngine('mixed-old.step', renamed(oldBytes, bottom, ''));
+  const mixedNew = new IntentEngine('mixed-new.step', renamed(newBytes, bottom, ''));
+  try {
+    const a = answers(mixedOld, face(old, bottom));
+    const expected = answers(mixedNew, face(next, bottom));
+    const out = JSON.parse(mixedNew.rematchAnswers(JSON.stringify(a), mixedOld.evidence()));
+    assert.deepEqual(out.answers, expected);
+    assert.equal(out.unresolved, undefined);
+  } finally { mixedOld.free(); mixedNew.free(); }
 } finally { old.free(); next.free(); }
-console.log('STEP face names: WASM evidence, diff, and edits on shared/generic labels passed');
+console.log('STEP face names: WASM rematchAnswers/diff, shifted indices, automatic answers, refusals, evidence, and edits on shared/generic labels passed');
 
 
 // The split-bottom workflow must stay safe through the actual JS/WASM boundary too.
