@@ -1016,9 +1016,9 @@ impl Report {
     }
 
     /// As `diff`'s: `ok` when everything OLD states was carried (or NEW states it alike), and
-    /// `decide` when anything is not carried or is to be checked.
+    /// `decide` when anything is not carried or is to be checked, or the carry was refused.
     pub fn verdict(&self) -> &'static str {
-        if self.not_carried.is_empty() && self.to_check.is_empty() {
+        if self.not_carried.is_empty() && self.to_check.is_empty() && self.refused.is_empty() {
             "ok"
         } else {
             "decide"

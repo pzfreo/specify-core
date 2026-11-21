@@ -499,6 +499,71 @@ fn a_datum_landing_on_the_new_files_own_datum_is_reported_and_the_rest_carried()
     accounted(&old, report);
 }
 
+#[test]
+fn a_carry_the_writer_refuses_writes_nothing_and_leaves_new_as_it_was() {
+    // OLD states a process no answer allows ("forged": another tool's, or an older engine's).
+    // The carry fills it, the writer refuses that answer, and the list is applied all or
+    // nothing: nothing is written, and NEW keeps its bytes.
+    let machined = annotated(
+        "parts/electronics-enclosure-base.step.gz",
+        json!({"fill": {"part.process": "machined"}}),
+    );
+    let text = String::from_utf8(machined.bytes().as_ref().clone()).unwrap();
+    assert_eq!(text.matches("'machined'").count(), 1);
+    let old = of_bytes(text.replace("'machined'", "'forged'").into_bytes());
+    assert_eq!(
+        row(&table(&old.load(None).unwrap()), "part.process")["value"],
+        "forged"
+    );
+    let new = file("parts/electronics-enclosure-base.step.gz");
+    let outcome = carried(&old, &new);
+    let report = &outcome.report;
+    assert!(outcome.bytes.is_none() && !report.written);
+    let refusal = report
+        .refused
+        .iter()
+        .find(|f| f.entry == "fill[\"part.process\"]")
+        .unwrap_or_else(|| panic!("{:#?}", report.refused));
+    assert!(
+        refusal.reason.contains("is not an answer"),
+        "{}",
+        refusal.reason
+    );
+    assert_eq!(report.verdict(), "decide");
+    assert!(report.summary().ends_with("Nothing was written."));
+
+    // The command line: exit 2, the reason on stderr, the report on stdout, no OUT, and NEW's
+    // bytes as they were.
+    let dir = std::env::temp_dir().join(format!("specify-carry-refused-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (old_path, new_path, out) = (
+        dir.join("old.step"),
+        dir.join("new.step"),
+        dir.join("out.step"),
+    );
+    std::fs::write(&old_path, old.bytes().as_ref()).unwrap();
+    std::fs::write(&new_path, new.bytes().as_ref()).unwrap();
+    let before = std::fs::read(&new_path).unwrap();
+    let run = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        .arg("carry")
+        .arg(&old_path)
+        .arg(&new_path)
+        .arg("-o")
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert_eq!(run.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(stderr.contains("nothing was written"), "{stderr}");
+    assert!(stderr.contains("fill[\"part.process\"]"), "{stderr}");
+    let printed: Value = serde_json::from_slice(&run.stdout).unwrap();
+    assert_eq!(printed["written"], false);
+    assert_eq!(printed["verdict"], "decide");
+    assert!(!out.exists());
+    assert_eq!(std::fs::read(&new_path).unwrap(), before);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// Every feature-and-kind OLD states or decided none is in exactly one of the report's lists.
 fn accounted(old: &File, report: &carry::Report) {
     let t = table(&old.load(None).unwrap());
