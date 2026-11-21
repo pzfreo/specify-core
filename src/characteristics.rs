@@ -438,6 +438,16 @@ impl Statement {
         format!("{} {value}", self.r#type).trim().to_string()
     }
 
+    /// The datum letters a tolerance frame cites (`A`, `B` of `| A | B`), none for anything else.
+    pub(crate) fn datums(&self) -> Vec<String> {
+        match &self.value {
+            ValueHint::Tolerance(_, _, Some(compartments)) => {
+                compartments.iter().flatten().cloned().collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
     /// A size dimension with no tolerance of its own: one the general tolerance covers.
     pub(crate) fn general_size(&self) -> bool {
         self.kind == "dimension"
@@ -732,27 +742,45 @@ pub(crate) fn allocate(
     let unchanged = saved.clone();
     let mut old = saved.unwrap_or_default();
     // An older revision's history carried onto this part (`carry`): its numbers go to the
-    // requirements written now that it names, never to one the file already numbers.
-    let transported = carried.is_some() && !has_saved;
-    if let Some(mut h) = carried.filter(|_| !has_saved) {
-        let taken: BTreeSet<u64> = prov
-            .all()
-            .into_iter()
-            .filter_map(|id| number(doc, id))
-            .collect();
-        h.entries.retain(|e| !taken.contains(&e.number));
-        old = h;
-        value_hints.clear();
-    } else {
-        old.entries = items(before, Some(prov), Some(doc))
-            .into_iter()
-            .filter_map(|item| {
-                Some(Entry {
-                    number: number(doc, item.entity)?,
-                    key: item.key,
+    // requirements written now that it names, never to one the file already numbers. Where the
+    // file has a numbering of its own, that stands: an older number is kept only above the
+    // file's high-water mark (neither used nor retired here), and the high-water mark becomes
+    // the larger of the two, so a number either history retired is never reused.
+    let transported = carried.is_some();
+    let taken: BTreeSet<u64> = prov
+        .all()
+        .into_iter()
+        .filter_map(|id| number(doc, id))
+        .collect();
+    let mut carried_numbers: BTreeSet<u64> = BTreeSet::new();
+    match carried {
+        Some(mut h) if !has_saved => {
+            h.entries.retain(|e| !taken.contains(&e.number));
+            carried_numbers = h.entries.iter().map(|e| e.number).collect();
+            old = h;
+            value_hints.clear();
+        }
+        other => {
+            old.entries = items(before, Some(prov), Some(doc))
+                .into_iter()
+                .filter_map(|item| {
+                    Some(Entry {
+                        number: number(doc, item.entity)?,
+                        key: item.key,
+                    })
                 })
-            })
-            .collect();
+                .collect();
+            if let Some(mut h) = other {
+                let own = old
+                    .high_water
+                    .max(old.entries.iter().map(|e| e.number).max().unwrap_or(0))
+                    .max(taken.iter().copied().max().unwrap_or(0));
+                h.entries.retain(|e| e.number > own);
+                carried_numbers = h.entries.iter().map(|e| e.number).collect();
+                old.entries.extend(h.entries);
+                old.high_water = old.high_water.max(h.high_water);
+            }
+        }
     }
     old.high_water = old
         .high_water
@@ -819,7 +847,10 @@ pub(crate) fn allocate(
     // In an edit, a new requirement other than a datum may only take a removed one's number,
     // or one an older revision's carried history gives it.
     let allowed = |e: &Entry, item: &Item| {
-        replace || transported || item.key.kind == "datum" || removed.contains(&e.number)
+        replace
+            || item.key.kind == "datum"
+            || removed.contains(&e.number)
+            || carried_numbers.contains(&e.number)
     };
     let mut used = BTreeSet::new();
     // A unique structural key (including a planner role) wins even after a value edit.
@@ -986,10 +1017,9 @@ pub(crate) fn allocate(
     // only the assigned values change. This also keeps unchanged rewrites byte-identical.
     let mut entries = if replace { vec![] } else { old.entries.clone() };
     entries.retain(|e| !removed.contains(&e.number));
-    if transported {
-        // A carried entry nothing was written for is retired: below the high-water mark.
-        entries.retain(|e| allocations.contains(&Some(e.number)));
-    }
+    // A carried entry nothing was written for is retired: below the high-water mark.
+    entries
+        .retain(|e| !carried_numbers.contains(&e.number) || allocations.contains(&Some(e.number)));
     for (item, number) in new.iter().zip(allocations) {
         if let Some(number) = number
             && !entries.iter().any(|e| e.number == number)

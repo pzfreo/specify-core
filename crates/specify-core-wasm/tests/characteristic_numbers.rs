@@ -38,12 +38,9 @@ fn snapshot_exposes_file_numbers_written_by_write_pmi() {
     }
 }
 
-// Expected to fail until the base writer is fixed: a page save with nothing to store still
-// writes an empty stored-answers record (`src/writer.rs:1102`, `write_bytes_with`, pushes the
-// payload whatever `saved` holds; the in-place writer writes none, `src/writer/apply.rs:1018`).
-#[test]
-#[should_panic(expected = "assertion `left == right` failed")]
-fn snapshot_exposes_the_numbers_carry_carried_and_a_write_pmi_keeps_them() {
+/// The hole_removed revision written by the page with four H7 holes, its numbers as the
+/// snapshot shows them, and the next revision with them carried onto it.
+fn carried_revision() -> (Value, Vec<u8>) {
     // ADR P11: `carry` carries the number history `diff`'s answers carried before 0.3.0.
     let old = fixture("revisions/hole_removed.old.step.gz");
     let new = fixture("revisions/hole_removed.new.step.gz");
@@ -58,8 +55,12 @@ fn snapshot_exposes_the_numbers_carry_carried_and_a_write_pmi_keeps_them() {
     assert_eq!(numbers.as_array().unwrap().len(), 4);
     let carried = specify_core::carry::carry_bytes(("old", written), ("new", new)).unwrap();
     assert!(carried.report.numbers_carried);
-    let revised_bytes = carried.bytes.unwrap();
-    let revised = Session::open("new", &revised_bytes).unwrap();
+    assert!(carried.report.renumbered.is_empty());
+    (numbers, carried.bytes.unwrap())
+}
+
+/// The carried revision's numbers, as its snapshot shows them, are the old file's.
+fn assert_carried_numbers(numbers: &Value, revised: &Session) -> Value {
     let snapshot = revised.snapshot();
     let ns = snapshot["analysis"]["characteristics"].as_array().unwrap();
     assert_eq!(ns.len(), 3);
@@ -76,6 +77,23 @@ fn snapshot_exposes_the_numbers_carry_carried_and_a_write_pmi_keeps_them() {
             n["number"]
         );
     }
+    snapshot
+}
+
+#[test]
+fn snapshot_exposes_the_numbers_carry_carried() {
+    let (numbers, revised_bytes) = carried_revision();
+    assert_carried_numbers(&numbers, &Session::open("new", &revised_bytes).unwrap());
+}
+
+#[test]
+#[ignore = "0.3.0: no-change byte-identity is fixed in piece 6 (wasm-session-edits); un-ignore on merge"]
+fn snapshot_exposes_the_numbers_carry_carried_and_a_write_pmi_keeps_them() {
+    // The page's save still writes an empty stored-answers record when it has nothing to store
+    // (`src/writer.rs:1102`, `write_bytes_with`); the in-place writer writes none.
+    let (numbers, revised_bytes) = carried_revision();
+    let revised = Session::open("new", &revised_bytes).unwrap();
+    let snapshot = assert_carried_numbers(&numbers, &revised);
     let answers = snapshot["analysis"]["resume"]["answers"]
         .as_object()
         .cloned()

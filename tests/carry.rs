@@ -436,24 +436,24 @@ fn another_tool(bytes: &[u8]) -> Vec<u8> {
 
 #[test]
 fn a_carry_that_cannot_be_applied_writes_nothing_and_says_why() {
-    // NEW decided datum C none; OLD's hole positions cite A|B|C. NEW's decision stands, so the
-    // positions cannot be written: the whole carry is refused.
+    // NEW has its own datum A on the faces OLD's datum B is on. OLD's A is on other faces:
+    // a difference, kept. OLD's B, a gap in NEW, would be a second datum on the same faces,
+    // which the writer refuses: the whole carry is refused and nothing is written.
     let new = annotated(
         "parts/electronics-enclosure-base.step.gz",
-        json!({"none": ["datum.C"]}),
+        json!({"fill": {"datum.A": [19]}}),
     );
     let outcome = carried(&file("revisions/enclosure_pmi.old.step.gz"), &new);
     let report = &outcome.report;
     assert!(outcome.bytes.is_none() && !report.written);
     assert!(
-        report
-            .refused
-            .iter()
-            .any(|f| f.entry.starts_with("fill[\"hole.position:") && f.reason.contains("datum.C")),
+        report.refused.iter().any(|f| f.reason.contains("datum")),
         "{:#?}",
         report.refused
     );
-    assert!(report.kept.iter().any(|k| k.new == "datum.C"));
+    let a = report.kept.iter().find(|k| k.new == "datum.A").unwrap();
+    assert_eq!(a.old_value, "datum A on faces [27]");
+    assert_eq!(a.new_value, "datum A on faces [19]");
     assert!(
         report
             .markdown()
@@ -481,6 +481,217 @@ fn a_carry_that_cannot_be_applied_writes_nothing_and_says_why() {
     assert_eq!(printed["written"], false);
     assert!(!out.exists());
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// Every feature-and-kind OLD states or decided none is in exactly one of the report's lists.
+fn accounted(old: &File, report: &carry::Report) {
+    let t = table(&old.load(None).unwrap());
+    for r in t["rows"].as_array().unwrap() {
+        if r["state"] == "gap" {
+            continue;
+        }
+        let id = r["id"].as_str().unwrap();
+        let found = report
+            .carried
+            .iter()
+            .chain(&report.to_check)
+            .chain(&report.decided_none)
+            .filter(|c| c.old == id)
+            .count()
+            + report.kept.iter().filter(|k| k.old == id).count()
+            + report
+                .not_carried
+                .iter()
+                .filter(|n| n.id.as_deref() == Some(id))
+                .count();
+        // A row NEW states alike is in no list.
+        assert!(found <= 1, "{id} listed {found} times");
+    }
+}
+
+#[test]
+fn a_requirement_citing_a_datum_the_new_file_decided_none_is_not_carried() {
+    // NEW decided datum C none; OLD's hole positions cite A | B | C. NEW's decision stands;
+    // the positions are reported not carried, and everything else is carried.
+    let new = annotated(
+        "parts/electronics-enclosure-base.step.gz",
+        json!({"none": ["datum.C"]}),
+    );
+    let old = file("revisions/enclosure_pmi.old.step.gz");
+    let outcome = carried(&old, &new);
+    let report = &outcome.report;
+    assert!(report.written, "{:#?}", report.refused);
+    let position = report
+        .not_carried
+        .iter()
+        .find(|n| {
+            n.id.as_deref()
+                .is_some_and(|i| i.starts_with("hole.position:"))
+        })
+        .unwrap_or_else(|| panic!("{report:#?}"));
+    assert!(position.reason.contains("datum C"), "{}", position.reason);
+    assert!(
+        report
+            .not_carried
+            .iter()
+            .any(|n| n.id.as_deref() == Some("datum.C.control"))
+    );
+    assert!(ids(&report.carried).contains(&"datum.A"));
+    assert!(report.kept.iter().any(|k| k.new == "datum.C"));
+    let after = table(&written(&outcome));
+    assert_eq!(row(&after, "datum.C")["state"], "decided_none");
+    accounted(&old, report);
+}
+
+#[test]
+fn a_datum_on_other_faces_is_kept_and_what_cites_it_is_flagged() {
+    // NEW's datum A is on the enclosure's floor's other side (face 2), not OLD's (27).
+    let new = annotated(
+        "parts/electronics-enclosure-base.step.gz",
+        json!({"fill": {"datum.A": [2]}}),
+    );
+    let old = file("revisions/enclosure_pmi.old.step.gz");
+    let outcome = carried(&old, &new);
+    let report = &outcome.report;
+    assert!(report.written, "{:#?}", report.refused);
+    let a = report.kept.iter().find(|k| k.new == "datum.A").unwrap();
+    assert_eq!(a.old_value, "datum A on faces [27]");
+    assert_eq!(a.new_value, "datum A on faces [2]");
+    // OLD's flatness of A is not written onto NEW's A.
+    let flatness = report
+        .not_carried
+        .iter()
+        .find(|n| n.id.as_deref() == Some("datum.A.flatness"))
+        .unwrap_or_else(|| panic!("{report:#?}"));
+    assert!(flatness.reason.contains("datum A"), "{}", flatness.reason);
+    // What cites A is carried, to check, never plainly carried.
+    let position = report
+        .to_check
+        .iter()
+        .find(|c| c.new.starts_with("hole.position:"))
+        .unwrap_or_else(|| panic!("{report:#?}"));
+    assert!(position.check.as_deref().unwrap().contains("datum A"));
+    for c in &report.carried {
+        assert!(
+            !c.stated
+                .as_ref()
+                .and_then(Value::as_str)
+                .is_some_and(|s| s.contains("| A")),
+            "{c:?} cites A"
+        );
+    }
+    accounted(&old, report);
+}
+
+/// The old file's characteristic numbers' high-water mark: its largest number.
+fn high_water(numbers: &BTreeMap<u64, Characteristic>) -> u64 {
+    numbers.keys().max().copied().unwrap_or(0)
+}
+
+#[test]
+fn a_new_file_with_its_own_numbering_keeps_it_and_carried_numbers_never_collide() {
+    let old = file("revisions/enclosure_pmi.old.step.gz");
+    let was = numbers(&old.load(None).unwrap());
+    // NEW: the bare enclosure with datum A filled (Specify numbers it #1); then again with
+    // that datum removed, so #1 is retired in NEW.
+    let filled = annotated(
+        "parts/electronics-enclosure-base.step.gz",
+        json!({"fill": {"datum.A": [27]}}),
+    );
+    let filled_part = filled.load(None).unwrap();
+    let own = numbers(&filled_part);
+    assert_eq!(own.keys().copied().collect::<Vec<_>>(), [1]);
+    let retired = of_bytes(
+        writer::apply::apply(
+            &filled_part,
+            &edits::parse_value(json!({"items": {"remove": ["#1"]}})).unwrap(),
+        )
+        .unwrap()
+        .bytes,
+    );
+    // With datum A filled, NEW's #1 is OLD's datum A too (kept, not carried); with it retired,
+    // OLD's datum A is carried and #1 cannot be reused: it is renumbered.
+    for (new, renumbers) in [(filled, false), (retired, true)] {
+        let new_numbers = numbers(&new.load(None).unwrap());
+        let outcome = carried(&old, &new);
+        let report = &outcome.report;
+        assert!(report.written, "{:#?}", report.refused);
+        let now = numbers(&written(&outcome));
+        // NEW's own numbers stand.
+        for (n, c) in &new_numbers {
+            assert_eq!(
+                (&now[n].r#type, &now[n].faces),
+                (&c.r#type, &c.faces),
+                "#{n}"
+            );
+        }
+        // Each carried requirement keeps OLD's number above NEW's high-water mark (1), and
+        // otherwise has a new one above both files' marks, listed.
+        let top = high_water(&was).max(1);
+        assert_eq!(!report.renumbered.is_empty(), renumbers, "{report:#?}");
+        for r in &report.renumbered {
+            assert!(r.old <= 1, "{r:?}");
+            assert!(r.new > top, "{r:?}");
+            assert_eq!(now[&r.new].r#type, r.r#type);
+        }
+        let renumbered: Vec<u64> = report.renumbered.iter().map(|r| r.old).collect();
+        for (n, c) in &was {
+            if *n > 1 && !renumbered.contains(n) && now.contains_key(n) {
+                assert_eq!(now[n].r#type, c.r#type, "#{n}");
+            }
+        }
+        assert!(report.numbers_carried);
+    }
+}
+
+#[test]
+fn real_pairs_carry_what_they_can_and_report_the_rest() {
+    // pmi_split: datums A and B are on faces the new revision does not have; what cites them
+    // is not carried, and the rest is.
+    let old = with_suggestions("revisions/pmi_split.old.step.gz", &[]);
+    let outcome = carried(&old, &file("revisions/pmi_split.new.step.gz"));
+    let report = &outcome.report;
+    assert!(report.written, "{:#?}", report.refused);
+    assert!(!report.carried.is_empty());
+    for letter in ["datum.A", "datum.B"] {
+        assert!(
+            report
+                .not_carried
+                .iter()
+                .any(|n| n.id.as_deref() == Some(letter)),
+            "{letter}: {report:#?}"
+        );
+    }
+    assert!(
+        report.not_carried.iter().any(|n| n
+            .id
+            .as_deref()
+            .is_some_and(|i| i.starts_with("hole.position:"))
+            && n.reason.contains("cites datum")),
+        "{report:#?}"
+    );
+    accounted(&old, report);
+    // complex_counterbore: the hole pattern became counterbored, so "general" writes nothing
+    // on it; it is reported, and everything else is carried.
+    let old = with_suggestions("revisions/complex_counterbore.old.step.gz", &[]);
+    let outcome = carried(&old, &file("revisions/complex_counterbore.new.step.gz"));
+    let report = &outcome.report;
+    assert!(report.written, "{:#?}", report.refused);
+    let pattern = report
+        .not_carried
+        .iter()
+        .find(|n| {
+            n.id.as_deref()
+                .is_some_and(|i| i.starts_with("hole.function:"))
+        })
+        .unwrap_or_else(|| panic!("{report:#?}"));
+    assert!(
+        pattern.reason.contains("writes no requirement"),
+        "{}",
+        pattern.reason
+    );
+    assert!(ids(&report.carried).contains(&"datum.A"));
+    accounted(&old, report);
 }
 
 #[test]

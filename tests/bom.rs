@@ -1135,3 +1135,127 @@ fn item_numbers(bytes: Vec<u8>) -> Vec<Value> {
         .map(|r| r.item_number.value)
         .collect()
 }
+
+/// Every entity's record text, by id.
+fn records(bytes: &[u8]) -> std::collections::BTreeMap<u64, String> {
+    let doc = Document::parse(bytes.to_vec()).unwrap();
+    doc.ids()
+        .map(|id| {
+            let span = doc.span(id).unwrap();
+            (id, String::from_utf8_lossy(&doc.bytes()[span]).into_owned())
+        })
+        .collect()
+}
+
+#[test]
+fn a_new_assembly_states_its_own_bom_values_and_they_stand() {
+    // NEW: the renamed assembly, its plate described by its own BOM; its pin states nothing.
+    let source = fixture();
+    let old = file(write(&source, &answers()));
+    let own = vec![
+        json!({"bom.description": "Base plate, revised", "bom.make_buy": "made"})
+            .as_object()
+            .unwrap()
+            .clone(),
+        Map::new(),
+    ];
+    let new = file(write(&renamed(&source), &own));
+    let new_rows = bom::read(&new).unwrap();
+    let outcome = carry::carry(&old, &new).unwrap();
+    let report = &outcome.report;
+    let bytes = outcome.bytes.clone().unwrap();
+    // Untouched entities keep their bytes: the carry only appends.
+    let (before, after) = (records(new.bytes().as_ref()), records(&bytes));
+    for (id, text) in &before {
+        assert_eq!(after.get(id), Some(text), "#{id} of the new file changed");
+    }
+    let rows = bom::read_bytes(bytes).unwrap();
+    // The plate's own description and item number stand; the difference is listed as kept.
+    assert_eq!(rows[0].description.value, "Base plate, revised");
+    assert_eq!(rows[0].item_number.value, new_rows[0].item_number.value);
+    let kept = report
+        .kept
+        .iter()
+        .find(|k| k.new.ends_with("bom.description") && k.new.contains("plate"))
+        .unwrap_or_else(|| panic!("{report:#?}"));
+    assert_eq!(kept.old_value, "Mounting plate");
+    assert_eq!(kept.new_value, "Base plate, revised");
+    // The pin states none of its own: the old pin's answers carry.
+    assert_eq!(rows[1].description.value, "Locating pin");
+    assert!(
+        report
+            .carried
+            .iter()
+            .any(|c| c.new.ends_with("bom.description") && c.value == "Locating pin"),
+        "{report:#?}"
+    );
+    // The new file numbers its own items: its numbering stands.
+    assert!(!report.numbers_carried);
+}
+
+#[test]
+fn an_assembly_parts_own_pmi_is_reported_not_carried() {
+    // The plate of the old assembly with a flatness on a face no datum is on (PMI on no
+    // feature-and-kind) and a datum: each is reported, with its part.
+    let source = fixture();
+    let parts = source.load_all().unwrap();
+    let intents: Vec<_> = parts
+        .iter()
+        .enumerate()
+        .map(|(k, p)| {
+            let mut i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
+            if k == 0 {
+                i.requirements.push(
+                    json!({"kind": "flatness", "faces": [0], "tolerance": 0.05})
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                );
+            }
+            i
+        })
+        .collect();
+    let a = answers();
+    let jobs: Vec<_> = parts
+        .iter()
+        .zip(&intents)
+        .zip(&a)
+        .map(|((p, i), a)| (p, i, Some(a)))
+        .collect();
+    let old = file(writer::write_parts_bytes(&jobs).unwrap().0);
+    let report = carry::carry(&old, &renamed(&source)).unwrap().report;
+    let mut expected = 0;
+    for part in old.load_all().unwrap() {
+        let table = api::analyse(&part).unwrap()["table"].clone();
+        for item in table["file_pmi"].as_array().unwrap() {
+            expected += 1;
+            assert!(
+                report
+                    .not_carried
+                    .iter()
+                    .any(|n| n.part.as_deref() == Some(part.name.as_str())
+                        && n.number.as_deref() == item["number"].as_str()
+                        && n.kind == item["kind"].as_str().unwrap()),
+                "{item} of {} not reported: {:#?}",
+                part.name,
+                report.not_carried
+            );
+        }
+        for row in table["rows"].as_array().unwrap() {
+            if row["state"] == "stated" && row["id"] != "part.material" {
+                assert!(
+                    report
+                        .not_carried
+                        .iter()
+                        .any(|n| n.id.as_deref() == row["id"].as_str()
+                            && n.part.as_deref() == Some(part.name.as_str())),
+                    "{row}"
+                );
+            }
+        }
+    }
+    assert!(
+        expected > 0,
+        "the old plate states PMI on no feature-and-kind"
+    );
+}

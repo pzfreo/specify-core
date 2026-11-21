@@ -24,6 +24,18 @@ feature-and-kind OLD's feature table states:
 
 OLD's decided-none answers carry the same way, onto NEW's gaps (`decided_none`).
 
+**Datums** are matched by their faces, not their letters. NEW's datum A on other faces than
+OLD's A is a difference (`kept`, both face sets shown: `datum A on faces [27]` and `datum A on
+faces [2]`), and OLD's requirements on its datum A (its flatness, a perpendicularity) are not
+written onto NEW's A: they are not carried. A requirement citing a datum that differs is carried
+and listed `to_check`, saying which datum; one citing a datum that is not carried (not found in
+NEW, or decided none there) is not carried.
+
+**What the new revision cannot take** is reported and left out, not refused for: a fill that
+writes nothing on the new part as it is (its feature changed so the answer has nothing to apply
+to, a counterbored hole left to the general tolerance, say), or any fill on a feature that moved
+or changed size that the writer refuses. The rest is applied as one list, all or nothing.
+
 A fill is an answer, written by the in-place writer (`write STEP EDITS.json`): carry fills a
 feature-and-kind only with an answer that restates OLD's requirement exactly. It tries the
 row's value (a tolerance's magnitude, a datum's faces, a part setting's text), the answer OLD
@@ -46,19 +58,27 @@ New features in NEW that NEW states nothing on are listed as information (`new_u
 
 A requirement carried from OLD keeps OLD's characteristic number, and OLD's number history
 carries with it: its high-water mark, so numbers OLD retired (and numbers of requirements not
-carried) are never reused. A file with a number history of its own keeps that instead. See
+carried) are never reused. Where NEW has a numbering of its own, NEW's numbers stand: a carried
+requirement keeps OLD's number only when NEW neither uses nor retired it (above NEW's high-water
+mark); otherwise it takes a new number above both files' high-water marks, and is listed in
+`renumbered` (`{old, new, kind, type, faces}`). A number either file retired is never reused.
+`numbers_carried` is true when at least one carried requirement kept OLD's number. See
 [characteristic-numbers.md](characteristic-numbers.md).
 
 In an assembly, each new part matched to an old one by its geometry (renamed parts included)
-keeps its BOM item number and BOM answers, and its material where NEW states none; OLD's BOM
-history, with its retired numbers, carries ([bom.md](bom.md)). The in-place writer edits a file
-of one part, so in this release the parts' own requirements are not carried in an assembly:
-each is reported `not_carried` with its part.
+takes the old part's BOM answers and material where NEW states none; where NEW states one,
+NEW's stands and a difference is listed in `kept` (`plate: bom.description`). OLD's BOM history,
+with its item numbers and retired numbers, carries unless NEW numbers its own items (a BOM
+history of its own, or native find numbers), when NEW's numbering stands ([bom.md](bom.md)). The
+BOM is appended and the materials added so that every entity of NEW keeps its bytes. The
+in-place writer edits a file of one part, so in this release a part's own requirements in an
+assembly, and its PMI on no feature-and-kind, are not carried: each is reported `not_carried`
+with its part.
 
 ## All or nothing
 
-The carry is one edit list applied all or nothing. If any of it cannot be applied (a hole
-position citing a datum NEW decided none, say), nothing is written: `written` is false,
+The carry is one edit list applied all or nothing. If any of it cannot be applied (OLD's datum B
+landing on the faces NEW's own datum A is on, say), nothing is written: `written` is false,
 `refused` names each entry and why, and the command exits 2. Every entity of NEW the carry does
 not address keeps its bytes.
 
@@ -76,6 +96,7 @@ The command prints the report as JSON, with its Markdown in `markdown`:
   "decided_none": [{"old": "part.coating", "new": "part.coating", "value": "None (as machined)"}],
   "new_unstated": [{"feature": "holes:31", "what": "Ø8 × 3 through hole"}],
   "numbers_carried": true,
+  "renumbered": [{"old": 1, "new": 24, "kind": "datum", "type": "A", "faces": [27]}],
   "bom_carried": false,
   "markdown": "# Carry\n..."
 }

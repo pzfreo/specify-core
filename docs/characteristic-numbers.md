@@ -201,9 +201,10 @@ the same mapping: a requirement it carries keeps OLD's number, and the history's
 mark keeps OLD's retired numbers (and those of requirements not carried) from being reused.
 The ordinary writer still accepts that member: it verifies its target
 geometry fingerprint, uses the carried history and consumes the member; it does not store it
-among user answers. Once the destination has its own history, that history takes precedence
-over stale revision transport, so reusing external answers cannot reset its counter or
-resurrect retired numbers.
+among user answers. Once the destination has its own history, that history takes precedence:
+its numbers stand, a carried number is used only above the destination's high-water mark
+(neither used nor retired there), and the high-water mark becomes the larger of the two, so
+transport cannot reset the counter or resurrect a number either history retired.
 No separate number-matching operation is needed in a drawing or CSV consumer.
 
 An Add-mode write preserves imported PMI byte for byte. Existing numeric characteristic ids

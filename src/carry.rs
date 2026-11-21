@@ -91,6 +91,19 @@ pub struct NotCarried {
     pub reason: String,
 }
 
+/// A carried requirement that has a new number: OLD's is used or retired in NEW.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Renumbered {
+    /// Its number in OLD.
+    pub old: u64,
+    /// Its number in OUT, above both files' high-water marks.
+    pub new: u64,
+    pub kind: String,
+    pub r#type: String,
+    /// Its faces in OUT.
+    pub faces: Vec<usize>,
+}
+
 /// What carried, from what, and whether it was written.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Report {
@@ -107,8 +120,13 @@ pub struct Report {
     pub decided_none: Vec<Carried>,
     /// Information only: features new in NEW that NEW states nothing on.
     pub new_unstated: Vec<Unstated>,
-    /// OLD's characteristic-number history went with the carried requirements.
+    /// At least one carried requirement kept OLD's characteristic number (OLD's number history
+    /// went with them).
     pub numbers_carried: bool,
+    /// Carried requirements that could not keep OLD's number (the new file uses it or retired
+    /// it), each with the number it has now.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub renumbered: Vec<Renumbered>,
     /// OLD's BOM history went with the assembly's parts.
     pub bom_carried: bool,
     /// The characteristic numbers the carry retired (none, ordinarily).
@@ -206,6 +224,35 @@ fn questions(analysis: &Value) -> BTreeMap<String, crate::rules::Question> {
         .collect()
 }
 
+/// A stated datum row's faces.
+fn datum_faces(row: &Row) -> Vec<usize> {
+    crate::edits::stated_value(row)
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_u64)
+        .map(|f| f as usize)
+        .collect()
+}
+
+/// The datum a row is on (`datum.A.flatness` → `A`), if it is a datum's own control.
+fn own_datum(kind: &str) -> Option<&str> {
+    let rest = kind.strip_prefix("datum.")?;
+    let (letter, control) = rest.split_once('.')?;
+    (!control.is_empty()).then_some(letter)
+}
+
+/// What became of OLD's datum `X` in NEW, for the requirements that cite it or sit on it.
+#[derive(Clone, Debug)]
+enum Datum {
+    /// NEW states it on the faces OLD's are matched to, or it is carried there.
+    Same,
+    /// NEW states it on other faces: why, in words.
+    Differs(String),
+    /// Not in NEW, and not carried: why.
+    Missing(String),
+}
+
 fn is_datum_letter(kind: &str) -> bool {
     kind.strip_prefix("datum.")
         .is_some_and(|l| !l.contains('.'))
@@ -225,6 +272,10 @@ struct Old<'a> {
 /// What `row` of a file states, value included (`Size_Diameter 5 H7`), else as its table
 /// shows it.
 fn text_of(stated: &crate::writer::apply::Stated, row: &Row) -> Value {
+    if is_datum_letter(&row.kind) && row.state == State::Stated {
+        let letter = row.kind.trim_start_matches("datum.");
+        return Value::from(format!("datum {letter} on faces {:?}", datum_faces(row)));
+    }
     if row.id.starts_with("part.") || is_datum_letter(&row.kind) {
         return shown(row);
     }
@@ -452,6 +503,84 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
         ..Report::default()
     };
     let mut list = EditList::default();
+
+    // OLD's datums first: what each became in NEW decides what the requirements citing it, or
+    // sitting on it, can carry.
+    let mut datums: BTreeMap<String, Datum> = BTreeMap::new();
+    for row in reader
+        .table
+        .rows
+        .iter()
+        .filter(|r| is_datum_letter(&r.kind) && r.state == State::Stated)
+    {
+        let letter = row.kind.trim_start_matches("datum.").to_string();
+        let old_faces = datum_faces(row);
+        let state = match (new_row(row, &new_table, &map), mapped(&old_faces, &map)) {
+            (Err(why), _) => Datum::Missing(why),
+            (_, Err(why)) => Datum::Missing(format!("its faces: {why}")),
+            (Ok(target), Ok(on)) => match target.state {
+                State::Stated if datum_faces(target) == on => Datum::Same,
+                State::Stated => Datum::Differs(format!(
+                    "the new file states datum {letter} on faces {:?}; the old file's is on \
+                     faces {old_faces:?}, faces {on:?} in the new revision",
+                    datum_faces(target)
+                )),
+                State::DecidedNone => {
+                    Datum::Missing(format!("the new file decided datum {letter} none"))
+                }
+                State::Gap => Datum::Same,
+            },
+        };
+        datums.insert(letter, state);
+    }
+    // Why a row cannot be carried (`Err`), or why it is to be checked (`Ok(Some)`), from the
+    // datums it cites or sits on.
+    let depends = |row: &Row| -> Result<Option<String>, String> {
+        let mut check = None;
+        if let Some(letter) = own_datum(&row.kind) {
+            match datums.get(letter) {
+                Some(Datum::Differs(why)) => {
+                    return Err(format!(
+                        "it is on datum {letter}, which is not the old file's: {why}; the old \
+                         file's requirement is not written onto the new file's datum"
+                    ));
+                }
+                Some(Datum::Missing(why)) => {
+                    return Err(format!(
+                        "it is on datum {letter}, which is not carried: {why}"
+                    ));
+                }
+                _ => {}
+            }
+        }
+        let cited: BTreeSet<String> = reader
+            .stated
+            .of_row(row)
+            .into_iter()
+            .flatten()
+            .flat_map(|s| s.datums())
+            .collect();
+        for letter in cited {
+            match datums.get(&letter) {
+                Some(Datum::Missing(why)) => {
+                    return Err(format!(
+                        "it cites datum {letter}, which is not carried: {why}"
+                    ));
+                }
+                None => {
+                    return Err(format!(
+                        "it cites datum {letter}, which the old file does not state"
+                    ));
+                }
+                Some(Datum::Differs(why)) => {
+                    check = Some(format!("it cites datum {letter}, which differs: {why}"));
+                }
+                Some(Datum::Same) => {}
+            }
+        }
+        Ok(check)
+    };
+
     // Stated rows no answer restates, with their row in NEW.
     let mut unanswered: Vec<(&Row, &Row)> = Vec::new();
     for row in &reader.table.rows {
@@ -475,16 +604,10 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
                     shown(row) == shown(target)
                 }
                 (State::Stated, State::Stated) if is_datum_letter(&row.kind) => {
-                    let faces = |r: &Row| -> Vec<usize> {
-                        crate::edits::stated_value(r)
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .filter_map(Value::as_u64)
-                            .map(|f| f as usize)
-                            .collect()
-                    };
-                    mapped(&faces(row), &map).is_ok_and(|on| on == faces(target))
+                    matches!(
+                        datums.get(row.kind.trim_start_matches("datum.")),
+                        Some(Datum::Same)
+                    )
                 }
                 (State::Stated, State::Stated) => {
                     same_values((&reader.stated, row), (&new_stated, target))
@@ -513,30 +636,31 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
             });
             continue;
         }
+        if is_datum_letter(&row.kind)
+            && let Some(Datum::Missing(why)) = datums.get(row.kind.trim_start_matches("datum."))
+        {
+            report.not_carried.push(not_carried_row(row, why.clone()));
+            continue;
+        }
+        let datum_check = match depends(row) {
+            Ok(check) => check,
+            Err(why) => {
+                let mut n = not_carried_row(row, why);
+                n.text = text(&reader.text(row));
+                report.not_carried.push(n);
+                continue;
+            }
+        };
         let Some(mut value) = reader.answer(row) else {
             unanswered.push((row, target));
             continue;
         };
         if is_datum_letter(&row.kind) {
-            let faces: Vec<usize> = value
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_u64)
-                .map(|f| f as usize)
-                .collect();
-            match mapped(&faces, &map) {
-                Ok(on) => value = json!(on),
-                Err(why) => {
-                    report
-                        .not_carried
-                        .push(not_carried_row(row, format!("its faces: {why}")));
-                    continue;
-                }
-            }
+            // Checked above: its faces are matched in NEW.
+            value = json!(mapped(&datum_faces(row), &map).unwrap_or_default());
         }
         list.fill.insert(target.id.clone(), value.clone());
-        let check = moved(&row.faces, &revised, &old_features);
+        let check = moved(&row.faces, &revised, &old_features).or(datum_check);
         let entry = Carried {
             old: row.id.clone(),
             new: target.id.clone(),
@@ -591,18 +715,7 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
         }
     }
     for r in &reader.table.file_pmi {
-        report.not_carried.push(NotCarried {
-            id: None,
-            number: r.number.clone(),
-            kind: r.kind.clone(),
-            r#type: r.r#type.clone(),
-            faces: r.faces.clone(),
-            text: r.text.clone(),
-            part: None,
-            reason: "it sits on no feature-and-kind Specify understands (the dimension \
-                     planner's own, or another tool's): carry copies feature-and-kinds only"
-                .into(),
-        });
+        report.not_carried.push(file_pmi_not_carried(r, None));
     }
 
     // The old file's number history, read on the new part through the face matching.
@@ -610,9 +723,39 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
     if let Some(corr) = &revised.correspondence {
         crate::characteristics::carry_revision(old, new, corr, &mut numbers)?;
     }
-    report.numbers_carried = !numbers.is_empty() && !list.is_empty();
-    match crate::writer::apply::apply_numbered(new, &list, Some(&numbers).filter(|n| !n.is_empty()))
-    {
+    let numbers = Some(&numbers).filter(|n| !n.is_empty());
+    // A fill the new revision cannot take, on a feature that changed or for a datum or general
+    // tolerance it would need and does not have, is reported and left out; the list that is
+    // left is applied all or nothing.
+    let mut applied = crate::writer::apply::apply_numbered(new, &list, numbers);
+    for _ in 0..list.len() {
+        let Err(failures) = &applied else { break };
+        let Some(pruned) = prunable(failures, &report) else {
+            break;
+        };
+        for (id, why) in pruned {
+            list.fill.remove(&id);
+            leave_out(&mut report, &id, &reader, why);
+        }
+        // What carried with a fill that was left out goes with it.
+        let orphans: Vec<String> = report
+            .carried
+            .iter()
+            .chain(&report.to_check)
+            .filter(|c| c.with.as_ref().is_some_and(|w| !list.fill.contains_key(w)))
+            .map(|c| c.new.clone())
+            .collect();
+        for id in orphans {
+            leave_out(
+                &mut report,
+                &id,
+                &reader,
+                "the requirement it carried with is not carried".into(),
+            );
+        }
+        applied = crate::writer::apply::apply_numbered(new, &list, numbers);
+    }
+    match applied {
         Ok(applied) => {
             report.written = true;
             report.retired = applied.retired.clone();
@@ -620,13 +763,15 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
             if let Some(object) = report.write.as_object_mut() {
                 object.remove("output");
             }
+            let out = crate::part::load_bytes("carried.step", applied.bytes.clone())
+                .map_err(|e| e.to_string())?;
+            numbered(&mut report, &reader, old, &out, &map)?;
             Ok(Outcome {
                 bytes: Some(applied.bytes),
                 report,
             })
         }
         Err(failures) => {
-            report.numbers_carried = false;
             report.refused = failures;
             Ok(Outcome {
                 bytes: None,
@@ -636,10 +781,126 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
     }
 }
 
+/// The fills of `failures` the carry leaves out rather than refuse for: each failing entry a
+/// fill, either on a feature that moved or changed size (listed to check), or one that writes
+/// nothing on the new part as it is (its feature changed so that the answer has nothing to
+/// apply to, or it wants a datum or the general tolerance the new revision does not have). `None` when any failure
+/// is of another kind: then the whole carry is refused.
+fn prunable(failures: &[Failure], report: &Report) -> Option<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    for f in failures {
+        let id = f
+            .entry
+            .strip_prefix("fill[")
+            .and_then(|rest| rest.strip_suffix(']'))
+            .and_then(|quoted| serde_json::from_str::<String>(quoted).ok())?;
+        let changed = report.to_check.iter().any(|c| c.new == id);
+        // "writes no requirement on this part as it is": the new geometry has nothing it
+        // applies to, or wants a datum or the general tolerance the new file does not have.
+        let wanting = f
+            .reason
+            .contains("writes no requirement on this part as it is");
+        if !(changed || wanting) {
+            return None;
+        }
+        out.push((id, format!("the new revision cannot take it: {}", f.reason)));
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+/// Moves the carried entry for NEW's `id` to not carried, with `why`.
+fn leave_out(report: &mut Report, id: &str, reader: &Old<'_>, why: String) {
+    let mut entry = None;
+    for list in [&mut report.carried, &mut report.to_check] {
+        if let Some(i) = list.iter().position(|c| c.new == id) {
+            entry = Some(list.remove(i));
+        }
+    }
+    let Some(entry) = entry else { return };
+    let Some(row) = reader.table.row(&entry.old) else {
+        return;
+    };
+    let mut n = not_carried_row(row, why);
+    n.text = text(&reader.text(row));
+    report.not_carried.push(n);
+}
+
+/// Each carried requirement's number in `out`: OLD's (`numbers_carried`), or a new one, listed in
+/// `renumbered`.
+fn numbered(
+    report: &mut Report,
+    reader: &Old<'_>,
+    old: &LoadedPart,
+    out: &LoadedPart,
+    map: &FaceMap,
+) -> Result<(), Error> {
+    let carried: BTreeSet<u64> = report
+        .carried
+        .iter()
+        .chain(&report.to_check)
+        .filter_map(|c| reader.table.row(&c.old))
+        .flat_map(|r| &r.requirements)
+        .filter_map(|r| r.number.as_deref()?.strip_prefix('#')?.parse().ok())
+        .collect();
+    let now = crate::characteristics::read(out)?;
+    for c in crate::characteristics::read(old)?
+        .into_iter()
+        .filter(|c| carried.contains(&c.number))
+    {
+        let (Ok(faces), Ok(reference)) = (mapped(&c.faces, map), mapped(&c.reference, map)) else {
+            continue;
+        };
+        let sorted = |v: &[usize]| {
+            let mut v = v.to_vec();
+            v.sort_unstable();
+            v.dedup();
+            v
+        };
+        let Some(found) = now.iter().find(|n| {
+            n.kind == c.kind
+                && n.r#type == c.r#type
+                && sorted(&n.faces) == faces
+                && sorted(&n.reference) == reference
+        }) else {
+            continue;
+        };
+        if found.number == c.number {
+            report.numbers_carried = true;
+        } else {
+            report.renumbered.push(Renumbered {
+                old: c.number,
+                new: found.number,
+                kind: c.kind.clone(),
+                r#type: c.r#type.clone(),
+                faces: found.faces.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// A requirement on no feature-and-kind of OLD, reported not carried.
+fn file_pmi_not_carried(r: &crate::feature_table::Requirement, part: Option<&str>) -> NotCarried {
+    NotCarried {
+        id: None,
+        number: r.number.clone(),
+        kind: r.kind.clone(),
+        r#type: r.r#type.clone(),
+        faces: r.faces.clone(),
+        text: r.text.clone(),
+        part: part.map(str::to_owned),
+        reason: "it sits on no feature-and-kind Specify understands (the dimension planner's \
+                 own, or another tool's): carry copies feature-and-kinds only"
+            .into(),
+    }
+}
+
 /// [`carry`] of an assembly: each new part matched to an old one by its geometry keeps its BOM
-/// item number and answers (and its material, where NEW states none), and the old BOM history
-/// with its retired numbers carries. The in-place writer edits a file of one part, so the
-/// parts' own requirements are not carried here; each is reported.
+/// item number and answers, and its material, where NEW states none (NEW's own stand, and a
+/// difference is listed as kept); the old BOM history with its retired numbers carries unless
+/// NEW numbers its own items. Only appended: every entity of NEW keeps its bytes. The in-place
+/// writer edits a file of one part, so the parts' own requirements are not carried here yet;
+/// each is reported, with each part's PMI on no feature-and-kind.
 fn carry_assembly(old: &File, new: &File) -> Result<Outcome, Error> {
     let (before, after) = (
         old.load_all().map_err(|e| e.to_string())?,
@@ -648,79 +909,69 @@ fn carry_assembly(old: &File, new: &File) -> Result<Outcome, Error> {
     let mut report = Report::default();
     for part in &before {
         let (_, table) = analysed(part)?;
-        let mut reason = |row: &Row| {
+        for row in table
+            .rows
+            .iter()
+            .filter(|r| r.state != State::Gap && r.id != "part.material")
+        {
             let mut n = not_carried_row(
                 row,
-                "a part of an assembly: the in-place writer edits a file of one part, so \
-                 carry takes an assembly's BOM only",
+                "a part of an assembly: the in-place writer edits a file of one part, so carry \
+                 takes an assembly's BOM and materials only",
             );
             n.part = Some(part.name.clone());
             report.not_carried.push(n);
-        };
-        for row in table.rows.iter().filter(|r| r.state != State::Gap) {
-            reason(row);
+        }
+        for r in &table.file_pmi {
+            report
+                .not_carried
+                .push(file_pmi_not_carried(r, Some(&part.name)));
         }
     }
-    let answers = crate::bom::assembly_answers(&before, &after)?;
-    if answers.iter().all(Map::is_empty) {
-        return Ok(Outcome {
-            bytes: Some(new.bytes().as_ref().clone()),
-            report: Report {
-                written: true,
-                ..report
-            },
+    let carried = crate::bom::carry_assembly(&before, &after, new.bytes().as_ref())?;
+    for k in &carried.kept {
+        report.kept.push(Kept {
+            old: format!("{}: {}", k.old_part, k.key),
+            new: format!("{}: {}", k.new_part, k.key),
+            old_value: k.old.clone(),
+            new_value: k.new.clone(),
         });
     }
-    let intents: Vec<crate::rules::Intent> = after
-        .iter()
-        .zip(&answers)
-        .map(|(p, a)| {
-            let mut intent = crate::rules::Intent::new(
-                serde_json::to_value(&p.binding).map_err(|e| e.to_string())?,
-            );
-            let fields: Map<String, Value> = a
-                .iter()
-                .filter_map(|(k, v)| k.strip_prefix("bom.").map(|k| (k.into(), v.clone())))
-                .collect();
-            if !fields.is_empty() {
-                intent.part.insert("bom".into(), Value::Object(fields));
-            }
-            if let Some(material) = a.get("part.material") {
-                intent.part.insert("material".into(), material.clone());
-            }
-            Ok(intent)
-        })
-        .collect::<Result<_, Error>>()?;
-    let jobs: Vec<crate::writer::Job<'_>> = after
-        .iter()
-        .zip(&intents)
-        .zip(&answers)
-        .map(|((p, i), a)| (p, i, Some(a)))
-        .collect();
-    match crate::writer::write_parts_bytes(&jobs) {
-        Ok((bytes, written)) => {
-            report.written = true;
-            report.bom_carried = true;
-            report.write = written.to_dict();
-            if let Some(object) = report.write.as_object_mut() {
-                object.remove("output");
-            }
-            Ok(Outcome {
-                bytes: Some(bytes),
-                report,
-            })
-        }
-        Err(e) => {
-            report.refused = vec![Failure {
-                entry: "(the BOM)".into(),
-                reason: e.to_string(),
-            }];
-            Ok(Outcome {
-                bytes: None,
-                report,
-            })
+    for (part, fields) in &carried.fields {
+        for (key, value) in fields {
+            let id = format!("{part}: bom.{key}");
+            report.carried.push(Carried {
+                old: id.clone(),
+                new: id,
+                value: value.clone(),
+                stated: None,
+                check: None,
+                with: None,
+            });
         }
     }
+    for (part, material) in &carried.materials {
+        let id = format!("{part}: part.material");
+        report.carried.push(Carried {
+            old: id.clone(),
+            new: id,
+            value: Value::from(material.as_str()),
+            stated: None,
+            check: None,
+            with: None,
+        });
+    }
+    report.bom_carried = carried.bytes.is_some();
+    report.numbers_carried = carried.numbers;
+    report.written = true;
+    Ok(Outcome {
+        bytes: Some(
+            carried
+                .bytes
+                .unwrap_or_else(|| new.bytes().as_ref().clone()),
+        ),
+        report,
+    })
 }
 
 impl Report {

@@ -1219,3 +1219,56 @@ pub(crate) fn restates(
         found.is_some()
     })
 }
+
+/// `bytes` with a material added to each part `materials` names (part index, material), for
+/// `carry` onto an assembly's parts that state none: every entity of the file keeps its bytes,
+/// or nothing is written.
+pub(crate) fn add_materials(
+    bytes: &[u8],
+    materials: &[(usize, String)],
+) -> Result<Vec<u8>, String> {
+    if materials.is_empty() {
+        return Ok(bytes.to_vec());
+    }
+    let source = Source::of(bytes).map_err(|e| e.to_string())?;
+    let items: Vec<(haecceity::pmi::PartId, PartPmi)> = materials
+        .iter()
+        .map(|(k, material)| {
+            (
+                haecceity::pmi::PartId(*k),
+                PartPmi {
+                    material: Some(haecceity::pmi::Material {
+                        id: material.clone(),
+                        name: None,
+                        density: None,
+                    }),
+                    ..PartPmi::default()
+                },
+            )
+        })
+        .collect();
+    let modes: Vec<Mode> = materials
+        .iter()
+        // Anything the part has (stored answers too) is kept: added to, never replaced.
+        .map(|(k, _)| {
+            if source.read.parts[*k] != PartPmi::default() {
+                Mode::Add
+            } else {
+                Mode::Replace
+            }
+        })
+        .collect();
+    let (back, _) = write_by_modes(&source, &items, &modes).map_err(|e| e.to_string())?;
+    verify(&source, &items, &modes, &back).map_err(|e| e.to_string())?;
+    let after = haecceity::p21::Document::parse(back.clone()).map_err(|e| e.to_string())?;
+    if let Some(id) = source
+        .doc
+        .ids()
+        .find(|&id| kept_bytes(&source.doc, id) != kept_bytes(&after, id))
+    {
+        return Err(format!(
+            "writing the material would change #{id}; nothing was written"
+        ));
+    }
+    Ok(back)
+}

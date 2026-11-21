@@ -37,8 +37,9 @@ Read first:
   onto a new revision, file to file (ADR P11, docs/carry.md). Each feature-and-kind OLD states
   fills NEW's gap through the in-place writer, all or nothing; NEW's own requirements stand,
   with differences reported; one on a feature that moved or changed size is listed to check;
-  one not found or ambiguous, and anything Specify does not understand, is reported not carried
-  with its kind and faces. Decided-none, characteristic numbers (with their retired numbers)
+  one not found or ambiguous, one citing a datum that is not carried, one the new geometry
+  cannot take, and anything Specify does not understand, is reported not carried with its kind
+  and faces; datums are matched by their faces. NEW's own numbering and BOM values stand. Decided-none, characteristic numbers (with their retired numbers)
   and, in an assembly, BOM item numbers and answers carry too: what `diff`'s answers carried
   before 0.3.0. New features with nothing stated are listed as information. Not yet: `--base`,
   a part's requirements inside an assembly, WASM and Python.
