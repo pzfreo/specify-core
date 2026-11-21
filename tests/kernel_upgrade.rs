@@ -188,7 +188,28 @@ fn five_real_alpha6_files_resume_all_87_answers_including_a_rotated_part() {
             .unwrap()
             .load(None)
             .unwrap();
-        assert_eq!(resume::answers_for(&back).unwrap(), Some(kept.clone()));
+        // ADR P11 rule 2: a reopened answer that wrote nothing (the plate's Ø8 left to the
+        // general tolerance, on datum B's own faces) is stored too, listed as such.
+        let stored = resume::answers_for(&back).unwrap().unwrap();
+        let mut kept = kept.clone();
+        let listed: Vec<String> = stored
+            .get("_specify")
+            .and_then(|m| m.get("no_pmi"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        for id in &listed {
+            assert!(reopened.contains(id), "{name}: {id} was not reopened");
+            kept.insert(id.clone(), expected[id].clone());
+        }
+        let payload_no_pmi = (!listed.is_empty()).then(|| json!(listed));
+        if let Some(list) = &payload_no_pmi {
+            kept.insert("_specify".into(), json!({"no_pmi": list}));
+        }
+        assert_eq!(stored, kept, "{name}");
+        kept.shift_remove("_specify");
         // Stored base64 bytes and literal Unicode/quote/backslash text survive step-io 0.3.
         let mut before = resume::stored(&loaded.bytes);
         // Every payload field and string byte survives apart from the migrated keys.
@@ -196,6 +217,12 @@ fn five_real_alpha6_files_resume_all_87_answers_including_a_rotated_part() {
             .get_mut(&0)
             .unwrap()
             .insert("answers".into(), json!(kept)); // ADR P11: only the kept answers are stored
+        if let Some(list) = &payload_no_pmi {
+            before
+                .get_mut(&0)
+                .unwrap()
+                .insert("no_pmi".into(), list.clone());
+        }
         // Every save marks the payload it writes, so it is the one read (ADR P11).
         before
             .get_mut(&0)

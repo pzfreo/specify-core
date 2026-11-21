@@ -1076,7 +1076,9 @@ fn mm_value(l: &pmi::Length) -> Value {
 /// pitch diameter, crest, runout, a second class, a count of threads other than one) is added
 /// to the text, and marks it text only.
 fn thread_said(t: &pmi::Thread, p: &PartPmi) -> Said {
-    let mut said = Said::text(&haecceity::presentation::thread(t, p).notation());
+    let mut said = Said::text(&clean_numbers(
+        &haecceity::presentation::thread(t, p).notation(),
+    ));
     let f = &mut said.fields;
     f.insert(
         "side".into(),
@@ -1241,7 +1243,19 @@ fn json_name<T: Serialize>(v: &T) -> Value {
 /// reference's brackets), with what it leaves out added: a basic dimension's `(basic)`, a
 /// fit's class beside its stated limits, the other modifiers and the envelope requirement.
 pub(crate) fn dimension_notation(d: &pmi::Dimension) -> (String, bool) {
-    let mut text = haecceity::presentation::dimension_text(d);
+    let mut text = clean_numbers(&haecceity::presentation::dimension_text(d));
+    if d.nominal.is_none() {
+        // No value stated (NIST CTC-01's presentation-only sizes): its kind in words.
+        let r#type = match &d.kind {
+            DimensionKind::Size {
+                kind, path, angle, ..
+            } => size_type(kind, path.is_some(), angle.is_some()),
+            DimensionKind::Location {
+                kind, path, angle, ..
+            } => location_type(kind, path.is_some(), angle.is_some()),
+        };
+        text = format!("{}, no value stated", readable_type(r#type));
+    }
     let mut text_only = false;
     match &d.tolerance {
         DimTolerance::Basic => text.push_str(" (basic)"),
@@ -1418,13 +1432,74 @@ pub(crate) fn tolerance_notation(t: &pmi::GeometricTolerance, p: &PartPmi) -> (S
         );
     }
     (
-        cells
-            .into_iter()
-            .filter(|c| !c.is_empty())
-            .collect::<Vec<_>>()
-            .join(" "),
+        clean_numbers(
+            &cells
+                .into_iter()
+                .filter(|c| !c.is_empty())
+                .collect::<Vec<_>>()
+                .join(" "),
+        ),
         text_only,
     )
+}
+
+/// The significant digits a display keeps: more is a file's float noise (`1.06500000000426`,
+/// a value converted and written back), never a stated precision.
+const DISPLAY_DIGITS: usize = 10;
+
+/// Every decimal number in `text` as a drawing reads it: float noise beyond
+/// [`DISPLAY_DIGITS`] significant digits rounded away (`⌀1.06500000000426` → `⌀1.065`,
+/// `0.0500000000002` → `0.05`), then trailing zeros after the point trimmed (`0.016000` →
+/// `0.016`). A value with fewer digits is never rounded. The structured fields keep the
+/// value as read.
+pub fn clean_numbers(text: &str) -> String {
+    static NUMBER: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let number = NUMBER.get_or_init(|| regex::Regex::new(r"\d+\.\d+").expect("a regex"));
+    number
+        .replace_all(text, |c: &regex::Captures| clean_number(&c[0]))
+        .into_owned()
+}
+
+fn clean_number(s: &str) -> String {
+    let digits = s.chars().filter(char::is_ascii_digit).collect::<String>();
+    let significant = digits.trim_start_matches('0').len();
+    let s = if significant > DISPLAY_DIGITS
+        && let Ok(v) = s.parse::<f64>()
+    {
+        let rounded: f64 = format!("{v:.*e}", DISPLAY_DIGITS - 1).parse().unwrap_or(v);
+        let decimals = (DISPLAY_DIGITS as i32 - 1 - rounded.abs().log10().floor() as i32).max(0);
+        format!("{rounded:.*}", decimals as usize)
+    } else {
+        s.to_string()
+    };
+    if s.contains('.') {
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    } else {
+        s
+    }
+}
+
+/// An OpenCascade type name in words: `Size_Diameter` → `Diameter`,
+/// `Location_LinearDistance` → `Linear distance`.
+pub fn readable_type(r#type: &str) -> String {
+    let name = r#type
+        .strip_prefix("Size_")
+        .or_else(|| r#type.strip_prefix("Location_"))
+        .unwrap_or(r#type);
+    let mut out = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c == '_' {
+            out.push(' ');
+        } else if c.is_ascii_uppercase() && i > 0 && !out.ends_with(' ') {
+            out.push(' ');
+            out.push(c.to_ascii_lowercase());
+        } else if i > 0 {
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// A surface texture of one roughness in micrometres as specify-core states a finish
@@ -1669,6 +1744,31 @@ mod tests {
             serde_json::to_string(&datum).unwrap(),
             r#"{"kind":"datum","type":"A","faces":[3]}"#
         );
+    }
+
+    #[test]
+    fn display_numbers_lose_float_noise_and_trailing_zeros_only() {
+        for (raw, shown) in [
+            ("⌀1.06500000000426", "⌀1.065"),
+            ("⌖ 0.0500000000002 A", "⌖ 0.05 A"),
+            ("(0.750000000002999)", "(0.75)"),
+            ("⌖ ⌀0.016000Ⓜ A", "⌖ ⌀0.016Ⓜ A"),
+            ("0.020000", "0.02"),
+            ("⌀0.250000 +0.003000/0", "⌀0.25 +0.003/0"),
+            ("10.0", "10"),
+            ("0.123456789", "0.123456789"),
+            ("1234.56789012", "1234.56789"),
+            ("25 ±0.1", "25 ±0.1"),
+        ] {
+            assert_eq!(clean_numbers(raw), shown, "{raw}");
+        }
+    }
+
+    #[test]
+    fn type_names_read_as_words() {
+        assert_eq!(readable_type("Size_Diameter"), "Diameter");
+        assert_eq!(readable_type("Location_LinearDistance"), "Linear distance");
+        assert_eq!(readable_type("Location_None"), "None");
     }
 
     #[test]
