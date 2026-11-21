@@ -301,9 +301,11 @@ fn unit_name(u: &LengthUnit) -> String {
     }
 }
 
-/// `0.01` in inches as a drawing writes it (`.01`); any other unit as stated.
+/// `0.01` in inches as a drawing writes it (`.01`); any other unit as stated, a Part 21
+/// integer's point (`6.`) left off.
 fn number(d: &Decimal, inch: bool) -> String {
     let t = d.as_str();
+    let t = t.strip_suffix('.').unwrap_or(t);
     if inch {
         if let Some(rest) = t.strip_prefix("0.") {
             return format!(".{rest}");
