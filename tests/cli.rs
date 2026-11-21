@@ -1685,6 +1685,7 @@ fn check_datum_origin_departures(differences: &[Difference]) {
                 && e.pattern != "Exact tap-drill defaults and dependent question order"
                 && e.pattern != "Combined ISO 2768 class choices in CLI and serve"
                 && e.pattern != "Absolute slash bounds are accepted by CLI answers"
+                && e.pattern != "Open questions are gaps: write writes what is answered (#228)"
         })
         .collect();
     let ties: Vec<_> = load_known(&common::known_differences_file("cli"))
@@ -2485,5 +2486,41 @@ fn issue_228_write_writes_what_is_answered_and_lists_the_gaps() {
         "{missing:?}"
     );
     assert!(output.exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// ADR P11: `write` never replaces a general tolerance the file states. A file stating ISO
+/// 2768-f, an analysis without the feature table (an older one, so the rules do not hold the
+/// answer back), and ISO 2768-c answered: the writer refuses, and nothing is written.
+#[test]
+fn write_refuses_a_different_general_tolerance_than_the_file_states() {
+    let dir = scratch("stated-general");
+    let plate = part("plate");
+    let a = dir.join("a.json");
+    assert_eq!(run(&["analyse", &s(&plate), "-o", &s(&a)]).code, 0);
+    let q = dir.join("q.json");
+    save(
+        &q,
+        &json!({"part.material": "steel", "part.general_tolerance": "ISO 2768-f"}),
+    );
+    let first = dir.join("f.step");
+    let ran = run(&["write", &s(&plate), &s(&a), &s(&q), "-o", &s(&first)]);
+    assert_eq!(ran.code, 0, "{}", ran.stderr);
+    let b = dir.join("b.json");
+    assert_eq!(run(&["analyse", &s(&first), "-o", &s(&b)]).code, 0);
+    let mut analysis: Value = serde_json::from_str(&std::fs::read_to_string(&b).unwrap()).unwrap();
+    analysis.as_object_mut().unwrap().remove("table");
+    save(&b, &analysis);
+    save(&q, &json!({"part.general_tolerance": "ISO 2768-c"}));
+    let second = dir.join("c.step");
+    let ran = run(&["write", &s(&first), &s(&b), &s(&q), "-o", &s(&second)]);
+    assert_eq!(ran.code, 2, "{}", ran.stdout);
+    assert!(
+        ran.stderr
+            .contains("already states general tolerance ISO 2768-f"),
+        "{}",
+        ran.stderr
+    );
+    assert!(!second.exists());
     let _ = std::fs::remove_dir_all(&dir);
 }

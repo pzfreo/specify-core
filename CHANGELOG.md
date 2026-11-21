@@ -33,8 +33,9 @@ Read first:
   lines are written as AP242's default tolerance table in the unit stated (inch notation means
   inches; never converted), fractions and angles in the general tolerance note beside it, and
   nothing else: no ISO class, no dimension. Reopening shows the table as stated, whoever wrote it.
-  A general tolerance written to a file that states a different one replaces it, every other
-  entity byte for byte. `none` is now an answer for `part.general_tolerance` and
+  A different general tolerance in an intent is still refused when the file states one; only an
+  explicit change (`writer::write_bytes_changing_general_tolerance`, for the edit list's
+  `change`) replaces it, every other entity byte for byte. `none` is now an answer for `part.general_tolerance` and
   `part.surface_finish` (decided none: nothing written, the decision stored).
 - `@draftwright/specify-ui`: a `HostView` interface (ui/docs/host-view.md, specify-core #222) so a host can
   draw the 3D view. `StepDiff` and `SpecifyReview` take an optional `view` prop; without one they use

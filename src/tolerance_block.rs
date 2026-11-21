@@ -125,40 +125,68 @@ pub fn parse(text: &str) -> Result<Option<Block>, String> {
         .collect();
     let mut lines = Vec::new();
     let mut unit: Option<LengthUnit> = None;
-    let mut bad = Vec::new();
-    let mut state = |u: Option<regex::Match<'_>>, bad: &mut Vec<String>, piece: &str| {
+    // Each line not read, with why.
+    let mut bad: Vec<(String, &str)> = Vec::new();
+    let mut state = |u: Option<regex::Match<'_>>, bad: &mut Vec<(String, &str)>, piece: &str| {
         if let Some(u) = u {
             let u = unit_of(u.as_str());
             match &unit {
-                Some(old) if *old != u => bad.push(format!("{piece} (a second unit)")),
+                Some(old) if *old != u => {
+                    bad.push((piece.to_string(), "a second unit: a block has one"));
+                }
                 _ => unit = Some(u),
             }
         }
     };
+    let mut places_seen: Vec<u8> = Vec::new();
     for piece in &pieces {
         let squashed = piece.split_whitespace().collect::<Vec<_>>().join(" ");
         if let Some(c) = PLACES.captures(&squashed) {
             let inch_style = c.get(1).is_some();
             let xs = c.get(2).or(c.get(3)).map_or(0, |m| m.as_str().len());
+            let places = u8::try_from(xs).unwrap_or(u8::MAX);
             let Some(tolerance) = decimal(&c[4]) else {
-                bad.push(piece.to_string());
+                bad.push((piece.to_string(), "a tolerance of zero"));
                 continue;
             };
+            if places_seen.contains(&places) {
+                bad.push((
+                    piece.to_string(),
+                    "the same number of decimal places is stated twice",
+                ));
+                continue;
+            }
+            places_seen.push(places);
             state(c.get(5), &mut bad, piece);
             lines.push(Line::Places {
-                places: u8::try_from(xs).unwrap_or(u8::MAX),
+                places,
                 tolerance,
                 inch_style,
             });
         } else if let Some(c) = FRACTION.captures(&squashed) {
             let (n, d) = (&c[1], &c[2]);
             if d.trim_start_matches('0').is_empty() || n.trim_start_matches('0').is_empty() {
-                bad.push(piece.to_string());
+                bad.push((piece.to_string(), "a fraction with a zero in it"));
+                continue;
+            }
+            if lines.iter().any(|l| matches!(l, Line::Fraction(_))) {
+                bad.push((piece.to_string(), "fractions are stated twice"));
                 continue;
             }
             state(c.get(3), &mut bad, piece);
             lines.push(Line::Fraction(format!("±{n}/{d}")));
         } else if let Some(c) = ANGLE.captures(&squashed) {
+            let zero = |m: Option<regex::Match<'_>>| {
+                m.is_none_or(|m| m.as_str().chars().all(|ch| ch == '0' || ch == '.'))
+            };
+            if zero(c.get(1)) && zero(c.get(2)) && zero(c.get(3)) {
+                bad.push((piece.to_string(), "a tolerance of zero"));
+                continue;
+            }
+            if lines.iter().any(|l| matches!(l, Line::Angle(_))) {
+                bad.push((piece.to_string(), "angles are stated twice"));
+                continue;
+            }
             let mut text = format!("angles ±{}°", &c[1]);
             if let Some(m) = c.get(2) {
                 text.push_str(&format!("{}′", m.as_str()));
@@ -168,20 +196,46 @@ pub fn parse(text: &str) -> Result<Option<Block>, String> {
             }
             lines.push(Line::Angle(text));
         } else {
-            bad.push(piece.to_string());
+            bad.push((piece.to_string(), why_not(&squashed)));
         }
     }
-    if lines.is_empty() {
+    // Text that is no block at all (an ISO class, a ± figure, none) is left to the other
+    // readings; text that looks like a block but does not read is refused, saying why.
+    if lines.is_empty() && !pieces.iter().any(|p| LOOKS.is_match(p)) {
         return Ok(None);
     }
     if !bad.is_empty() {
+        let shown: Vec<String> = bad
+            .iter()
+            .map(|(piece, why)| format!("'{piece}': {why}"))
+            .collect();
         return Err(format!(
-            "Not read as a line of a general tolerance block: {}. Each line is decimal places \
-             and their tolerance (.XX ±.01, X.X ±0.2), fractions ±1/64 or angles ±1°.",
-            bad.join(", ")
+            "Not read as a general tolerance block: {}. Each line, separated by commas, is \
+             decimal places and their tolerance (.XX ±.01, X.X ±0.2), fractions ±1/64 or \
+             angles ±1°.",
+            shown.join("; ")
         ));
     }
     Ok(Some(Block { lines, unit }))
+}
+
+/// Text that looks like a line of a block: decimal-place notation, fractions or angles with a
+/// tolerance (a bare `X` is not).
+static LOOKS: LazyLock<Regex> =
+    LazyLock::new(|| regex(r"^(?:\.?x|fraction|angl).*(?:±|\+-|\+/-|°)|°"));
+
+/// Why a line that matches no form is not read.
+fn why_not(line: &str) -> &'static str {
+    let tolerances = line.matches('±').count() + line.matches("+-").count();
+    if tolerances > 1 {
+        "two tolerances on one line: separate the lines with commas"
+    } else if regex(r"^x{2,}\b").is_match(line) {
+        "decimal places are written with a point: .XX (inch) or X.XX"
+    } else if tolerances == 0 {
+        "no ± tolerance"
+    } else {
+        "not decimal places with a tolerance, fractions or angles"
+    }
 }
 
 impl Block {
@@ -522,6 +576,17 @@ mod tests {
         assert_eq!(b.unit_in(&LengthUnit::Inch), LengthUnit::Millimetre);
         let e = parse(".XX ±.01, .XXX +- .005 inn").unwrap_err();
         assert!(e.contains(".XXX +- .005 inn"), "{e}");
+        for (text, why) in [
+            (".XX ±.01 .XXX ±.005", "two tolerances on one line"),
+            ("XX ±.01, XXX ±.005", "written with a point"),
+            (".XX ±0", "a tolerance of zero"),
+            ("fractions ±1/0", "a fraction with a zero"),
+            (".XX ±.01, .XX ±.02", "stated twice"),
+            ("angles ±0°", "a tolerance of zero"),
+        ] {
+            let e = parse(text).unwrap_err();
+            assert!(e.contains(why) && !e.contains("ISO 2768"), "{text}: {e}");
+        }
         assert!(parse(".XX ±.01 in, .XXX ±.005 mm").is_err());
     }
 

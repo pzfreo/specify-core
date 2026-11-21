@@ -314,7 +314,7 @@ pub fn write_parts_with(
         )));
     };
     let staged = target.with_file_name(format!(".{name}.{}.{}.part", std::process::id(), tag()));
-    let result = write_verified(jobs, extra).and_then(|(bytes, report)| {
+    let result = write_verified(jobs, extra, Replace::Nothing).and_then(|(bytes, report)| {
         // Gzipped only when the destination is named `.gz` (a write in place to a `.gz` input
         // stays gzipped); the STEP text is verified before it is compressed.
         let bytes = if output
@@ -411,7 +411,33 @@ pub fn write_parts_bytes_with(
 ) -> Result<(Vec<u8>, WriteReport), WriteError> {
     check_jobs(jobs)?;
     check_extra(jobs, extra)?;
-    write_verified(jobs, extra)
+    write_verified(jobs, extra, Replace::Nothing)
+}
+
+/// What a write may replace of what the file states. A raw intent replaces nothing: a stated
+/// general tolerance that differs from the intent's is refused (ADR P11). Only an explicit
+/// change (the edit list's `change` of `part.general_tolerance`) replaces it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Replace {
+    /// Nothing the file states is replaced.
+    Nothing,
+    /// The part's general tolerance (its classes, default tolerance tables and Specify's
+    /// general tolerance note) gives way to the intent's, when the two differ (#228, "Change
+    /// replaces the table"). Every other entity stays byte for byte.
+    GeneralTolerance,
+}
+
+/// [`write_bytes`] for an explicit change of the part's general tolerance (#228): the file's
+/// general tolerance gives way to the one `intent` gives ([`Replace::GeneralTolerance`]). For
+/// the edit list's `change`; a raw intent written with [`write_bytes`] never replaces it.
+pub fn write_bytes_changing_general_tolerance(
+    loaded: &LoadedPart,
+    intent: &Intent,
+    answers: Option<&Map<String, Json>>,
+) -> Result<(Vec<u8>, WriteReport), WriteError> {
+    let jobs = [(loaded, intent, answers)];
+    check_jobs(&jobs)?;
+    write_verified(&jobs, &[], Replace::GeneralTolerance)
 }
 
 /// Reserve both names: resume reads descriptive items by name, independently of their set.
@@ -957,6 +983,7 @@ struct Lines {
 fn write_verified(
     jobs: &[Job<'_>],
     extra: &[AttributeSet],
+    replace: Replace,
 ) -> Result<(Vec<u8>, WriteReport), WriteError> {
     // Every write_verified caller first rejects empty jobs; a session supplies exactly one job.
     let first = jobs[0].0;
@@ -982,15 +1009,20 @@ fn write_verified(
             cleaning.push(part);
             keep.insert(part, requirements(&original.read.parts[part]));
         }
-        // A general tolerance that differs from the file's replaces it (#228: "Change
-        // replaces the table"), whoever wrote it; every other item stays byte for byte.
-        let replaced = general_giving_way(
-            loaded,
-            intent,
-            &original.read.parts[part],
-            &original.read.provenance.parts[part],
-            &original.doc,
-        )?;
+        // Only an explicit change replaces the file's general tolerance (#228: "Change
+        // replaces the table"), whoever wrote it; every other item stays byte for byte. A raw
+        // intent that differs is refused by `part_pmi`.
+        let replaced = if replace == Replace::GeneralTolerance {
+            general_giving_way(
+                loaded,
+                intent,
+                &original.read.parts[part],
+                &original.read.provenance.parts[part],
+                &original.doc,
+            )?
+        } else {
+            BTreeSet::new()
+        };
         if !replaced.is_empty() {
             if !cleaning.contains(&part) {
                 cleaning.push(part);
@@ -3725,15 +3757,11 @@ fn part_pmi_observed(
         .filter(|v| truthy(Some(v)))
     {
         let text = py_str(general);
-        let old = before
-            .general
-            .iter()
-            .find_map(|g| match g {
-                GeneralTolerance::Class { text, .. } => Some(text.as_str()),
-                GeneralTolerance::Table { .. } => None,
-            })
-            .filter(|_| add);
         let file_unit = crate::existing::file_length_unit(loaded);
+        // What the file states, in any form (a class, a table and its note, a ± note),
+        // whoever wrote it: a different one is refused, as add cannot replace it.
+        let shown = stated_general(before, &file_unit).filter(|_| add);
+        let old = shown.as_deref();
         let block = crate::tolerance_block::parse(&text).map_err(WriteError::Invalid)?;
         if let Some(block) = block {
             // A block as stated (#228): the decimal-place lines as AP242's default tolerance
@@ -3741,8 +3769,7 @@ fn part_pmi_observed(
             // note beside it. Nothing else: no class, no dimension.
             let written = block.written(&file_unit).map_err(WriteError::Invalid)?;
             let new = general_shown(&text, &file_unit)?;
-            let shown = stated_general(before, &file_unit).filter(|_| add);
-            if stated("general tolerance", shown.as_deref(), &new, &mut lines)? {
+            if stated("general tolerance", old, &new, &mut lines)? {
                 if let Some(table) = written.table {
                     p.general.push(table);
                     lines.written.push(format!(
@@ -3759,8 +3786,6 @@ fn part_pmi_observed(
         } else if crate::general::plus_minus(&text).is_some() {
             // A ± figure is no ISO 2768 class, which the kernel's general tolerance carries:
             // it is written as the part's general tolerance note.
-            let note = crate::existing::general_tolerance_note(before);
-            let old = note.as_deref().filter(|_| add).or(old);
             if stated("general tolerance", old, &text, &mut lines)? {
                 p.attributes.push(general_tolerance_note_set(&text));
                 lines.written.push(format!("general tolerance note {text}"));

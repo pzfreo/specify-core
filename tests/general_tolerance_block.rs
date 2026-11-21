@@ -417,7 +417,17 @@ fn a_change_replaces_the_table_and_keeps_every_other_entity() {
     intent
         .part
         .insert("general_tolerance".into(), json!(".XX ±.01, angles ±1°"));
-    let (bytes, report) = specify_core::writer::write_bytes(&part, &intent, None).unwrap();
+    // A raw intent never replaces what the file states (ADR P11): it is refused.
+    let refused = specify_core::writer::write_bytes(&part, &intent, None).unwrap_err();
+    assert!(
+        refused
+            .to_string()
+            .contains("already states general tolerance"),
+        "{refused}"
+    );
+    // The edit list's explicit change does.
+    let (bytes, report) =
+        specify_core::writer::write_bytes_changing_general_tolerance(&part, &intent, None).unwrap();
     let saved = load_bytes("changed.step", bytes).unwrap();
     assert_eq!(
         general_row(&saved),
@@ -542,6 +552,26 @@ fn a_block_typed_in_one_line_is_shown_back_for_checking() {
     )
     .unwrap_err();
     assert!(e.0.contains("three places ±.005"), "{e}");
+    // Text that looks like a block but does not read says why, never the class list.
+    for (typed, why) in [
+        (".XX ±.01 .XXX ±.005", "two tolerances on one line"),
+        ("XX ±.01, XXX ±.005", "written with a point"),
+        (".XX ±0", "a tolerance of zero"),
+        ("fractions ±1/0", "a fraction with a zero"),
+        (
+            ".XX ±.01, .XX ±.02",
+            "the same number of decimal places is stated twice",
+        ),
+    ] {
+        let e =
+            specify_core::choices::interpret("part.general_tolerance", typed, &options, None, None)
+                .unwrap_err();
+        assert!(
+            e.0.contains(typed.split(',').next_back().unwrap().trim()) && e.0.contains(why),
+            "{typed}: {e}"
+        );
+        assert!(!e.0.contains("Choose one of"), "{typed}: {e}");
+    }
     // An answers file may hold it in the spelling typed.
     specify_core::choices::check(
         "part.general_tolerance",
@@ -553,8 +583,8 @@ fn a_block_typed_in_one_line_is_shown_back_for_checking() {
     .unwrap();
 }
 
-/// A file stating ISO 2768-m changed to a block: the class gives way to the table. The same
-/// block again changes nothing.
+/// A file stating ISO 2768-m changed to a block by an explicit change: the class gives way to
+/// the table. The same block again changes nothing.
 #[test]
 fn a_class_changed_to_a_block_is_replaced_and_the_same_block_is_not_written_twice() {
     let (classed, _) = save(
@@ -566,7 +596,9 @@ fn a_class_changed_to_a_block_is_replaced_and_the_same_block_is_not_written_twic
     intent
         .part
         .insert("general_tolerance".into(), json!("X.X ±0.2, X.XX ±0.05"));
-    let (bytes, _) = specify_core::writer::write_bytes(&classed, &intent, None).unwrap();
+    let (bytes, _) =
+        specify_core::writer::write_bytes_changing_general_tolerance(&classed, &intent, None)
+            .unwrap();
     let changed = load_bytes("changed.step", bytes).unwrap();
     let p = pmi_of(&changed);
     assert_eq!(classes(&p), 0);
@@ -590,4 +622,125 @@ fn a_class_changed_to_a_block_is_replaced_and_the_same_block_is_not_written_twic
         cells(&pmi_of(&load_bytes("again.step", again).unwrap())).len(),
         2
     );
+}
+
+/// ADR P11: a raw intent (CLI, serve, Python `write`) never replaces a general tolerance the
+/// file states, in any form: a different class, block or ± figure is refused, and the file is
+/// left as it was. Only `write_bytes_changing_general_tolerance` (the edit list's change)
+/// replaces it.
+#[test]
+fn a_raw_intent_never_replaces_a_stated_general_tolerance() {
+    for stated in ["ISO 2768-f", ".XX ±.01, angles ±1°"] {
+        let (part, _) = save(&plate(), &map(json!({"part.general_tolerance": stated})));
+        for other in ["ISO 2768-c", "X.X ±0.2", "±0.3 mm"] {
+            let mut intent =
+                specify_core::rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
+            intent.part.insert("general_tolerance".into(), json!(other));
+            let e = specify_core::writer::write_bytes(&part, &intent, None).unwrap_err();
+            assert!(
+                e.to_string().contains("already states general tolerance"),
+                "{stated} then {other}: {e}"
+            );
+        }
+    }
+}
+
+/// The explicit change of Specify's own block: only its table and its note give way (with
+/// what they alone reference, and the entities whose ids the new ones reuse); the material
+/// and every other entity are byte for byte as they were.
+#[test]
+fn a_change_replaces_only_the_table_and_its_note() {
+    // Written without stored answers, so the save has no bookkeeping of its own to replace.
+    let bare = plate();
+    let answers =
+        map(json!({"part.material": "steel", "part.general_tolerance": ".XX ±.01, angles ±1°"}));
+    let first = api::preview(&api::analyse(&bare).unwrap(), &answers).unwrap();
+    let (bytes, _) = specify_core::writer::write_bytes(&bare, &first, None).unwrap();
+    let part = load_bytes("block.step", bytes).unwrap();
+    let doc = Document::parse(part.bytes.to_vec()).unwrap();
+    let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
+    let read = pmi::read(&doc, &defs).unwrap();
+    let (p, prov) = (&read.parts[0], &read.provenance.parts[0]);
+    let mut seeds: Vec<u64> = prov.general.iter().flatten().copied().collect();
+    for (i, set) in p.attributes.iter().enumerate() {
+        if set.items.iter().any(|(n, _)| n == "general tolerance") {
+            seeds.extend(&prov.attributes[i]);
+        }
+    }
+    // Everything the old general tolerance reaches, what describes it, and its links to its
+    // presentation.
+    let mut reach: std::collections::BTreeSet<u64> = seeds.iter().copied().collect();
+    let mut todo = seeds.clone();
+    while let Some(id) = todo.pop() {
+        if let Some(e) = doc.get(id) {
+            haecceity::p21::visit_attributes(e, &mut |a| {
+                if let haecceity::p21::Attribute::EntityRef(t) = a
+                    && reach.insert(*t)
+                {
+                    todo.push(*t);
+                }
+            });
+        }
+        for &r in doc.referrers(id) {
+            if matches!(doc.get(r), Some(haecceity::p21::RawEntity::Simple { name, .. })
+                if name == "DESCRIPTION_ATTRIBUTE" || name == "DRAUGHTING_MODEL_ITEM_ASSOCIATION")
+            {
+                reach.insert(r);
+            }
+        }
+    }
+    // The Notes view draws the part's notes (the material and the old note): it is redrawn
+    // without the old note, and is presentation, not a requirement. Its own entities may
+    // change; every semantic entity outside the old table and note may not.
+    let mut drawn: std::collections::BTreeSet<u64> = doc
+        .ids()
+        .filter(|&id| {
+            matches!(doc.get(id), Some(haecceity::p21::RawEntity::Simple { name, attributes, .. })
+                if (name == "DRAUGHTING_MODEL" || name == "DEFAULT_MODEL_GEOMETRIC_VIEW")
+                    && matches!(attributes.first(), Some(haecceity::p21::Attribute::String(s)) if s == "Notes"))
+        })
+        .collect();
+    let semantic: std::collections::BTreeSet<u64> = prov.all().into_iter().collect();
+    let mut todo: Vec<u64> = drawn.iter().copied().collect();
+    while let Some(id) = todo.pop() {
+        if let Some(e) = doc.get(id) {
+            haecceity::p21::visit_attributes(e, &mut |a| {
+                if let haecceity::p21::Attribute::EntityRef(t) = a
+                    && !semantic.contains(t)
+                    && drawn.insert(*t)
+                {
+                    todo.push(*t);
+                }
+            });
+        }
+    }
+    let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
+    intent
+        .part
+        .insert("general_tolerance".into(), json!("X.X ±0.2"));
+    let (bytes, _) =
+        specify_core::writer::write_bytes_changing_general_tolerance(&part, &intent, None).unwrap();
+    let after = Document::parse(bytes.clone()).unwrap();
+    let saved = load_bytes("changed.step", bytes).unwrap();
+    let q = pmi_of(&saved);
+    assert_eq!(note(&q), None);
+    assert_eq!(cells(&q).len(), 1);
+    assert_eq!(q.material, p.material);
+    let mut gone = 0;
+    for id in doc.ids() {
+        let before = &doc.bytes()[doc.span(id).unwrap()];
+        let now = after.span(id).map(|s| &after.bytes()[s]);
+        if now != Some(before) {
+            if drawn.contains(&id) && !semantic.contains(&id) {
+                continue;
+            }
+            assert!(
+                reach.contains(&id),
+                "#{id} changed, not the old table's or note's: {}",
+                String::from_utf8_lossy(before)
+            );
+            gone += 1;
+        }
+    }
+    assert!(gone > 0);
 }
