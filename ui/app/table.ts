@@ -64,9 +64,9 @@ export interface PanelRow {
 export interface PanelGroup { key: string; title: string; rows: PanelRow[] }
 
 /** A requirement in "Other PMI in the file": remove only. */
-/** ``id``: the existing-PMI item's id, for a removal without a number (the payload's, else `file_pmi:<index>`
- * until the engine gives one). */
-export interface OtherRow { key: string; id: string; number?: string; label: string; value: string; faces: number[] }
+/** ``id``: the item's id in the engine's table (`file_pmi:#<STEP entity>`), for a removal without a
+ * number; absent for an item the engine cannot name, which has no removal without a number. */
+export interface OtherRow { key: string; id?: string; number?: string; label: string; value: string; faces: number[] }
 
 export interface PanelModel { part: PanelGroup | null; features: PanelGroup[]; datums: PanelGroup | null; bom: PanelGroup | null; other: OtherRow[] }
 
@@ -174,7 +174,7 @@ export function panelModel(table: FeatureTable, questions: readonly PmiQuestion[
     else group(`feature:${row.feature}`, title || row.feature).rows.push(panelRow);
   }
   const other = table.file_pmi.map((r, i) => ({
-    key: r.number ?? `item:${i}`, id: r.id ?? `file_pmi:${i}`, ...(r.number ? { number: r.number } : {}), label: capital(r.kind.replace(/_/g, ' ')), value: displayText(r.text), faces: r.faces,
+    key: r.number ?? r.id ?? `item:${i}`, ...(r.id ? { id: r.id } : {}), ...(r.number ? { number: r.number } : {}), label: capital(r.kind.replace(/_/g, ' ')), value: displayText(r.text), faces: r.faces,
   }));
   return {
     part: groups.get('part') ?? null,

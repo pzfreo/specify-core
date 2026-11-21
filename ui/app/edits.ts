@@ -33,9 +33,10 @@ export function editList(pending: Iterable<Pending>): EditList {
 }
 
 /** The one route for a removal: a requirement's characteristic numbers when it has them, otherwise
- * the id of the stated row or existing-PMI item, as `{"id": …}` in `items.remove`. */
-export function removalTargets(numbers: readonly string[], id: string): RemoveTarget[] {
-  return numbers.length ? [...numbers] : [{ id }];
+ * the id of the stated row or of the existing-PMI item (the engine's `file_pmi:#<entity>`), as
+ * `{"id": …}` in `items.remove`; none when it has neither. */
+export function removalTargets(numbers: readonly string[], id?: string): RemoveTarget[] {
+  return numbers.length ? [...numbers] : id ? [{ id }] : [];
 }
 
 /** "Add all suggestions": every gap of ``rows`` with a suggestion and no edit yet, as the edit Add or

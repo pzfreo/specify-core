@@ -19,8 +19,9 @@ const table = {
       requirements: [{ number: '#1', kind: 'datum', type: 'A', faces: [0], text: 'datum A' }], open: false },
   ],
   file_pmi: [
-    { number: '#3', kind: 'dimension', type: 'Location_LinearDistance', faces: [7, 11], text: 'Location_LinearDistance 37.6' },
-    { kind: 'dimension', type: 'Location_LinearDistance', faces: [41, 37], text: 'Location_LinearDistance' },
+    { number: '#3', id: 'file_pmi:#1401', kind: 'dimension', type: 'Location_LinearDistance', faces: [7, 11], text: 'Location_LinearDistance 37.6' },
+    { id: 'file_pmi:#24', kind: 'dimension', type: 'Location_LinearDistance', faces: [41, 37], text: 'Location_LinearDistance' },
+    { kind: 'note', type: 'general note', faces: [2], text: 'Deburr' },
   ],
   decided_none: ['part.coating'],
 };
@@ -54,7 +55,9 @@ test('the panel reads the feature table: features with each kind stated, gap or 
   assert.equal(model.features[0].rows[1].value, '⌖ 0.2 A', 'and shows it as a drawing writes it');
   assert.deepEqual(model.datums.rows.map(r => r.label), ['Datum A']);
   // "Other PMI in the file": by number when it has one.
-  assert.deepEqual(model.other.map(o => [o.key, o.id, o.number, o.value]), [['#3', 'file_pmi:0', '#3', '37.6'], ['item:1', 'file_pmi:1', undefined, 'Linear distance']]);
+  // The engine's ids (`file_pmi:#<entity>`) name each item; one it cannot name has none.
+  assert.deepEqual(model.other.map(o => [o.key, o.id, o.number, o.value]), [['#3', 'file_pmi:#1401', '#3', '37.6'], ['file_pmi:#24', 'file_pmi:#24', undefined, 'Linear distance'], ['item:2', undefined, undefined, 'Deburr']]);
+  assert.deepEqual(model.other.map(o => removalTargets(o.number ? [o.number] : [], o.id)), [['#3'], [{ id: 'file_pmi:#24' }], []]);
   // Nothing in the model says who wrote a requirement (decision 6).
   assert.doesNotMatch(JSON.stringify(model), /origin|provenance|from the file|written by/);
 });
@@ -85,7 +88,7 @@ test('the pending edits are one edit list, one edit per row, in the bar\'s words
   let pending = new PendingEdits();
   pending = pending.with({ kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' });
   pending = pending.with({ kind: 'change', id: 'hole.position:holes:14.15', name: 'Ø1.6 hole position', value: '0.1', text: '⌖ 0.1 A', expect: 'Position 0.2 | A', was: '⌖ 0.2 A' });
-  pending = pending.with({ kind: 'remove', id: '#3', name: 'Dimension', targets: removalTargets(['#3'], 'file_pmi:0'), was: '37.6' });
+  pending = pending.with({ kind: 'remove', id: '#3', name: 'Dimension', targets: removalTargets(['#3'], 'file_pmi:#1401'), was: '37.6' });
   pending = pending.with({ kind: 'remove', id: 'part.edges', name: 'Edges', targets: removalTargets([], 'part.edges'), was: 'Deburr only' });
   pending = pending.with({ kind: 'none', id: 'part.heat_treatment', name: 'Heat treatment' });
   pending = pending.with({ kind: 'clear', id: 'part.coating', name: 'Coating' });

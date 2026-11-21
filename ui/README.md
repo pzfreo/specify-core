@@ -199,8 +199,8 @@ beside its name), a **gap** ("not stated", with Specify's suggestion as a dashed
   the CLI and edit lists take: `.XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°` (inch places written `.XX`,
   millimetre places `X.XX`, no places `X` with its unit, `X ±.5 in`, as the engine spells them; a new block starts
   in the file's length unit; `app/general-tolerance.ts`).
-- "Other PMI in the file" rows have the bin only (an item without a number is named `{"id": "file_pmi:<index>"}`
-  until the table gives items an id).
+- "Other PMI in the file" rows have the bin only: removed by number, or, without one, by the engine's id for the
+  item (`{"id": "file_pmi:#<STEP entity>"}`, the table's `file_pmi[].id`); an item the engine cannot name has no bin.
 - Every edit is checked against the file, with the edits already listed, before it joins the bar (the engine's
   `checkEdits`); one the file cannot take says why on its line. The bar at the bottom lists the edits; **Save**
   sends them as one edit list (`POST save {rev, edits}`), applied all or nothing ("Nothing to save." when none are

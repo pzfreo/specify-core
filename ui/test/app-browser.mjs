@@ -301,16 +301,10 @@ try {
     const block = '.XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°';
     await check(gt.locator('.spec-gt-text code')).toHaveText(block);
     await gt.locator('.spec-edit').getByRole('button', { name: 'Add', exact: true }).click();
-    // The engine with the block (branch general-tolerance-block) takes it, and the bar shows it as
-    // entered; this base's engine knows only ISO classes, and its check refuses it on the line.
-    await check(listedEdit(page, 'part.general_tolerance').or(gt.locator('.spec-problem'))).toBeVisible();
-    if (await listedEdit(page, 'part.general_tolerance').count()) {
-      await check(listedEdit(page, 'part.general_tolerance')).toHaveText(`Add General tolerance: ${block}`);
-      await page.getByRole('button', { name: 'Discard', exact: true }).click();
-    } else {
-      await check(gt.locator('.spec-problem')).toContainText('is not an answer to part.general_tolerance');
-      await gt.getByRole('button', { name: 'Cancel', exact: true }).click();
-    }
+    // The engine takes the block (#228): its check passes and the bar shows it as entered.
+    await check(gt.locator('.spec-problem')).toHaveCount(0);
+    await check(listedEdit(page, 'part.general_tolerance')).toHaveText(`Add General tolerance: ${block}`);
+    await page.getByRole('button', { name: 'Discard', exact: true }).click();
     await add(page, 'part.material', 'Aluminium 6082-T6');
     // Each edit joins the bar only if the file takes it with those listed (the bar is always a list
     // Save can write): a hole's position before the datum it cites is refused, saying so.
@@ -705,6 +699,19 @@ try {
     const lost = readFileSync(nist, 'utf8').split(/\r?\n/).filter(line => !has.has(line) && !/^FILE_(DESCRIPTION|NAME)\(/.test(line));
     assert.deepEqual(lost, [], 'every entity of the original is in the saved file, byte for byte');
     assert.equal(table(join(dir, 'nist-ctc-01.specified.step'))['part.material'].state, 'stated');
+    // One without a number is removed by the engine's id for it (`{"id": "file_pmi:#<entity>"}`).
+    const saved = join(dir, 'nist-ctc-01.specified.step');
+    const target = analyse(saved).table.file_pmi.find(r => !r.number && r.id);
+    assert.ok(target, 'NIST CTC-01 has unnumbered PMI the engine names');
+    const gone = row(page, target.id);
+    await gone.getByRole('button', { name: /^Remove / }).click();
+    await gone.locator('.spec-edit.rm').getByRole('button', { name: 'Remove', exact: true }).click();
+    await check(listedEdit(page, target.id)).toBeVisible();
+    const before = analyse(saved).table.file_pmi.length;
+    await save(page, server, 2);
+    const left = analyse(saved).table.file_pmi;
+    assert.ok(!left.some(r => r.id === target.id), `${target.id} (${target.text}) removed`);
+    assert.equal(left.length, before - 1, 'only that one');
     onlyLocal(requests, server.origin);
     await context.close();
     server.stop();

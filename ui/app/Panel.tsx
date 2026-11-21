@@ -187,7 +187,7 @@ export function Panel(props: PanelProps) {
       <div key={o.key} className={`spec-row stated${p ? ' changed removed' : ''}`} data-row={o.key}>
         <button type="button" className="k" title="Show it on the part" onClick={() => props.onFaces(o.faces)}>{o.label}</button>
         <span className="v">{o.value}{o.number && <span className="num">{o.number}</span>}</span>
-        {!readOnly && !p && (
+        {!readOnly && !p && (o.number || o.id) && (
           <span className="acts"><IconButton label={`Remove ${o.value}`} icon="bin" disabled={disabled} onClick={() => open(o.key, 'remove')} /></span>
         )}
         {here && (
