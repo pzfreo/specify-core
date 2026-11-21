@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import init, { IntentEngine, diff, acceptDefaults } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
+import { storable } from './storable.mjs';
 
 const root = new URL('../', import.meta.url);
 await init({ module_or_path: readFileSync(new URL('crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm', root)) });
@@ -67,7 +68,7 @@ try {
     assert.ok(evidence.geometry);
     const written = JSON.parse(shared.writePmi(JSON.stringify(given)));
     const back = new IntentEngine('shared-written.step', Uint8Array.from(written.bytes));
-    try { assert.deepEqual(JSON.parse(back.snapshot()).analysis.resume.answers, given); }
+    try { assert.deepEqual(JSON.parse(back.snapshot()).analysis.resume.answers, storable(given)); }
     finally { back.free(); }
   } finally { shared.free(); }
   let genericBytes = oldBytes;
@@ -82,7 +83,7 @@ try {
     assert.ok(JSON.parse(generic.snapshot()).analysis.faces.every(f => f.name === undefined));
     const written = JSON.parse(generic.writePmi(JSON.stringify(given)));
     const back = new IntentEngine('generic-written.step', Uint8Array.from(written.bytes));
-    try { assert.deepEqual(JSON.parse(back.snapshot()).analysis.resume.answers, given); }
+    try { assert.deepEqual(JSON.parse(back.snapshot()).analysis.resume.answers, storable(given)); }
     finally { back.free(); }
   } finally { generic.free(); }
   const mixedOld = new IntentEngine('mixed-old.step', renamed(oldBytes, bottom, ''));
@@ -123,8 +124,13 @@ try {
   const written = JSON.parse(after.writePmi(accepted));
   const back = new IntentEngine('resolved.step', Uint8Array.from(written.bytes));
   try {
-    const resumed = JSON.parse(back.snapshot()).analysis.resume.answers;
-    assert.deepEqual(resumed['datum.A'], [4, 8]);
+    const { analysis } = JSON.parse(back.snapshot());
+    const resumed = analysis.resume.answers;
+    // ADR P11: the datum is written as PMI, so the file states it on both faces (not stored).
+    const datum = analysis.table.rows.find(r => r.id === 'datum.A');
+    assert.equal(datum.state, 'stated');
+    assert.deepEqual(datum.requirements.map(r => r.faces), [[4, 8]]);
+    assert.equal(resumed['datum.A'], undefined);
     assert.equal(resumed._specify, undefined, 'transport is consumed before storing answers');
   } finally { back.free(); }
   // Answers saved with the old geometry's evidence.
