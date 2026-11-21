@@ -119,6 +119,24 @@ async function noneNeeded(page, id) {
   await row(page, id).getByRole('button', { name: 'None needed', exact: true }).click();
   await check(row(page, id)).toHaveAttribute('data-state', 'decided_none');
 }
+/** Every row's value fits its box and keeps clear of the row's icons and buttons. */
+async function assertValuesFit(page) {
+  const bad = await page.locator('.spec-rows .spec-row').evaluateAll(rows => rows.flatMap(row => {
+    const v = row.querySelector(':scope > .v');
+    const acts = row.querySelector(':scope > .acts');
+    if (!v || !v.getClientRects().length) return [];
+    const box = v.getBoundingClientRect();
+    const out = [];
+    if (v.scrollWidth > v.clientWidth + 1) out.push(`${row.dataset.row}: overflows (${v.scrollWidth} > ${v.clientWidth})`);
+    if (acts) {
+      const a = acts.getBoundingClientRect();
+      const sameLine = box.top < a.bottom - 1 && a.top < box.bottom - 1;
+      if (sameLine && box.right > a.left + 1) out.push(`${row.dataset.row}: under its icons`);
+    }
+    return out;
+  }));
+  assert.deepEqual(bad, [], 'every value wraps within its box');
+}
 /** No wording in ``box`` says who wrote a requirement (decision 6). */
 async function assertNoOrigin(box) {
   const text = await box.innerText();
@@ -551,7 +569,14 @@ try {
     await check(listedEdit(page, 'part.material')).toHaveCount(0);
     await check(material(page)).toHaveAttribute('data-state', 'gap');
     await check(page.getByRole('alert')).toHaveCount(0);
+    // Long values wrap, never clipped or under the icons (specify-ui #14), at the panel's width and
+    // at a phone's.
+    await assertValuesFit(page);
     if (shots) await page.screenshot({ path: join(shots, 'add-all.png') });
+    const wide = page.viewportSize();
+    await page.setViewportSize({ width: 360, height: 800 });
+    await assertValuesFit(page);
+    await page.setViewportSize(wide);
     // 3. Discard after it writes nothing: the file is byte-identical, and no copy is made.
     await page.getByRole('button', { name: 'Discard', exact: true }).click();
     await check(page.locator('.spec-bar li[data-pending]')).toHaveCount(0);

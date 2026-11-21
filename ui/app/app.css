@@ -81,7 +81,8 @@ body { background: #fff; color: #1a1d21; font: 13px/1.45 ui-sans-serif, -apple-s
 .spec-row.gap { background: var(--spec-gap-soft); border-radius: 6px; padding: 4px 6px; margin: 2px -6px; }
 .spec-row.gap > .v { color: var(--spec-gap); }
 .spec-row .sugg { display: inline-block; font-size: 11.5px; border: 1px dashed var(--spec-gap); border-radius: 10px; padding: 0 6px; margin-left: 6px; }
-.spec-row > .v > .t { white-space: nowrap; }
+.spec-row > .v > .t { white-space: normal; }
+.spec-row .acts { flex: none; margin-left: auto; }
 .spec-row.nonerow > .v { color: var(--spec-none); font-style: italic; }
 .spec-row.changed > .v { color: var(--spec-accent); font-weight: 600; }
 .spec-row.changed { box-shadow: inset 3px 0 0 var(--spec-accent); padding-left: 6px; }
