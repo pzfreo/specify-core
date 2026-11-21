@@ -686,8 +686,11 @@ fn locations_on(p: &haecceity::pmi::PartPmi, face: usize) -> Vec<(Vec<usize>, Ve
         .filter_map(|d| match &d.kind {
             DimensionKind::Location { from, to, .. } => {
                 let (a, b) = (faces_of(p, &[*from]), faces_of(p, &[*to]));
-                (a.contains(&face) || b.contains(&face))
-                    .then(|| (a, b, matches!(d.tolerance, DimTolerance::Basic)))
+                (a.contains(&face) || b.contains(&face)).then_some((
+                    a,
+                    b,
+                    matches!(d.tolerance, DimTolerance::Basic),
+                ))
             }
             DimensionKind::Size { .. } => None,
         })

@@ -487,7 +487,7 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
             .filter(|r| shared(r))
             .map(|r| r.text.as_str())
             .collect();
-        if !row.requirements.is_empty() && row.requirements.iter().all(|r| shared(r)) {
+        if !row.requirements.is_empty() && row.requirements.iter().all(&shared) {
             failures.push(entry_failure(
                 entry.clone(),
                 format!(
@@ -728,7 +728,7 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
                     .requirements
                     .iter()
                     .chain(&intent.general)
-                    .any(|r| r["question"] == **id)
+                    .any(|r| r.get("question").and_then(Json::as_str) == Some(id.as_str()))
                     || intent
                         .datums
                         .iter()
