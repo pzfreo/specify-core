@@ -124,6 +124,8 @@ test('requirements read as a drawing writes them; a removal names its number, el
   assert.equal(displayText('Location_LinearDistance 1.5; Location_LinearDistance 2.375'), '1.5; 2.375');
   assert.equal(displayText('Brass CZ121'), 'Brass CZ121');
   assert.equal(changedText('⌖ 0.2 A', '0.1'), '⌖ 0.1 A');
+  // The engine's notation (feature-table): the zone and modifiers stay, as a change keeps them.
+  assert.equal(changedText('⌖ ⌀0.3Ⓜ A', '0.2'), '⌖ ⌀0.2Ⓜ A');
   assert.equal(changedText('Brass', 'Steel'), 'Steel');
   assert.deepEqual(removalTargets(['#4', '#5'], 'hole.position:holes:13'), ['#4', '#5']);
   assert.deepEqual(removalTargets([], 'part.material'), [{ id: 'part.material' }]);

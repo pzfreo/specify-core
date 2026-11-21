@@ -355,7 +355,7 @@ try {
     const number = states[position].requirements[0].number;
     const pos = row(page, position);
     // Values read as a drawing writes them, not as the engine stores them.
-    await check(pos).toContainText('⌖ 0.2 A');
+    await check(pos).toContainText('⌖ ⌀0.2 A');
     // The pencil and the bin match, and neither is a warning colour (decision 1).
     const icons = pos.locator('.acts button.spec-icon');
     await check(icons).toHaveCount(2);
@@ -366,13 +366,13 @@ try {
     assert.equal(new Set(looks).size, 1, `the pencil and the bin look the same: ${looks}`);
     assert.doesNotMatch(looks[0], /168, 50, 45|179, 38, 30/, 'not red');
     await pos.getByRole('button', { name: /^Change / }).click();
-    await check(pos.locator('.spec-edit .now')).toHaveText('Now: ⌖ 0.2 A');
+    await check(pos.locator('.spec-edit .now')).toHaveText('Now: ⌖ ⌀0.2 A');
     await check(pos.locator('.spec-edit input')).toHaveValue('0.2');
     await check(pos.locator('.spec-edit')).toContainText(`Keeps ${number} if only the limits change. A different measurement gets a new number and ${number} is retired.`);
     await pos.locator('.spec-edit input').fill('0.1');
     await pos.getByRole('button', { name: 'Apply', exact: true }).click();
-    await check(listedEdit(page, position)).toHaveText('Change Ø1.6 hole position: ⌖ 0.2 A → ⌖ 0.1 A');
-    await check(pos).toContainText('⌖ 0.1 A');
+    await check(listedEdit(page, position)).toHaveText('Change Ø1.6 hole position: ⌖ ⌀0.2 A → ⌖ ⌀0.1 A');
+    await check(pos).toContainText('⌖ ⌀0.1 A');
     // Remove: the bin asks once, in a line, the only red in the panel (decision 1); its number is retired.
     const removed = 'hole.position:holes:13';
     const retired = states[removed].requirements[0].number;
@@ -385,15 +385,13 @@ try {
     await gone.locator('.spec-edit.rm').getByRole('button', { name: 'Remove', exact: true }).click();
     await check(gone).toHaveClass(/removed/);
     // Every stated row has the pencil and the bin (decisions 1 and 2), the material too. Without a
-    // number its removal names the row (`items.remove: [{"id": "part.material"}]`); until the engine
-    // takes that, the check refuses it, said on its line, and nothing joins the bar.
+    // number its removal names the row (`items.remove: [{"id": "part.material"}]`; saved below, on the
+    // reopened file); here it is asked and cancelled, and nothing joins the bar.
     await check(material(page).locator('.acts button.spec-icon')).toHaveCount(2);
     await material(page).getByRole('button', { name: /^Remove / }).click();
     await check(material(page).locator('.spec-edit.rm .now')).toHaveText('Remove Aluminium 6082-T6?');
-    await material(page).locator('.spec-edit.rm').getByRole('button', { name: 'Remove', exact: true }).click();
-    await check(material(page).locator('.spec-problem')).not.toBeEmpty();
-    await check(listedEdit(page, 'part.material')).toHaveCount(0);
     await material(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+    await check(listedEdit(page, 'part.material')).toHaveCount(0);
     await check(material(page)).not.toHaveClass(/removed/);
     // Undo on a decision the file stores takes it back (the edit list's clear): a gap again.
     await row(page, 'part.coating').getByRole('button', { name: 'Undo', exact: true }).click();
@@ -448,6 +446,15 @@ try {
     const configs = () => requests.filter(({ url, method }) => method === 'GET' && url === `${server.url}config`).length;
     assert.equal(configs(), 1);
     await check.poll(configs, { timeout: 40000 }).toBe(2);
+    // A stated row with no number is removed by its id (`items.remove: [{"id": "part.material"}]`):
+    // the engine takes it, the bar lists it, and the saved file has the material as a gap.
+    await material(page).getByRole('button', { name: /^Remove / }).click();
+    await material(page).locator('.spec-edit.rm').getByRole('button', { name: 'Remove', exact: true }).click();
+    await check(material(page).locator('.spec-problem')).toHaveCount(0);
+    await check(listedEdit(page, 'part.material')).toHaveText('Remove Material: Aluminium 6082-T6');
+    await save(page, server, 1);
+    const withoutMaterial = (await page.locator('.app-saved code').textContent()).trim();
+    assert.equal(table(withoutMaterial)['part.material'].state, 'gap', 'the material removed by its id');
     onlyLocal(requests, server.origin);
     await context.close();
     server.stop();
@@ -699,21 +706,25 @@ try {
     const lost = readFileSync(nist, 'utf8').split(/\r?\n/).filter(line => !has.has(line) && !/^FILE_(DESCRIPTION|NAME)\(/.test(line));
     assert.deepEqual(lost, [], 'every entity of the original is in the saved file, byte for byte');
     assert.equal(table(join(dir, 'nist-ctc-01.specified.step'))['part.material'].state, 'stated');
-    // One without a number is removed by the engine's id for it (`{"id": "file_pmi:#<entity>"}`).
+    onlyLocal(requests, server.origin);
+    await context.close();
+    // One without a number is removed by the engine's id for it (`{"id": "file_pmi:#<entity>"}`), on
+    // the file as saved (a page opened on it now).
     const saved = join(dir, 'nist-ctc-01.specified.step');
     const target = analyse(saved).table.file_pmi.find(r => !r.number && r.id);
     assert.ok(target, 'NIST CTC-01 has unnumbered PMI the engine names');
-    const gone = row(page, target.id);
+    const again = await load(server);
+    const gone = row(again.page, target.id);
     await gone.getByRole('button', { name: /^Remove / }).click();
     await gone.locator('.spec-edit.rm').getByRole('button', { name: 'Remove', exact: true }).click();
-    await check(listedEdit(page, target.id)).toBeVisible();
+    await check(listedEdit(again.page, target.id)).toBeVisible();
     const before = analyse(saved).table.file_pmi.length;
-    await save(page, server, 2);
+    await save(again.page, server, 2);
     const left = analyse(saved).table.file_pmi;
     assert.ok(!left.some(r => r.id === target.id), `${target.id} (${target.text}) removed`);
     assert.equal(left.length, before - 1, 'only that one');
-    onlyLocal(requests, server.origin);
-    await context.close();
+    onlyLocal(again.requests, server.origin);
+    await again.context.close();
     server.stop();
   }
   // Diff: what changed from OLD to NEW, what needs checking, and Save writes NEW with its own answers.
