@@ -2185,7 +2185,14 @@ fn racing_saves_at_one_rev_write_exactly_one() {
         .map(|id| {
             let page = page.clone();
             let id = id.to_string();
-            std::thread::spawn(move || (id.clone(), page.save(0, json!({"none": [id]})).status))
+            // Each a list the file takes on its own: a decision of none where none is an
+            // option, else a fill of one of the question's options.
+            let list = match id.as_str() {
+                "part.surface_finish" => json!({"fill": {(id.clone()): "Ra 3.2"}}),
+                "part.edges" => json!({"fill": {(id.clone()): "Deburr only"}}),
+                _ => json!({"none": [id]}),
+            };
+            std::thread::spawn(move || (id.clone(), page.save(0, list).status))
         })
         .collect();
     let results: Vec<(String, u16)> = racers.into_iter().map(|r| r.join().unwrap()).collect();
@@ -2200,14 +2207,15 @@ fn racing_saves_at_one_rev_write_exactly_one() {
         "{results:?}"
     );
     assert_eq!(page.rev(), 1);
-    let decided =
-        analysis_of(&scratch.path("work/part.specified.step"))["table"]["decided_none"].clone();
+    let table = analysis_of(&scratch.path("work/part.specified.step"))["table"].clone();
     for id in ids {
-        assert_eq!(
-            decided.as_array().unwrap().contains(&json!(id)),
-            id == won[0].as_str(),
-            "{id}: {decided}"
-        );
+        let row = table["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == id)
+            .unwrap();
+        assert_eq!(row["state"] != "gap", id == won[0].as_str(), "{id}: {row}");
     }
     // One more, certainly stale.
     assert_eq!(page.save(0, json!({})).status, 409);

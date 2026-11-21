@@ -694,9 +694,32 @@ pub fn save_edits(
     // Each part once: one change (and event) per part, to the answers the saved file stores.
     let parts: std::collections::BTreeSet<usize> =
         s.answers.keys().chain(answers.keys()).copied().collect();
-    for k in parts {
-        let now = answers.remove(&k).unwrap_or_default();
-        s.change(k, now, source, Some(at));
+    for k in &parts {
+        let now = answers.remove(k).unwrap_or_default();
+        s.change(*k, now, source, Some(at));
+    }
+    // A save that changed the file is a new rev even when the stored answers are the same (a
+    // fill writes PMI, not an answer): a page or agent holding the old rev must read again
+    // before it saves. Each part's answers are sent again at it.
+    if !applied.unchanged && s.rev < at {
+        s.rev = at;
+        for k in parts {
+            let answers = s.answers.get(&k).cloned().unwrap_or_default();
+            s.changes.push_back(Change {
+                rev: at,
+                part: k,
+                source,
+                set: Map::new(),
+                cleared: Vec::new(),
+            });
+            let data = json!({"rev": at, "part": k, "answers": answers, "source": source});
+            s.publish(&event("answers", Some(at), &data));
+        }
+        while s.changes.len() > KEPT_CHANGES {
+            if let Some(gone) = s.changes.pop_front() {
+                s.dropped = gone.rev;
+            }
+        }
     }
     // Saved: nothing the session holds is unwritten.
     s.saved = s.answers.clone();
