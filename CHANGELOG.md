@@ -27,6 +27,12 @@ Read first:
 
 ### Added
 
+- **The ids are a contract** (docs/ids.md): the part-level ids (`part.material`, `datum.<letter>`,
+  `bom.*`, `extra.<name>`, …), the requirement kinds (`hole.position`, `diameter.fit`, …) and the
+  added requirement kinds are listed and promised stable; a feature id is a kind and the faces
+  it is on, and its face numbers hold for one revision only. `tests/ids_contract.rs` fails when
+  the code's ids and the doc's lists differ. No behaviour change (`input::PART_NAMES` and
+  `input::FEATURE_KINDS` are now public, for the test).
 - What the file states reads back whole (ADR P11): each `existing` item, and each feature-table
   requirement, has its full notation, `text` (`⌀3.3 H11`, `⌖ ⌀0.3Ⓜ A`, `M2×0.4-6H ↧ 2`), so a
   stated row reads `⌀3.3 H11`, not `Size_Diameter 3.3`; optional structured fields by the

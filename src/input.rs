@@ -35,8 +35,8 @@ fn bad(id: &str, why: impl Into<String>) -> Error {
     }
 }
 
-/// The `part.*` answer names.
-const PART_NAMES: [&str; 9] = [
+/// The `part.*` answer names. A contract (docs/ids.md, pinned by `tests/ids_contract.rs`).
+pub const PART_NAMES: [&str; 9] = [
     "material",
     "general_tolerance",
     "locating",
@@ -47,8 +47,9 @@ const PART_NAMES: [&str; 9] = [
     "notes",
     "process",
 ];
-/// The kinds of feature-scoped answer IDs (`kind:feature`).
-const FEATURE_KINDS: [&str; 7] = [
+/// The kinds of feature-scoped answer IDs (`kind:feature`). A contract (docs/ids.md, pinned
+/// by `tests/ids_contract.rs`).
+pub const FEATURE_KINDS: [&str; 7] = [
     "hole.function",
     "hole.full_thread",
     "hole.frame",
