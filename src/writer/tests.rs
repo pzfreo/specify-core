@@ -1061,3 +1061,55 @@ fn equal_counterbores_at_opposite_ends_have_distinct_mouth_to_floor_depths() {
     }
     assert!(all_faces[0].iter().all(|f| !all_faces[1].contains(f)));
 }
+
+/// ADR P11 rule 2 is checked per feature AND kind: a requirement of another kind made on the
+/// same faces (a runout on the pin's datum-A step) does not count for the answer's own kind (its
+/// size, left to the general tolerance and not written on a datum's own faces).
+#[test]
+fn an_approval_whose_own_kind_was_not_written_is_reported_beside_another_kind() {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/pin.step");
+    let loaded = crate::part::load(&path, None).unwrap();
+    let mut answers = Map::new();
+    answers.insert("diameter.fit:turned_steps:0".into(), Json::from("general"));
+    let runout: Map<String, Json> = serde_json::from_value(serde_json::json!({
+        "kind": "runout", "feature": "turned_steps:0", "faces": [0], "tolerance": 0.05,
+        "datums": ["A"], "question": "diameter.runout:turned_steps:0",
+    }))
+    .unwrap();
+    let planned = |req: &Map<String, Json>| {
+        let mut intent = Intent::new(serde_json::to_value(&loaded.binding).unwrap());
+        intent.datums =
+            vec![serde_json::from_value(serde_json::json!({"letter": "A", "faces": [0]})).unwrap()];
+        intent.requirements = vec![req.clone()];
+        part_pmi(&loaded, &intent, &PartPmi::default(), Mode::Replace, &[])
+            .unwrap()
+            .0
+    };
+    let nothing = wrote_nothing(
+        &loaded,
+        &answers,
+        std::slice::from_ref(&runout),
+        &planned(&runout),
+        &BTreeSet::new(),
+    );
+    assert!(
+        nothing.contains("diameter.fit:turned_steps:0"),
+        "{nothing:?}"
+    );
+    // A size made on it does count.
+    let size: Map<String, Json> = serde_json::from_value(serde_json::json!({
+        "kind": "size", "feature": "turned_steps:0", "faces": [0], "nominal": 10.0, "upper": 0.1, "lower": -0.1,
+    }))
+    .unwrap();
+    assert!(
+        wrote_nothing(
+            &loaded,
+            &answers,
+            std::slice::from_ref(&size),
+            &planned(&size),
+            &BTreeSet::new()
+        )
+        .is_empty()
+    );
+}

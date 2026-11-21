@@ -656,17 +656,17 @@ fn requirements(pmi: &PartPmi) -> BTreeSet<(String, usize)> {
     out
 }
 
-/// The requirement answers of `answers` that the plan made no PMI from: no requirement it
-/// made names the answer's question, is on the answer's feature (a general dimension carries
-/// no question; a thread's full-thread answer feeds the thread's requirement) or on its
-/// faces; and the file `loaded` was read from does not state the answer's feature-and-kind
-/// already (a repeated answer, ignored on reopening). Part settings, datums' own answers,
-/// choices that are not requirements, "none" answers and answers to questions not asked are
-/// not counted.
+/// The requirement answers of `answers` that the plan made no PMI from, by feature and kind:
+/// no requirement it made names the answer's question, and neither its PMI (`planned`) nor
+/// what the file `loaded` was read from states the answer's feature-and-kind (the feature table's
+/// matching, per direction for a location: a size made on a feature does not answer its
+/// position). Part settings, datums' own answers, choices that are not requirements, "none"
+/// answers and answers to questions not asked are not counted.
 fn wrote_nothing(
     loaded: &LoadedPart,
     answers: &Map<String, Json>,
     made: &[Map<String, Json>],
+    planned: &PartPmi,
     unasked: &BTreeSet<&str>,
 ) -> BTreeSet<String> {
     let candidates: Vec<&String> = answers
@@ -680,36 +680,28 @@ fn wrote_nothing(
         })
         .map(|(id, _)| id)
         .filter(|id| {
-            let (_, feature) = crate::feature_table::kind_and_feature(id);
-            !made.iter().any(|r| {
-                r.get("question").and_then(Json::as_str) == Some(id.as_str())
-                    || r.get("feature").and_then(Json::as_str) == Some(feature.as_str())
-            })
+            !made
+                .iter()
+                .any(|r| r.get("question").and_then(Json::as_str) == Some(id.as_str()))
         })
         .collect();
     if candidates.is_empty() {
         return BTreeSet::new();
     }
-    let existing: Vec<Json> = crate::existing::read(loaded)
+    // What the file states and what the plan made, as the feature table reads PMI.
+    let mut stated: Vec<Json> = crate::existing::read(loaded)
         .ok()
         .and_then(|reading| reading.existing_all(loaded).ok())
         .and_then(|items| serde_json::to_value(items).ok())
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
+    stated.extend(crate::existing::items_of(planned));
     let geometry: Vec<Json> = crate::features::describe_faces(loaded)
         .ok()
         .and_then(|faces| serde_json::to_value(faces).ok())
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
     let features = crate::features::recognise(loaded).unwrap_or_default();
-    let ids = |r: &Map<String, Json>| -> BTreeSet<u64> {
-        r.get("faces")
-            .and_then(Json::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Json::as_u64)
-            .collect()
-    };
     candidates
         .into_iter()
         .filter(|id| {
@@ -717,19 +709,10 @@ fn wrote_nothing(
             let Some(f) = features.iter().find(|f| f.id == feature) else {
                 return true;
             };
-            let faces: BTreeSet<u64> = f.faces.iter().map(|&i| i as u64).collect();
-            // A requirement made on its faces (a pattern's size is made on its members).
-            if made
-                .iter()
-                .any(|r| r.contains_key("kind") && !ids(r).is_disjoint(&faces))
-            {
-                return false;
-            }
             let mut req = Map::new();
             req.insert("question".into(), Json::from(id.as_str()));
             req.insert("faces".into(), Json::from(f.faces.clone()));
-            existing.is_empty()
-                || !crate::feature_table::requirement_stated(&req, &existing, &geometry)
+            !crate::feature_table::requirement_stated(&req, &stated, &geometry)
         })
         .cloned()
         .collect()
@@ -1205,11 +1188,12 @@ fn write_verified(
                 // ADR P11 rule 2: an approval the plan made no PMI from (a general size on a
                 // datum's own faces) is stored, listed as such, so it stays decided; else it
                 // would be dropped silently and its gap reopen.
-                let nothing = wrote_nothing(loaded, &saved, &made, &unasked);
+                let nothing = wrote_nothing(loaded, &saved, &made, &pmi, &unasked);
                 for id in &nothing {
                     lines.not_written.push(format!(
-                        "answer {id} ({}): there is no PMI to write for it; it is stored as \
-                         decided",
+                        "answer {id} ({}): approved, but nothing of its kind was written on its \
+                         feature (none is written on a datum's own faces; otherwise the planner \
+                         skipped it); stored as decided, not asked again",
                         crate::choices::short_repr(&saved[id.as_str()], 6)
                     ));
                 }

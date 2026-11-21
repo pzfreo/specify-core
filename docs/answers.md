@@ -144,7 +144,13 @@ and settings, and `analyse` adds the **feature table**, `table`:
   - `decided_none`: an answer that nothing is needed, stored in the file; or an approval the
     planner wrote nothing for (a ⌀ left to the general tolerance on a datum's own faces: no size
     is written on a datum feature), stored and listed in the payload's `no_pmi` (resumed as
-    `_specify.no_pmi`), its `value` the answer. The write report's `not_written` names it.
+    `_specify.no_pmi`), its `value` the answer. The write report's `not_written` names it:
+    "answer diameter.fit:turned_steps:0 ('general'): approved, but nothing of its kind was
+    written on its feature (none is written on a datum's own faces; otherwise the planner
+    skipped it); stored as decided, not asked again", so a planner gap stays visible. The
+    check is per feature and kind (per direction for a location): a size written on a hole
+    does not count for its position. Every route treats the stored decisions as answered: the
+    command line's `questions` and `write`, `serve`, MCP, WASM and the page.
 - `file_pmi`: the file's requirements on no recognised feature and kind.
 - `decided_none`: the decided-none ids, read back from the file.
 

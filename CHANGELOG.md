@@ -190,9 +190,11 @@ Read first:
   list's change), not an answer"); one equal to what the file states is a no-op, as on the
   command line. Before, it accepted the answer and the save left it out.
 - An approval the planner writes nothing for (a ⌀ left to the general tolerance on a datum's own
-  faces) is no longer dropped silently: `not_written` says so, it is stored (`no_pmi`), and on
-  reopening its row is decided, so `write --accept-defaults` on the saved file no longer
-  refuses "incomplete".
+  faces) is no longer dropped silently: `not_written` says what was approved and that nothing
+  of its kind was written, it is stored (`no_pmi`), and on reopening its row is decided on every
+  route (the command line's `questions` and `write` and `serve` now take the file's stored
+  decisions as answered, as the sessions do), so `questions --open` no longer lists it and a
+  plain `write` of the saved file no longer refuses "incomplete".
 - A location the planner shares across several holes is written unless the file already
   locates every one of them: on NIST CTC-05, 263.525 from face 9 to holes 37, 51/53 and 54/56
   was left out because hole 37 (datum B) is located, and the other holes lost their only x
