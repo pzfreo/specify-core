@@ -255,7 +255,7 @@ fn grm03_answered_position_reports_its_pending_frame_then_is_written() {
     );
 }
 
-fn check_accepted_defaults(path: &std::path::Path, given: Map<String, Value>) {
+fn check_accepted_defaults(path: &std::path::Path, given: Map<String, Value>, no_pmi: Value) {
     let loaded = part::load(path, None).unwrap();
     let analysis = api::analyse(&loaded).unwrap();
     let accepted = specify_core::rules::with_all_defaults(&analysis, &given).unwrap();
@@ -299,8 +299,16 @@ fn check_accepted_defaults(path: &std::path::Path, given: Map<String, Value>) {
         specify_core::writer::write_bytes(&loaded, &expected, Some(&accepted)).unwrap();
     assert_eq!(actual_bytes, expected_bytes);
     let reopened = part::load_bytes("accepted.step", actual_bytes).unwrap();
+    let resumed = api::analyse(&reopened).unwrap()["resume"]["answers"].clone();
+    // ADR P11 rule 2: the approval the planner wrote nothing for (a ⌀ on a datum's own faces)
+    // is stored too, listed as such.
+    assert_eq!(resumed["_specify"]["no_pmi"], no_pmi);
+    let mut accepted = accepted;
+    if !resumed["_specify"].is_null() {
+        accepted.insert("_specify".into(), resumed["_specify"].clone());
+    }
     assert_eq!(
-        api::analyse(&reopened).unwrap()["resume"]["answers"],
+        resumed,
         // ADR P11: stored are the answers that leave no PMI behind.
         json!(specify_core::feature_table::storable(&accepted))
     );
@@ -321,6 +329,7 @@ fn grm02_explicit_bulk_acceptance_matches_apply_with_defaults() {
     check_accepted_defaults(
         &common::fixtures().join("parts/GRM-02_shaft.step"),
         answers(json!({"part.material": "steel", "part.surface_finish": "Ra 1.6"})),
+        Value::Null,
     );
 }
 
@@ -337,5 +346,6 @@ fn grm03_explicit_bulk_acceptance_matches_apply_with_defaults() {
             "diameter.fit:turned_steps:6": "thread:M3",
             "diameter.fit:turned_steps:3": "knurl:straight",
         })),
+        json!(["diameter.fit:turned_steps:2"]),
     );
 }

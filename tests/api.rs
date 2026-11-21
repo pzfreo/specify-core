@@ -342,6 +342,14 @@ fn an_assembly_is_written_together_and_again_through_the_service() {
         &assembly_answers(PIN),
     )
     .unwrap();
+    // ADR P11 rule 2: and the approval the planner wrote nothing for (the ⌀10 on datum A's
+    // own faces), listed as such.
+    assert_eq!(
+        resumed["_specify"]["no_pmi"],
+        json!(["diameter.fit:turned_steps:0"])
+    );
+    let mut accepted = accepted;
+    accepted.insert("_specify".into(), resumed["_specify"].clone());
     assert_eq!(resumed, &specify_core::feature_table::storable(&accepted));
     assert_eq!(
         analysed["result"]["mesh"]["faces"]

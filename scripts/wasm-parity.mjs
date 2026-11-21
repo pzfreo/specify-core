@@ -137,8 +137,13 @@ for (const [part, path] of parts) {
     assert.deepEqual(acceptedWrite, expected.accepted_write, 'accepted PMI matches native apply-with-defaults bytes/report');
     const acceptedReopened = new IntentEngine(name, Uint8Array.from(acceptedWrite.bytes));
     // ADR P11 rule 2: the file stores only the answers that leave no PMI; it states the rest.
-    try { assert.deepEqual(JSON.parse(acceptedReopened.snapshot()).analysis.resume.answers, storable(accepted)); }
-    finally { acceptedReopened.free(); }
+    // An approval the planner wrote nothing for (a ⌀ on a datum's own faces) is stored, listed.
+    try {
+      const resumed = JSON.parse(acceptedReopened.snapshot()).analysis.resume.answers;
+      for (const id of resumed._specify?.no_pmi ?? []) assert.equal(accepted[id], 'general', id);
+      const listed = resumed._specify ? { ...accepted, _specify: resumed._specify } : accepted;
+      assert.deepEqual(resumed, storable(listed));
+    } finally { acceptedReopened.free(); }
     const edited = { ...accepted, 'part.general_tolerance': 'ISO 2768-f' };
     assert.equal(JSON.parse(engine.acceptDefaults(JSON.stringify(edited)))['part.general_tolerance'], 'ISO 2768-f');
     // ADR P11 (D5b): a general tolerance the file states stands; a different answer is not
