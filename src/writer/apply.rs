@@ -964,6 +964,7 @@ pub(crate) fn planned_intent(
     table: &FeatureTable,
     given: &BTreeMap<String, Json>,
     choices: &Map<String, Json>,
+    whole_general: bool,
 ) -> Result<crate::rules::Intent, String> {
     let mut analysis_clean = analysis.clone();
     // The questions are those of the part with its PMI set aside but for its datums, as
@@ -1025,11 +1026,13 @@ pub(crate) fn planned_intent(
     };
     // D1: the dimensions no question asks about (plane levels) are written once no question is
     // open: a list that answers every open gap (accepting every suggestion) writes the whole
-    // general set, as `write --accept-defaults` does; otherwise only what it names.
-    let nothing_open = table
-        .rows
-        .iter()
-        .all(|r| !r.open || given.contains_key(&r.id));
+    // general set, as `write --accept-defaults` does; otherwise only what it names. Not for
+    // `carry` (`whole_general` false), which writes only what the older revision states.
+    let nothing_open = whole_general
+        && table
+            .rows
+            .iter()
+            .all(|r| !r.open || given.contains_key(&r.id));
     if !nothing_open {
         intent.general.retain(|r| hole_of(r).is_some());
     }
@@ -1063,7 +1066,7 @@ pub fn apply_with(
     list: &EditList,
     extra: &[haecceity::pmi::AttributeSet],
 ) -> Result<Applied, Vec<Failure>> {
-    applied_with(loaded, list, None, extra)
+    applied_with(loaded, list, None, extra, false)
 }
 
 /// [`apply`], with `numbers` an older revision's characteristic-number history carried onto
@@ -1075,7 +1078,7 @@ pub(crate) fn apply_numbered(
     list: &EditList,
     numbers: Option<&Map<String, Json>>,
 ) -> Result<Applied, Vec<Failure>> {
-    applied_with(loaded, list, numbers, &[])
+    applied_with(loaded, list, numbers, &[], true)
 }
 
 /// The `bom.*` entries of `list` (a part of an assembly's BOM fields: `fill` with a value, or
@@ -1169,6 +1172,7 @@ fn applied_with(
     list: &EditList,
     numbers: Option<&Map<String, Json>>,
     extra: &[haecceity::pmi::AttributeSet],
+    carrying: bool,
 ) -> Result<Applied, Vec<Failure>> {
     if !list
         .fill
@@ -1176,12 +1180,12 @@ fn applied_with(
         .chain(&list.accept_suggestions)
         .any(|id| id.starts_with("bom."))
     {
-        return applied_pmi(loaded, list, numbers, extra);
+        return applied_pmi(loaded, list, numbers, extra, carrying);
     }
     let analysis = crate::api::analyse(loaded).map_err(|e| whole(e.to_string()))?;
     let (list, bom) = bom_edits(list, &analysis);
     let intent = bom?.expect("the list has BOM entries");
-    let mut applied = applied_pmi(loaded, &list, numbers, extra)?;
+    let mut applied = applied_pmi(loaded, &list, numbers, extra, carrying)?;
     // The BOM is appended after the PMI edit: every entity already there keeps its bytes.
     applied.bytes = crate::bom::append(applied.bytes, &[(loaded, &intent, None)])
         .map_err(|why| whole(format!("the BOM cannot be written: {why}")))?;
@@ -1199,6 +1203,7 @@ fn applied_pmi(
     list: &EditList,
     numbers: Option<&Map<String, Json>>,
     extra: &[haecceity::pmi::AttributeSet],
+    carrying: bool,
 ) -> Result<Applied, Vec<Failure>> {
     let (analysis, table) = table_of(loaded).map_err(whole)?;
     let (list, nominals) = field_changes(list, &table, &analysis)?;
@@ -1626,7 +1631,7 @@ fn applied_pmi(
         let analysis_clean =
             crate::api::analyse(&loaded_clean).map_err(|e| whole(e.to_string()))?;
         let mut intent =
-            planned_intent(&analysis_clean, &table, &given, &choices).map_err(whole)?;
+            planned_intent(&analysis_clean, &table, &given, &choices, !carrying).map_err(whole)?;
         let failing: Vec<Failure> = given
             .keys()
             .filter(|id| {
@@ -1996,7 +2001,7 @@ pub(crate) fn restates(
 ) -> bool {
     use crate::characteristics::Statement;
     let given = BTreeMap::from([(row.id.clone(), value.clone())]);
-    let Ok(intent) = planned_intent(analysis, table, &given, choices) else {
+    let Ok(intent) = planned_intent(analysis, table, &given, choices, false) else {
         return false;
     };
     let Ok((planned, _)) = super::part_pmi(loaded, &intent, &stated.before, Mode::Add, &[]) else {
