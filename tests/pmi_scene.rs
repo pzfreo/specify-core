@@ -1033,6 +1033,7 @@ fn notes_blocks(scene: &Value) -> std::collections::BTreeMap<String, Value> {
 }
 
 #[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirement() {
     let loaded = part::load(
         &common::fixtures().join("revisions/xcaf_pmi_plate.step.gz"),

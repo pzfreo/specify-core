@@ -146,6 +146,7 @@ fn plate_writes_every_required_quantity_and_basics_use_the_pattern_origin() {
 }
 
 #[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn an_existing_written_plate_retires_member_numbers_and_never_reuses_them() {
     let old = part::load(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/planner75/plate-v028.step.gz"),

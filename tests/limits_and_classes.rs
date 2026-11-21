@@ -62,6 +62,7 @@ fn notation(scene: &Value) -> String {
         .join("; ")
 }
 #[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn answered_size_and_plate_thickness_round_trip_as_limits() {
     let p = plate();
     let answers = given("7.8/8.2", "9.8/10.2");

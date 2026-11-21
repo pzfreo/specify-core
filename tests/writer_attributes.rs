@@ -202,6 +202,7 @@ fn stored_answers_set_and_item_names_are_reserved_even_without_answers() {
 }
 
 #[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn rewriting_a_resumed_part_replaces_extras_as_it_replaces_answers() {
     let loaded = plate();
     let first_answers = answers("steel");

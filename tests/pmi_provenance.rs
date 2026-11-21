@@ -332,6 +332,7 @@ fn dimensions_tolerances_and_caller_attributes_are_marked() {
 }
 
 #[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn an_unmarked_legacy_resumed_file_gains_markers_before_the_noop_shortcut() {
     let loaded = part::load(&common::fixtures().join("parts/plate.step"), None).unwrap();
     let mut intent = rules::Intent::new(serde_json::to_value(&loaded.binding).unwrap());

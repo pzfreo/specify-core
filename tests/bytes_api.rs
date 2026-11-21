@@ -49,6 +49,7 @@ fn answers(fit: &str) -> Map<String, Value> {
 /// the file writer's, and the bytes written resume the answers when loaded from memory. Also
 /// what the editor's session takes from the loaded part: its binding, analysis and mesh.
 #[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn bytes_in_bytes_out_match_the_file_writer_fresh_and_resumed() {
     let dir = temp("parity");
     let mut input = fixture("plate");

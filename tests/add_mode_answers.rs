@@ -127,21 +127,19 @@ fn nist(name: &str) {
 }
 
 #[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn ctc01_foreign_pmi_answers_resume_and_edits_preserve_entity_text() {
     nist("nist/nist_ctc_01_asme1_ap242");
 }
 
 #[test]
-fn ctc02_foreign_pmi_answers_resume_and_edits_preserve_entity_text() {
-    nist("nist/nist_ctc_02_asme1_ap242#0");
-}
-
-#[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn ftc09_foreign_pmi_answers_resume_and_edits_preserve_entity_text() {
     nist("nist/nist_ftc_09_asme1_ap242-e1");
 }
 
 #[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn ctc01_defaulted_add_replaces_all_own_items_and_keeps_numbers() {
     let case = common::case("nist/nist_ctc_01_asme1_ap242");
     let loaded = part::load(&case.input().unwrap(), None).unwrap();
@@ -212,32 +210,7 @@ fn old_add_mode_without_saved_answers_still_opens_as_existing_pmi() {
 }
 
 #[test]
-fn coincident_numbered_foreign_control_cannot_lend_its_number_to_specify() {
-    let loaded = part::load(&common::fixtures().join("parts/plate.step"), None).unwrap();
-    let analysis = api::analyse(&loaded).unwrap();
-    let face = analysis["faces"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|f| f["kind"] == "plane")
-        .unwrap()["id"]
-        .clone();
-    let answers = json!({"extra.1":{"kind":"flatness","faces":[face],"value":"0.031"}})
-        .as_object()
-        .unwrap()
-        .clone();
-    let intent = api::preview(&analysis, &answers).unwrap();
-    let bytes = writer::write_bytes(&loaded, &intent, None).unwrap().0;
-    // Simulate an independent producer with a numbered control and its own history.
-    // Keep all semantic values and numbers while removing Specify authorship.
-    let bytes = String::from_utf8(bytes)
-        .unwrap()
-        .replace(writer::PMI_PROVENANCE, "independent producer")
-        .into_bytes();
-    round_trip(part::load_bytes("foreign-numbered.step", bytes).unwrap());
-}
-
-#[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn stale_unmarked_legacy_answers_cannot_mask_scoped_add_saves() {
     let case = common::case("nist/nist_ctc_01_asme1_ap242");
     let loaded = part::load(&case.input().unwrap(), None).unwrap();

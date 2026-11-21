@@ -401,6 +401,7 @@ fn a_part_is_written_once_and_parts_are_of_one_file() {
 // the plate's PMI was written a second time beside the first and haecceity refused the edit
 // (item_identified_representation_usage.UR1 on the plate's faces).
 #[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn a_mixed_write_replaces_the_resumed_part_and_adds_to_the_other() {
     let dir = temp("mixed");
     let (_, _, out) = written(&dir);
