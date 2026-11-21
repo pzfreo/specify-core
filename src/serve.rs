@@ -23,14 +23,6 @@
 //!  "output": "/path/out.step", "accept_defaults": true}
 //! -> the report and the intent; the answers are stored in the file
 //! -> {"id": 4, "ok": false, "error": {"code": "incomplete", "message": ..., "missing": [...]}}
-//! Answer export, before writing (result.answers is an ordinary answer map): the answers
-//! given plus exactly the defaults approved in the optional "accept_defaults", by part with
-//! the value the person saw (ADR P9; none when absent); open questions stay open:
-//! {"id": 8, "op": "export_answers", "step": "/path/part.step", "analysis": {...},
-//!  "answers": {"part.material": "steel"}, "accept_defaults": {"0": {"part.finish": "Ra 3.2"}}}
-//! -> {"id": 8, "ok": true, "result": {"answers": {...}, "complete": false, "missing": [...]}}
-//!    an approval no longer the default: {"code": "invalid", "message": ..., "part": 0,
-//!    "question": id, "expected": approved, "current": default now}
 //!
 //! {"id": 7, "op": "write", "step": ..., "output": ..., "accept_defaults": true,
 //!  "parts": [{"analysis": ..., "answers": ...}, ...]}
@@ -284,23 +276,6 @@ impl Server {
                     "open": open,
                     "problems": problems(analysis, &answers)?,
                 }))
-            }
-            Some("export_answers") => {
-                let step = path(request, "step")?;
-                let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
-                let loaded = part::load(&step, Some(index)).map_err(Error::Load)?;
-                // Only the defaults approved, by part (ADR P9); none when absent.
-                let approved = match request.get("accept_defaults") {
-                    None | Some(Value::Null) => api::Approved::new(),
-                    Some(v) => api::approvals(v).ok_or_else(|| {
-                        Failure::Invalid(format!("accept_defaults: {}", api::APPROVALS_FORM))
-                    })?,
-                };
-                let exported = api::export_answers(&loaded, analysis, &answers, &approved)?;
-                Ok(
-                    json!({"answers": exported.answers, "complete": exported.complete(),
-                          "missing": exported.missing}),
-                )
             }
             Some("interpret") => interpret(request, analysis, &answers),
             Some("preview") => {

@@ -79,8 +79,8 @@ Intent known (you designed the part or were told the intent): answer everything 
 No context (an incoming STEP): answer only what you can infer, then offer `show`, which opens the \
 Specify page on the same answers, instead of a long chat Q&A; read the person's answers with \
 `changes` (every result carries `rev`).\n\
-Never take a default as intent: a suggested value is the person's to approve. `save`, \
-`write_pmi` and `export_answers` write what is answered plus exactly the defaults listed in their \
+Never take a default as intent: a suggested value is the person's to approve. `save` \
+and `write_pmi` write what is answered plus exactly the defaults listed in their \
 accept_defaults, each with the value the person saw, so list only those the person approved. Where Specify reports that the file and its stored answers disagree, bring it to the \
 person; never decide it yourself.\n\
 The answers are held in this server's memory and lost when it restarts unless saved or kept in \
@@ -642,7 +642,6 @@ impl Server {
             "characteristics" => self.characteristics(args),
             "read_pmi" => self.read_pmi(args),
             "write_pmi" => self.write_pmi(args),
-            "export_answers" => self.export_answers(args),
             "diff" => self.diff(args),
             "changes" => self.changes(args),
             "show" => self.show(args),
@@ -1210,33 +1209,6 @@ impl Server {
         Ok((answers, rev))
     }
 
-    fn export_answers(&self, args: &Map<String, Value>) -> ToolResult {
-        let (handle, doc) = self.doc(args)?;
-        let output = match optional_string(args, "output")? {
-            Some(raw) => Some(self.output_path(raw, flag(args, "overwrite")?)?),
-            None => None,
-        };
-        let (answers, rev) = self.approved_answers(doc, args)?;
-        // What is answered and the defaults approved, never every default (ADR P9), with the
-        // face evidence and the rule behind each approved default.
-        let loaded = doc.loaded()?;
-        let api::Exported {
-            answers: complete,
-            missing,
-        } = api::export_answers(&loaded, &doc.analysis, &answers, &session::Approved::new())?;
-        let mut out = Map::new();
-        out.insert("doc".into(), json!(handle));
-        out.insert("rev".into(), json!(rev));
-        out.insert("complete".into(), json!(missing.is_empty()));
-        out.insert("missing".into(), json!(missing));
-        if let Some(target) = output {
-            save_answers(&target, &complete)?;
-            out.insert("output".into(), json!(target));
-        }
-        out.insert("answers".into(), Value::Object(complete));
-        Ok(Value::Object(out))
-    }
-
     fn diff(&self, args: &Map<String, Value>) -> ToolResult {
         let old = self.existing_path(string(args, "old")?)?;
         let new = self.existing_path(string(args, "new")?)?;
@@ -1589,7 +1561,7 @@ fn sha256(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// `accept_defaults` (`save`, `write_pmi`, `export_answers`): by part, `{"<part>": {"<id>":
+/// `accept_defaults` (`save`, `write_pmi`): by part, `{"<part>": {"<id>":
 /// <value>}}`, or `{"<id>": <value>}` for the doc's own part; `{}` (or, when not `required`,
 /// absent) for none.
 fn approvals_arg(
@@ -1797,7 +1769,7 @@ fn flag(args: &Map<String, Value>, name: &str) -> Result<bool, ToolError> {
 
 // ----- tool and resource definitions -----
 
-const TOOL_NAMES: [&str; 13] = [
+const TOOL_NAMES: [&str; 12] = [
     "list_parts",
     "open",
     "questions",
@@ -1806,7 +1778,6 @@ const TOOL_NAMES: [&str; 13] = [
     "characteristics",
     "read_pmi",
     "write_pmi",
-    "export_answers",
     "diff",
     "changes",
     "show",
@@ -2036,26 +2007,6 @@ pub fn tools() -> Vec<Value> {
                 "rev": rev()
             }), &["doc", "output", "report"]),
             "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
-        }),
-        json!({
-            "name": "export_answers",
-            "title": "Export an answers file",
-            "description": format!("An editable answer map for the open document: what is answered, plus exactly the defaults listed in accept_defaults ({{\"<id>\": value}} with the values the person saw and approved; never every default unless the person saw the list and confirmed it), with face evidence (_specify) and the rule behind each approved default (_specify.sources), without writing STEP. Open questions stay open (complete, missing). Optionally saved to output (.json; overwrite: true to replace). {MEMORY_RULE}"),
-            "inputSchema": input(json!({
-                "doc": doc(),
-                "accept_defaults": {"type": "object", "description": "Exactly the defaults the person approved, {\"<id>\": value} with the values they saw (default {}: none)."},
-                "output": {"type": "string", "description": "Optional .json file to save the map to."},
-                "overwrite": {"type": "boolean", "description": "Replace output if it exists."}
-            }), &["doc"]),
-            "outputSchema": output(json!({
-                "doc": {"type": "string"},
-                "answers": {"type": "object"},
-                "output": {"type": "string"},
-                "complete": {"type": "boolean"},
-                "missing": strings(),
-                "rev": rev()
-            }), &["doc", "answers"]),
-            "annotations": {"readOnlyHint": false, "destructiveHint": false, "openWorldHint": false},
         }),
         json!({
             "name": "diff",

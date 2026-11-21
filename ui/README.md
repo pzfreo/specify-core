@@ -120,7 +120,8 @@ as using STEP numbering, including unnumbered settings.
 In the local app, **Inspection list (CSV)** and **AS9102 FAI (Excel)** describe only the last saved
 STEP, or the opened STEP in read-only mode. Before the first Save they are disabled and say
 “Save first: the inspection files describe the saved STEP”. After an in-place Save the label names
-the source file. Further answer edits do not change either export. Answers (JSON) still exports the answers.
+the source file. Further answer edits do not change either export. Answers (JSON) exports nothing in 0.3.0: it
+says "not available in 0.3.0" (ADR P11: no export of answers as a record).
 
 `GET file?rev=new` in specify-core 0.2.0 serves the input, updated after an in-place save. It cannot
 serve Save's separate output. After saving a separate copy, inspection exports stay disabled and

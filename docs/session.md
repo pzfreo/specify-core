@@ -44,7 +44,7 @@ The existing tools (docs/mcp.md) work on the session, plus three new ones:
 | Tool | Arguments | Result |
 | --- | --- | --- |
 | `open` | as today, plus `old?` (a revision to compare from), `in_place?` (on a session already open, changes where Save writes only when given) | as today, plus `rev`; with `old`, the diff's `verdict`, `summary` and `report` too; the session is the file's own, nothing carried |
-| `questions`, `review`, `characteristics`, `read_pmi`, `export_answers` | as today | as today, plus `rev`: they read the session as it is now, page edits included |
+| `questions`, `review`, `characteristics`, `read_pmi` | as today | as today, plus `rev`: they read the session as it is now, page edits included |
 | `answer` | as today | as today, plus the new `rev`; the page receives it as an `answers` event with `source: "mcp"` |
 | `changes` (new) | `doc`, `since` (a `rev`) | `rev`, and `changes`: `[{rev, part, source, set: {id: answer}, cleared: [id]}]` after `since`, oldest first. If `since` is older than the changes kept, `full: true` and the whole `answers` instead (every part's, by part index, as the page's `GET answers` gives `parts`) |
 | `show` (new) | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`. Starts the page server for this session on 127.0.0.1 (random port and token), or returns the running one's address; opens the browser unless `browser: false`. A session opened with `old` is shown in `diff` mode: the page shows what changed beside the new file, and the person may answer and save the new revision. `read_only: true` makes that page view-only (no answer changes or Save from the page); the agent can still answer. Only `read_only: true` is refused for a session opened with `old` or `in_place` (as `open` refuses `--read-only` with `--diff` or `--in-place`). A page already running in the other mode is never replaced: `show` is refused with its `url` and `mode` until the person has closed it |
@@ -66,10 +66,8 @@ new `rev`, an `answers` event with `"defaults": {"<part>": [ids]}`), are stored 
 the rest stay open, unwritten. A save writes only the parts that have at least one answer (keys
 starting with `_` not counting) or that the session changed since they joined (so a clear
 reaches the file); any other part is left as it is, and with nothing to write the file is saved
-as it was opened. MCP's `write_pmi` and `export_answers` (and the session-free exports: `api::export_answers`,
-CLI `questions --resolve-defaults --accept-defaults FILE`, serve, WASM `exportAnswers` and
-Python, by part only) follow the same rule for defaults:
-they write or export what is answered plus exactly the `accept_defaults` given, with the values
+as it was opened. MCP's `write_pmi` follows the same rule for defaults:
+it writes what is answered plus exactly the `accept_defaults` given, with the values
 the person saw, checked against the current defaults; without them, no default, and open
 questions are reported (`complete`, `missing`), never filled. A part joining the session
 (opened by the agent, or first changed by the page) is a change: a new `rev` and an event with

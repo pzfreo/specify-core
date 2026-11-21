@@ -89,7 +89,6 @@ JSON-RPC errors.
 | `characteristics` | `doc` | `intent`: the preview, as `serve`'s `preview`; `sources` (question ID to the rule behind each answer that is its question's default); `rev` |
 | `read_pmi` | `doc` | `existing` (the file's PMI by face), `part_settings`, `resumed`, `saved_answers?`; `rev` |
 | `write_pmi` | `doc`, `output`, `accept_defaults?` (`{"<id>": <value>}`, the defaults the person approved for the doc's part), `overwrite?` | `report`, as `serve`'s `write`; `complete`, `missing`, `rev`. What is answered plus only the defaults approved; open questions never refuse it |
-| `export_answers` | `doc`, `accept_defaults?` (as `write_pmi`), `output?`, `overwrite?` | `answers`: the answer map (docs/answers.md) of what is answered plus only the defaults approved, with face evidence; `complete`, `missing`, `rev` |
 | `diff` | `old`, `new`, `part?` | `verdict`, `summary`, `report`, `markdown`, as `specify-core diff`: from the two files' PMI only (nothing is written, no answers carried) |
 | `changes` | `doc`, `since` (a `rev`) | `rev`, and `changes`: `[{rev, part, source, set, cleared}]` after `since`, oldest first (`source` `page` or `mcp`); if `since` is older than the 256 changes kept, `full: true` and `answers`, every part's answers by part index |
 | `show` | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`: the Specify page for the document's session on 127.0.0.1 (docs/open.md), started or, if it is running, its address; the browser opened unless `browser: false`. `read_only` makes that page view-only (not for a session opened with `old` or `in_place`). A running page in the other mode is refused (`invalid`, with its `url` and `mode`), never replaced |
@@ -188,7 +187,7 @@ held **in the server's memory, by handle**, and nothing is written unless you as
   directory. The checks happen before the write and assume a trusted local machine: a symbolic
   link planted between the check and the write, by another local process with write access to
   the allowed directory, is not caught.
-- **No overwriting.** `write_pmi` and `export_answers` refuse an existing `output` unless the
+- **No overwriting.** `write_pmi` refuses an existing `output` unless the
   call passes `overwrite: true`. An `answers_file` that already holds an answer map is replaced
   as it is kept up to date; any other existing file only with `overwrite: true`. It may never
   be a STEP file.

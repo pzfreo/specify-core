@@ -302,40 +302,6 @@ fn pmi_scene(
     .map_err(PyValueError::new_err)
 }
 
-/// Answer file of the answers given and exactly the defaults in `accept_defaults` (JSON,
-/// `{"<part>": {"<id>": value}}`; none when absent; ADR P9), with evidence checked against
-/// the part. Open questions stay open.
-#[pyfunction]
-#[pyo3(signature = (step, analysis, answers, accept_defaults=None))]
-fn export_answers(
-    py: Python<'_>,
-    step: &Bound<'_, PyAny>,
-    analysis: &str,
-    answers: &str,
-    accept_defaults: Option<&str>,
-) -> PyResult<String> {
-    let analysis = parse("analysis", analysis)?;
-    let answers = answers_of(answers)?;
-    let approved = match accept_defaults {
-        Some(text) => api::approvals(&parse("accept_defaults", text)?).ok_or_else(|| {
-            PyValueError::new_err(format!("accept_defaults: {}", api::APPROVALS_FORM))
-        })?,
-        None => api::Approved::new(),
-    };
-    let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
-    let owned;
-    let handle = match loaded(step, None)? {
-        Some(handle) => handle,
-        None => {
-            owned = load_path(py, step, Some(index))?;
-            &owned
-        }
-    };
-    py.detach(|| api::export_answers(&handle.loaded, &analysis, &answers, &approved))
-        .map(|exported| Value::Object(exported.answers).to_string())
-        .map_err(raised)
-}
-
 /// Write `intent` (JSON) into `step` at `output`, on the part it was made for, or into a part
 /// already loaded, verified by reading back; given the `answers` (JSON) it came from, they are
 /// stored too. The report, as JSON (`api.write`).
@@ -743,7 +709,6 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(apply, m)?)?;
     m.add_function(wrap_pyfunction!(preview, m)?)?;
     m.add_function(wrap_pyfunction!(with_all_defaults, m)?)?;
-    m.add_function(wrap_pyfunction!(export_answers, m)?)?;
     m.add_function(wrap_pyfunction!(mesh, m)?)?;
     m.add_function(wrap_pyfunction!(pmi_scene, m)?)?;
     m.add_function(wrap_pyfunction!(diff, m)?)?;

@@ -396,16 +396,14 @@ def test_basic_dimensions_read_as_basic():
     assert all("basic" not in d.to_dict() for d in found if not d.basic)
 
 
-def test_dropped_carry_cannot_default_and_saved_evidence_rejects_changed_geometry(tmp_path):
+def test_dropped_carry_cannot_default(tmp_path):
     revisions = Path(__file__).resolve().parents[1] / "fixtures" / "revisions"
-    old = revisions / "plate_split.old.step.gz"
     new = revisions / "plate_split.new.step.gz"
-    given = {"part.material": "6061-T6", "datum.A": [4]}
     analysis = api.analyse(new)
     # An answers file carried with its datum dropped, as an earlier diff returned one (diff no
     # longer returns answers: ADR P11).
-    carried = api.export_answers(new, analysis, {"part.material": "6061-T6"})
-    carried["_specify"]["unresolved"] = {"datum.A": "face 4 has no match in the new part"}
+    carried = {"part.material": "6061-T6",
+               "_specify": {"unresolved": {"datum.A": "face 4 has no match in the new part"}}}
     blocked = next(q for q in api.questions(analysis, carried) if q.id == "datum.A")
     assert blocked.default is None and blocked.attention == "required"
     assert blocked.reason == "carried answer could not be applied: " + carried["_specify"]["unresolved"]["datum.A"]
@@ -414,9 +412,3 @@ def test_dropped_carry_cannot_default_and_saved_evidence_rejects_changed_geometr
     carried["datum.A"] = [4, 8]
     intent = api.apply(analysis, carried, accept_defaults=True)
     api.write(new, intent, tmp_path / "resolved.step", answers=carried)
-    saved = api.export_answers(old, api.analyse(old), given)
-    api.write(old, api.apply(api.analyse(old), saved, accept_defaults=True),
-              tmp_path / "unchanged.step", answers=saved)
-    with pytest.raises(ValueError, match="stale answers.*another revision"):
-        api.write(new, intent, tmp_path / "stale.step", answers=saved)
-    assert not (tmp_path / "stale.step").exists()

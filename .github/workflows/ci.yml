@@ -165,8 +165,6 @@ jobs:
       - if: env.RUST_CHECKS == 'true'
         run: node scripts/wasm-face-names.mjs
       - if: env.RUST_CHECKS == 'true'
-        run: node scripts/wasm-answers-export.mjs
-      - if: env.RUST_CHECKS == 'true'
         run: node scripts/wasm-limits.mjs
       - if: env.RUST_CHECKS == 'true'
         run: node scripts/wasm-hostile.mjs

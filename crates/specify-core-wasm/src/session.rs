@@ -326,22 +326,6 @@ impl Session {
         crate::accept_defaults(&self.analysis, answers)
     }
 
-    /// An answer file of the answers given, exactly the defaults `approved` (by part, each
-    /// with the value the person saw; ADR P9) and this part's evidence (`api::export_answers`).
-    /// Unlike accept_defaults, never takes every default; open questions stay open. Never
-    /// writes or changes the session.
-    pub fn export_answers(
-        &self,
-        answers: &Map<String, Value>,
-        approved: &api::Approved,
-    ) -> Result<Map<String, Value>, String> {
-        specify_core::answer_file::check(&self.loaded, answers)?;
-        input::answers(&self.analysis, answers).map_err(|e| e.to_string())?;
-        api::export_answers(&self.loaded, &self.analysis, answers, approved)
-            .map(|exported| exported.answers)
-            .map_err(|e| e.to_string())
-    }
-
     /// The review settled to the default path (`specify_core::tolerancing::settle`), with the
     /// label anchors [`Session::review`] adds: `{review, state}`.
     pub fn settle(&self, state: &tolerancing::State) -> Result<Value, String> {

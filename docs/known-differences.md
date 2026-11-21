@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 364 | 0 | 52 | 0 | 2 | 1 | 419 |
+| [cli](#cli) | 362 | 0 | 52 | 0 | 2 | 1 | 417 |
 | [cross_engine](#cross_engine) | 55 | 2 | 0 | 1 | 1 | 20 | 79 |
 | [existing](#existing) | 31 | 0 | 0 | 0 | 7 | 0 | 38 |
 | [features](#features) | 3454 | 1414 | 571 | 2491 | 1066 | 1886 | 10882 |
@@ -22,7 +22,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 1090 | 0 | 0 | 0 | 15 | 2 | 1107 |
-| **all** | 5123 | 1433 | 1249 | 2497 | 1101 | 1909 | 13312 |
+| **all** | 5121 | 1433 | 1249 | 2497 | 1101 | 1909 | 13310 |
 
 ## analysis
 
@@ -76,7 +76,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (364 entries)
+### cli: rust-correct (362 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -173,10 +173,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **Exact tap-drill defaults and dependent question order** (13 entries, 3 case globs)
 
   src/rules/holes.rs prefers an exact tabulated tap drill to an ambiguous smaller clearance screw. Accepted defaults now include the thread and its optional full-thread edit, changing dependent question positions. cli_datum_origins.json.gz pins the complete before/after values; explicit clearance answers remain supported.
-
-- **Complete answer export flags in questions usage and help** (2 entries, 2 case globs)
-
-  questions now exports complete evidence-bearing sidecars with --resolve-defaults --step STEP. tests/cli.rs::command_lines asserts the exact usage/help transformation for this individual capture; every other byte and exit code stays checked. No oracle payload or existing known-difference entry changes. Since the port to clap (Python specify-core is retired; help and usage errors are clap's) this capture's text is clap's: the exact transformation assertion was retired with it and tests/cli.rs::usage_or_help checks the exit code and the argument named instead (see the cli/usage/\* entry).
 
 - **clap help and usage errors** (2 entries, 1 case glob)
 

@@ -20,78 +20,19 @@ This also applies to **released v0.1.8 and earlier `changes/answers.json` files*
 `--accept-defaults`, because nothing in that file says an answer was dropped. Upgrading the
 writer cannot recover their lost carry decisions.
 
-## Export a sidecar
+## No export of answers
 
-Export after choosing answers, before writing STEP. The approvals file lists the defaults the
-person approved, by part, each with the value they saw; here, every default offered for the
-open questions, once the person has seen the list and agreed:
+There is no export of answers as a record ([ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md),
+0.3.0): the written STEP file is the only copy of its answers. CLI `questions
+--resolve-defaults`, serve and MCP `export_answers`, Rust `api::export_answers`, Python
+`api.export_answers` and WASM `exportAnswers` are removed; the app's Answers (JSON) says "not
+available in 0.3.0".
 
-```sh
-specify-core analyse plate_v1.step -o plate.analysis.json
-specify-core questions plate.analysis.json --answers chosen.json --open \
-  | jq '{"0": (map(select(.default != null) | {(.id): .default}) | add // {})}' > approved.json
-specify-core questions plate.analysis.json --answers chosen.json \
-  --resolve-defaults --step plate_v1.step --accept-defaults approved.json > plate.answers.json
-# write needs a complete set: stderr's "open: …" lists what to answer or approve first.
-specify-core write plate_v1.step plate.analysis.json plate.answers.json -o plate.pmi.step
-```
-
-`questions --resolve-defaults` is the single CLI export surface. It writes an **answer
-map** to stdout, rather than a question list, and never writes STEP. `--step` is required:
-an analysis alone cannot supply verified face evidence. Its binding selects the part of an
-assembly and must match that STEP. `--open` cannot be combined with export.
-
-The map contains every supplied answer (including any whose question is not asked; see
-below) and exactly the PMI defaults the person approved, never every default (ADR P9: a
-default becomes intent only when approved). Approvals are by part, each question id with the
-default value the person saw: `{"<part>": {"<id>": value}}` (`--accept-defaults FILE` on the
-command line), the same form as the page's Save and MCP. Only the exported part's approvals
-apply. Each is checked against the defaults as they stand with the answers given: an id that is
-not an open question with a default, or a value that is no longer its default, refuses the
-export naming the part and question. Without approvals no default is exported. The map also has
-`_specify.evidence` for this part, `_specify.unresolved` (the carry blocks still open), and
-`_specify.sources`: for each answer equal to its question's default, the rule behind it ([rule-sources.md](rule-sources.md#rule-ids)); it is output only,
-ignored when the map is read and recomputed on export. Optional BOM suggestions remain opt-in; supplied BOM answers
-are preserved. Output recursively sorts object keys, uses two-space indentation and a
-final newline, and preserves array order. Identical inputs export identical bytes,
-independent of input key order. Re-exporting the complete map is idempotent.
-
-Incomplete is normal: open questions and carry blocks do not refuse an export. The command
-line lists the questions still open on stderr (`open: …`); serve gives `complete` and
-`missing`. A carry block stays in `_specify.unresolved` until its question is answered. (Contract
-change, 2026-11-19: an export used to take every default and refuse an incomplete set.) A
-refused export prints no JSON on stdout (CLI exit 2). A shell may create or
-truncate a redirected file before the command runs; export to a temporary path and rename
-on success when replacing an existing committed sidecar. Existing saved evidence is checked
-before export, so changed geometry cannot be silently restamped with fresh evidence.
-
-Like `write`, export reads answers only from `--answers`, not from answers already stored
-in the STEP: exporting a PMI-written STEP with `{}` exports no answers. Pass the part's
-committed sidecar (or the answers you want) explicitly.
-
-The same non-writing operation is available in existing front-end shapes:
-
-- Rust: `api::export_answers(&loaded, &analysis, &answers, &approved)` returns
-  `Exported {answers, missing}`; an approval refused is `Error::Unapproved` (part, question,
-  and the value approved and the default now when they differ).
-- Serve: `{"op":"export_answers","step":"plate_v1.step","analysis":<analysis>,"answers":<chosen>,
-  "accept_defaults":{"0":{"part.general_tolerance":"ISO 2768-m"}}}` returns `result.answers`,
-  `complete` and `missing`; a refused approval is `invalid` with `part`, `question`, and
-  `expected`/`current` when the value differs.
-- Python: `api.export_answers(step_or_loaded_part, analysis, answers, accept_defaults=None)`
-  returns a dict (a refused approval raises `ValueError`); serialize with
-  `json.dumps(complete, indent=2) + "\n"` for the same stable file layout.
-- WASM: `engine.exportAnswers(answersJson, approvalsJson?)` returns the answer map as a JSON
-  string; use `JSON.stringify(JSON.parse(result), null, 2) + "\n"` for a formatted sidecar.
-- MCP: the `export_answers` tool, on the session's answers (docs/mcp.md).
-
-Existing `with_all_defaults` / `acceptDefaults` operations still give every default, for
-partial review, and retain their return shapes. Exported maps can be passed directly to
-questions/review, serve, Python and WASM, and to `write` once complete: `write`
-(without its own `--accept-defaults`) refuses an incomplete set, so answer the open questions
-or approve their defaults and export again. Exporting with every default approved and writing
-the unchanged part from the export gives the same semantic PMI as `write --accept-defaults`. Writing changed geometry is refused as stale: the answers belong to
-another revision.
+Answer maps written by earlier versions are still read wherever answers are taken (CLI
+`questions --answers` and `write`, serve, Python, WASM, MCP `answers_file`). Their
+`_specify.evidence` is checked, so a map whose evidence belongs to another revision is refused
+as stale; a carry block in `_specify.unresolved` keeps its question open until it is answered;
+`_specify.sources` is ignored.
 
 ## Answers to questions not asked
 
@@ -119,11 +60,10 @@ Where switching `part.locating` would ask it, the reason says so; otherwise it s
 question is not asked of this part given the other answers, or that the file already states
 the datum. `apply` does not refuse these answers: callers revising answers across a change
 of `part.locating` keep both modes' answers, and the question takes its answer again when it
-returns. The answer is still stored in the STEP with the others, exported unchanged by
-`questions --resolve-defaults` (dropping it would lose it, and refusing would break the same
-callers). A carry block applies only while
+returns. The answer is still stored in the STEP with the others (dropping it would lose it,
+and refusing would break the same callers). A carry block applies only while
 its question is asked: a block on `datum.A.flatness` under `"± dimensions"` does not stop
-`write`, export or bulk defaults, and is listed in `not_written` ("datum.A.flatness was
+`write` or bulk defaults, and is listed in `not_written` ("datum.A.flatness was
 carried (carried answer could not be applied: …) but is not asked when part.locating is
 '± dimensions', so nothing was written for it"). It stays in `_specify.unresolved`, so once
 later answers ask the question again it shows as required and refuses again. Write derives
@@ -194,8 +134,8 @@ nothing.
 
 ## Specify metadata
 
-Specify's complete exports and diff answer maps (`answers.json`, `report.answers`, and
-each assembly part's map) add a reserved `_specify` member. Preserve it when editing or storing answers.
+The answer maps earlier Specify versions exported or `diff` returned (`answers.json`,
+`report.answers`, and each assembly part's map) have a reserved `_specify` member. Preserve it when editing or storing answers.
 Old plain files remain accepted by the new tools. New maps require updated Specify/editor
 WASM builds: older builds reject `_specify` as an `unknown answer ID`. Use an updated build
 to open and write these maps.

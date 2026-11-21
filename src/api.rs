@@ -570,15 +570,11 @@ pub fn approvals(value: &Value) -> Option<Approved> {
         .collect()
 }
 
-/// What [`approvals`] takes, for a refusal's message.
-pub const APPROVALS_FORM: &str = "{\"<part>\": {\"<question id>\": <default value the person \
-                                  saw>}} for exactly the defaults the person approved ({} for none)";
-
 /// Part `part`'s `answers` with the defaults `approved` for it taken, all checked first
 /// against the defaults as they stand with `answers` (ADR P9): each id must be an open
 /// question with a default, and its value that default (the one the person saw), else refused
 /// ([`Error::Unapproved`]) naming it. Taken together, so no approval changes another's value.
-/// The page's Save, MCP's `write_pmi` and `export_answers`, and [`export_answers`].
+/// The page's Save and MCP's `write_pmi`.
 pub fn with_approved(
     analysis: &Value,
     answers: &Map<String, Value>,
@@ -636,66 +632,6 @@ pub fn with_approved(
     let mut taken = answers.clone();
     taken.extend(approved.clone());
     Ok(taken)
-}
-
-/// An exported answer map and the questions still open in it.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Exported {
-    /// The answers given, the defaults approved, `_specify` (face evidence, carry blocks still
-    /// unresolved, and `sources`: the rule behind each approved default), sorted.
-    pub answers: Map<String, Value>,
-    /// The questions still open, which the answers do not settle.
-    pub missing: Vec<String>,
-}
-
-impl Exported {
-    /// No question is left open.
-    pub fn complete(&self) -> bool {
-        self.missing.is_empty()
-    }
-}
-
-/// An editable answer file for this part, without writing STEP: what is answered, plus
-/// exactly the defaults `approved` for this part (by part index; another part's approvals do
-/// not apply), each checked against the default as it stands ([`with_approved`]). Never every
-/// default (ADR P9): with no approvals, no defaults. Open questions do not refuse it (incomplete
-/// is normal) and are reported in `missing`; a carry block on an open question is kept in
-/// `_specify.unresolved`. Verify both the analysis binding and any supplied evidence before
-/// attaching fresh evidence: an export must never turn stale indices into apparently verified
-/// answers.
-pub fn export_answers(
-    loaded: &LoadedPart,
-    analysis: &Value,
-    answers: &Map<String, Value>,
-    approved: &Approved,
-) -> Result<Exported> {
-    crate::answer_file::check(loaded, answers)
-        .map_err(|why| Error::Rules(rules::Error::Invalid(why)))?;
-    // Validates the answers, before any approval is read against them.
-    questions(analysis, answers)?;
-    let none = Map::new();
-    let wanted = approved.get(&loaded.binding.part).unwrap_or(&none);
-    let taken = with_approved(analysis, answers, loaded.binding.part, wanted)?;
-    writer::check_binding(loaded, &rules::preview(analysis, &taken)?)?;
-    let qs = questions(analysis, &taken)?;
-    let missing = rules::open_questions(&qs, &taken)
-        .iter()
-        .map(|q| q.id.clone())
-        .collect();
-    let sources = rules::answered_sources(&qs, &taken);
-    let mut out = taken.clone();
-    crate::answer_file::attach(loaded, &mut out, &taken, std::iter::empty())
-        .map_err(|why| Error::Rules(rules::Error::Invalid(why)))?;
-    // attach() has just set the metadata object; its sources are output only.
-    out[crate::answer_file::META]["sources"] = Value::Object(sources);
-    // Sort objects recursively, including caller-supplied extra requirements. Arrays keep
-    // their semantic order (datum precedence, feature members, and note sequences).
-    let mut value = Value::Object(out);
-    value.sort_all_objects();
-    Ok(Exported {
-        answers: value.as_object().expect("constructed an object").clone(),
-        missing,
-    })
 }
 
 /// For each answer that is its question's default, the rule behind it

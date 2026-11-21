@@ -112,7 +112,14 @@ async function downloadFile(page, name, filename) {
   return download.path();
 }
 
-const exportAnswers = async (page, filename = 'part.answers.json') => JSON.parse(readFileSync(await downloadFile(page, 'Answers (JSON)', filename), 'utf8'));
+/** No export of answers as a record (ADR P11): Answers (JSON) stays, downloads nothing and says so. */
+async function answersUnavailable(page) {
+  const downloads = [];
+  page.on('download', (download) => downloads.push(download));
+  await page.getByRole('button', { name: 'Answers (JSON)', exact: true }).click();
+  await check(page.getByRole('alert')).toContainText('not available in 0.3.0');
+  assert.deepEqual(downloads, [], 'Answers (JSON) downloads nothing');
+}
 const workbookSheet = (path, number) => execFileSync('unzip', ['-p', path, `xl/worksheets/sheet${number}.xml`], { encoding: 'utf8' });
 
 /** The exports downloaded from the page, named for ``path``, against ``file`` (what the save wrote there) read back. */
@@ -195,14 +202,12 @@ try {
     await check(list).toHaveCount(0);
     await page.waitForTimeout(500);
     assert.deepEqual(readFileSync(specified), readFileSync(plainSave), 'nothing written when the list is cancelled');
-    assert.deepEqual(await exportAnswers(page), {}, 'JSON after cancellation contains no unapproved defaults');
     // Confirmed: Save writes beside the file and says where.
     await page.getByRole('button', { name: 'Save with defaults' }).click();
     await check(list.locator('[data-default]').first()).toBeVisible();
     listed = await list.locator('[data-default]').evaluateAll(items => items.map(item => item.getAttribute('data-default')).sort());
     const shownTolerance = (await list.locator('[data-default="part.general_tolerance"] strong').textContent()).trim();
     assert.equal(shownTolerance, 'ISO 2768-m', 'the dialog lists the default the person sees');
-    assert.deepEqual(await exportAnswers(page), {}, 'listing defaults does not make them exportable');
     const beforeDefaults = await savedLine(page);
     await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
     // The same copy, updated: the session wrote it (#217).
@@ -212,10 +217,6 @@ try {
     copyFileSync(specified, withDefaults);
     // The value the person confirmed is exactly what lands in the file.
     assert.equal(given(analyse(withDefaults).resume?.answers)['part.general_tolerance'], shownTolerance, 'the stored answer is the value listed');
-    // Inspect the file itself: filtering internal keys here would conceal an export leak.
-    const approved = await exportAnswers(page);
-    assert.deepEqual(Object.keys(approved).sort(), listed, 'JSON contains exactly the confirmed defaults');
-    assert.equal(approved['part.general_tolerance'], shownTolerance, 'JSON contains the value confirmed');
     await check(page.getByRole('alert')).toHaveCount(0);
     assert.ok(existsSync(withDefaults), 'the defaults save written');
     assert.match(server.output(), /Saved .*part\.specified\.step[^\n]*\n[^]*Saved .*part\.specified\.step/);
@@ -231,13 +232,7 @@ try {
     if (shots) await page.screenshot({ path: join(shots, 'specify.png') });
     // The exports stay those of the file as saved, not the unsaved answer.
     await inspectSaved(page, specified, withDefaults);
-    for (const [name, file] of [['Answers (JSON)', 'part.answers.json']]) {
-      const path = await downloadFile(page, name, file);
-      if (file.endsWith('.json')) {
-        const answers = JSON.parse(readFileSync(path, 'utf8'));
-        assert.equal(answers['part.material'], 'Aluminium 6082-T6', 'the answers file has the answer given');
-      }
-    }
+    await answersUnavailable(page);
     // A plain Save writes the answers given and assumes no new defaults. The defaults the person
     // confirmed earlier are answers in the session now (the command made them so), so with the
     // material given nothing is left open (before the per-part contract they were never answers, so
@@ -281,8 +276,8 @@ try {
     await context.close();
     server.stop();
   }
-  // The sidecar keeps documented metadata while removing a real writer record. The old
-  // invented history was invalid (no faces fingerprint), so it tested an opening refusal.
+  // Answers with a real writer record open. The old invented history was invalid (no faces
+  // fingerprint), so it tested an opening refusal.
   {
     const server = await open(part);
     const { rev } = await (await fetch(`${server.url}answers`)).json();
@@ -293,7 +288,8 @@ try {
     const put = await fetch(`${server.url}answers`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Origin: server.origin }, body: JSON.stringify({ rev, part: 0, answers }) });
     assert.equal(put.status, 200);
     const { context, page } = await load(server);
-    assert.deepEqual(await exportAnswers(page), { 'part.material': 'Steel', _specify: { keep: [] } });
+    await check(page.locator('.pmi-lab-panel')).toBeVisible();
+    await answersUnavailable(page);
     await context.close();
     server.stop();
   }
@@ -474,8 +470,6 @@ try {
     await box.press('Enter');
     await check(page.locator('.app-dirty')).toBeVisible();
     assert.deepEqual(await inspectSaved(page, saved), original, 'further edits leave both saved inspection downloads unchanged');
-    const json = await exportAnswers(page, "inspection's in-place.answers.json");
-    assert.equal(json['part.material'], 'Brass CW614N', 'Answers JSON still exports the current answers');
     await context.close();
     server.stop();
     const readOnly = await open(saved, '--read-only');

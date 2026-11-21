@@ -80,6 +80,16 @@ Read first:
   not touch `ui/` or a shared file skips the UI jobs. Main and releases run everything. `ci-ok` is
   the one check to require.
 
+### Removed
+
+- **Answers export** ([ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md):
+  no export of answers as a record; the file is the only copy): CLI `questions
+  --resolve-defaults --step STEP [--accept-defaults FILE]`, serve `export_answers`, MCP
+  `export_answers`, Rust `api::export_answers` (with `api::Exported` and
+  `api::APPROVALS_FORM`), Python `api.export_answers` and WASM `exportAnswers`. Answer files
+  written earlier are still read (`--answers`, `write`, `answers_file`). The app's Export →
+  Answers (JSON) stays for now and says "not available in 0.3.0".
+
 ### Fixed
 
 From the first 0.2.1 trial (#217, pzfreo/specify-ui#14):
@@ -111,6 +121,8 @@ From the first 0.2.1 trial (#217, pzfreo/specify-ui#14):
 - `diff(oldName, oldBytes, newName, newBytes, _answers, title, scenes?)`: the fifth argument is
   not read (renamed `_answers`; pass `"{}"`), and `report.answers` (with its opaque
   `_specify_characteristic_numbers`) is gone: `diff` reads only the two files' PMI (ADR P11).
+- `exportAnswers(answers, approved?)` is removed: there is no export of answers as a record
+  (ADR P11).
 
 ## 0.2.1 (2026-11-20)
 

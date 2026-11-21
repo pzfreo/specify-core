@@ -133,24 +133,6 @@ fn a_preview_write_lists_it_and_keeps_the_answer() {
     assert!(intent.requirements.iter().any(|r| r["kind"] == "flatness"));
 }
 
-/// Export keeps an unasked answer: dropping it would lose it silently, and refusing would break
-/// callers that revise answers across a change of mode. A regression guard: main already kept it.
-#[test]
-fn export_keeps_an_unasked_answer() {
-    let analysis = api::analyse_file(&plate(), None).unwrap();
-    let loaded = specify_core::part::load(&plate(), None).unwrap();
-    let saved = api::export_answers(
-        &loaded,
-        &analysis,
-        &revised("± dimensions"),
-        &api::Approved::new(),
-    )
-    .unwrap()
-    .answers;
-    assert_eq!(saved["datum.A.flatness"], "0.05");
-    assert_eq!(saved["hole.position:holes:12"], "0.1");
-}
-
 const UNKNOWN: &str = "Invalid answers: bogus.question: unknown answer ID";
 
 fn bogus() -> Map<String, Value> {
@@ -182,13 +164,6 @@ fn the_library_refuses_an_unknown_id() {
     );
     assert_eq!(
         message(api::review(&analysis, &answers).unwrap_err()),
-        UNKNOWN
-    );
-    let loaded = specify_core::part::load(&plate(), None).unwrap();
-    assert_eq!(
-        message(
-            api::export_answers(&loaded, &analysis, &answers, &api::Approved::new()).unwrap_err()
-        ),
         UNKNOWN
     );
     // Added requirements and reserved members remain answers.
@@ -292,7 +267,7 @@ fn blocked(locating: &str) -> Map<String, Value> {
 }
 
 /// A block applies only while its question is asked: under ± dimensions it does not stop
-/// write (nor export, nor the editor's preview write) and is reported instead.
+/// write (nor the editor's preview write) and is reported instead.
 #[test]
 fn a_carry_block_on_an_unasked_question_is_reported_not_refused() {
     let answers = blocked("± dimensions");
@@ -314,15 +289,6 @@ fn a_carry_block_on_an_unasked_question_is_reported_not_refused() {
     let bytes = std::fs::read(plate()).unwrap();
     let (_, report) = api::write_bytes(bytes, &[(intent, Some(complete))]).unwrap();
     assert!(report.not_written.contains(&line.to_string()));
-    // The export keeps the block, so it applies again if the question returns.
-    let loaded = specify_core::part::load(&plate(), None).unwrap();
-    let saved = api::export_answers(&loaded, &analysis, &answers, &api::Approved::new())
-        .unwrap()
-        .answers;
-    assert_eq!(
-        saved["_specify"]["unresolved"]["datum.A.flatness"],
-        "its datum datum.A is unresolved"
-    );
 }
 
 /// #128 with #126: an added requirement (`extra.*`) has no question, so its carry block is

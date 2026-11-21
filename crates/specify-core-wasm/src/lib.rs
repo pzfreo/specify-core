@@ -409,26 +409,6 @@ export interface PmiScene {
                 .map_err(|error| JsValue::from_str(&error))
         }
 
-        /// Answer map for saving: the answers given, exactly the defaults in `approved`
-        /// (optional JSON, `{"<part>": {"<id>": value}}` with the values the person saw; none
-        /// when absent) and `_specify.evidence`. Never every default (ADR P9); open questions
-        /// stay open. Throws if an approval is not an open question's default as it stands.
-        #[wasm_bindgen(js_name = exportAnswers)]
-        pub fn export_answers(
-            &self,
-            answers: &str,
-            approved: Option<String>,
-        ) -> Result<String, JsValue> {
-            let approved = match approved {
-                Some(text) => self::approvals(&text)?,
-                None => specify_core::api::Approved::new(),
-            };
-            self.0
-                .export_answers(&self::answers(answers)?, &approved)
-                .map(|answers| Value::Object(answers).to_string())
-                .map_err(|error| JsValue::from_str(&error))
-        }
-
         #[wasm_bindgen(js_name = acceptDefaults)]
         pub fn accept_defaults(&self, answers: &str) -> Result<String, JsValue> {
             self.0
@@ -531,19 +511,6 @@ export interface PmiScene {
             .map_err(|error| JsValue::from_str(&format!("Invalid answers: {error}")))?;
         input::answers_shape(&answers).map_err(js_error)?;
         Ok(answers)
-    }
-    fn approvals(json: &str) -> Result<specify_core::api::Approved, JsValue> {
-        limit("Approvals", json, input::JSON_LIMIT)?;
-        serde_json::from_str::<Value>(json)
-            .ok()
-            .as_ref()
-            .and_then(specify_core::api::approvals)
-            .ok_or_else(|| {
-                JsValue::from_str(&format!(
-                    "Invalid approvals: {}",
-                    specify_core::api::APPROVALS_FORM
-                ))
-            })
     }
     fn out(state: tolerancing::State) -> Result<String, JsValue> {
         serde_json::to_string(&state).map_err(js_error)
