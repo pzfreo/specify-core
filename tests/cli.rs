@@ -1844,7 +1844,8 @@ fn the_command_line_writes_a_pair_for_each_part() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Exit codes and messages: 0 done; 2 refused (incomplete, invalid answer, cannot write) or bad
+/// Exit codes and messages: 0 done (questions left open listed in `missing`, #228); 2 refused
+/// (a carried answer not applied, invalid answer, cannot write) or bad
 /// arguments; 1 a write that could not be made (the destination left as it was) or a file that
 /// cannot be read.
 #[test]
@@ -1866,10 +1867,12 @@ fn exit_codes_say_what_happened() {
         &s(&dir.join("o.step")),
         "--accept-defaults",
     ]);
-    assert_eq!(
-        (ran.code, ran.stderr.as_str()),
-        (2, "incomplete: 1 question(s) unanswered: part.material\n")
-    );
+    // #228, ADR P11: an open question is a gap, not a refusal. The write is made with every
+    // default taken, and the question with no default (the material) is listed in `missing`.
+    assert_eq!((ran.code, ran.stderr.as_str()), (0, ""));
+    let report: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert_eq!(report["missing"], json!(["part.material"]));
+    assert!(dir.join("o.step").exists());
 
     save(&q, &json!({"part.material": "steel", "datum.A": [99999]}));
     let ran = run(&[
@@ -2439,4 +2442,48 @@ fn mesh_max_deviation_mm_is_measured_and_validated() {
         assert!(String::from_utf8_lossy(&output.stderr).contains("positive finite"));
         assert!(output.stdout.is_empty());
     }
+}
+
+/// #228: `write` writes what is answered while questions are open, and lists them in
+/// `missing` (ADR P11: gaps are not a refusal). The half-shell of the issue, its general
+/// tolerance and material answered, its holes, datums and edges still open.
+#[test]
+fn issue_228_write_writes_what_is_answered_and_lists_the_gaps() {
+    let dir = scratch("issue228");
+    let step = common::fixtures().join("issue228-half-shell.step.gz");
+    let a = dir.join("a.json");
+    assert_eq!(run(&["analyse", &s(&step), "-o", &s(&a)]).code, 0);
+    let q = dir.join("q.json");
+    save(
+        &q,
+        &json!({
+            "part.material": "6061 Al",
+            "part.coating": "Anodize blue",
+            "part.surface_finish": "none",
+            "part.general_tolerance": ".XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°",
+        }),
+    );
+    let output = dir.join("o.step");
+    let ran = run(&["write", &s(&step), &s(&a), &s(&q), "-o", &s(&output)]);
+    assert_eq!(ran.code, 0, "{}", ran.stderr);
+    let report: Value = serde_json::from_str(&ran.stdout).unwrap();
+    let written: Vec<&str> = report["written"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l.as_str().unwrap())
+        .collect();
+    assert!(written.contains(&"material 6061 Al"), "{written:?}");
+    assert!(
+        written.contains(&"general tolerance .XX ±.01 · .XXX ±.005 · ±1/64 · angles ±1°"),
+        "{written:?}"
+    );
+    let missing = report["missing"].as_array().unwrap();
+    assert!(missing.contains(&json!("datum.A")), "{missing:?}");
+    assert!(
+        missing.contains(&json!("hole.function:holes:96.129")),
+        "{missing:?}"
+    );
+    assert!(output.exists());
+    let _ = std::fs::remove_dir_all(&dir);
 }

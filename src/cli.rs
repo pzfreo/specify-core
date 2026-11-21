@@ -503,6 +503,7 @@ fn write(
 ) -> Result<(), Exit> {
     let several = pairs.len() > 2;
     let mut written: Vec<(Intent, Option<Map<String, Value>>)> = Vec::new();
+    let mut missing: Vec<String> = Vec::new();
     for pair in pairs.chunks(2) {
         let analysis = read_json(Path::new(&pair[0]))?;
         let answers = answers_of(read_json(Path::new(&pair[1]))?)?;
@@ -514,6 +515,30 @@ fn write(
         }
         let mut intent = match api::apply(&analysis, &answers, accept_defaults) {
             Ok(intent) => intent,
+            // #228, ADR P11: questions still open are gaps, not a refusal. What is answered
+            // (with --accept-defaults, every default too) is written, as the editor's save
+            // writes it, and the report lists the gaps in `missing`. A carried answer that
+            // could not be applied (a revision's) still refuses.
+            Err(Error::Rules(rules::Error::Incomplete(e))) if e.carried.is_empty() => {
+                let given = if accept_defaults {
+                    rules::with_all_defaults(&analysis, &answers).map_err(|e| refused(e.into()))?
+                } else {
+                    answers.clone()
+                };
+                let mut intent = api::preview(&analysis, &given).map_err(refused)?;
+                intent
+                    .requirements
+                    .extend(rules::unasked_rows(&analysis, &given).map_err(|e| refused(e.into()))?);
+                let part = analysis["binding"]["part"].as_u64().unwrap_or(0);
+                missing.extend(e.missing.into_iter().map(|id| {
+                    if several {
+                        format!("part {part}: {id}")
+                    } else {
+                        id
+                    }
+                }));
+                intent
+            }
             Err(e) if !several => return Err(refused(e)),
             Err(e) => {
                 // Which part of the assembly the answers are for.
@@ -579,7 +604,12 @@ fn write(
             Exit::new(1, format!("write failed, {output_arg} left as it was: {e}"))
         }
     })?;
-    print(out, &indent1_keeping_non_ascii(&report.to_dict()))
+    let mut shown = report.to_dict();
+    if !missing.is_empty() {
+        // The gaps left open, as information (#228): the file holds what was answered.
+        shown["missing"] = json!(missing);
+    }
+    print(out, &indent1_keeping_non_ascii(&shown))
 }
 
 /// The rules' refusal as the command line words it: exit 2, `incomplete: ...` or `invalid

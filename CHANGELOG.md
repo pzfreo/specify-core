@@ -49,6 +49,11 @@ Read first:
 
 ### Changed
 
+- **`write` writes what is answered while questions are open** (#228, ADR P11): the CLI's
+  `write ANALYSIS ANSWERS` no longer refuses `incomplete`. It writes the answers given (with
+  `--accept-defaults`, every default too), exits 0, and lists the questions still open in the
+  report's `missing`, as the editor's save and MCP `write_pmi` already did. A carried answer
+  that could not be applied, an invalid answer and a wrong file still refuse (exit 2).
 - **`pmiScene` item ids changed** (ADR P11, D3): a planned dimension's id no longer says how it
   was stated. `planner:specified:dim:…` and `planner:answered:dim:…` are now `planner:dim:…`, and
   the `planner:stored:dim:…:{nominal}:{tolerance}` form read from a file loses its stored mark and
