@@ -204,7 +204,9 @@ beside its name), a **gap** ("not stated", with Specify's suggestion as a dashed
 - Every edit is checked against the file, with the edits already listed, before it joins the bar (the engine's
   `checkEdits`); one the file cannot take says why on its line. The bar at the bottom lists the edits; **Save**
   sends them as one edit list (`POST save {rev, edits}`), applied all or nothing ("Nothing to save." when none are
-  listed: nothing is written), and **Discard** drops them.
+  listed: nothing is written), and **Discard** drops them. **Add all suggestions** queues every gap's suggestion
+  as a pending edit (a suggestion of none as None needed; a gap with no suggestion is left alone); an entry the
+  file refuses is left out, with its reason.
   Nothing touches the file before Save. Only edits not yet saved are highlighted; nothing says who wrote a
   requirement. After a save the part opens again from the saved file, and its rows read as the file has them.
 - A part of an assembly shows its rows read only, with a note: an edit list applies to a file of one part until

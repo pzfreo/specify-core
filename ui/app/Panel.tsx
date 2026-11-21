@@ -355,9 +355,9 @@ export function GeneralToleranceEditor({ text, units, classes, onChange }: {
 }
 
 /** The bar at the bottom (decision 3): the pending edits, Save and Discard. */
-export function EditBar({ pending, saving, blocked, savedNote, onSave, onDiscard, readOnly }: {
+export function EditBar({ pending, saving, blocked, savedNote, onSave, onDiscard, onAddAll, adding, readOnly }: {
   pending: PendingEdits; saving: boolean; blocked: string | undefined; savedNote: string | null;
-  onSave(): void; onDiscard(): void; readOnly: string | null;
+  onSave(): void; onDiscard(): void; onAddAll(): void; adding: boolean; readOnly: string | null;
 }) {
   const items = pending.values();
   return (
@@ -366,6 +366,10 @@ export function EditBar({ pending, saving, blocked, savedNote, onSave, onDiscard
         {items.length ? items.map((p) => <li key={p.id} data-pending={p.id}>{describe(p)}</li>)
           : <li className="muted">{savedNote ?? (readOnly ? readOnly : 'No changes yet. Nothing is written until Save.')}</li>}
       </ul>
+      <button type="button" className="app-add-all" onClick={onAddAll} disabled={saving || adding || Boolean(readOnly) || Boolean(blocked)}
+        title="Queue every gap's suggestion as an edit (a suggestion of none as None needed); nothing is written until Save">
+        Add all suggestions
+      </button>
       <button type="button" className="app-discard" onClick={onDiscard} disabled={!items.length || saving}>Discard</button>
       <button type="button" className="app-save" onClick={onSave} disabled={saving || Boolean(blocked)} title={blocked}>
         {saving ? 'Saving…' : 'Save'}

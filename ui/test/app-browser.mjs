@@ -522,6 +522,56 @@ try {
     await context.close();
     server.stop();
   }
+  // "Add all suggestions" (Paul, 2026-11-21): every gap's suggestion queued as pending edits, a
+  // suggestion of none as None needed; a gap with none suggested is left alone. Discard writes nothing;
+  // Save writes them as one list.
+  {
+    const copy = join(dir, 'all');
+    mkdirSync(copy);
+    const file = join(copy, 'shaft.step');
+    writeFileSync(file, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
+    const original = readFileSync(file);
+    const before = table(file);
+    const suggested = Object.values(before).filter(r => r.state === 'gap' && r.suggestion !== null && r.suggestion !== undefined);
+    const none = v => (Array.isArray(v) ? v.length === 0 : typeof v === 'string' && /^none\b/i.test(v.trim()));
+    assert.ok(suggested.length > 5 && suggested.some(r => none(r.suggestion)) && Object.values(before).some(r => r.state === 'gap' && r.suggestion == null),
+      'the part has value suggestions, none suggestions and a gap with no suggestion');
+    const server = await open(file);
+    const { context, page } = await load(server);
+    const addAll = page.getByRole('button', { name: 'Add all suggestions', exact: true });
+    await addAll.click();
+    // 1. Every suggested gap is pending with its suggestion, highlighted as unsaved.
+    await check(page.locator('.spec-bar li[data-pending]')).toHaveCount(suggested.length);
+    await check(listedEdit(page, 'part.general_tolerance')).toHaveText('Add General tolerance: ISO 2768-m');
+    await check(row(page, 'hole.position:holes:13')).toHaveClass(/changed/);
+    // 5. A suggestion of none queues None needed.
+    await check(listedEdit(page, 'part.coating')).toHaveText('None needed: Coating');
+    await check(row(page, 'part.coating')).toHaveAttribute('data-state', 'decided_none');
+    // 4. A gap with no suggestion (the material) is left alone.
+    await check(listedEdit(page, 'part.material')).toHaveCount(0);
+    await check(material(page)).toHaveAttribute('data-state', 'gap');
+    await check(page.getByRole('alert')).toHaveCount(0);
+    if (shots) await page.screenshot({ path: join(shots, 'add-all.png') });
+    // 3. Discard after it writes nothing: the file is byte-identical, and no copy is made.
+    await page.getByRole('button', { name: 'Discard', exact: true }).click();
+    await check(page.locator('.spec-bar li[data-pending]')).toHaveCount(0);
+    await check(page.locator('.spec-row.changed')).toHaveCount(0);
+    await page.waitForTimeout(500);
+    assert.deepEqual(readFileSync(file), original, 'Discard leaves the file byte-identical');
+    assert.ok(!existsSync(join(copy, 'shaft.specified.step')), 'nothing written');
+    // 2. Again, and Save: one list, read back from the file.
+    await addAll.click();
+    await check(page.locator('.spec-bar li[data-pending]')).toHaveCount(suggested.length);
+    await save(page, server, 1);
+    const after = table(join(copy, 'shaft.specified.step'));
+    for (const r of suggested) {
+      assert.equal(after[r.id].state, none(r.suggestion) ? 'decided_none' : 'stated', `${r.id} is in the file as suggested`);
+    }
+    assert.match(JSON.stringify(after['part.general_tolerance'].value), /ISO 2768-m/);
+    assert.equal(after['part.material'].state, 'gap', 'the gap with no suggestion is still a gap');
+    await context.close();
+    server.stop();
+  }
   // Read only: a viewer, no Save, and the command refuses one.
   {
     const server = await open(edited, '--read-only');

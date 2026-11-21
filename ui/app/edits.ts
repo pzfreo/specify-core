@@ -38,6 +38,15 @@ export function removalTargets(numbers: readonly string[], id: string): RemoveTa
   return numbers.length ? [...numbers] : [{ id }];
 }
 
+/** "Add all suggestions": every gap of ``rows`` with a suggestion and no edit yet, as the edit Add or
+ * None needed would make: a value suggested is a fill of it, a suggestion of none is a none. */
+export function suggestionEdits(rows: readonly { id: string; name: string; state: string; suggestion?: unknown; suggestionText?: string }[],
+  pending: PendingEdits, isNone: (value: unknown) => boolean): Pending[] {
+  return rows.filter((r) => r.state === 'gap' && r.suggestion !== undefined && !pending.get(r.id))
+    .map((r): Pending => (isNone(r.suggestion) ? { kind: 'none', id: r.id, name: r.name }
+      : { kind: 'fill', id: r.id, name: r.name, value: r.suggestion, text: r.suggestionText ?? String(r.suggestion) }));
+}
+
 /** How the bar lists ``p``. */
 export function describe(p: Pending): string {
   switch (p.kind) {

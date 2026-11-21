@@ -24,9 +24,9 @@ import { changedIds, createSession, sameAnswers, type AnswersSession, type Answe
 import { decisions, type Decision } from './diff-report';
 import { getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type EditFailure, type EditList, type LocalConfig } from './local';
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } from './save';
-import { PendingEdits } from './edits';
+import { PendingEdits, suggestionEdits } from './edits';
 import { EditBar, Panel } from './Panel';
-import { bareAnalysis, fileLengthUnit, panelModel, tableOf, type PanelModel } from './table';
+import { bareAnalysis, fileLengthUnit, isNoneValue, panelModel, tableOf, type PanelModel } from './table';
 
 declare const __APP_VERSION__: string;
 const DOCS = 'https://github.com/pzfreo/specify-core#readme';
@@ -156,6 +156,7 @@ function App() {
   const [pending, setPending] = useState(() => new PendingEdits());
   // What the bar says after a save, until the next edit.
   const [savedNote, setSavedNote] = useState<string | null>(null);
+  const [addingAll, setAddingAll] = useState(false);
   // The characteristics table (the review's, read only) is drawn into this, under the panel's tab.
   const charsElement = useRef<HTMLDivElement>(document.createElement('div'));
   // Answers that arrived from outside the page but could not be shown (their review failed): Save
@@ -498,6 +499,30 @@ function App() {
   // An answer the session holds that the file does not store (an agent's, not saved): unsaved.
   const unsaved = opened ? Object.fromEntries(Object.entries(opened.external.answers)
     .filter(([id, value]) => !id.startsWith('_') && JSON.stringify(opened.stored[id]) !== JSON.stringify(value))) : {};
+  // "Add all suggestions" (Paul, 2026-11-21): every gap's suggestion queued as an edit, through the
+  // same whole-list check as one edit. An entry the file refuses is left out, with its reason.
+  const addAll = async () => {
+    if (!opened) return;
+    setAddingAll(true); setProblem(null);
+    try {
+      const m = opened.model;
+      const rows = [...(m.part?.rows ?? []), ...(m.bom?.rows ?? []), ...m.features.flatMap((g) => g.rows), ...(m.datums?.rows ?? [])];
+      let queued = suggestionEdits(rows, pending, isNoneValue);
+      const refused: string[] = [];
+      for (let round = 0; queued.length && round < 5; round++) {
+        let next = pending;
+        for (const p of queued) next = next.with(p);
+        const failures = await check(next.list());
+        if (!failures.length) { editPending(next); break; }
+        const bad = queued.filter((p) => failures.some((f) => f.entry.includes(JSON.stringify(p.id))));
+        // A failure that names no suggestion is the list's own: nothing is queued.
+        if (!bad.length) { refused.push(...failures.map((f) => f.reason)); queued = []; break; }
+        for (const p of bad) refused.push(`${p.name}: ${failures.filter((f) => f.entry.includes(JSON.stringify(p.id))).map((f) => f.reason).join('; ')}`);
+        queued = queued.filter((p) => !bad.includes(p));
+      }
+      if (refused.length) setProblem(`Not added: ${refused.join(' · ')}`);
+    } finally { setAddingAll(false); }
+  };
   const editPending = (next: PendingEdits) => { setPending(next); setSavedNote(null); setAgent(null); };
   const check = async (edits: EditList): Promise<EditFailure[]> => {
     const whole = (reason: string) => [{ entry: '(the whole list)', reason }];
@@ -635,7 +660,8 @@ function App() {
       {editing && (
         <EditBar pending={pending} saving={saving && !stopped} blocked={(!opened ? 'Opening…' : undefined) ?? saveBlocked} savedNote={savedNote}
           readOnly={opened?.several ? ASSEMBLY_NOTE : null}
-          onSave={() => void onSave()} onDiscard={() => { setPending(new PendingEdits()); setProblem(null); }} />
+          onSave={() => void onSave()} onDiscard={() => { setPending(new PendingEdits()); setProblem(null); }}
+          onAddAll={() => void addAll()} adding={addingAll} />
       )}
       <footer className="app-about">
         Specify {config?.specifyCore ?? ''} · app {__APP_VERSION__} · runs on this computer; the file is not uploaded ·{' '}

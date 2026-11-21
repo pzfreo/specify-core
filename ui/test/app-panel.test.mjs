@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { balloonText, bareAnalysis, changedText, displayText, panelModel, tableOf } from '../app/table.ts';
-import { describe, editList, PendingEdits, removalTargets } from '../app/edits.ts';
+import { describe, editList, PendingEdits, removalTargets, suggestionEdits } from '../app/edits.ts';
 import { compose, emptyBlock, parse } from '../app/general-tolerance.ts';
 // The review panel's pieces that are not drawn (specify-panel.md): its reading of the engine's feature
 // table, the pending edits as an edit list, and the general tolerance's text (#228).
@@ -63,6 +63,17 @@ test('a table with no rows reads as empty, and the bare analysis sets the file\'
   assert.deepEqual(tableOf({}), { rows: [], file_pmi: [], decided_none: [] });
   const bare = bareAnalysis({ faces: [1], features: [2], existing: [3], part: { material: 'x' }, table, resume: { answers: {} } });
   assert.deepEqual(bare, { faces: [1], features: [2], existing: [], part: {}, characteristics: [] });
+});
+
+test('Add all suggestions: a value suggested is a fill, none is a none; no suggestion or an edit already there, left alone', () => {
+  const model = panelModel(tableOf({ table }), questions);
+  const rows = [...model.part.rows, ...model.features.flatMap(g => g.rows)];
+  const pending = new PendingEdits().with({ kind: 'fill', id: 'hole.function:holes:14.15', name: 'f', value: 'general', text: 'general' });
+  const isNone = v => v === null || (Array.isArray(v) ? !v.length : /^none\b/i.test(String(v)));
+  assert.deepEqual(suggestionEdits(rows, pending, isNone).map(p => [p.kind, p.id, p.value]), [
+    ['fill', 'part.general_tolerance', 'ISO 2768-m'],
+    ['none', 'part.heat_treatment', undefined],
+  ]);
 });
 
 test('balloons read as runs', () => {

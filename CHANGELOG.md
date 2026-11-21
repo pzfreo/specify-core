@@ -52,9 +52,10 @@ Read first:
   nothing says who wrote a requirement. The general tolerance's line is a row editor (#228): a class,
   or a block of decimal places and their tolerances, an angles line and a note line, written as one
   line of text (`.XX ±.01, .XXX ±.005, angles ±1°`). A part of an assembly is shown read only, with a
-  note, until edits on parts of an assembly land. Removed from the app: **Save with defaults** (each
-  gap's Add is pre-filled with its suggestion instead; `accept_suggestions` stays in edit lists for
-  agents and the CLI), the questions list it replaces, and the Answers (JSON) export; the 3D view now
+  note, until edits on parts of an assembly land. **Save with defaults** becomes the bar's **Add all
+  suggestions** (Paul, 2026-11-21): every gap's suggestion queued as a pending edit (a suggestion of
+  none as None needed; a gap with no suggestion left alone), through the same check, written only by
+  Save. Removed from the app: the questions list and the Answers (JSON) export; the 3D view now
   draws the file's PMI only. Values read as drawn ("⌖ 0.2 A"). Every stated row has the bin; a removal
   sends the numbers, or `{"id": …}` in `items.remove` for a requirement without one (the engine refuses
   that until its id route lands, and the line says so). Save with nothing listed says "Nothing to
