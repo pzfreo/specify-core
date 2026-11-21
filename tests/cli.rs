@@ -1927,7 +1927,13 @@ fn exit_codes_say_what_happened() {
     // One JSON after STEP is an edit list (proposal specify-0.3.0, use case 7): an analysis
     // given alone is refused as one, every unknown field named, and nothing written.
     // (Its own output: the write above, with every default taken, made o.step.)
-    let ran = run(&["write", &s(&plate), &s(&a), "-o", &s(&dir.join("edits.step"))]);
+    let ran = run(&[
+        "write",
+        &s(&plate),
+        &s(&a),
+        "-o",
+        &s(&dir.join("edits.step")),
+    ]);
     assert_eq!(ran.code, 2);
     assert!(!dir.join("edits.step").exists());
     assert!(
