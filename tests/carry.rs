@@ -889,3 +889,125 @@ fn the_command_line_writes_out_and_prints_the_report() {
     assert_eq!(numbers(&loaded).len(), 3);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// `file` with every suggestion of each part named in `parts` accepted, part by part, through
+/// the in-place writer on that part of the assembly.
+fn assembly_with_suggestions(file: &File, parts: &[&str]) -> File {
+    let mut bytes = file.bytes().as_ref().clone();
+    for name in parts {
+        let f = of_bytes(bytes.clone());
+        let k = f
+            .load_all()
+            .unwrap()
+            .iter()
+            .position(|p| p.name == *name)
+            .unwrap_or_else(|| panic!("no part {name}"));
+        let loaded = f.load(Some(k)).unwrap();
+        let ids: Vec<String> = table(&loaded)["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["state"] == "gap" && !r["suggestion"].is_null())
+            .map(|r| r["id"].as_str().unwrap().to_string())
+            // A full-thread depth wants a datum the part does not have (as with_suggestions'
+            // callers leave it out).
+            .filter(|id| !id.starts_with("hole.full_thread"))
+            .collect();
+        let list = edits::parse_value(json!({ "accept_suggestions": ids })).unwrap();
+        bytes = writer::apply::apply(&loaded, &list)
+            .unwrap_or_else(|f| panic!("{name} refused: {f:#?}"))
+            .bytes;
+    }
+    of_bytes(bytes)
+}
+
+/// The stated rows of each part of `file`, by part name.
+fn stated_by_part(file: &File) -> BTreeMap<String, Vec<(String, Value)>> {
+    file.load_all()
+        .unwrap()
+        .iter()
+        .map(|p| {
+            let rows = table(p)["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|r| r["state"] != "gap")
+                .map(|r| (r["id"].as_str().unwrap().to_string(), r["value"].clone()))
+                .collect();
+            (p.name.clone(), rows)
+        })
+        .collect()
+}
+
+#[test]
+fn an_assembly_parts_requirements_carry_through_the_in_place_writer() {
+    // gramil's assembly: OLD's drive plate (its mount hole Ø2.2) and shaft (its mount tap 4
+    // deep) with every suggestion accepted; NEW is gramil's defaults, stating nothing.
+    let parts = ["GRM-04 drive plate", "GRM-02 shaft"];
+    let old = assembly_with_suggestions(&file("revisions/gramil_assembly.old.step.gz"), &parts);
+    let new = file("revisions/gramil_assembly.new.step.gz");
+    let outcome = carried(&old, &new);
+    let report = &outcome.report;
+    assert!(report.refused.is_empty(), "{:#?}", report.refused);
+    // Nothing is held back for being on a part of an assembly (the 0.2 gap).
+    assert!(
+        !report
+            .not_carried
+            .iter()
+            .any(|n| n.reason.contains("file of one part")),
+        "{:#?}",
+        report.not_carried
+    );
+    let old_stated = stated_by_part(&old);
+    let out = of_bytes(outcome.bytes.clone().unwrap());
+    let out_stated = stated_by_part(&out);
+    for name in parts {
+        // Each part's rows carried, by its name; each is stated in OUT's part.
+        let rows = &old_stated[name];
+        assert!(!rows.is_empty(), "{name} states nothing in OLD");
+        let carried: Vec<&carry::Carried> = report
+            .carried
+            .iter()
+            .chain(&report.to_check)
+            .filter(|c| c.new.starts_with(&format!("{name}: ")))
+            .collect();
+        assert!(!carried.is_empty(), "{name}: {report:#?}");
+        for c in &carried {
+            let id = &c.new[name.len() + 2..];
+            assert!(
+                out_stated[name].iter().any(|(r, _)| r == id),
+                "{name}: {id} carried but not stated in OUT: {:?}",
+                out_stated[name]
+            );
+        }
+        // Every OLD row is accounted for: carried, to check, decided none or not carried.
+        for (id, _) in rows {
+            let key = format!("{name}: {id}");
+            let accounted = report
+                .carried
+                .iter()
+                .chain(&report.to_check)
+                .chain(&report.decided_none)
+                .any(|c| c.old == key)
+                || report.kept.iter().any(|k| k.old == key)
+                || report
+                    .not_carried
+                    .iter()
+                    .any(|n| n.part.as_deref() == Some(name) && n.id.as_deref() == Some(id));
+            assert!(accounted, "{key} not reported: {report:#?}");
+        }
+    }
+    // Every other part reads as NEW's, entity for entity: the carry edits each part alone.
+    let (new_parts, out_parts) = (new.load_all().unwrap(), out.load_all().unwrap());
+    for (n, o) in new_parts.iter().zip(&out_parts) {
+        if parts.contains(&n.name.as_str()) {
+            continue;
+        }
+        assert_eq!(
+            api::analyse(n).unwrap()["existing"],
+            api::analyse(o).unwrap()["existing"],
+            "{}",
+            n.name
+        );
+    }
+}

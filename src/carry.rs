@@ -785,7 +785,9 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
             if let Some(object) = report.write.as_object_mut() {
                 object.remove("output");
             }
-            let out = crate::part::load_bytes("carried.step", applied.bytes.clone())
+            // The part carried onto, in the file written (one part of an assembly, or the only one).
+            let out = File::of_bytes(std::path::Path::new("carried.step"), applied.bytes.clone())
+                .and_then(|f| f.load((f.parts().len() > 1).then_some(new.binding.part)))
                 .map_err(|e| e.to_string())?;
             numbered(&mut report, &reader, old, &out, &map)?;
             Ok(Outcome {
@@ -923,37 +925,19 @@ fn file_pmi_not_carried(r: &crate::feature_table::Requirement, part: Option<&str
 
 /// [`carry`] of an assembly: each new part matched to an old one by its geometry keeps its BOM
 /// item number and answers, and its material, where NEW states none (NEW's own stand, and a
-/// difference is listed as kept); the old BOM history with its retired numbers carries unless
-/// NEW numbers its own items. Only appended: every entity of NEW keeps its bytes. The in-place
-/// writer edits a file of one part, so the parts' own requirements are not carried here yet;
-/// each is reported, with each part's PMI on no feature-and-kind.
+/// difference is listed as kept); the old history with its retired numbers carries unless NEW
+/// numbers its own items. Then each part's own requirements carry as a single part's do, one
+/// part at a time through the in-place writer on that part of the file (every other part,
+/// placement and instance keeps its bytes): a part of NEW is matched to OLD's by its name, else
+/// by its geometry. Each entry names its part (`plate: hole.function:holes:3`). All or nothing:
+/// if one part's carry is refused, nothing is written. An old part with no match is reported
+/// not carried.
 fn carry_assembly(old: &File, new: &File) -> Result<Outcome, Error> {
     let (before, after) = (
         old.load_all().map_err(|e| e.to_string())?,
         new.load_all().map_err(|e| e.to_string())?,
     );
     let mut report = Report::default();
-    for part in &before {
-        let (_, table) = analysed(part)?;
-        for row in table
-            .rows
-            .iter()
-            .filter(|r| r.state != State::Gap && r.id != "part.material")
-        {
-            let mut n = not_carried_row(
-                row,
-                "a part of an assembly: the in-place writer edits a file of one part, so carry \
-                 takes an assembly's BOM and materials only",
-            );
-            n.part = Some(part.name.clone());
-            report.not_carried.push(n);
-        }
-        for r in &table.file_pmi {
-            report
-                .not_carried
-                .push(file_pmi_not_carried(r, Some(&part.name)));
-        }
-    }
     let carried = crate::bom::carry_assembly(&before, &after, new.bytes().as_ref())?;
     for k in &carried.kept {
         report.kept.push(Kept {
@@ -989,15 +973,110 @@ fn carry_assembly(old: &File, new: &File) -> Result<Outcome, Error> {
     }
     report.bom_carried = carried.bytes.is_some();
     report.bom_numbers_carried = carried.numbers;
+    let mut bytes = carried
+        .bytes
+        .unwrap_or_else(|| new.bytes().as_ref().clone());
+    let pairs = part_pairs(&before, &after);
+    for (i, old_part) in before.iter().enumerate() {
+        let Some(&(_, j)) = pairs.iter().find(|(o, _)| *o == i) else {
+            let (_, table) = analysed(old_part)?;
+            for row in table.rows.iter().filter(|r| r.state != State::Gap) {
+                let mut n = not_carried_row(row, "no part of the new assembly matches its part");
+                n.part = Some(old_part.name.clone());
+                report.not_carried.push(n);
+            }
+            for r in &table.file_pmi {
+                report
+                    .not_carried
+                    .push(file_pmi_not_carried(r, Some(&old_part.name)));
+            }
+            continue;
+        };
+        let new_part = File::of_bytes(new.path(), bytes.clone())
+            .and_then(|f| f.load(Some(j)))
+            .map_err(|e| e.to_string())?;
+        let name = after[j].name.clone();
+        let part = carry_part(old_part, &new_part)?;
+        merge_part(&mut report, part.report, &old_part.name, &name);
+        match part.bytes {
+            Some(b) => bytes = b,
+            None => {
+                report.written = false;
+                return Ok(Outcome {
+                    bytes: None,
+                    report,
+                });
+            }
+        }
+    }
     report.written = true;
     Ok(Outcome {
-        bytes: Some(
-            carried
-                .bytes
-                .unwrap_or_else(|| new.bytes().as_ref().clone()),
-        ),
+        bytes: Some(bytes),
         report,
     })
+}
+
+/// The parts of NEW matched to OLD's, as (old index, new index): by name (as `diff` pairs an
+/// assembly's parts), then a part left on each side with the same geometry.
+fn part_pairs(old: &[LoadedPart], new: &[LoadedPart]) -> Vec<(usize, usize)> {
+    let names = |parts: &[LoadedPart]| {
+        revision::assembly::names(
+            parts
+                .iter()
+                .map(|p| (p.name.as_str(), p.definition.product_id.as_str())),
+        )
+    };
+    let mut pairs: Vec<(usize, usize)> = revision::assembly::matched(&names(old), &names(new))
+        .into_iter()
+        .filter_map(|(_, o, n)| Some((o?, n?)))
+        .collect();
+    for (i, o) in old.iter().enumerate() {
+        if pairs.iter().any(|(x, _)| *x == i) {
+            continue;
+        }
+        let fingerprint = &o.recognition().fingerprints;
+        let same: Vec<usize> = (0..new.len())
+            .filter(|j| !pairs.iter().any(|(_, y)| y == j))
+            .filter(|&j| &new[j].recognition().fingerprints == fingerprint)
+            .collect();
+        if let [j] = same.as_slice() {
+            pairs.push((i, *j));
+        }
+    }
+    pairs
+}
+
+/// A part's carry report folded into the assembly's, each entry naming its part.
+fn merge_part(report: &mut Report, part: Report, old_name: &str, new_name: &str) {
+    let named = |mut c: Carried| {
+        c.old = format!("{old_name}: {}", c.old);
+        c.new = format!("{new_name}: {}", c.new);
+        c
+    };
+    report.carried.extend(part.carried.into_iter().map(named));
+    report.to_check.extend(part.to_check.into_iter().map(named));
+    report
+        .decided_none
+        .extend(part.decided_none.into_iter().map(named));
+    report.kept.extend(part.kept.into_iter().map(|mut k| {
+        k.old = format!("{old_name}: {}", k.old);
+        k.new = format!("{new_name}: {}", k.new);
+        k
+    }));
+    report
+        .not_carried
+        .extend(part.not_carried.into_iter().map(|mut n| {
+            n.part.get_or_insert_with(|| old_name.to_string());
+            n
+        }));
+    report.new_unstated.extend(part.new_unstated);
+    report.numbers_carried |= part.numbers_carried;
+    report.renumbered.extend(part.renumbered);
+    report.retired.extend(part.retired);
+    report.refused.extend(part.refused.into_iter().map(|mut f| {
+        f.entry = format!("{new_name}: {}", f.entry);
+        f
+    }));
 }
 
 impl Report {

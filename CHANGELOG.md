@@ -52,8 +52,10 @@ Read first:
   report starts with the counts (carried, not carried, to check) and a verdict as `diff`'s:
   `decide` whenever anything is not carried or is to check. Decided-none, characteristic numbers (with their retired numbers)
   and, in an assembly, BOM item numbers and answers carry too: what `diff`'s answers carried
-  before 0.3.0. New features with nothing stated are listed as information. Not yet: `--base`,
-  a part's requirements inside an assembly, WASM and Python.
+  before 0.3.0. New features with nothing stated are listed as information. In an assembly,
+  each matched part's own requirements carry too, through the in-place writer on that part
+  (every other part keeps its bytes), each entry naming its part. Not yet: `--base`, WASM and
+  Python.
 - `diff` lists, for information, the features new in this revision that the new file's PMI states
   nothing on: "New in this revision with nothing stated: Ø7 × 10 through hole." in the Markdown
   report (and so on the diff page and in MCP's `markdown`), and `new_unstated: [{feature, what}]`

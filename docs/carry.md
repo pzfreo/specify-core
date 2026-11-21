@@ -75,10 +75,13 @@ NEW's stands and a difference is listed in `kept` (`plate: bom.description`). OL
 with its item numbers and retired numbers, carries unless NEW numbers its own items (a BOM
 history of its own, or native find numbers), when NEW's numbering stands ([bom.md](bom.md));
 `bom_numbers_carried` and the Markdown say which. The
-BOM is appended and the materials added so that every entity of NEW keeps its bytes. The
-in-place writer edits a file of one part, so in this release a part's own requirements in an
-assembly, and its PMI on no feature-and-kind, are not carried: each is reported `not_carried`
-with its part.
+BOM is appended and the materials added so that every entity of NEW keeps its bytes. Then each
+part's own requirements carry as a single part's do, through the in-place writer on that part of
+the file, one part at a time: every other part, placement and instance keeps its bytes. A new
+part is matched to an old one by its name, else (renamed) by the same geometry. Each entry
+names its part (`GRM-04 drive plate: hole.function:holes:7`; a `not_carried` entry has `part`).
+An old part no new part matches is reported `not_carried`, row by row. All or nothing: if one
+part's carry is refused, nothing is written.
 
 ## All or nothing
 
