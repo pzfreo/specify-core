@@ -945,7 +945,7 @@ fn default_finish(text: &str) -> Option<&str> {
 
 /// The faces of `features`, following groups and derived features to what they are made of
 /// (as Python's `datum_faces` follows shape aspect relationships), ascending.
-pub(crate) fn faces_of(pmi: &PartPmi, features: &[FeatureId]) -> Vec<usize> {
+pub fn faces_of(pmi: &PartPmi, features: &[FeatureId]) -> Vec<usize> {
     faces_in_arena(&pmi.features, features)
 }
 

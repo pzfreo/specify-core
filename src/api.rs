@@ -372,9 +372,11 @@ fn analyse_with(
     reading.each_setting(false, |key, value| {
         stated_settings.entry(key).or_insert(value);
     });
-    let table =
+    let mut table =
         crate::feature_table::build(&Value::Object(analysis.clone()), &stated_settings, &stored)
             .map_err(|e| refused(&e))?;
+    let numbers = crate::characteristics::read(loaded).map_err(Error::Analysis)?;
+    crate::feature_table::add_numbered(&mut table, &numbers);
     if let Some(mut resumed) = resumed {
         let mut kept = Map::new();
         for (id, answer) in &resumed.answers {
@@ -413,7 +415,6 @@ fn analyse_with(
         "table".into(),
         serde_json::to_value(&table).map_err(|e| refused(&e))?,
     );
-    let numbers = crate::characteristics::read(loaded).map_err(Error::Analysis)?;
     if !numbers.is_empty() {
         analysis.insert(
             "characteristics".into(),

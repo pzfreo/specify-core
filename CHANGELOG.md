@@ -66,7 +66,14 @@ Read first:
   file. A change keeps the number when only its limits change; a different measurement gets a new
   number and the old one is retired; a removed requirement's number is retired; retired numbers
   are never reused. Only decided-none (and how holes are located) and the number history are
-  stored. Rust: `writer::apply::{apply, apply_bytes, check}`, `session::save_edits`. Not yet:
+  stored. A fill writes only its own row (filling the general tolerance writes its class, not
+  the planner's dimensions for other features). A change never adds a location beside one its
+  row shares with another feature: such a change is refused, naming it. A change to none takes
+  the frame with the basic dimensions only it used. `--check` applies the list in memory, so it
+  refuses exactly what `write` would. Every numbered requirement is in the feature table (a
+  finish on the whole part on `part.surface_finish`), so any can be removed by number. After
+  `session::save_edits`, the session works on the file saved: a later save of answers keeps the
+  edits. Rust: `writer::apply::{apply, apply_bytes, check}`, `session::save_edits`. Not yet:
   changing one requirement by its number (`items.change`), and a part of an assembly.
 
 ### WASM API

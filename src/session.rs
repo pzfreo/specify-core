@@ -799,9 +799,12 @@ pub fn save(
 }
 
 /// Applies the edit list `list` (ADR P11: all or nothing, touching only what it names) to the
-/// session's file as it now is (the input, or what the last in-place save left), and saves the
-/// result as [`save`] does: in place, or beside the input. A list that cannot be applied writes
-/// nothing; the refusal names every failing entry. Every subscriber gets a `saved` event.
+/// session's file as its last save left it (the input before any), and saves the result as
+/// [`save`] does: in place, to the session's own copy, or beside the input. A list that cannot
+/// be applied writes nothing; the refusal names every failing entry. The session then works on
+/// the file saved: a later save of answers writes from it (the edits stand), its analyses are
+/// made again, and each part's answers are those the saved file resumes (a new rev). Every
+/// subscriber gets a `saved` event.
 pub fn save_edits(
     shared: &Shared,
     list: &crate::edits::EditList,
@@ -809,7 +812,7 @@ pub fn save_edits(
 ) -> Result<Saved, SaveError> {
     let save_lock = Arc::clone(&lock(shared).save_lock);
     let _one_at_a_time = save_lock.lock().unwrap_or_else(|p| p.into_inner());
-    let (current, file, in_place, gz, mut backup, rev) = {
+    let (step, file, in_place, gz, mut backup, copy) = {
         let s = lock(shared);
         s.check_allowed()?;
         if s.in_place {
@@ -824,16 +827,16 @@ pub fn save_edits(
             }
         }
         (
-            s.current(),
+            Arc::clone(&s.step),
             s.file.clone(),
             s.in_place,
             s.gz,
             s.backup.clone(),
-            s.rev,
+            s.own_copy().map(Path::to_path_buf),
         )
     };
-    let loaded = part::File::of_shared(&file.path, current)
-        .and_then(|f| f.load(None))
+    let loaded = step
+        .load(None)
         .map_err(|e| SaveError::Refused(e.to_string()))?;
     let applied = crate::writer::apply::apply(&loaded, list).map_err(|failures| {
         let mut message = "nothing was written: an edit list is applied all or nothing, and \
@@ -844,6 +847,20 @@ pub fn save_edits(
         }
         SaveError::Refused(message)
     })?;
+    // The file saved, as the session works on it from now on.
+    let saved_step = part::File::of_shared(&file.path, Arc::new(applied.bytes.clone()))
+        .map_err(|e| SaveError::Failed(e.to_string()))?;
+    let resumed = Session::of(file.clone(), saved_step, in_place);
+    let mut analyses = BTreeMap::new();
+    let mut answers = BTreeMap::new();
+    for k in 0..resumed.part_count() {
+        let analysis =
+            Arc::new(analyse(&resumed.step, k).map_err(|e| SaveError::Failed(e.to_string()))?);
+        if let Some(a) = analysis["resume"]["answers"].as_object() {
+            answers.insert(k, a.clone());
+        }
+        analyses.insert(k, analysis);
+    }
     let cannot = |e: io::Error| SaveError::Failed(format!("cannot save: {e}"));
     let text = applied.bytes.clone();
     let (path, bytes, stored, sha) = if in_place {
@@ -853,25 +870,40 @@ pub fn save_edits(
     } else {
         let bytes = text.len();
         let sha = sha256(&text);
-        (write_new(&file, &text).map_err(cannot)?, bytes, None, sha)
+        let path = match copy {
+            Some(copy) => update_copy(shared, &file, copy, &text),
+            None => write_new(&file, &text),
+        };
+        (path.map_err(cannot)?, bytes, None, sha)
     };
     let shown = path.display().to_string();
     let mut report = applied.to_dict();
     report["output"] = json!(shown);
-    let saved = Saved {
-        path: shown,
-        bytes,
-        rev,
-        report,
-        complete: true,
-        missing: Vec::new(),
-    };
     let mut s = lock(shared);
     if let Some(stored) = stored {
         s.backup = backup;
         s.current = Arc::new(stored);
     }
+    s.step = resumed.step;
+    s.analyses = analyses;
+    let at = s.rev + 1;
+    let parts: Vec<usize> = s.answers.keys().chain(answers.keys()).copied().collect();
+    for k in parts {
+        let now = answers.remove(&k).unwrap_or_default();
+        s.change(k, now, source, None, Some(at));
+    }
+    // Saved: nothing the session holds is unwritten (answers given before the edits were
+    // made are replaced by what the saved file resumes).
+    s.touched.clear();
     s.last_saved = Some((path, sha));
+    let saved = Saved {
+        path: shown,
+        bytes,
+        rev: s.rev,
+        report,
+        complete: true,
+        missing: Vec::new(),
+    };
     let data = json!({"path": saved.path, "bytes": saved.bytes, "rev": saved.rev,
                       "source": source});
     s.publish(&event("saved", None, &data));

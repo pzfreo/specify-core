@@ -510,6 +510,46 @@ pub fn build(
     })
 }
 
+/// Every numbered requirement the table does not list yet, added where it belongs, so each can
+/// be removed by its number: a finish on the whole part (`Ra`, a surface texture on no faces)
+/// on the `part.surface_finish` row when that row is stated, anything else as file PMI.
+pub fn add_numbered(table: &mut FeatureTable, numbers: &[crate::characteristics::Characteristic]) {
+    let listed: BTreeSet<String> = table
+        .rows
+        .iter()
+        .flat_map(|r| &r.requirements)
+        .chain(&table.file_pmi)
+        .filter_map(|r| r.number.clone())
+        .collect();
+    for c in numbers {
+        let tag = format!("#{}", c.number);
+        if listed.contains(&tag) {
+            continue;
+        }
+        let mut faces = c.reference.clone();
+        faces.extend(&c.faces);
+        let mut requirement = Requirement {
+            number: Some(tag),
+            kind: c.kind.clone(),
+            r#type: c.r#type.clone(),
+            faces,
+            text: c.r#type.clone(),
+        };
+        let finish = table.rows.iter_mut().find(|r| {
+            r.id == "part.surface_finish" && r.state == State::Stated && c.faces.is_empty()
+        });
+        match finish {
+            Some(row) if c.kind == "surface_texture" => {
+                if let Some(Value::String(text)) = &row.value {
+                    requirement.text = text.clone();
+                }
+                row.requirements.push(requirement);
+            }
+            _ => table.file_pmi.push(requirement),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

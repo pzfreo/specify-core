@@ -95,15 +95,26 @@ fn validated(list: &EditList, table: &FeatureTable) -> (EditList, Outcome) {
 
 /// `text` (an edit list, or a 0.2 answers file) checked against `loaded`'s file, all or
 /// nothing. Nothing is written.
+///
+/// The list is applied in memory (the same run as [`apply`]), so a list this check passes is
+/// one `apply` writes, and one it refuses is refused with the same reasons.
 pub fn check(loaded: &LoadedPart, text: &str) -> Outcome {
     let list = match edits::read(text) {
         Ok(list) => list,
         Err(failures) => return Outcome::malformed(failures),
     };
-    match table_of(loaded) {
-        Ok((_, table)) => validated(&list, &table).1,
-        Err(why) => Outcome::malformed(whole(why)),
+    let table = match table_of(loaded) {
+        Ok((_, table)) => table,
+        Err(why) => return Outcome::malformed(whole(why)),
+    };
+    let mut outcome = validated(&list, &table).1;
+    if outcome.failures.is_empty()
+        && let Err(failures) = apply(loaded, &list)
+    {
+        outcome.failures = failures;
+        outcome.applicable = false;
     }
+    outcome
 }
 
 /// `text` (an edit list, or a 0.2 answers file) applied to the part `part` (None: a file of
@@ -366,9 +377,10 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         unchanged.contains(format!("{section}[{}]", Json::String(id.to_owned())).as_str())
     };
 
-    // What the list writes (by question id, with its value) and what it decides none.
+    // What the list writes (by question id, with its value), and what it decides writes
+    // nothing (with the answer stored for it).
     let mut given: BTreeMap<String, Json> = BTreeMap::new();
-    let mut none: BTreeSet<String> = BTreeSet::new();
+    let mut none: BTreeMap<String, Json> = BTreeMap::new();
     for (id, value) in &list.fill {
         if !skip("fill", id) {
             given.insert(id.clone(), value.clone());
@@ -382,17 +394,23 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
             given.insert(id.clone(), s);
         }
     }
-    // A value meaning "none" writes nothing: it is a decision that nothing is needed.
+    // A value that writes nothing ("none"; "general", a hole left to the general tolerance)
+    // is a decision, stored as given.
     given.retain(|id, value| {
-        let nothing = crate::feature_table::is_none_value(value);
+        let nothing = crate::feature_table::leaves_nothing(value);
         if nothing {
-            none.insert(id.clone());
+            let stored = if crate::feature_table::is_none_value(value) {
+                none_answer(&table, id)
+            } else {
+                value.clone()
+            };
+            none.insert(id.clone(), stored);
         }
         !nothing
     });
     for id in &list.none {
         if !skip("none", id) {
-            none.insert(id.clone());
+            none.insert(id.clone(), none_answer(&table, id));
         }
     }
     if given.is_empty() && none.is_empty() && list.change.is_empty() && list.items.remove.is_empty()
@@ -414,6 +432,10 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
 
     // The items to take out: the removed requirements, and the changed rows' requirements.
     let mut failures = Vec::new();
+    // Each changed row: its faces, how many location dimensions of its own it replaces, and
+    // the requirements it shares with other features' rows.
+    let mut own_locations: BTreeMap<String, (BTreeSet<usize>, usize, Vec<String>)> =
+        BTreeMap::new();
     let mut remove: BTreeSet<(String, usize)> = BTreeSet::new();
     for n in &list.items.remove {
         match located.iter().find(|l| l.number == Some(n.0)) {
@@ -454,8 +476,50 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
                 .iter()
                 .any(|r| r.feature != row.feature && r.requirements.iter().any(|q| same(q, req)))
         };
+        // Changed to none, the frame goes with the basic dimensions only it used (decision 1).
+        let to_none = list
+            .change
+            .get(id)
+            .is_some_and(|c| crate::feature_table::is_none_value(&c.to));
+        let shared_texts: Vec<&str> = row
+            .requirements
+            .iter()
+            .filter(|r| shared(r))
+            .map(|r| r.text.as_str())
+            .collect();
+        if !row.requirements.is_empty() && row.requirements.iter().all(|r| shared(r)) {
+            failures.push(entry_failure(
+                entry.clone(),
+                format!(
+                    "{id} is stated only by requirements other features' rows state too ({}); \
+                     changing it would add a second requirement beside them. Remove them by \
+                     number, or change them in your CAD tool",
+                    shared_texts.join("; ")
+                ),
+            ));
+            continue;
+        }
+        own_locations.insert(
+            id.clone(),
+            (
+                row.faces.iter().copied().collect::<BTreeSet<usize>>(),
+                row.requirements
+                    .iter()
+                    .filter(|r| {
+                        r.r#type.starts_with("Location_") && !shared(r) && !(frame_only && !to_none)
+                    })
+                    .count(),
+                shared_texts
+                    .iter()
+                    .map(|t| t.to_string())
+                    .collect::<Vec<_>>(),
+            ),
+        );
         for req in &row.requirements {
-            if (frame_only && req.kind != "geometric_tolerance") || shared(req) {
+            let frame_stands = frame_only
+                && req.kind != "geometric_tolerance"
+                && !(to_none && req.text.ends_with(" basic"));
+            if frame_stands || shared(req) {
                 continue;
             }
             match locate(req, &located, &remove) {
@@ -619,8 +683,36 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         intent
             .part
             .retain(|key, _| given.contains_key(&format!("part.{key}")));
-        if !given.contains_key("part.general_tolerance") {
-            intent.general.clear();
+        // The general tolerance is its class alone: the planner's dimensions under it are for
+        // the other features, which the list does not name. A hole the list leaves to the
+        // general tolerance (`general`) keeps its own size under it.
+        // (Matched by faces: the planner's rows name no feature.)
+        let general_holes: Vec<(&String, BTreeSet<usize>)> = given
+            .iter()
+            .filter(|(id, v)| v.as_str() == Some("general") && id.starts_with("hole.function:"))
+            .filter_map(|(id, _)| Some((id, table.row(id)?.faces.iter().copied().collect())))
+            .collect();
+        let hole_of = |r: &Map<String, Json>| -> Option<String> {
+            if r.get("kind").and_then(Json::as_str) != Some("size") {
+                return None;
+            }
+            let faces: BTreeSet<usize> = r
+                .get("faces")?
+                .as_array()?
+                .iter()
+                .filter_map(Json::as_u64)
+                .map(|f| f as usize)
+                .collect();
+            general_holes
+                .iter()
+                .find(|(_, on)| !faces.is_empty() && faces.is_subset(on))
+                .map(|(id, _)| (*id).clone())
+        };
+        intent.general.retain(|r| hole_of(r).is_some());
+        for r in &mut intent.general {
+            if let Some(id) = hole_of(r) {
+                r.insert("question".into(), Json::from(id));
+            }
         }
         for item in intent
             .requirements
@@ -632,7 +724,11 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         let failing: Vec<Failure> = given
             .keys()
             .filter(|id| {
-                let written = intent.requirements.iter().any(|r| r["question"] == **id)
+                let written = intent
+                    .requirements
+                    .iter()
+                    .chain(&intent.general)
+                    .any(|r| r["question"] == **id)
                     || intent
                         .datums
                         .iter()
@@ -650,10 +746,41 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
                 } else {
                     "accept_suggestions"
                 };
+                // Usually a frame that cites datums the file does not state yet.
+                let datums: Vec<&str> = table
+                    .rows
+                    .iter()
+                    .filter(|r| {
+                        r.state != State::Stated
+                            && r.kind
+                                .strip_prefix("datum.")
+                                .is_some_and(|l| !l.contains('.'))
+                            && !given.contains_key(&r.id)
+                    })
+                    .map(|r| r.id.as_str())
+                    .collect();
+                let general = given[id] == "general"
+                    && table
+                        .row("part.general_tolerance")
+                        .is_some_and(|r| r.state != State::Stated)
+                    && !given.contains_key("part.general_tolerance");
+                let why = if general {
+                    ": a hole left to the general tolerance needs one; fill \
+                     part.general_tolerance in the same list"
+                        .to_string()
+                } else if datums.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        ": the datums it would cite are not in the file; fill {} in the same \
+                         list",
+                        datums.join(", ")
+                    )
+                };
                 entry_failure(
                     format!("{section}[{}]", Json::String(id.clone())),
                     format!(
-                        "{id} with {} writes no requirement on this part as it is",
+                        "{id} with {} writes no requirement on this part as it is{why}",
                         given[id]
                     ),
                 )
@@ -685,6 +812,41 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         let (mut pmi, planned) = part_pmi(&loaded_clean, &intent, clean_before, mode, &[])
             .map_err(|e| whole(e.to_string()))?;
         lines = planned;
+        // A change replaces its row's own items: it never adds a location dimension beside
+        // one the row shares with another feature (another tool's group dimension, say).
+        if mode == Mode::Add {
+            let mut extra = Vec::new();
+            for (id, (faces, own, shared)) in &own_locations {
+                let planned = pmi
+                    .dimensions
+                    .iter()
+                    .filter(|d| {
+                        let DimensionKind::Location { from, to, .. } = &d.kind else {
+                            return false;
+                        };
+                        [from, to].iter().any(|f| {
+                            crate::existing::faces_of(&pmi, &[**f])
+                                .iter()
+                                .any(|x| faces.contains(x))
+                        })
+                    })
+                    .count();
+                if planned > *own && !shared.is_empty() {
+                    extra.push(entry_failure(
+                        format!("change[{}]", Json::String(id.clone())),
+                        format!(
+                            "the new value would add a location beside one {id} shares with \
+                             another feature ({}); remove that one by number first, or change \
+                             it in your CAD tool",
+                            shared.join("; ")
+                        ),
+                    ));
+                }
+            }
+            if !extra.is_empty() {
+                return Err(extra);
+            }
+        }
         // Only what the list names is planned, and it was validated against the table; an
         // item the plan makes that measures exactly what the file states (a planner's own
         // dimension) is not written twice.
@@ -711,8 +873,8 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
             saved.insert(id.clone(), none_answer(&table, id));
         }
     }
-    for id in &none {
-        saved.insert(id.clone(), none_answer(&table, id));
+    for (id, value) in &none {
+        saved.insert(id.clone(), value.clone());
     }
     if !saved.is_empty() {
         let payload = crate::resume::payload(loaded, &saved).map_err(|e| whole(e.to_string()))?;
@@ -753,8 +915,11 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
     for n in &list.items.remove {
         lines.written.push(format!("removed {n}"));
     }
-    for id in &none {
-        lines.written.push(format!("{id}: decided none"));
+    for (id, value) in &none {
+        lines.written.push(format!(
+            "{id}: decided {}",
+            crate::choices::short_repr(value, 6)
+        ));
     }
 
     let items = vec![(haecceity::pmi::PartId(k), pmi)];

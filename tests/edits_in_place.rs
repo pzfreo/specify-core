@@ -91,6 +91,7 @@ fn records(bytes: &[u8]) -> BTreeMap<u64, String> {
 /// shows the part's notes and is updated with them (design notes, piece 2).
 fn rewritten(before: &[u8], after: &[u8]) -> Vec<(u64, String, String)> {
     let (old, new) = (records(before), records(after));
+    let own = own_notes_view(&old);
     let refs = |text: &str| -> Vec<u64> {
         text.split('#')
             .skip(2)
@@ -112,10 +113,7 @@ fn rewritten(before: &[u8], after: &[u8]) -> Vec<(u64, String, String)> {
     old.iter()
         .filter_map(|(id, text)| {
             let now = new.get(id)?;
-            if now == text
-                || text.starts_with(&format!("#{id}=DRAUGHTING_MODEL('Notes',"))
-                || text.starts_with(&format!("#{id}=DEFAULT_MODEL_GEOMETRIC_VIEW('Notes',"))
-            {
+            if now == text || own.contains(id) {
                 return None;
             }
             let (was, is) = (refs(text), refs(now));
@@ -129,6 +127,39 @@ fn rewritten(before: &[u8], after: &[u8]) -> Vec<(u64, String, String)> {
             (!only_dropped_removed).then(|| (*id, text.clone(), now.clone()))
         })
         .collect()
+}
+
+/// Specify's own Notes saved view in a file Specify wrote: the `DEFAULT_MODEL_GEOMETRIC_VIEW`
+/// named Notes and the `DRAUGHTING_MODEL` named Notes it shows (haecceity's owned pairing).
+/// Empty for a file Specify did not write, whatever its views are called.
+fn own_notes_view(records: &BTreeMap<u64, String>) -> Vec<u64> {
+    if !records
+        .values()
+        .any(|t| t.contains(&format!("'{}'", specify_core::writer::PMI_PROVENANCE)))
+    {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for (id, text) in records {
+        let Some(rest) = text.strip_prefix(&format!("#{id}=DEFAULT_MODEL_GEOMETRIC_VIEW('Notes',"))
+        else {
+            continue;
+        };
+        // ('Notes',$,#camera,#model,'Notes',...): the model is the second reference.
+        let refs: Vec<u64> = rest
+            .split('#')
+            .skip(1)
+            .filter_map(|t| t.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok())
+            .collect();
+        if let Some(model) = refs.get(1)
+            && records
+                .get(model)
+                .is_some_and(|m| m.starts_with(&format!("#{model}=DRAUGHTING_MODEL('Notes',")))
+        {
+            out.extend([*id, *model]);
+        }
+    }
+    out
 }
 
 /// Asserts that every numbered requirement but `addressed` is in `after` unchanged: the same
@@ -162,6 +193,11 @@ fn stored_answers(bytes: &[u8]) -> Value {
 /// `bytes` with every requirement copied by haecceity's own writer onto the bare plate: the
 /// same PMI, written by another tool (no Specify marker, no stored answers, no numbers).
 fn as_another_tool(bytes: &[u8]) -> Vec<u8> {
+    another_tool(bytes, |_| {})
+}
+
+/// [`as_another_tool`], with `edit` changing the copied PMI first.
+fn another_tool(bytes: &[u8], edit: impl FnOnce(&mut haecceity::pmi::PartPmi)) -> Vec<u8> {
     use haecceity::pmi;
     let defs = haecceity::step::read_part_definitions(bytes).unwrap();
     let read = pmi::read(&Document::parse(bytes.to_vec()).unwrap(), &defs).unwrap();
@@ -172,6 +208,7 @@ fn as_another_tool(bytes: &[u8]) -> Vec<u8> {
     copied
         .attributes
         .retain(|set| !resume::is_answers(set) && set.name != characteristics::PROPERTY);
+    edit(&mut copied);
     let bare = fixture("parts/plate.step").bytes.to_vec();
     let doc = Document::parse(bare).unwrap();
     let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
@@ -623,6 +660,352 @@ fn a_part_setting_change_replaces_only_the_setting() {
             assert_eq!(v1, "6061-T6");
         } else {
             assert_eq!((s0, v0), (s1, v1), "{id}");
+        }
+    }
+}
+
+// ----- the review's probes, as tests -----
+
+/// The part's PMI as haecceity reads it.
+fn pmi_of(bytes: &[u8]) -> haecceity::pmi::PartPmi {
+    haecceity::pmi::read(
+        &Document::parse(bytes.to_vec()).unwrap(),
+        &haecceity::step::read_part_definitions(bytes).unwrap(),
+    )
+    .unwrap()
+    .parts[0]
+        .clone()
+}
+
+/// The location dimensions on face `face`, as (from faces, to faces, basic).
+fn locations_on(p: &haecceity::pmi::PartPmi, face: usize) -> Vec<(Vec<usize>, Vec<usize>, bool)> {
+    use haecceity::pmi::{DimTolerance, DimensionKind};
+    use specify_core::existing::faces_of;
+    p.dimensions
+        .iter()
+        .filter_map(|d| match &d.kind {
+            DimensionKind::Location { from, to, .. } => {
+                let (a, b) = (faces_of(p, &[*from]), faces_of(p, &[*to]));
+                (a.contains(&face) || b.contains(&face))
+                    .then(|| (a, b, matches!(d.tolerance, DimTolerance::Basic)))
+            }
+            DimensionKind::Size { .. } => None,
+        })
+        .collect()
+}
+
+/// The edited plate's PMI as another tool's, with hole 12 (feature 6, face 12) unframed: its
+/// position tolerance dropped and its locations plain (`moved`: its own 95 measured from face
+/// 2, not face 0; `alone`: its own 95 dropped, leaving only the 30 it shares with the grid).
+fn unframed_hole_12(moved: bool, alone: bool) -> LoadedPart {
+    use haecceity::pmi::{DimTolerance, DimensionKind, ToleranceTarget};
+    let plate = fixture("resume-p9/edited-plate.step.gz");
+    let bytes = another_tool(&plate.bytes, |p| {
+        p.tolerances
+            .retain(|t| !matches!(&t.target, ToleranceTarget::Feature(f) if f.0 == 6));
+        // dim 2 is hole 12's own 95 basic from face 0 (feature 2).
+        if alone {
+            p.dimensions.remove(2);
+            for t in &mut p.tolerances {
+                if let ToleranceTarget::Dimension(d) = &mut t.target
+                    && d.0 > 2
+                {
+                    d.0 -= 1;
+                }
+            }
+        } else if moved && let DimensionKind::Location { from, .. } = &mut p.dimensions[2].kind {
+            from.0 = 0; // face 2
+        }
+        for d in &mut p.dimensions {
+            if matches!(d.kind, DimensionKind::Location { .. })
+                && matches!(d.tolerance, DimTolerance::Basic)
+            {
+                d.tolerance = DimTolerance::None;
+            }
+        }
+    });
+    load_bytes("theirs.step", bytes).unwrap()
+}
+
+#[test]
+fn a_plain_location_states_a_hole_so_a_fill_on_it_is_refused() {
+    let theirs = unframed_hole_12(false, false);
+    let t = table(&theirs);
+    assert_eq!(row(&t, "hole.position:holes:12")["state"], "stated", "{t}");
+    for list in [
+        json!({"fill": {"hole.position:holes:12": "0.2"}}),
+        json!({"accept_suggestions": ["hole.position:holes:12"]}),
+    ] {
+        let failures = refused(&theirs, list.clone());
+        assert_eq!(failures.len(), 1, "{list}: {failures:?}");
+        assert!(
+            failures[0].reason.contains("already states"),
+            "{failures:?}"
+        );
+    }
+}
+
+#[test]
+fn a_change_never_adds_a_location_beside_another_tools() {
+    // Hole 12 located by another tool's plain 95 from face 2 (Specify would plan a basic 95
+    // from face 0) and a plain 30 it shares with the grid (Specify would plan a basic 30 of
+    // its own). Its own 95 could be replaced, but the frame would add a 30 beside the shared
+    // one: refused, naming it, and nothing written.
+    let theirs = unframed_hole_12(true, false);
+    let before = locations_on(&pmi_of(&theirs.bytes), 12);
+    assert_eq!(before.len(), 2, "{before:?}");
+    let shown = row(&table(&theirs), "hole.position:holes:12")["value"].clone();
+    let failures = refused(
+        &theirs,
+        json!({"change": {"hole.position:holes:12": {"to": "0.2", "expect": shown}}}),
+    );
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert!(
+        failures[0].reason.contains("Location_LinearDistance 30.0"),
+        "{failures:?}"
+    );
+    // With the shared 30 basic (as Specify's own plate has it), the same change applies and
+    // adds no location: the frame's basic dimensions are the file's.
+    let plate = fixture("resume-p9/edited-plate.step.gz");
+    let before = locations_on(&pmi_of(&plate.bytes), 12);
+    let saved = applied(
+        &plate,
+        json!({"change": {"hole.position:holes:12": {"to": "0.3", "expect": "0.2"}}}),
+    );
+    assert_eq!(locations_on(&pmi_of(&saved.bytes), 12), before);
+    // Stated only by the shared 30: refused, naming it, and nothing written.
+    let alone = unframed_hole_12(false, true);
+    let r = row(&table(&alone), "hole.position:holes:12");
+    assert_eq!(r["state"], "stated", "{r}");
+    let failures = refused(
+        &alone,
+        json!({"change": {"hole.position:holes:12": {"to": "0.2", "expect": r["value"]}}}),
+    );
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert!(
+        failures[0].reason.contains("Location_LinearDistance 30.0"),
+        "{failures:?}"
+    );
+}
+
+#[test]
+fn a_general_tolerance_fill_writes_the_class_alone() {
+    for name in [
+        "revisions/cadgen_pmi_plate.step.gz",
+        "revisions/complex_pattern.old.step.gz",
+    ] {
+        let part = fixture(name);
+        let p0 = pmi_of(&part.bytes);
+        let saved = applied(
+            &part,
+            json!({"accept_suggestions": ["part.general_tolerance"]}),
+        );
+        let p1 = pmi_of(&saved.bytes);
+        assert_eq!(p1.dimensions.len(), p0.dimensions.len(), "{name}");
+        assert_eq!(p1.tolerances.len(), p0.tolerances.len(), "{name}");
+        assert_eq!(p1.general.len(), p0.general.len() + 1, "{name}");
+        let (was, now) = (rows(&table(&part)), rows(&table(&reload(&saved.bytes))));
+        for ((id, s0, v0), (_, s1, v1)) in was.iter().zip(&now) {
+            if id != "part.general_tolerance" {
+                assert_eq!((s0, v0), (s1, v1), "{name}: {id}");
+            }
+        }
+    }
+}
+
+#[test]
+fn accepting_specifys_own_suggestion_applies_or_is_refused_by_the_check_alike() {
+    // A pattern left to the general tolerance writes its size under it: on a part with no
+    // general tolerance, the check and the write refuse it alike, saying so; with the general
+    // tolerance in the same list, it writes that one size and the class, nothing else.
+    let part = fixture("revisions/complex_pattern.old.step.gz");
+    let id = "hole.function:hole_patterns.rectangle:8.9.11.12";
+    assert_eq!(row(&table(&part), id)["suggestion"], "general");
+    let alone = json!({"accept_suggestions": [id]});
+    let failures = refused(&part, alone.clone());
+    assert!(
+        failures[0].reason.contains("part.general_tolerance"),
+        "{failures:?}"
+    );
+    let checked = specify_core::writer::apply::check(&part, &alone.to_string());
+    assert_eq!(checked.failures, failures);
+    let saved = applied(
+        &part,
+        json!({"accept_suggestions": [id, "part.general_tolerance"]}),
+    );
+    let (p0, p1) = (pmi_of(&part.bytes), pmi_of(&saved.bytes));
+    assert_eq!(p1.dimensions.len(), p0.dimensions.len() + 1);
+    let t = table(&reload(&saved.bytes));
+    assert_eq!(row(&t, id)["state"], "stated", "{t}");
+    // A position on a part with no datums: the check refuses it with apply's reason, and
+    // filling the datums in the same list applies it.
+    let cadgen = fixture("revisions/cadgen_pmi_plate.step.gz");
+    let list = json!({"accept_suggestions": ["hole.position:holes:6"]});
+    let failures = refused(&cadgen, list.clone());
+    assert!(failures[0].reason.contains("datum"), "{failures:?}");
+    let checked = specify_core::writer::apply::check(&cadgen, &list.to_string());
+    assert_eq!(checked.failures, failures);
+    let datums: Vec<String> = rows(&table(&cadgen))
+        .into_iter()
+        .map(|(id, _, _)| id)
+        .filter(|id| id.strip_prefix("datum.").is_some_and(|l| !l.contains('.')))
+        .collect();
+    let mut all = vec!["hole.position:holes:6".to_string()];
+    all.extend(datums);
+    let saved = applied(&cadgen, json!({"accept_suggestions": all}));
+    let t = table(&reload(&saved.bytes));
+    assert_eq!(row(&t, "hole.position:holes:6")["state"], "stated", "{t}");
+}
+
+#[test]
+fn every_numbered_requirement_can_be_removed_by_its_number() {
+    for (name, n) in [
+        ("revisions/enclosure_pmi.old.step.gz", 23),
+        ("revisions/spindle_pmi.new.step.gz", 14),
+        ("characteristic-numbers-ctc04-main.step.gz", 154),
+    ] {
+        let part = fixture(name);
+        let t = table(&part);
+        let all = t.to_string();
+        for c in numbers(&part).keys() {
+            assert!(
+                all.contains(&format!("\"#{c}\"")),
+                "{name}: #{c} not in the table"
+            );
+        }
+        let finish = row(&t, "part.surface_finish");
+        assert!(
+            finish["requirements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|q| q["number"] == format!("#{n}")),
+            "{name}: {finish}"
+        );
+        let saved = applied(&part, json!({"items": {"remove": [format!("#{n}")]}}));
+        assert_eq!(saved.retired, [n], "{name}");
+        let after = reload(&saved.bytes);
+        untouched_but(&part, &after, &[n]);
+        assert_eq!(
+            row(&table(&after), "part.surface_finish")["state"],
+            "gap",
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn a_change_to_none_takes_the_basic_dimensions_only_its_frame_used() {
+    let plate = fixture("resume-p9/edited-plate.step.gz");
+    // Hole 12: #16 its frame, #15 the 95 basic only it uses, #14 the 30 it shares with the
+    // grid.
+    let saved = applied(
+        &plate,
+        json!({"change": {"hole.position:holes:12": {"to": "none", "expect": "0.2"}}}),
+    );
+    let mut retired = saved.retired.clone();
+    retired.sort();
+    assert_eq!(retired, [15, 16]);
+    let after = reload(&saved.bytes);
+    untouched_but(&plate, &after, &[15, 16]);
+    // What stands is the 30 it shares with the grid, which still locates it.
+    let r = row(&table(&after), "hole.position:holes:12");
+    let left: Vec<&Value> = r["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|q| &q["number"])
+        .collect();
+    assert_eq!(left, [&json!("#14")], "{r}");
+}
+
+#[test]
+fn an_answers_save_after_edits_in_place_keeps_the_edits() {
+    use specify_core::session::{self, Opened, Session};
+    use std::sync::{Arc, Mutex};
+    for touch in [false, true] {
+        let dir = std::env::temp_dir().join(format!(
+            "specify-edits-then-answers-{}-{touch}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("plate.step");
+        std::fs::write(&path, &*fixture("resume-p9/edited-plate.step.gz").bytes).unwrap();
+        let shared = Arc::new(Mutex::new(
+            Session::open(Opened::read(&path).unwrap(), true).unwrap(),
+        ));
+        let list = json!({
+            "change": {"hole.position:holes:12": {"to": "0.1", "expect": "0.2"}},
+            "items": {"remove": ["#5"]},
+        });
+        session::save_edits(&shared, &edits::parse_value(list).unwrap(), "mcp").unwrap();
+        if touch {
+            let mut s = session::lock(&shared);
+            let mut answers = s.answers(0).cloned().unwrap_or_default();
+            answers.insert("part.coating".into(), json!("None (as machined)"));
+            s.set(0, answers, "page");
+        }
+        session::save(&shared, None, &Default::default(), "page").unwrap();
+        let after = load(&path, None).unwrap();
+        assert!(!numbers(&after).contains_key(&5), "touch {touch}");
+        assert!(
+            row(&table(&after), "hole.position:holes:12")["value"]
+                .as_str()
+                .unwrap()
+                .contains("Position 0.1"),
+            "touch {touch}"
+        );
+        if touch {
+            assert_eq!(row(&table(&after), "part.coating")["state"], "decided_none");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The review's sweep: every gap with a suggestion, accepted alone, either applies and changes
+/// no other row, or is refused, by the check alike.
+#[test]
+fn accepting_any_one_suggestion_changes_that_row_alone() {
+    for name in [
+        "resume-p9/edited-plate.step.gz",
+        "revisions/spindle_pmi.old.step.gz",
+        "revisions/spindle_pmi.new.step.gz",
+        "revisions/enclosure_pmi.old.step.gz",
+        "revisions/xcaf_pmi_plate.step.gz",
+        "revisions/cadgen_pmi_plate.step.gz",
+        "revisions/presentation_plate.step.gz",
+        "revisions/complex_pattern.old.step.gz",
+    ] {
+        let part = fixture(name);
+        let t = table(&part);
+        let gaps: Vec<String> = t["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| {
+                r["state"] == "gap"
+                    && r["suggestion"].is_string()
+                    && !specify_core::feature_table::is_none_value(&r["suggestion"])
+            })
+            .map(|r| r["id"].as_str().unwrap().to_string())
+            .collect();
+        for id in gaps {
+            let list = json!({"accept_suggestions": [&id]});
+            let checked = specify_core::writer::apply::check(&part, &list.to_string());
+            match apply(&part, &edits::parse_value(list).unwrap()) {
+                Err(failures) => assert_eq!(checked.failures, failures, "{name}: {id}"),
+                Ok(saved) => {
+                    assert!(checked.applicable, "{name}: {id}: {checked:?}");
+                    let now = rows(&table(&reload(&saved.bytes)));
+                    for ((rid, s0, v0), (_, s1, v1)) in rows(&t).iter().zip(&now) {
+                        if *rid != id {
+                            assert_eq!((s0, v0), (s1, v1), "{name}: {id} changed {rid}");
+                        } else {
+                            assert_ne!(s1, "gap", "{name}: {id} still a gap");
+                        }
+                    }
+                }
+            }
         }
     }
 }
