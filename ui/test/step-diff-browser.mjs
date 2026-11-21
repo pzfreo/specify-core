@@ -266,12 +266,13 @@ try {
   const shaft = which => gunzipSync(readFileSync(`test/fixtures/gramil_shaft_${which}.step.gz`));
   // Written with Specify's suggestions (specify-core 0.3.0: an edit list accepting every gap's
   // suggestion that the file can take, all or nothing; a suggestion the check refuses is left out).
-  // The checks below need the shaft's sizes and locations: they fail until feature-table D1 gives
-  // each its own row with a suggestion (Paul, 2026-11-21), which this list then accepts.
   const written = bytes => {
     const e = new IntentEngine('part.step', bytes);
     try {
-      const gaps = JSON.parse(e.table()).rows.filter(r => r.state === 'gap' && r.suggestion != null).map(r => r.id);
+      // Every open gap's suggestion, and the one choice with no row, how holes are located, as
+      // `acceptDefaults` took them (not the process, never asked open), so every suggestion is approved
+      // and the general set written (D1).
+      const gaps = [...JSON.parse(e.table()).rows.filter(r => r.state === 'gap' && r.open && r.suggestion != null).map(r => r.id), 'part.locating'];
       const refused = new Set(JSON.parse(e.checkEdits(JSON.stringify({ accept_suggestions: gaps }))).failures
         .map(f => JSON.parse(f.entry.replace(/^accept_suggestions/, ''))[0]));
       const result = JSON.parse(e.edit(JSON.stringify({ accept_suggestions: gaps.filter(id => !refused.has(id)) })));
