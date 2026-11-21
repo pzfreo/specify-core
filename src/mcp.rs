@@ -1287,8 +1287,9 @@ impl Server {
             .map_err(|e| ToolError::from(Error::Analysis(e)))?;
         let mut report = carried.report;
         match carried.bytes {
-            Some(bytes) => crate::writer::put(&output, bytes)
-                .map_err(|e| ToolError::from(Error::Write(e)))?,
+            Some(bytes) => {
+                crate::writer::put(&output, bytes).map_err(|e| ToolError::from(Error::Write(e)))?
+            }
             None => report.written = false,
         }
         let mut out = report.to_json();

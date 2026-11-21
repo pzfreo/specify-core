@@ -402,7 +402,11 @@ impl Statement {
     pub(crate) fn text(&self) -> String {
         let n = |v: &str| {
             let t = v.trim_end_matches('0').trim_end_matches('.');
-            if t.is_empty() || t == "-" { "0".to_string() } else { t.to_string() }
+            if t.is_empty() || t == "-" {
+                "0".to_string()
+            } else {
+                t.to_string()
+            }
         };
         let value = match &self.value {
             ValueHint::None => String::new(),
@@ -731,7 +735,11 @@ pub(crate) fn allocate(
     // requirements written now that it names, never to one the file already numbers.
     let transported = carried.is_some() && !has_saved;
     if let Some(mut h) = carried.filter(|_| !has_saved) {
-        let taken: BTreeSet<u64> = prov.all().into_iter().filter_map(|id| number(doc, id)).collect();
+        let taken: BTreeSet<u64> = prov
+            .all()
+            .into_iter()
+            .filter_map(|id| number(doc, id))
+            .collect();
         h.entries.retain(|e| !taken.contains(&e.number));
         old = h;
         value_hints.clear();

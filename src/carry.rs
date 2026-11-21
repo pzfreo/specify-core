@@ -207,7 +207,8 @@ fn questions(analysis: &Value) -> BTreeMap<String, crate::rules::Question> {
 }
 
 fn is_datum_letter(kind: &str) -> bool {
-    kind.strip_prefix("datum.").is_some_and(|l| !l.contains('.'))
+    kind.strip_prefix("datum.")
+        .is_some_and(|l| !l.contains('.'))
 }
 
 /// OLD's part, read once for the answers that restate its rows.
@@ -228,12 +229,9 @@ fn text_of(stated: &crate::writer::apply::Stated, row: &Row) -> Value {
         return shown(row);
     }
     match stated.of_row(row) {
-        Some(said) if !said.is_empty() => Value::from(
-            said.iter()
-                .map(|s| s.text())
-                .collect::<Vec<_>>()
-                .join("; "),
-        ),
+        Some(said) if !said.is_empty() => {
+            Value::from(said.iter().map(|s| s.text()).collect::<Vec<_>>().join("; "))
+        }
         _ => shown(row),
     }
 }
@@ -346,7 +344,11 @@ fn mapped(faces: &[usize], map: &FaceMap) -> Result<Vec<usize>, &'static str> {
 }
 
 /// Why a row on `faces` is to be checked: a feature on them moved or changed size.
-fn moved(faces: &[usize], revised: &Revised, old_features: &BTreeMap<String, Vec<usize>>) -> Option<String> {
+fn moved(
+    faces: &[usize],
+    revised: &Revised,
+    old_features: &BTreeMap<String, Vec<usize>>,
+) -> Option<String> {
     let faces: BTreeSet<usize> = faces.iter().copied().collect();
     revised
         .features
@@ -371,11 +373,7 @@ fn moved(faces: &[usize], revised: &Revised, old_features: &BTreeMap<String, Vec
 
 /// The row of NEW's table that is OLD's `row`: the same id for a part setting or a datum, else
 /// the same kind on OLD's faces matched in NEW.
-fn new_row<'a>(
-    row: &Row,
-    table: &'a FeatureTable,
-    map: &FaceMap,
-) -> Result<&'a Row, String> {
+fn new_row<'a>(row: &Row, table: &'a FeatureTable, map: &FaceMap) -> Result<&'a Row, String> {
     if row.id.starts_with("part.") || row.id.starts_with("datum.") {
         return table
             .row(&row.id)
@@ -408,7 +406,9 @@ fn not_carried_row(row: &Row, reason: impl Into<String>) -> NotCarried {
         kind: row.kind.clone(),
         r#type: String::new(),
         faces: row.faces.clone(),
-        text: shown(row).as_str().map_or_else(|| shown(row).to_string(), str::to_owned),
+        text: shown(row)
+            .as_str()
+            .map_or_else(|| shown(row).to_string(), str::to_owned),
         part: None,
         reason: reason.into(),
     }
@@ -469,6 +469,23 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
             // NEW states it, or decided it none: NEW's stands.
             let same = match (row.state, target.state) {
                 (State::DecidedNone, State::DecidedNone) => true,
+                // A part setting by its text; a datum by its faces, matched in NEW; any other
+                // by its requirements' values.
+                (State::Stated, State::Stated) if row.id.starts_with("part.") => {
+                    shown(row) == shown(target)
+                }
+                (State::Stated, State::Stated) if is_datum_letter(&row.kind) => {
+                    let faces = |r: &Row| -> Vec<usize> {
+                        crate::edits::stated_value(r)
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_u64)
+                            .map(|f| f as usize)
+                            .collect()
+                    };
+                    mapped(&faces(row), &map).is_ok_and(|on| on == faces(target))
+                }
                 (State::Stated, State::Stated) => {
                     same_values((&reader.stated, row), (&new_stated, target))
                 }
@@ -771,11 +788,10 @@ impl Report {
         if !self.not_carried.is_empty() {
             s.push_str("## Not carried\n\n");
             for n in &self.not_carried {
-                let what = n
-                    .id
-                    .clone()
-                    .or_else(|| n.number.clone())
-                    .unwrap_or_else(|| n.kind.clone());
+                let what =
+                    n.id.clone()
+                        .or_else(|| n.number.clone())
+                        .unwrap_or_else(|| n.kind.clone());
                 let part = n
                     .part
                     .as_ref()

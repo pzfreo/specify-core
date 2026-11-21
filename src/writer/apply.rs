@@ -467,8 +467,7 @@ pub(crate) fn planned_intent(
     }
     let mut answers = choices.clone();
     answers.extend(given.iter().map(|(id, v)| (id.clone(), v.clone())));
-    let mut intent =
-        crate::rules::preview(&analysis_clean, &answers).map_err(|e| e.to_string())?;
+    let mut intent = crate::rules::preview(&analysis_clean, &answers).map_err(|e| e.to_string())?;
     let addressed = |item: &Map<String, Json>| {
         item.get("question")
             .and_then(Json::as_str)
@@ -1137,11 +1136,8 @@ impl Stated {
         let source = Source::of(&loaded.bytes).map_err(|e| e.to_string())?;
         let k = loaded.binding.part;
         let before = source.read.parts[k].clone();
-        let located = crate::characteristics::located(
-            &before,
-            &source.read.provenance.parts[k],
-            &source.doc,
-        );
+        let located =
+            crate::characteristics::located(&before, &source.read.provenance.parts[k], &source.doc);
         let said = crate::characteristics::statements(&before);
         Ok(Stated {
             before,
@@ -1187,39 +1183,21 @@ pub(crate) fn restates(
 ) -> bool {
     use crate::characteristics::Statement;
     let given = BTreeMap::from([(row.id.clone(), value.clone())]);
-    let intent = match planned_intent(analysis, table, &given, choices) {
-        Ok(i) => i,
-        Err(e) => {
-            if std::env::var("CARRY_DEBUG").is_ok() {
-                eprintln!("{} {value}: intent {e}", row.id);
-            }
-            return false;
-        }
+    let Ok(intent) = planned_intent(analysis, table, &given, choices) else {
+        return false;
     };
-    let (planned, _) = match super::part_pmi(loaded, &intent, &stated.before, Mode::Add, &[]) {
-        Ok(p) => p,
-        Err(e) => {
-            if std::env::var("CARRY_DEBUG").is_ok() {
-                eprintln!("{} {value}: {e}", row.id);
-            }
-            return false;
-        }
+    let Ok((planned, _)) = super::part_pmi(loaded, &intent, &stated.before, Mode::Add, &[]) else {
+        return false;
     };
     let frames_only = edits::answered_by_tolerance(&row.kind);
-    let counted = |s: &Statement| {
-        s.kind != "datum" && (!frames_only || s.kind == "geometric_tolerance")
-    };
+    let counted =
+        |s: &Statement| s.kind != "datum" && (!frames_only || s.kind == "geometric_tolerance");
     let planned = crate::characteristics::statements(&planned);
     let planned: Vec<&Statement> = planned.iter().filter(|s| counted(s)).collect();
     let Some(own) = stated.of_row(row) else {
         return false;
     };
     let own: Vec<&Statement> = own.into_iter().filter(|s| counted(s)).collect();
-    if std::env::var("CARRY_DEBUG").is_ok() {
-        eprintln!("{} {value}: planned {:?} own {:?}", row.id,
-            planned.iter().map(|s| (&s.kind, &s.r#type, &s.on)).collect::<Vec<_>>(),
-            own.iter().map(|s| (&s.kind, &s.r#type, &s.on)).collect::<Vec<_>>());
-    }
     // A hole left to the general tolerance: its size has no tolerance of its own. (Planned
     // on the file that states it, the general tolerance's size is not planned again.)
     if value == "general"
