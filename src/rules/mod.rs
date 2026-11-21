@@ -1495,6 +1495,13 @@ fn intent(
             {
                 continue;
             }
+            // D8: a hole the file already locates in some directions gets no position
+            // tolerance (a second location in those); answering approves its dimensions in the
+            // directions left, under the general tolerance, and the writer leaves out those in
+            // the directions already located.
+            if ctx.table_partly_located(&q.id) {
+                continue;
+            }
             // Basic dimensions from the frame's planes say where "true position" is.
             let mut planes = Vec::new();
             for x in &letters {

@@ -111,6 +111,23 @@ A requirement is matched to a feature and kind by the faces it sits on and its k
 provenance marker plays no part. A hole the file locates by a location dimension (basic,
 toleranced or general) has its location stated even when holes are located by position
 tolerances: that setting only decides what is suggested for a hole the file does not locate.
+
+A hole's location is read per direction (decision D8). A location dimension locates, along
+the axis it measures (its reference face's normal; between two holes, the axis across both
+whose offset is its value), every hole on its located side (the "to", `faces2` in `existing`),
+and every other hole whose axis lies on the same line from the same reference: one 50 from the
+left edge to a row of holes locates the Ø8 on that line too. Its reference side (the "from")
+locates nothing: a dimension from hole A to hole B locates B, not A. A position tolerance on the
+hole locates it in every direction. The location row is stated when every direction across the
+hole's axis is located. Otherwise it is a gap, and when some directions are located, its
+`missing` lists the others (`["y"]`), `located` those already located (`["x"]`), and
+`requirements` the dimensions that locate it so far.
+Its suggestion covers only the missing directions: answering it writes no position tolerance
+(that would locate the hole a second time), only the general-tolerance location in the missing
+directions, and the writer never adds a location along an axis the file already locates the
+hole in. A datum hole is the origin the part is measured from: it is not asked its location in
+the directions across its axis that no other datum plane measures. A hole that only appears on
+a reference side, and is no datum, is asked.
 Questions follow the table: every gap is asked, and nothing the file states is. A gap whose
 suggestion is "none" is not open anywhere: not in `questions --open`, a save's still-open
 list, `write`'s report or MCP. Approving its suggestion still decides it none.

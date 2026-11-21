@@ -36,6 +36,13 @@ Read first:
 
 ### Changed
 
+- **A hole is located per direction** (decision D8): a location dimension locates, along the
+  axis it measures, the holes on its located side and every other hole on the same line from
+  the same reference; its reference side locates nothing. A hole's location row is stated when
+  every direction is located, otherwise a gap whose `missing` lists the directions left; its
+  suggestion then adds only those (no position tolerance, no second location in a located
+  direction). A datum hole is not asked its location in the directions it is the origin of
+  (docs/answers.md).
 - **A general-tolerance answer writes only its note** (ADR P9, decision D1): approving "ISO
   2768-m" no longer writes the general tolerance's dimensions (every feature's size and
   location, nominal only) as a side effect. Each is written when its own question is approved

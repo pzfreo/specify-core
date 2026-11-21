@@ -1234,7 +1234,9 @@ fn blind_hole_diameters_and_axis_locations_stay_on_bores_but_depth_uses_planes()
         }
     }
     assert_eq!(depth, 1);
-    assert!(location > 0);
+    // D8: the bore (faces 37/38) is datum B, the origin of x and y (datum A is a bore too), so
+    // the file states its location there and no general location of it is added.
+    assert_eq!(location, 0);
 }
 
 #[test]

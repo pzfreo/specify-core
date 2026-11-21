@@ -21,8 +21,8 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
-| [writer](#writer) | 1165 | 0 | 0 | 0 | 15 | 1 | 1181 |
-| **all** | 5101 | 1433 | 1249 | 2497 | 1101 | 1908 | 13289 |
+| [writer](#writer) | 1166 | 0 | 0 | 0 | 15 | 1 | 1182 |
+| **all** | 5102 | 1433 | 1249 | 2497 | 1101 | 1908 | 13290 |
 
 ## analysis
 
@@ -1206,7 +1206,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (1165 entries)
+### writer: rust-correct (1166 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1307,6 +1307,10 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **ADR P11: an answer that writes PMI is not stored; the file states it** (75 entries, 45 case globs)
 
   The evidence is stated per entry (74 distinct; all in `writer.json`). The first, for `corpus/mfcadpp/1000` at `resume.part.material`: ADR P11 rule 2 (src/feature_table.rs storable): a file stores only the answers that leave no PMI, and the file's PMI is the only copy of the rest. Python stores part.material = "steel" in its payload; that answer is a requirement whose value is not none, so the Rust writer writes it as PMI and does not store it: answers_for leaves it out. Its PMI is written: no other new writer-oracle difference for corpus/mfcadpp/1000 (its existing readback is Python's, apart from the entries already here). Only this exact case and path are covered.
+
+- **D8: the datum hole the part is measured from gets no general location in its origin directions** (`nist/nist_ctc_03_asme1_ap242` at `write.not_written[dimension Location_LinearDistance [11, 12] [16, 17]: the file already states it; not written again]`)
+
+  Maintainer decision D8 (draftwright-project proposals/specify-0.3.0.md, 'One dimension locates a whole line', Paul 2026-11-21): the datum or origin feature the part's dimensions are measured from is not asked its location in the directions it is the origin of, and a feature already located in a direction never gets a second location in it. CTC-03's datum B is the hole 11/12; no other datum plane measures x or y (A is the bottom face, C the hole 9/10), so B is the origin in both. The planner's general location of B from the hole 16/17 (447.3448 in y) is therefore stated by the file and left out, reported in not_written; tests/feature_table.rs the_origin_hole_is_not_asked_its_origin_directions covers the rule.
 
 ### writer: not-applicable (15 entries)
 

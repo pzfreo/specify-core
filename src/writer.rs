@@ -678,8 +678,13 @@ fn part_pmi_added(
         .and_then(|items| serde_json::to_value(items).ok())
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
+    let geometry: Vec<Json> = crate::features::describe_faces(loaded)
+        .ok()
+        .and_then(|faces| serde_json::to_value(faces).ok())
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
     for (at, req) in &sources {
-        if at.0 != "datums" && crate::feature_table::requirement_stated(req, &existing) {
+        if at.0 != "datums" && crate::feature_table::requirement_stated(req, &existing, &geometry) {
             restated
                 .entry(at.clone())
                 .or_insert_with(|| format!("{} {}", at.0, at.1));

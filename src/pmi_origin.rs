@@ -78,6 +78,19 @@ pub fn read(pmi: &PartPmi, owner: NoteOwner) -> Metadata {
     Metadata { origin, source }
 }
 
+/// The axis (0 = x, 1 = y, 2 = z) a direction measures along: its largest component, the
+/// lower axis on a tie. A location's measuring axis is its reference face's normal's.
+pub(crate) fn axis_of(direction: [f64; 3]) -> usize {
+    (0..3)
+        .max_by(|&a, &b| {
+            direction[a]
+                .abs()
+                .total_cmp(&direction[b].abs())
+                .then_with(|| b.cmp(&a))
+        })
+        .unwrap_or(0)
+}
+
 pub(crate) struct Planner {
     fingerprint: String,
     features: Vec<features::Feature>,
@@ -200,14 +213,7 @@ impl Planner {
                         .filter(|f| !f.unmeasured)
                         .and_then(|f| f.direction)
                         .unwrap_or([1., 0., 0.]);
-                    let axis = (0..3)
-                        .max_by(|&a, &b| {
-                            direction[a]
-                                .abs()
-                                .total_cmp(&direction[b].abs())
-                                .then_with(|| b.cmp(&a))
-                        })
-                        .unwrap_or(0);
+                    let axis = axis_of(direction);
                     Some(format!("location.length.{}", ["x", "y", "z"][axis]))
                 }
             })

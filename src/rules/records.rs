@@ -485,6 +485,22 @@ impl<'a> Ctx<'a> {
             .collect()
     }
 
+    /// Whether the table row `id` is a location gap the file already locates in some
+    /// directions (D8): what it suggests covers only the directions left.
+    pub(crate) fn table_partly_located(&self, id: &str) -> bool {
+        self.analysis
+            .get("table")
+            .and_then(|t| t.get("rows"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .any(|r| {
+                r["id"] == id
+                    && r["state"] == "gap"
+                    && r["missing"].as_array().is_some_and(|m| !m.is_empty())
+            })
+    }
+
     /// The value of the stated table row `id`, as the table reports it.
     pub(crate) fn table_stated_value(&self, id: &str) -> Option<&str> {
         self.analysis
