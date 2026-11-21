@@ -163,8 +163,10 @@ Read first:
   (ADR P11), so the app's inspection list showed them twice, once as planned and once as the
   file's. The file's own rows in that list now read as planned ones: a location dimension is on
   the faces it locates, "from" its reference, and the file's surface texture keeps its number.
-  A thread and a tolerance now read in full there too (`M2×0.4-6H ↧ 2`, `⌖ ⌀0.3Ⓜ A`; see
-  Added).
+  A thread and a tolerance now read as planned there too (`M2×0.4-6H`, `⌖ ⌀0.3 Ⓜ`), from the
+  engine's read-back fields; one stating more than its fields hold reads its whole text.
+- The read-only view folds the dimensions a file states under its general tolerance into the
+  "N dimensions under ISO 2768-m" row again (they are the file's own now, not planned).
 - A stated ⌀3.3 H11, ⌖ ⌀0.3 Ⓜ and M2×0.4-6H no longer read back as `⌀3.3`, `⌖ 0.3` and
   `internal thread` (a 0.3.0 regression from reading stated PMI from the file, ADR P11).
 - MCP `answer` refuses an answer to a feature-and-kind the file states, with the edit list's

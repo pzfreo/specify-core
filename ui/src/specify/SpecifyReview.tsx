@@ -976,7 +976,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               readOnly rows={setRows} selected={selectedChar}
               onSelect={(id, at) => { setSelectedDatum(null); showChar(id, at); }}
               onDownload={() => {}} skipped={skipped} onSkip={() => {}} onEdit={() => null} onCallOut={() => null}
-              generalTolerance={preview?.part['general_tolerance'] ?? ''} calledOut={0}
+              generalTolerance={preview?.part['general_tolerance'] ?? session.analysis.part?.['general_tolerance'] ?? ''} calledOut={0}
             />
           )}
           {setChips.length === 0 && setRows.length === 0 && <p className="pmi-lab-none">No PMI is set on this part.</p>}
@@ -1065,7 +1065,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               skipped={skipped} onSkip={skip} onEdit={readOnly ? () => null : editChar}
               onCallOut={(row) => (!readOnly && row.source.startsWith('general:')
                 ? () => callOut(Number(row.source.slice('general:'.length)), row.text) : null)}
-              generalTolerance={preview?.part['general_tolerance'] ?? ''}
+              generalTolerance={preview?.part['general_tolerance'] ?? session.analysis.part?.['general_tolerance'] ?? ''}
               calledOut={added.filter(([, extra]) => CALL_OUTS.includes(extra.kind)).length}
             />
           ) : (<>

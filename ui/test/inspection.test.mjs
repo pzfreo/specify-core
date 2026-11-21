@@ -164,16 +164,14 @@ test('preview-to-writer parity includes general dimensions, hole depth, thread a
     assert.ok(answers !== approved || before.some((row) => String(row.source).startsWith('general:')), 'general dimensions are planned');
     assert.deepEqual(ids(before), ids(stored.chars), 'every displayed planned number is written and exported');
     // ADR P11: a reopened file's preview plans nothing the file states, so its rows are the
-    // file's own (analysis.existing), each number once. Their wording is the planned wording,
-    // except where the existing-PMI reading carries less than the planned row: a thread is read
-    // as its side and a tolerance without its zone's form. The stored export, read from the
-    // scene, keeps the planned wording of those rows (a thread with its depth after it).
-    const readOnly = (row) => /^(⌖|internal thread|external thread)/.test(row.text);
+    // file's own (analysis.existing), each number once, worded as planned: the engine reads a
+    // thread back with its designation and a tolerance with its zone and Ⓜ.
     assert.deepEqual(after.map((row) => row.n), before.map((row) => row.n), 'readback preview preserves numbers, each once');
-    assert.deepEqual(after.filter((row) => !readOnly(row)).map((row) => [row.n, row.text]),
-      before.filter((row) => !after.some((a) => a.n === row.n && readOnly(a))).map((row) => [row.n, row.text]),
+    assert.deepEqual(after.map((row) => [row.n, row.text]), before.map((row) => [row.n, row.text]),
       'readback preview preserves wording');
-    for (const row of after.filter(readOnly)) {
+    // The stored export, read from the scene, keeps the planned wording of a tolerance and a
+    // thread (a thread with its depth after it).
+    for (const row of after.filter((row) => /^(⌖|M\d)/.test(row.text))) {
       const planned = before.find((item) => item.n === row.n)?.text;
       const kept = stored.chars.find((item) => item.n === row.n)?.text ?? '';
       assert.ok(planned && kept.startsWith(planned), `#${row.n}: stored wording ${kept} keeps ${planned}`);

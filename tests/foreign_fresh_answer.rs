@@ -209,15 +209,43 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_over_mcp() {
     assert_eq!(positions(&back), [(1.5, false)]);
     assert_no_conflict(&api::analyse(&back).unwrap());
     let reopened = call("open", json!({"path": path}));
-    call(
-        "answer",
-        json!({"doc": reopened["doc"], "set": {(HOLE): "0.5"}}),
+    // ADR P11: the file states the hole's position, so the answer is refused up front with the
+    // edit list's reason (before, it was accepted and the save held the file's 1.5).
+    let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+        "name": "answer",
+        "arguments": {"doc": reopened["doc"], "set": {(HOLE): "0.5"}},
+        "_meta": {
+            "io.modelcontextprotocol/protocolVersion": specify_core::mcp::MODERN,
+            "io.modelcontextprotocol/clientCapabilities": {}
+        }
+    }});
+    let refused = server.handle(&request, None).body.unwrap()["result"].clone();
+    assert_eq!(refused["isError"], json!(true), "{refused}");
+    let message = refused["structuredContent"]["error"]["message"]
+        .as_str()
+        .unwrap();
+    assert!(
+        message.starts_with("the file already states")
+            && message.contains("⌖ ⌀1.5 A B C")
+            && message.contains(&format!("for {HOLE}, so there is no gap to fill")),
+        "{message}"
     );
+    let mut call = |name: &str, arguments: Value| -> Value {
+        let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+            "name": name, "arguments": arguments,
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": specify_core::mcp::MODERN,
+                "io.modelcontextprotocol/clientCapabilities": {}
+            }
+        }});
+        let result = server.handle(&request, None).body.unwrap()["result"].clone();
+        assert_ne!(result["isError"], json!(true), "{name}: {result}");
+        result["structuredContent"].clone()
+    };
     let saved = call(
         "save",
         json!({"doc": reopened["doc"], "accept_defaults": {}}),
     );
     let back = load(std::fs::read(saved["path"].as_str().unwrap()).unwrap());
     assert_eq!(positions(&back), [(1.5, false)], "{saved}");
-    assert_held(&saved["report"]);
 }

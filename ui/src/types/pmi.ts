@@ -43,6 +43,8 @@ export interface PmiExisting {
   readonly upper?: number;
   readonly lower?: number;
   readonly datums?: readonly string[];
+  /** A limit dimension's absolute bounds, [lower, upper]. */
+  readonly limits?: readonly number[];
   /** A basic (theoretically exact) dimension. */
   readonly basic?: boolean;
   /** The item as a drawing states it, in full: "⌀3.3 H11", "⌖ ⌀0.3Ⓜ A", "M2×0.4-6H ↧ 2". */
@@ -59,6 +61,7 @@ export interface PmiExisting {
   readonly designation?: string;
   readonly pitch?: number;
   readonly class?: string;
+  readonly hand?: string;
 }
 
 export interface PmiAnalysis {
