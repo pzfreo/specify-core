@@ -2450,26 +2450,15 @@ fn only_the_approved_defaults_are_written() {
     // the same answers given explicitly write.
     let written = scratch.path("work/part.specified.step");
     let resumed = analysis_of(&written);
+    // ADR P11: stored are the answers that leave no PMI behind.
     assert_eq!(
         resumed["resume"]["answers"],
         kept(&Value::Object(answered.clone()))
     );
     let open = open_ids(&resumed, &answered);
     assert!(!open.contains(&approved));
-    // ADR P11: the others stay open unless the save made the file state them (the dimension
-    // planner's location of a hole states its location).
-    let stated: Vec<&str> = resumed["table"]["rows"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|r| r["state"] == "stated")
-        .filter_map(|r| r["id"].as_str())
-        .collect();
     for (other, _) in &offered[1..] {
-        assert!(
-            open.contains(other) || stated.contains(&other.as_str()),
-            "{other} is open on reopening"
-        );
+        assert!(open.contains(other), "{other} is open on reopening");
     }
     let explicit = Opened::start(&scratch.input(), &scratch, &[]);
     assert_eq!(

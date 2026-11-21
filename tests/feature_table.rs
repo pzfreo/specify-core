@@ -320,14 +320,28 @@ fn agree(analysis: &Value) {
             );
         }
     }
+    let mut rowless = Vec::new();
     for id in &open {
-        if let Some(r) = rows.iter().find(|r| r["id"] == *id) {
-            assert_eq!(
+        match rows.iter().find(|r| r["id"] == *id) {
+            Some(r) => assert_eq!(
                 r["open"], true,
                 "{id} is open in questions, not in the table: {r}"
-            );
+            ),
+            None => rowless.push(id.clone()),
         }
     }
+    // The open questions with no row are exactly the open choices that are not
+    // requirements (today `part.locating` alone, when it is open).
+    let choices: Vec<_> = open
+        .iter()
+        .filter(|id| !specify_core::feature_table::is_requirement(id))
+        .cloned()
+        .collect();
+    assert_eq!(rowless, choices, "open with no table row");
+    assert!(
+        choices.iter().all(|id| id == "part.locating"),
+        "{choices:?}"
+    );
 }
 
 #[test]
@@ -341,7 +355,17 @@ fn questions_and_the_table_agree_on_what_is_open() {
         agree(&api::analyse(&part).unwrap());
     }
     // The plate's "none" suggestions are gaps, not open, in both.
-    let (_, open) = asked(&api::analyse(&plate()).unwrap());
+    let analysis = api::analyse(&plate()).unwrap();
+    let (_, open) = asked(&analysis);
+    // Its one open question with no row is the locating choice.
+    assert!(open.contains(&"part.locating".to_string()), "{open:?}");
+    assert!(
+        analysis["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["id"] != "part.locating")
+    );
     for id in ["datum.A.flatness", "part.coating", "part.notes"] {
         assert!(!open.contains(&id.to_string()), "{id}");
     }
@@ -530,4 +554,59 @@ fn a_hole_located_by_a_plus_minus_dimension_is_stated_in_position_mode() {
             .filter(|e| e.r#type == "Position" && e.faces == [12])
             .count();
     assert_eq!(positions, 0, "{:?}", report.written);
+}
+
+/// A blind hole's depth, a location dimension to its floor, does not locate the hole: its
+/// position row stays a gap (the hole's faces are its bore; the floor is not one of them).
+#[test]
+fn a_depth_dimension_to_a_hole_floor_does_not_locate_the_hole() {
+    let shaft = load(&common::fixtures().join("parts/GRM-02_shaft.step"), None).unwrap();
+    let mut intent =
+        specify_core::rules::Intent::new(serde_json::to_value(&shaft.binding).unwrap());
+    intent
+        .datums
+        .push(map(json!({"letter": "A", "faces": [0]})));
+    // Hole 15's floor is face 16: a 3.5 mm depth from the end face 7.
+    intent.requirements.push(map(json!({
+        "kind": "location", "faces": [16], "reference": [7], "distance": 3.5,
+        "upper": 0.1, "lower": -0.1,
+    })));
+    let bytes = api::write_bytes(shaft.bytes.to_vec(), &[(intent, None)])
+        .unwrap()
+        .0;
+    let written = load_bytes("shaft.step", bytes).unwrap();
+    assert!(
+        specify_core::existing::read_existing(&written)
+            .unwrap()
+            .iter()
+            .any(|e| e.r#type.starts_with("Location_")
+                && (e.faces.contains(&16) || e.faces2.contains(&16))),
+        "the depth is written"
+    );
+    let (t, _) = table(&written);
+    assert_eq!(row(&t, "hole.position:holes:15.16")["state"], "gap");
+}
+
+/// A file whose datums the rules cannot take as answers still analyses (a table problem never
+/// fails analyse): NIST FTC-09 part 0's datum E is four faces that form no one datum feature.
+#[test]
+fn nist_ftc09_part_0_analyses_and_lists_its_pmi() {
+    let path = common::fixtures().join("nist/nist_ftc_09_asme1_ap242-e1.stp.gz");
+    let analysis = api::analyse(&load(&path, Some(0)).unwrap()).unwrap();
+    let existing = analysis["existing"].as_array().unwrap();
+    assert!(!existing.is_empty());
+    let table = &analysis["table"];
+    let listed =
+        table["rows"].as_array().unwrap().len() + table["file_pmi"].as_array().unwrap().len();
+    assert!(listed > 0, "{table}");
+    agree(&analysis);
+}
+
+/// NIST CTC-02 (its datums form questions the rules refused before) analyses too.
+#[test]
+fn nist_ctc02_analyses_and_lists_its_pmi() {
+    let path = common::fixtures().join("nist/nist_ctc_02_asme1_ap242.stp.gz");
+    let analysis = api::analyse(&load(&path, None).unwrap()).unwrap();
+    assert!(!analysis["existing"].as_array().unwrap().is_empty());
+    agree(&analysis);
 }

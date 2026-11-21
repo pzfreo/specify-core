@@ -1248,8 +1248,41 @@ pub fn preview(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent>
     let ctx = Ctx::new(analysis)?;
     let qs = questions_in(&ctx, answers)?;
     let mut intent = intent(&ctx, answers, &qs, IntentMode::Preview)?;
+    unapproved_general(&mut intent, answers, &qs);
     mark_defaults(&mut intent, answers);
     Ok(intent)
+}
+
+/// ADR P9: a save never writes a planner default nobody approved. The general tolerance's
+/// dimensions of a hole whose location (`hole.position`) or function (`hole.function`) is
+/// still open would state that requirement in the file, and it would never be asked again: a
+/// hole's general location waits for its position answer, its general size for its function.
+fn unapproved_general(intent: &mut Intent, answers: &Map<String, Value>, qs: &[Question]) {
+    let mut open: Vec<(&str, BTreeSet<i64>)> = Vec::new();
+    for q in open_questions(qs, answers) {
+        for (prefix, kind) in [("hole.position:", "location"), ("hole.function:", "size")] {
+            if q.id.starts_with(prefix) {
+                open.push((kind, q.faces.iter().copied().collect()));
+            }
+        }
+    }
+    if open.is_empty() {
+        return;
+    }
+    let unapproved = |r: &Map<String, Value>| {
+        r.get("general") == Some(&Value::Bool(true))
+            && open.iter().any(|(kind, faces)| {
+                r.get("kind").and_then(Value::as_str) == Some(kind)
+                    && r.get("faces")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_i64)
+                        .any(|f| faces.contains(&f))
+            })
+    };
+    intent.requirements.retain(|r| !unapproved(r));
+    intent.general.retain(|r| !unapproved(r));
 }
 
 /// Prospective diagnostics still examine the suggested scheme, without accepting it. This is

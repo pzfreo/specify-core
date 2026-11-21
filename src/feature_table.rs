@@ -91,6 +91,21 @@ pub struct FeatureTable {
 }
 
 impl FeatureTable {
+    /// The table of a part whose feature-and-kinds could not be listed: every requirement the
+    /// file states is file PMI, and nothing is asked on the table's account.
+    pub fn unread(analysis: &Value) -> FeatureTable {
+        FeatureTable {
+            rows: Vec::new(),
+            file_pmi: analysis["existing"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(requirement)
+                .collect(),
+            decided_none: Vec::new(),
+        }
+    }
+
     /// The row of `id`.
     pub fn row(&self, id: &str) -> Option<&Row> {
         self.rows.iter().find(|r| r.id == id)
@@ -395,12 +410,20 @@ pub fn build(
             let faces = faces_of(item, "faces");
             let id = format!("datum.{letter}");
             if !faces.is_empty() && !given.contains_key(&id) {
-                given.insert(id, Value::from(faces));
+                // A file datum the rules cannot take as an answer (faces that form no one
+                // datum feature, NIST FTC-09's E) still names its row; only its controls'
+                // faces fall back to the suggestion's.
+                let mut trial = given.clone();
+                trial.insert(id, Value::from(faces));
+                if crate::rules::questions(&bare, &trial).is_ok() {
+                    given = trial;
+                }
             }
         }
     }
     let all = crate::rules::with_all_defaults(&bare, &given).unwrap_or_else(|_| given.clone());
-    let questions = crate::rules::questions(&bare, &all)?;
+    let questions =
+        crate::rules::questions(&bare, &all).or_else(|_| crate::rules::questions(&bare, &given))?;
 
     let mut claimed = vec![false; existing.len()];
     let mut claimed_settings = BTreeSet::new();

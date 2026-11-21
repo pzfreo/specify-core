@@ -3,7 +3,7 @@
 //! Writing a part, specify-core also stores in the file the answers that leave no PMI behind
 //! (decided none, and choices): ADR P11, the file's PMI is the only copy of the rest. Older
 //! files store every answer; those that repeat the file's PMI are ignored on reading. Older
-//! Add payloads carry `pmi_scope`, which only picks among several stored frames. The payload is
+//! Payloads carry `pmi_scope`, which only picks among several stored frames. The payload is
 //! Python's: `{schema, answers, part, face_count, faces}` as compact JSON, base64-encoded (a
 //! Part 21 string then needs no escapes), `faces` being a [`fingerprint`] of the part's faces
 //! that is checked before unnamed face indices are trusted. Named parts write schema 3 with

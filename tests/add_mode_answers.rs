@@ -329,7 +329,7 @@ fn ctc01_datum_on_kept_perpendicularity_carrier_preserves_foreign_entities() {
 }
 
 #[test]
-fn removing_owned_control_keeps_its_carrier_when_foreign_control_uses_it() {
+fn a_save_without_the_owned_control_keeps_it_and_its_shared_carrier() {
     use haecceity::pmi::{PartId, PartPmi};
     let bare = part::load(&common::fixtures().join("parts/plate.step"), None).unwrap();
     // Establish genuine Add-mode scope before authoring the shared carrier. Legacy
@@ -452,6 +452,8 @@ fn removing_owned_control_keeps_its_carrier_when_foreign_control_uses_it() {
         &doc.bytes()[doc.span(carrier).unwrap()],
         &after.bytes()[after.span(carrier).unwrap()]
     );
+    // ADR P11: leaving the owned control out of the answers removes nothing (a remove is an
+    // explicit edit): every control stays, Specify's with it.
     let reopened = part::load_bytes("removed.step", bytes).unwrap();
     let remaining = existing::read_existing(&reopened).unwrap();
     assert_eq!(
@@ -459,12 +461,14 @@ fn removing_owned_control_keeps_its_carrier_when_foreign_control_uses_it() {
             .iter()
             .filter(|e| e.kind == "geometric_tolerance")
             .count(),
-        2
+        3
     );
-    assert!(
+    assert_eq!(
         remaining
             .iter()
-            .all(|e| e.provenance.as_deref() != Some(writer::PMI_PROVENANCE))
+            .filter(|e| e.provenance.as_deref() == Some(writer::PMI_PROVENANCE))
+            .count(),
+        1
     );
 }
 

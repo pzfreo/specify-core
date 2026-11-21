@@ -1091,6 +1091,10 @@ fn write_verified(
                 if !blocks.is_empty() {
                     payload[resume::UNRESOLVED] = Json::Object(blocks);
                 }
+                // The payload Specify writes now is the one to read when the file also holds an
+                // older one it cannot replace (another tool's unmarked copy): `pmi_scope` marks
+                // it, on every save, so that saves stay byte-stable.
+                payload["pmi_scope"] = Json::String(PMI_PROVENANCE.into());
                 pmi.attributes.push(resume::attribute_set(&payload));
                 Some(payload)
             }

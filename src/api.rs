@@ -372,9 +372,14 @@ fn analyse_with(
     reading.each_setting(false, |key, value| {
         stated_settings.entry(key).or_insert(value);
     });
+    // A table that cannot be built never fails the analysis: its file PMI is listed whole
+    // and the reason is a warning.
     let table =
         crate::feature_table::build(&Value::Object(analysis.clone()), &stated_settings, &stored)
-            .map_err(|e| refused(&e))?;
+            .unwrap_or_else(|e| {
+                warnings.push(format!("the feature table could not be built: {e}"));
+                crate::feature_table::FeatureTable::unread(&Value::Object(analysis.clone()))
+            });
     if let Some(mut resumed) = resumed {
         let mut kept = Map::new();
         for (id, answer) in &resumed.answers {
@@ -409,10 +414,32 @@ fn analyse_with(
             serde_json::to_value(resumed).map_err(|e| refused(&e))?,
         );
     }
+    // A row is open exactly when the questions count it open: the table's rows come from every
+    // default (a follow-up, a hole's frame, has its row before it is asked), and the questions
+    // read the file's datums as the file has them.
+    let mut table = table;
     analysis.insert(
         "table".into(),
         serde_json::to_value(&table).map_err(|e| refused(&e))?,
     );
+    let answers = analysis
+        .get("resume")
+        .and_then(|r| r["answers"].as_object())
+        .cloned()
+        .unwrap_or_default();
+    if let Ok(questions) = rules::questions(&Value::Object(analysis.clone()), &answers) {
+        let open: std::collections::BTreeSet<&str> = rules::open_questions(&questions, &answers)
+            .iter()
+            .map(|q| q.id.as_str())
+            .collect();
+        for row in &mut table.rows {
+            row.open = open.contains(row.id.as_str());
+        }
+        analysis.insert(
+            "table".into(),
+            serde_json::to_value(&table).map_err(|e| refused(&e))?,
+        );
+    }
     let numbers = crate::characteristics::read(loaded).map_err(Error::Analysis)?;
     if !numbers.is_empty() {
         analysis.insert(

@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 270 | 0 | 52 | 0 | 2 | 1 | 325 |
+| [cli](#cli) | 364 | 0 | 52 | 0 | 2 | 1 | 419 |
 | [cross_engine](#cross_engine) | 55 | 2 | 0 | 1 | 1 | 20 | 79 |
 | [existing](#existing) | 31 | 0 | 0 | 0 | 7 | 0 | 38 |
 | [features](#features) | 3454 | 1414 | 571 | 2491 | 1066 | 1886 | 10882 |
@@ -22,7 +22,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 1090 | 0 | 0 | 0 | 15 | 2 | 1107 |
-| **all** | 5029 | 1433 | 1249 | 2497 | 1101 | 1909 | 13218 |
+| **all** | 5123 | 1433 | 1249 | 2497 | 1101 | 1909 | 13312 |
 
 ## analysis
 
@@ -76,7 +76,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (270 entries)
+### cli: rust-correct (364 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -90,7 +90,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (21 distinct; all in `cli.json`). The first, for `parts/assembly@serve` at `write.written[plate: location 15 basic to holes:6 from faces [1]]`: Shared planner, #75: fresh frozen-intent writer-oracle evidence. The exact human-readable report line changes with answered:dim:pattern[hole:10,hole:12,hole:6,hole:7,hole:8,hole:9]/pitch/0 = 30 mm, basic, [6] to [7]: pattern pitch (2 interval(s)), with aligned physical member witnesses; answered:dim:pattern[hole:10,hole:12,hole:6,hole:7,hole:8,hole:9]/pitch/1 = 30 mm, basic, [6] to [9]: pattern pitch (1 interval(s)), with aligned physical member witnesses; answered:dim:plane:0/to/pattern[hole:10,hole:12,hole:6,hole:7,hole:8,hole:9]/0 = 50 mm, basic, [0] to [6, 7, 8, 9, 10, 12]: pattern centre located once with its internal grammar. The report names the shared survivor rather than repeating each generated member. Its measured quantity, tolerance class and semantic face supports are checked by STEP readback. The oracle checks EXPRESS validity; the corpus check rejects duplicate face pairs, faceless location supports and independent plane chains. Only this exact item/report line is covered, with no location-family wildcard. The serve reply carries this same exact report item and occurrence count as writer-area case parts/assembly. The CLI composition check compares library and executable outputs exactly; cli_datum_origins.json.gz independently pins this item’s Python and Rust values in the serve envelope.
 
-- **measurement datum defaults in CLI and serve envelopes** (100 entries, 94 case globs)
+- **measurement datum defaults in CLI and serve envelopes** (99 entries, 93 case globs)
 
   The evidence is stated per entry (6 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb217` at `questions.defaults.questions.[37]`: For #21, this exact CLI question field exposes the optional hole.full_thread text edit with refine attention. It is excluded from open and changes neither the accepted tap's inline/computed depth nor review obligations. tests/thread_depth_help.rs verifies exact alpha.7 STEP equivalence; cli_datum_origins.json.gz pins this question value.
 
@@ -185,6 +185,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **how a part is made (part.process) is asked last** (2 entries, 2 case globs)
 
   Maintainer decision (5 November 2026, docs/process.md): part.process is appended after every other question of a made part, so no existing question moves; an unanswered part is machined and its other questions, defaults and writes are unchanged. Python has no such question. tests/process.rs covers the question, its defaults and the STEP attribute.
+
+- **Gaps whose suggestion is none are not open (ADR P11)** (95 entries, 95 case globs)
+
+  ADR P11 / Specify 0.3.0 design (piece 1): a gap whose suggestion writes nothing ("none": coating, heat treatment, notes, datum flatness and controls, datum C) is not open; leaving it and accepting "none" give the same file. The open list therefore leaves those questions out and the remaining ids shift. The exact Python/Rust values are pinned by tests/fixtures/cli_datum_origins.json.gz. tests/feature_table.rs questions_and_the_table_agree_on_what_is_open pins that questions and the feature table agree. Frozen Python captures remain unchanged.
 
 ### cli: equivalent (52 entries)
 

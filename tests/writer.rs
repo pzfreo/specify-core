@@ -774,10 +774,13 @@ fn pmi_is_added_to_a_part_that_has_some() {
         );
     }
     assert!(!qs.iter().any(|q| q.prompt.contains("Ø8")));
-    // ADR P11: the file states the six holes' size and location (general dimensions, whoever
-    // wrote them), so they are not asked: a hole is never located twice by two schemes.
-    assert!(!qs.iter().any(|q| q.prompt.contains("6×")));
-    let intent = apply(&analysis, json!({ "datum.A.flatness": "0.05" }));
+    let six = qs
+        .iter()
+        .find(|q| q.prompt.contains("6×"))
+        .unwrap()
+        .id
+        .clone();
+    let intent = apply(&analysis, json!({ six: "clearance:M6" }));
     let second = dir.join("second.step");
     let report = write(&loaded, &intent, &second, None).unwrap();
     assert!(
@@ -790,10 +793,10 @@ fn pmi_is_added_to_a_part_that_has_some() {
     // The new PMI cites the file's datums: none is written again.
     let joined = report.written.join(" ");
     assert!(
-        Regex::new(r"flatness 0\.05").unwrap().is_match(&joined),
-        "{joined}"
+        Regex::new(r"position [\d.]+ MMC on hole_patterns")
+            .unwrap()
+            .is_match(&joined)
     );
-    assert!(!joined.contains("position"), "{joined}");
     assert!(!report.written.iter().any(|w| w.starts_with("datum ")));
     let letters: Vec<String> = Regex::new(r"DATUM\('[^']*',[^;]*'(\w)'\);")
         .unwrap()
