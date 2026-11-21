@@ -528,7 +528,18 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
                 State::DecidedNone => {
                     Datum::Missing(format!("the new file decided datum {letter} none"))
                 }
-                State::Gap => Datum::Same,
+                State::Gap => match new_table.rows.iter().find(|other| {
+                    is_datum_letter(&other.kind)
+                        && other.state == State::Stated
+                        && datum_faces(other).iter().any(|f| on.contains(f))
+                }) {
+                    // A second datum on the same faces: the new file's stands.
+                    Some(other) => Datum::Missing(format!(
+                        "its faces {on:?} in the new revision carry the new file's {}",
+                        other.kind.replace('.', " ")
+                    )),
+                    None => Datum::Same,
+                },
             },
         };
         datums.insert(letter, state);
@@ -771,13 +782,17 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
                 report,
             })
         }
-        Err(failures) => {
-            report.refused = failures;
-            Ok(Outcome {
-                bytes: None,
-                report,
-            })
-        }
+        Err(failures) => Ok(refused(report, failures)),
+    }
+}
+
+/// The carry refused, all or nothing: nothing is written, and `failures` say why.
+fn refused(mut report: Report, failures: Vec<Failure>) -> Outcome {
+    report.written = false;
+    report.refused = failures;
+    Outcome {
+        bytes: None,
+        report,
     }
 }
 
@@ -1136,4 +1151,48 @@ fn new_id(report: &Report, old: &str) -> String {
 
 fn text(v: &Value) -> String {
     v.as_str().map_or_else(|| v.to_string(), str::to_owned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A list the writer itself refuses (a failure of the whole list, or of an entry on a
+    /// feature that did not change, for a reason other than having nothing to apply to) is not
+    /// trimmed: the whole carry is refused, and nothing is written.
+    #[test]
+    fn a_list_the_writer_refuses_writes_nothing() {
+        let mut report = Report::default();
+        report.carried.push(Carried {
+            old: "datum.B".into(),
+            new: "datum.B".into(),
+            value: json!([19]),
+            stated: None,
+            check: None,
+            with: None,
+        });
+        for failures in [
+            vec![Failure {
+                entry: "(the whole list)".into(),
+                reason: "haecceity will not write it".into(),
+            }],
+            vec![Failure {
+                entry: "fill[\"datum.B\"]".into(),
+                reason: "[19] is not an answer to datum.B".into(),
+            }],
+        ] {
+            assert_eq!(prunable(&failures, &report), None);
+            let outcome = refused(report.clone(), failures.clone());
+            assert!(outcome.bytes.is_none() && !outcome.report.written);
+            assert_eq!(outcome.report.refused, failures);
+            assert!(outcome.report.summary().ends_with("Nothing was written."));
+        }
+        // One on a feature that changed is left out instead.
+        report.to_check.push(report.carried.pop().unwrap());
+        let failures = vec![Failure {
+            entry: "fill[\"datum.B\"]".into(),
+            reason: "[19] is not an answer to datum.B".into(),
+        }];
+        assert_eq!(prunable(&failures, &report).unwrap()[0].0, "datum.B");
+    }
 }

@@ -59,6 +59,11 @@ struct History {
     faces: String,
     high_water: u64,
     entries: Vec<Entry>,
+    /// The numbers retired (allocated once, no longer any requirement's), when the history
+    /// records them. A history written before they were recorded has none: every number below
+    /// its high-water mark that no entry holds is then taken as retired.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    retired: Option<Vec<u64>>,
 }
 
 struct Item {
@@ -618,6 +623,10 @@ fn validate(h: &History) -> Result<(), String> {
     if !matches!(h.schema, 1 | 2)
         || numbers.len() != h.entries.len()
         || numbers.iter().any(|n| *n == 0 || *n > h.high_water)
+        || h.retired
+            .iter()
+            .flatten()
+            .any(|n| *n == 0 || *n > h.high_water || numbers.contains(n))
     {
         return Err(format!(
             "{PROPERTY}: invalid schema, duplicate number or high-water mark"
@@ -743,9 +752,10 @@ pub(crate) fn allocate(
     let mut old = saved.unwrap_or_default();
     // An older revision's history carried onto this part (`carry`): its numbers go to the
     // requirements written now that it names, never to one the file already numbers. Where the
-    // file has a numbering of its own, that stands: an older number is kept only above the
-    // file's high-water mark (neither used nor retired here), and the high-water mark becomes
-    // the larger of the two, so a number either history retired is never reused.
+    // file has a numbering of its own, that stands: an older number is kept only when the file
+    // neither uses it nor retired it (with no record of what it retired, only above its
+    // high-water mark), and the high-water mark becomes the larger of the two, so a number
+    // either history retired is never reused.
     let transported = carried.is_some();
     let taken: BTreeSet<u64> = prov
         .all()
@@ -753,10 +763,18 @@ pub(crate) fn allocate(
         .filter_map(|id| number(doc, id))
         .collect();
     let mut carried_numbers: BTreeSet<u64> = BTreeSet::new();
+    // What this part's history (and a carried one) records as retired: `None` when one of them
+    // was written before retired numbers were recorded.
+    let mut retired_before: Option<BTreeSet<u64>> = if has_saved {
+        old.retired.as_ref().map(|r| r.iter().copied().collect())
+    } else {
+        Some(BTreeSet::new())
+    };
     match carried {
         Some(mut h) if !has_saved => {
             h.entries.retain(|e| !taken.contains(&e.number));
             carried_numbers = h.entries.iter().map(|e| e.number).collect();
+            retired_before = h.retired.as_ref().map(|r| r.iter().copied().collect());
             old = h;
             value_hints.clear();
         }
@@ -771,17 +789,34 @@ pub(crate) fn allocate(
                 })
                 .collect();
             if let Some(mut h) = other {
+                let live: BTreeSet<u64> = old.entries.iter().map(|e| e.number).collect();
                 let own = old
                     .high_water
-                    .max(old.entries.iter().map(|e| e.number).max().unwrap_or(0))
+                    .max(live.iter().copied().max().unwrap_or(0))
                     .max(taken.iter().copied().max().unwrap_or(0));
-                h.entries.retain(|e| e.number > own);
+                let free = |n: u64| {
+                    !live.contains(&n)
+                        && !taken.contains(&n)
+                        && match &retired_before {
+                            Some(retired) => !retired.contains(&n),
+                            None => n > own,
+                        }
+                };
+                h.entries.retain(|e| free(e.number));
                 carried_numbers = h.entries.iter().map(|e| e.number).collect();
+                retired_before = match (retired_before, &h.retired) {
+                    (Some(mut mine), Some(theirs)) => {
+                        mine.extend(theirs.iter().copied());
+                        Some(mine)
+                    }
+                    _ => None,
+                };
                 old.entries.extend(h.entries);
                 old.high_water = old.high_water.max(h.high_water);
             }
         }
     }
+    let live_before: BTreeSet<u64> = old.entries.iter().map(|e| e.number).collect();
     old.high_water = old
         .high_water
         .max(old.entries.iter().map(|e| e.number).max().unwrap_or(0))
@@ -1031,11 +1066,19 @@ pub(crate) fn allocate(
         }
     }
     if old.high_water > 0 {
+        // Every number live before and not now is retired, with those retired before.
+        let live: BTreeSet<u64> = entries.iter().map(|e| e.number).collect();
+        let retired = retired_before.map(|mut r| {
+            r.extend(live_before.difference(&live).copied());
+            r.retain(|n| !live.contains(n));
+            r.into_iter().collect()
+        });
         let history = History {
             schema: 2,
             faces: fingerprint,
             high_water: old.high_water,
             entries,
+            retired,
         };
         // Added to a part whose record already says the same: the file's record stands as
         // it is, so a save that adds nothing keeps its bytes (ADR P11).
@@ -1307,6 +1350,7 @@ mod history_tests {
             faces: "target fingerprint".into(),
             high_water: 6,
             entries: vec![entry(5, 10), entry(6, 11)],
+            retired: None,
         };
         let transport = Map::from_iter([(CARRY.into(), serde_json::to_value(&h).unwrap())]);
         let mut destination = PartPmi::default();

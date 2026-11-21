@@ -24,7 +24,8 @@ feature-and-kind OLD's feature table states:
 
 OLD's decided-none answers carry the same way, onto NEW's gaps (`decided_none`).
 
-**Datums** are matched by their faces, not their letters. NEW's datum A on other faces than
+**Datums** are matched by their faces, not their letters. OLD's datum whose faces carry another
+of NEW's own datums is not carried, nor is what cites it. NEW's datum A on other faces than
 OLD's A is a difference (`kept`, both face sets shown: `datum A on faces [27]` and `datum A on
 faces [2]`), and OLD's requirements on its datum A (its flatness, a perpendicularity) are not
 written onto NEW's A: they are not carried. A requirement citing a datum that differs is carried
@@ -59,9 +60,11 @@ New features in NEW that NEW states nothing on are listed as information (`new_u
 A requirement carried from OLD keeps OLD's characteristic number, and OLD's number history
 carries with it: its high-water mark, so numbers OLD retired (and numbers of requirements not
 carried) are never reused. Where NEW has a numbering of its own, NEW's numbers stand: a carried
-requirement keeps OLD's number only when NEW neither uses nor retired it (above NEW's high-water
-mark); otherwise it takes a new number above both files' high-water marks, and is listed in
-`renumbered` (`{old, new, kind, type, faces}`). A number either file retired is never reused.
+requirement keeps OLD's number when that number is free in NEW (no requirement of NEW's has it)
+and neither file retired it; otherwise it takes a new number above both files' high-water marks,
+and is listed in `renumbered` (`{old, new, kind, type, faces}`). A number either file retired is
+never reused. (A history written before retired numbers were recorded counts every free number
+below its high-water mark as retired.)
 `numbers_carried` is true when at least one carried requirement kept OLD's number. See
 [characteristic-numbers.md](characteristic-numbers.md).
 
@@ -77,8 +80,10 @@ with its part.
 
 ## All or nothing
 
-The carry is one edit list applied all or nothing. If any of it cannot be applied (OLD's datum B
-landing on the faces NEW's own datum A is on, say), nothing is written: `written` is false,
+The carry is one edit list applied all or nothing. Carry leaves out, and reports, what it can
+tell will not apply (a datum landing on the faces NEW's own datum is on, what cites a datum not
+carried, a fill the new geometry cannot take); if the writer still refuses the list, nothing is
+written: `written` is false,
 `refused` names each entry and why, and the command exits 2. Every entity of NEW the carry does
 not address keeps its bytes.
 
