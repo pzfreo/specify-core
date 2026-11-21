@@ -136,10 +136,11 @@ for (const [part, path] of parts) {
     try {
       assert.deepEqual(JSON.parse(carrying.payload('an app')), payload.value);
       assert.equal(carrying.payload('another app'), undefined);
-      // ADR P11: the writer adds to the file's PMI and never replaces it, so every part (the
-      // spindle with its own datums too) gives back its original bytes exactly.
+      // The spindle came with Specify's own PMI, which an edit rewrites in place (its stored
+      // answers), so it has no original to give back; every other part's is its bytes exactly.
       const originalOf = engine => engine.original() === undefined ? undefined : Buffer.from(engine.original());
-      assert.deepEqual(originalOf(carrying), Buffer.from(bytes), 'original part bytes');
+      if (part === 'spindle') assert.equal(carrying.original(), undefined, 'a part with PMI: no original');
+      else assert.deepEqual(originalOf(carrying), Buffer.from(bytes), 'original part bytes');
       const again = JSON.parse(carrying.edit('{}', null, JSON.stringify({ ...payload, value: { revision: 3 } })));
       const twice = Buffer.from(again.bytes).toString();
       assert.equal(twice.split("'an app'").length - 1, Buffer.from(carried.bytes).toString().split("'an app'").length - 1, 'the payload replaced, not added');
@@ -201,7 +202,10 @@ for (const [part, path] of parts) {
     assert.deepEqual(settled.state.answers, accepted, 'settle preserves accepted answers');
     const changed = { ...accepted, 'part.general_tolerance': 'ISO 2768-f' };
     assert.equal(JSON.parse(acceptDefaults(JSON.stringify(snapshot.analysis), JSON.stringify(changed)))['part.general_tolerance'], 'ISO 2768-f');
-    assert.equal(JSON.parse(engine.review(JSON.stringify(changed))).intent.part.general_tolerance, 'ISO 2768-f');
+    // ADR P11 (D5b): a general tolerance the file states stands; a different answer is not
+    // written over it (changing it is an explicit edit), so the intent carries none.
+    const statesTolerance = Boolean(snapshot.analysis.part?.general_tolerance);
+    assert.equal(JSON.parse(engine.review(JSON.stringify(changed))).intent.part.general_tolerance, statesTolerance ? undefined : 'ISO 2768-f');
     assert.equal(engine.original(), undefined, 'a bare part records no original');
     throwsString(() => engine.review('[]'), /Invalid answers/);
     throwsString(() => acceptDefaults('{', '{}'), /Invalid analysis/);
@@ -238,8 +242,8 @@ for (const [part, path] of parts) {
       // ADR P11: the file's process is the truth, whoever edited it: there is no stored
       // answer to conflict with it (an answer that writes PMI is not stored).
       assert.equal(analysis.part.process, 'cast', `foreign ${foreign}`);
-      assert.equal(analysis.resume.conflicts, undefined);
-      assert.ok(!Object.hasOwn(analysis.resume.answers, 'part.process'));
+      assert.equal(analysis.resume?.conflicts, undefined);
+      assert.ok(!Object.hasOwn(analysis.resume?.answers ?? {}, 'part.process'));
       // A later edit of something else leaves the external process value as it is.
       const saved = JSON.parse(opened.edit('{"fill": {"part.general_tolerance": "ISO 2768-m"}}'));
       assert.ok(saved.written, saved.message);
@@ -248,7 +252,7 @@ for (const [part, path] of parts) {
       try {
         const { analysis } = JSON.parse(reopened.snapshot());
         assert.equal(analysis.part.process, 'cast');
-        assert.ok(!analysis.resume.conflicts?.some(c => c.id === 'part.process'));
+        assert.ok(!analysis.resume?.conflicts?.some(c => c.id === 'part.process'));
       } finally { reopened.free(); }
     } finally { opened.free(); }
   }
@@ -342,7 +346,9 @@ throwsString(() => new IntentEngine('twice.step', Buffer.from(twice)), /one inst
     assert.ok(out.written, out.message);
     written = Uint8Array.from(out.bytes);
   } finally { pin.free(); }
-  assert.deepEqual(JSON.parse(IntentEngine.parts('assembly.step', written)).map(p => p.written), [false, true]);
+  // `written` is whether Specify stores answers for the part: an edit stores none here (ADR P11:
+  // the material is stated in the file), so neither is; the pin's material is read below.
+  assert.deepEqual(JSON.parse(IntentEngine.parts('assembly.step', written)).map(p => p.written), [false, false]);
   const plate = IntentEngine.openPart('assembly.step', written, 0);
   try {
     assert.equal(plate.payload('draftwright editor project'), undefined);
@@ -352,7 +358,7 @@ throwsString(() => new IntentEngine('twice.step', Buffer.from(twice)), /one inst
   try {
     // ADR P11: the material is written as PMI, so the file states it rather than storing it.
     const { analysis } = JSON.parse(reopened.snapshot());
-    assert.deepEqual(analysis.resume.answers, storable(JSON.parse(brass)));
+    assert.deepEqual(analysis.resume?.answers ?? {}, storable(JSON.parse(brass)));
     // An assembly's part has no part settings of its own; its feature table reads the material.
     const material = analysis.table.rows.find(r => r.id === 'part.material');
     assert.equal(material.state, 'stated');
