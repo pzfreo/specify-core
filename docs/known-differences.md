@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 267 | 0 | 52 | 0 | 2 | 1 | 322 |
+| [cli](#cli) | 268 | 0 | 52 | 0 | 2 | 1 | 323 |
 | [cross_engine](#cross_engine) | 61 | 2 | 0 | 1 | 1 | 20 | 85 |
 | [cross_engine_written](#cross_engine_written) | 9 | 0 | 0 | 0 | 0 | 0 | 9 |
 | [existing](#existing) | 37 | 0 | 0 | 0 | 7 | 0 | 44 |
@@ -23,7 +23,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 1184 | 0 | 0 | 0 | 15 | 1 | 1200 |
-| **all** | 5141 | 1433 | 1249 | 2497 | 1101 | 1908 | 13329 |
+| **all** | 5142 | 1433 | 1249 | 2497 | 1101 | 1908 | 13330 |
 
 ## analysis
 
@@ -77,7 +77,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (267 entries)
+### cli: rust-correct (268 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -182,6 +182,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **how a part is made (part.process) is asked last** (2 entries, 2 case globs)
 
   Maintainer decision (5 November 2026, docs/process.md): part.process is appended after every other question of a made part, so no existing question moves; an unanswered part is machined and its other questions, defaults and writes are unchanged. Python has no such question. tests/process.rs covers the question, its defaults and the STEP attribute.
+
+- **One JSON after STEP is an edit list** (`cli/usage/10 write tests/fixtures/parts/plate.step {tmp}/a.json -o {tmp}/o.step` at `exit`)
+
+  Proposal specify-0.3.0 use case 7 (Paul, 2026-11-20): write STEP EDITS.json -o OUT applies an edit list in place, so one JSON after STEP is no longer a usage error (exit 2) but an edit list; here the list file does not exist, which is a file error (exit 1, `a.json: No such file`). tests/cli.rs::usage_or_help checks that message for this capture; cli_datum_origins.json.gz records the exit departure. Three or more positionals still give the usage error.
 
 ### cli: equivalent (52 entries)
 

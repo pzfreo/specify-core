@@ -512,6 +512,7 @@ fn analyse_with(
     // each can be removed by its number.
     let numbers = crate::characteristics::read(loaded).map_err(Error::Analysis)?;
     crate::feature_table::add_numbered(&mut table, &numbers);
+    crate::feature_table::name_file_pmi(&mut table, &reading.located());
     analysis.insert(
         "table".into(),
         serde_json::to_value(&table).map_err(|e| refused(&e))?,

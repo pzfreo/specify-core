@@ -323,7 +323,7 @@ fn setting_items(p: &PartPmi, key: &str) -> Result<Vec<(String, usize)>, String>
 
 /// The requirement of a table row as an item of the file: by its number when it has one, else
 /// by kind, type and faces.
-fn locate(
+pub(crate) fn locate(
     req: &crate::feature_table::Requirement,
     located: &[crate::characteristics::Located],
     taken: &BTreeSet<(String, usize)>,
@@ -437,6 +437,167 @@ fn none_answer(table: &FeatureTable, id: &str) -> Json {
     }
 }
 
+/// The list with each change given field by field (`"to": {"value": 3.4}`) as the answer that
+/// plans the same requirement (a tolerance's value; a fitted size's class), and the new
+/// nominals, by row, that [`keep_untouched`] then gives the planned size. Field by field, only
+/// `value` changes, on a row stated by one requirement that is not text only.
+fn field_changes(
+    list: &EditList,
+    table: &FeatureTable,
+    analysis: &Json,
+) -> Result<(EditList, BTreeMap<String, f64>), Vec<Failure>> {
+    let mut out = list.clone();
+    let mut nominals = BTreeMap::new();
+    let mut failures = Vec::new();
+    for (id, change) in &mut out.change {
+        let Json::Object(fields) = &change.to else {
+            continue;
+        };
+        let entry = format!("change[{}]", Json::String(id.clone()));
+        let fail = |why: String| entry_failure(entry.clone(), why);
+        let value = match (fields.len(), fields.get("value").and_then(Json::as_f64)) {
+            (1, Some(v)) if v > 0.0 => v,
+            _ => {
+                failures.push(fail(format!(
+                    "a change field by field gives {{\"value\": <number>}} (the nominal of a \
+                     size, or a tolerance's value), not {}",
+                    change.to
+                )));
+                continue;
+            }
+        };
+        let Some(row) = table.row(id).filter(|r| r.state == State::Stated) else {
+            continue; // validation says why
+        };
+        let [req] = row.requirements.as_slice() else {
+            failures.push(fail(format!(
+                "{id} is stated by {} requirements; change it as a whole",
+                row.requirements.len()
+            )));
+            continue;
+        };
+        if req.text_only {
+            failures.push(fail(format!(
+                "{id} states {}, which has parts only its text holds: it cannot be changed field \
+                 by field. Change it in your CAD tool, or remove it (items.remove) and fill the \
+                 gap",
+                req.text
+            )));
+            continue;
+        }
+        let fit = analysis["existing"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|item| {
+                let number = item["number"].as_u64().map(|n| format!("#{n}"));
+                item["kind"] == "dimension"
+                    && if req.number.is_some() {
+                        number == req.number
+                    } else {
+                        item["type"] == req.r#type.as_str() && item["text"] == req.text.as_str()
+                    }
+            })
+            .and_then(|item| item["fit"].as_str());
+        let answer = if edits::answered_by_tolerance(&row.kind) && req.kind == "geometric_tolerance"
+        {
+            Json::from(value.to_string())
+        } else if req.kind == "dimension" && req.r#type.starts_with("Size_") && fit.is_some() {
+            let class = fit.unwrap_or_default();
+            nominals.insert(id.clone(), value);
+            match row.kind.as_str() {
+                "hole.function" => Json::from(format!("fit:{class}")),
+                _ => Json::from(class),
+            }
+        } else {
+            failures.push(fail(format!(
+                "{id} ({}) cannot be changed field by field: that is for a tolerance's value or \
+                 a fitted size's nominal; give its new value as a whole",
+                req.text
+            )));
+            continue;
+        };
+        change.to = answer;
+    }
+    if failures.is_empty() {
+        Ok((out, nominals))
+    } else {
+        Err(failures)
+    }
+}
+
+/// A change keeps what it does not touch: each planned tolerance replacing one of a changed
+/// row's takes the original's zone and modifiers (⌖ ⌀0.3Ⓜ changed to 0.2 is ⌖ ⌀0.2Ⓜ); a planned
+/// size replacing a fitted one keeps its class and takes the nominal given field by field.
+fn keep_untouched(
+    pmi: &mut PartPmi,
+    before: &PartPmi,
+    replaced: &BTreeMap<String, Vec<(String, usize)>>,
+    nominals: &BTreeMap<String, f64>,
+) -> Result<(), super::WriteError> {
+    use haecceity::pmi::DimTolerance;
+    let faces = |p: &PartPmi, f: haecceity::pmi::FeatureId| crate::existing::faces_of(p, &[f]);
+    for (id, items) in replaced {
+        for (collection, i) in items {
+            match collection.as_str() {
+                "tolerances" => {
+                    let old = &before.tolerances[*i];
+                    let ToleranceTarget::Feature(f) = old.target else {
+                        continue;
+                    };
+                    let on = faces(before, f);
+                    // A zone that refers to other features is text only, refused above.
+                    let zone = old.zone.as_ref().filter(|z| {
+                        z.projected.is_none()
+                            && z.non_uniform.is_none()
+                            && z.affected_plane.is_none()
+                    });
+                    let planned = pmi.tolerances.iter().position(|t| {
+                        t.kind == old.kind
+                            && matches!(t.target, ToleranceTarget::Feature(g) if faces(pmi, g) == on)
+                    });
+                    if let Some(j) = planned {
+                        let new = &mut pmi.tolerances[j];
+                        new.modifiers = old.modifiers.clone();
+                        if let (Some(zone), Some(new_zone)) = (zone, new.zone.as_mut()) {
+                            new_zone.form = zone.form.clone();
+                        }
+                    }
+                }
+                "dimensions" => {
+                    let old = &before.dimensions[*i];
+                    let DimensionKind::Size { feature, .. } = old.kind else {
+                        continue;
+                    };
+                    let on = faces(before, feature);
+                    let Some(j) = pmi.dimensions.iter().position(|d| {
+                        matches!(d.kind, DimensionKind::Size { feature: g, .. } if faces(pmi, g) == on)
+                    }) else {
+                        continue;
+                    };
+                    let class = match &old.tolerance {
+                        DimTolerance::Fit { class, .. } => Some(*class),
+                        _ => None,
+                    };
+                    if let Some(value) = nominals.get(id) {
+                        let new = &mut pmi.dimensions[j];
+                        new.nominal = Some(super::mm(*value)?);
+                        if let Some(class) = class {
+                            // The class alone, as the file had it: no deviations in its place.
+                            new.tolerance = DimTolerance::Fit {
+                                class,
+                                limits: None,
+                            };
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
 fn kept_bytes(doc: &haecceity::p21::Document, id: u64) -> Option<&[u8]> {
     doc.span(id).map(|s| &doc.bytes()[s])
 }
@@ -451,7 +612,8 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         ));
     }
     let (analysis, table) = table_of(loaded).map_err(whole)?;
-    let (list, outcome) = validated(list, &table, &analysis);
+    let (list, nominals) = field_changes(list, &table, &analysis)?;
+    let (list, outcome) = validated(&list, &table, &analysis);
     if !outcome.failures.is_empty() {
         return Err(outcome.failures);
     }
@@ -496,7 +658,11 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
             none.insert(id.clone(), none_answer(&table, id));
         }
     }
-    if given.is_empty() && none.is_empty() && list.change.is_empty() && list.items.remove.is_empty()
+    if given.is_empty()
+        && none.is_empty()
+        && list.change.is_empty()
+        && list.items.remove.is_empty()
+        && list.items.remove_ids.is_empty()
     {
         return Ok(Applied {
             bytes: loaded.bytes.to_vec(),
@@ -522,6 +688,8 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
     // Rows changed to none that a requirement shared with another feature still states.
     let mut still_stated: Vec<String> = Vec::new();
     let mut remove: BTreeSet<(String, usize)> = BTreeSet::new();
+    // Each changed row's items taken out, so its new items keep what the change does not touch.
+    let mut replaced: BTreeMap<String, Vec<(String, usize)>> = BTreeMap::new();
     for n in &list.items.remove {
         match located.iter().find(|l| l.number == Some(n.0)) {
             Some(l) => {
@@ -531,6 +699,70 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
                 format!("items.remove[{}]", Json::String(n.to_string())),
                 format!("{n} is not a requirement this writer can remove"),
             )),
+        }
+    }
+    // Removals by id: an item of the file's other PMI by its entity, or a stated row whole
+    // (its requirements that no other feature's row states too).
+    for id in &list.items.remove_ids {
+        let entry = edits::removal_entry(id);
+        if let Some(entity) = id
+            .strip_prefix(edits::FILE_PMI)
+            .and_then(|e| e.strip_prefix('#'))
+            .and_then(|e| e.parse::<u64>().ok())
+        {
+            match located.iter().find(|l| l.entity == entity) {
+                Some(l) => {
+                    remove.insert((l.at.0.to_string(), l.at.1));
+                }
+                None => failures.push(entry_failure(
+                    entry,
+                    format!("{id} is not an item this writer can remove"),
+                )),
+            }
+            continue;
+        }
+        let Some(row) = table.row(id) else { continue };
+        if let Some(key) = id.strip_prefix("part.") {
+            match setting_items(before, key) {
+                Ok(items) if !items.is_empty() => remove.extend(items),
+                Ok(_) => failures.push(entry_failure(
+                    entry,
+                    format!("{id} is not stated in a form this writer can remove"),
+                )),
+                Err(why) => failures.push(entry_failure(entry, why)),
+            }
+            continue;
+        }
+        let shared = |req: &crate::feature_table::Requirement| {
+            table.rows.iter().any(|r| {
+                r.feature != row.feature && r.requirements.iter().any(|q| same_requirement(q, req))
+            })
+        };
+        let own: Vec<_> = row.requirements.iter().filter(|r| !shared(r)).collect();
+        if own.is_empty() {
+            failures.push(entry_failure(
+                entry,
+                format!(
+                    "{id} is stated only by requirements other features' rows state too; \
+                     remove them by number"
+                ),
+            ));
+            continue;
+        }
+        for req in own {
+            match locate(req, &located, &remove) {
+                Some(at) => {
+                    remove.insert(at);
+                }
+                None => failures.push(entry_failure(
+                    entry.clone(),
+                    format!(
+                        "its requirement {} is not one this writer can remove; remove it by \
+                         number, or in your CAD tool",
+                        req.text
+                    ),
+                )),
+            }
         }
     }
     for id in list.change.keys() {
@@ -610,12 +842,28 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         for req in &row.requirements {
             let frame_stands = frame_only
                 && req.kind != "geometric_tolerance"
-                && !(to_none && req.text.ends_with(" basic"));
+                // A basic dimension: `50 (basic)` in the file's notation, `… basic` read
+                // without one.
+                && !(to_none && (req.text.ends_with("(basic)") || req.text.ends_with(" basic")));
             if frame_stands || shared(req) {
+                continue;
+            }
+            // A change replans the requirement: what only its text holds would be lost.
+            if req.text_only {
+                failures.push(entry_failure(
+                    entry.clone(),
+                    format!(
+                        "{id} states {}, which has parts only its text holds; a change cannot \
+                         carry them over, so it is refused rather than dropping them. Change it \
+                         in your CAD tool, or remove it (items.remove) and fill the gap",
+                        req.text
+                    ),
+                ));
                 continue;
             }
             match locate(req, &located, &remove) {
                 Some(at) => {
+                    replaced.entry(id.clone()).or_default().push(at.clone());
                     remove.insert(at);
                 }
                 None => failures.push(entry_failure(
@@ -712,6 +960,7 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
             .remove
             .iter()
             .map(|n| n.to_string())
+            .chain(list.items.remove_ids.iter().cloned())
             .chain(list.change.keys().cloned())
             .collect();
         return Err(whole(format!(
@@ -904,6 +1153,7 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         let (mut pmi, planned) = part_pmi(&loaded_clean, &intent, clean_before, mode, &[])
             .map_err(|e| whole(e.to_string()))?;
         lines = planned;
+        keep_untouched(&mut pmi, before, &replaced, &nominals).map_err(|e| whole(e.to_string()))?;
         // A change replaces its row's own items: it never adds a location dimension beside
         // one the row shares with another feature (another tool's group dimension, say).
         if mode == Mode::Add {
@@ -1028,6 +1278,9 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
     lines.warnings.extend(still_stated);
     for n in &list.items.remove {
         lines.written.push(format!("removed {n}"));
+    }
+    for id in &list.items.remove_ids {
+        lines.written.push(format!("removed {id}"));
     }
     for (id, value) in &none {
         lines.written.push(format!(

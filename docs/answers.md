@@ -142,7 +142,12 @@ and settings, and `analyse` adds the **feature table**, `table`:
     It is asked. `open` is false when the suggestion is "none": leaving it and accepting
     "none" give the same file.
   - `decided_none`: an answer that nothing is needed, stored in the file.
-- `file_pmi`: the file's requirements on no recognised feature and kind.
+- `file_pmi`: the file's requirements on no recognised feature and kind. Each has an `id`,
+  `file_pmi:#<entity>`, naming the STEP entity its characteristic number is (or would be) on
+  (`file_pmi:#1397`), so it stays the same while the file is saved in place. An edit list
+  removes one by it, numbered or not: `"items": {"remove": [{"id": "file_pmi:#1397"}]}`. A
+  stated row is removed whole the same way, `{"id": "part.material"}`. (A note that is no
+  thread, knurl or finish, and a setting on no row, have no id.)
 - `decided_none`: the decided-none ids, read back from the file.
 
 ### What the file states, read back whole

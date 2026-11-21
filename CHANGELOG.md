@@ -182,6 +182,19 @@ Read first:
   `session::save_edits`, the session works on the file saved: a later save of answers keeps the
   edits. Rust: `writer::apply::{apply, apply_bytes, check}`, `session::save_edits`. Not yet:
   changing one requirement by its number (`items.change`), and a part of an assembly.
+- Removal without a number: `items.remove` also takes `{"id": "<stated row>"}` (every
+  requirement stating it that no other feature's row shares; `part.material`, a requirement
+  with no number) and `{"id": "file_pmi:#<entity>"}`, an item of the file's other PMI. The
+  feature table gives each file-PMI item that id (`file_pmi[].id`), from the STEP entity its
+  number is (or would be) on, so it stays the same while the file is saved in place. A removal
+  retires the removed items' numbers, as one by number does.
+- A change keeps what it does not touch: a changed tolerance keeps the file's zone form and
+  modifiers (`⌖ ⌀0.3Ⓜ A` changed to 0.2 is `⌖ ⌀0.2Ⓜ A`), and `change` also takes a value field
+  by field, `"to": {"value": 3.4}` (a tolerance's value, or a fitted size's nominal: `⌀3.3 H11`
+  becomes `⌀3.4 H11`, the class kept, no deviations in its place). A requirement whose text
+  holds what no field does (`text_only`) is refused a change, with the reason, rather than
+  replanned without those parts. A tolerance row's stated value in the fill form is its
+  magnitude alone (`0.3` for `⌖ ⌀0.3Ⓜ A`).
 
 ### WASM API
 

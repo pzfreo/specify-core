@@ -57,6 +57,12 @@ pub struct Requirement {
     /// changed field by field.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub text_only: bool,
+    /// File PMI only: the item's id, `file_pmi:#<STEP entity>` ([`crate::edits::FILE_PMI`]),
+    /// which `items.remove` takes as `{"id": ...}`. It names the entity the item's number is
+    /// on, so it stays the same while the file is saved in place. Absent for an item Specify
+    /// cannot locate by its entity (a note that is no thread, knurl or finish).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
 }
 
 /// One feature-and-kind.
@@ -249,6 +255,7 @@ fn requirement(item: &Value) -> Requirement {
         faces,
         text: text_of(item),
         text_only: item["text_only"] == Value::Bool(true),
+        id: None,
     }
 }
 
@@ -903,6 +910,7 @@ pub fn build(
                 faces: Vec::new(),
                 text: setting_text(value),
                 text_only: false,
+                id: None,
             });
         }
     }
@@ -938,6 +946,7 @@ pub fn add_numbered(table: &mut FeatureTable, numbers: &[crate::characteristics:
             faces,
             text: c.r#type.clone(),
             text_only: false,
+            id: None,
         };
         let finish = table.rows.iter_mut().find(|r| {
             r.id == "part.surface_finish" && r.state == State::Stated && c.faces.is_empty()
@@ -950,6 +959,20 @@ pub fn add_numbered(table: &mut FeatureTable, numbers: &[crate::characteristics:
                 row.requirements.push(requirement);
             }
             _ => table.file_pmi.push(requirement),
+        }
+    }
+}
+
+/// Gives each item of the file's other PMI its id, `file_pmi:#<entity>`, from where it is in
+/// the file (`located`, as [`crate::characteristics::located`] lists the part's requirements).
+pub(crate) fn name_file_pmi(table: &mut FeatureTable, located: &[crate::characteristics::Located]) {
+    let mut taken = BTreeSet::new();
+    for req in &mut table.file_pmi {
+        if let Some(l) = crate::writer::apply::locate(req, located, &taken) {
+            if let Some(found) = located.iter().find(|x| (x.at.0.to_string(), x.at.1) == l) {
+                req.id = Some(format!("{}#{}", crate::edits::FILE_PMI, found.entity));
+            }
+            taken.insert(l);
         }
     }
 }

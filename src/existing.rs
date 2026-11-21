@@ -324,6 +324,12 @@ pub fn part_settings_provenance(loaded: &LoadedPart) -> Result<Map<String, Value
 }
 
 impl Reading {
+    /// The part's requirements, each with where it is in the file
+    /// ([`crate::characteristics::located`]).
+    pub(crate) fn located(&self) -> Vec<crate::characteristics::Located> {
+        crate::characteristics::located(&self.pmi, &self.provenance, &self.doc)
+    }
+
     /// The part's PMI as read.
     pub fn model(&self) -> &PartPmi {
         &self.pmi

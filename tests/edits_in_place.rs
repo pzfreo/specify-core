@@ -313,19 +313,13 @@ fn a_change_of_limits_keeps_the_number() {
         assert_eq!(n[&16].r#type, "Position");
         assert_eq!(n[&16].faces, [12]);
         let r = row(&table(&after), "hole.position:holes:12");
-        assert!(
-            r["value"]
-                .as_str()
-                .unwrap()
-                .contains("Position 0.1 | A | B | C"),
-            "{r}"
-        );
+        assert!(r["value"].as_str().unwrap().contains("⌖ ⌀0.1 A B C"), "{r}");
         assert!(
             r["requirements"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|q| q["number"] == "#16" && q["text"] == "Position 0.1 | A | B | C"),
+                .any(|q| q["number"] == "#16" && q["text"] == "⌖ ⌀0.1 A B C"),
             "{r}"
         );
     }
@@ -338,10 +332,7 @@ fn a_change_of_limits_keeps_the_number() {
     let after = reload(&saved.bytes);
     untouched_but(&spindle, &after, &[13]);
     let r = row(&table(&after), "hole.position:holes:14");
-    assert!(
-        r["value"].as_str().unwrap().contains("Position 0.25"),
-        "{r}"
-    );
+    assert!(r["value"].as_str().unwrap().contains("⌖ ⌀0.25"), "{r}");
     assert_eq!(r["requirements"][0]["number"], "#13");
 }
 
@@ -353,7 +344,7 @@ fn a_change_to_a_different_measurement_gets_a_new_number_and_retires_the_old() {
     let high = *before.keys().max().unwrap();
     let saved = applied(
         &spindle,
-        json!({"change": {"hole.function:holes:14": {"to": "tapped:M4", "expect": "Size_Diameter 3.3"}}}),
+        json!({"change": {"hole.function:holes:14": {"to": "tapped:M4", "expect": "⌀3.3 H11"}}}),
     );
     assert_eq!(saved.retired, [3]);
     let after = reload(&saved.bytes);
@@ -435,7 +426,7 @@ fn a_stale_expect_is_refused_and_nothing_is_written() {
         &plate,
         json!({
             "fill": {"hole.position:holes:12": "0.1"},
-            "items": {"change": {"#16": {"tolerance": "0.1", "expect": "Position 0.2 | A | B | C"}}},
+            "items": {"change": {"#16": {"tolerance": "0.1", "expect": "⌖ ⌀0.2 A B C"}}},
         }),
     );
     let entries: Vec<&str> = failures.iter().map(|f| f.entry.as_str()).collect();
@@ -506,10 +497,7 @@ fn an_added_control_on_the_same_face_is_a_change_that_keeps_its_number() {
     let now = flatness(&changed);
     assert_eq!(now.len(), 1);
     assert_eq!(now[0].number, was[0].number);
-    assert_eq!(
-        row(&table(&changed), "datum.A.flatness")["value"],
-        "Flatness 0.02"
-    );
+    assert_eq!(row(&table(&changed), "datum.A.flatness")["value"], "⏥ 0.02");
 }
 
 #[test]
@@ -632,7 +620,7 @@ fn write_applies_an_edit_list_all_or_nothing() {
         row(&table(&after), "hole.position:holes:12")["value"]
             .as_str()
             .unwrap()
-            .contains("Position 0.1")
+            .contains("⌖ ⌀0.1")
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -671,7 +659,7 @@ fn the_session_saves_an_edit_list_in_place_on_its_own_copy() {
         row(&table(&after), "hole.position:holes:12")["value"]
             .as_str()
             .unwrap()
-            .contains("Position 0.1")
+            .contains("⌖ ⌀0.1")
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -782,25 +770,28 @@ fn a_plain_location_states_a_hole_so_a_fill_on_it_is_refused() {
 
 #[test]
 fn a_change_never_adds_a_location_beside_another_tools() {
-    // Hole 12 located by another tool's plain 95 from face 2 (Specify would plan a basic 95
-    // from face 0) and a plain 30 it shares with the grid (Specify would plan a basic 30 of
-    // its own). Its own 95 could be replaced, but the frame would add a 30 beside the shared
-    // one: refused, naming it, and nothing written.
-    let theirs = unframed_hole_12(true, false);
-    let before = locations_on(&pmi_of(&theirs.bytes), 12);
-    assert_eq!(before.len(), 2, "{before:?}");
-    let shown = row(&table(&theirs), "hole.position:holes:12")["value"].clone();
-    let failures = refused(
-        &theirs,
-        json!({"change": {"hole.position:holes:12": {"to": "0.2", "expect": shown}}}),
-    );
-    assert_eq!(failures.len(), 1, "{failures:?}");
-    assert!(
-        failures[0].reason.contains("Location_LinearDistance 30.0"),
-        "{failures:?}"
-    );
-    // With the shared 30 basic (as Specify's own plate has it), the same change applies and
-    // adds no location: the frame's basic dimensions are the file's.
+    // Hole 12 located by another tool's plain 95 from face 2 and a plain 30 it shares with the
+    // grid, or by the shared 30 alone. Under decision D8 a location dimension locates only its
+    // located side, per direction: the shared 30s locate hole 12 across y only, so its
+    // location is a gap missing x, not a stated row to change. A change is refused (use fill),
+    // and nothing is written.
+    for (moved, alone) in [(true, false), (false, true)] {
+        let theirs = unframed_hole_12(moved, alone);
+        let r = row(&table(&theirs), "hole.position:holes:12");
+        assert_eq!(
+            (&r["state"], &r["missing"], &r["located"]),
+            (&json!("gap"), &json!(["x"]), &json!(["y"])),
+            "{r}"
+        );
+        let failures = refused(
+            &theirs,
+            json!({"change": {"hole.position:holes:12": {"to": "0.2", "expect": "0.2"}}}),
+        );
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].reason.contains("use fill"), "{failures:?}");
+    }
+    // With the shared 30 basic (as Specify's own plate has it), the change applies and adds no
+    // location: the frame's basic dimensions are the file's.
     let plate = fixture("resume-p9/edited-plate.step.gz");
     let before = locations_on(&pmi_of(&plate.bytes), 12);
     let saved = applied(
@@ -808,19 +799,6 @@ fn a_change_never_adds_a_location_beside_another_tools() {
         json!({"change": {"hole.position:holes:12": {"to": "0.3", "expect": "0.2"}}}),
     );
     assert_eq!(locations_on(&pmi_of(&saved.bytes), 12), before);
-    // Stated only by the shared 30: refused, naming it, and nothing written.
-    let alone = unframed_hole_12(false, true);
-    let r = row(&table(&alone), "hole.position:holes:12");
-    assert_eq!(r["state"], "stated", "{r}");
-    let failures = refused(
-        &alone,
-        json!({"change": {"hole.position:holes:12": {"to": "0.2", "expect": r["value"]}}}),
-    );
-    assert_eq!(failures.len(), 1, "{failures:?}");
-    assert!(
-        failures[0].reason.contains("Location_LinearDistance 30.0"),
-        "{failures:?}"
-    );
 }
 
 #[test]
@@ -943,7 +921,9 @@ fn a_change_to_none_takes_the_basic_dimensions_only_its_frame_used() {
     assert_eq!(retired, [15, 16]);
     let after = reload(&saved.bytes);
     untouched_but(&plate, &after, &[15, 16]);
-    // What stands is the 30 it shares with the grid, which still locates it.
+    // What stands is the 30 it shares with the grid (#14) and the plate's plain 30 to hole 9
+    // (#12). Under D8 they locate hole 12 in one direction only, so the row is no longer
+    // stated: it reads the none just decided, listing what locates it so far.
     let r = row(&table(&after), "hole.position:holes:12");
     let left: Vec<&Value> = r["requirements"]
         .as_array()
@@ -951,16 +931,13 @@ fn a_change_to_none_takes_the_basic_dimensions_only_its_frame_used() {
         .iter()
         .map(|q| &q["number"])
         .collect();
-    assert_eq!(left, [&json!("#14")], "{r}");
+    assert_eq!(r["state"], "decided_none", "{r}");
+    assert_eq!(left, [&json!("#14"), &json!("#12")], "{r}");
     // The report says so, and what follows: with #14 removed later, the row reads decided none.
     assert!(
-        saved
-            .report
-            .warnings
-            .iter()
-            .any(|w| w.starts_with(
-                "hole.position:holes:12: changed to none, but Location_LinearDistance 30.0 basic"
-            ) && w.ends_with("hole.position:holes:12 reads decided none")),
+        saved.report.warnings.iter().any(|w| w
+            .starts_with("hole.position:holes:12: changed to none, but 30 (basic)")
+            && w.ends_with("hole.position:holes:12 reads decided none")),
         "{:?}",
         saved.report.warnings
     );
@@ -1004,7 +981,7 @@ fn an_answers_save_after_edits_in_place_keeps_the_edits() {
             row(&table(&after), "hole.position:holes:12")["value"]
                 .as_str()
                 .unwrap()
-                .contains("Position 0.1"),
+                .contains("⌖ ⌀0.1"),
             "touch {touch}"
         );
         if touch {
@@ -1127,5 +1104,232 @@ fn every_none_is_refused_or_reads_again() {
                 }
             }
         }
+    }
+}
+
+// ----- removal by id (an unnumbered row or item) and a change keeping what it does not touch -----
+
+fn spindle() -> LoadedPart {
+    let gz = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("ui/test/fixtures/19-spindle-semantic-links-only.step.gz"),
+    )
+    .unwrap();
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(&gz[..]), &mut bytes).unwrap();
+    load_bytes("spindle.step", bytes).unwrap()
+}
+
+/// The file PMI items as (id, text).
+fn file_pmi(table: &Value) -> Vec<(Value, String)> {
+    table["file_pmi"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| (r["id"].clone(), r["text"].as_str().unwrap().to_string()))
+        .collect()
+}
+
+/// The `existing` items of kind `kind` and type `ty` on exactly `faces`.
+fn existing_on(loaded: &LoadedPart, kind: &str, ty: &str, faces: Value) -> Vec<Value> {
+    api::analyse(loaded).unwrap()["existing"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["kind"] == kind && e["type"] == ty && e["faces"] == faces)
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn an_unnumbered_item_of_another_tools_file_is_removed_by_its_id() {
+    let ctc = fixture("nist/nist_ctc_01_asme1_ap242.stp.gz");
+    let before = file_pmi(&table(&ctc));
+    // Every item NIST's file states off the table has an id from its STEP entity, and none
+    // has a number to be removed by.
+    assert!(
+        before
+            .iter()
+            .all(|(id, _)| id.as_str().is_some_and(|id| id.starts_with("file_pmi:#")))
+    );
+    let target = before
+        .iter()
+        .find(|(_, text)| text == "⌓ 0.5 A")
+        .expect("CTC-01 states ⌓ 0.5 A off the table")
+        .0
+        .clone();
+    let saved = applied(&ctc, json!({"items": {"remove": [{"id": target}]}}));
+    assert_eq!(
+        saved.report.written,
+        [format!("removed {}", target.as_str().unwrap())]
+    );
+    assert!(saved.retired.is_empty());
+    let after = reload(&saved.bytes);
+    let kept: Vec<(Value, String)> = before
+        .iter()
+        .filter(|(id, _)| *id != target)
+        .cloned()
+        .collect();
+    // The rest keep their ids (and so their entities) and text.
+    assert_eq!(file_pmi(&table(&after)), kept);
+    assert_eq!(rewritten(&ctc.bytes, &saved.bytes), []);
+    let entity: u64 = target.as_str().unwrap()["file_pmi:#".len()..]
+        .parse()
+        .unwrap();
+    assert!(!records(&saved.bytes).contains_key(&entity));
+    // An id the file does not have is refused, and nothing is written.
+    let failures = refused(
+        &ctc,
+        json!({"items": {"remove": [{"id": "file_pmi:#999999"}]}}),
+    );
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert_eq!(
+        failures[0].entry,
+        r#"items.remove[{"id":"file_pmi:#999999"}]"#
+    );
+}
+
+#[test]
+fn a_stated_row_without_a_number_is_removed_by_its_id() {
+    let plate = fixture("resume-p9/edited-plate.step.gz");
+    assert_eq!(row(&table(&plate), "part.material")["state"], "stated");
+    let saved = applied(
+        &plate,
+        json!({"items": {"remove": [{"id": "part.material"}]}}),
+    );
+    let after = reload(&saved.bytes);
+    assert_eq!(row(&table(&after), "part.material")["state"], "gap");
+    // Every numbered requirement and every other record is as it was.
+    untouched_but(&plate, &after, &[]);
+    assert_eq!(rewritten(&plate.bytes, &saved.bytes), []);
+    // Removed and decided none in one list: decided none.
+    let decided = applied(
+        &plate,
+        json!({"items": {"remove": [{"id": "part.material"}]}, "none": ["part.material"]}),
+    );
+    assert_eq!(
+        row(&table(&reload(&decided.bytes)), "part.material")["state"],
+        "decided_none"
+    );
+    // A row with a number: removing it by id retires that number, as by number.
+    let by_id = applied(
+        &plate,
+        json!({"items": {"remove": [{"id": "datum.B.control"}]}}),
+    );
+    assert_eq!(by_id.retired, [18]);
+    // A gap has nothing to remove; a removal beside a change of the same row contradicts it.
+    let gap = refused(
+        &after,
+        json!({"items": {"remove": [{"id": "part.material"}]}}),
+    );
+    assert!(gap[0].reason.contains("nothing to remove"), "{gap:?}");
+    let both = refused(
+        &plate,
+        json!({"items": {"remove": [{"id": "part.material"}]},
+               "change": {"part.material": {"to": "steel", "expect": "6082-T6"}}}),
+    );
+    assert!(
+        both.iter().any(|f| f.reason.contains("both removes")),
+        "{both:?}"
+    );
+}
+
+#[test]
+fn a_tolerance_change_keeps_its_zone_and_modifiers() {
+    let part = spindle();
+    let saved = applied(
+        &part,
+        json!({"change": {"hole.position:holes:14": {"to": "0.2", "expect": "0.3"}}}),
+    );
+    let after = reload(&saved.bytes);
+    let position = existing_on(&after, "geometric_tolerance", "Position", json!([14]));
+    assert_eq!(position.len(), 1, "{position:?}");
+    let p = &position[0];
+    assert_eq!(p["text"], "⌖ ⌀0.2Ⓜ A", "{p}");
+    assert_eq!(
+        (&p["diametral"], &p["mmc"]),
+        (&json!(true), &json!(true)),
+        "{p}"
+    );
+    assert_eq!(
+        p["modifiers"],
+        json!(["maximum_material_requirement"]),
+        "{p}"
+    );
+    assert_eq!(p["datums"], json!(["A"]), "{p}");
+    // A change of limits keeps the number, and nothing else changes.
+    assert_eq!(p["number"], 13, "{p}");
+    untouched_but(&part, &after, &[13]);
+    // Field by field, the same.
+    let fields = applied(
+        &part,
+        json!({"change": {"hole.position:holes:14": {"to": {"value": 0.2}, "expect": "0.3"}}}),
+    );
+    let p = &existing_on(
+        &reload(&fields.bytes),
+        "geometric_tolerance",
+        "Position",
+        json!([14]),
+    )[0];
+    assert_eq!(p["text"], "⌖ ⌀0.2Ⓜ A", "{p}");
+}
+
+#[test]
+fn a_nominal_change_keeps_its_fit_class() {
+    let part = spindle();
+    let saved = applied(
+        &part,
+        json!({"change": {"hole.function:holes:14": {"to": {"value": 3.4}, "expect": "⌀3.3 H11"}}}),
+    );
+    let after = reload(&saved.bytes);
+    let size = existing_on(&after, "dimension", "Size_Diameter", json!([14]));
+    assert_eq!(size.len(), 1, "{size:?}");
+    let d = &size[0];
+    assert_eq!(d["text"], "⌀3.4 H11", "{d}");
+    assert_eq!(d["fit"], "H11", "{d}");
+    assert_eq!(
+        (&d["value"], &d["upper"], &d["lower"]),
+        (&json!(3.4), &json!(0.075), &json!(0.0)),
+        "{d}"
+    );
+    assert_eq!(d["number"], 3, "{d}");
+    untouched_but(&part, &after, &[3]);
+    // Only `value` changes field by field.
+    let failures = refused(
+        &part,
+        json!({"change": {"hole.function:holes:14": {"to": {"fit": "H7"}, "expect": "⌀3.3 H11"}}}),
+    );
+    assert!(
+        failures[0].reason.contains("field by field"),
+        "{failures:?}"
+    );
+}
+
+#[test]
+fn a_text_only_requirement_is_refused_a_change_rather_than_losing_parts() {
+    use haecceity::pmi::{AuxiliaryClassification, ToleranceKind};
+    let plate = fixture("resume-p9/edited-plate.step.gz");
+    // B's perpendicularity stated "all over": its text holds that, no field does.
+    let bytes = another_tool(&plate.bytes, |p| {
+        for t in &mut p.tolerances {
+            if t.kind == ToleranceKind::Perpendicularity {
+                t.auxiliary.push(AuxiliaryClassification::AllOver);
+            }
+        }
+    });
+    let part = reload(&bytes);
+    let control = row(&table(&part), "datum.B.control");
+    assert_eq!(control["requirements"][0]["text_only"], true, "{control}");
+    let expect = edits::stated_value(&serde_json::from_value(control.clone()).unwrap());
+    for to in [json!("0.05"), json!({"value": 0.05})] {
+        let failures = refused(
+            &part,
+            json!({"change": {"datum.B.control": {"to": to, "expect": expect}}}),
+        );
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(
+            failures[0].reason.contains("only its text holds"),
+            "{failures:?}"
+        );
     }
 }

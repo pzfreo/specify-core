@@ -60,19 +60,97 @@ pub struct Change {
 }
 
 /// Edits of single requirements, by characteristic number.
+///
+/// `items.remove` lists characteristic numbers (`"#17"`) and, for what has no number,
+/// `{"id": ...}`: a stated row (`{"id": "part.material"}`, every requirement stating it) or an
+/// item of the file's other PMI by its id in the feature table (`{"id": "file_pmi:#1234"}`,
+/// [`FILE_PMI`]). In memory the two are kept apart: `remove` and `remove_ids`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(from = "ItemsForm", into = "ItemsForm")]
 pub struct Items {
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub change: BTreeMap<Number, ItemChange>,
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub remove: BTreeSet<Number>,
+    /// `items.remove` entries given as `{"id": ...}`: a stated row's id, or a file PMI item's.
+    pub remove_ids: BTreeSet<String>,
 }
 
 impl Items {
     fn is_empty(&self) -> bool {
-        self.change.is_empty() && self.remove.is_empty()
+        self.change.is_empty() && self.remove.is_empty() && self.remove_ids.is_empty()
     }
+}
+
+/// The prefix of a file PMI item's id in the feature table: `file_pmi:#<STEP entity>`, the
+/// entity the item's characteristic number is (or would be) attached to. It stays the same
+/// while the file is saved in place.
+pub const FILE_PMI: &str = "file_pmi:";
+
+/// `items` as JSON: `remove` mixes numbers and `{"id": ...}`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ItemsForm {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    change: BTreeMap<Number, ItemChange>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    remove: Vec<Removal>,
+}
+
+/// One `items.remove` entry.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+enum Removal {
+    Number(Number),
+    Id(IdRef),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IdRef {
+    id: String,
+}
+
+impl From<ItemsForm> for Items {
+    fn from(form: ItemsForm) -> Items {
+        let mut items = Items {
+            change: form.change,
+            ..Items::default()
+        };
+        for r in form.remove {
+            match r {
+                Removal::Number(n) => {
+                    items.remove.insert(n);
+                }
+                Removal::Id(IdRef { id }) => {
+                    items.remove_ids.insert(id);
+                }
+            }
+        }
+        items
+    }
+}
+
+impl From<Items> for ItemsForm {
+    fn from(items: Items) -> ItemsForm {
+        ItemsForm {
+            change: items.change,
+            remove: items
+                .remove
+                .into_iter()
+                .map(Removal::Number)
+                .chain(
+                    items
+                        .remove_ids
+                        .into_iter()
+                        .map(|id| Removal::Id(IdRef { id })),
+                )
+                .collect(),
+        }
+    }
+}
+
+/// The entry naming the removal of `id` (`items.remove[{"id":"part.material"}]`).
+pub fn removal_entry(id: &str) -> String {
+    format!("items.remove[{}]", json!({"id": id}))
 }
 
 /// A change of one requirement's tolerance, with the tolerance the caller saw.
@@ -120,6 +198,7 @@ impl EditList {
             + self.change.len()
             + self.items.change.len()
             + self.items.remove.len()
+            + self.items.remove_ids.len()
             + self.none.len()
             + self.accept_suggestions.len()
     }
@@ -159,6 +238,10 @@ pub trait FileState {
     fn kind(&self, id: &str) -> Option<KindState>;
     /// The requirement numbered `number`, or `None` if the file has none by that number.
     fn requirement(&self, number: u64) -> Option<Requirement>;
+    /// Whether the file's other PMI has an item with id `id` (`file_pmi:#1234`).
+    fn file_item(&self, _id: &str) -> bool {
+        false
+    }
 }
 
 /// A file state held in memory: for tests, and until the feature table exists.
@@ -353,10 +436,20 @@ fn items(v: &Value, errors: &mut Vec<Failure>) {
             "remove" => match v.as_array() {
                 Some(list) => {
                     for (i, n) in list.iter().enumerate() {
-                        let why = match n.as_str() {
-                            Some(s) => Number::try_from(s.to_owned()).err(),
-                            None => Some(format!(
-                                "{n} is not a characteristic number: write it as #N, such as \"#17\""
+                        let why = match n {
+                            Value::String(s) => Number::try_from(s.to_owned()).err(),
+                            Value::Object(o)
+                                if o.len() == 1
+                                    && o.get("id")
+                                        .and_then(Value::as_str)
+                                        .is_some_and(|id| !id.trim().is_empty()) =>
+                            {
+                                None
+                            }
+                            _ => Some(format!(
+                                "{n} is not a characteristic number (#N, such as \"#17\") or \
+                                 {{\"id\": ...}} naming a stated row or an item of the file's \
+                                 other PMI"
                             )),
                         };
                         errors.extend(why.map(|why| failure(format!("items.remove[{i}]"), why)));
@@ -503,6 +596,8 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
     // The requirements removed, by the feature-and-kind they state: removing one and deciding
     // its feature-and-kind none is the proposal's "a gap again unless also decided none".
     let mut removed: BTreeMap<String, Number> = BTreeMap::new();
+    // The stated rows removed whole, by id.
+    let mut removed_rows: BTreeSet<String> = BTreeSet::new();
     let mut requirements: BTreeMap<Number, Requirement> = BTreeMap::new();
     for &n in list.items.change.keys().chain(&list.items.remove) {
         if let Some(r) = state.requirement(n.0) {
@@ -595,6 +690,36 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
         }
     }
 
+    for id in &list.items.remove_ids {
+        let entry = removal_entry(id);
+        if id.starts_with(FILE_PMI) {
+            if !state.file_item(id) {
+                failures.push(failure(
+                    entry,
+                    format!(
+                        "the file's other PMI has no item {id:?}; use an id from the feature \
+                         table's file_pmi"
+                    ),
+                ));
+            }
+            continue;
+        }
+        match state.kind(id) {
+            None => failures.push(unknown_id(entry, id)),
+            Some(KindState::Stated { .. }) => {
+                removed_rows.insert(id.clone());
+            }
+            Some(KindState::Gap { .. }) => failures.push(failure(
+                entry,
+                format!("the file states nothing for {id}, so there is nothing to remove"),
+            )),
+            Some(KindState::DecidedNone) => failures.push(failure(
+                entry,
+                format!("{id} is decided none: the file states nothing for it to remove"),
+            )),
+        }
+    }
+
     for id in &list.none {
         let entry = key("none", id);
         match state.kind(id) {
@@ -602,7 +727,7 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
             Some(KindState::Stated { value }) => {
                 if is_none_answer(&value) {
                     unchanged.push(entry);
-                } else if !removed.contains_key(id) {
+                } else if !removed.contains_key(id) && !removed_rows.contains(id) {
                     failures.push(failure(
                         entry,
                         format!(
@@ -747,6 +872,18 @@ fn item_contradictions(
     for n in &list.items.remove {
         check("items.remove", n, &["none"]);
     }
+    for id in &list.items.remove_ids {
+        for verb in by_id.get(id.as_str()).into_iter().flatten() {
+            if *verb != "none" {
+                out.push(failure(
+                    format!("{} and {}", removal_entry(id), key(verb, id)),
+                    format!(
+                        "the list both removes {id:?} and says {verb} for it; keep one of them"
+                    ),
+                ));
+            }
+        }
+    }
     out
 }
 
@@ -784,6 +921,10 @@ pub fn stated_value(row: &crate::feature_table::Row) -> Value {
             .iter()
             .filter(|r| r.kind == "geometric_tolerance")
             .filter_map(|r| r.text.split_whitespace().nth(1))
+            // The magnitude alone: `⌀0.3Ⓜ` is answered `0.3` (its zone and modifiers stay
+            // as the file has them when it changes).
+            .map(|token| token.trim_matches(|c: char| !(c.is_ascii_digit() || c == '.')))
+            .filter(|token| !token.is_empty())
             .collect();
         if let [one] = magnitudes.into_iter().collect::<Vec<_>>().as_slice() {
             return Value::String((*one).to_owned());
@@ -825,10 +966,14 @@ impl FileState for crate::feature_table::FeatureTable {
                 })
             })
     }
+
+    fn file_item(&self, id: &str) -> bool {
+        self.file_pmi.iter().any(|r| r.id.as_deref() == Some(id))
+    }
 }
 
 /// `list` with each `expect` (and each fill) that gives a stated row's value as the table
-/// shows it (`"Position 0.2 | A | B"`) given in the fill's form instead (`"0.2"`), so the
+/// shows it (`"⌖ ⌀0.2 A B"`) given in the fill's form instead (`"0.2"`), so the
 /// caller may send back either of the values it saw.
 pub fn normalise(list: &EditList, table: &crate::feature_table::FeatureTable) -> EditList {
     let mut out = list.clone();
@@ -894,7 +1039,7 @@ pub fn json_schema() -> Value {
                             "additionalProperties": false
                         }
                     },
-                    "remove": {"type": "array", "items": number, "uniqueItems": true, "description": "Requirements to remove; their numbers are retired."}
+                    "remove": {"type": "array", "items": {"oneOf": [number, {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}}, "required": ["id"], "additionalProperties": false}]}, "uniqueItems": true, "description": "Requirements to remove: a characteristic number (#17), or {\"id\": ...} for what has none: a stated row (part.material, every requirement stating it) or an item of the file's other PMI by its feature-table id (file_pmi:#1234). Their numbers are retired."}
                 },
                 "additionalProperties": false
             },
@@ -924,6 +1069,27 @@ mod tests {
         assert!(list.items.remove.contains(&Number(17)));
         let again: EditList = serde_json::from_value(serde_json::to_value(&list).unwrap()).unwrap();
         assert_eq!(again, list);
+    }
+
+    #[test]
+    fn a_removal_is_a_number_or_an_id() {
+        let text = r##"{"items": {"remove": ["#17", {"id": "part.material"}, {"id": "file_pmi:#1234"}]}}"##;
+        let list = parse(text).unwrap();
+        assert_eq!(list.len(), 3);
+        assert!(list.items.remove.contains(&Number(17)));
+        assert!(list.items.remove_ids.contains("part.material"));
+        let again: EditList = serde_json::from_value(serde_json::to_value(&list).unwrap()).unwrap();
+        assert_eq!(again, list);
+        for bad in [
+            r#"{"id": ""}"#,
+            r#"{"id": "x", "more": 1}"#,
+            "17",
+            r##"{"number": "#17"}"##,
+        ] {
+            let text = format!(r#"{{"items": {{"remove": [{bad}]}}}}"#);
+            let failures = parse(&text).unwrap_err();
+            assert_eq!(failures[0].entry, "items.remove[0]", "{bad}: {failures:?}");
+        }
     }
 
     #[test]

@@ -391,6 +391,8 @@ pub(crate) struct Located {
     pub faces: Vec<usize>,
     pub reference: Vec<usize>,
     pub number: Option<u64>,
+    /// The STEP entity its number is (or would be) on.
+    pub entity: u64,
 }
 
 /// Every requirement of [`measures`]'s kinds in `p`, located, with its number in `doc`.
@@ -400,6 +402,7 @@ pub(crate) fn located(p: &PartPmi, prov: &PartProvenance, doc: &Document) -> Vec
         .map(|(at, item)| Located {
             at,
             number: number(doc, item.entity),
+            entity: item.entity,
             kind: item.key.kind,
             r#type: item.key.r#type,
             faces: item.key.faces,
