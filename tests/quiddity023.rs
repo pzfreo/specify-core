@@ -139,7 +139,25 @@ fn suppressed_od_boss_answers_are_visible_in_stored_and_shared_recovery() {
     }
     let a = api::analyse(&loaded).unwrap();
     let intent = rules::apply_with_defaults(&a, &seed(), true).unwrap();
-    let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
+    // D11 (#126): given now, an answer on the suppressed boss names nothing the part has, so
+    // it refuses the write, named with its reason, rather than being dropped.
+    let refused = writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap_err();
+    assert!(
+        refused
+            .to_string()
+            .contains(&format!("Invalid answers: {key}: unknown feature {old_id}")),
+        "{refused}"
+    );
+    // Stored by an older build (injected into this part's own payload, so the same faces),
+    // it is recovered visibly on reopening: unresolved with its value, never resumed.
+    let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(&seed())).unwrap();
+    let text = String::from_utf8(bytes).unwrap();
+    let mut payload = serde_json::Value::Object(resume::stored(text.as_bytes())[&0].clone());
+    let before = resume::encode(&payload);
+    payload["answers"][&key] = json!("g6");
+    let bytes = text
+        .replace(&before, &resume::encode(&payload))
+        .into_bytes();
     let back = part::File::of_bytes(Path::new("saved.step"), bytes)
         .unwrap()
         .load(None)

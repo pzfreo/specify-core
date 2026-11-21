@@ -109,12 +109,25 @@ fn grm03_tap_thread_and_knurl_do_not_add_datums_or_position() {
         "diameter.fit:turned_steps:3": "knurl:straight",
     }));
     check_suggestions(&analysis, &Map::new());
+    // D11 (#126): the issue's stale hole id names nothing the part has, so the whole list is
+    // refused, named with its reason, rather than the stale answer being ignored.
+    let stale_error = "Invalid answers: hole.function:holes:14: unknown feature holes:14";
+    assert_eq!(
+        api::review(&analysis, &given).unwrap_err().to_string(),
+        stale_error
+    );
+    assert_eq!(
+        api::preview(&analysis, &given).unwrap_err().to_string(),
+        stale_error
+    );
+    let mut given = given;
+    let stale = given.shift_remove("hole.function:holes:14").unwrap();
     check_suggestions(&analysis, &given);
     let verbatim = api::preview(&analysis, &given).unwrap();
     assert_eq!(
         verbatim.requirements.len(),
         2,
-        "the issue's stale hole id must not accept the tap suggestion"
+        "without the stale id, only the thread and knurl are answered"
     );
     let hole = api::questions(&analysis, &given)
         .unwrap()
@@ -140,25 +153,21 @@ fn grm03_tap_thread_and_knurl_do_not_add_datums_or_position() {
             .collect::<Vec<_>>(),
         ["thread", "knurl", "thread"]
     );
+    // The writer refuses the stale id too, whatever intent it is given (D11).
+    let mut with_stale = given.clone();
+    with_stale.insert("hole.function:holes:14".into(), stale);
+    let refused = specify_core::writer::write_bytes(&loaded, &intent, Some(&with_stale))
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains(stale_error), "{refused}");
     let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
     let reopened = part::load_bytes("grm03.step", bytes).unwrap();
     let reread = api::analyse(&reopened).unwrap();
-    // A deliberately stale key stays recoverable in the resume report, rather than being
-    // silently carried as if it still addressed a recognised feature.
-    let mut current = given.clone();
-    let stale = current.shift_remove("hole.function:holes:14").unwrap();
-    assert_eq!(reread["resume"]["answers"], json!(current));
-    assert_eq!(
-        reread["resume"]["unresolved"][0]["id"],
-        "hole.function:holes:14"
-    );
-    assert_eq!(reread["resume"]["unresolved"][0]["answer"], stale);
-    assert!(
-        reread["resume"]["unresolved"][0]["reason"]
-            .as_str()
-            .unwrap()
-            .contains("no same-family")
-    );
+    // ADR P11 rule 2: every answer here writes PMI (two threads and a knurl), so none is
+    // stored: the file states them, and nothing is left to resume or report.
+    assert_eq!(reread["resume"]["answers"], json!({}));
+    assert!(reread["resume"].get("unresolved").is_none());
+    assert!(reread["resume"].get("dropped_answers").is_none());
     // Analyse intentionally hides stored PMI when it resumes answers. Read semantic PMI
     // directly as well, so these absence assertions cannot pass just because it resumed.
     assert!(

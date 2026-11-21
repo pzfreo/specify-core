@@ -64,6 +64,13 @@ fn answers_with_their_evidence_migrate_as_answers_stored_in_the_step_do() {
     // Exactly the report the file's own stored answers give on opening. ADR P11: of those,
     // only the answers that leave no PMI resume; the file states the rest.
     value["answers"] = json!(specify_core::feature_table::storable(&out.answers));
+    // D11 (#126): the one stored answer whose requirement the file no longer has is reported
+    // once, beside its warning, rather than dropped silently.
+    value["dropped_answers"] = json!([{
+        "id": "hole.function:hole_patterns.rectangle:115.116.118.119.121.122.124.125",
+        "value": "general",
+        "reason": "no requirement for this answer in the file; the question is open again",
+    }]);
     assert_eq!(value, analysis["resume"]);
     // #100 tip cones add six moves to the two schema-6 pattern moves.
     let base = json!({"answers": answers, "features": serde_json::from_slice::<Value>(

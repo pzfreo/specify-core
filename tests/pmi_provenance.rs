@@ -165,7 +165,9 @@ fn gramel_threads_knurls_and_every_other_written_requirement_have_step_provenanc
         if stem == "GRM-03_thumbwheel_drive_screw" {
             given.extend(
                 json!({
-                    "hole.function:holes:12": "tapped:M2",
+                    // The M2 bore's id since quiddity #216 (with its floor 13): a stale id
+                    // naming nothing the part has refuses the whole list (D11, #126).
+                    "hole.function:holes:12.13": "tapped:M2",
                     "diameter.fit:turned_steps:6": "thread:M3",
                     "diameter.fit:turned_steps:3": "knurl:straight"
                 })

@@ -60,8 +60,9 @@ Where switching `part.locating` would ask it, the reason says so; otherwise it s
 question is not asked of this part given the other answers, or that the file already states
 the datum. `apply` does not refuse these answers: callers revising answers across a change
 of `part.locating` keep both modes' answers, and the question takes its answer again when it
-returns. The answer is still stored in the STEP with the others (dropping it would lose it,
-and refusing would break the same callers). A carry block applies only while
+returns. The write does not store it (decision D11, with ADR P11: the file is the only copy, and
+an answer to a question not asked leaves nothing in it): its `not_written` line is the report.
+A carry block applies only while
 its question is asked: a block on `datum.A.flatness` under `"± dimensions"` does not stop
 `write` or bulk defaults, and is listed in `not_written` ("datum.A.flatness was
 carried (carried answer could not be applied: …) but is not asked when part.locating is
@@ -79,6 +80,43 @@ an accepted default can replace it.
 An unasked answer's value is checked against the question's options only while the question
 is asked. `part.*`, `bom.*` and `extra.*` answers
 are read whether or not asked, so they never appear here.
+
+### Stored answers to questions not asked (D11)
+
+A file an older build wrote may store such an answer, `datum.A.flatness` "none" under
+`part.locating` "± dimensions", say. Reopening reports it **once** and leaves it out of the
+resumed answers, as it does a stored answer whose requirement is no longer in the file: each is
+listed in the analysis's `resume.dropped_answers`, `{"id", "value", "reason"}`, and named in a
+warning:
+
+```text
+saved answer datum.A.flatness ('none'): its question is not asked when part.locating is '± dimensions'; it is not stored again
+saved answer hole.function:holes:12 ('tapped:M5'): no requirement for this answer in the file; the question is open again
+```
+
+The reasons are "its question is not asked …" (given the other answers, as above; or "the file
+already states this requirement", for a stored "none" where the file now states one) and "no
+requirement for this answer in the file; the question is open again". The next save does not
+store a dropped answer again: an intent made from that analysis (`apply`, `rules::unasked_rows`)
+carries an `unasked` row for each dropped answer that would otherwise be kept, so the write lists
+it in `not_written` ("saved answer datum.A.flatness ('none'): …; it was not stored again") and
+leaves it out of the stored answers. Reopening the saved file reports nothing more.
+
+### An answer that names nothing the part has (D11)
+
+In answers given to `questions`, `apply`, `preview`, `review` and every write (CLI `write`,
+serve, MCP `write_pmi`, the session's save, Python and WASM), an id that names a feature the
+part does not have, or a kind that feature's family has no question of, refuses the **whole**
+list, named with its reason:
+
+```text
+Invalid answers: hole.position:holes:999: unknown feature holes:999
+Invalid answers: diameter.fit:holes:12: unknown answer ID for this feature family
+```
+
+The writer checks this itself, whatever intent it is given. It is never ignored. An id that names a real
+question which is merely not asked given the other answers is not refused: it is reported in
+`not_written`, as above.
 
 An ID that **no** question can have, such as `bogus.question`, is refused with
 `Invalid answers: bogus.question: unknown answer ID` by every entry point: Rust `api`,

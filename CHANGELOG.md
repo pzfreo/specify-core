@@ -36,6 +36,18 @@ Read first:
 
 ### Changed
 
+- **An answer to a question Specify doesn't ask is never dropped silently** (decision D11,
+  #126). In a file's stored answers (an older file), one whose question is not asked given the
+  other stored answers, or a stored "none" where the file now states the requirement, is reported
+  once on reopening and left out of the resumed answers, as a stored answer whose requirement is
+  gone already was: each is listed in the analysis's new `resume.dropped_answers` (`id`, `value`,
+  `reason`) and named in a warning, and the next save lists it in `not_written` and does not store
+  it again. In answers given now, an id that names nothing the part has (a feature it does not
+  have, or a kind that feature's family has no question of) refuses the whole list, named with
+  its reason (`Invalid answers: hole.position:holes:999: unknown feature holes:999`), in the
+  rules (`questions`, `apply`, `preview`, `review`) and the writer; before, the rules ignored it.
+  An answer to a real question that is merely not asked now is reported in `not_written` as
+  before, and is no longer stored (docs/answers.md).
 - **A hole is located per direction** (decision D8): a location dimension locates, along the
   axis it measures, the holes on its located side and every other hole on the same line from
   the same reference; its reference side locates nothing. A hole's location row is stated when

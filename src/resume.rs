@@ -533,6 +533,17 @@ pub struct UnresolvedAnswer {
     pub automatic: bool,
 }
 
+/// A stored answer the reopening leaves out (D11, #126): reported once, here and in the
+/// analysis warnings, and not stored again by the next save. `reason` says why: its question
+/// is not asked given the other answers, or the file states it, or the requirement it answered
+/// is no longer in the file.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct DroppedAnswer {
+    pub id: String,
+    pub value: Value,
+    pub reason: String,
+}
+
 /// The result shown in the resume/session report. Only `answers` are applied; unresolved
 /// values remain available for review and their current questions remain unanswered.
 #[derive(Clone, Debug, Default, serde::Serialize)]
@@ -552,6 +563,10 @@ pub struct Resumed {
     /// renamed, unresolved ones left out.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub automatic: Option<Vec<String>>,
+    /// Stored answers left out of `answers` on reopening ([`DroppedAnswer`]); filled by
+    /// `api::analyse`, which has the file's requirements and questions.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub dropped_answers: Vec<DroppedAnswer>,
 }
 
 // Why answers have no verified face evidence. Without evidence (LEGACY, NO_EVIDENCE) answers are

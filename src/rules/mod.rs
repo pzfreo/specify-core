@@ -585,6 +585,10 @@ fn every_question(
     // Every front end reaches the rules here: an ID no question can have is refused, never
     // ignored (#126).
     crate::input::ids(answers).map_err(|e| Error::Invalid(e.to_string()))?;
+    // D11 (#126): an answer on a feature the part does not have names nothing: it refuses the
+    // whole list, named with its reason, rather than being ignored.
+    crate::input::feature_ids(ctx.analysis.get("features"), answers)
+        .map_err(|e| Error::Invalid(e.to_string()))?;
     if let Some(notes) = answers.get("part.notes") {
         note_strings(notes)?;
     }
@@ -1642,8 +1646,10 @@ pub const UNASKED: &str = "unasked";
 /// Answers valid in form whose question is not asked given the other answers (#126): a
 /// dependent question such as `datum.A.flatness` or `hole.position:*` disappears when
 /// `part.locating` changes, say. They contribute no PMI, so each becomes a faceless row with a
-/// `not_written_reason`, which every writer lists in `not_written`. The answers themselves are
-/// kept (stored, exported, carried), so the question takes them again if it returns.
+/// `not_written_reason`, which every writer lists in `not_written`. The caller's answers keep
+/// them, so the question takes them again if it returns; the writer does not store them
+/// (decision D11). A stored answer the reopening dropped (`resume.dropped_answers`) and not
+/// given again has a row too, so the next save does not store it again.
 ///
 /// Which IDs are asked comes from the rules (`qs`), not a list: only answers the intent reads
 /// directly, whether or not they are asked (`part.*`, `bom.*`, `extra.*` and reserved `_`
@@ -1653,6 +1659,74 @@ fn unasked(
     answers: &Map<String, Value>,
     qs: &[Question],
 ) -> Result<Vec<Map<String, Value>>> {
+    let row = |id: &str, reason: String| {
+        object([
+            ("kind", Value::from(UNASKED)),
+            ("answer", Value::from(id)),
+            ("faces", Value::Array(Vec::new())),
+            ("not_written_reason", Value::from(reason)),
+        ])
+    };
+    let mut rows: Vec<Map<String, Value>> = unasked_entries(ctx, answers, qs)?
+        .into_iter()
+        .map(|e| row(&e.id, e.reason))
+        .collect();
+    // D11 (#126): a stored answer the reopening dropped (`resume.dropped_answers`) and that is
+    // not given again is not stored again either; the row tells the writer so, and says it.
+    let dropped = ctx
+        .analysis
+        .get("resume")
+        .and_then(|r| r.get("dropped_answers"))
+        .and_then(Value::as_array);
+    for entry in dropped.into_iter().flatten() {
+        let (Some(id), Some(reason)) = (entry["id"].as_str(), entry["reason"].as_str()) else {
+            continue;
+        };
+        // Only one the writer would otherwise store again (P11: what leaves no PMI behind).
+        let storable = !crate::feature_table::is_requirement(id)
+            || crate::feature_table::leaves_nothing(&entry["value"]);
+        if answers.contains_key(id) || !storable {
+            continue;
+        }
+        let value = crate::choices::short_repr(&entry["value"], 6);
+        rows.push(row(
+            id,
+            format!("saved answer {id} ({value}): {reason}; it was not stored again"),
+        ));
+    }
+    Ok(rows)
+}
+
+/// The answers among `answers` whose question is not asked given the others (#126), each with
+/// why (`is not asked when part.locating is '± dimensions'`), for reporting stored answers the
+/// reopening drops (D11). Carry blocks are not answers, and are left out.
+pub fn unasked_answers(
+    analysis: &Value,
+    answers: &Map<String, Value>,
+) -> Result<Vec<(String, String)>> {
+    let ctx = Ctx::new(analysis)?;
+    let qs = questions_in(&ctx, answers)?;
+    Ok(unasked_entries(&ctx, answers, &qs)?
+        .into_iter()
+        .filter(|e| !e.block)
+        .map(|e| (e.id, e.why))
+        .collect())
+}
+
+/// One answer, or carry block (`block`), whose question is not asked: `why` it is not
+/// (`is not asked when …`) and the `reason` a write reports.
+struct Unasked {
+    id: String,
+    block: bool,
+    why: String,
+    reason: String,
+}
+
+fn unasked_entries(
+    ctx: &Ctx<'_>,
+    answers: &Map<String, Value>,
+    qs: &[Question],
+) -> Result<Vec<Unasked>> {
     // A part answer the process leaves unasked lapses, as a dependent question's does.
     let process = crate::process::current(ctx, answers);
     let lapsed = |id: &str| {
@@ -1774,20 +1848,25 @@ fn unasked(
                  so nothing was written for it"
             ),
         };
-        rows.push(object([
-            ("kind", Value::from(UNASKED)),
-            ("answer", Value::from(id.as_str())),
-            ("faces", Value::Array(Vec::new())),
-            ("not_written_reason", Value::from(reason)),
-        ]));
+        rows.push(Unasked {
+            id: id.to_string(),
+            block: block.is_some(),
+            why,
+            reason,
+        });
     }
     for (id, reason) in offered {
-        rows.push(object([
-            ("kind", Value::from(UNASKED)),
-            ("answer", Value::from(id)),
-            ("faces", Value::Array(Vec::new())),
-            ("not_written_reason", Value::from(reason)),
-        ]));
+        let why = reason
+            .strip_prefix(&format!("{id} "))
+            .and_then(|r| r.strip_suffix(", so its answer was not written"))
+            .unwrap_or(&reason)
+            .to_string();
+        rows.push(Unasked {
+            id: id.to_string(),
+            block: false,
+            why,
+            reason,
+        });
     }
     Ok(rows)
 }

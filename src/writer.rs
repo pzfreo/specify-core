@@ -480,6 +480,17 @@ fn check_jobs(jobs: &[Job<'_>]) -> Result<(), WriteError> {
             // is derived from these answers on this part, never taken from the intent: only
             // when there is a block, as that needs the part's analysis.
             crate::answer_file::validate(answers).map_err(WriteError::Invalid)?;
+            // D11 (#126): an answer on a feature this part does not have (a suppressed boss's)
+            // names nothing the part has: it refuses the write, whatever intent is given.
+            if answers.keys().any(|id| id.contains(':')) {
+                let features = crate::features::recognise(loaded)
+                    .ok()
+                    .and_then(|fs| serde_json::to_value(fs).ok());
+                if let Some(features) = features {
+                    crate::input::feature_ids(Some(&features), answers)
+                        .map_err(|e| WriteError::Invalid(e.to_string()))?;
+                }
+            }
             if !crate::answer_file::unresolved(answers).is_empty() {
                 let analysis =
                     crate::api::analyse(loaded).map_err(|e| WriteError::Failed(e.to_string()))?;
@@ -1069,10 +1080,20 @@ fn write_verified(
                             .collect()
                     })
                     .unwrap_or_default();
+                // D11 (#126): an answer whose question is not asked (an `unasked` row: given
+                // now, or stored and dropped on reopening) is reported in not_written and not
+                // stored, so it is never carried silently.
+                let unasked: std::collections::BTreeSet<&str> = intent
+                    .requirements
+                    .iter()
+                    .filter(|r| r.get("kind").and_then(Json::as_str) == Some(crate::rules::UNASKED))
+                    .filter_map(|r| r.get("answer").and_then(Json::as_str))
+                    .collect();
+                kept.retain(|id, _| !unasked.contains(id.as_str()));
                 // An answer given now replaces the stored one, whatever its value.
                 let now = crate::feature_table::storable(&saved);
                 for (id, value) in &saved {
-                    match now.get(id) {
+                    match now.get(id).filter(|_| !unasked.contains(id.as_str())) {
                         Some(_) => {
                             kept.insert(id.clone(), value.clone());
                         }

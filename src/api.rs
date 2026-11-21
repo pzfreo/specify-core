@@ -392,11 +392,30 @@ fn analyse_with(
             if keep {
                 kept.insert(id.clone(), answer.clone());
             } else if row.is_some_and(|r| r.state == crate::feature_table::State::Gap) {
+                let reason = "no requirement for this answer in the file; the question is open \
+                              again";
                 warnings.push(format!(
-                    "saved answer {id} ({}): no requirement for this answer in the file; the \
-                     question is open again",
+                    "saved answer {id} ({}): {reason}",
                     crate::choices::short_repr(answer, 6)
                 ));
+                resumed.dropped_answers.push(resume::DroppedAnswer {
+                    id: id.clone(),
+                    value: answer.clone(),
+                    reason: reason.into(),
+                });
+            } else if crate::feature_table::leaves_nothing(answer) {
+                // D11: a stored "none" where the file now states the requirement: the file's
+                // PMI stands, and the answer is reported rather than dropped silently.
+                let reason = "its question is not asked: the file already states this requirement";
+                warnings.push(format!(
+                    "saved answer {id} ({}): {reason}; it is not stored again",
+                    crate::choices::short_repr(answer, 6)
+                ));
+                resumed.dropped_answers.push(resume::DroppedAnswer {
+                    id: id.clone(),
+                    value: answer.clone(),
+                    reason: reason.into(),
+                });
             }
         }
         resumed.answers = kept;
@@ -422,6 +441,55 @@ fn analyse_with(
         "table".into(),
         serde_json::to_value(&table).map_err(|e| refused(&e))?,
     );
+    // D11 (#126): a stored answer whose question is not asked given the other stored answers is
+    // reported once, here, and left out of the resumed answers, so the next save does not store
+    // it again (the rules' `unasked` rows tell the writer).
+    if let Some(Value::Object(resume)) = analysis.get("resume").cloned()
+        && let Some(answers) = resume.get("answers").and_then(Value::as_object)
+        && answers.keys().any(|id| !id.starts_with('_'))
+        && let Ok(unasked) = rules::unasked_answers(&Value::Object(analysis.clone()), answers)
+    {
+        let mut answers = answers.clone();
+        let mut dropped = resume
+            .get("dropped_answers")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        for (id, why) in unasked {
+            let Some(value) = answers.shift_remove(&id) else {
+                continue;
+            };
+            let reason = format!("its question {why}");
+            warnings.push(format!(
+                "saved answer {id} ({}): {reason}; it is not stored again",
+                crate::choices::short_repr(&value, 6)
+            ));
+            dropped.push(json!({"id": id, "value": value, "reason": reason}));
+        }
+        if dropped.len()
+            > resume
+                .get("dropped_answers")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len)
+        {
+            // The table reads decided-none answers from the stored ones: without those dropped.
+            let stored = crate::feature_table::storable(&answers);
+            table = crate::feature_table::build(
+                &Value::Object(analysis.clone()),
+                &stated_settings,
+                &stored,
+            )
+            .unwrap_or(table);
+            analysis.insert(
+                "table".into(),
+                serde_json::to_value(&table).map_err(|e| refused(&e))?,
+            );
+            let mut resume = resume;
+            resume.insert("answers".into(), Value::Object(answers));
+            resume.insert("dropped_answers".into(), Value::Array(dropped));
+            analysis.insert("resume".into(), Value::Object(resume));
+        }
+    }
     let answers = analysis
         .get("resume")
         .and_then(|r| r["answers"].as_object())
