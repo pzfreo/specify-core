@@ -735,6 +735,9 @@ fn wrote_nothing(
         .collect()
 }
 
+/// The intent's requirements a plan made PMI from.
+type Made = Vec<Map<String, Json>>;
+
 /// [`part_pmi`] in add mode (ADR P11): what the file already states stays as it is and is
 /// never stated twice. A requirement of `intent` whose feature-and-kind the file states (the
 /// feature table's matching: the faces it sits on and its kind, whatever its value, type or
@@ -744,7 +747,7 @@ fn part_pmi_added(
     loaded: &LoadedPart,
     intent: &Intent,
     before: &PartPmi,
-) -> Result<(PartPmi, Lines, Vec<Map<String, Json>>), WriteError> {
+) -> Result<(PartPmi, Lines, Made), WriteError> {
     let mut sources: Vec<((String, usize), Map<String, Json>)> = Vec::new();
     let (planned, full_lines) =
         part_pmi_observed(loaded, intent, before, Mode::Add, &[], &mut |c, i, r| {

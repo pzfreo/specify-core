@@ -345,7 +345,9 @@ fn gramel_defaults_edit_step_pmi_and_resume() {
         // ADR P11: the depth writes PMI (the attribute above), so it is not stored; the file
         // states it. Rule 2: the approval the planner wrote nothing for (the ⌀ of a turned
         // step on a datum's own faces) is stored, listed as such.
-        let stored = specify_core::resume::answers_for(&reopened).unwrap().unwrap();
+        let stored = specify_core::resume::answers_for(&reopened)
+            .unwrap()
+            .unwrap();
         let mut accepted = accepted.clone();
         if let Some(meta) = stored.get("_specify") {
             assert_eq!(meta["no_pmi"], json!(["diameter.fit:turned_steps:6"]));
