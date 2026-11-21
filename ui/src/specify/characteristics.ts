@@ -230,8 +230,12 @@ export function characteristics(
       });
     } else if (e.kind === 'dimension') {
       const prefix = e.type.includes('Diameter') ? '⌀' : '';
+      // A location is on the faces it locates (its second set), from its first, as planned.
+      const located = e.type.startsWith('Location') && e.faces2?.length ? e.faces2 : null;
+      const from = located ? ` from ${referenceName(faces)}` : '';
       rows.push({
-        feature, faces, source, number: e.number, text: e.value == null ? NO_VALUE : `${prefix}${fmt(e.value)}`, nominal: e.value ?? null,
+        feature: located ? describeFaces(located, analysis) : feature, faces: located ?? faces, source, number: e.number,
+        text: e.value == null ? NO_VALUE : `${prefix}${fmt(e.value)}${from}`, nominal: e.value ?? null,
         upper: e.upper ?? null, lower: e.lower ?? null, datums: '', basic: false,
       });
     } else if (e.kind === 'geometric_tolerance') {
@@ -251,7 +255,11 @@ export function characteristics(
     if (!value) continue;
     const ra = key === 'surface_finish' ? Number(value.replace(/^Ra\s*/i, '')) : Number.NaN;
     rows.push({
-      feature: 'Part', faces: [], source: `part:${key}`, number: intent?.partNumbers?.[key], text: `${name}: ${value}`, nominal: null,
+      // The file's own surface texture keeps its number when nothing is planned for it.
+      feature: 'Part', faces: [], source: `part:${key}`,
+      number: intent?.partNumbers?.[key] ?? (key === 'surface_finish'
+        ? analysis.characteristics?.find((c) => c.kind === 'surface_texture')?.number : undefined),
+      text: `${name}: ${value}`, nominal: null,
       upper: Number.isFinite(ra) ? ra : null, lower: null, datums: '', basic: false,
     });
   }

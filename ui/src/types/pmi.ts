@@ -37,6 +37,8 @@ export interface PmiExisting {
   readonly kind: 'dimension' | 'geometric_tolerance' | 'datum' | 'note';
   readonly type: string;
   readonly faces?: readonly number[];
+  /** A location dimension's second set: the faces it locates (`faces` is its "from"). */
+  readonly faces2?: readonly number[];
   readonly value?: number;
   readonly upper?: number;
   readonly lower?: number;
@@ -60,7 +62,11 @@ export interface PmiAnalysis {
     readonly unresolved?: readonly { readonly id: string; readonly feature?: string | null; readonly answer: unknown; readonly reason: string }[];
     /** Specify alpha.8+: why the answers were matched by feature ID, without checking the faces (a pre-alpha file). */
     readonly unverified?: string;
+    /** 0.3.0 (D11): stored answers left out on reopening, reported once, and not stored again. */
+    readonly dropped_answers?: readonly { readonly id: string; readonly value: unknown; readonly reason: string }[];
   };
+  /** The file's numbered characteristics (`characteristics::read`). */
+  readonly characteristics?: readonly { readonly number: number; readonly kind: string; readonly type: string; readonly faces: readonly number[] }[];
 }
 
 /** Triangles of the part, ranged face by face in the analysis's face numbering. */

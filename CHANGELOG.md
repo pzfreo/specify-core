@@ -140,6 +140,12 @@ Read first:
 
 ### Fixed
 
+- A reopened file's preview no longer plans the general dimensions the file already states
+  (ADR P11), so the app's inspection list showed them twice, once as planned and once as the
+  file's. The file's own rows in that list now read as planned ones: a location dimension is on
+  the faces it locates, "from" its reference, and the file's surface texture keeps its number.
+  A thread is still read as its side and a tolerance without its zone's form there (the stored
+  export, read from the scene, has both).
 - A save that changes nothing keeps the file's bytes in an assembly whose parts are written in
   different modes (one with PMI added to, one without replaced); before, only all-Add or
   all-Replace saves did, and the stored-answer blocks were renumbered.

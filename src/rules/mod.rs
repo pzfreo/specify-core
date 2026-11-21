@@ -1253,6 +1253,21 @@ pub fn preview(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent>
     let qs = questions_in(&ctx, answers)?;
     let mut intent = intent(&ctx, answers, &qs, IntentMode::Preview)?;
     mark_defaults(&mut intent, answers);
+    // ADR P11: a preview never plans what the file states. A general dimension the file already
+    // has (a reopened file's, whoever wrote it) is the file's row, not a second planned one.
+    if let Some(Value::Array(existing)) = ctx.analysis.get("existing")
+        && !existing.is_empty()
+    {
+        let geometry: Vec<Value> = ctx
+            .analysis
+            .get("faces")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        intent
+            .general
+            .retain(|g| !crate::feature_table::requirement_stated(g, existing, &geometry));
+    }
     Ok(intent)
 }
 
