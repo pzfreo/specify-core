@@ -43,6 +43,22 @@ export interface PmiExisting {
   readonly upper?: number;
   readonly lower?: number;
   readonly datums?: readonly string[];
+  /** A basic (theoretically exact) dimension. */
+  readonly basic?: boolean;
+  /** The item as a drawing states it, in full: "⌀3.3 H11", "⌖ ⌀0.3Ⓜ A", "M2×0.4-6H ↧ 2". */
+  readonly text?: string;
+  /** It states something only `text` holds (a datum reference's modifier, a projected zone ...). */
+  readonly text_only?: boolean;
+  /** A size's ISO 286 class ("H11"). */
+  readonly fit?: string;
+  /** A tolerance's ⌀ zone, its Ⓜ, and its modifiers as stated (schema names). */
+  readonly diametral?: boolean;
+  readonly mmc?: boolean;
+  readonly modifiers?: readonly string[];
+  /** A thread's designation ("M2"), pitch and class, as the planner states them. */
+  readonly designation?: string;
+  readonly pitch?: number;
+  readonly class?: string;
 }
 
 export interface PmiAnalysis {

@@ -502,7 +502,7 @@ fn a_default_another_tool_changed_is_the_files_answer() {
             .unwrap();
         assert_eq!(row["state"], "stated", "{row}");
         assert!(
-            row["value"].as_str().unwrap().contains("Position 0.3"),
+            row["value"].as_str().unwrap().contains("⌖ ⌀0.3Ⓜ A B C"),
             "{row}"
         );
         let resumed = analysis["resume"]["answers"].as_object().unwrap().clone();
@@ -592,7 +592,7 @@ fn another_tools_requirement_stands_against_saved_answers_on_the_cli() {
         .iter()
         .find(|r| r["id"] == "datum.A.flatness")
         .unwrap();
-    assert_eq!(row["value"], "Flatness 0.05", "{row}");
+    assert_eq!(row["value"], "⏥ 0.05", "{row}");
     // Answers saved before the edit: they say 0.03.
     let saved = answers("0.03");
     let written = cli_write(&loaded.bytes, &saved, "saved-answers");

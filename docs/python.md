@@ -63,7 +63,12 @@ is absent otherwise. A basic dimension has no `upper`/`lower` of its own. Scene 
 The Python `ExistingPmi.basic` field is `False` unless the dimension is basic;
 `to_dict()` emits `basic` only when it is `True`.
 The Python `ExistingPmi.limits` field is an optional `(lower, upper)` tuple;
-`to_dict()` emits it as a two-element list only for limits. Stored answer strings resume
+`to_dict()` emits it as a two-element list only for limits.
+`ExistingPmi.text` is the item in full notation (`⌀3.3 H11`, `⌖ ⌀0.3Ⓜ A`), `text_only` is
+`True` when only that text holds all it states, and `fields` holds its structured values
+(`fit`, `diametral`, `mmc`, `modifiers`, a thread's `designation`, `pitch`, `class` ...;
+[answers.md](answers.md), "What the file states, read back whole"); `to_dict()` puts them beside
+the others, as the engine's `existing` records do. Stored answer strings resume
 unchanged. Python and WASM expose the same answer grammar and combined class choices.
 
 Specify began as a port of the Python [specify-core](https://github.com/pzfreo/specify-core), which

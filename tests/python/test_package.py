@@ -397,6 +397,22 @@ def test_basic_dimensions_read_as_basic():
     assert all("basic" not in d.to_dict() for d in found if not d.basic)
 
 
+def test_stated_pmi_reads_back_whole():
+    """ADR P11: the stated text and fields carry the fit class, the zone and Ⓜ, and the thread."""
+    spindle = Path(__file__).resolve().parents[2] / "ui" / "test" / "fixtures" / "19-spindle-semantic-links-only.step.gz"
+    found = read_existing(spindle)
+    bore = next(d for d in found if d.kind == "dimension" and d.faces == (14,))
+    assert bore.text == "⌀3.3 H11" and bore.fields["fit"] == "H11"
+    assert abs(bore.upper - 0.075) < 1e-9 and bore.lower == 0
+    assert bore.to_dict()["fit"] == "H11" and "text_only" not in bore.to_dict()
+    position = next(d for d in found if d.type == "Position" and d.faces == (14,))
+    assert position.text == "⌖ ⌀0.3Ⓜ A"
+    assert position.fields["diametral"] is True and position.fields["mmc"] is True
+    thread = next(d for d in found if d.type == "internal thread")
+    assert thread.text == "M2×0.4-6H ↧ 2"
+    assert (thread.fields["designation"], thread.fields["class"]) == ("M2", "6H")
+
+
 def test_dropped_carry_cannot_default(tmp_path):
     revisions = Path(__file__).resolve().parents[1] / "fixtures" / "revisions"
     new = revisions / "plate_split.new.step.gz"

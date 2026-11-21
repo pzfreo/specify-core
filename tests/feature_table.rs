@@ -117,7 +117,7 @@ fn another_tools_requirement_and_specifys_give_the_same_table() {
             row(t, "hole.position:holes:12")["value"]
                 .as_str()
                 .unwrap()
-                .contains("Position 0.1"),
+                .contains("⌖ ⌀0.1 A B C"),
             "{t}"
         );
     }
@@ -203,7 +203,7 @@ fn a_0_2_files_repeats_are_ignored_on_read_and_dropped_at_save() {
         row(&before, "hole.position:holes:14")["value"]
             .as_str()
             .unwrap()
-            .contains("Position 0.3")
+            .contains("⌖ ⌀0.3")
     );
     // A save with the session's answers drops the repeats from the file, and changes no
     // requirement.
@@ -248,7 +248,7 @@ fn a_stored_answer_whose_pmi_was_deleted_is_a_gap_again_mentioned_once() {
         row(t, "hole.position:holes:12")["value"]
             .as_str()
             .unwrap()
-            .contains("Position 0.2")
+            .contains("⌖ ⌀0.2")
     );
     assert!(analysis["resume"].get("conflicts").is_none());
     assert!(analysis["resume"].get("foreign").is_none());
@@ -533,13 +533,7 @@ fn a_hole_located_by_a_plus_minus_dimension_is_stated_in_position_mode() {
     let hole = "hole.position:holes:12";
     let r = row(&analysis["table"], hole);
     assert_eq!(r["state"], "stated", "{r}");
-    assert!(
-        r["value"]
-            .as_str()
-            .unwrap()
-            .contains("Location_LinearDistance 95"),
-        "{r}"
-    );
+    assert!(r["value"].as_str().unwrap().contains("95 ±0.1"), "{r}");
     let (questions, _) = asked(&analysis);
     assert!(!questions.contains(&hole.to_string()), "{questions:?}");
     assert_eq!(analysis["part"].get("locating"), None);
@@ -767,7 +761,7 @@ fn one_dimension_locates_every_hole_on_its_line() {
             r["requirements"][0]["text"]
                 .as_str()
                 .unwrap()
-                .starts_with("Location_LinearDistance 50"),
+                .starts_with("50 "),
             "{r}"
         );
     }
@@ -817,7 +811,7 @@ fn a_dimension_from_one_hole_to_another_locates_the_second() {
         b["requirements"][0]["text"]
             .as_str()
             .unwrap()
-            .contains(" 45"),
+            .starts_with("45 "),
         "{b}"
     );
     let a = row(&t, "hole.location:holes:9");

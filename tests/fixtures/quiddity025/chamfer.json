@@ -301,8 +301,12 @@
         0
       ],
       "value": 8.0,
+      "upper": 0.0,
+      "lower": -0.009,
       "provenance": "specify-core:written:v1",
-      "number": 4
+      "number": 4,
+      "text": "⌀8 h6",
+      "fit": "h6"
     },
     {
       "kind": "dimension",
@@ -311,8 +315,12 @@
         14
       ],
       "value": 3.3,
+      "upper": 0.075,
+      "lower": 0.0,
       "provenance": "specify-core:written:v1",
-      "number": 3
+      "number": 3,
+      "text": "⌀3.3 H11",
+      "fit": "H11"
     },
     {
       "kind": "dimension",
@@ -328,7 +336,8 @@
       "upper": 0.05,
       "lower": -0.05,
       "provenance": "specify-core:written:v1",
-      "number": 5
+      "number": 5,
+      "text": "37.6 ±0.05"
     },
     {
       "kind": "geometric_tolerance",
@@ -341,7 +350,10 @@
         "A"
       ],
       "provenance": "specify-core:written:v1",
-      "number": 13
+      "number": 13,
+      "text": "⌖ ⌀0.2 A",
+      "diametral": true,
+      "zone": "cylindrical or circular"
     },
     {
       "kind": "geometric_tolerance",
@@ -354,7 +366,14 @@
         "A"
       ],
       "provenance": "specify-core:written:v1",
-      "number": 14
+      "number": 14,
+      "text": "⌖ ⌀0.3Ⓜ A",
+      "diametral": true,
+      "zone": "cylindrical or circular",
+      "mmc": true,
+      "modifiers": [
+        "maximum_material_requirement"
+      ]
     },
     {
       "kind": "datum",
@@ -363,7 +382,8 @@
         0
       ],
       "provenance": "specify-core:written:v1",
-      "number": 1
+      "number": 1,
+      "text": "datum A"
     },
     {
       "kind": "datum",
@@ -373,7 +393,8 @@
         11
       ],
       "provenance": "specify-core:written:v1",
-      "number": 2
+      "number": 2,
+      "text": "datum B"
     },
     {
       "kind": "note",
@@ -382,7 +403,17 @@
         15
       ],
       "provenance": "specify-core:written:v1",
-      "number": 16
+      "number": 16,
+      "text": "M2×0.4-6H ↧ 2",
+      "side": "internal",
+      "designation": "M2",
+      "spec": "M2x0.4",
+      "class": "6H",
+      "hand": "RH",
+      "pitch": 0.4,
+      "drill_diameter": 1.6,
+      "drill_depth": 3.5,
+      "full_thread": 2.0
     }
   ]
 }

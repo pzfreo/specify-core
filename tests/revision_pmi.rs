@@ -269,7 +269,8 @@ fn foreign_pmi_changes_even_in_a_file_with_saved_specify_answers() {
     // note Specify wrote is a part setting).
     assert_eq!(
         analysis["existing"],
-        json!([{"kind": "geometric_tolerance", "type": "Flatness", "faces": [4], "value": 0.2}])
+        json!([{"kind": "geometric_tolerance", "type": "Flatness", "faces": [4], "value": 0.2,
+                "text": "⏥ 0.2"}])
     );
     let text = String::from_utf8(old.bytes.to_vec()).unwrap();
     let changed = text.replace("LENGTH_MEASURE(0.2)", "LENGTH_MEASURE(0.07)");

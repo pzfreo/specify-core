@@ -145,6 +145,36 @@ and settings, and `analyse` adds the **feature table**, `table`:
 - `file_pmi`: the file's requirements on no recognised feature and kind.
 - `decided_none`: the decided-none ids, read back from the file.
 
+### What the file states, read back whole
+
+The stated row is all anyone sees of what the file says, so nothing the file states is left
+out of it. Each `existing` item, and so each requirement of a row, carries:
+
+- `text`: the item as a drawing states it, in full: `⌀3.3 H11`, `⌀6.6 ±0.1`, `⌀6.5 - ⌀6.7`,
+  `50 (basic)`, `⌖ ⌀0.3Ⓜ A`, `⌓ 0.020000 A FⓂ`, `M2×0.4-6H ↧ 2`, `M5×0.8-6H THRU`,
+  `diamond knurl, pitch 1 mm, major ⌀8 mm`, `√ Ra 1.6`, `datum A`. Values are as the file
+  states them, in its own unit (an inch NIST file's `⌀0.250000 +0.003000/0`); `value`, `upper`
+  and `lower` stay millimetres. A row's `value` is its requirements' texts joined.
+- the structured values a change needs to keep, by the planner's names (optional fields, absent
+  when not stated):
+  - a size's `fit` (its ISO 286 class, `H11`); a class stated alone also gives `upper` and
+    `lower` from the ISO 286 tables (`⌀3.3 H11`: +0.075/0);
+  - a tolerance's `diametral` (a ⌀ zone), `zone` (its zone form as stated), `mmc` (Ⓜ) and
+    `modifiers` (every modifier as stated, schema names: `maximum_material_requirement`,
+    `least_material_requirement`, `separate_requirement`, ...);
+  - a thread's `side`, `designation` (`M2`), `spec` (`M2x0.4`), `pitch`, `class`, `hand`
+    (`RH`/`LH`), `through`, `drill_diameter`, `drill_depth`, `full_thread`, `length`;
+  - a knurl's `pattern`, `pitch`, `diameter`, `teeth`, `tooth_depth`, `root_fillet`,
+    `helix_angle`, `hand`; a finish on faces' `finish` (`Ra 1.6`).
+- `text_only: true` when the item states something those fields don't hold: a datum
+  reference's modifier (`A FⓂ`), a common datum (`A-B`), a projected (`Ⓟ`) or non-uniform zone,
+  a unit basis, a maximum, an unequal zone, all over, a dimension's qualifier, modifier or
+  envelope requirement, a thread's minor or pitch diameter. Its `text` still has all of it; it
+  just cannot be changed field by field. The feature table's requirement carries the same flag.
+
+Two notes of one kind stay two items when they state different things (an M2 and an M3
+thread), and are one item on all their faces when they state the same.
+
 A requirement is matched to a feature and kind by the faces it sits on and its kind. Specify's
 provenance marker plays no part. A hole the file locates by a location dimension (basic,
 toleranced or general) has its location stated even when holes are located by position

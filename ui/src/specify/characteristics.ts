@@ -233,18 +233,26 @@ export function characteristics(
       // A location is on the faces it locates (its second set), from its first, as planned.
       const located = e.type.startsWith('Location') && e.faces2?.length ? e.faces2 : null;
       const from = located ? ` from ${referenceName(faces)}` : '';
+      // ADR P11: the stated row is all anyone sees of what the file says, so it reads the
+      // engine's full notation (its class, deviations or limits, basic, modifiers).
+      const stated = e.text ?? `${prefix}${e.value == null ? '' : fmt(e.value)}`;
       rows.push({
         feature: located ? describeFaces(located, analysis) : feature, faces: located ?? faces, source, number: e.number,
-        text: e.value == null ? NO_VALUE : `${prefix}${fmt(e.value)}${from}`, nominal: e.value ?? null,
-        upper: e.upper ?? null, lower: e.lower ?? null, datums: '', basic: false,
+        text: e.value == null ? NO_VALUE : `${stated}${from}`, nominal: e.value ?? null,
+        upper: e.upper ?? null, lower: e.lower ?? null, datums: '', basic: Boolean(e.basic),
       });
     } else if (e.kind === 'geometric_tolerance') {
+      // The whole frame as the engine states it (⌖ ⌀0.3Ⓜ A, with every modifier, zone and
+      // datum reference); the datums also have their column.
+      const symbol = CHARACTERISTIC[e.type] ?? e.type;
       rows.push({
-        feature, faces, source, number: e.number, text: `${CHARACTERISTIC[e.type] ?? e.type} ${e.value == null ? NO_VALUE : fmt(e.value)}`,
+        feature, faces, source, number: e.number,
+        text: e.value == null ? `${symbol} ${NO_VALUE}` : e.text ?? `${symbol} ${fmt(e.value)}`,
         nominal: null, upper: e.value ?? null, lower: null, datums: (e.datums ?? []).join('|'), basic: false,
       });
     } else {
-      rows.push({ feature, faces, source, number: e.number, text: e.type, nominal: null, upper: null, lower: null, datums: '', basic: false });
+      // A thread, knurl, finish or note: its full notation ("M2×0.4-6H ↧ 2"), else its kind.
+      rows.push({ feature, faces, source, number: e.number, text: e.text ?? e.type, nominal: null, upper: null, lower: null, datums: '', basic: false });
     }
   });
 

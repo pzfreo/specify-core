@@ -27,6 +27,15 @@ Read first:
 
 ### Added
 
+- What the file states reads back whole (ADR P11): each `existing` item, and each feature-table
+  requirement, has its full notation, `text` (`⌀3.3 H11`, `⌖ ⌀0.3Ⓜ A`, `M2×0.4-6H ↧ 2`), so a
+  stated row reads `⌀3.3 H11`, not `Size_Diameter 3.3`; optional structured fields by the
+  planner's names (a size's `fit`, with its ISO 286 deviations; a tolerance's `diametral`,
+  `zone`, `mmc`, `modifiers`; a thread's `designation`, `spec`, `pitch`, `class`, `hand`,
+  depths; a knurl's parameters; a finish's `finish`); and `text_only: true` where the item
+  states something those fields don't hold (a datum reference's Ⓜ, a projected zone ...). Also
+  in Python's `ExistingPmi` (`text`, `text_only`, `fields`). docs/answers.md, "What the file
+  states, read back whole".
 - `@draftwright/specify-ui`: a `HostView` interface (ui/docs/host-view.md, specify-core #222) so a host can
   draw the 3D view. `StepDiff` and `SpecifyReview` take an optional `view` prop; without one they use
   today's view, now the interface's default implementation. Faces are identified by STEP entity
@@ -154,8 +163,13 @@ Read first:
   (ADR P11), so the app's inspection list showed them twice, once as planned and once as the
   file's. The file's own rows in that list now read as planned ones: a location dimension is on
   the faces it locates, "from" its reference, and the file's surface texture keeps its number.
-  A thread is still read as its side and a tolerance without its zone's form there (the stored
-  export, read from the scene, has both).
+  A thread and a tolerance now read in full there too (`M2×0.4-6H ↧ 2`, `⌖ ⌀0.3Ⓜ A`; see
+  Added).
+- A stated ⌀3.3 H11, ⌖ ⌀0.3 Ⓜ and M2×0.4-6H no longer read back as `⌀3.3`, `⌖ 0.3` and
+  `internal thread` (a 0.3.0 regression from reading stated PMI from the file, ADR P11).
+- MCP `answer` refuses an answer to a feature-and-kind the file states, with the edit list's
+  reason ("the file already states … for …, so there is no gap to fill; to replace it, use
+  change …"); before, it accepted the answer and the save left it out.
 - A save that changes nothing keeps the file's bytes in an assembly whose parts are written in
   different modes (one with PMI added to, one without replaced); before, only all-Add or
   all-Replace saves did, and the stored-answer blocks were renumbered.

@@ -398,7 +398,8 @@ fn read_existing(py: Python<'_>, step: &Bound<'_, PyAny>, part: Option<usize>) -
         .iter()
         .map(|e| {
             json!({"kind": e.kind, "type": e.r#type, "faces": e.faces, "faces2": e.faces2,
-                   "value": e.value, "upper": e.upper, "lower": e.lower, "limits": e.limits, "basic": e.basic, "datums": e.datums})
+                   "value": e.value, "upper": e.upper, "lower": e.lower, "limits": e.limits, "basic": e.basic, "datums": e.datums,
+                   "text": e.text, "text_only": e.text_only, "fields": e.fields})
         })
         .collect();
     Ok(Value::Array(records).to_string())

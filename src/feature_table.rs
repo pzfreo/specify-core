@@ -50,8 +50,13 @@ pub struct Requirement {
     pub r#type: String,
     /// The faces it sits on (both sides of a location).
     pub faces: Vec<usize>,
-    /// Its value in short notation.
+    /// Its value in full notation, as a drawing states it (`⌀3.3 H11`, `⌖ ⌀0.3Ⓜ A`): the
+    /// `existing` entry's `text`.
     pub text: String,
+    /// It states something only its text holds (`existing`'s `text_only`): it cannot be
+    /// changed field by field.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub text_only: bool,
 }
 
 /// One feature-and-kind.
@@ -186,8 +191,12 @@ fn number(v: f64) -> String {
     crate::pyfmt::repr(v)
 }
 
-/// Short notation of an `existing` entry.
+/// The notation of an `existing` entry: its own full `text`; for an entry without one (an
+/// analysis from before it had one), a short notation of its common fields.
 fn text_of(item: &Value) -> String {
+    if let Some(text) = item["text"].as_str().filter(|t| !t.is_empty()) {
+        return text.to_string();
+    }
     let kind = item["kind"].as_str().unwrap_or_default();
     let r#type = item["type"].as_str().unwrap_or_default();
     let value = item["value"].as_f64();
@@ -239,6 +248,7 @@ fn requirement(item: &Value) -> Requirement {
         r#type: item["type"].as_str().unwrap_or_default().to_string(),
         faces,
         text: text_of(item),
+        text_only: item["text_only"] == Value::Bool(true),
     }
 }
 
@@ -892,6 +902,7 @@ pub fn build(
                 r#type: key.clone(),
                 faces: Vec::new(),
                 text: setting_text(value),
+                text_only: false,
             });
         }
     }

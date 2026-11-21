@@ -193,15 +193,21 @@ export function toLabels(
       out.push({
         ...base, kind: 'frame',
         // A tolerance the file states with no value is drawn without one, never as 0.
-        cells: [CHARACTERISTIC[e.type] ?? e.type, ...(e.value == null ? [] : [fmt(e.value)]), ...(e.datums ?? [])],
+        // Its zone and modifiers as the engine states them (⌀0.3Ⓜ), else its value alone.
+        cells: [
+          CHARACTERISTIC[e.type] ?? e.type,
+          ...(e.value == null ? [] : [e.text?.split(' ')[1] ?? fmt(e.value)]),
+          ...(e.datums ?? []),
+        ],
       });
     } else if (e.kind === 'note') {
-      out.push({ ...base, kind: 'note', cells: [e.type] });
+      out.push({ ...base, kind: 'note', cells: [e.text ?? e.type] });
     } else if (e.kind === 'dimension' && e.value != null) {
       const prefix = e.type.includes('Diameter') ? DIAMETER : '';
       out.push({
-        ...base, kind: 'size', cells: [`${prefix}${fmt(e.value)}`],
-        tolerance: tolerance(e.upper, e.lower),
+        // A fit is its class ("⌀3.3 H11"), as planned.
+        ...base, kind: 'size', cells: [`${prefix}${fmt(e.value)}${e.fit ? ` ${e.fit}` : ''}`],
+        tolerance: e.fit ? null : tolerance(e.upper, e.lower),
       });
     }
   });

@@ -2662,17 +2662,36 @@ impl Features<'_> {
 }
 
 /// The geometric tolerance kinds of the intent (Python's `_GEOM_TYPES`).
+const TOLERANCE_KINDS: [(&str, ToleranceKind); 7] = [
+    ("position", ToleranceKind::Position),
+    ("flatness", ToleranceKind::Flatness),
+    ("perpendicularity", ToleranceKind::Perpendicularity),
+    ("parallelism", ToleranceKind::Parallelism),
+    ("profile", ToleranceKind::SurfaceProfile),
+    ("runout", ToleranceKind::CircularRunout),
+    ("total_runout", ToleranceKind::TotalRunout),
+];
+
+/// The requirement kinds the writer writes other than tolerances: one arm each in
+/// [`part_pmi_observed`]'s match.
+const OWN_KINDS: [&str; 6] = ["size", "location", "thread", "knurl", "note", "finish"];
+
+/// Every requirement kind the writer writes (an intent requirement's `kind`): its own kinds,
+/// then the geometric tolerances. Anything else is refused as an unknown kind. The read-back
+/// round trip (`tests/readback.rs`) is driven from this list, so a kind added here without a
+/// read-back case fails there.
+pub fn requirement_kinds() -> Vec<&'static str> {
+    OWN_KINDS
+        .into_iter()
+        .chain(TOLERANCE_KINDS.iter().map(|(name, _)| *name))
+        .collect()
+}
+
 fn tolerance_kind(kind: &str) -> Option<ToleranceKind> {
-    Some(match kind {
-        "position" => ToleranceKind::Position,
-        "flatness" => ToleranceKind::Flatness,
-        "perpendicularity" => ToleranceKind::Perpendicularity,
-        "parallelism" => ToleranceKind::Parallelism,
-        "profile" => ToleranceKind::SurfaceProfile,
-        "runout" => ToleranceKind::CircularRunout,
-        "total_runout" => ToleranceKind::TotalRunout,
-        _ => return None,
-    })
+    TOLERANCE_KINDS
+        .iter()
+        .find(|(name, _)| *name == kind)
+        .map(|(_, k)| *k)
 }
 
 /// An ISO 286 class from its name (`H7`, `g6`, `js11`), refused when it is not one.
