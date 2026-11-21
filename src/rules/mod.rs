@@ -1416,10 +1416,14 @@ fn intent(
         let text = given.map(str_of).unwrap_or_default();
         let text = crate::pyfmt::strip(&text).to_lowercase();
         if !NOTHING.contains(&text.as_str()) {
-            intent.part.insert(
-                key.to_string(),
-                answers.get(&id).cloned().unwrap_or_default(),
-            );
+            let mut value = answers.get(&id).cloned().unwrap_or_default();
+            // A general tolerance block (#228) in its canonical spelling.
+            if key == "general_tolerance"
+                && let Value::String(text) = &value
+            {
+                value = Value::String(crate::tolerance_block::canonical(text));
+            }
+            intent.part.insert(key.to_string(), value);
         }
     }
     if crate::process::applies(ctx, answers)
@@ -1828,7 +1832,11 @@ fn unasked_entries(
             .then(|| ctx.table_stated_value(id))
             .flatten()
             .zip(answers.get(id.as_str()))
-            .filter(|(old, new)| *old != crate::feature_table::setting_text(new));
+            .filter(|(old, new)| {
+                // A general tolerance block compares in its canonical spelling (#228).
+                crate::tolerance_block::canonical(old)
+                    != crate::tolerance_block::canonical(&crate::feature_table::setting_text(new))
+            });
         let why = if stated.contains(id.as_str()) {
             foreign_held = true;
             format!("is not asked: {held}")

@@ -656,6 +656,14 @@ fn requirements(pmi: &PartPmi) -> BTreeSet<(String, usize)> {
     out
 }
 
+/// Every item of `pmi`, by haecceity collection and index, Specify's bookkeeping included: what
+/// a save that only replaces the general tolerance keeps.
+fn every_item(pmi: &PartPmi) -> BTreeSet<(String, usize)> {
+    let mut out = requirements(pmi);
+    out.extend((0..pmi.attributes.len()).map(|i| ("attributes".to_string(), i)));
+    out
+}
+
 /// [`part_pmi`] in add mode (ADR P11): what the file already states stays as it is and is
 /// never stated twice. A requirement of `intent` whose feature-and-kind the file states (the
 /// feature table's matching: the faces it sits on and its kind, whatever its value, type or
@@ -961,23 +969,42 @@ fn write_verified(
     let mut keep = std::collections::BTreeMap::new();
     // Only Specify's marked bookkeeping goes. An unmarked copy of stored answers (an older
     // engine's, or another tool's) stays untouched; the payload written now carries
-    // `pmi_scope`, so it is the one read.
-    let bookkeeping = std::collections::BTreeMap::new();
-    for (loaded, _, _) in jobs {
+    // `pmi_scope`, so it is the one read. What gives way whoever wrote it (`bookkeeping`, by
+    // part) is only a general tolerance the intent replaces.
+    let mut bookkeeping = std::collections::BTreeMap::new();
+    let mut cleaning = Vec::new();
+    for (loaded, intent, _) in jobs {
         let part = loaded.binding.part;
         let resumed = resume::has_answers(loaded).map_err(|e| WriteError::Failed(e.to_string()))?;
         if resumed && original.has_pmi(part) {
             scoped.push(part);
+            cleaning.push(part);
             keep.insert(part, requirements(&original.read.parts[part]));
         }
+        // A general tolerance that differs from the file's replaces it (#228: "Change
+        // replaces the table"), whoever wrote it; every other item stays byte for byte.
+        let replaced = general_giving_way(
+            loaded,
+            intent,
+            &original.read.parts[part],
+            &original.read.provenance.parts[part],
+            &original.doc,
+        )?;
+        if !replaced.is_empty() {
+            if !cleaning.contains(&part) {
+                cleaning.push(part);
+                keep.insert(part, every_item(&original.read.parts[part]));
+            }
+            bookkeeping.insert(part, replaced);
+        }
     }
-    let cleaned = if scoped.is_empty() {
+    let cleaned = if cleaning.is_empty() {
         None
     } else {
         let bytes = provenance::without_owned_except(
             &original.doc,
             &original.read,
-            &scoped,
+            &cleaning,
             &keep,
             &bookkeeping,
         )
@@ -1809,6 +1836,118 @@ pub const SEMANTIC_TEXT: &str = "semantic text";
 pub const HOLE_NOTE: &str = "hole note";
 /// The semantic text item of a ± general tolerance, written as a note on the part.
 pub const GENERAL_TOLERANCE_NOTE: &str = "general tolerance";
+
+/// The part's general tolerance note: 'semantic text' on the part with one
+/// [`GENERAL_TOLERANCE_NOTE`] item.
+fn general_tolerance_note_set(text: &str) -> AttributeSet {
+    AttributeSet {
+        description: None,
+        general_property: None,
+        name: SEMANTIC_TEXT.into(),
+        on: None,
+        items: vec![(
+            GENERAL_TOLERANCE_NOTE.into(),
+            AttributeValue::Text(text.to_string()),
+        )],
+    }
+}
+
+fn unit_label(unit: &LengthUnit) -> &'static str {
+    match unit {
+        LengthUnit::Inch => "inches",
+        LengthUnit::Millimetre => "millimetres",
+        LengthUnit::Micrometre => "micrometres",
+        LengthUnit::Centimetre => "centimetres",
+        LengthUnit::Metre => "metres",
+        LengthUnit::Foot => "feet",
+        LengthUnit::Other { .. } => "the file's unit",
+    }
+}
+
+/// The general tolerance `before` states, as its row shows it (class, or table then note).
+fn stated_general(before: &PartPmi, file_unit: &LengthUnit) -> Option<String> {
+    before
+        .general
+        .iter()
+        .find_map(|g| match g {
+            GeneralTolerance::Class { text, .. } => Some(text.clone()),
+            GeneralTolerance::Table { .. } => None,
+        })
+        .or_else(|| {
+            let note = crate::existing::general_tolerance_note(before);
+            crate::existing::general_tolerance_shown(before, note.as_deref(), file_unit)
+        })
+}
+
+/// The general tolerance answer `text` as its row will show it once written.
+fn general_shown(text: &str, file_unit: &LengthUnit) -> Result<String, WriteError> {
+    Ok(
+        match crate::tolerance_block::parse(text).map_err(WriteError::Invalid)? {
+            Some(block) => {
+                let w = block.written(file_unit).map_err(WriteError::Invalid)?;
+                let table = match &w.table {
+                    Some(GeneralTolerance::Table { cells, .. }) => {
+                        crate::tolerance_block::table_text(cells, file_unit)
+                    }
+                    _ => None,
+                };
+                crate::tolerance_block::shown(table.as_deref(), w.note.as_deref())
+                    .unwrap_or_default()
+            }
+            None => text.to_string(),
+        },
+    )
+}
+
+/// The file's general tolerance items that give way to the one `intent` gives, when the two
+/// differ ("Change replaces the table", #228): every class and default tolerance table of the
+/// part, and Specify's general tolerance note. Empty when the intent gives none, or the same.
+fn general_giving_way(
+    loaded: &LoadedPart,
+    intent: &Intent,
+    before: &PartPmi,
+    prov: &pmi::PartProvenance,
+    doc: &Document,
+) -> Result<BTreeSet<(String, usize)>, WriteError> {
+    let mut out = BTreeSet::new();
+    let Some(general) = intent
+        .part
+        .get("general_tolerance")
+        .filter(|v| truthy(Some(v)))
+    else {
+        return Ok(out);
+    };
+    let file_unit = crate::existing::file_length_unit(loaded);
+    let new = general_shown(&py_str(general), &file_unit)?;
+    let notes: Vec<usize> = before
+        .attributes
+        .iter()
+        .enumerate()
+        .filter(|(i, a)| {
+            crate::existing::general_tolerance_text(a).is_some()
+                && provenance::marked(doc, &prov.attributes[*i], "attribute")
+        })
+        .map(|(i, _)| i)
+        .collect();
+    let old = before
+        .general
+        .iter()
+        .find_map(|g| match g {
+            GeneralTolerance::Class { text, .. } => Some(text.clone()),
+            GeneralTolerance::Table { .. } => None,
+        })
+        .or_else(|| {
+            let note = notes
+                .first()
+                .and_then(|&i| crate::existing::general_tolerance_text(&before.attributes[i]));
+            crate::existing::general_tolerance_shown(before, note, &file_unit)
+        });
+    if old.is_some_and(|old| old != new) {
+        out.extend((0..before.general.len()).map(|i| ("general".to_string(), i)));
+        out.extend(notes.into_iter().map(|i| ("attributes".to_string(), i)));
+    }
+    Ok(out)
+}
 
 /// One-based order of a free-text part note within its `semantic text` attribute set.
 pub const NOTE_INDEX: &str = "note index";
@@ -3593,22 +3732,36 @@ fn part_pmi_observed(
                 GeneralTolerance::Table { .. } => None,
             })
             .filter(|_| add);
-        if crate::general::plus_minus(&text).is_some() {
+        let file_unit = crate::existing::file_length_unit(loaded);
+        let block = crate::tolerance_block::parse(&text).map_err(WriteError::Invalid)?;
+        if let Some(block) = block {
+            // A block as stated (#228): the decimal-place lines as AP242's default tolerance
+            // table, in the block's unit; the lines it cannot express in the general tolerance
+            // note beside it. Nothing else: no class, no dimension.
+            let written = block.written(&file_unit).map_err(WriteError::Invalid)?;
+            let new = general_shown(&text, &file_unit)?;
+            let shown = stated_general(before, &file_unit).filter(|_| add);
+            if stated("general tolerance", shown.as_deref(), &new, &mut lines)? {
+                if let Some(table) = written.table {
+                    p.general.push(table);
+                    lines.written.push(format!(
+                        "general tolerance table in {}",
+                        unit_label(&block.unit_in(&file_unit))
+                    ));
+                }
+                if let Some(note) = written.note {
+                    p.attributes.push(general_tolerance_note_set(&note));
+                    lines.written.push(format!("general tolerance note {note}"));
+                }
+                lines.written.push(format!("general tolerance {new}"));
+            }
+        } else if crate::general::plus_minus(&text).is_some() {
             // A ± figure is no ISO 2768 class, which the kernel's general tolerance carries:
             // it is written as the part's general tolerance note.
             let note = crate::existing::general_tolerance_note(before);
             let old = note.as_deref().filter(|_| add).or(old);
             if stated("general tolerance", old, &text, &mut lines)? {
-                p.attributes.push(AttributeSet {
-                    description: None,
-                    general_property: None,
-                    name: SEMANTIC_TEXT.into(),
-                    on: None,
-                    items: vec![(
-                        GENERAL_TOLERANCE_NOTE.into(),
-                        AttributeValue::Text(text.clone()),
-                    )],
-                });
+                p.attributes.push(general_tolerance_note_set(&text));
                 lines.written.push(format!("general tolerance note {text}"));
             }
         } else if stated("general tolerance", old, &text, &mut lines)? {

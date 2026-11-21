@@ -226,6 +226,9 @@ pub struct Reading {
     pmi: PartPmi,
     provenance: pmi::PartProvenance,
     findings: Vec<Finding>,
+    /// The part's declared length unit (millimetres when it declares none): a general
+    /// tolerance table's values in it are shown without their unit.
+    length_unit: LengthUnit,
 }
 
 /// Reads the part's PMI (see [`Reading`]).
@@ -266,7 +269,17 @@ pub fn read_parsed(
         provenance: read.provenance.parts.swap_remove(index),
         findings,
         doc,
+        length_unit: file_length_unit(loaded),
     })
+}
+
+/// The part's declared length unit, millimetres when it declares none.
+pub(crate) fn file_length_unit(loaded: &LoadedPart) -> LengthUnit {
+    loaded
+        .definition
+        .declared_length_unit
+        .clone()
+        .unwrap_or(LengthUnit::Millimetre)
 }
 
 /// The semantic PMI the file states on the part (Python's `read_existing`): dimensions, then
@@ -553,11 +566,12 @@ impl Reading {
         if p.material.is_some() && owned(&prov.material, "material") {
             out.insert("material".into(), Value::from(provenance::MARKER));
         }
-        if let Some(i) = p
-            .general
-            .iter()
-            .position(|g| matches!(g, GeneralTolerance::Class { .. }))
-        {
+        if let Some(i) = p.general.iter().position(|g| {
+            matches!(
+                g,
+                GeneralTolerance::Class { .. } | GeneralTolerance::Table { .. }
+            )
+        }) {
             if owned(&prov.general[i], "general") {
                 out.insert("general_tolerance".into(), Value::from(provenance::MARKER));
             }
@@ -656,14 +670,16 @@ impl Reading {
                 visit("general_tolerance", Value::String(text.clone()));
             }
         }
-        // Only Specify's own ± note supplies the general tolerance in this form.
-        if let Some(text) = pmi
+        // Only Specify's own note supplies the general tolerance in this form: a ± figure,
+        // or the lines of a block (#228) its table cannot express.
+        let note = pmi
             .attributes
             .iter()
             .position(is_general_tolerance_note)
             .filter(|&i| provenance::marked(&self.doc, &self.provenance.attributes[i], "attribute"))
-            .and_then(|_| general_tolerance_note(pmi))
-        {
+            .and_then(|_| general_tolerance_note(pmi));
+        // A default tolerance table, whoever wrote it, read back as stated, then the note.
+        if let Some(text) = general_tolerance_shown(pmi, note.as_deref(), &self.length_unit) {
             visit("general_tolerance", Value::String(text));
         }
         for (key, kind) in PART_NOTES {
@@ -734,6 +750,28 @@ pub(crate) fn general_tolerance_text(set: &pmi::AttributeSet) -> Option<&str> {
         }
         _ => None,
     })
+}
+
+/// The general tolerance as its row shows it, other than a class: the lines of the part's
+/// default tolerance tables (any writer's, #228), then `note` (Specify's general tolerance
+/// note). Values in `file_unit` are shown without their unit.
+pub(crate) fn general_tolerance_shown(
+    pmi: &PartPmi,
+    note: Option<&str>,
+    file_unit: &LengthUnit,
+) -> Option<String> {
+    let tables: Vec<String> = pmi
+        .general
+        .iter()
+        .filter_map(|g| match g {
+            GeneralTolerance::Table { cells, .. } => {
+                crate::tolerance_block::table_text(cells, file_unit)
+            }
+            GeneralTolerance::Class { .. } => None,
+        })
+        .collect();
+    let table = (!tables.is_empty()).then(|| tables.join(crate::tolerance_block::SEPARATOR));
+    crate::tolerance_block::shown(table.as_deref(), note)
 }
 
 /// The part's ± general tolerance written as a note, if it has one.
