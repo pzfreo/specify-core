@@ -35,16 +35,8 @@ def test_python_named_rebuild_resume_and_diff(tmp_path):
 
     before, after = answers(old), answers(new)
     assert before != after
-    report = api.diff(old, new, before)["report"]
-    assert {k: v for k, v in report["answers"].items() if k != "_specify"} == after
-    assert report["answers"]["_specify"]["evidence"]["schema"] == 3
-    assert not report["unresolved"]
-    # The new transport must write on the destination and be consumed before STEP resume.
-    carried = tmp_path / "carried.step"
-    api.write(new, api.preview(api.analyse(new), report["answers"]), carried,
-              answers=report["answers"])
-    # ADR P11: the file states these answers' requirements, so none is stored.
-    assert api.analyse(carried)["resume"]["answers"] == storable(after)
+    # Diff carries no answers (ADR P11).
+    assert "answers" not in api.diff(old, new)["report"]
     written = []
     for path, given in [(old, before), (new, after)]:
         out = tmp_path / f"{path.stem}-pmi.step"
