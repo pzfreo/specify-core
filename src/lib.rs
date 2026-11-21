@@ -8,6 +8,7 @@ pub mod anchors;
 pub mod answer_file;
 pub mod api;
 pub mod carried;
+pub mod carry;
 pub mod characteristics;
 pub mod choices;
 #[cfg(all(feature = "cli", not(target_arch = "wasm32")))]

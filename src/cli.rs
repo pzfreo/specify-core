@@ -208,6 +208,27 @@ wasm-pack pkg/; a build made without the app needs SPECIFY_APP_DIR. See docs/mcp
         #[arg(long)]
         pmi_scenes: bool,
     },
+    /// carry an older revision's requirements onto a new revision of the geometry
+    #[command(long_about = "\
+Carry OLD's requirements onto NEW, file to file, and write the result to OUT (ADR P11). OLD's
+features are matched to NEW's as `diff` matches them. For each feature-and-kind OLD states: a
+gap in NEW is filled (carried); one NEW states already keeps NEW's value, and a difference is
+reported (kept); one on a feature that moved or changed size is carried and listed to check;
+one whose feature is not found, or is matched ambiguously, is not carried and reported.
+Decided-none carries the same way, and characteristic numbers (and in an assembly, BOM item
+numbers) carry with them. What Specify does not understand is reported not carried, with its
+kind and faces. The carry is applied all or nothing: if any of it cannot be applied, nothing
+is written (exit 2) and the reasons are reported. The report (JSON, with its Markdown) goes
+to stdout. See docs/carry.md.")]
+    Carry {
+        /// the annotated STEP file of the earlier revision
+        old: PathBuf,
+        /// the STEP file of the new revision (bare, or with some PMI)
+        new: PathBuf,
+        /// where to write NEW with OLD's requirements carried (a `.gz` name is gzipped)
+        #[arg(short, long)]
+        output: PathBuf,
+    },
     /// open a STEP file in Specify in your browser, served from this computer
     #[command(long_about = "\
 Open a STEP file in Specify in your browser, served by this command on 127.0.0.1: nothing
@@ -556,6 +577,7 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             },
             out,
         ),
+        Cmd::Carry { old, new, output } => carry(&old, &new, &output, out),
         Cmd::Open {
             step,
             diff,
@@ -941,6 +963,36 @@ fn diff(old: &Path, new: &Path, args: &Compared, out: &mut impl Write) -> Result
             &json!({"verdict": compared.verdict(), "summary": compared.summary()}),
         ),
     )
+}
+
+/// `carry OLD NEW -o OUT`: OLD's requirements carried onto NEW and written to OUT, all or
+/// nothing; the report printed. A carry that cannot be applied writes nothing: exit 2, with
+/// the report and its reasons.
+fn carry(old: &Path, new: &Path, output: &Path, out: &mut impl Write) -> Result<(), Exit> {
+    let read = |path: &Path| part::File::read(path).map_err(Exit::error);
+    let carried = crate::carry::carry(&read(old)?, &read(new)?).map_err(Exit::error)?;
+    let mut report = carried.report;
+    if let Some(bytes) = carried.bytes {
+        crate::writer::put(output, bytes).map_err(|e| {
+            Exit::new(
+                1,
+                format!("write failed, {} left as it was: {e}", output.display()),
+            )
+        })?;
+    } else {
+        report.written = false;
+    }
+    print(out, &indent1_keeping_non_ascii(&report.to_json()))?;
+    if !report.refused.is_empty() {
+        let mut message = "cannot carry: nothing was written. A carry is applied all or \
+                           nothing, and these could not be applied:"
+            .to_string();
+        for f in &report.refused {
+            message.push_str(&format!("\n- {}: {}", f.entry, f.reason));
+        }
+        return Err(Exit::new(2, message));
+    }
+    Ok(())
 }
 
 /// A JSON file, parsed. A file that cannot be read is an uncaught failure (exit 1); one that

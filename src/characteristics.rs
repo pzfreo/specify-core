@@ -381,6 +381,84 @@ pub(crate) fn measures(p: &PartPmi) -> Vec<((&'static str, usize), String)> {
         .collect()
 }
 
+/// What one requirement of [`measures`] states, value included: for comparing a plan with
+/// what a file states (`carry`'s check that an answer restates a requirement exactly).
+#[derive(PartialEq, Eq)]
+pub(crate) struct Statement {
+    pub kind: String,
+    pub r#type: String,
+    /// Every face it sits on, both sides of a location.
+    pub on: BTreeSet<usize>,
+    value: ValueHint,
+}
+
+impl Statement {
+    /// Whether two requirements state the same, wherever they sit: kind, type and value.
+    pub(crate) fn same_value(&self, other: &Statement) -> bool {
+        self.kind == other.kind && self.r#type == other.r#type && self.value == other.value
+    }
+
+    /// Its type and value in short notation (`Size_Diameter 5 H7`, `Position 0.2 | A | B`).
+    pub(crate) fn text(&self) -> String {
+        let n = |v: &str| {
+            let t = v.trim_end_matches('0').trim_end_matches('.');
+            if t.is_empty() || t == "-" { "0".to_string() } else { t.to_string() }
+        };
+        let value = match &self.value {
+            ValueHint::None => String::new(),
+            ValueHint::Dimension(nominal, tolerance) => {
+                let tolerance = match tolerance {
+                    DimensionHint::None => String::new(),
+                    DimensionHint::Basic => " basic".into(),
+                    DimensionHint::Deviations(u, l) => format!(" +{} {}", n(u), n(l)),
+                    DimensionHint::Limits(u, l) => format!(" [{}, {}]", n(l), n(u)),
+                    DimensionHint::Fit(class) => format!(" {class}"),
+                };
+                format!("{}{tolerance}", n(nominal))
+            }
+            ValueHint::Tolerance(magnitude, _, datums) => {
+                let mut out = n(magnitude);
+                for compartment in datums.iter().flatten() {
+                    out.push_str(&format!(" | {}", compartment.join("-")));
+                }
+                out
+            }
+            ValueHint::Texture(_, parameters) => parameters
+                .iter()
+                .map(|(c, v)| format!("{c} {}", n(v)))
+                .collect::<Vec<_>>()
+                .join(" "),
+            ValueHint::Thread(qualifier) => qualifier.clone().unwrap_or_default(),
+            ValueHint::Knurl(_) => String::new(),
+        };
+        format!("{} {value}", self.r#type).trim().to_string()
+    }
+
+    /// A size dimension with no tolerance of its own: one the general tolerance covers.
+    pub(crate) fn general_size(&self) -> bool {
+        self.kind == "dimension"
+            && self.r#type.starts_with("Size_")
+            && matches!(self.value, ValueHint::Dimension(_, DimensionHint::None))
+    }
+}
+
+/// Each requirement of [`measures`]'s kinds in `p`, in its order, with its value.
+pub(crate) fn statements(p: &PartPmi) -> Vec<Statement> {
+    items(p, None, None)
+        .into_iter()
+        .map(|item| {
+            let mut on: BTreeSet<usize> = item.key.faces.into_iter().collect();
+            on.extend(item.key.reference);
+            Statement {
+                kind: item.key.kind,
+                r#type: item.key.r#type,
+                on,
+                value: item.value_hint,
+            }
+        })
+        .collect()
+}
+
 /// A numbered kind of requirement in the file (as [`measures`] lists them), with where it
 /// is in haecceity's collections and its characteristic number, if it has one.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -649,7 +727,12 @@ pub(crate) fn allocate(
         .collect();
     let unchanged = saved.clone();
     let mut old = saved.unwrap_or_default();
-    if let Some(h) = carried.filter(|_| !has_saved) {
+    // An older revision's history carried onto this part (`carry`): its numbers go to the
+    // requirements written now that it names, never to one the file already numbers.
+    let transported = carried.is_some() && !has_saved;
+    if let Some(mut h) = carried.filter(|_| !has_saved) {
+        let taken: BTreeSet<u64> = prov.all().into_iter().filter_map(|id| number(doc, id)).collect();
+        h.entries.retain(|e| !taken.contains(&e.number));
         old = h;
         value_hints.clear();
     } else {
@@ -723,10 +806,13 @@ pub(crate) fn allocate(
     if !replace && new.is_empty() && removed.is_empty() {
         return Ok(());
     }
-    let eligible = |item: &Item| replace || item.key.kind == "datum" || !removed.is_empty();
-    // In an edit, a new requirement other than a datum may only take a removed one's number.
-    let allowed =
-        |e: &Entry, item: &Item| replace || item.key.kind == "datum" || removed.contains(&e.number);
+    let eligible =
+        |item: &Item| replace || transported || item.key.kind == "datum" || !removed.is_empty();
+    // In an edit, a new requirement other than a datum may only take a removed one's number,
+    // or one an older revision's carried history gives it.
+    let allowed = |e: &Entry, item: &Item| {
+        replace || transported || item.key.kind == "datum" || removed.contains(&e.number)
+    };
     let mut used = BTreeSet::new();
     // A unique structural key (including a planner role) wins even after a value edit.
     // Only indistinguishable coexisting controls need value hints, so an insertion cannot
@@ -892,6 +978,10 @@ pub(crate) fn allocate(
     // only the assigned values change. This also keeps unchanged rewrites byte-identical.
     let mut entries = if replace { vec![] } else { old.entries.clone() };
     entries.retain(|e| !removed.contains(&e.number));
+    if transported {
+        // A carried entry nothing was written for is retired: below the high-water mark.
+        entries.retain(|e| allocations.contains(&Some(e.number)));
+    }
     for (item, number) in new.iter().zip(allocations) {
         if let Some(number) = number
             && !entries.iter().any(|e| e.number == number)
