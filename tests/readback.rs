@@ -657,10 +657,14 @@ fn datum_modifier(m: &DatumModifier) -> String {
 /// What a dimension states, each as text its stated row must contain, and whether any of it is
 /// beyond the structured fields.
 fn dimension_facts(d: &pmi::Dimension) -> (Vec<String>, bool) {
-    let mut facts: Vec<String> = haecceity::presentation::dimension_text(d)
-        .split_whitespace()
-        .map(str::to_string)
-        .collect();
+    // With no value, haecceity's notation is its bare prefix (`⌀`): the kind is said in words.
+    let mut facts: Vec<String> = match d.nominal {
+        Some(_) => haecceity::presentation::dimension_text(d)
+            .split_whitespace()
+            .map(str::to_string)
+            .collect(),
+        None => vec!["no value stated".into()],
+    };
     let mut beyond = false;
     if let DimTolerance::Fit { class, limits } = &d.tolerance {
         facts.push(class.to_string());
@@ -801,6 +805,11 @@ fn other_tools_pmi_reads_back_whole() {
             for ((facts, beyond), item) in facts {
                 checked += 1;
                 let text = item["text"].as_str().unwrap_or("");
+                // Numbers as the display shows them: float noise and trailing zeros trimmed.
+                let facts: Vec<String> = facts
+                    .iter()
+                    .map(|f| specify_core::existing::clean_numbers(f))
+                    .collect();
                 for fact in &facts {
                     if !text.contains(fact.as_str()) {
                         failures.push(format!(
@@ -901,7 +910,7 @@ fn another_tools_modifiers_and_zones_read_back_whole() {
     let analysis = specify_core::api::analyse(&load(&path, Some(0)).unwrap()).unwrap();
     let on = |kind: &str, faces: Value| find(&analysis, "geometric_tolerance", kind, faces);
     let mmc = on("Position", json!([18, 19, 22, 23]));
-    assert_eq!(mmc["text"], "⌖ ⌀0.016000Ⓜ A B C", "{mmc}");
+    assert_eq!(mmc["text"], "⌖ ⌀0.016Ⓜ A B C", "{mmc}");
     assert_eq!(
         (&mmc["diametral"], &mmc["mmc"]),
         (&json!(true), &json!(true)),
@@ -916,12 +925,12 @@ fn another_tools_modifiers_and_zones_read_back_whole() {
     // Datum references with Ⓜ, and a separate requirement: in the text, and text only.
     let separate = on("Position", json!([26, 27, 28, 29]));
     assert_eq!(
-        separate["text"], "⌖ ⌀0.025000Ⓜ separate requirement A DⓂ EⓂ",
+        separate["text"], "⌖ ⌀0.025Ⓜ separate requirement A DⓂ EⓂ",
         "{separate}"
     );
     assert_eq!(separate["text_only"], true, "{separate}");
     let profile = on("ProfileOfSurface", json!((56..=71).collect::<Vec<_>>()));
-    assert_eq!(profile["text"], "⌓ 0.020000 A FⓂ", "{profile}");
+    assert_eq!(profile["text"], "⌓ 0.02 A FⓂ", "{profile}");
     assert_eq!(profile["text_only"], true, "{profile}");
     // A projected zone (Ⓟ and its length, as the file states it).
     let projected = analysis["existing"]
@@ -938,7 +947,7 @@ fn another_tools_modifiers_and_zones_read_back_whole() {
         "Size_Diameter",
         json!([30, 31, 32, 33, 106, 107]),
     );
-    assert_eq!(size["text"], "⌀0.250000 +0.003000/0", "{size}");
+    assert_eq!(size["text"], "⌀0.25 +0.003/0", "{size}");
     assert!(
         same(&size["upper"], &json!(0.0762)) && same(&size["lower"], &json!(0.0)),
         "{size}"
@@ -950,5 +959,46 @@ fn another_tools_modifiers_and_zones_read_back_whole() {
             texts.iter().any(|t| *t == item["text"]),
             "{item} not in {texts:?}"
         );
+    }
+}
+
+/// The display reads as a drawing does: no float noise, no trailing zeros, and a dimension
+/// with no value in words, never a bare `⌀` or a type name (NIST CTC-01 and CTC-03).
+#[test]
+fn stated_text_reads_as_a_drawing_does() {
+    let texts = |name: &str| -> Vec<(Value, String)> {
+        let path = decompressed(&common::fixtures().join(format!("nist/{name}.stp.gz")));
+        let analysis = specify_core::api::analyse(&load(&path, None).unwrap()).unwrap();
+        analysis["existing"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| (e.clone(), e["text"].as_str().unwrap_or("").to_string()))
+            .collect()
+    };
+    let noise = regex::Regex::new(r"\d\.\d*0\b|\d{11,}").unwrap();
+    for name in ["nist_ctc_01_asme1_ap242", "nist_ctc_03_asme1_ap242"] {
+        let all = texts(name);
+        for (item, text) in &all {
+            assert!(!text.is_empty(), "{name}: {item}");
+            assert!(!noise.is_match(text), "{name}: {text:?} ({item})");
+            assert!(
+                !text.contains('_') && text != "⌀",
+                "{name}: {text:?} ({item})"
+            );
+            if item["kind"] == "dimension" && item.get("value").is_none() {
+                assert!(text.ends_with(", no value stated"), "{name}: {text:?}");
+            }
+        }
+        if name.contains("ctc_01") {
+            let words: Vec<&str> = all.iter().map(|(_, t)| t.as_str()).collect();
+            assert!(words.contains(&"Diameter, no value stated"), "{words:?}");
+            assert!(
+                words.contains(&"Linear distance, no value stated"),
+                "{words:?}"
+            );
+        } else {
+            assert!(all.iter().any(|(_, t)| t == "(0.75)"), "{all:?}");
+        }
     }
 }

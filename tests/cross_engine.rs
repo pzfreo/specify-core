@@ -900,3 +900,38 @@ fn the_engines_read_each_others_files() {
     }
     check_known("cross_engine", &differences);
 }
+
+/// A location the planner shares across several holes is written unless the file already
+/// locates every one of them: CTC-05's 263.525 from face 9 locates holes 37 (datum B, located
+/// as the origin) and 51/53, 54/56, which nothing else locates in x, so it is written.
+#[test]
+fn a_shared_location_is_written_when_one_of_its_holes_is_already_located() {
+    let case = write_fixtures::cases()
+        .into_iter()
+        .find(|c| c.name == "nist/nist_ctc_05_asme1_ap242")
+        .expect("the CTC-05 case");
+    let out = write_fixtures::scratch().join("ctc05-shared.step");
+    write_fixtures::write(&case, &out).unwrap();
+    let loaded = load(&out, None).unwrap();
+    // The general location is nominal only: the analysis lists it (the file's whole PMI).
+    let analysis = specify_core::api::analyse(&loaded).unwrap();
+    let ids = |e: &Value, key: &str| -> Vec<u64> {
+        e[key]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_u64)
+            .collect()
+    };
+    let found = analysis["existing"].as_array().unwrap().iter().any(|e| {
+        e["kind"] == "dimension"
+            && e["type"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("Location_"))
+            && ids(e, "faces") == [9]
+            && [51, 53, 54, 56]
+                .iter()
+                .all(|f| ids(e, "faces2").contains(f))
+    });
+    assert!(found, "no location from face 9 to holes 51/53, 54/56");
+}

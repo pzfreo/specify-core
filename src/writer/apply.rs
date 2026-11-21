@@ -1625,6 +1625,9 @@ fn applied_pmi(
         .chain(chosen.iter().map(|(id, v)| (id.clone(), v.clone())))
         .collect();
     let mut lines = super::Lines::default();
+    // ADR P11 rule 2: the given answers the plan made no PMI from (a general size on a datum's
+    // own faces), stored as decided.
+    let mut wrote_nothing: BTreeMap<String, Json> = BTreeMap::new();
     let mut pmi = if given.is_empty() {
         PartPmi::default()
     } else {
@@ -1729,9 +1732,53 @@ fn applied_pmi(
         } else {
             Mode::Replace
         };
-        let (mut pmi, planned) = part_pmi(&loaded_clean, &intent, clean_before, mode, &[])
-            .map_err(|e| whole(e.to_string()))?;
+        let mut made: Vec<Map<String, Json>> = Vec::new();
+        let (mut pmi, planned) = super::part_pmi_observed(
+            &loaded_clean,
+            &intent,
+            clean_before,
+            mode,
+            &[],
+            &mut |_, _, r| made.push(r.clone()),
+        )
+        .map_err(|e| whole(e.to_string()))?;
         lines = planned;
+        // An answer the plan made nothing from: no requirement made names its question, is on
+        // its feature, or on its faces.
+        let faces_of = |r: &Map<String, Json>| -> BTreeSet<usize> {
+            r.get("faces")
+                .and_then(Json::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Json::as_u64)
+                .map(|f| f as usize)
+                .collect()
+        };
+        for (id, value) in &given {
+            if !crate::feature_table::is_requirement(id)
+                || id.starts_with("part.")
+                || id.starts_with("datum.")
+            {
+                continue;
+            }
+            let (_, feature) = crate::feature_table::kind_and_feature(id);
+            let on: BTreeSet<usize> = table
+                .row(id)
+                .map(|r| r.faces.iter().copied().collect())
+                .unwrap_or_default();
+            let made_it = made.iter().any(|r| {
+                r.get("question").and_then(Json::as_str) == Some(id.as_str())
+                    || r.get("feature").and_then(Json::as_str) == Some(feature.as_str())
+                    || (r.contains_key("kind") && !faces_of(r).is_disjoint(&on))
+            });
+            if !made_it {
+                lines.not_written.push(format!(
+                    "answer {id} ({}): there is no PMI to write for it; it is stored as decided",
+                    crate::choices::short_repr(value, 6)
+                ));
+                wrote_nothing.insert(id.clone(), value.clone());
+            }
+        }
         keep_untouched(&mut pmi, before, &changed_items, &nominals)
             .map_err(|e| whole(e.to_string()))?;
         // A change replaces its row's own items: it never adds a location dimension beside
@@ -1820,11 +1867,23 @@ fn applied_pmi(
             saved.insert(id.clone(), value.clone());
         }
     }
-    for (id, value) in &none {
+    for (id, value) in none.iter().chain(&wrote_nothing) {
         saved.insert(id.clone(), value.clone());
     }
     if !saved.is_empty() {
-        let payload = crate::resume::payload(loaded, &saved).map_err(|e| whole(e.to_string()))?;
+        let mut payload =
+            crate::resume::payload(loaded, &saved).map_err(|e| whole(e.to_string()))?;
+        // Every stored answer that would write a requirement is one that wrote nothing (rule 2).
+        let no_pmi: Vec<Json> = saved
+            .iter()
+            .filter(|(id, v)| {
+                crate::feature_table::is_requirement(id) && !crate::feature_table::leaves_nothing(v)
+            })
+            .map(|(id, _)| Json::from(id.as_str()))
+            .collect();
+        if !no_pmi.is_empty() {
+            payload[crate::feature_table::NO_PMI] = Json::Array(no_pmi);
+        }
         pmi.attributes.push(crate::resume::attribute_set(&payload));
     }
     pmi.attributes.extend_from_slice(extra);
