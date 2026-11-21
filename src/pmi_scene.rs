@@ -1251,8 +1251,12 @@ fn merge(target: &mut Value, other: Value, comparison: bool) -> Result<(), Strin
             for row in rows {
                 if let Some(old) = output.iter().find(|old| old["id"] == row["id"]) {
                     // A comparison can generate two different layouts for the same
-                    // general-notes block. The combined scene lays it out again.
-                    if old != row && !comparison {
+                    // general-notes block, and so can answers added to a file that states
+                    // part notes (ADR P11). The combined scene lays it out again.
+                    let notes_block = row["id"]
+                        .as_str()
+                        .is_some_and(|id| id.starts_with("generated:general-notes/"));
+                    if old != row && !comparison && !notes_block {
                         return Err(format!("conflicting presentation {field} id {}", row["id"]));
                     }
                 } else {

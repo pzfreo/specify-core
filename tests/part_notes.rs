@@ -295,6 +295,52 @@ fn assembly_notes_belong_to_their_part() {
     }
 }
 
+/// A part setting answered on a part whose file states part notes adds to the file's notes
+/// block (ADR P11): the scene lays the block out again rather than refusing two layouts of it.
+#[test]
+fn a_part_setting_added_to_an_assemblys_stated_notes_has_a_scene() {
+    let file = part::File::read(&fixture("assembly")).unwrap();
+    let parts: Vec<_> = (0..2).map(|k| file.load(Some(k)).unwrap()).collect();
+    let answers: Vec<_> = (0..2)
+        .map(|k| {
+            json!({"part.material": format!("material {k}")})
+                .as_object()
+                .unwrap()
+                .clone()
+        })
+        .collect();
+    let intents: Vec<_> = parts
+        .iter()
+        .zip(&answers)
+        .map(|(p, a)| api::preview(&api::analyse(p).unwrap(), a).unwrap())
+        .collect();
+    let jobs: Vec<_> = parts
+        .iter()
+        .zip(&intents)
+        .zip(&answers)
+        .map(|((p, i), a)| (p, i, Some(a)))
+        .collect();
+    let (bytes, _) = writer::write_parts_bytes(&jobs).unwrap();
+    let file = part::File::of_bytes(Path::new("assembly-material.step"), bytes).unwrap();
+    let finish =
+        json!({"part.surface_finish": "Ra 3.2", "part.edges": "Break sharp edges 0.2 max"})
+            .as_object()
+            .unwrap()
+            .clone();
+    for k in 0..2 {
+        let loaded = file.load(Some(k)).unwrap();
+        let analysis = api::analyse(&loaded).unwrap();
+        let scene = specify_core::pmi_scene::Scene::new(&loaded)
+            .unwrap()
+            .scene(&loaded, Some(&analysis), Some(&finish))
+            .unwrap_or_else(|e| panic!("part {k}: {e}"));
+        assert!(
+            !scene["specify"]["part.surface_finish"].is_null(),
+            "part {k}"
+        );
+    }
+}
+
 #[test]
 fn opencascade_can_open_a_part_with_ordered_notes() {
     let Some(python) = common::live_python() else {
