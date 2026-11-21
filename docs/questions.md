@@ -59,6 +59,54 @@ combinations of f/m/c/v with H/K/L, for example `"ISO 2768-mK"`. The default rem
 text and haecceity recognises its geometric class. Linear defaults still use the existing
 ISO 2768-1 table for the first letter. Specify has no ISO 2768-2 tables, so H/K/L adds
 no numeric geometric defaults; explicitly answered geometric tolerances keep their values.
+
+**A general tolerance given as a block** (#228; proposal specify-0.3.0, Paul's decisions of
+2026-11-21). A drawing that names no ISO class, such as an inch shop drawing, states its general
+tolerance by decimal places, often with fractions and angles. `part.general_tolerance` takes that
+block as one line of text, lines separated by `,`, `;` or `·`, and shows it back in one spelling
+(`choices::interpret`; an answers file may hold it as typed):
+
+| Typed | Read as |
+| --- | --- |
+| `.XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°` | `.XX ±.01 · .XXX ±.005 · ±1/64 · angles ±1°` |
+| `.XXX ±.005 in, angular ±1°` | `.XXX ±.005 · angles ±1°` |
+| `X ±0.5, X.X ±0.2, X.XX ±0.05, angles ±0°30'` | `X ±0.5 · X.X ±0.2 · X.XX ±0.05 · angles ±0°30′` |
+
+A line that is not decimal places with a tolerance (`.XX ±.01`, `X.X ±0.2`), fractions (`±1/64`)
+or angles (`angles ±1°`) refuses the answer, naming the line and why (two tolerances on one line,
+`XX` without a point, a zero tolerance or fraction, the same number of places stated twice). Text
+that looks like a block is never answered with the list of ISO classes. Units are stored as stated
+and never converted: a unit written on a line (`in`, `"`, `mm`) is the block's; else inch notation
+(`.XX`) or a fraction means inches; else the block is in the file's length unit. The notation
+decides, not how the tolerance is spelled: `X.XX ±.01` in a millimetre file is ±0.01 mm. No
+decimal places is `X` in both systems (`X ±.5`, `X ±0.5`); it is inches when the block also has an
+inch-notation line or a fraction, or says `in`, and otherwise the file's unit. The block is
+shown back, and its row read, naming the unit whenever the notation alone does not imply it
+(`X ±.5 in` in a millimetre file, `X ±0.5 mm` in an inch file).
+
+In the file the decimal-place lines are AP242's `default_tolerance_table`, one
+`default_tolerance_table_cell` per line: its `significant number of digits`, its `plus minus
+tolerance value` in the block's unit, and a `cell description` with the line as stated. A cell
+needs a number of digits or a range (WR3), so fractions and angles go, as stated, in the general
+tolerance note beside the table (the part's `semantic text` with a `general tolerance` item, lines
+separated by `; `, minutes as `'`, as PMI fonts draw them). Nothing else is written: no ISO class,
+and no dimension. Nothing is worked out from the block either. (The 'default tolerances'
+representation the table relates to carries an empty `tolerance class` item: haecceity writes it,
+as the PMI practice's §4.1 Figure 3 does when only a table applies, and a representation needs at
+least one item. It states no class, and reads as none.)
+
+On reopening the table is the state. The General tolerance row is stated, its value the table's
+lines read back from its cells whoever wrote it (a range cell reads `0.5 to 6 ±0.1`, an asymmetric
+one `X.X +0.3/-0.1`; values in the file's length unit are shown without it), then the note's
+lines. "None needed" (`none`) is an answer for a file that states no general tolerance; on a file
+that states one it is not written, as for any stated setting. A different general tolerance in
+an intent written to a file that states one (CLI, serve, Python `write`) is refused, as before:
+the file's value stands (ADR P11). Only an explicit change replaces it,
+`writer::write_bytes_changing_general_tolerance` (`Replace::GeneralTolerance`), which the edit
+list's `change` of `part.general_tolerance` uses: the file's classes, tables and Specify's general
+tolerance note give way, whoever wrote them, and every other entity stays byte for byte. The same
+one again is not written twice. ISO 2768 classes work as
+before. Left out: inch threads and inch clearance sizes.
 Imported foreign PMI uses Add mode, retaining original limit entities; the answers are stored
 beside it and resume on reopening, with the foreign limits still in `existing`. Bare or
 previously authored parts store and resume the exact limit answer strings in STEP as usual.

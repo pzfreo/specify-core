@@ -36,6 +36,16 @@ Read first:
   states something those fields don't hold (a datum reference's Ⓜ, a projected zone ...). Also
   in Python's `ExistingPmi` (`text`, `text_only`, `fields`). docs/answers.md, "What the file
   states, read back whole".
+- **A general tolerance given as a block** (#228; docs/questions.md): `part.general_tolerance`
+  takes a title block's lines in one line of text, for example `.XX ±.01, .XXX ±.005, fractions
+  ±1/64, angles ±1°`, shown back as `.XX ±.01 · .XXX ±.005 · ±1/64 · angles ±1°`. The decimal-place
+  lines are written as AP242's default tolerance table in the unit stated (inch notation means
+  inches; never converted), fractions and angles in the general tolerance note beside it, and
+  nothing else: no ISO class, no dimension. Reopening shows the table as stated, whoever wrote it.
+  A different general tolerance in an intent is still refused when the file states one; only an
+  explicit change (`writer::write_bytes_changing_general_tolerance`, for the edit list's
+  `change`) replaces it, every other entity byte for byte. `none` is now an answer for `part.general_tolerance` and
+  `part.surface_finish` (decided none: nothing written, the decision stored).
 - `@draftwright/specify-ui`: a `HostView` interface (ui/docs/host-view.md, specify-core #222) so a host can
   draw the 3D view. `StepDiff` and `SpecifyReview` take an optional `view` prop; without one they use
   today's view, now the interface's default implementation. Faces are identified by STEP entity
@@ -63,6 +73,11 @@ Read first:
 
 ### Changed
 
+- **`write` writes what is answered while questions are open** (#228, ADR P11): the CLI's
+  `write ANALYSIS ANSWERS` no longer refuses `incomplete`. It writes the answers given (with
+  `--accept-defaults`, every default too), exits 0, and lists the questions still open in the
+  report's `missing`, as the editor's save and MCP `write_pmi` already did. A carried answer
+  that could not be applied, an invalid answer and a wrong file still refuse (exit 2).
 - **`pmiScene` item ids changed** (ADR P11, D3): a planned dimension's id no longer says how it
   was stated. `planner:specified:dim:…` and `planner:answered:dim:…` are now `planner:dim:…`, and
   the `planner:stored:dim:…:{nominal}:{tolerance}` form read from a file loses its stored mark and

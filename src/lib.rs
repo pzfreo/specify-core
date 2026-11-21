@@ -46,6 +46,7 @@ pub mod serve;
 pub mod session;
 pub mod sightlines;
 pub mod standards;
+pub mod tolerance_block;
 pub mod tolerancing;
 pub mod triangulate;
 pub mod writer;

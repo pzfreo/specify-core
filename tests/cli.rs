@@ -1685,6 +1685,7 @@ fn check_datum_origin_departures(differences: &[Difference]) {
                 && e.pattern != "Exact tap-drill defaults and dependent question order"
                 && e.pattern != "Combined ISO 2768 class choices in CLI and serve"
                 && e.pattern != "Absolute slash bounds are accepted by CLI answers"
+                && e.pattern != "Open questions are gaps: write writes what is answered (#228)"
         })
         .collect();
     let ties: Vec<_> = load_known(&common::known_differences_file("cli"))
@@ -1844,7 +1845,8 @@ fn the_command_line_writes_a_pair_for_each_part() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Exit codes and messages: 0 done; 2 refused (incomplete, invalid answer, cannot write) or bad
+/// Exit codes and messages: 0 done (questions left open listed in `missing`, #228); 2 refused
+/// (a carried answer not applied, invalid answer, cannot write) or bad
 /// arguments; 1 a write that could not be made (the destination left as it was) or a file that
 /// cannot be read.
 #[test]
@@ -1866,10 +1868,12 @@ fn exit_codes_say_what_happened() {
         &s(&dir.join("o.step")),
         "--accept-defaults",
     ]);
-    assert_eq!(
-        (ran.code, ran.stderr.as_str()),
-        (2, "incomplete: 1 question(s) unanswered: part.material\n")
-    );
+    // #228, ADR P11: an open question is a gap, not a refusal. The write is made with every
+    // default taken, and the question with no default (the material) is listed in `missing`.
+    assert_eq!((ran.code, ran.stderr.as_str()), (0, ""));
+    let report: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert_eq!(report["missing"], json!(["part.material"]));
+    assert!(dir.join("o.step").exists());
 
     save(&q, &json!({"part.material": "steel", "datum.A": [99999]}));
     let ran = run(&[
@@ -2444,4 +2448,84 @@ fn mesh_max_deviation_mm_is_measured_and_validated() {
         assert!(String::from_utf8_lossy(&output.stderr).contains("positive finite"));
         assert!(output.stdout.is_empty());
     }
+}
+
+/// #228: `write` writes what is answered while questions are open, and lists them in
+/// `missing` (ADR P11: gaps are not a refusal). The half-shell of the issue, its general
+/// tolerance and material answered, its holes, datums and edges still open.
+#[test]
+fn issue_228_write_writes_what_is_answered_and_lists_the_gaps() {
+    let dir = scratch("issue228");
+    let step = common::fixtures().join("issue228-half-shell.step.gz");
+    let a = dir.join("a.json");
+    assert_eq!(run(&["analyse", &s(&step), "-o", &s(&a)]).code, 0);
+    let q = dir.join("q.json");
+    save(
+        &q,
+        &json!({
+            "part.material": "6061 Al",
+            "part.coating": "Anodize blue",
+            "part.surface_finish": "none",
+            "part.general_tolerance": ".XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°",
+        }),
+    );
+    let output = dir.join("o.step");
+    let ran = run(&["write", &s(&step), &s(&a), &s(&q), "-o", &s(&output)]);
+    assert_eq!(ran.code, 0, "{}", ran.stderr);
+    let report: Value = serde_json::from_str(&ran.stdout).unwrap();
+    let written: Vec<&str> = report["written"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l.as_str().unwrap())
+        .collect();
+    assert!(written.contains(&"material 6061 Al"), "{written:?}");
+    assert!(
+        written.contains(&"general tolerance .XX ±.01 · .XXX ±.005 · ±1/64 · angles ±1°"),
+        "{written:?}"
+    );
+    let missing = report["missing"].as_array().unwrap();
+    assert!(missing.contains(&json!("datum.A")), "{missing:?}");
+    assert!(
+        missing.contains(&json!("hole.function:holes:96.129")),
+        "{missing:?}"
+    );
+    assert!(output.exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// ADR P11: `write` never replaces a general tolerance the file states. A file stating ISO
+/// 2768-f, an analysis without the feature table (an older one, so the rules do not hold the
+/// answer back), and ISO 2768-c answered: the writer refuses, and nothing is written.
+#[test]
+fn write_refuses_a_different_general_tolerance_than_the_file_states() {
+    let dir = scratch("stated-general");
+    let plate = part("plate");
+    let a = dir.join("a.json");
+    assert_eq!(run(&["analyse", &s(&plate), "-o", &s(&a)]).code, 0);
+    let q = dir.join("q.json");
+    save(
+        &q,
+        &json!({"part.material": "steel", "part.general_tolerance": "ISO 2768-f"}),
+    );
+    let first = dir.join("f.step");
+    let ran = run(&["write", &s(&plate), &s(&a), &s(&q), "-o", &s(&first)]);
+    assert_eq!(ran.code, 0, "{}", ran.stderr);
+    let b = dir.join("b.json");
+    assert_eq!(run(&["analyse", &s(&first), "-o", &s(&b)]).code, 0);
+    let mut analysis: Value = serde_json::from_str(&std::fs::read_to_string(&b).unwrap()).unwrap();
+    analysis.as_object_mut().unwrap().remove("table");
+    save(&b, &analysis);
+    save(&q, &json!({"part.general_tolerance": "ISO 2768-c"}));
+    let second = dir.join("c.step");
+    let ran = run(&["write", &s(&first), &s(&b), &s(&q), "-o", &s(&second)]);
+    assert_eq!(ran.code, 2, "{}", ran.stdout);
+    assert!(
+        ran.stderr
+            .contains("already states general tolerance ISO 2768-f"),
+        "{}",
+        ran.stderr
+    );
+    assert!(!second.exists());
+    let _ = std::fs::remove_dir_all(&dir);
 }
