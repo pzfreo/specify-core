@@ -2,11 +2,10 @@
 //! can move a part between engines.
 //!
 //! - (a) `rust_written_files_match_the_current_presentation_writer`: the committed files
-//!   are what `examples/write_fixtures.rs` produces, including #65 ids/history,
-//!   with only the version-specific history key fields normalized for #95. All other
-//!   bytes remain exact, including #77 dimension origin/source UDAs and
-//!   quiddity-rust#137 presentation and aspect shapes. Deliberate changes require regenerating
-//!   them and independently recapturing Python's read-back (the example documents how).
+//!   read back as what `examples/write_fixtures.rs` writes today: each part's existing PMI
+//!   (with #77 origin/source), settings, stored answers and #65 characteristic numbers. No
+//!   output bytes are pinned. A semantic change requires regenerating them and independently
+//!   recapturing Python's read-back (the example documents how).
 //!   The Python reference predates inspection numbers and origin/source UDAs; their absence is an explicit ledger
 //!   difference, while the native characteristic tests check their exact standard slots.
 //!   Stored-answer schema 2 writes zeros unsigned, keeping these bytes portable.
@@ -87,10 +86,27 @@ fn rust_written_files_match_the_current_presentation_writer() {
         let output = scratch.join(format!("{}.step", case.name.replace(['/', '#'], "_")));
         let (step, refused) = (dir.join("rust.step.gz"), dir.join("rust.refused.txt"));
         match (write_fixtures::write(case, &output), step.is_file()) {
-            (Ok(bytes), true)
-                if common::numbering::comparable_number_history(&gunzip(&step))
-                    == common::numbering::comparable_number_history(&bytes) => {}
-            (Ok(_), true) => stale.push(format!("{}: writer bytes changed", case.name)),
+            // No output bytes are pinned: the committed file and today's write must read back
+            // the same (each part's existing PMI, settings, stored answers and characteristic
+            // numbers), so Python's read-back of the committed file, (b), is a read-back of
+            // what today's writer writes.
+            (Ok(_), true) => {
+                let count = case.intents.len();
+                let committed = rust_written(&case.name).unwrap();
+                for k in 0..count {
+                    let (now, then) = (
+                        load_part(&output, k, count).map(|l| semantic_readback(&l)),
+                        load_part(&committed, k, count).map(|l| semantic_readback(&l)),
+                    );
+                    if now != then {
+                        stale.push(format!(
+                            "{} part {k}: the written file reads back differently: {}",
+                            case.name,
+                            readback_change(&then, &now)
+                        ));
+                    }
+                }
+            }
             (Ok(_), false) => stale.push(format!("{}: written now, not committed", case.name)),
             (Err(why), false)
                 if std::fs::read_to_string(&refused).ok().as_deref()
@@ -120,6 +136,31 @@ fn rust_written_files_match_the_current_presentation_writer() {
          Python's read-back (examples/write_fixtures.rs says how):\n  {}",
         stale.join("\n  ")
     );
+}
+
+/// What a file reads back as for (a): [`readback_of`] and the characteristic numbers, without
+/// their entity ids.
+fn semantic_readback(loaded: &LoadedPart) -> Value {
+    let mut out = readback_of(loaded);
+    let mut numbers = specify_core::characteristics::read(loaded).unwrap_or_default();
+    for c in &mut numbers {
+        c.entity = 0;
+    }
+    out["characteristics"] = serde_json::to_value(numbers).unwrap();
+    out
+}
+
+/// The keys of two [`semantic_readback`]s that differ, for a message.
+fn readback_change(then: &Result<Value, String>, now: &Result<Value, String>) -> String {
+    match (then, now) {
+        (Ok(then), Ok(now)) => ["existing", "part", "resume", "characteristics"]
+            .iter()
+            .filter(|k| then[**k] != now[**k])
+            .map(|k| format!("{k}: {} -> {}", then[*k], now[*k]))
+            .collect::<Vec<_>>()
+            .join("; "),
+        _ => format!("{then:?} -> {now:?}"),
+    }
 }
 
 /// The case directories under `root`: those holding a `rust.step.gz` or `rust.refused.txt`.
