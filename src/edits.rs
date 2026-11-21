@@ -159,11 +159,6 @@ pub trait FileState {
     fn kind(&self, id: &str) -> Option<KindState>;
     /// The requirement numbered `number`, or `None` if the file has none by that number.
     fn requirement(&self, number: u64) -> Option<Requirement>;
-    /// Whether "none" answers `id`: false for a choice none of whose options is a none
-    /// (`part.process`: machined, …), true when nothing says otherwise.
-    fn none_is_an_answer(&self, _id: &str) -> bool {
-        true
-    }
 }
 
 /// A file state held in memory: for tests, and until the feature table exists.
@@ -600,26 +595,8 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
         }
     }
 
-    // "None" for a choice that has no none option cannot be written: the file would not read.
-    let no_none = |id: &str| {
-        format!("{id} is a choice with no \"none\" among its options, so it cannot be decided none")
-    };
-    for (id, value) in &list.fill {
-        if is_none_answer(value) && state.kind(id).is_some() && !state.none_is_an_answer(id) {
-            failures.push(failure(key("fill", id), no_none(id)));
-        }
-    }
-    for (id, change) in &list.change {
-        if is_none_answer(&change.to) && state.kind(id).is_some() && !state.none_is_an_answer(id) {
-            failures.push(failure(key("change", id), no_none(id)));
-        }
-    }
     for id in &list.none {
         let entry = key("none", id);
-        if state.kind(id).is_some() && !state.none_is_an_answer(id) {
-            failures.push(failure(entry.clone(), no_none(id)));
-            continue;
-        }
         match state.kind(id) {
             None => failures.push(unknown_id(entry, id)),
             Some(KindState::Stated { value }) => {
