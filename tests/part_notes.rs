@@ -136,14 +136,17 @@ fn notes_round_trip_as_semantic_text_and_answers_with_a_byte_stable_rewrite() {
     }
     let reopened = part::load_bytes("notes.step", bytes.clone()).unwrap();
     assert_eq!(existing::part_settings(&reopened).unwrap()["notes"], notes);
+    // ADR P11: the notes and material write PMI, so they are not stored; the file states
+    // them, and a stated part.notes is not asked.
+    let stored = specify_core::feature_table::storable(&answers);
     assert_eq!(
         resume::answers_for(&reopened).unwrap(),
-        Some(answers.clone())
+        Some(stored.clone())
     );
     let analysis = api::analyse(&reopened).unwrap();
-    assert_eq!(analysis["resume"]["answers"], json!(answers));
+    assert_eq!(analysis["resume"]["answers"], json!(stored));
     assert!(
-        api::questions(&analysis, &answers)
+        !api::questions(&analysis, &answers)
             .unwrap()
             .iter()
             .any(|q| q.id == "part.notes")
@@ -154,7 +157,30 @@ fn notes_round_trip_as_semantic_text_and_answers_with_a_byte_stable_rewrite() {
         rewritten == bytes,
         "an unchanged resumed rewrite must preserve every byte"
     );
+}
 
+// Split from notes_round_trip_…: editing and clearing notes the file states is an edit in
+// place (ADR P11 piece 2); the round trip above stays live.
+#[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
+fn edited_and_cleared_notes_replace_the_written_notes() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let notes = json!([
+        "Inspect O'Brien's \\ bore ⌀8\nAfter coating",
+        "None",
+        "  Keep dry  ",
+        "",
+        "None",
+        "   ",
+        "(blank)",
+        "  \nVisible note\n  "
+    ]);
+    let answers = given(notes.clone());
+    let intent = api::apply(&analysis, &answers, true).unwrap();
+    let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
+    let reopened = part::load_bytes("notes.step", bytes).unwrap();
+    let analysis = api::analyse(&reopened).unwrap();
     let edited = given(json!(["New first", "New second"]));
     let intent = api::apply(&analysis, &edited, true).unwrap();
     let (bytes, _) = writer::write_bytes(&reopened, &intent, Some(&edited)).unwrap();

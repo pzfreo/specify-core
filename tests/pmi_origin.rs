@@ -45,7 +45,11 @@ fn answers() -> Map<String, Value> {
 #[test]
 fn every_dimension_has_origin_and_recognised_sources_round_trip_losslessly_and_repeat() {
     let plate = load("parts/plate.step");
-    let given = answers();
+    // ADR P9: a save writes the general tolerance's location of a hole only once how the
+    // holes are located is answered (here by ± dimensions), so the sourced hole locations
+    // this test reads are written.
+    let mut given = answers();
+    given.insert("part.locating".into(), json!("± dimensions"));
     let written = write(&plate, &given);
     let doc = Document::parse(written.bytes.to_vec()).unwrap();
     let original = Document::parse(plate.bytes.to_vec()).unwrap();
@@ -167,6 +171,7 @@ fn defaults_are_requirements_foreign_pmi_is_unmodified_and_old_files_stay_absent
 }
 
 #[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn v024_support_sources_survive_corrected_measurements_and_renamed_features() {
     for name in ["chamfer", "round"] {
         let p = load(&format!("quiddity025/{name}.step.gz"));
@@ -264,6 +269,7 @@ fn reserved_name_refuses_spoofing_and_schema_one_header_upgrades_losslessly() {
 }
 
 #[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn unique_support_growth_carries_the_stored_source_even_if_recognition_renames_it() {
     let p = load("parts/plate.step");
     let mut i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());

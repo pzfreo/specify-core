@@ -281,17 +281,31 @@ fn an_assembly_is_written_together_and_again_through_the_service() {
     );
     for k in [PLATE, PIN] {
         let back = api::analyse_file(&out, Some(k)).unwrap();
-        // ADR P9: every stored answer resumes; the defaults the file states resume too,
-        // listed in `present`.
+        // ADR P11: stored are the answers that leave no PMI; the material is stated by the
+        // file's PMI, which is listed in `existing` whoever wrote it.
         let resumed = back["resume"]["answers"].as_object().unwrap();
-        for (id, value) in &assembly_answers(k) {
-            assert_eq!(resumed.get(id), Some(value), "{id}");
-        }
+        assert_eq!(
+            resumed,
+            &specify_core::feature_table::storable(&assembly_answers(k))
+        );
         assert!(back["resume"].get("conflicts").is_none());
-        // The file's PMI is the answers' and the defaults they were written with (in
-        // `present`): nothing of its own to keep.
-        assert_eq!(back["existing"], json!([]));
+        let existing = back["existing"].as_array().unwrap();
+        assert!(!existing.is_empty());
+        assert!(
+            existing
+                .iter()
+                .all(|e| e["provenance"] == specify_core::writer::PMI_PROVENANCE),
+            "{existing:?}"
+        );
         assert_eq!(back["part"], json!({}));
+        let material = back["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == "part.material")
+            .unwrap();
+        assert_eq!(material["state"], "stated");
+        assert_eq!(material["value"], assembly_answers(k)["part.material"]);
     }
     // test_written_again_through_the_service_its_pmi_is_replaced
     let again = dir.join("again.step");
@@ -318,12 +332,17 @@ fn an_assembly_is_written_together_and_again_through_the_service() {
     let listed = server.reply(&json!({"id": 2, "op": "parts", "step": again}));
     assert_eq!(listed["result"]["parts"][PIN]["written"], json!(true));
     let analysed = server.reply(&json!({"id": 3, "op": "analyse", "step": again, "part": PIN}));
+    // ADR P11: stored are the answers that leave no PMI: this write accepted the defaults,
+    // so those of them that leave none.
     let resumed = analysed["result"]["analysis"]["resume"]["answers"]
         .as_object()
         .unwrap();
-    for (id, value) in &assembly_answers(PIN) {
-        assert_eq!(resumed.get(id), Some(value), "{id}");
-    }
+    let accepted = rules::with_all_defaults(
+        &api::analyse_file(&out, Some(PIN)).unwrap(),
+        &assembly_answers(PIN),
+    )
+    .unwrap();
+    assert_eq!(resumed, &specify_core::feature_table::storable(&accepted));
     assert_eq!(
         analysed["result"]["mesh"]["faces"]
             .as_array()

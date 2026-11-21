@@ -25,7 +25,24 @@ fn check_suggestions(analysis: &Value, given: &Map<String, Value>) {
                 )
             })
     );
-    for id in ["datum.A", "datum.B", "datum.C", "part.general_tolerance"] {
+    // ADR P11: a gap whose suggestion is "none" is not open; datum.C's suggestion is none.
+    let c = review["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["id"] == "datum.C")
+        .unwrap();
+    assert!(
+        specify_core::feature_table::is_none_value(&c["default"]),
+        "{c}"
+    );
+    assert!(
+        !review["open"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("datum.C"))
+    );
+    for id in ["datum.A", "datum.B", "part.general_tolerance"] {
         assert!(
             review["open"].as_array().unwrap().contains(&json!(id)),
             "{id}"

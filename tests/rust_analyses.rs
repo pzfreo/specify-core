@@ -365,9 +365,12 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
             "{file}: exact unresolved proposals"
         );
         let resumed = specify_core::part::load(&output, None).unwrap();
+        // ADR P11: stored are the answers that leave no PMI (the material is stated).
         assert_eq!(
             specify_core::resume::answers_for(&resumed).unwrap(),
-            answers.as_object().cloned(),
+            Some(specify_core::feature_table::storable(
+                answers.as_object().unwrap()
+            )),
             "{file}"
         );
         println!(

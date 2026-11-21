@@ -21,8 +21,8 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
-| [writer](#writer) | 1090 | 0 | 0 | 0 | 15 | 2 | 1107 |
-| **all** | 5121 | 1433 | 1249 | 2497 | 1101 | 1909 | 13310 |
+| [writer](#writer) | 1165 | 0 | 0 | 0 | 15 | 1 | 1181 |
+| **all** | 5196 | 1433 | 1249 | 2497 | 1101 | 1908 | 13384 |
 
 ## analysis
 
@@ -1210,7 +1210,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (1090 entries)
+### writer: rust-correct (1165 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1308,6 +1308,10 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension\|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics. Specify writes basic location dimensions for answered positions, so every written case with one reads basic: true on readback.
 
+- **ADR P11: an answer that writes PMI is not stored; the file states it** (75 entries, 45 case globs)
+
+  The evidence is stated per entry (74 distinct; all in `writer.json`). The first, for `corpus/mfcadpp/1000` at `resume.part.material`: ADR P11 rule 2 (src/feature_table.rs storable): a file stores only the answers that leave no PMI, and the file's PMI is the only copy of the rest. Python stores part.material = "steel" in its payload; that answer is a requirement whose value is not none, so the Rust writer writes it as PMI and does not store it: answers_for leaves it out. Its PMI is written: no other new writer-oracle difference for corpus/mfcadpp/1000 (its existing readback is Python's, apart from the entries already here). Only this exact case and path are covered.
+
 ### writer: not-applicable (15 entries)
 
 - **Python's three parts of one product are one part here** (`nist/nist_ctc_02_asme1_ap242` at `write.message[*]`)
@@ -1326,15 +1330,11 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   Python's own text route ('manufacturing requirement' sentences, leaders) or its own datum symbol lettering, which haecceity does not write (decisions 5 and 6 of docs/step-ap242.md); the semantic content each test also checks is ported in tests/writer.rs.
 
-### writer: resolved (2 entries)
+### writer: resolved (1 entry)
 
 - **Resolved exact unsupported planner proposal (shared planner, #75)** (`corpus/mfcadpp/10103` at `write.not_written[shared planner dim:plane:2/to/step:29/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]`)
 
   At b590592 quiddity #241 recognises prismatic_through_cuts:28.29.30, so face 29 (Python's step_levels:9.14.29.36) is a through-cut wall and the planner no longer proposes the projected plane:2/to/step:29 location. The diagnostic, previously reported and not written, must not return; no other writer output for this part changes.
-
-- **Verified saved answers exclude feature IDs absent from the current recogniser** (`scenarios/turned_a_typed_thread_depth_is_written` at `resume.hole.function:holes:3.5`)
-
-  Resolved by quiddity #216: the native pin hole now claims its planar floor 5 and has exactly the frozen Python ID holes:3.5. The frozen tapped:M5@5.6 value resumes unchanged, with the same 5.6 mm full-thread and 8 mm drilling depths. This exact resolved entry is a negative regression assertion: losing that answer again fails the writer oracle. Before #216, v0.4.9 recognised only holes:3, so verified rematching retained the frozen answer in the raw payload and unresolved review rather than applying an unsupported feature ID.
 
 ## Open work
 

@@ -60,8 +60,10 @@ fn answers_with_their_evidence_migrate_as_answers_stored_in_the_step_do() {
         None,
     )
     .unwrap();
-    let value = serde_json::to_value(&out).unwrap();
-    // Exactly the report the file's own stored answers give on opening.
+    let mut value = serde_json::to_value(&out).unwrap();
+    // Exactly the report the file's own stored answers give on opening. ADR P11: of those,
+    // only the answers that leave no PMI resume; the file states the rest.
+    value["answers"] = json!(specify_core::feature_table::storable(&out.answers));
     assert_eq!(value, analysis["resume"]);
     // #100 tip cones add six moves to the two schema-6 pattern moves.
     let base = json!({"answers": answers, "features": serde_json::from_slice::<Value>(
@@ -69,8 +71,10 @@ fn answers_with_their_evidence_migrate_as_answers_stored_in_the_step_do() {
     common::upgrade::check(&loaded, &base, &analysis, common::upgrade::FTC10);
     assert_eq!(out.migrated.len(), 8);
     assert!(out.unresolved.is_empty() && out.unverified.is_none());
+    // ADR P11: a requirement the file states is not asked again, so with these answers no
+    // question is left open (the only one unanswered is part.process, never open).
     let review = api::review(&analysis, &out.answers).unwrap();
-    assert_eq!(review["open"].as_array().unwrap().len(), 2);
+    assert_eq!(review["open"], json!([]));
 }
 
 /// Whether `id` is an answer on a feature or a datum (and the datum's settings).

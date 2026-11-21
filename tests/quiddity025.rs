@@ -64,8 +64,11 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
             resume::answers_for(&loaded).unwrap().as_ref(),
             Some(answers)
         );
+        // ADR P11: of the answers a v0.2.4 file stores, only those that leave no PMI resume;
+        // the rest the file states.
+        let stored = specify_core::feature_table::storable(answers);
         let a = api::analyse(&loaded).unwrap();
-        assert_eq!(a["resume"]["answers"], json!(expected));
+        assert_eq!(a["resume"]["answers"], json!(stored));
         let migrated: Vec<_> = base["answers"]
             .as_object()
             .unwrap()
@@ -238,7 +241,7 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
         );
         let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(answers)).unwrap();
         let back = part::load_bytes("rewritten.step", bytes).unwrap();
-        assert_eq!(resume::answers_for(&back).unwrap().as_ref(), Some(answers));
+        assert_eq!(resume::answers_for(&back).unwrap(), Some(stored));
         let expected = existing::read_existing(&loaded).unwrap();
         if name == "chamfer" {
             // #75 emits the retained boss fit before the shared hole fit again,

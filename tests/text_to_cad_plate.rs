@@ -128,11 +128,10 @@ fn assert_round_trip(
     let stored = resume::stored(&written.bytes).remove(&0).unwrap();
     assert_eq!(stored["schema"], 3);
     assert_eq!(stored["face_names"], json!(original.face_names));
-    assert_eq!(stored["answers"], json!(answers));
-    assert_eq!(
-        resume::answers_for(written).unwrap().as_ref(),
-        Some(answers)
-    );
+    // ADR P11: stored are the answers that leave no PMI; the file states the rest.
+    let kept = specify_core::feature_table::storable(answers);
+    assert_eq!(stored["answers"], json!(kept));
+    assert_eq!(resume::answers_for(written).unwrap(), Some(kept));
 
     // Read the actual AP242 PMI, independently of the stored-answer payload.
     // xcaf-pmi can follow these anchors back to the original named STEP faces.
