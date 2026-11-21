@@ -1415,13 +1415,14 @@ fn write_by_modes(
             );
         // AddPreservation is a refusal, never a reason to retry with Replace:
         // Replace would re-author the caller's foreign PMI.
-        if mode == Mode::Replace {
-            // Python's own form of stored answers is not PMI haecceity reads (it reports it as
-            // not modelled and keeps it), so a replace takes it out here: the answers stored
-            // now are the only ones. An add keeps it untouched; the payload written now is
-            // the one read (`pmi_scope`).
-            for (part, _) in &these {
-                // these retains the same validated part ids; replace edits do not change geometry or definitions.
+        // Python's own form of stored answers is not PMI haecceity reads (it reports it as
+        // not modelled and keeps it), so a replace, or an add that stores answers anew, takes
+        // it out here: the answers stored now are the only ones. An unmarked copy in
+        // haecceity's form (a user defined attribute) is not Python's and stays untouched;
+        // the payload written now is the one read (`pmi_scope`).
+        for (part, pmi) in &these {
+            if mode == Mode::Replace || pmi.attributes.iter().any(resume::is_answers) {
+                // these retains the same validated part ids; edits do not change geometry or definitions.
                 for id in python_answers(current, &defs[part.0]) {
                     edit.remove(id);
                 }
@@ -1554,12 +1555,15 @@ fn python_answers(doc: &Document, part: &PartDefinition) -> Vec<u64> {
     };
     let mut out = Vec::new();
     for &pdef in doc.referrers(part.product_definition) {
-        let Some(("PROPERTY_DEFINITION", [Attribute::String(n), _, Attribute::EntityRef(pd)])) =
+        let Some(("PROPERTY_DEFINITION", [Attribute::String(n), d, Attribute::EntityRef(pd)])) =
             simple(pdef)
         else {
             continue;
         };
-        if n != resume::NAME || *pd != part.product_definition {
+        // haecceity's form (`resume::attribute_set`) is described as a user defined attribute;
+        // only Python's own form is taken out.
+        let haecceity_form = matches!(d, Attribute::String(d) if d == "user defined attribute");
+        if n != resume::NAME || haecceity_form || *pd != part.product_definition {
             continue;
         }
         let pdrs = doc.referrers(pdef);
