@@ -36,7 +36,8 @@ fn bad(id: &str, why: impl Into<String>) -> Error {
 }
 
 /// The `part.*` answer names. A contract (docs/ids.md, pinned by `tests/ids_contract.rs`).
-pub const PART_NAMES: [&str; 9] = [
+#[doc(hidden)]
+pub const PART_NAMES: &[&str] = &[
     "material",
     "general_tolerance",
     "locating",
@@ -49,7 +50,8 @@ pub const PART_NAMES: [&str; 9] = [
 ];
 /// The kinds of feature-scoped answer IDs (`kind:feature`). A contract (docs/ids.md, pinned
 /// by `tests/ids_contract.rs`).
-pub const FEATURE_KINDS: [&str; 7] = [
+#[doc(hidden)]
+pub const FEATURE_KINDS: &[&str] = &[
     "hole.function",
     "hole.full_thread",
     "hole.frame",
@@ -58,6 +60,12 @@ pub const FEATURE_KINDS: [&str; 7] = [
     "diameter.fit",
     "diameter.runout",
 ];
+/// The letters a datum answer (`datum.<letter>`) can have. A contract (docs/ids.md).
+#[doc(hidden)]
+pub const DATUM_LETTERS: &[&str] = &["A", "B", "C", "D", "E", "F", "G", "H"];
+/// The datum controls (`datum.<these>`). A contract (docs/ids.md).
+#[doc(hidden)]
+pub const DATUM_CONTROLS: &[&str] = &["A.flatness", "B.control", "C.control"];
 
 /// Whether some question, added requirement or reserved transport member can have `id`.
 /// A BOM key is checked with its value (`bom::validate`), keeping that message.
@@ -73,11 +81,7 @@ pub fn known_id(id: &str) -> bool {
         return PART_NAMES.contains(&name);
     }
     if let Some(suffix) = id.strip_prefix("datum.") {
-        let (letter, control) = suffix.split_once('.').unwrap_or((suffix, ""));
-        return matches!(letter, "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H")
-            && (control.is_empty()
-                || suffix == "A.flatness"
-                || matches!(suffix, "B.control" | "C.control"));
+        return DATUM_LETTERS.contains(&suffix) || DATUM_CONTROLS.contains(&suffix);
     }
     if let Some((kind, feature)) = id.split_once(':') {
         return FEATURE_KINDS.contains(&kind) && !feature.is_empty();

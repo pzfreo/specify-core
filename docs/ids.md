@@ -11,7 +11,8 @@ lists below and fails when the code's ids and these lists differ.
 ## Part-level ids
 
 One per part. An answer to one is stored in the file as the part's setting (or, for "none",
-as a decided-none answer), not on any face.
+as a decided-none answer), not on any face. Only datums B and C have a control
+(`datum.B.control`, `datum.C.control`), and only datum A a flatness (`datum.A.flatness`).
 
 | Id | What it is | Row in the feature table |
 | --- | --- | --- |
@@ -39,7 +40,8 @@ as a decided-none answer), not on any face.
 
 ## Requirement kinds
 
-A feature's requirement has the id `<kind>:<feature>` (below). These are the kinds.
+A feature's requirement has the id `<kind>:<feature>` (below). These are the kinds. There is no
+`hole.size`: a hole's size comes from `hole.function`.
 
 | Kind | What it is |
 | --- | --- |

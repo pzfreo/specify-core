@@ -777,18 +777,31 @@ pub(crate) fn answered_in(
     values
 }
 
+/// The `bom.*` answer keys. A contract (docs/ids.md, pinned by `tests/ids_contract.rs`).
+#[doc(hidden)]
+pub const KEYS: &[&str] = &[
+    "make_buy",
+    "description",
+    "part_number",
+    "revision",
+    "optional",
+    "stock",
+    "name",
+];
+
 pub(crate) fn validate(key: &str, value: &Value) -> Result<(), String> {
-    let ok = match key {
-        "make_buy" => value
-            .as_str()
-            .is_some_and(|s| ["made", "bought", "not known"].contains(&s)),
-        "optional" => value.as_str().is_some_and(|s| ["yes", "no"].contains(&s)),
-        "stock" => value
-            .as_str()
-            .is_some_and(|s| ["from stock", "to be made"].contains(&s)),
-        "description" | "part_number" | "revision" | "name" => value.is_string(),
-        _ => false,
-    };
+    let ok = KEYS.contains(&key)
+        && match key {
+            "make_buy" => value
+                .as_str()
+                .is_some_and(|s| ["made", "bought", "not known"].contains(&s)),
+            "optional" => value.as_str().is_some_and(|s| ["yes", "no"].contains(&s)),
+            "stock" => value
+                .as_str()
+                .is_some_and(|s| ["from stock", "to be made"].contains(&s)),
+            // The text keys: description, part number, revision, name.
+            _ => value.is_string(),
+        };
     if ok {
         Ok(())
     } else {
