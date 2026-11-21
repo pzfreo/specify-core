@@ -15,6 +15,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
 | [cli](#cli) | 267 | 0 | 52 | 0 | 2 | 1 | 322 |
 | [cross_engine](#cross_engine) | 55 | 2 | 0 | 1 | 1 | 20 | 79 |
+| [cross_engine_written](#cross_engine_written) | 9 | 0 | 0 | 0 | 0 | 0 | 9 |
 | [existing](#existing) | 31 | 0 | 0 | 0 | 7 | 0 | 38 |
 | [features](#features) | 3454 | 1414 | 571 | 2491 | 1066 | 1886 | 10882 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
@@ -22,7 +23,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 1166 | 0 | 0 | 0 | 15 | 1 | 1182 |
-| **all** | 5102 | 1433 | 1249 | 2497 | 1101 | 1908 | 13290 |
+| **all** | 5111 | 1433 | 1249 | 2497 | 1101 | 1908 | 13299 |
 
 ## analysis
 
@@ -287,6 +288,30 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **Resolved exact unsupported or superseded General item (shared planner, #75)** (20 entries, 3 case globs)
 
   The evidence is stated per entry (20 distinct; all in `cross_engine.json`). The first, for `nist/nist_ctc_01_asme1_ap242` at `python_readback.existing[key=dimension|Location_LinearDistance|[4]|[0,1,91,92,93,94,95,96]#1]`: Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The 400 mm General location from [4] now has complete semantic target [0, 1, 71, 72, 73, 74, 91, 92, 93, 94, 95, 96], replacing the old subset [0, 1, 91, 92, 93, 94, 95, 96]. This real MultipleElements/pattern target includes the covered coincident claimants and recognised constituent faces. There is one physical row; the former subset-only root is absent. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks.
+
+## cross_engine_written
+
+### cross_engine_written: rust-correct (9 entries)
+
+- **ADR P11 rule 2: the material answer is written as PMI, so it is no longer stored** (`*` at `resume.part.material`)
+
+  ADR P11 rule 2 (src/feature_table.rs storable): a file stores only the answers that leave no PMI, and the file's PMI is the only copy of the rest. Every case's base answers (the oracle's meta.answers) include part.material = "steel"; the committed files (written before P11) store it, so their resume read-back is {"part.material":"steel"}, while today's writer writes the material as PMI (the part's existing read-back is unchanged: material steel) and stores nothing, so answers_for gives {}. Seen on every part of all 16 written cases (18 parts), and nothing else changes on the 14 cases other than NIST CTC-03 and CTC-05 (whose other changes have entries of their own). Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
+
+- **D8: the origin hole gets no general location in its origin directions** (`nist/nist_ctc_03_asme1_ap242` at `characteristics[key=dimension|Location_LinearDistance|[11,12]|[16,17]#1]`)
+
+  Maintainer decision D8 (commit d9067fb; the writer.json entry for this case's write.not_written): CTC-03's datum B is the hole 11/12, the origin of the x and y dimensions, so the planner's general location of B from the hole 16/17 is stated by the file and left out (the write reports 'dimension Location_LinearDistance [11, 12] [16, 17]: the file already states it; not written again'). Present in a write at 9717139, absent at d9067fb (bisected). Its characteristic number goes with it; the renumbering of the rest has its own entries. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
+
+- **D8: a direction already located by the file gets no second general location** (`nist/nist_ctc_05_asme1_ap242` at `characteristics[key=dimension|Location_LinearDistance|[37,51,53,54,56]|[9]#1]`)
+
+  Maintainer decision D8 (commit d9067fb): one location dimension locates every hole on its located side and every other hole on the same line from the same reference, and the writer adds only the missing directions, never a second location. Today's write of CTC-05 reports 'dimension Location_LinearDistance [37, 51, 53, 54, 56] [9]: the file already states it; not written again'; this general location was written at 9717139 and is not at d9067fb (bisected). Its characteristic number goes with it. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
+
+- **D1: an old intent keeps a planner general row only on a hole it sizes or locates** (2 entries, 1 case glob)
+
+  The evidence is stated per entry (2 distinct; all in `cross_engine_written.json`). The first, for `nist/nist_ctc_05_asme1_ap242` at `characteristics[key=dimension|Location_LinearDistance|[]|[70]#1]`: Decision D1 (commit 9717139, 'A general-tolerance answer writes only its note'): the writer's upgrade of an old intent without planner rows (dimensioning::upgrade) keeps a planner general row only on a hole the intent sizes or locates, or, off holes, where a general row of its kind touches the same faces. Python's accept-defaults intent for CTC-05 has no planner rows, and the general depth location from the entry face 70 (a hole depth ending at a point, so no faces of its own) is no longer written: present in a write at 9717139~1, absent at 9717139 (bisected). Its characteristic number goes with it. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
+
+- **characteristic numbers close up over the items no longer written** (4 entries, 2 case globs)
+
+  The evidence is stated per entry (2 distinct; all in `cross_engine_written.json`). The first, for `nist/nist_ctc_03_asme1_ap242` at `characteristics[key=*].number`: A fresh write numbers its characteristics 1..n in order with no history (docs/characteristic-numbers.md); with the one location D8 leaves out no longer written, every later number moves down by the items before it (CTC-03 by 1; CTC-05 by 1 to 3). The items themselves (kind, type, faces, reference, origin, source) are unchanged; only the number field of a keyed item is covered, so an item added, lost or changed in any other field still fails. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
 
 ## existing
 
