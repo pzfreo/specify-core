@@ -135,6 +135,10 @@ Read first:
     of `bom.<field>` for the BOM's suggestion (what `writePmi`'s `bom` argument did); the BOM is
     appended and every part numbered. A `bom.*` entry on a file with no assembly is refused
     (`bom_no_assembly`).
+  - An edit list that leaves no gap open (every suggestion accepted) writes the general
+    dimensions no question asks about too (decision D1, as `write --accept-defaults` does); a
+    thread written without a callout reads, in the PMI scene, as its manufacturing data does
+    (`M4×0.7-6H THRU`), as a planned one would.
   - Rust: `session::save` (answers) and its approvals are gone; `session::save_edits` takes the
     `rev` the caller saw and refuses a list as `SaveError::Edits(failures)`; `session::check_edits`.
 

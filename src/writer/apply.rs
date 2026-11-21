@@ -1023,7 +1023,16 @@ pub(crate) fn planned_intent(
             .find(|(_, on)| !faces.is_empty() && faces.is_subset(on))
             .map(|(id, _)| (*id).clone())
     };
-    intent.general.retain(|r| hole_of(r).is_some());
+    // D1: the dimensions no question asks about (plane levels) are written once no question is
+    // open: a list that answers every open gap (accepting every suggestion) writes the whole
+    // general set, as `write --accept-defaults` does; otherwise only what it names.
+    let nothing_open = table
+        .rows
+        .iter()
+        .all(|r| !r.open || given.contains_key(&r.id));
+    if !nothing_open {
+        intent.general.retain(|r| hole_of(r).is_some());
+    }
     for r in &mut intent.general {
         if let Some(id) = hole_of(r) {
             r.insert("question".into(), Json::from(id));

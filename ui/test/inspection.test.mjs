@@ -158,7 +158,7 @@ test('preview-to-writer parity includes general dimensions, hole depth, thread a
   const general = { 'part.general_tolerance': 'ISO 2768-m' };
   assert.deepEqual(planned(engine, general), []);
   assert.deepEqual(readSaved(t, write(engine, general)).chars, []);
-  const approved = JSON.parse(engine.acceptDefaults(JSON.stringify({ ...general, 'part.material': 'Steel' })));
+  const approved = JSON.parse(acceptDefaults(JSON.stringify(JSON.parse(engine.snapshot()).analysis), JSON.stringify({ ...general, 'part.material': 'Steel' })));
   for (const answers of [
     approved,
     { 'hole.function:holes:13': 'tapped:M4', 'datum.A': [0], 'part.surface_finish': 'Ra 3.2' },
@@ -166,7 +166,7 @@ test('preview-to-writer parity includes general dimensions, hole depth, thread a
     const before = planned(engine, answers);
     const bytes = write(engine, answers);
     const stored = readSaved(t, bytes);
-    const after = planned(open(t, bytes), stored.analysis.resume.answers);
+    const after = planned(open(t, bytes), stored.analysis.resume?.answers ?? {});
     const ids = (rows) => rows.map((row) => row.n);
     assert.ok(before.length > 0);
     assert.ok(answers !== approved || before.some((row) => String(row.source).startsWith('general:')), 'general dimensions are planned');

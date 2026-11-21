@@ -1009,7 +1009,25 @@ fn manufacturing_notation(
             continue;
         }
         let notation = if let Some(thread) = thread {
-            haecceity::presentation::thread(thread, &semantic.pmi).notation()
+            let notation = haecceity::presentation::thread(thread, &semantic.pmi).notation();
+            // A thread written without a callout (an edit list's fill) has no drawing wording
+            // of its own: it reads as its manufacturing data does, as a planned one would.
+            if let Some(index) = semantic
+                .pmi
+                .threads
+                .iter()
+                .position(|t| std::ptr::eq(t, thread))
+                && let Some(thread_id) = semantic.ids["threads"].get(index)
+                && let Some(Value::Object(own)) = metadata.get_mut(thread_id)
+                && !own.contains_key("notation")
+            {
+                own.insert("notation".into(), json!(notation));
+            }
+            let Some(meta) = metadata.get_mut(id) else {
+                continue;
+            };
+            meta["notation"] = json!(notation);
+            continue;
         } else {
             // Feature-owned attributes (knurl manufacturing, inspection methods,
             // and other CAD notes) have no GENERAL NOTES row or callout name.
