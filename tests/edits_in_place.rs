@@ -559,7 +559,12 @@ fn none_for_a_choice_without_a_none_option_is_refused() {
         let failures = refused(&spindle, list.clone());
         assert_eq!(failures.len(), 1, "{list}: {failures:?}");
         assert!(failures[0].entry.contains("part.process"), "{failures:?}");
-        assert!(failures[0].reason.contains("no \"none\""), "{failures:?}");
+        assert!(
+            failures[0]
+                .reason
+                .contains("is not an answer to part.process"),
+            "{failures:?}"
+        );
         let checked = specify_core::writer::apply::check(&spindle, &list.to_string());
         assert_eq!(checked.failures, failures);
     }
@@ -1469,4 +1474,34 @@ fn write_and_the_session_edit_one_part_of_an_assembly() {
         session::save_edits(&shared, &parse(json!({"none": ["part.coating"]})), "mcp").unwrap_err();
     assert_eq!(std::fs::read(&step).unwrap(), after_pin, "{err}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Every question id, decided none three ways (none, a fill of "none", a change to "none"):
+/// each is refused, or written and read again by `analyse` without error.
+#[test]
+fn every_none_is_refused_or_reads_again() {
+    for name in [
+        "resume-p9/edited-plate.step.gz",
+        "revisions/spindle_pmi.new.step.gz",
+        "revisions/enclosure_pmi.old.step.gz",
+        "revisions/enclosure_pmi.new.step.gz",
+    ] {
+        let part = fixture(name);
+        let t = table(&part);
+        for r in t["rows"].as_array().unwrap() {
+            let id = r["id"].as_str().unwrap();
+            for list in [
+                json!({"none": [id]}),
+                json!({"fill": {id: "none"}}),
+                json!({"change": {id: {"to": "none", "expect": r["value"]}}}),
+            ] {
+                if let Ok(saved) = apply(&part, &edits::parse_value(list.clone()).unwrap())
+                    && !saved.unchanged
+                {
+                    api::analyse(&reload(&saved.bytes))
+                        .unwrap_or_else(|e| panic!("{name} {list}: written, then {e}"));
+                }
+            }
+        }
+    }
 }

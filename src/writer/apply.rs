@@ -92,54 +92,92 @@ fn limits(list: &EditList) -> Vec<Failure> {
 }
 
 /// The list validated against `table`, with this writer's limits.
-/// The feature table, with the choice questions that have no "none" option.
-struct Choices<'a> {
-    table: &'a FeatureTable,
-    no_none: BTreeSet<String>,
-}
-
-impl edits::FileState for Choices<'_> {
-    fn kind(&self, id: &str) -> Option<edits::KindState> {
-        self.table.kind(id)
+/// Every value the list would write or store, checked as `analyse` checks answers when it
+/// reads the file back: the questions of the part with its PMI set aside but for its datums
+/// (every feature-and-kind asked), given that one answer. A value they refuse ("Choose one
+/// of …", "'none' is not an answer") fails its entry.
+fn answers_refused(list: &EditList, table: &FeatureTable, analysis: &Json) -> Vec<Failure> {
+    let mut bare = analysis.clone();
+    if let Some(object) = bare.as_object_mut() {
+        object.remove("table");
+        if let Some(existing) = object.get_mut("existing").and_then(Json::as_array_mut) {
+            existing.retain(|item| item["kind"] == "datum");
+        }
+        // As the feature table asks them: the file's settings set aside too, so a setting
+        // the list changes is asked (its answer read) as it is once the setting has gone.
+        object.insert("part".into(), Json::Object(Map::new()));
+        object.remove("dimensioning_stated");
+        object.remove("process");
     }
-    fn requirement(&self, number: u64) -> Option<edits::Requirement> {
-        self.table.requirement(number)
-    }
-    fn none_is_an_answer(&self, id: &str) -> bool {
-        !self.no_none.contains(id)
-    }
-}
-
-/// The choice questions of `analysis` none of whose options means none.
-fn without_none(analysis: &Json) -> BTreeSet<String> {
-    let answers = analysis["resume"]["answers"]
+    let choices: Map<String, Json> = analysis["resume"]["answers"]
         .as_object()
-        .cloned()
-        .unwrap_or_default();
-    crate::rules::questions(analysis, &answers)
-        .map(|qs| {
-            qs.into_iter()
-                .filter(|q| {
-                    q.kind == "choice"
-                        && !q.options.is_empty()
-                        && !q
-                            .options
-                            .iter()
-                            .any(|o| crate::feature_table::is_none_value(&Json::String(o.clone())))
-                })
-                .map(|q| q.id)
-                .collect()
+        .into_iter()
+        .flatten()
+        .filter(|(id, _)| !crate::feature_table::is_requirement(id) && !id.starts_with('_'))
+        .map(|(id, v)| (id.clone(), v.clone()))
+        .collect();
+    // As the writer stores it: a value meaning none is stored as the row's none.
+    let stored = |id: &str, value: &Json| {
+        if crate::feature_table::is_none_value(value) {
+            none_answer(table, id)
+        } else {
+            value.clone()
+        }
+    };
+    let mut entries: Vec<(String, &str, Json)> = Vec::new();
+    for (id, value) in &list.fill {
+        entries.push((
+            format!("fill[{}]", Json::from(id.as_str())),
+            id,
+            stored(id, value),
+        ));
+    }
+    for (id, change) in &list.change {
+        entries.push((
+            format!("change[{}]", Json::from(id.as_str())),
+            id,
+            stored(id, &change.to),
+        ));
+    }
+    for id in &list.none {
+        entries.push((
+            format!("none[{}]", Json::from(id.as_str())),
+            id,
+            none_answer(table, id),
+        ));
+    }
+    for id in &list.accept_suggestions {
+        if let Some(s) = table.row(id).and_then(|r| r.suggestion.clone()) {
+            entries.push((
+                format!("accept_suggestions[{}]", Json::from(id.as_str())),
+                id,
+                stored(id, &s),
+            ));
+        }
+    }
+    entries
+        .into_iter()
+        .filter_map(|(entry, id, value)| {
+            let mut answers = choices.clone();
+            answers.insert(id.to_string(), value.clone());
+            let why = crate::rules::questions(&bare, &answers).err()?;
+            Some(entry_failure(
+                entry,
+                format!(
+                    "{} is not an answer to {id}: {why}",
+                    crate::choices::short_repr(&value, 6)
+                ),
+            ))
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 fn validated(list: &EditList, table: &FeatureTable, analysis: &Json) -> (EditList, Outcome) {
     let list = edits::normalise(list, table);
-    let state = Choices {
-        table,
-        no_none: without_none(analysis),
-    };
-    let mut outcome = edits::validate(&list, &state);
+    let mut outcome = edits::validate(&list, table);
+    if outcome.failures.is_empty() {
+        outcome.failures = answers_refused(&list, table, analysis);
+    }
     outcome.failures.extend(limits(&list));
     outcome.applicable = outcome.failures.is_empty();
     (list, outcome)
