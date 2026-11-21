@@ -943,23 +943,16 @@ fn write_verified(
     // characteristic-number record) is replaced, by a scoped Add that keeps every other item.
     let mut scoped = Vec::new();
     let mut keep = std::collections::BTreeMap::new();
-    // The bookkeeping goes whoever's marker it carries (an older engine's stored answers
-    // are unmarked): it is replaced, never kept beside the new.
-    let mut bookkeeping = std::collections::BTreeMap::new();
+    // Only Specify's marked bookkeeping goes. An unmarked copy of stored answers (an older
+    // engine's, or another tool's) stays untouched; the payload written now carries
+    // `pmi_scope`, so it is the one read.
+    let bookkeeping = std::collections::BTreeMap::new();
     for (loaded, _, _) in jobs {
         let part = loaded.binding.part;
         let resumed = resume::has_answers(loaded).map_err(|e| WriteError::Failed(e.to_string()))?;
         if resumed && original.has_pmi(part) {
             scoped.push(part);
-            let all = requirements(&original.read.parts[part]);
-            bookkeeping.insert(
-                part,
-                (0..original.read.parts[part].attributes.len())
-                    .map(|i| ("attributes".to_string(), i))
-                    .filter(|at| !all.contains(at))
-                    .collect::<BTreeSet<_>>(),
-            );
-            keep.insert(part, all);
+            keep.insert(part, requirements(&original.read.parts[part]));
         }
     }
     let cleaned = if scoped.is_empty() {
@@ -1415,12 +1408,13 @@ fn write_by_modes(
             );
         // AddPreservation is a refusal, never a reason to retry with Replace:
         // Replace would re-author the caller's foreign PMI.
-        // Python's own form of stored answers is not PMI haecceity reads (it reports it as not
-        // modelled and keeps it), so a replace, or an add that stores answers anew, takes it
-        // out here: the answers stored now are the only ones.
-        for (part, pmi) in &these {
-            if mode == Mode::Replace || pmi.attributes.iter().any(resume::is_answers) {
-                // these retains the same validated part ids; edits do not change geometry or definitions.
+        if mode == Mode::Replace {
+            // Python's own form of stored answers is not PMI haecceity reads (it reports it as
+            // not modelled and keeps it), so a replace takes it out here: the answers stored
+            // now are the only ones. An add keeps it untouched; the payload written now is
+            // the one read (`pmi_scope`).
+            for (part, _) in &these {
+                // these retains the same validated part ids; replace edits do not change geometry or definitions.
                 for id in python_answers(current, &defs[part.0]) {
                     edit.remove(id);
                 }

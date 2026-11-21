@@ -47,11 +47,25 @@ fn round_trip(loaded: part::LoadedPart) {
         .unwrap()
         .load(Some(part_index))
         .unwrap();
-    assert_eq!(resume::answers_for(&reopened).unwrap(), Some(given.clone()));
+    // ADR P11: an added requirement writes PMI, so it is not stored; the file states it.
+    let kept = specify_core::feature_table::storable(&given);
+    assert_eq!(resume::answers_for(&reopened).unwrap(), Some(kept.clone()));
     eprintln!("analyse resumed");
     let analysis = api::analyse(&reopened).unwrap();
-    assert_eq!(analysis["resume"]["answers"], json!(given));
-    assert_eq!(analysis["existing"], foreign);
+    assert_eq!(analysis["resume"]["answers"], json!(kept));
+    // The file's PMI is listed whoever wrote it: the foreign items, unchanged, and Specify's.
+    let theirs = |a: &Value| {
+        Value::Array(
+            a["existing"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|e| e["provenance"] != writer::PMI_PROVENANCE)
+                .cloned()
+                .collect(),
+        )
+    };
+    assert_eq!(theirs(&analysis), foreign);
     assert_eq!(analysis["part"], initial["part"]);
     let own = existing::read_existing(&reopened)
         .unwrap()
@@ -86,8 +100,11 @@ fn round_trip(loaded: part::LoadedPart) {
         .unwrap()
         .load(Some(part_index))
         .unwrap();
-    assert_eq!(resume::answers_for(&again).unwrap(), Some(edited));
-    assert_eq!(api::analyse(&again).unwrap()["existing"], foreign);
+    assert_eq!(
+        resume::answers_for(&again).unwrap(),
+        Some(specify_core::feature_table::storable(&edited))
+    );
+    assert_eq!(theirs(&api::analyse(&again).unwrap()), foreign);
     let changed = existing::read_existing(&again)
         .unwrap()
         .into_iter()
