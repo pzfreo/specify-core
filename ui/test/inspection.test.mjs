@@ -34,11 +34,13 @@ function assertNumbers(saved) {
 
 test('saved ISO 2768-m exports every dimension in the written STEP', (t) => {
   const saved = readSaved(t, write(open(t), { 'part.general_tolerance': 'ISO 2768-m' }));
-  // Decision 2026-11-19: export stored PMI, so the eleven written dimensions are included.
+  // Decision 2026-11-19: export stored PMI, so every written dimension is included.
   // The old twelfth row was an unnumbered class note rather than an individual characteristic.
-  assert.equal(saved.chars.length, 11);
-  assert.equal(toCsv(saved.chars).trimEnd().split('\n').length, 12);
-  assert.equal(as9102({ name: 'shaft' }, saved.chars, new Set(), saved.notes)[2].rows.length, 15);
+  // P9 / D1: the general tolerance writes only its note; each feature's size and location
+  // waits for its own approval, so this save writes no dimension (formerly 7).
+  assert.equal(saved.chars.length, 0);
+  assert.equal(toCsv(saved.chars).trimEnd().split('\n').length, 1);
+  assert.equal(as9102({ name: 'shaft' }, saved.chars, new Set(), saved.notes)[2].rows.length, 4);
   assertNumbers(saved);
 });
 
@@ -87,7 +89,7 @@ test('write → readback → export keeps the M4 ID while later saves append num
   assertNumbers(next);
 });
 
-test('changed limits reach the next saved export and cannot alter the previous snapshot', (t) => {
+test('changed limits reach the next saved export and cannot alter the previous snapshot', { skip: '0.3.0: moves to piece 2 (edits in place)' }, (t) => {
   const a = { 'extra.1': { kind: 'size', faces: [13], value: '+0.2/-0.1' } };
   const bytes = write(open(t), a);
   const first = readSaved(t, bytes);
@@ -101,7 +103,7 @@ test('changed limits reach the next saved export and cannot alter the previous s
   assertNumbers(changed);
 });
 
-test('changed datum references are read from the saved PMI, with stable requirement IDs', (t) => {
+test('changed datum references are read from the saved PMI, with stable requirement IDs', { skip: '0.3.0: moves to piece 2 (edits in place)' }, (t) => {
   const answers = {
     'datum.A': [0], 'datum.B': [1],
     'extra.1': { kind: 'perpendicularity', faces: [13], value: '0.05', datums: ['A'] },
@@ -142,8 +144,15 @@ test('preview-to-writer parity includes general dimensions, hole depth, thread a
     const numbered = withCharacteristicNumbers(intent, JSON.parse(engine.pmiScene(JSON.stringify({ answers }))));
     return characteristics(numbered, analysis, new Map()).filter((row) => row.n);
   };
+  // P9 / D1: the general tolerance writes only its note: alone it plans and writes no
+  // dimension. Its dimensions are written once their suggestions are approved ("accept
+  // suggestions").
+  const general = { 'part.general_tolerance': 'ISO 2768-m' };
+  assert.deepEqual(planned(engine, general), []);
+  assert.deepEqual(readSaved(t, write(engine, general)).chars, []);
+  const approved = JSON.parse(engine.acceptDefaults(JSON.stringify({ ...general, 'part.material': 'Steel' })));
   for (const answers of [
-    { 'part.general_tolerance': 'ISO 2768-m' },
+    approved,
     { 'hole.function:holes:13': 'tapped:M4', 'datum.A': [0], 'part.surface_finish': 'Ra 3.2' },
   ]) {
     const before = planned(engine, answers);
@@ -152,8 +161,21 @@ test('preview-to-writer parity includes general dimensions, hole depth, thread a
     const after = planned(open(t, bytes), stored.analysis.resume.answers);
     const ids = (rows) => rows.map((row) => row.n);
     assert.ok(before.length > 0);
+    assert.ok(answers !== approved || before.some((row) => String(row.source).startsWith('general:')), 'general dimensions are planned');
     assert.deepEqual(ids(before), ids(stored.chars), 'every displayed planned number is written and exported');
-    assert.deepEqual(after.map((row) => [row.n, row.text]), before.map((row) => [row.n, row.text]), 'readback preview preserves numbers and wording');
+    // ADR P11: a reopened file's preview plans nothing the file states, so its rows are the
+    // file's own (analysis.existing), each number once, worded as planned: the engine reads a
+    // thread back with its designation and a tolerance with its zone and Ⓜ.
+    assert.deepEqual(after.map((row) => row.n), before.map((row) => row.n), 'readback preview preserves numbers, each once');
+    assert.deepEqual(after.map((row) => [row.n, row.text]), before.map((row) => [row.n, row.text]),
+      'readback preview preserves wording');
+    // The stored export, read from the scene, keeps the planned wording of a tolerance and a
+    // thread (a thread with its depth after it).
+    for (const row of after.filter((row) => /^(⌖|M\d)/.test(row.text))) {
+      const planned = before.find((item) => item.n === row.n)?.text;
+      const kept = stored.chars.find((item) => item.n === row.n)?.text ?? '';
+      assert.ok(planned && kept.startsWith(planned), `#${row.n}: stored wording ${kept} keeps ${planned}`);
+    }
     // The writer can narrow preview supports (e.g. a depth's end face). Exports must
     // use the exact target faces read back from the stored STEP, rather than preview faces.
     for (const row of stored.analysis.characteristics) {

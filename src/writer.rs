@@ -488,6 +488,17 @@ fn check_jobs(jobs: &[Job<'_>]) -> Result<(), WriteError> {
             // is derived from these answers on this part, never taken from the intent: only
             // when there is a block, as that needs the part's analysis.
             crate::answer_file::validate(answers).map_err(WriteError::Invalid)?;
+            // D11 (#126): an answer on a feature this part does not have (a suppressed boss's)
+            // names nothing the part has: it refuses the write, whatever intent is given.
+            if answers.keys().any(|id| id.contains(':')) {
+                let features = crate::features::recognise(loaded)
+                    .ok()
+                    .and_then(|fs| serde_json::to_value(fs).ok());
+                if let Some(features) = features {
+                    crate::input::feature_ids(Some(&features), answers)
+                        .map_err(|e| WriteError::Invalid(e.to_string()))?;
+                }
+            }
             if !crate::answer_file::unresolved(answers).is_empty() {
                 let analysis =
                     crate::api::analyse(loaded).map_err(|e| WriteError::Failed(e.to_string()))?;
@@ -686,8 +697,13 @@ fn part_pmi_added(
         .and_then(|items| serde_json::to_value(items).ok())
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
+    let geometry: Vec<Json> = crate::features::describe_faces(loaded)
+        .ok()
+        .and_then(|faces| serde_json::to_value(faces).ok())
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
     for (at, req) in &sources {
-        if at.0 != "datums" && crate::feature_table::requirement_stated(req, &existing) {
+        if at.0 != "datums" && crate::feature_table::requirement_stated(req, &existing, &geometry) {
             restated
                 .entry(at.clone())
                 .or_insert_with(|| format!("{} {}", at.0, at.1));
@@ -951,23 +967,16 @@ fn write_verified(
     // characteristic-number record) is replaced, by a scoped Add that keeps every other item.
     let mut scoped = Vec::new();
     let mut keep = std::collections::BTreeMap::new();
-    // The bookkeeping goes whoever's marker it carries (an older engine's stored answers
-    // are unmarked): it is replaced, never kept beside the new.
-    let mut bookkeeping = std::collections::BTreeMap::new();
+    // Only Specify's marked bookkeeping goes. An unmarked copy of stored answers (an older
+    // engine's, or another tool's) stays untouched; the payload written now carries
+    // `pmi_scope`, so it is the one read.
+    let bookkeeping = std::collections::BTreeMap::new();
     for (loaded, _, _) in jobs {
         let part = loaded.binding.part;
         let resumed = resume::has_answers(loaded).map_err(|e| WriteError::Failed(e.to_string()))?;
         if resumed && original.has_pmi(part) {
             scoped.push(part);
-            let all = requirements(&original.read.parts[part]);
-            bookkeeping.insert(
-                part,
-                (0..original.read.parts[part].attributes.len())
-                    .map(|i| ("attributes".to_string(), i))
-                    .filter(|at| !all.contains(at))
-                    .collect::<BTreeSet<_>>(),
-            );
-            keep.insert(part, all);
+            keep.insert(part, requirements(&original.read.parts[part]));
         }
     }
     let cleaned = if scoped.is_empty() {
@@ -1079,10 +1088,20 @@ fn write_verified(
                             .collect()
                     })
                     .unwrap_or_default();
+                // D11 (#126): an answer whose question is not asked (an `unasked` row: given
+                // now, or stored and dropped on reopening) is reported in not_written and not
+                // stored, so it is never carried silently.
+                let unasked: std::collections::BTreeSet<&str> = intent
+                    .requirements
+                    .iter()
+                    .filter(|r| r.get("kind").and_then(Json::as_str) == Some(crate::rules::UNASKED))
+                    .filter_map(|r| r.get("answer").and_then(Json::as_str))
+                    .collect();
+                kept.retain(|id, _| !unasked.contains(id.as_str()));
                 // An answer given now replaces the stored one, whatever its value.
                 let now = crate::feature_table::storable(&saved);
                 for (id, value) in &saved {
-                    match now.get(id) {
+                    match now.get(id).filter(|_| !unasked.contains(id.as_str())) {
                         Some(_) => {
                             kept.insert(id.clone(), value.clone());
                         }
@@ -1099,6 +1118,10 @@ fn write_verified(
                 if !blocks.is_empty() {
                     payload[resume::UNRESOLVED] = Json::Object(blocks);
                 }
+                // The payload Specify writes now is the one to read when the file also holds an
+                // older one it cannot replace (another tool's unmarked copy): `pmi_scope` marks
+                // it, on every save, so that saves stay byte-stable.
+                payload["pmi_scope"] = Json::String(PMI_PROVENANCE.into());
                 pmi.attributes.push(resume::attribute_set(&payload));
                 Some(payload)
             }
@@ -1222,13 +1245,20 @@ fn write_verified(
                 )
         });
     // ADR P11: a save whose result states exactly what the file did (the same PMI, answers
-    // and number history: nothing was added) keeps the file's bytes.
+    // and number history: nothing was added) keeps the file's bytes, whatever mix of Add and
+    // Replace parts it wrote (a part written by Replace keeps them only when all its items
+    // carry their provenance, as above).
     let adds_nothing = !unchanged
-        && modes.iter().all(|m| *m == Mode::Add)
         && Source::of(&back).is_ok_and(|after| {
-            items.iter().all(|(part, _)| {
+            items.iter().zip(&modes).all(|((part, _), mode)| {
                 differences_as_stated(&original.read.parts[part.0], &after.read.parts[part.0])
                     .is_empty()
+                    && (*mode == Mode::Add
+                        || provenance::all(
+                            &original.read.parts[part.0],
+                            &original.read.provenance.parts[part.0],
+                            &original.doc,
+                        ))
             })
         });
     let unchanged = unchanged || adds_nothing;
@@ -1419,9 +1449,11 @@ fn write_by_modes(
             );
         // AddPreservation is a refusal, never a reason to retry with Replace:
         // Replace would re-author the caller's foreign PMI.
-        // Python's own form of stored answers is not PMI haecceity reads (it reports it as not
-        // modelled and keeps it), so a replace, or an add that stores answers anew, takes it
-        // out here: the answers stored now are the only ones.
+        // Python's own form of stored answers is not PMI haecceity reads (it reports it as
+        // not modelled and keeps it), so a replace, or an add that stores answers anew, takes
+        // it out here: the answers stored now are the only ones. An unmarked copy in
+        // haecceity's form (a user defined attribute) is not Python's and stays untouched;
+        // the payload written now is the one read (`pmi_scope`).
         for (part, pmi) in &these {
             if mode == Mode::Replace || pmi.attributes.iter().any(resume::is_answers) {
                 // these retains the same validated part ids; edits do not change geometry or definitions.
@@ -1557,12 +1589,15 @@ fn python_answers(doc: &Document, part: &PartDefinition) -> Vec<u64> {
     };
     let mut out = Vec::new();
     for &pdef in doc.referrers(part.product_definition) {
-        let Some(("PROPERTY_DEFINITION", [Attribute::String(n), _, Attribute::EntityRef(pd)])) =
+        let Some(("PROPERTY_DEFINITION", [Attribute::String(n), d, Attribute::EntityRef(pd)])) =
             simple(pdef)
         else {
             continue;
         };
-        if n != resume::NAME || *pd != part.product_definition {
+        // haecceity's form (`resume::attribute_set`) is described as a user defined attribute;
+        // only Python's own form is taken out.
+        let haecceity_form = matches!(d, Attribute::String(d) if d == "user defined attribute");
+        if n != resume::NAME || haecceity_form || *pd != part.product_definition {
             continue;
         }
         let pdrs = doc.referrers(pdef);
@@ -2635,17 +2670,36 @@ impl Features<'_> {
 }
 
 /// The geometric tolerance kinds of the intent (Python's `_GEOM_TYPES`).
+const TOLERANCE_KINDS: [(&str, ToleranceKind); 7] = [
+    ("position", ToleranceKind::Position),
+    ("flatness", ToleranceKind::Flatness),
+    ("perpendicularity", ToleranceKind::Perpendicularity),
+    ("parallelism", ToleranceKind::Parallelism),
+    ("profile", ToleranceKind::SurfaceProfile),
+    ("runout", ToleranceKind::CircularRunout),
+    ("total_runout", ToleranceKind::TotalRunout),
+];
+
+/// The requirement kinds the writer writes other than tolerances: one arm each in
+/// [`part_pmi_observed`]'s match.
+const OWN_KINDS: [&str; 6] = ["size", "location", "thread", "knurl", "note", "finish"];
+
+/// Every requirement kind the writer writes (an intent requirement's `kind`): its own kinds,
+/// then the geometric tolerances. Anything else is refused as an unknown kind. The read-back
+/// round trip (`tests/readback.rs`) is driven from this list, so a kind added here without a
+/// read-back case fails there.
+pub fn requirement_kinds() -> Vec<&'static str> {
+    OWN_KINDS
+        .into_iter()
+        .chain(TOLERANCE_KINDS.iter().map(|(name, _)| *name))
+        .collect()
+}
+
 fn tolerance_kind(kind: &str) -> Option<ToleranceKind> {
-    Some(match kind {
-        "position" => ToleranceKind::Position,
-        "flatness" => ToleranceKind::Flatness,
-        "perpendicularity" => ToleranceKind::Perpendicularity,
-        "parallelism" => ToleranceKind::Parallelism,
-        "profile" => ToleranceKind::SurfaceProfile,
-        "runout" => ToleranceKind::CircularRunout,
-        "total_runout" => ToleranceKind::TotalRunout,
-        _ => return None,
-    })
+    TOLERANCE_KINDS
+        .iter()
+        .find(|(name, _)| *name == kind)
+        .map(|(_, k)| *k)
 }
 
 /// An ISO 286 class from its name (`H7`, `g6`, `js11`), refused when it is not one.
@@ -2812,7 +2866,7 @@ fn part_pmi_observed(
         }
         match crate::dimensioning::input(&loaded.part) {
             Ok(input) => {
-                crate::dimensioning::apply(input, &mut upgraded).map_err(WriteError::Failed)?;
+                crate::dimensioning::upgrade(input, &mut upgraded).map_err(WriteError::Failed)?;
                 &upgraded
             }
             // A face whose area cannot be computed leaves the part without a frame to plan

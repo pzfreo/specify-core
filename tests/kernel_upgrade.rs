@@ -16,6 +16,96 @@ fn fixture(name: &str) -> std::path::PathBuf {
         .join(name)
 }
 
+/// ADR P11 (D6): of the saved answers `expected`, a resumed analysis keeps those that leave no
+/// PMI and that the file does not state; one whose requirement the file states, or whose
+/// question has no row, is dropped silently; one with no requirement for it in the file is dropped with exactly one warning,
+/// and its question is open again. Returns the kept answers and the reopened ids.
+fn p11_resumed(
+    expected: &Map<String, Value>,
+    analysis: &Value,
+    warnings: &[String],
+) -> (Map<String, Value>, BTreeSet<String>) {
+    use specify_core::feature_table::{is_requirement, leaves_nothing};
+    let state = |id: &str| {
+        analysis["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == id)
+            .map(|r| r["state"].as_str().unwrap().to_string())
+    };
+    let tail = ": no requirement for this answer in the file; the question is open again";
+    let mut kept = Map::new();
+    let mut reopened = BTreeSet::new();
+    for (id, value) in expected {
+        let row = state(id);
+        if !is_requirement(id) || (leaves_nothing(value) && row.as_deref() != Some("stated")) {
+            kept.insert(id.clone(), value.clone());
+            continue;
+        }
+        let said = format!(
+            "saved answer {id} ({}){tail}",
+            specify_core::choices::short_repr(value, 6)
+        );
+        let times = warnings.iter().filter(|w| **w == said).count();
+        match row.as_deref() {
+            Some("gap") => {
+                assert_eq!(times, 1, "{said}: {warnings:?}");
+                reopened.insert(id.clone());
+            }
+            // Stated, or no row: the question is not asked (another feature's row covers its
+            // faces); neither is said.
+            other => {
+                assert!(matches!(other, Some("stated") | None), "{id}: {other:?}");
+                assert!(
+                    !warnings
+                        .iter()
+                        .any(|w| w.starts_with(&format!("saved answer {id} "))),
+                    "{id}: {warnings:?}"
+                );
+            }
+        }
+    }
+    assert_eq!(analysis["resume"]["answers"], json!(kept));
+    assert_eq!(
+        warnings.iter().filter(|w| w.ends_with(tail)).count(),
+        reopened.len(),
+        "{warnings:?}"
+    );
+    (kept, reopened)
+}
+
+/// The saved answers `saved` as the resumed analysis carries them: migrated ids renamed,
+/// unresolved ones left out (they are reported apart).
+fn carried(saved: &Value, analysis: &Value) -> Map<String, Value> {
+    let resume = &analysis["resume"];
+    let moves: Vec<(&str, &str)> = resume["migrated"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|pair| (pair[0].as_str().unwrap(), pair[1].as_str().unwrap()))
+        .collect();
+    let unresolved: Vec<&str> = resume["unresolved"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|u| u["id"].as_str().unwrap())
+        .collect();
+    saved
+        .as_object()
+        .unwrap()
+        .iter()
+        .filter(|(id, _)| !unresolved.contains(&id.as_str()))
+        .map(|(id, value)| {
+            let id = moves
+                .iter()
+                .find(|(old, _)| old == id)
+                .map_or(id.as_str(), |(_, new)| new);
+            (id.to_string(), value.clone())
+        })
+        .collect()
+}
+
 #[test]
 fn five_real_alpha6_files_resume_all_87_answers_including_a_rotated_part() {
     let mut total = 0;
@@ -27,7 +117,6 @@ fn five_real_alpha6_files_resume_all_87_answers_including_a_rotated_part() {
         .unwrap();
         let loaded = part::load(&fixture(&format!("resume-alpha6/{name}.step.gz")), None).unwrap();
         let (analysis, warnings) = api::analyse_reporting(&loaded).unwrap();
-        assert!(warnings.is_empty(), "{name}: {warnings:?}");
         // #216 adds planar floor ownership. Only these two saved hole IDs grow;
         // compare every answer value and the complete migration list exactly.
         let rekey = |id: &str| {
@@ -55,7 +144,10 @@ fn five_real_alpha6_files_resume_all_87_answers_including_a_rotated_part() {
             .filter(|id| rekey(id) != **id)
             .map(|id| json!([id, rekey(id)]))
             .collect();
-        assert_eq!(analysis["resume"]["answers"], json!(expected), "{name}");
+        // ADR P11 (D6): the answers the file states, or whose requirement it lacks (each said
+        // once, its question open again), are not resumed; every saved answer is accounted for.
+        let (kept, reopened) = p11_resumed(&expected, &analysis, &warnings);
+        assert_eq!(warnings.len(), reopened.len(), "{name}: {warnings:?}");
         assert_eq!(
             analysis["resume"]
                 .get("migrated")
@@ -77,28 +169,38 @@ fn five_real_alpha6_files_resume_all_87_answers_including_a_rotated_part() {
             changed_parts += 1;
         }
         let answers = analysis["resume"]["answers"].as_object().unwrap();
-        total += answers.len();
-        assert!(
-            api::review(&analysis, answers).unwrap()["open"]
-                .as_array()
-                .unwrap()
-                .is_empty(),
+        total += expected.len();
+        // ADR P11 (D6): open are exactly the reopened questions.
+        assert_eq!(
+            api::review(&analysis, answers).unwrap()["open"],
+            json!(reopened),
             "{name}"
         );
-        let intent = rules::apply(&analysis, answers).unwrap();
-        let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(answers)).unwrap();
+        // The reopened questions are answered again as saved: their PMI is written, and the
+        // answers stored are the kept ones (ADR P11: an answer that writes PMI is not stored).
+        let mut given = answers.clone();
+        for id in &reopened {
+            given.insert(id.clone(), expected[id].clone());
+        }
+        let intent = rules::apply(&analysis, &given).unwrap();
+        let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
         let back = part::File::of_bytes(Path::new(name), bytes)
             .unwrap()
             .load(None)
             .unwrap();
-        assert_eq!(resume::answers_for(&back).unwrap().as_ref(), Some(answers));
+        assert_eq!(resume::answers_for(&back).unwrap(), Some(kept.clone()));
         // Stored base64 bytes and literal Unicode/quote/backslash text survive step-io 0.3.
         let mut before = resume::stored(&loaded.bytes);
         // Every payload field and string byte survives apart from the migrated keys.
         before
             .get_mut(&0)
             .unwrap()
-            .insert("answers".into(), json!(expected));
+            .insert("answers".into(), json!(kept)); // ADR P11: only the kept answers are stored
+        // Every save marks the payload it writes, so it is the one read (ADR P11).
+        before
+            .get_mut(&0)
+            .unwrap()
+            .insert("pmi_scope".into(), json!("specify-core:written:v1"));
         let after = resume::stored(&back.bytes);
         assert_eq!(
             resume::encode(&json!(before[&0])),
@@ -551,8 +653,21 @@ fn unresolved_saved_answers_reach_review_and_the_file_answers_the_current_questi
         .load(None)
         .unwrap();
     let (analysis, warnings) = api::analyse_reporting(&part).unwrap();
-    assert_eq!(warnings.len(), 1);
-    assert!(warnings[0].contains("hole.function:holes:999"));
+    // ADR P11 (D6): beside the unresolved answer, each saved answer whose PMI the alpha.6 file
+    // never wrote is said once, its question open again.
+    let (_, reopened) = p11_resumed(
+        &carried(&payload["answers"], &analysis),
+        &analysis,
+        &warnings,
+    );
+    assert_eq!(warnings.len(), reopened.len() + 1, "{warnings:?}");
+    assert_eq!(
+        warnings
+            .iter()
+            .filter(|w| w.contains("hole.function:holes:999"))
+            .count(),
+        1
+    );
     assert_eq!(analysis["resume"]["unresolved"][0]["answer"], value);
     assert_eq!(analysis["resume"]["unresolved"][0]["feature"], "holes:999");
     // File-only consumers get applicable answers, while analysis keeps the
@@ -572,12 +687,15 @@ fn unresolved_saved_answers_reach_review_and_the_file_answers_the_current_questi
     // ADR P9: the file still states the hole's requirement as its default would, so the
     // question is answered by the file (`resume.present`), not open.
     assert_eq!(key, "hole.function:holes:3");
+    // ADR P11: `resume.present` is gone; the feature table's row says the file states it.
     assert!(
-        analysis["resume"]["present"]
-            .get("hole.function:holes:3.5")
-            .is_some(),
+        analysis["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["id"] == "hole.function:holes:3.5" && r["state"] == "stated"),
         "{}",
-        analysis["resume"]
+        analysis["table"]
     );
     assert!(
         !review["open"]
@@ -632,11 +750,15 @@ fn real_alpha6_ctc02_answers_exercise_changed_ids_and_explicit_refusals() {
     let (analysis, warnings) = api::analyse_reporting(&loaded).unwrap();
     let resumed = &analysis["resume"];
 
-    assert_eq!(resumed["answers"].as_object().unwrap().len(), 32);
+    // ADR P11 (D6): of the 32 resolved answers, those the file states or lacks are not
+    // resumed; each one it lacks is said once.
+    let resolved = carried(&base["answers"], &analysis);
+    assert_eq!(resolved.len(), 32);
+    let (_, reopened) = p11_resumed(&resolved, &analysis, &warnings);
     // #100 adds the same holes' tip cones: 13 exact answer moves, two #82 refusals remain.
     common::upgrade::check(&loaded, &base, &analysis, common::upgrade::CTC02);
     assert_eq!(resumed["unresolved"].as_array().unwrap().len(), 2);
-    assert_eq!(warnings.len(), 2);
+    assert_eq!(warnings.len(), reopened.len() + 2, "{warnings:?}");
     for unresolved in resumed["unresolved"].as_array().unwrap() {
         assert!(
             unresolved["id"]
@@ -666,19 +788,40 @@ fn real_alpha6_ftc10_answers_migrate_to_larger_geometric_supports() {
     let loaded = part::load(&fixture("resume-alpha6/ftc10-reid.step.gz"), Some(0)).unwrap();
     let (analysis, warnings) = api::analyse_reporting(&loaded).unwrap();
     let resumed = &analysis["resume"];
-    assert!(warnings.is_empty());
-    assert_eq!(resumed["answers"].as_object().unwrap().len(), 29);
+    // ADR P11 (D6): all 29 resolve; those the file states or lacks are not resumed, and each
+    // one it lacks is said once.
+    let resolved = carried(&base["answers"], &analysis);
+    assert_eq!(resolved.len(), 29);
+    let (_, reopened) = p11_resumed(&resolved, &analysis, &warnings);
+    assert_eq!(warnings.len(), reopened.len(), "{warnings:?}");
     // #100 adds tip cones to two bores and one row: six new moves, plus the two
     // schema-6 counterbore-pattern moves. Exact IDs and cone adjacency are checked.
     common::upgrade::check(&loaded, &base, &analysis, common::upgrade::FTC10);
     assert!(resumed["unresolved"].is_null());
     let review = api::review(&analysis, resumed["answers"].as_object().unwrap()).unwrap();
+    // ADR P11: the file's PMI on the 194 pattern states its two questions (whoever wrote it),
+    // so they are not open; open are exactly the reopened questions (D6).
+    for id in [
+        "hole.function:hole_patterns.linear:194.195.196.197.198.199",
+        "hole.position:hole_patterns.linear:194.195.196.197.198.199",
+    ] {
+        assert!(
+            analysis["table"]["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["id"] == id && r["state"] == "stated"),
+            "{id}"
+        );
+    }
     assert_eq!(
-        review["open"],
-        json!([
-            "hole.function:hole_patterns.linear:194.195.196.197.198.199",
-            "hole.position:hole_patterns.linear:194.195.196.197.198.199"
-        ])
+        review["open"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|id| id.as_str().unwrap().to_string())
+            .collect::<BTreeSet<_>>(),
+        reopened
     );
     for pair in resumed["migrated"].as_array().unwrap() {
         assert!(!review["open"].as_array().unwrap().contains(&pair[1]));

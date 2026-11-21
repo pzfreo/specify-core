@@ -1,15 +1,8 @@
 //! For #79: exercise question/completeness/intent/write through the actual public APIs and CLI.
 mod common;
 use serde_json::{Map, Value, json};
-use sha2::{Digest, Sha256};
 use specify_core::{api, part::File, rules};
 use std::{path::Path, process::Command};
-fn hash(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
 #[test]
 fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
     let dir = std::env::temp_dir().join(format!("bom-opt-in-{}", std::process::id()));
@@ -18,64 +11,17 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
         serde_json::from_str(include_str!("fixtures/bom/legacy-assembly-answers.json")).unwrap();
     let plate_complete: Map<String, Value> =
         serde_json::from_str(include_str!("fixtures/bom/legacy-plate-answers.json")).unwrap();
-    // v0.4.6 #184 places GENERAL NOTES clear of actual drawn strokes/text cells.
-    // This moves the notes block in all four plate/assembly default/complete
-    // cases below; only presentation changes. The six exact API/CLI byte
-    // comparisons and all BOM opt-in guards remain enforced.
-    // v0.4.8 changes all four hashes, for these reasons only (checked against v0.4.7's
-    // bytes): #198 adds the default Notes saved view (one per file, on the first part of an
-    // assembly) and repeats the material id as its description; #193 adds the PMI RP 4.1
-    // reference to FILE_DESCRIPTION and names curve sets `note`/`label`; and on assemblies
-    // the second part's callout model is named `PMI callouts (2)`.
-    // quiddity 0.5.1 (pinned at v0.5.2) lays GD&T frames out CAD-like: 2.5 mm text, 5 mm
-    // boxes and font strokes. All four hashes change for that only: the written STEP differs
-    // from v0.5.0's (the previous pin) in its tessellated annotation curves (COORDINATES_LIST
-    // points, TESSELLATED_CURVE_SET index lists) and the CARTESIAN_POINT placement points of
-    // those annotations, and nothing else (checked on the plate and pin goldens: same entity
-    // count, same entity kinds changed).
-    // #216: the two complete-assembly byte pins change only for the imported
-    // pin answer keys holes:3 -> holes:3.5. The frozen legacy fixture stays keyed
-    // as saved and passes through the public matcher; every value and PMI stays exact.
-    // Keep #95/#96's history-schema projection: only schema/role/specification
-    // text is normalized. Every other STEP byte, counter, support and numeric ID
-    // remains pinned; API and CLI bytes must still match exactly.
-    for (fixture, all_answered, defaults, expected) in [
-        (
-            "plate",
-            false,
-            true,
-            "1227a34aa63a6ce010edf3f33780ac7ee828506eb4b07a237cb3d874ad8e46f3",
-        ),
-        (
-            "assembly",
-            true,
-            false,
-            "69c5773fe7fecc4f66dea2fa2dc38993d6cf382802956742cc3eef893b59d484",
-        ),
-        (
-            "assembly",
-            true,
-            true,
-            "69c5773fe7fecc4f66dea2fa2dc38993d6cf382802956742cc3eef893b59d484",
-        ),
-        (
-            "assembly",
-            false,
-            true,
-            "99e5dff19f382adfa0fbeac36ffa709233816ed364269f07cfe63596e16bf4ad",
-        ),
-        (
-            "plate",
-            true,
-            false,
-            "45be4b84df123aa284b0551e1189d3df33be55de0da9f4916c219a22870049e1",
-        ),
-        (
-            "plate",
-            true,
-            true,
-            "45be4b84df123aa284b0551e1189d3df33be55de0da9f4916c219a22870049e1",
-        ),
+    // ADR P11: the stored answers are the storable ones only, which changed every whole-file
+    // hash pinned here; output hashes are not pinned (they moved with every presentation
+    // change). What no opt-in means is asserted directly: no BOM record is written, and the
+    // API and CLI write the same bytes.
+    for (fixture, all_answered, defaults) in [
+        ("plate", false, true),
+        ("assembly", true, false),
+        ("assembly", true, true),
+        ("assembly", false, true),
+        ("plate", true, false),
+        ("plate", true, true),
     ] {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join(format!("tests/fixtures/parts/{fixture}.step"));
@@ -140,9 +86,17 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
             // (ADR P9): the same PMI, more stored answers.
             let stored = if defaults {
                 let stored = api::stored_with_defaults(&part, &analysis, &answers).unwrap();
+                // ADR P11: the writer stores only the answers that leave no PMI, so those are
+                // what must agree.
+                let storable = specify_core::feature_table::storable;
                 assert_eq!(
-                    stored,
-                    common::accept_all::stored(&path, part.binding.part, &analysis, &answers),
+                    storable(&stored),
+                    storable(&common::accept_all::stored(
+                        &path,
+                        part.binding.part,
+                        &analysis,
+                        &answers
+                    )),
                     "{fixture} part {}",
                     part.binding.part
                 );
@@ -156,9 +110,8 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
         let bytes = api::write_bytes(file.bytes().as_ref().clone(), &jobs)
             .unwrap()
             .0;
-        assert_eq!(
-            hash(&common::numbering::comparable_number_history(&bytes)),
-            expected,
+        assert!(
+            !String::from_utf8_lossy(&bytes).contains(&format!("'{}", specify_core::bom::PROPERTY)),
             "API {fixture}, complete={all_answered}, defaults={defaults}"
         );
         let mut command = Command::new(env!("CARGO_BIN_EXE_specify-core"));

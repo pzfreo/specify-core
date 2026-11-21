@@ -223,7 +223,8 @@ fn schema_three_stored_answers_round_trip_and_resume_on_a_rebuild() {
     assert_eq!(resume::stored(&back.bytes)[&0], object(payload));
     assert_eq!(
         api::analyse(&back).unwrap()["resume"]["answers"],
-        json!(answers(&new))
+        // ADR P11: stored are the answers that leave no PMI behind.
+        json!(specify_core::feature_table::storable(&answers(&new)))
     );
     // Exercise the normal writer, not just an attribute-only embed.
     let a = object(
@@ -238,7 +239,11 @@ fn schema_three_stored_answers_round_trip_and_resume_on_a_rebuild() {
     .0;
     let back = part::load_bytes("written.step", bytes).unwrap();
     assert_eq!(resume::stored(&back.bytes)[&0]["schema"], 3);
-    assert_eq!(api::analyse(&back).unwrap()["resume"]["answers"], json!(a));
+    // ADR P11: stored are the answers that leave no PMI behind.
+    assert_eq!(
+        api::analyse(&back).unwrap()["resume"]["answers"],
+        json!(specify_core::feature_table::storable(&a))
+    );
 }
 
 #[test]
@@ -270,7 +275,6 @@ fn future_geometry_format_leaves_only_unnamed_supports_open() {
 
 #[test]
 fn unnamed_revision_keeps_pre87_payload_and_current_presentation_bytes() {
-    use sha2::{Digest, Sha256};
     let p = load("hole_moved.old.step.gz");
     let a = object(json!({"part.material":"steel"}));
     // Captured from the pre-#87 engine on this unchanged fixture. Schema 2 is
@@ -287,18 +291,53 @@ fn unnamed_revision_keeps_pre87_payload_and_current_presentation_bytes() {
     )
     .unwrap()
     .0;
-    let sha: String = Sha256::digest(&written)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    // v0.4.1 regenerates the GENERAL NOTES graphic and generated plane views.
-    // The schema-2 payload assertion above remains byte-identical to pre-#87.
-    // v0.4.8 adds #198's Notes saved view and material description and #193's RP 4.1
-    // FILE_DESCRIPTION reference and `note` curve-set name; nothing else changes.
-    assert_eq!(
-        sha,
-        "f150377ff78ff19bd6bcd77cc61d9ff3b34fd59352806c1e86d91786b324f8cf"
+    // What the presentation byte pin protected, asserted structurally (no output hashes):
+    // the payload stored is still schema 2 without face names, the input's entities are
+    // unchanged, and the written presentation has v0.4.1's GENERAL NOTES block, #198's Notes
+    // saved view and material, and #193's RP 4.1 FILE_DESCRIPTION reference and `note`
+    // curve-set name.
+    let stored = resume::stored(&written)
+        .remove(&0)
+        .expect("a stored payload");
+    let mut expected: Value = serde_json::from_str(expected).unwrap();
+    // ADR P11: stored are the answers that leave no PMI (the material is stated).
+    expected["answers"] = json!(specify_core::feature_table::storable(&a));
+    for key in ["schema", "answers", "part", "face_count", "faces"] {
+        assert_eq!(stored[key], expected[key], "{key}");
+    }
+    assert!(stored.get("face_names").is_none());
+    let (before, after) = (
+        Document::parse(p.bytes.to_vec()).unwrap(),
+        Document::parse(written.clone()).unwrap(),
     );
+    for id in before.ids() {
+        assert_eq!(
+            before.span(id).map(|s| &before.bytes()[s]),
+            after.span(id).map(|s| &after.bytes()[s]),
+            "#{id}"
+        );
+    }
+    let text = String::from_utf8(written.clone()).unwrap();
+    assert!(text.contains(
+        "'CAx-IF Rec.Pracs.---Representation and Presentation of Product Manufacturing \
+         Information (PMI)---4.1---"
+    ));
+    assert!(text.contains("DRAUGHTING_MODEL('Notes'"));
+    assert!(text.contains("DEFAULT_MODEL_GEOMETRIC_VIEW('Notes'"));
+    assert!(text.contains("TESSELLATED_CURVE_SET('note'"));
+    let reopened = part::load_bytes("pre87.step", written.clone()).unwrap();
+    assert_eq!(
+        specify_core::existing::part_settings(&reopened).unwrap()["material"],
+        "steel"
+    );
+    let defs = haecceity::step::read_part_definitions(&written).unwrap();
+    let read = haecceity::pmi::read(&after, &defs).unwrap();
+    let drawn = haecceity::presentation::notes::notes_block(
+        &haecceity::presentation::notes::general_notes(&read.parts[0]),
+    )
+    .cells
+    .join("\n");
+    assert!(drawn.starts_with("GENERAL NOTES\n"), "{drawn}");
 }
 
 #[test]
@@ -344,7 +383,8 @@ fn shared_source_names_are_unnamed_and_new_unique_bindings_still_work() {
     let back = part::load_bytes("shared.step", bytes).unwrap();
     assert_eq!(
         api::analyse(&back).unwrap()["resume"]["answers"],
-        json!(before)
+        // ADR P11: stored are the answers that leave no PMI behind.
+        json!(specify_core::feature_table::storable(&before))
     );
 }
 

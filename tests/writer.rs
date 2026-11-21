@@ -774,10 +774,10 @@ fn pmi_is_added_to_a_part_that_has_some() {
         );
     }
     assert!(!qs.iter().any(|q| q.prompt.contains("Ø8")));
-    // ADR P11: the file states the six holes' size and location (general dimensions, whoever
-    // wrote them), so they are not asked: a hole is never located twice by two schemes.
+    // D8: the first pass's 50 from C and 30 from B to the 6× pattern locate it in x and y, and
+    // its general size states its size, so it is not asked again; datum C's control is.
     assert!(!qs.iter().any(|q| q.prompt.contains("6×")));
-    let intent = apply(&analysis, json!({ "datum.A.flatness": "0.05" }));
+    let intent = apply(&analysis, json!({ "datum.C.control": "0.05" }));
     let second = dir.join("second.step");
     let report = write(&loaded, &intent, &second, None).unwrap();
     assert!(
@@ -790,10 +790,18 @@ fn pmi_is_added_to_a_part_that_has_some() {
     // The new PMI cites the file's datums: none is written again.
     let joined = report.written.join(" ");
     assert!(
-        Regex::new(r"flatness 0\.05").unwrap().is_match(&joined),
+        Regex::new(r"perpendicularity [\d.]+ on datum C")
+            .unwrap()
+            .is_match(&joined),
         "{joined}"
     );
-    assert!(!joined.contains("position"), "{joined}");
+    let cited: Vec<Vec<String>> = read_existing(&load(&second, None).unwrap())
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.r#type == "Perpendicularity")
+        .map(|e| e.datums)
+        .collect();
+    assert_eq!(cited, [["A".to_string(), "B".to_string()]], "{cited:?}");
     assert!(!report.written.iter().any(|w| w.starts_with("datum ")));
     let letters: Vec<String> = Regex::new(r"DATUM\('[^']*',[^;]*'(\w)'\);")
         .unwrap()

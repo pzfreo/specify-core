@@ -75,10 +75,15 @@ fn round_trip_lossless_resumed_and_noop_with_sources_and_standard_material() {
     assert_eq!(rows[0].optional.value, true);
     assert_eq!(rows[0].description.source, "answered");
     assert_eq!(rows[0].material.value, "brass");
-    assert_eq!(rows[0].material.source, "answered");
+    // ADR P11 (D5a): the material read from the file is the file's, whoever wrote it.
+    assert_eq!(rows[0].material.source, "file");
     let back = file(bytes.clone());
     for (p, a) in back.load_all().unwrap().iter().zip(answers()) {
-        assert_eq!(resume::answers_for(p).unwrap(), Some(a));
+        // ADR P11: the material writes PMI, so it is not stored; the BOM answers are.
+        assert_eq!(
+            resume::answers_for(p).unwrap(),
+            Some(specify_core::feature_table::storable(&a))
+        );
     }
     assert_eq!(write(&back, &answers()), bytes);
     let p = back.load(Some(0)).unwrap();

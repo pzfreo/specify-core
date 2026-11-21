@@ -8,7 +8,7 @@ has neither, so they are left out here.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -31,11 +31,23 @@ class ExistingPmi:
     limits: tuple[float, float] | None = None
     #: A basic (theoretically exact) dimension, with no tolerance of its own.
     basic: bool = False
+    #: The item as a drawing states it, in full: ``⌀3.3 H11``, ``⌖ ⌀0.3Ⓜ A``, ``M2×0.4-6H ↧ 2``.
+    text: str = ""
+    #: It states something only ``text`` holds (a datum reference's modifier, a projected zone ...):
+    #: it cannot be changed field by field.
+    text_only: bool = False
+    #: What it states beyond the fields above, by the planner's names (``fit``, ``diametral``, ``mmc``,
+    #: ``zone``, ``modifiers``; a thread's ``designation``, ``pitch``, ``class`` ...); ``to_dict()``
+    #: puts them beside the others, as the engine's ``existing`` records do.
+    fields: dict[str, Any] = field(default_factory=dict, hash=False)
 
     def to_dict(self) -> dict[str, Any]:
-        out = {k: v for k, v in self.__dict__.items() if v not in (None, ())}
+        out = {k: v for k, v in self.__dict__.items() if v not in (None, (), "") and k != "fields"}
         if not self.basic:
             out.pop("basic")
+        if not self.text_only:
+            out.pop("text_only")
+        out.update(self.fields)
         # A datum the file attaches to no face still has faces: none.
         out.setdefault("faces", ())
         for key in ("faces", "faces2", "datums", "limits"):
@@ -58,6 +70,9 @@ def read_existing(loaded: LoadedPart | str | Path) -> list[ExistingPmi]:
             tuple(r["datums"]),
             tuple(r["limits"]) if r["limits"] is not None else None,
             r["basic"],
+            r["text"],
+            r["text_only"],
+            r["fields"],
         )
         for r in records
     ]

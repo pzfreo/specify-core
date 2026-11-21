@@ -1,7 +1,7 @@
 // The part's PMI as it is drawn (View PMI: "Graphical"), from Specify's pmiScene: haecceity's polylines as
 // Line2-family lines and its filled triangles as meshes, both drawn without depth testing so the
 // part never hides a callout; text the strokes do not draw as DOM text, set as text, never HTML,
-// and never reformatted here. Each item is drawn in its Specify status's colour.
+// and never reformatted here. Each item is drawn in its Specify status's colour (its label group's).
 //
 // What haecceity generates is drawn as an engineer reads it on a drawing, set in the semantic
 // labels' face: its text (``graphic.text[i]`` at ``text_placements[i]``) is set as DOM text, in
@@ -29,9 +29,10 @@ import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 
 import { GROUP_COLOUR, type AnnotationHost } from './annotations';
+import type { LabelGroup } from './labels';
 import {
-  drawnShown, facesAway, graphicNormal, type DrawnGraphic, type DrawnPmi, type DrawnPoint, type DrawnShow,
-  type DrawnStatus, type TextPlacement,
+  drawnGroup, drawnShown, facesAway, graphicNormal, type DrawnGraphic, type DrawnPmi, type DrawnPoint, type DrawnShow,
+  type TextPlacement,
 } from './drawn';
 
 const LINE_PX = 1.5;
@@ -55,7 +56,8 @@ interface Drawn {
   item: string | null;
   name: string;
   source: DrawnGraphic['source'];
-  status: DrawnStatus | undefined;
+  /** Its item's label group (``drawnGroup``): its colour and Show-menu kind. */
+  group: LabelGroup | undefined;
   colour: string;
   /** Its line weight: heavier when its text is set (what haecceity generates). */
   width: number;
@@ -100,8 +102,8 @@ export function createDrawnLayer(
   { onClick, centre, colourOf, rank, alpha = 1 }: {
     onClick: (item: string) => void;
     centre?: DrawnPoint;
-    /** An item's colour (an unlinked graphic's is asked with null), or null to leave it out; by default its status's. */
-    colourOf?: (item: string | null, status: DrawnStatus | undefined) => string | null;
+    /** An item's colour (an unlinked graphic's is asked with null), or null to leave it out; by default its group's. */
+    colourOf?: (item: string | null, group: LabelGroup | undefined) => string | null;
     /** Which of several items sharing a graphic it is drawn as: the lowest rank, before the item Specify knows. */
     rank?: (item: string) => number;
     /** Below 1, everything is drawn see-through. */
@@ -141,8 +143,8 @@ export function createDrawnLayer(
   let lit: string | null = null;
   let pmiNow: DrawnPmi | null = null;
   const revealed = (d: { item: string | null }) => d.item !== null && reveal.has(d.item);
-  const shownBy = (d: { item: string | null; source: Drawn['source']; status: DrawnStatus | undefined }) =>
-    revealed(d) || drawnShown(d.source, d.status, show);
+  const shownBy = (d: { item: string | null; source: Drawn['source']; group: LabelGroup | undefined }) =>
+    revealed(d) || drawnShown(d.source, d.group, show);
   const on = (d: Drawn) => visible && d.shown && !(farSide && d.away && !revealed(d));
 
   function counts() {
@@ -156,9 +158,9 @@ export function createDrawnLayer(
     // By the Show menu's kinds, for a test of it: general, default, and the file's (its own or existing).
     const by = (f: (d: Drawn) => boolean) => String(shownNow.filter(f).length);
     container.dataset['drawnGraphics'] = String(shownNow.length);
-    container.dataset['drawnGeneral'] = by((d) => d.status === 'general');
-    container.dataset['drawnDefault'] = by((d) => d.status === 'default');
-    container.dataset['drawnFile'] = by((d) => d.source === 'file' || d.status === 'existing');
+    container.dataset['drawnGeneral'] = by((d) => d.group === 'general');
+    container.dataset['drawnDefault'] = by((d) => d.group === 'default');
+    container.dataset['drawnFile'] = by((d) => d.source === 'file' || d.group === 'existing');
     // Each linked item shown, and its colour as drawn, one a line: `item colour`.
     container.dataset['drawnItems'] = [...new Set(shownNow.filter((d) => d.item !== null)
       .map((d) => `${d.item} ${d.item === lit ? LIT_INK : d.colour}`))].join('\n');
@@ -204,7 +206,7 @@ export function createDrawnLayer(
     placed = [];
   }
 
-  function place(graphic: DrawnGraphic, item: string | null, status: DrawnStatus | undefined, colour: string): Drawn {
+  function place(graphic: DrawnGraphic, item: string | null, group: LabelGroup | undefined, colour: string): Drawn {
     // What haecceity generates, with its polylines' roles: its text is set here, so its strokes are not drawn.
     const roles = graphic.polylineRoles;
     const setting = graphic.source === 'generated' && roles !== undefined;
@@ -288,9 +290,9 @@ export function createDrawnLayer(
     }
     scene.add(...objects);
     return {
-      item, name: graphic.name, source: graphic.source, status, colour, width, set,
+      item, name: graphic.name, source: graphic.source, group, colour, width, set,
       normal: graphicNormal(graphic, pmiNow?.presentation.planes ?? [], centre),
-      shown: shownBy({ item, source: graphic.source, status }), away: false,
+      shown: shownBy({ item, source: graphic.source, group }), away: false,
       polylines: lines.filter((l) => l.length > 1).length, segments, triangles, objects,
       extent: new THREE.Box3().setFromPoints([...graphic.polylines.flat(), ...graphic.triangles.flat()].map((q) => new THREE.Vector3(...q))),
     };
@@ -409,13 +411,13 @@ export function createDrawnLayer(
           seen.add(g.id);
           return true;
         };
-        const colourFor = (item: string | null, status: DrawnStatus | undefined) =>
-          (colourOf ? colourOf(item, status) : GROUP_COLOUR[status ?? 'existing']);
+        const colourFor = (item: string | null, group: LabelGroup | undefined) =>
+          (colourOf ? colourOf(item, group) : GROUP_COLOUR[group ?? 'existing']);
         for (const [item, graphics] of items) {
-          const status = pmi.links[item]?.status;
-          const colour = colourFor(item, status);
+          const group = drawnGroup(pmi.links[item]);
+          const colour = colourFor(item, group);
           // A graphic left out here is still seen, so another item sharing it is not drawn with it.
-          for (const g of graphics) if (once(g) && colour !== null) drawn.push(place(g, item, status, colour));
+          for (const g of graphics) if (once(g) && colour !== null) drawn.push(place(g, item, group, colour));
         }
         const loose = colourFor(null, undefined);
         for (const g of pmi.presentation.unlinked) if (once(g) && loose !== null) drawn.push(place(g, null, undefined, loose));

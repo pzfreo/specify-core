@@ -2154,7 +2154,7 @@ fn every_command_has_help_and_completions_are_printed() {
         let got = run(&["completions", shell]);
         assert_eq!((got.code, got.stderr.as_str()), (0, ""), "{shell}");
         assert!(got.stdout.contains("specify-core"), "{shell}");
-        assert!(got.stdout.contains("resolve-defaults"), "{shell}");
+        assert!(got.stdout.contains("accept-defaults"), "{shell}");
     }
     // Every subcommand bash selects has its case in the script (clap_complete's names for them
     // disagree for a program name with a `-`; src/cli.rs mends them).

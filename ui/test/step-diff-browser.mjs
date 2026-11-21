@@ -280,7 +280,10 @@ try {
   // specify-core 0.1.8 (#110) the thread is reported removed, with its wording (#106), and the
   // ⌀3.3 H11 added; 0.1.7 paired the thread with an unrelated dimension and kept an M4 the new
   // file does not hold.
-  const spindleBefore = written(spindle('before'));
+  // The old side is the spindle's bare geometry (the shaft's after) written with the defaults,
+  // not spindle_pmi_before rewritten: that file states ⌀3.3 H11, and a save never edits what the
+  // file states (ADR P11), so no default M4 replaces it.
+  const spindleBefore = shaftAfter;
   const spindleReport = JSON.parse(diff('spindle_pmi_before.step', spindleBefore, 'spindle_pmi_after.step', spindle('after'), '{}', 'spindle_pmi_after.step', true)).report.pmi;
   const thread = spindleReport.items.find(c => c.class === 'removed' && c.kind === 'thread' && /^M4×0\.7-6H THRU$/.test(c.old ?? ''));
   assert.ok(renamed && thread, 'the shaft has a renumbered item with an old id; the spindle its thread removed');
@@ -319,6 +322,14 @@ try {
   // thread's note it was is reported with the thread (specify-core 0.1.9).
   await check(page.locator('.diff-pmi-on', { hasText: 'no callout' })).toHaveCount(0);
   assert.deepEqual(await page.evaluate(() => window.__events.includes('diff_failed')), false);
+  // The shaft's two revisions as they are, with no PMI: the added end chamfer has nothing stated,
+  // a line of information in the report that leaves the verdict as it was.
+  const bare = JSON.parse(diff('gramil_shaft_before.step', shaft('before'), 'gramil_shaft_after.step', shaft('after'), '{}', 'gramil_shaft_after.step', false)).report;
+  assert.deepEqual(bare.new_unstated.map(u => u.what), ['1.5 × 45° chamfer'], 'the new chamfer, nothing stated');
+  assert.equal(bare.verdict, 'ok');
+  await compareWith('test/fixtures/gramil_shaft_before.step.gz', 'test/fixtures/gramil_shaft_after.step.gz');
+  await check(page.locator('.diff-report')).toContainText('New in this revision with nothing stated: 1.5 × 45° chamfer.');
+  await check(page.locator('.diff-summary')).toContainText('✅');
 
   // A part's comparison, apart from an assembly's whole view.
   await page.goto(url);

@@ -185,13 +185,50 @@ fn answered_m2_without_depth_preserves_alpha7_semantics_and_pins_presentation_by
         None,
     )
     .unwrap();
-    // This is also the WASM byte pin: #137 callouts, aspects and #65 numbering.
-    // v0.4.4 adds the M2 thread callout and reserves its feature stack; recapture only this output.
-    // Keep the historical alpha.7 input and every semantic readback check unchanged.
-    // v0.4.8 recaptures it once more for #198's Notes saved view and material description and
-    // #193's RP 4.1 FILE_DESCRIPTION reference and `note`/`label` curve-set names only.
-    // #216 changes only the stored-answer key to holes:15.16; thread PMI stays on bore 15.
-    assert_eq!(bytes.as_slice(), numbered.bytes.as_slice());
+    // What the former byte pin against `thread-depth-numbered` protected, asserted
+    // structurally (no output bytes): #137 callouts and #65 numbering read back as that
+    // capture's, the v0.4.4 M2 thread callout stays on bore 15, and v0.4.8's #198 Notes saved
+    // view and material and #193's RP 4.1 FILE_DESCRIPTION reference and `note`/`label`
+    // curve-set names are written. Keep the historical alpha.7 input and every semantic
+    // readback check unchanged.
+    let without_entities = |p: &specify_core::part::LoadedPart| {
+        let mut numbers = specify_core::characteristics::read(p).unwrap();
+        for c in &mut numbers {
+            c.entity = 0;
+        }
+        numbers
+    };
+    assert_eq!(without_entities(&current), without_entities(&numbered));
+    assert_eq!(
+        specify_core::existing::read_existing(&current).unwrap(),
+        specify_core::existing::read_existing(&numbered).unwrap()
+    );
+    assert_eq!(
+        specify_core::existing::part_settings(&current).unwrap(),
+        specify_core::existing::part_settings(&numbered).unwrap()
+    );
+    assert!(
+        specify_core::existing::read_existing(&current)
+            .unwrap()
+            .iter()
+            .any(|e| e.kind == "note" && e.r#type == "internal thread" && e.faces == [15])
+    );
+    // ADR P11: the tap writes PMI, so it is not stored; the file states it.
+    assert_eq!(
+        specify_core::resume::answers_for(&current).unwrap(),
+        Some(specify_core::feature_table::storable(&given))
+    );
+    let text = String::from_utf8(bytes.clone()).unwrap();
+    for needle in [
+        "'CAx-IF Rec.Pracs.---Representation and Presentation of Product Manufacturing \
+         Information (PMI)---4.1---",
+        "DRAUGHTING_MODEL('Notes'",
+        "DEFAULT_MODEL_GEOMETRIC_VIEW('Notes'",
+        "TESSELLATED_CURVE_SET('note'",
+        "TESSELLATED_CURVE_SET('label'",
+    ] {
+        assert!(text.contains(needle), "{needle}");
+    }
     for (source, answers) in [(loaded, given.clone()), (baseline, given)] {
         let analysis = api::analyse(&source).unwrap();
         let mut complete = rules::with_all_defaults(&analysis, &answers).unwrap();
@@ -305,24 +342,22 @@ fn gramel_defaults_edit_step_pmi_and_resume() {
         };
         assert_eq!(length.value.to_string().parse::<f64>().unwrap(), full);
         let reopened = specify_core::part::load_bytes("edited.step", bytes).unwrap();
+        // ADR P11: the depth writes PMI (the attribute above), so it is not stored; the file
+        // states it.
         assert_eq!(
-            specify_core::resume::answers_for(&reopened)
-                .unwrap()
-                .unwrap()[&q.id],
-            edited
+            specify_core::resume::answers_for(&reopened).unwrap(),
+            Some(specify_core::feature_table::storable(&accepted))
         );
         let a = api::analyse(&reopened).unwrap();
-        assert_eq!(a["resume"]["answers"][&q.id], edited);
-        let resumed = a["resume"]["answers"].as_object().unwrap();
-        assert_eq!(
-            api::preview(&a, resumed)
-                .unwrap()
-                .requirements
-                .iter()
-                .find(|r| r["kind"] == "thread" && r["side"] == "internal")
-                .unwrap()["full_thread"],
-            full
-        );
+        assert!(a["resume"]["answers"].get(&q.id).is_none());
+        // ADR P11: the file states the edited depth, so its row is stated, not asked again.
+        let row = a["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == q.id.as_str())
+            .unwrap();
+        assert_eq!(row["state"], "stated", "{row}");
     }
 }
 

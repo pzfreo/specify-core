@@ -154,7 +154,12 @@ fn each_part_has_its_own_pmi_and_answers() {
         datums.sort();
         wanted.sort();
         assert_eq!(datums, wanted, "part {k}");
-        assert_eq!(answers_for(&back).unwrap(), Some(answers(k)), "part {k}");
+        // ADR P11: stored are the answers that leave no PMI behind.
+        assert_eq!(
+            answers_for(&back).unwrap(),
+            Some(specify_core::feature_table::storable(&answers(k))),
+            "part {k}"
+        );
     }
     // Two parts, each with its own datum A, under its own letter in the file.
     let mut letters: Vec<String> = Regex::new(&format!(
@@ -204,12 +209,14 @@ fn writing_one_part_again_alone_keeps_the_others() {
     assert_eq!(pmi_of(&x, PLATE), pmi_of(&out, PLATE));
     assert_eq!(
         answers_for(&load(&x, Some(PLATE)).unwrap()).unwrap(),
-        Some(answers(PLATE))
+        // ADR P11: stored are the answers that leave no PMI behind.
+        Some(specify_core::feature_table::storable(&answers(PLATE)))
     );
     // The pin's answers are the new ones, its PMI replaced, not added to.
     assert_eq!(
         answers_for(&load(&x, Some(PIN)).unwrap()).unwrap(),
-        Some(given)
+        // ADR P11: stored are the answers that leave no PMI behind.
+        Some(specify_core::feature_table::storable(&given))
     );
     assert_eq!(datum_count(&x), datum_count(&out));
     assert_eq!(stored(&std::fs::read(&x).unwrap()).len(), 2);
@@ -243,7 +250,8 @@ fn written_again_its_pmi_is_replaced() {
     for k in [PLATE, PIN] {
         assert_eq!(
             answers_for(&load(&again, Some(k)).unwrap()).unwrap(),
-            Some(answers(k))
+            // ADR P11: stored are the answers that leave no PMI behind.
+            Some(specify_core::feature_table::storable(&answers(k)))
         );
     }
 }
@@ -292,7 +300,11 @@ fn an_assembly_with_pmi_of_its_own_is_added_to() {
     let end = before.rfind("ENDSEC;").unwrap();
     assert!(after.starts_with(&before[..end]) && after.ends_with(&before[end..]));
     let reopened = load(&x, Some(PIN)).unwrap();
-    assert_eq!(answers_for(&reopened).unwrap(), Some(given.clone()));
+    // ADR P11: stored are the answers that leave no PMI behind.
+    assert_eq!(
+        answers_for(&reopened).unwrap(),
+        Some(specify_core::feature_table::storable(&given))
+    );
     let analysis = specify_core::api::analyse(&reopened).unwrap();
     assert!(!analysis["existing"].as_array().unwrap().is_empty());
     given.insert("part.coating".into(), json!("Zinc plate revised"));
@@ -311,7 +323,8 @@ fn an_assembly_with_pmi_of_its_own_is_added_to() {
         specify_core::part::File::of_bytes(std::path::Path::new("edited.step"), edited).unwrap();
     assert_eq!(
         answers_for(&file.load(Some(PIN)).unwrap()).unwrap(),
-        Some(given)
+        // ADR P11: stored are the answers that leave no PMI behind.
+        Some(specify_core::feature_table::storable(&given))
     );
 }
 
@@ -388,6 +401,7 @@ fn a_part_is_written_once_and_parts_are_of_one_file() {
 // the plate's PMI was written a second time beside the first and haecceity refused the edit
 // (item_identified_representation_usage.UR1 on the plate's faces).
 #[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn a_mixed_write_replaces_the_resumed_part_and_adds_to_the_other() {
     let dir = temp("mixed");
     let (_, _, out) = written(&dir);

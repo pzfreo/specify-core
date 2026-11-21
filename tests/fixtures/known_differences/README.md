@@ -52,6 +52,12 @@ checks it).
 - An entry is as narrow as the evidence: a pattern seen on every corpus case may be `corpus/*`;
   one checked on one file names that file.
 
+The `cross_engine_written` area is owned by
+`tests/cross_engine.rs::rust_written_files_match_the_current_presentation_writer`. Its
+"python" side is the committed Rust-written file's read-back and its "rust" side today's
+write's: each reviewed change the writer makes to those files, field by field, without
+regenerating them or recapturing Python's read-back of them.
+
 The `analysis` area is owned by `tests/api.rs::analyses_have_python_layout`. It records
 exact per-part additive fields; other API tests consult it through `explained`. Legacy
 key order and values remain exact assertions, and missing additions make entries stale.

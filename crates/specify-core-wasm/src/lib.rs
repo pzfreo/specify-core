@@ -131,7 +131,7 @@ export interface PmiItemChange {
   old_id?: string;
   faces: { old: { face: number }[]; new: { face: number }[] };
   kind: string;
-  status: "answered" | "default" | "general" | "existing";
+  status: PmiSceneStatus;
   on: string;
   old?: string;
   new?: string;
@@ -157,7 +157,9 @@ export interface DiffPmi {
 /** Document-local semantic or graphic identity; never a mesh face index. */
 export type PmiSceneId = string;
 export type PmiSceneVector = [number, number, number];
-export type PmiSceneStatus = "answered" | "default" | "general" | "existing";
+/** The feature table's state of the requirement an item belongs to (ADR P11): the file states
+ * it, it is planned for an open gap (a preview), or it was decided none. */
+export type PmiSceneStatus = "stated" | "gap" | "decided_none";
 /** A lossless semantic/unit row. Values follow the packaged haecceity.pmi/1 schema;
  * decimal quantities are strings and semantic references use PmiSceneId. */
 export interface PmiSceneItem {
@@ -235,10 +237,11 @@ export interface PmiSceneMetadata {
   status: PmiSceneStatus;
   question?: string;
   number?: number;
-  origin?: "requirement" | "general_tolerance" | "imported";
   source?: {schema: number; faces: string; support: number[]; parameter: string};
   /** A basic (theoretically exact) dimension; absent otherwise. */
   basic?: true;
+  /** A dimension the general tolerance governs; absent otherwise. */
+  general?: true;
 }
 /** JSON.parse of either pmiScene call. Supporting rows may lack a specify entry. */
 export interface PmiScene {
@@ -409,26 +412,6 @@ export interface PmiScene {
                 .map_err(|error| JsValue::from_str(&error))
         }
 
-        /// Answer map for saving: the answers given, exactly the defaults in `approved`
-        /// (optional JSON, `{"<part>": {"<id>": value}}` with the values the person saw; none
-        /// when absent) and `_specify.evidence`. Never every default (ADR P9); open questions
-        /// stay open. Throws if an approval is not an open question's default as it stands.
-        #[wasm_bindgen(js_name = exportAnswers)]
-        pub fn export_answers(
-            &self,
-            answers: &str,
-            approved: Option<String>,
-        ) -> Result<String, JsValue> {
-            let approved = match approved {
-                Some(text) => self::approvals(&text)?,
-                None => specify_core::api::Approved::new(),
-            };
-            self.0
-                .export_answers(&self::answers(answers)?, &approved)
-                .map(|answers| Value::Object(answers).to_string())
-                .map_err(|error| JsValue::from_str(&error))
-        }
-
         /// Validates an edit list (or a 0.2 answers file) for this file, all or nothing:
         /// `{well_formed, checked_against_file, applicable, entries, unchanged, failures,
         /// written: false, message}`. Writes nothing. Until the session reads the feature
@@ -543,19 +526,6 @@ export interface PmiScene {
             .map_err(|error| JsValue::from_str(&format!("Invalid answers: {error}")))?;
         input::answers_shape(&answers).map_err(js_error)?;
         Ok(answers)
-    }
-    fn approvals(json: &str) -> Result<specify_core::api::Approved, JsValue> {
-        limit("Approvals", json, input::JSON_LIMIT)?;
-        serde_json::from_str::<Value>(json)
-            .ok()
-            .as_ref()
-            .and_then(specify_core::api::approvals)
-            .ok_or_else(|| {
-                JsValue::from_str(&format!(
-                    "Invalid approvals: {}",
-                    specify_core::api::APPROVALS_FORM
-                ))
-            })
     }
     fn out(state: tolerancing::State) -> Result<String, JsValue> {
         serde_json::to_string(&state).map_err(js_error)

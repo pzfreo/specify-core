@@ -1144,7 +1144,7 @@ fn approve(
 }
 
 /// [`api::with_approved`], refused as a save is: an approval as [`SaveError::Question`].
-/// `save`, and MCP's `write_pmi` and `export_answers`.
+/// `save`, and MCP's `write_pmi`.
 pub fn with_approved(
     analysis: &Value,
     answers: &Map<String, Value>,

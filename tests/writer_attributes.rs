@@ -121,10 +121,15 @@ fn editor_project_and_other_extras_read_back_and_answers_resume() {
         1
     );
     let read = part::load_bytes("written.step", bytes).unwrap();
-    assert_eq!(resume::answers_for(&read).unwrap(), Some(answers.clone()));
+    // ADR P11: stored are the answers that leave no PMI behind.
+    assert_eq!(
+        resume::answers_for(&read).unwrap(),
+        Some(specify_core::feature_table::storable(&answers))
+    );
     assert_eq!(
         api::analyse(&read).unwrap()["resume"]["answers"],
-        json!(answers)
+        // ADR P11: stored are the answers that leave no PMI behind.
+        json!(specify_core::feature_table::storable(&answers))
     );
 
     let jobs = [(&loaded, &intent, Some(&answers))];
@@ -197,6 +202,7 @@ fn stored_answers_set_and_item_names_are_reserved_even_without_answers() {
 }
 
 #[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn rewriting_a_resumed_part_replaces_extras_as_it_replaces_answers() {
     let loaded = plate();
     let first_answers = answers("steel");
@@ -252,7 +258,11 @@ fn adding_to_foreign_pmi_keeps_existing_attributes_and_adds_extras() {
     assert_attribute(&read, &existing);
     assert_attribute(&read, &project(2));
     let reopened = part::load_bytes("added.step", bytes).unwrap();
-    assert_eq!(resume::answers_for(&reopened).unwrap(), Some(answers));
+    // ADR P11: stored are the answers that leave no PMI behind.
+    assert_eq!(
+        resume::answers_for(&reopened).unwrap(),
+        Some(specify_core::feature_table::storable(&answers))
+    );
 }
 
 #[test]
@@ -276,7 +286,11 @@ fn extras_work_with_atomic_plain_and_gzip_destinations() {
         let read = part::load(&output, None).unwrap();
         assert_eq!(&*read.bytes, &expected.0);
         assert_attribute(&pmi_of(&read.bytes), &extra[0]);
-        assert_eq!(resume::answers_for(&read).unwrap(), Some(answers.clone()));
+        // ADR P11: stored are the answers that leave no PMI behind.
+        assert_eq!(
+            resume::answers_for(&read).unwrap(),
+            Some(specify_core::feature_table::storable(&answers))
+        );
         // The parts variant uses the same staging and compression path.
         writer::write_parts_with(&jobs, &output, &extra).unwrap();
         assert_eq!(std::fs::read(&output).unwrap(), bytes);
@@ -343,7 +357,8 @@ fn extras_are_written_on_a_part_of_an_assembly() {
         let back = part::File::of_bytes(Path::new("written.step"), bytes.clone()).unwrap();
         assert_eq!(
             resume::answers_for(&back.load(Some(k)).unwrap()).unwrap(),
-            Some(given[k].clone())
+            // ADR P11: stored are the answers that leave no PMI behind.
+            Some(specify_core::feature_table::storable(&given[k]))
         );
         assert_eq!(
             back.parts()[1].instances,

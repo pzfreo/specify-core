@@ -183,6 +183,16 @@ pub(super) fn checks(
     checks
 }
 
+/// The faces *scene*'s requirements state something on: each requirement's faces, its own and
+/// those it is measured from (datum references aside, as for pairing). A part-level requirement
+/// (a general tolerance) holds no face.
+pub(super) fn stated_faces(scene: &Value) -> BTreeSet<usize> {
+    items(scene)
+        .into_iter()
+        .flat_map(|i| i.faces.into_iter().chain(i.on_faces))
+        .collect()
+}
+
 // One line per feature and change: `… diameter 3 → 3.4, so its ⌀3.4 H11 and ⌖ ⌀0.2Ⓜ A B C
 // requirements may no longer fit`.
 pub(super) fn check_lines(checks: &[super::Check], features: &[Feature]) -> Vec<String> {
@@ -367,7 +377,7 @@ fn items(scene: &Value) -> Vec<Item> {
                 primary.dedup();
                 primary
             },
-            status: meta["status"].as_str().unwrap_or("existing").into(),
+            status: meta["status"].as_str().unwrap_or("stated").into(),
             faces,
             text,
             cells,
@@ -1027,8 +1037,8 @@ mod tests {
                 }}]
             }},
             "specify": {
-                "thread:holes:14":{"status":"answered", "notation":text},
-                "attribute:thread:holes:14:thread manufacturing:0":{"status":"answered", "notation":text}
+                "thread:holes:14":{"status":"stated", "notation":text},
+                "attribute:thread:holes:14:thread manufacturing:0":{"status":"stated", "notation":text}
             }
         })
     }
@@ -1041,7 +1051,7 @@ mod tests {
             match_kind: "flatness".into(),
             dimension_role: None,
             reference_faces: Vec::new(),
-            status: "existing".into(),
+            status: "stated".into(),
             on_faces: faces.clone(),
             faces,
             text: text.into(),
@@ -1251,7 +1261,7 @@ mod tests {
         let scene = |kind| {
             json!({
                 "pmi":{"pmi":{"dimensions":[{"id":"same", "value":{"kind":kind}}]}, "units":{}},
-                "specify":{"same":{"status":"existing", "number":16}},
+                "specify":{"same":{"status":"stated", "number":16}},
                 "presentation":{"items":{}}
             })
         };

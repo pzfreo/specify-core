@@ -3,7 +3,6 @@ export class IntentEngine {
   acceptDefaults(answers: string): string;
   constructor(name: string, bytes: Uint8Array);
   evidence(): string;
-  exportAnswers(answers: string, approved?: string | null): string;
   free(): void;
   original(): Uint8Array | undefined;
   payload(name: string): string | undefined;
@@ -98,7 +97,6 @@ export interface InitOutput {
   readonly intentengine_acceptDefaults: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_bom: (a: number, b: number) => [number, number, number, number];
   readonly intentengine_evidence: (a: number) => [number, number, number, number];
-  readonly intentengine_exportAnswers: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
   readonly intentengine_open: (a: number, b: number, c: number, d: number) => [number, number, number];
   readonly intentengine_openPart: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
   readonly intentengine_original: (a: number) => [number, number];
@@ -132,7 +130,7 @@ export interface PmiItemChange {
   old_id?: string;
   on: string;
   reason?: string;
-  status: "answered" | "default" | "general" | "existing";
+  status: PmiSceneStatus;
 }
 
 export interface PmiScene {
@@ -185,9 +183,9 @@ export interface PmiSceneItems {
 
 export interface PmiSceneMetadata {
   basic?: true;
+  general?: true;
   notation?: string;
   number?: number;
-  origin?: "requirement" | "general_tolerance" | "imported";
   question?: string;
   source?: {schema: number; faces: string; support: number[]; parameter: string};
   status: PmiSceneStatus;
@@ -252,7 +250,11 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export type PmiSceneId = string;
 
-export type PmiSceneStatus = "answered" | "default" | "general" | "existing";
+/**
+ * The feature table's state of the requirement an item belongs to (ADR P11): the file states
+ * it, it is planned for an open gap (a preview), or it was decided none.
+ */
+export type PmiSceneStatus = "stated" | "gap" | "decided_none";
 
 export type PmiSceneVector = [number, number, number];
 

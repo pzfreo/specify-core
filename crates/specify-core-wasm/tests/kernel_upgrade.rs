@@ -511,9 +511,21 @@ fn browser_refuses_suppressed_od_boss_answers_in_saved_and_shared_projects() {
         true,
     )
     .unwrap();
-    let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
-    // ADR P11: the writer stores only answers that leave no PMI behind, so the suppressed
-    // boss's answer is put in the payload as an older engine stored it.
+    // D11 (#126): given now, the answer on the suppressed boss names nothing the part has, so
+    // the writer refuses it, named with its reason.
+    let refused = specify_core::writer::write_bytes(&loaded, &intent, Some(&answers))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        refused.contains(&format!("Invalid answers: {key}: unknown feature bosses:1")),
+        "{refused}"
+    );
+    let seed = json!({"part.material":"steel"})
+        .as_object()
+        .unwrap()
+        .clone();
+    let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, Some(&seed)).unwrap();
+    // The suppressed boss's answer is put in the payload as an older engine stored it.
     let written = part::load_bytes("saved.step", bytes.clone()).unwrap();
     let payload = resume::payload(&written, &answers).unwrap();
     let doc = Document::parse(bytes).unwrap();

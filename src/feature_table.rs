@@ -13,7 +13,7 @@
 //! position of hole 12). The rows are the questions the part has with its PMI set aside, so
 //! a stated feature-and-kind keeps its row.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -50,8 +50,13 @@ pub struct Requirement {
     pub r#type: String,
     /// The faces it sits on (both sides of a location).
     pub faces: Vec<usize>,
-    /// Its value in short notation.
+    /// Its value in full notation, as a drawing states it (`⌀3.3 H11`, `⌖ ⌀0.3Ⓜ A`): the
+    /// `existing` entry's `text`.
     pub text: String,
+    /// It states something only its text holds (`existing`'s `text_only`): it cannot be
+    /// changed field by field.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub text_only: bool,
 }
 
 /// One feature-and-kind.
@@ -70,12 +75,20 @@ pub struct Row {
     /// stored answer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<Value>,
-    /// Stated: the requirements that state it.
+    /// Stated: the requirements that state it. A location gap: those that locate the feature
+    /// in some of its directions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requirements: Vec<Requirement>,
     /// Gap: Specify's suggestion (`null` when it has none).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<Value>,
+    /// A location gap the file already locates in some directions: the directions still to
+    /// locate (`x`, `y`, `z`), the only ones its suggestion covers (D8).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing: Vec<String>,
+    /// Beside `missing`: the directions the file already locates the feature in.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub located: Vec<String>,
     /// A gap to ask about: a gap whose suggestion is "none" isn't open (leaving it and
     /// accepting "none" give the same file).
     pub open: bool,
@@ -91,6 +104,21 @@ pub struct FeatureTable {
 }
 
 impl FeatureTable {
+    /// The table of a part whose feature-and-kinds could not be listed: every requirement the
+    /// file states is file PMI, and nothing is asked on the table's account.
+    pub fn unread(analysis: &Value) -> FeatureTable {
+        FeatureTable {
+            rows: Vec::new(),
+            file_pmi: analysis["existing"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(requirement)
+                .collect(),
+            decided_none: Vec::new(),
+        }
+    }
+
     /// The row of `id`.
     pub fn row(&self, id: &str) -> Option<&Row> {
         self.rows.iter().find(|r| r.id == id)
@@ -163,8 +191,12 @@ fn number(v: f64) -> String {
     crate::pyfmt::repr(v)
 }
 
-/// Short notation of an `existing` entry.
+/// The notation of an `existing` entry: its own full `text`; for an entry without one (an
+/// analysis from before it had one), a short notation of its common fields.
 fn text_of(item: &Value) -> String {
+    if let Some(text) = item["text"].as_str().filter(|t| !t.is_empty()) {
+        return text.to_string();
+    }
     let kind = item["kind"].as_str().unwrap_or_default();
     let r#type = item["type"].as_str().unwrap_or_default();
     let value = item["value"].as_f64();
@@ -216,6 +248,7 @@ fn requirement(item: &Value) -> Requirement {
         r#type: item["type"].as_str().unwrap_or_default().to_string(),
         faces,
         text: text_of(item),
+        text_only: item["text_only"] == Value::Bool(true),
     }
 }
 
@@ -224,7 +257,13 @@ fn states(kind: &str, faces: &BTreeSet<usize>, item: &Value) -> bool {
     let item_kind = item["kind"].as_str().unwrap_or_default();
     let r#type = item["type"].as_str().unwrap_or_default();
     let on = |key: &str| faces_of(item, key).iter().any(|f| faces.contains(f));
-    let on_either = on("faces") || on("faces2");
+    // A location's located side is its second set (`faces2`, the "to"); one with a single
+    // set locates what it is on. Its reference side locates nothing (D8).
+    let on_located = if faces_of(item, "faces2").is_empty() {
+        on("faces")
+    } else {
+        on("faces2")
+    };
     let family = kind.rsplit('.').next().unwrap_or(kind);
     if let Some(rest) = kind.strip_prefix("datum.") {
         let mut parts = rest.split('.');
@@ -243,14 +282,15 @@ fn states(kind: &str, faces: &BTreeSet<usize>, item: &Value) -> bool {
     }
     match family {
         // A hole's location, whichever scheme the file uses: a position tolerance, or a
-        // location dimension (basic, toleranced or general). The part's locating setting only
-        // decides what is suggested for a hole the file does not locate; a hole is never
-        // located twice by two schemes (Paul, 2026-11-21).
+        // location dimension (basic, toleranced or general) whose located side it is on. The
+        // part's locating setting only decides what is suggested for a hole the file does not
+        // locate; a hole is never located twice by two schemes (Paul, 2026-11-21). Holes are
+        // located per direction ([`Located`]); this is the match for what is not a hole.
         "position" | "frame" => {
             (item_kind == "geometric_tolerance" && r#type == "Position" && on("faces"))
-                || (item_kind == "dimension" && r#type.starts_with("Location_") && on_either)
+                || (item_kind == "dimension" && r#type.starts_with("Location_") && on_located)
         }
-        "location" => item_kind == "dimension" && r#type.starts_with("Location_") && on_either,
+        "location" => item_kind == "dimension" && r#type.starts_with("Location_") && on_located,
         // A hole's or a diameter's size: its dimension, or the thread or knurl callout that
         // states it.
         "function" | "fit" | "size" => {
@@ -273,10 +313,331 @@ fn states(kind: &str, faces: &BTreeSet<usize>, item: &Value) -> bool {
     }
 }
 
+/// The measuring axes, by index.
+const AXES: [&str; 3] = ["x", "y", "z"];
+/// Coordinates (mm) closer than this are on the same line.
+const ON_LINE: f64 = 1e-3;
+/// A dimension's value and a distance measured on the part (mm) closer than this agree.
+const SAME_VALUE: f64 = 1e-2;
+
+/// Whether a question's kind is a hole's location (`hole.position`, `hole.frame`,
+/// `hole.location`, or a direct intent's `requirement.location`), matched per direction.
+fn is_location_kind(kind: &str) -> bool {
+    !kind.starts_with("datum.")
+        && matches!(
+            kind.rsplit('.').next().unwrap_or(kind),
+            "position" | "frame" | "location"
+        )
+}
+
+fn vector(face: &Value, key: &str) -> Option<[f64; 3]> {
+    match face.get(key)?.as_array()?.as_slice() {
+        [x, y, z] => Some([x.as_f64()?, y.as_f64()?, z.as_f64()?]),
+        _ => None,
+    }
+}
+
+fn measured(face: &Value) -> bool {
+    face.get("unmeasured") != Some(&Value::Bool(true))
+}
+
+/// A point and a direction.
+type Line = ([f64; 3], [f64; 3]);
+
+/// A surface of revolution's axis line (a hole's bore): a point on it and its direction.
+fn axis_line(face: &Value) -> Option<Line> {
+    if !measured(face) || !matches!(face["kind"].as_str()?, "cylinder" | "cone" | "torus") {
+        return None;
+    }
+    Some((vector(face, "origin")?, vector(face, "direction")?))
+}
+
+/// A measured plane's centroid and normal.
+fn plane(face: &Value) -> Option<Line> {
+    if !measured(face) || face["kind"] != "plane" {
+        return None;
+    }
+    Some((vector(face, "centroid")?, vector(face, "direction")?))
+}
+
+/// Where the file locates the part's holes, direction by direction (D8, Paul 2026-11-21). A
+/// location dimension locates, along its measuring axis (its reference face's normal, by
+/// [`crate::pmi_origin::axis_of`]), every hole on its located side (`faces2`, the "to"), and
+/// every other hole whose axis lies on the same line from the same reference; its reference
+/// side (`faces`, the "from") locates nothing. A datum hole is the origin the part is measured
+/// from in the directions no other datum plane measures: it is not asked its location there.
+pub(crate) struct Located<'a> {
+    faces: &'a [Value],
+    /// (face, axis) → the `existing` items that locate that face along that axis.
+    by: BTreeMap<(usize, usize), BTreeSet<usize>>,
+}
+
+/// How the file locates one feature's holes.
+pub(crate) struct Location {
+    /// The axes some hole of the feature needs and nothing locates it in.
+    pub missing: BTreeSet<usize>,
+    /// The axes some hole of the feature needs.
+    pub needed: BTreeSet<usize>,
+    /// The `existing` items that locate it in the others.
+    pub items: BTreeSet<usize>,
+}
+
+impl<'a> Located<'a> {
+    /// The holes `existing` locates, on the part whose faces (the analysis's) are `faces`.
+    pub(crate) fn new(existing: &[&Value], faces: &'a [Value]) -> Located<'a> {
+        let mut located = Located {
+            faces,
+            by: BTreeMap::new(),
+        };
+        for (i, item) in existing.iter().enumerate() {
+            let r#type = item["type"].as_str().unwrap_or_default();
+            match item["kind"].as_str() {
+                Some("dimension") if r#type.starts_with("Location_") => {
+                    located.dimension(i, item);
+                }
+                Some("datum") => located.origin(i, item, existing),
+                _ => {}
+            }
+        }
+        located
+    }
+
+    fn face(&self, i: usize) -> Option<&Value> {
+        self.faces.get(i)
+    }
+
+    fn cover(&mut self, face: usize, axis: usize, item: usize) {
+        self.by.entry((face, axis)).or_default().insert(item);
+    }
+
+    fn dimension(&mut self, i: usize, item: &Value) {
+        let (reference, located) = match faces_of(item, "faces2") {
+            to if to.is_empty() => (Vec::new(), faces_of(item, "faces")),
+            to => (faces_of(item, "faces"), to),
+        };
+        let value = item["value"].as_f64();
+        let axis = if item["type"] == "Location_Angular" {
+            None
+        } else {
+            self.measuring_axis(&reference, &located, value)
+        };
+        match axis {
+            // A direction the part cannot tell (an angle, a diagonal): it locates what it is
+            // on in every direction.
+            None => {
+                for &f in &located {
+                    (0..3).for_each(|a| self.cover(f, a, i));
+                }
+            }
+            Some(a) => {
+                for &f in &located {
+                    self.cover(f, a, i);
+                }
+                self.on_the_line(i, a, &reference, &located, value);
+            }
+        }
+    }
+
+    /// The axis a location from `reference` to `located` measures along: the reference
+    /// plane's normal's (or the located plane's); between two holes, the axis across both
+    /// whose offset is the value.
+    pub(crate) fn measuring_axis(
+        &self,
+        reference: &[usize],
+        located: &[usize],
+        value: Option<f64>,
+    ) -> Option<usize> {
+        let first = |faces: &[usize], f: fn(&Value) -> Option<Line>| {
+            faces.iter().find_map(|&i| self.face(i).and_then(f))
+        };
+        if let Some((_, normal)) = first(reference, plane).or_else(|| first(located, plane)) {
+            return Some(crate::pmi_origin::axis_of(normal));
+        }
+        let (from, from_axis) = first(reference, axis_line)?;
+        let (to, to_axis) = first(located, axis_line)?;
+        let skip = [
+            crate::pmi_origin::axis_of(from_axis),
+            crate::pmi_origin::axis_of(to_axis),
+        ];
+        let offset = |a: usize| (to[a] - from[a]).abs();
+        let across = (0..3).filter(|a| !skip.contains(a));
+        let mut fitting: Vec<usize> = match value {
+            Some(v) => across
+                .filter(|&a| (offset(a) - v).abs() < SAME_VALUE)
+                .collect(),
+            None => across.filter(|&a| offset(a) > ON_LINE).collect(),
+        };
+        (fitting.len() == 1).then(|| fitting.remove(0))
+    }
+
+    /// Every other hole whose axis lies, along `axis`, on the line the dimension `i` locates.
+    fn on_the_line(
+        &mut self,
+        i: usize,
+        axis: usize,
+        reference: &[usize],
+        located: &[usize],
+        value: Option<f64>,
+    ) {
+        let from = reference.iter().find_map(|&f| {
+            let face = self.face(f)?;
+            plane(face)
+                .or_else(|| axis_line(face))
+                .map(|(p, _)| p[axis])
+        });
+        let across = |(p, d): Line| (crate::pmi_origin::axis_of(d) != axis).then_some(p[axis]);
+        let lines: Vec<f64> = located
+            .iter()
+            .filter_map(|&f| self.face(f).and_then(axis_line).and_then(across))
+            .collect();
+        // The line the value measures to, when it tells (a pattern's centre line among its
+        // members' lines).
+        let measured: Vec<f64> = match (from, value) {
+            (Some(from), Some(v)) => lines
+                .iter()
+                .copied()
+                .filter(|c| ((c - from).abs() - v).abs() < SAME_VALUE)
+                .collect(),
+            _ => Vec::new(),
+        };
+        let lines = if measured.is_empty() { lines } else { measured };
+        let on: Vec<usize> = (0..self.faces.len())
+            .filter(|g| !located.contains(g) && !reference.contains(g))
+            .filter(|&g| {
+                self.face(g)
+                    .and_then(axis_line)
+                    .and_then(across)
+                    .is_some_and(|c| lines.iter().any(|l| (c - l).abs() < ON_LINE))
+            })
+            .collect();
+        for g in on {
+            self.cover(g, axis, i);
+        }
+    }
+
+    /// A datum on a hole: the origin of the directions across its axis that no other datum
+    /// plane measures.
+    fn origin(&mut self, i: usize, item: &Value, existing: &[&Value]) {
+        let measured_from: BTreeSet<usize> = existing
+            .iter()
+            .enumerate()
+            .filter(|(j, e)| *j != i && e["kind"] == "datum")
+            .flat_map(|(_, e)| faces_of(e, "faces"))
+            .filter_map(|f| self.face(f).and_then(plane))
+            .map(|(_, normal)| crate::pmi_origin::axis_of(normal))
+            .collect();
+        for f in faces_of(item, "faces") {
+            if let Some((_, direction)) = self.face(f).and_then(axis_line) {
+                let along = crate::pmi_origin::axis_of(direction);
+                for a in (0..3).filter(|a| *a != along && !measured_from.contains(a)) {
+                    self.cover(f, a, i);
+                }
+            }
+        }
+    }
+
+    /// The holes among `faces`, coaxial faces (a counterbore and its drill) as one: (the axis
+    /// each runs along, its faces).
+    fn holes(&self, faces: &BTreeSet<usize>) -> Vec<(usize, Vec<usize>)> {
+        let mut holes: Vec<([f64; 3], usize, Vec<usize>)> = Vec::new();
+        for &f in faces {
+            let Some((point, direction)) = self.face(f).and_then(axis_line) else {
+                continue;
+            };
+            let along = crate::pmi_origin::axis_of(direction);
+            let same = holes.iter_mut().find(|(p, a, _)| {
+                *a == along && (0..3).all(|k| k == along || (p[k] - point[k]).abs() < ON_LINE)
+            });
+            match same {
+                Some((_, _, members)) => members.push(f),
+                None => holes.push((point, along, vec![f])),
+            }
+        }
+        holes.into_iter().map(|(_, a, f)| (a, f)).collect()
+    }
+
+    /// How the file locates the holes among `faces`, in every direction across their axes;
+    /// none when `faces` has no hole.
+    pub(crate) fn location(&self, faces: &BTreeSet<usize>) -> Option<Location> {
+        let holes = self.holes(faces);
+        if holes.is_empty() {
+            return None;
+        }
+        let mut location = Location {
+            missing: BTreeSet::new(),
+            needed: BTreeSet::new(),
+            items: BTreeSet::new(),
+        };
+        for (along, members) in holes {
+            for a in (0..3).filter(|a| *a != along) {
+                location.needed.insert(a);
+                let by: BTreeSet<usize> = members
+                    .iter()
+                    .filter_map(|&f| self.by.get(&(f, a)))
+                    .flatten()
+                    .copied()
+                    .collect();
+                if by.is_empty() {
+                    location.missing.insert(a);
+                }
+                location.items.extend(by);
+            }
+        }
+        Some(location)
+    }
+
+    /// Whether every hole among `faces` is located along `axis` (every direction it needs,
+    /// when the axis is not known); none when `faces` has no hole.
+    pub(crate) fn locates(&self, faces: &BTreeSet<usize>, axis: Option<usize>) -> Option<bool> {
+        let holes = self.holes(faces);
+        if holes.is_empty() {
+            return None;
+        }
+        Some(holes.iter().all(|(along, members)| {
+            let needed: Vec<usize> = match axis {
+                Some(a) => vec![a],
+                None => (0..3).filter(|a| a != along).collect(),
+            };
+            needed
+                .iter()
+                .all(|&a| members.iter().any(|&f| self.by.contains_key(&(f, a))))
+        }))
+    }
+}
+
 /// Whether the file's `existing` PMI states the feature-and-kind a writer's requirement
 /// (`intent.requirements` or `intent.general`) fills: the table's matching, by the faces it
 /// sits on and its kind (the question it answers, or its own kind for a direct intent).
-pub(crate) fn requirement_stated(req: &serde_json::Map<String, Value>, existing: &[Value]) -> bool {
+/// `geometry` is the part's faces as the analysis lists them. A location dimension is stated
+/// when the file already locates every hole it measures along its axis (D8: never a second
+/// location in a direction); a hole's position when the file locates it in every direction.
+pub(crate) fn requirement_stated(
+    req: &serde_json::Map<String, Value>,
+    existing: &[Value],
+    geometry: &[Value],
+) -> bool {
+    let ids = |key: &str| -> Vec<usize> {
+        req.get(key)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_u64)
+            .map(|f| f as usize)
+            .collect()
+    };
+    let items: Vec<&Value> = existing.iter().collect();
+    let located = Located::new(&items, geometry);
+    if req.get("kind").and_then(Value::as_str) == Some("location") {
+        let on = ids("faces");
+        let axis = located.measuring_axis(
+            &ids("reference"),
+            &on,
+            req.get("distance").and_then(Value::as_f64),
+        );
+        if let Some(stated) = located.locates(&on.into_iter().collect(), axis) {
+            return stated;
+        }
+    }
     // An added requirement (`extra.*`) names no feature-and-kind: its own kind does.
     let question = req
         .get("question")
@@ -305,7 +666,25 @@ pub(crate) fn requirement_stated(req: &serde_json::Map<String, Value>, existing:
     if faces.is_empty() || kind.starts_with("part.") {
         return false;
     }
+    if is_location_kind(&kind)
+        && let Some(location) = located.location(&faces)
+    {
+        return location.missing.is_empty()
+            || existing
+                .iter()
+                .any(|item| is_position(item) && on_any(item, &faces));
+    }
     existing.iter().any(|item| states(&kind, &faces, item))
+}
+
+/// Whether `item` is a position tolerance.
+fn is_position(item: &Value) -> bool {
+    item["kind"] == "geometric_tolerance" && item["type"] == "Position"
+}
+
+/// Whether `item` sits on any of `faces` (its first set).
+fn on_any(item: &Value, faces: &BTreeSet<usize>) -> bool {
+    faces_of(item, "faces").iter().any(|f| faces.contains(f))
 }
 
 /// The requirement kinds [`states`] knows by name; any other is a datum control.
@@ -329,7 +708,7 @@ fn setting(id: &str) -> Option<&str> {
     id.strip_prefix("part.")
 }
 
-fn setting_text(value: &Value) -> String {
+pub(crate) fn setting_text(value: &Value) -> String {
     match value {
         Value::String(s) => s.clone(),
         Value::Array(items) => items
@@ -371,37 +750,13 @@ pub fn build(
         .into_iter()
         .flatten()
         .collect();
-    // The rows: every feature-and-kind the part has, with the file's PMI set aside (a stated
-    // feature is not asked, but keeps its row). The file's datums stand for their questions,
-    // so the controls are on the faces the file gives them.
-    let mut bare = analysis.clone();
-    if let Some(object) = bare.as_object_mut() {
-        object.insert("existing".into(), Value::Array(Vec::new()));
-        object.insert("part".into(), Value::Object(Map::new()));
-        object.remove("resume");
-        object.remove("table");
-        object.remove("dimensioning_stated");
-        object.remove("process");
-    }
-    let mut given: Map<String, Value> = answers
-        .iter()
-        .filter(|(id, _)| !id.starts_with('_'))
-        .map(|(id, value)| (id.clone(), value.clone()))
-        .collect();
-    for item in &existing {
-        if item["kind"] == "datum"
-            && let Some(letter) = item["type"].as_str()
-        {
-            let faces = faces_of(item, "faces");
-            let id = format!("datum.{letter}");
-            if !faces.is_empty() && !given.contains_key(&id) {
-                given.insert(id, Value::from(faces));
-            }
-        }
-    }
+    let (bare, given) = set_aside(analysis, answers);
     let all = crate::rules::with_all_defaults(&bare, &given).unwrap_or_else(|_| given.clone());
-    let questions = crate::rules::questions(&bare, &all)?;
+    let questions =
+        crate::rules::questions(&bare, &all).or_else(|_| crate::rules::questions(&bare, &given))?;
 
+    let geometry: Vec<Value> = analysis["faces"].as_array().cloned().unwrap_or_default();
+    let located = Located::new(&existing, &geometry);
     let mut claimed = vec![false; existing.len()];
     let mut claimed_settings = BTreeSet::new();
     let mut rows = Vec::new();
@@ -418,7 +773,48 @@ pub fn build(
             .collect();
         let mut requirements = Vec::new();
         let mut value = None;
-        if q.id.starts_with("part.") {
+        let mut missing = Vec::new();
+        let mut located_in = Vec::new();
+        let location = is_location_kind(&kind)
+            .then(|| located.location(&faces))
+            .flatten();
+        if let Some(location) = location {
+            // A hole's location, per direction (D8): stated by a position tolerance, or when
+            // every direction it needs is located; otherwise a gap for the directions left.
+            let positions: BTreeSet<usize> = if kind.ends_with(".location") {
+                BTreeSet::new()
+            } else {
+                (0..existing.len())
+                    .filter(|&i| is_position(existing[i]) && on_any(existing[i], &faces))
+                    .collect()
+            };
+            for &i in positions.union(&location.items) {
+                claimed[i] = true;
+                requirements.push(requirement(existing[i]));
+            }
+            if positions.is_empty() && !location.missing.is_empty() {
+                if !location.items.is_empty() {
+                    missing = location
+                        .missing
+                        .iter()
+                        .map(|&a| AXES[a].to_string())
+                        .collect();
+                    located_in = location
+                        .needed
+                        .difference(&location.missing)
+                        .map(|&a| AXES[a].to_string())
+                        .collect();
+                }
+            } else {
+                value = Some(Value::String(
+                    requirements
+                        .iter()
+                        .map(|r| r.text.as_str())
+                        .collect::<Vec<_>>()
+                        .join("; "),
+                ));
+            }
+        } else if q.id.starts_with("part.") {
             if let Some(v) = stated_setting(settings, &q.id) {
                 value = Some(Value::String(setting_text(v)));
                 if let Some(key) = setting(&q.id) {
@@ -453,6 +849,8 @@ pub fn build(
                 value,
                 requirements,
                 suggestion: None,
+                missing: Vec::new(),
+                located: Vec::new(),
                 open: false,
             }
         } else if let Some(stored) = answers.get(&q.id).filter(|v| leaves_nothing(v)) {
@@ -466,6 +864,8 @@ pub fn build(
                 value: Some(stored.clone()),
                 requirements,
                 suggestion: None,
+                missing: Vec::new(),
+                located: Vec::new(),
                 open: false,
             }
         } else {
@@ -481,6 +881,8 @@ pub fn build(
                 value: None,
                 requirements,
                 suggestion: Some(suggestion),
+                missing,
+                located: located_in,
                 open,
             }
         };
@@ -500,6 +902,7 @@ pub fn build(
                 r#type: key.clone(),
                 faces: Vec::new(),
                 text: setting_text(value),
+                text_only: false,
             });
         }
     }
@@ -534,6 +937,7 @@ pub fn add_numbered(table: &mut FeatureTable, numbers: &[crate::characteristics:
             r#type: c.r#type.clone(),
             faces,
             text: c.r#type.clone(),
+            text_only: false,
         };
         let finish = table.rows.iter_mut().find(|r| {
             r.id == "part.surface_finish" && r.state == State::Stated && c.faces.is_empty()
@@ -548,6 +952,58 @@ pub fn add_numbered(table: &mut FeatureTable, numbers: &[crate::characteristics:
             _ => table.file_pmi.push(requirement),
         }
     }
+}
+
+/// `analysis` with the file's PMI set aside, so its questions are every feature-and-kind the
+/// part has (a stated feature is not asked, but keeps its row), and `answers` with the file's
+/// datums standing for their questions, so the controls are on the faces the file gives them.
+fn set_aside(analysis: &Value, answers: &Map<String, Value>) -> (Value, Map<String, Value>) {
+    let mut bare = analysis.clone();
+    if let Some(object) = bare.as_object_mut() {
+        object.insert("existing".into(), Value::Array(Vec::new()));
+        object.insert("part".into(), Value::Object(Map::new()));
+        object.remove("resume");
+        object.remove("table");
+        object.remove("dimensioning_stated");
+        object.remove("process");
+    }
+    let mut given: Map<String, Value> = answers
+        .iter()
+        .filter(|(id, _)| !id.starts_with('_'))
+        .map(|(id, value)| (id.clone(), value.clone()))
+        .collect();
+    for item in analysis["existing"].as_array().into_iter().flatten() {
+        if item["kind"] == "datum"
+            && let Some(letter) = item["type"].as_str()
+        {
+            let faces = faces_of(item, "faces");
+            let id = format!("datum.{letter}");
+            if !faces.is_empty() && !given.contains_key(&id) {
+                // A file datum the rules cannot take as an answer (faces that form no one
+                // datum feature, NIST FTC-09's E) still names its row; only its controls'
+                // faces fall back to the suggestion's.
+                let mut trial = given.clone();
+                trial.insert(id, Value::from(faces));
+                if crate::rules::questions(&bare, &trial).is_ok() {
+                    given = trial;
+                }
+            }
+        }
+    }
+    (bare, given)
+}
+
+/// The analysis and answers that plan what the file states, as nearly as they can be told from
+/// it: the part with its PMI set aside, and the stored `answers`, the file's datums and every
+/// other question's suggestion. A file keeps no answer that writes PMI (ADR P11), so the scene
+/// names a file's requirements by this plan.
+pub(crate) fn planned_answers(
+    analysis: &Value,
+    answers: &Map<String, Value>,
+) -> (Value, Map<String, Value>) {
+    let (bare, given) = set_aside(analysis, answers);
+    let all = crate::rules::with_all_defaults(&bare, &given).unwrap_or(given);
+    (bare, all)
 }
 
 #[cfg(test)]

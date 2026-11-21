@@ -185,8 +185,12 @@
         0
       ],
       "value": 10.0,
+      "upper": 0.0,
+      "lower": -0.009,
       "provenance": "specify-core:written:v1",
-      "number": 3
+      "number": 3,
+      "text": "⌀10 h6",
+      "fit": "h6"
     },
     {
       "kind": "dimension",
@@ -201,7 +205,8 @@
       "upper": 0.05,
       "lower": -0.05,
       "provenance": "specify-core:written:v1",
-      "number": 4
+      "number": 4,
+      "text": "20 ±0.05"
     },
     {
       "kind": "datum",
@@ -210,7 +215,8 @@
         0
       ],
       "provenance": "specify-core:written:v1",
-      "number": 1
+      "number": 1,
+      "text": "datum A"
     },
     {
       "kind": "datum",
@@ -219,7 +225,8 @@
         8
       ],
       "provenance": "specify-core:written:v1",
-      "number": 2
+      "number": 2,
+      "text": "datum B"
     }
   ]
 }

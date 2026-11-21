@@ -102,9 +102,10 @@ options. An accepted suggestion also carries `default.manufacturing_process`, th
 marker, as the text item `'true'` (haecceity's writer writes no boolean items, as its reader
 cannot read them back; the BOM's boolean `.T.` form is read too); an answer has no marker. It is written only when the
 process is answered or a suggestion is accepted, in the same edit as the part's PMI, and
-replaced with it on a rewrite. A part only ever has one: where Specify's set is in a file
-written without stored answers (so Add mode keeps it), the same process is not written again
-and a different one is refused.
+replaced with it on a rewrite. A part only ever has one: where the file states a process (Add
+mode keeps it, whoever wrote it), the same process is not written again, and an answer naming
+a different one is not written either: it is listed in the write report's `not_written` (the
+file's value stands whoever wrote it: changing it is an explicit edit).
 
 ```step
 #100=DESCRIPTIVE_REPRESENTATION_ITEM('manufacturing_process','3D printed: FDM');
@@ -118,11 +119,11 @@ and a different one is refused.
 **Reading.** Any part-level attribute set with a `manufacturing_process` item (matched ignoring
 case, spaces and hyphens) whose value is one of the options (ignoring case) is read; other
 values are ignored. Precedence is answer > file > guess, with the source reported as the BOM's:
-`answered` (an answer, or Specify's unmarked set), `file` (another tool's set), `default`
+`answered` (an answer), `file` (a set the file states, whoever wrote it: ADR P11), `default`
 (Specify's marked set, else the guess). Analysis reports the file's value as
 `analysis.process = {value, source}`, and a stated value (Specify's unmarked set or another
 tool's) as `analysis.part.process`: the question is then not asked, as other `part.*` values the
-file states are not. A resumed Specify file's answer comes back with its other answers. An
+file states are not. The answer itself is not stored: the file states it (ADR P11). An
 accepted suggestion stored in the file is the question's default only while the current
 material still suggests it; it is not an answer, so `apply` without accept-defaults on the
 resumed part leaves it machined until the suggestion is accepted again. A `general tolerance`

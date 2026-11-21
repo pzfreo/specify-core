@@ -324,7 +324,11 @@ fn a_reopened_file_resumes_its_answers_with_the_unmeasured_face_first() {
     let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
     let written = part::load_bytes("resume.step", bytes).unwrap();
     let again = api::analyse(&written).unwrap();
-    assert_eq!(again["resume"]["answers"], Value::Object(answers));
+    // ADR P11: stored are the answers that leave no PMI behind.
+    assert_eq!(
+        again["resume"]["answers"],
+        Value::Object(specify_core::feature_table::storable(&answers))
+    );
     assert!(
         again["resume"].get("conflicts").is_none(),
         "{}",

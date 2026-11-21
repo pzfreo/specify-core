@@ -18,7 +18,7 @@ import { SessionApiMismatch } from './session-api';
 import { defaultsToWrite } from '../src/specify/review';
 import { saveFile } from '../src/specify/SpecifyReview';
 import type { StoredInspection } from '../src/specify/saved-inspection';
-import { changedIds, createSession, exportableAnswers, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
+import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
 import { getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type LocalConfig } from './local';
 import { DefaultRefused, DefaultsChanged, FileChanged, NotShown, defaultParts, matchMissing, sessionSaver, Stale, writtenParts, type Default, type SavedWithAnswers, type Saver } from './save';
@@ -475,7 +475,7 @@ function App() {
       if (error instanceof FileChanged) {
         setFileChanged(true);
         setProblem('Not saved: the file changed on disk since it was opened (another program wrote it), so Save will not write over it. '
-          + 'Your answers are still here: keep them with Answers (JSON), then open the file again.');
+          + 'Open the file again to save.');
       } else if (error instanceof DefaultsChanged) {
         setProblem('Not saved: the answers changed, so the defaults to write are not the ones you confirmed. Check the new list.');
         void askDefaults(true);
@@ -506,11 +506,10 @@ function App() {
     } finally { setSaving(false); }
   };
 
-  // The answers given and kept, including any defaults already approved in the session.
+  // No export of answers as a record (ADR P11): the button stays until the panel replaces it,
+  // and says so.
   const downloadAnswers = () => {
-    if (!opened || !config) return;
-    const answers = exportableAnswers(opened.store.get());
-    saveFile(new File([`${JSON.stringify(answers, null, 2)}\n`], `${stem(config.name)}.answers.json`, { type: 'application/json' }));
+    setProblem('Answers (JSON): not available in 0.3.0. The answers are kept in the STEP file when you save.');
   };
 
   // A part's exports are derived only from the retained saved/opened STEP. Live answers and

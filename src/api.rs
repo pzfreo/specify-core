@@ -361,8 +361,8 @@ fn analyse_with(
     crate::process::stated_entries(reading.process().or(process), None, &mut analysis);
     // Stored answers that leave no PMI behind (decided none, and choices that are not
     // requirements) are read back; those that repeat the file's PMI are ignored (dropped at
-    // the next save). One whose requirement is no longer in the file is a gap again: the
-    // deletion stands, and is mentioned here.
+    // the next save). One with no requirement for it in the file leaves its question open
+    // again: the deletion stands, and is mentioned here, once per answer.
     let stored = resumed
         .as_ref()
         .map(|r| crate::feature_table::storable(&r.answers))
@@ -372,11 +372,14 @@ fn analyse_with(
     reading.each_setting(false, |key, value| {
         stated_settings.entry(key).or_insert(value);
     });
-    let mut table =
+    // A table that cannot be built never fails the analysis: its file PMI is listed whole
+    // and the reason is a warning.
+    let table =
         crate::feature_table::build(&Value::Object(analysis.clone()), &stated_settings, &stored)
-            .map_err(|e| refused(&e))?;
-    let numbers = crate::characteristics::read(loaded).map_err(Error::Analysis)?;
-    crate::feature_table::add_numbered(&mut table, &numbers);
+            .unwrap_or_else(|e| {
+                warnings.push(format!("the feature table could not be built: {e}"));
+                crate::feature_table::FeatureTable::unread(&Value::Object(analysis.clone()))
+            });
     if let Some(mut resumed) = resumed {
         let mut kept = Map::new();
         for (id, answer) in &resumed.answers {
@@ -389,11 +392,30 @@ fn analyse_with(
             if keep {
                 kept.insert(id.clone(), answer.clone());
             } else if row.is_some_and(|r| r.state == crate::feature_table::State::Gap) {
+                let reason = "no requirement for this answer in the file; the question is open \
+                              again";
                 warnings.push(format!(
-                    "saved answer {id} ({}): its requirement is no longer in the file; it is a \
-                     gap again",
+                    "saved answer {id} ({}): {reason}",
                     crate::choices::short_repr(answer, 6)
                 ));
+                resumed.dropped_answers.push(resume::DroppedAnswer {
+                    id: id.clone(),
+                    value: answer.clone(),
+                    reason: reason.into(),
+                });
+            } else if crate::feature_table::leaves_nothing(answer) {
+                // D11: a stored "none" where the file now states the requirement: the file's
+                // PMI stands, and the answer is reported rather than dropped silently.
+                let reason = "its question is not asked: the file already states this requirement";
+                warnings.push(format!(
+                    "saved answer {id} ({}): {reason}; it is not stored again",
+                    crate::choices::short_repr(answer, 6)
+                ));
+                resumed.dropped_answers.push(resume::DroppedAnswer {
+                    id: id.clone(),
+                    value: answer.clone(),
+                    reason: reason.into(),
+                });
             }
         }
         resumed.answers = kept;
@@ -411,6 +433,85 @@ fn analyse_with(
             serde_json::to_value(resumed).map_err(|e| refused(&e))?,
         );
     }
+    // A row is open exactly when the questions count it open: the table's rows come from every
+    // default (a follow-up, a hole's frame, has its row before it is asked), and the questions
+    // read the file's datums as the file has them.
+    let mut table = table;
+    analysis.insert(
+        "table".into(),
+        serde_json::to_value(&table).map_err(|e| refused(&e))?,
+    );
+    // D11 (#126): a stored answer whose question is not asked given the other stored answers is
+    // reported once, here, and left out of the resumed answers, so the next save does not store
+    // it again (the rules' `unasked` rows tell the writer).
+    if let Some(Value::Object(resume)) = analysis.get("resume").cloned()
+        && let Some(answers) = resume.get("answers").and_then(Value::as_object)
+        && answers.keys().any(|id| !id.starts_with('_'))
+        && let Ok(unasked) = rules::unasked_answers(&Value::Object(analysis.clone()), answers)
+    {
+        let mut answers = answers.clone();
+        let mut dropped = resume
+            .get("dropped_answers")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        for (id, why) in unasked {
+            let Some(value) = answers.shift_remove(&id) else {
+                continue;
+            };
+            let reason = format!("its question {why}");
+            warnings.push(format!(
+                "saved answer {id} ({}): {reason}; it is not stored again",
+                crate::choices::short_repr(&value, 6)
+            ));
+            dropped.push(json!({"id": id, "value": value, "reason": reason}));
+        }
+        if dropped.len()
+            > resume
+                .get("dropped_answers")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len)
+        {
+            // The table reads decided-none answers from the stored ones: without those dropped.
+            let stored = crate::feature_table::storable(&answers);
+            table = crate::feature_table::build(
+                &Value::Object(analysis.clone()),
+                &stated_settings,
+                &stored,
+            )
+            .unwrap_or(table);
+            analysis.insert(
+                "table".into(),
+                serde_json::to_value(&table).map_err(|e| refused(&e))?,
+            );
+            let mut resume = resume;
+            resume.insert("answers".into(), Value::Object(answers));
+            resume.insert("dropped_answers".into(), Value::Array(dropped));
+            analysis.insert("resume".into(), Value::Object(resume));
+        }
+    }
+    let answers = analysis
+        .get("resume")
+        .and_then(|r| r["answers"].as_object())
+        .cloned()
+        .unwrap_or_default();
+    if let Ok(questions) = rules::questions(&Value::Object(analysis.clone()), &answers) {
+        let open: std::collections::BTreeSet<&str> = rules::open_questions(&questions, &answers)
+            .iter()
+            .map(|q| q.id.as_str())
+            .collect();
+        for row in &mut table.rows {
+            row.open = open.contains(row.id.as_str());
+        }
+        analysis.insert(
+            "table".into(),
+            serde_json::to_value(&table).map_err(|e| refused(&e))?,
+        );
+    }
+    // Every numbered requirement the table does not list yet is added where it belongs, so
+    // each can be removed by its number.
+    let numbers = crate::characteristics::read(loaded).map_err(Error::Analysis)?;
+    crate::feature_table::add_numbered(&mut table, &numbers);
     analysis.insert(
         "table".into(),
         serde_json::to_value(&table).map_err(|e| refused(&e))?,
@@ -544,15 +645,11 @@ pub fn approvals(value: &Value) -> Option<Approved> {
         .collect()
 }
 
-/// What [`approvals`] takes, for a refusal's message.
-pub const APPROVALS_FORM: &str = "{\"<part>\": {\"<question id>\": <default value the person \
-                                  saw>}} for exactly the defaults the person approved ({} for none)";
-
 /// Part `part`'s `answers` with the defaults `approved` for it taken, all checked first
 /// against the defaults as they stand with `answers` (ADR P9): each id must be an open
 /// question with a default, and its value that default (the one the person saw), else refused
 /// ([`Error::Unapproved`]) naming it. Taken together, so no approval changes another's value.
-/// The page's Save, MCP's `write_pmi` and `export_answers`, and [`export_answers`].
+/// The page's Save and MCP's `write_pmi`.
 pub fn with_approved(
     analysis: &Value,
     answers: &Map<String, Value>,
@@ -610,66 +707,6 @@ pub fn with_approved(
     let mut taken = answers.clone();
     taken.extend(approved.clone());
     Ok(taken)
-}
-
-/// An exported answer map and the questions still open in it.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Exported {
-    /// The answers given, the defaults approved, `_specify` (face evidence, carry blocks still
-    /// unresolved, and `sources`: the rule behind each approved default), sorted.
-    pub answers: Map<String, Value>,
-    /// The questions still open, which the answers do not settle.
-    pub missing: Vec<String>,
-}
-
-impl Exported {
-    /// No question is left open.
-    pub fn complete(&self) -> bool {
-        self.missing.is_empty()
-    }
-}
-
-/// An editable answer file for this part, without writing STEP: what is answered, plus
-/// exactly the defaults `approved` for this part (by part index; another part's approvals do
-/// not apply), each checked against the default as it stands ([`with_approved`]). Never every
-/// default (ADR P9): with no approvals, no defaults. Open questions do not refuse it (incomplete
-/// is normal) and are reported in `missing`; a carry block on an open question is kept in
-/// `_specify.unresolved`. Verify both the analysis binding and any supplied evidence before
-/// attaching fresh evidence: an export must never turn stale indices into apparently verified
-/// answers.
-pub fn export_answers(
-    loaded: &LoadedPart,
-    analysis: &Value,
-    answers: &Map<String, Value>,
-    approved: &Approved,
-) -> Result<Exported> {
-    crate::answer_file::check(loaded, answers)
-        .map_err(|why| Error::Rules(rules::Error::Invalid(why)))?;
-    // Validates the answers, before any approval is read against them.
-    questions(analysis, answers)?;
-    let none = Map::new();
-    let wanted = approved.get(&loaded.binding.part).unwrap_or(&none);
-    let taken = with_approved(analysis, answers, loaded.binding.part, wanted)?;
-    writer::check_binding(loaded, &rules::preview(analysis, &taken)?)?;
-    let qs = questions(analysis, &taken)?;
-    let missing = rules::open_questions(&qs, &taken)
-        .iter()
-        .map(|q| q.id.clone())
-        .collect();
-    let sources = rules::answered_sources(&qs, &taken);
-    let mut out = taken.clone();
-    crate::answer_file::attach(loaded, &mut out, &taken, std::iter::empty())
-        .map_err(|why| Error::Rules(rules::Error::Invalid(why)))?;
-    // attach() has just set the metadata object; its sources are output only.
-    out[crate::answer_file::META]["sources"] = Value::Object(sources);
-    // Sort objects recursively, including caller-supplied extra requirements. Arrays keep
-    // their semantic order (datum precedence, feature members, and note sequences).
-    let mut value = Value::Object(out);
-    value.sort_all_objects();
-    Ok(Exported {
-        answers: value.as_object().expect("constructed an object").clone(),
-        missing,
-    })
 }
 
 /// For each answer that is its question's default, the rule behind it

@@ -44,7 +44,6 @@ def test_an_unknown_id_is_refused(plate, tmp_path):
         lambda: api.questions(analysis, given),
         lambda: api.apply(analysis, given, accept_defaults=True),
         lambda: api.preview(analysis, given),
-        lambda: api.export_answers(plate, analysis, given),
     ):
         with pytest.raises(ValueError, match=UNKNOWN):
             call()

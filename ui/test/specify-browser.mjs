@@ -112,10 +112,11 @@ try {
     await check(panel(page).getByRole('button', { name: '+ Add a requirement' })).toBeVisible();
     await panel(page).locator('.pmi-lab-row-head', { hasText: 'Datums' }).click();
     await check(panel(page).getByRole('button', { name: '+ Add datum' })).toBeVisible();
-    await check(panel(page).getByRole('button', { name: /^Remove datum / }).first()).toBeVisible();
-    await openHoleRow(page);
-    await check(panel(page).locator('.pmi-lab-item.on')).toBeVisible();
-    assert.ok(await panel(page).locator('.pmi-lab-item.on button:not([disabled])').count() > 0, 'an open question has live answer buttons');
+    // ADR P11: the spindle's file states its datums, so they read "from the file" with no Remove (a
+    // save never edits what the file states); a suggested datum's Remove is checked on the shaft below,
+    // and so is a hole's open question (the spindle's file states its holes: no hole row).
+    await check(panel(page).locator('.pmi-lab-datums .chip.existing').first()).toContainText('from the file');
+    await check(panel(page).getByRole('button', { name: /^Remove datum / })).toHaveCount(0);
     await page.close();
   }
   // A suggestion not kept is a suggestion: no tick, counted as open. Keeping it makes it an answer, ticked.
@@ -144,6 +145,12 @@ try {
     // Only the one kept has a tick: the suggestions left still have none.
     await check(cards.locator('text=✓')).toHaveCount(0);
     await check(rows.locator('.pmi-lab-tick')).toHaveCount(1);
+    await openHoleRow(page);
+    await check(panel(page).locator('.pmi-lab-item.on')).toBeVisible();
+    assert.ok(await panel(page).locator('.pmi-lab-item.on button:not([disabled])').count() > 0, 'an open question has live answer buttons');
+    // The shaft's datums are suggested, not stated: each can be removed.
+    await panel(page).locator('.pmi-lab-row-head', { hasText: 'Datums' }).click();
+    await check(panel(page).getByRole('button', { name: /^Remove datum / }).first()).toBeVisible();
     await page.close();
   }
   // Keep all lists what it will keep first (ADR P9): cancelled, nothing is kept; confirmed, all are.

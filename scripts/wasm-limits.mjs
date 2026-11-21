@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { IntentEngine, interpret } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
+import { storable } from './storable.mjs';
 const root = new URL('../', import.meta.url);
 await init({ module_or_path: readFileSync(new URL('crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm', root)) });
 const answers = {
@@ -21,8 +22,11 @@ try {
   const write = JSON.parse(engine.writePmi(JSON.stringify(answers)));
   const back = new IntentEngine('limits.step', Uint8Array.from(write.bytes));
   try {
-    assert.deepEqual(JSON.parse(back.snapshot()).analysis.resume.answers, answers);
-    const scene = JSON.parse(back.pmiScene(JSON.stringify(answers)));
+    // ADR P11 rule 2: only answers that leave no PMI are stored; the file states the rest.
+    const resumed = JSON.parse(back.snapshot()).analysis.resume.answers;
+    assert.deepEqual(resumed, storable(answers));
+    // The reopened file's scene, as the app asks for it (with what it resumed): its own PMI.
+    const scene = JSON.parse(back.pmiScene(JSON.stringify(resumed)));
     const labels = Object.values(scene.specify).map(m => m.notation ?? '').join('; ');
     assert.ok(labels.includes('9.8 - 10.2') && labels.includes('⌀7.8 - ⌀8.2'), labels);
     assert.ok(labels.includes('GENERAL TOLERANCES ISO 2768-mK'), labels);

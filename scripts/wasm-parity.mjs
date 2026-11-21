@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { join, resolve } from 'node:path';
 import { brotliCompressSync, gzipSync, gunzipSync, constants } from 'node:zlib';
 import init, { IntentEngine, review, acceptDefaults, interpret, start, diff } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
+import { storable } from './storable.mjs';
 
 const root = new URL('../', import.meta.url);
 const wasm = readFileSync(new URL('crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm', root));
@@ -135,15 +136,19 @@ for (const [part, path] of parts) {
     const acceptedWrite = JSON.parse(engine.writePmi(acceptedJson));
     assert.deepEqual(acceptedWrite, expected.accepted_write, 'accepted PMI matches native apply-with-defaults bytes/report');
     const acceptedReopened = new IntentEngine(name, Uint8Array.from(acceptedWrite.bytes));
-    try { assert.deepEqual(JSON.parse(acceptedReopened.snapshot()).analysis.resume.answers, accepted); }
+    // ADR P11 rule 2: the file stores only the answers that leave no PMI; it states the rest.
+    try { assert.deepEqual(JSON.parse(acceptedReopened.snapshot()).analysis.resume.answers, storable(accepted)); }
     finally { acceptedReopened.free(); }
     const edited = { ...accepted, 'part.general_tolerance': 'ISO 2768-f' };
     assert.equal(JSON.parse(engine.acceptDefaults(JSON.stringify(edited)))['part.general_tolerance'], 'ISO 2768-f');
-    assert.equal(JSON.parse(engine.review(JSON.stringify(edited))).intent.part.general_tolerance, 'ISO 2768-f');
+    // ADR P11 (D5b): a general tolerance the file states stands; a different answer is not
+    // written over it (changing it is an explicit edit), so the intent carries none.
+    const statesTolerance = Boolean(snapshot.analysis.part?.general_tolerance);
+    assert.equal(JSON.parse(engine.review(JSON.stringify(edited))).intent.part.general_tolerance, statesTolerance ? undefined : 'ISO 2768-f');
     assert.ok(stored.report.written.length > 0, 'PMI written');
     assert.ok(Buffer.from(stored.bytes).includes(Buffer.from(`DESCRIPTIVE_REPRESENTATION_ITEM('draftwright editor project','${project}')`)));
     const reopened = new IntentEngine(name, Uint8Array.from(stored.bytes));
-    try { assert.deepEqual(JSON.parse(reopened.snapshot()).analysis.resume.answers, answers); }
+    try { assert.deepEqual(JSON.parse(reopened.snapshot()).analysis.resume.answers, storable(answers)); }
     finally { reopened.free(); }
     // #35: a carried payload, the original part, and saved answers matched with face evidence.
     const payload = { name: 'an app', value: { revision: 2, note: '‘α’ it\'s' } };
@@ -153,11 +158,10 @@ for (const [part, path] of parts) {
     try {
       assert.deepEqual(JSON.parse(carrying.payload('an app')), payload.value);
       assert.equal(carrying.payload('another app'), undefined);
-      // The spindle came with datums and their presentation, which the writer replaces, so
-      // it has no original to give back; every other part's is its bytes exactly.
+      // ADR P11: the writer adds to the file's PMI and never replaces it, so every part (the
+      // spindle with its own datums too) gives back its original bytes exactly.
       const original = carrying.original();
-      if (part === 'spindle') assert.equal(original, undefined, 'replaced PMI: no original');
-      else assert.deepEqual(Buffer.from(original), Buffer.from(bytes), 'original part bytes');
+      assert.deepEqual(Buffer.from(original), Buffer.from(bytes), 'original part bytes');
       assert.deepEqual(JSON.parse(carrying.evidence()), JSON.parse(evidence));
       const rematched = JSON.parse(carrying.rematchAnswers(answersJson, evidence, '[]'));
       assert.deepEqual(rematched.answers, answers);
@@ -216,10 +220,10 @@ for (const [part, path] of parts) {
     const opened = new IntentEngine('edited.step', Buffer.from(source));
     try {
       const { analysis } = JSON.parse(opened.snapshot());
-      const conflict = analysis.resume.conflicts.find(c => c.id === 'part.process');
-      assert.equal(conflict.stored, 'machined');
-      assert.equal(conflict.file, 'cast');
-      assert.equal(conflict.foreign ?? false, foreign);
+      // ADR P11: the file's process is the truth, whoever edited it: there is no stored
+      // answer to conflict with it (an answer that writes PMI is not stored).
+      assert.equal(analysis.part.process, 'cast', `foreign ${foreign}`);
+      assert.equal(analysis.resume.conflicts, undefined);
       assert.ok(!Object.hasOwn(analysis.resume.answers, 'part.process'));
       const output = Buffer.from(JSON.parse(opened.writePmi(JSON.stringify(analysis.resume.answers))).bytes);
       const reopened = new IntentEngine('rewritten.step', output);
@@ -241,25 +245,48 @@ console.log('manufacturing process: external edits with and without provenance s
 // v0.4.1 regenerates GENERAL NOTES and plane views; refresh only the numbered output golden.
 const alpha7 = gunzipSync(readFileSync(new URL('tests/fixtures/thread-depth-alpha7.step.gz', root)));
 const numberedTap = gunzipSync(readFileSync(new URL('tests/fixtures/thread-depth-numbered.step.gz', root)));
-const savedTap = new IntentEngine('shaft.step', alpha7);
-let tapAnswers;
-try { tapAnswers = JSON.parse(savedTap.snapshot()).analysis.resume.answers; }
-finally { savedTap.free(); }
+// What the alpha.7 file stored (its payload, the hole renamed holes:15.16 since #216). ADR P11:
+// both answers write PMI, so reopening resumes neither; the file states the thread.
+const tapAnswers = { 'part.material': 'steel', 'hole.function:holes:15.16': 'tapped:M2' };
+// What a file reads back as: its PMI, settings and numbered characteristics (no entity ids).
+const readback = (bytes) => {
+  const engine = new IntentEngine('shaft.step', bytes);
+  try {
+    const { analysis } = JSON.parse(engine.snapshot());
+    const characteristics = (analysis.characteristics ?? []).map(({ entity, ...rest }) => rest);
+    return { analysis, semantic: { existing: analysis.existing, part: analysis.part, characteristics } };
+  } finally { engine.free(); }
+};
+const fullThread = /MEASURE_WITH_UNIT\(LENGTH_MEASURE\(2(?:\.0*)?\),#\d+\)REPRESENTATION_ITEM\('minimum full thread'\)/;
+{
+  const saved = readback(alpha7).analysis;
+  assert.deepEqual(saved.resume.answers, storable(tapAnswers));
+  assert.ok(saved.table.rows.some(r => r.id === 'hole.function:holes:15.16' && r.state === 'stated'), 'alpha.7 thread is stated');
+}
 for (const [index, bytes] of [readFileSync(new URL('tests/fixtures/parts/GRM-02_shaft.step', root)), alpha7].entries()) {
   const engine = new IntentEngine('shaft.step', bytes);
   try {
-    const reviewed = JSON.parse(engine.review(JSON.stringify(tapAnswers)));
-    const depth = reviewed.questions.find(q => q.id.startsWith('hole.full_thread:'));
-    assert.equal(depth.attention, 'refine');
-    assert.ok(!reviewed.open.includes(depth.id));
-    assert.ok(!Object.hasOwn(tapAnswers, depth.id));
-    assert.equal(reviewed.intent.requirements.find(r => r.kind === 'thread').full_thread, 2);
-    const written = Buffer.from(JSON.parse(engine.writePmi(JSON.stringify(tapAnswers))).bytes);
-    if (index === 0) assert.deepEqual(written, numberedTap, 'implicit M2 tap writes exact numbered STEP bytes');
-    assert.match(written.toString(), /MEASURE_WITH_UNIT\(LENGTH_MEASURE\(2(?:\.0*)?\),#\d+\)REPRESENTATION_ITEM\('minimum full thread'\)/);
+    // The bare part is answered; the alpha.7 file is saved from what it resumes.
+    const answers = index === 0 ? tapAnswers : readback(alpha7).analysis.resume.answers;
+    const reviewed = JSON.parse(engine.review(JSON.stringify(answers)));
+    const written = Buffer.from(JSON.parse(engine.writePmi(JSON.stringify(answers))).bytes);
+    if (index === 0) {
+      const depth = reviewed.questions.find(q => q.id.startsWith('hole.full_thread:'));
+      assert.equal(depth.attention, 'refine');
+      assert.ok(!reviewed.open.includes(depth.id));
+      assert.ok(!Object.hasOwn(answers, depth.id));
+      assert.equal(reviewed.intent.requirements.find(r => r.kind === 'thread').full_thread, 2);
+      // Structural, not a byte pin: the implicit M2 tap reads back as the numbered golden does
+      // (the thread with its depth, every requirement with its characteristic number).
+      assert.deepEqual(readback(written).semantic, readback(numberedTap).semantic, 'implicit M2 tap reads back as the numbered golden');
+    } else {
+      // A save of the alpha.7 file keeps the thread it states, with its 2 mm depth and number.
+      assert.deepEqual(readback(written).semantic, readback(alpha7).semantic, 'alpha.7 resave keeps the file\'s PMI');
+    }
+    assert.match(written.toString(), fullThread);
   } finally { engine.free(); }
 }
-console.log('alpha.7 M2 tap: implicit depth, exact numbered STEP bytes and resave passed');
+console.log('alpha.7 M2 tap: implicit depth, numbered read-back and resave passed');
 for (const [part, pattern] of [['assembly', /one distinct part/]]) {
   throwsString(() => new IntentEngine(`${part}.step`, readFileSync(new URL(`tests/fixtures/parts/${part}.step`, root))), pattern);
 }
@@ -296,7 +323,13 @@ throwsString(() => new IntentEngine('twice.step', Buffer.from(twice)), /one inst
   } finally { plate.free(); }
   const reopened = IntentEngine.openPart('assembly.step', written, 1);
   try {
-    assert.deepEqual(JSON.parse(reopened.snapshot()).analysis.resume.answers, JSON.parse(brass));
+    // ADR P11: the material is written as PMI, so the file states it rather than storing it.
+    const { analysis } = JSON.parse(reopened.snapshot());
+    assert.deepEqual(analysis.resume.answers, storable(JSON.parse(brass)));
+    // An assembly's part has no part settings of its own; its feature table reads the material.
+    const material = analysis.table.rows.find(r => r.id === 'part.material');
+    assert.equal(material.state, 'stated');
+    assert.equal(material.value, JSON.parse(brass)['part.material']);
     assert.deepEqual(JSON.parse(reopened.payload('draftwright editor project')), { revision: 1, drawing: 'front' });
   } finally { reopened.free(); }
   const placedTwice = IntentEngine.openPart('twice.step', Buffer.from(twice), 0);

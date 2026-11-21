@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import { bestFitNormal, defaultShowing, drawnFromScene, drawnShown, drawnViews, facesAway, graphicNormal, hasFileGraphics, hasGraphics, linksFromPmi, partCentre, readPresentation } from '../src/specify/drawn.ts';
+import { bestFitNormal, defaultShowing, drawnFromScene, drawnGroup, drawnShown, drawnViews, facesAway, graphicNormal, hasFileGraphics, hasGraphics, linksFromPmi, partCentre, readPresentation } from '../src/specify/drawn.ts';
 
 // The spindle's haecceity.presentation/1 and haecceity.pmi/1, from quiddity's json feature
 // (test/fixtures/README.md).
@@ -117,13 +117,13 @@ const scene = () => ({
     items: { 'datum:A': [{ ...graphic, id: 'step:7', name: 'Datum A' }], 'features:f': [{ ...graphic, id: 'step:7', name: 'Datum A' }] },
     semantic_ids: ['datum:A', 'features:f'],
   }),
-  specify: { 'datum:A': { status: 'answered', question: 'datum.A', number: 1 } },
+  specify: { 'datum:A': { status: 'stated', question: 'datum.A', number: 1 } },
 });
 
 test('a PMI scene: each item\'s faces, and Specify\'s status and question where it has them', () => {
   const read = drawnFromScene(scene());
   assert.ok(read.ok, read.reason);
-  assert.deepEqual(read.value.links['datum:A'], { faces: [2, 4], question: 'datum.A', status: 'answered' });
+  assert.deepEqual(read.value.links['datum:A'], { faces: [2, 4], question: 'datum.A', status: 'stated' });
   assert.deepEqual(read.value.links['features:f'], { faces: [2, 4] });
   assert.equal(hasGraphics(read.value), true);
   const empty = drawnFromScene({ ...scene(), presentation: doc({ items: {}, semantic_ids: ['datum:A', 'features:f'] }) });
@@ -165,26 +165,30 @@ test('planes, plane ids and saved views read as stated; absent, none', () => {
   assert.match(readPresentation(doc({ items: { 1: [{ ...graphic, plane_id: 3 }] } })).reason, /plane_id is not a string/);
 });
 
+// ADR P11 (D3): a scene status is the feature table's state; the Show menu's kinds read it, and the
+// general flag, through the item's label group.
 test('the Show menu hides drawn graphics by their item\'s status, as it hides labels', () => {
   const all = { default: true, existing: true, general: true };
   const cases = [
-    // source, status, the kind unchecked that hides it
-    ['generated', 'general', 'general'],
-    ['generated', 'default', 'default'],
-    ['generated', 'existing', 'existing'],
-    ['file', 'answered', 'existing'],
+    // source, link, the kind unchecked that hides it
+    ['generated', { status: 'stated', general: true }, 'general'],
+    ['generated', { status: 'decided_none' }, 'default'],
+    ['generated', { status: 'stated' }, 'existing'],
+    ['file', { status: 'gap' }, 'existing'],
     ['file', undefined, 'existing'],
   ];
-  for (const [source, status, kind] of cases) {
-    assert.equal(drawnShown(source, status, all), true, `${source} ${status} shown with everything`);
-    assert.equal(drawnShown(source, status, { ...all, [kind]: false }), false, `${source} ${status} hidden without ${kind}`);
+  for (const [source, link, kind] of cases) {
+    const group = drawnGroup(link);
+    const what = `${source} ${JSON.stringify(link)}`;
+    assert.equal(drawnShown(source, group, all), true, `${what} shown with everything`);
+    assert.equal(drawnShown(source, group, { ...all, [kind]: false }), false, `${what} hidden without ${kind}`);
     for (const other of Object.keys(all).filter((k) => k !== kind && !(source === 'file' && k === 'existing'))) {
-      if (status === other) continue;
-      assert.equal(drawnShown(source, status, { ...all, [other]: false }), true, `${source} ${status} kept without ${other}`);
+      if (group === other) continue;
+      assert.equal(drawnShown(source, group, { ...all, [other]: false }), true, `${what} kept without ${other}`);
     }
   }
-  // Answered, and generated with no status: always drawn, as answered labels are.
-  for (const status of ['answered', undefined]) assert.equal(drawnShown('generated', status, { default: false, existing: false, general: false }), true);
+  // Planned for a gap, and generated with no status: always drawn, as Specify's labels are.
+  for (const link of [{ status: 'gap' }, undefined]) assert.equal(drawnShown('generated', drawnGroup(link), { default: false, existing: false, general: false }), true);
 });
 
 test('facing: a callout faces away when its plane\'s normal is along the view; its normal from its plane, its text or its strokes', () => {
@@ -228,9 +232,9 @@ test('views: a saved view with a camera, and one a way the shown graphics\' plan
       unlinked: [], semanticIds: ['a', 'b', 'c'], planes,
       views: [{ id: 'v', name: 'Saved', direction: [0, 1, 0], up: [0, 0, 1], graphics: ['g1'] }, { id: 'w', name: 'No camera', graphics: ['g2'] }],
     },
-    links: { a: { faces: [], status: 'answered' }, b: { faces: [], status: 'answered' }, c: { faces: [], status: 'general' } },
+    links: { a: { faces: [], status: 'gap' }, b: { faces: [], status: 'gap' }, c: { faces: [], status: 'stated', general: true } },
   };
-  const shown = (show) => (g, item) => drawnShown(g.source === 'file' ? 'generated' : g.source, pmi.links[item]?.status, show);
+  const shown = (show) => (g, item) => drawnShown(g.source === 'file' ? 'generated' : g.source, drawnGroup(pmi.links[item]), show);
   const views = drawnViews(pmi, shown({ default: true, existing: true, general: true }));
   assert.deepEqual(views.map((v) => v.name), ['Saved', 'Plane 1: 10 · 20', 'Plane 2: 30']);
   const [saved, front, top] = views;

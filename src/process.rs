@@ -145,8 +145,8 @@ pub fn guess(material: Option<&str>) -> (&'static str, String) {
 }
 
 /// The process a file states for the part whose product definition is `product_definition`,
-/// with its source as the BOM reports one: `answered` for Specify's own set without a default
-/// marker, `file` for another tool's attribute, `default` for Specify's accepted suggestion.
+/// with its source as the BOM reports one: `file` for a stated process, whoever wrote it (ADR
+/// P11, D5a), `default` for Specify's accepted suggestion (its default marker).
 /// UDA property sets on the product definition and its shape are read; an item's name is
 /// matched ignoring case, spaces and hyphens, and a value that is not a process is ignored.
 pub fn read(doc: &Document, product_definition: u64) -> Option<Field> {
@@ -182,10 +182,10 @@ pub(crate) fn file_pmi(
     provenance: &PartProvenance,
 ) -> Option<(usize, Field)> {
     let (i, mut field) = indexed_pmi(pmi, true)?;
+    // ADR P11 (D5a): a stated process is the file's, whoever wrote it; only Specify's marked
+    // suggestion reads as a default.
     if !crate::provenance::marked(doc, &provenance.attributes[i], "attribute") {
         field.source = "file".into();
-    } else if field.source != "default" {
-        field.source = "answered".into();
     }
     Some((i, field))
 }
@@ -282,7 +282,7 @@ fn classify(
         }
     }
     let ((i, value), source) = match (answered, file, suggested) {
-        (Some(v), _, _) => (v, "answered"),
+        (Some(v), _, _) => (v, "file"),
         (None, Some(v), _) => (v, "file"),
         (None, None, Some(v)) => (v, "default"),
         _ => return unknown,
@@ -453,8 +453,8 @@ pub(crate) fn stated_entries(
     );
 }
 
-/// The part's process with its source, as the BOM reports a field: `answered` (an answer, or
-/// Specify's answer stored in the file), `file` (another tool's value), `default` (an accepted
+/// The part's process with its source, as the BOM reports a field: `answered` (an answer),
+/// `file` (the file states it, whoever wrote it: ADR P11, D5a), `default` (an accepted
 /// suggestion stored in the file, else the guess). None for a bought part, which has no process.
 pub fn of(
     analysis: &Value,
@@ -476,13 +476,7 @@ pub fn of(
         return Ok(Some(field(answer, "answered")));
     }
     if let Some(value) = stated(&ctx) {
-        let source = analysis
-            .get("process")
-            .and_then(|f| f.get("source"))
-            .and_then(Value::as_str)
-            .filter(|s| *s == "answered")
-            .unwrap_or("file");
-        return Ok(Some(field(value, source)));
+        return Ok(Some(field(value, "file")));
     }
     let default = question(&ctx, answers)
         .and_then(|q| q.default)

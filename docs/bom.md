@@ -49,8 +49,9 @@ UDA names to interpret them; XCAF is only expected to expose the native material
 ## JSON and APIs
 
 Every BOM value is an object with `value` and `source`. `source` is `file` for
-pre-existing export data, `answered` for explicit BOM answers or saved material
-answers, and `default` for suggestions and automatic item allocation. Unknown values
+pre-existing export data and for the material the file states (whoever wrote it, ADR P11),
+`answered` for explicit BOM answers, and `default` for suggestions and automatic item
+allocation. Unknown values
 are JSON null. Unnumbered files are not numbered merely by reading.
 
 ```json
@@ -62,7 +63,7 @@ are JSON null. Unnumbered files are not numbered merely by reading.
   "description": {"value": "Brass shank", "source": "answered"},
   "revision": {"value": null, "source": "default"},
   "make_buy": {"value": "made", "source": "answered"},
-  "material": {"value": "Brass", "source": "answered"},
+  "material": {"value": "Brass", "source": "file"},
   "quantity": {"value": 1, "source": "file"},
   "optional": {"value": false, "source": "answered"},
   "stock": {"value": "to be made", "source": "answered"}

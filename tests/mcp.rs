@@ -282,7 +282,6 @@ fn conversation(era: &'static str) {
             "characteristics",
             "read_pmi",
             "write_pmi",
-            "export_answers",
             "diff",
             "changes",
             "show",
@@ -439,22 +438,6 @@ fn conversation(era: &'static str) {
         json!({"doc": doc, "output": out, "accept_defaults": true}),
     );
     assert_eq!(refused["code"], json!("refused"));
-
-    // export_answers == serve's export of the same approved answers, and saved where asked.
-    let sidecar = dir.join("plate.answers.json");
-    let exported = client.call(
-        "export_answers",
-        json!({"doc": doc, "output": sidecar, "accept_defaults": offered}),
-    );
-    let served = serve_ok(
-        &mut serve,
-        json!({
-            "op": "export_answers", "step": plate, "analysis": analysis, "answers": approved,
-        }),
-    );
-    assert_eq!(exported["answers"], served["answers"]);
-    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&sidecar).unwrap()).unwrap();
-    assert_eq!(saved, served["answers"]);
 
     // diff of two revisions == the revision report the API gives.
     let (old, new) = (
@@ -631,10 +614,6 @@ fn an_output_link_out_of_allow_is_refused() {
         (
             "write_pmi",
             json!({"doc": doc, "output": link, "accept_defaults": true, "overwrite": true}),
-        ),
-        (
-            "export_answers",
-            json!({"doc": doc, "output": link, "overwrite": true}),
         ),
         (
             "answer",
@@ -996,7 +975,7 @@ fn http_needs_the_token_the_host_and_no_origin() {
             .as_array()
             .unwrap()
             .len(),
-        13
+        12
     );
     // A legacy-era JSON-RPC error is a 200 body (2025-11-25 Streamable HTTP); an
     // unsupported header version is still 400.
@@ -1841,6 +1820,52 @@ fn save_writes_only_the_defaults_named() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// ADR P11: an answer to what the file states is refused with the edit list's reason for a
+/// fill on a stated row, never accepted and then left out of the save.
+#[test]
+fn an_answer_to_what_the_file_states_is_refused() {
+    let dir = scratch("stated");
+    let copy = dir.join("spindle.step");
+    let gz = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("ui/test/fixtures/19-spindle-semantic-links-only.step.gz"),
+    )
+    .unwrap();
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(&gz[..]), &mut bytes).unwrap();
+    std::fs::write(&copy, bytes).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let opened = call(&mut server, "open", json!({"path": copy}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    let refused = error_of(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "aluminium"}}),
+    );
+    assert_eq!(refused["question"], json!("part.material"), "{refused}");
+    assert_eq!(
+        refused["message"],
+        json!(
+            "the file already states \"steel\" for part.material, so there is no gap to fill; \
+             to replace it, use change with \"expect\": \"steel\""
+        ),
+        "{refused}"
+    );
+    // With partial: reported as refused, nothing stored, no new rev.
+    let answered = call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"hole.function:holes:14": "fit:H7"}, "partial": true}),
+    );
+    let out = &answered["structuredContent"];
+    let reason = out["outcomes"]["hole.function:holes:14"]["refused"]
+        .as_str()
+        .unwrap();
+    assert!(reason.contains("already states \"⌀3.3 H11\""), "{reason}");
+    assert!(out["set"].as_array().unwrap().is_empty(), "{out}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Intent known: everything answered in one call with `partial`, each id's outcome given, the
 /// valid ones applied in one rev and a refused one reported with its reason.
 #[test]
@@ -2125,10 +2150,10 @@ fn a_part_joining_the_session_moves_the_rev_and_is_not_written_empty() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// ADR P9 for write_pmi and export_answers: without approvals only answers are written or
-/// exported (incomplete allowed); approvals carry the value seen, checked against the default.
+/// ADR P9 for write_pmi: without approvals only answers are written (incomplete allowed);
+/// approvals carry the value seen, checked against the default.
 #[test]
-fn write_pmi_and_export_answers_take_only_approved_defaults() {
+fn write_pmi_takes_only_approved_defaults() {
     let dir = scratch("p9-write-export");
     let copy = dir.join("plate.step");
     std::fs::copy(part("plate"), &copy).unwrap();
@@ -2159,33 +2184,27 @@ fn write_pmi_and_export_answers_take_only_approved_defaults() {
     let analysed = specify_core::api::analyse_file(&out, None).unwrap();
     assert_eq!(analysed["resume"]["answers"], json!({}));
     assert_eq!(analysed["part"]["material"], json!("6061-T6"));
-    let exported = call(&mut server, "export_answers", json!({"doc": doc}));
-    let exported = &exported["structuredContent"];
-    assert!(exported["answers"].get(&id).is_none());
-    assert_eq!(exported["complete"], json!(false));
-    assert!(exported["missing"].as_array().unwrap().contains(&json!(id)));
 
     // A bool, or a value that is not the default, is refused; nothing is written.
-    for tool in ["write_pmi", "export_answers"] {
-        let bad = error_of(
-            &mut server,
-            tool,
-            json!({"doc": doc, "output": dir.join(format!("{tool}.out")), "accept_defaults": true}),
-        );
-        assert_eq!(bad["code"], json!("invalid"), "{tool}");
-        let stale = error_of(
-            &mut server,
-            tool,
-            json!({"doc": doc, "output": dir.join(format!("{tool}.out")),
-                   "accept_defaults": {&id: "not the default"}}),
-        );
-        assert_eq!(stale["question"], json!(id), "{tool}");
-        assert_eq!(stale["expected"], json!("not the default"));
-        assert_eq!(stale["current"], default);
-        assert!(!dir.join(format!("{tool}.out")).exists());
-    }
+    let tool = "write_pmi";
+    let bad = error_of(
+        &mut server,
+        tool,
+        json!({"doc": doc, "output": dir.join(format!("{tool}.out")), "accept_defaults": true}),
+    );
+    assert_eq!(bad["code"], json!("invalid"), "{tool}");
+    let stale = error_of(
+        &mut server,
+        tool,
+        json!({"doc": doc, "output": dir.join(format!("{tool}.out")),
+               "accept_defaults": {&id: "not the default"}}),
+    );
+    assert_eq!(stale["question"], json!(id), "{tool}");
+    assert_eq!(stale["expected"], json!("not the default"));
+    assert_eq!(stale["current"], default);
+    assert!(!dir.join(format!("{tool}.out")).exists());
 
-    // Approved with the value seen: written and exported with it.
+    // Approved with the value seen: written with it.
     let out = dir.join("approved.step");
     call(
         &mut server,
@@ -2204,13 +2223,7 @@ fn write_pmi_and_export_answers_take_only_approved_defaults() {
         "{id}: {}",
         analysed["resume"]
     );
-    let exported = call(
-        &mut server,
-        "export_answers",
-        json!({"doc": doc, "accept_defaults": {&id: default}}),
-    );
-    assert_eq!(exported["structuredContent"]["answers"][&id], default);
-    // The session's answers are unchanged by either.
+    // The session's answers are unchanged by it.
     let answered = call(
         &mut server,
         "questions",

@@ -30,14 +30,10 @@ pub(super) fn multiple_blocks(scene: &Value) -> bool {
 // Material is a scalar in haecceity.pmi/1, without a PartIdentifiers slot. Specify's
 // companion uses its interview key as an alias for that scalar (never a new PMI row),
 // so `semantic_ids` still lists only the PMI document's own ids.
-pub(super) fn material(
-    scene: &mut Value,
-    semantic: &Semantic,
-    answers: Option<&Map<String, Value>>,
-) {
+pub(super) fn material(scene: &mut Value, semantic: &Semantic) {
     if let Some(material) = &semantic.pmi.material {
         scene["specify"][MATERIAL] = json!({
-            "status": if answers.is_some_and(|a| a.contains_key(MATERIAL)) { "answered" } else { "existing" },
+            "status": super::STATED,
             "question": MATERIAL,
             "notation": format!("MATERIAL: {}", material.id)
         });
@@ -341,9 +337,12 @@ pub(super) fn combined(
             notes["items"][MATERIAL] = json!([graphic]);
             notes["unlinked"] = json!([]);
         }
-        material(scene, &display, None);
-        if current.pmi.material.is_some() {
-            scene["specify"][MATERIAL]["status"] = json!("answered");
+        material(scene, &display);
+        // A material the file does not state yet is planned for its gap.
+        if current.pmi.material.is_some()
+            && original.is_none_or(|original| original.pmi.material.is_none())
+        {
+            scene["specify"][MATERIAL]["status"] = json!(super::GAP);
         }
     }
     scene["presentation"]["items"]

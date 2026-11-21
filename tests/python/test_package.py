@@ -190,8 +190,9 @@ def test_pmi_scene_and_packaged_schemas(plate, tmp_path):
     for graphic in generated:
         assert len(graphic["polyline_roles"]) == len(graphic["polylines"])
         assert all("cell_box" in run for run in graphic.get("text_placements", []))
-    assert scene["specify"]["planner:specified:dim:hole:9/bore.diameter"]["status"] == "answered"
-    assert scene["specify"]["planner:specified:dim:hole:9/bore.diameter"]["question"] == "hole.function:holes:9"
+    # ADR P11 (D3): a planned item is a gap, and its id says nothing of who stated it.
+    assert scene["specify"]["planner:dim:hole:9/bore.diameter"]["status"] == "gap"
+    assert scene["specify"]["planner:dim:hole:9/bore.diameter"]["question"] == "hole.function:holes:9"
     assert scene["specify"]["part.surface_finish"]["number"] > 0
     empty = api.pmi_scene(plate.read_bytes())
     assert empty["pmi"]["pmi"]["dimensions"] == []
@@ -396,16 +397,30 @@ def test_basic_dimensions_read_as_basic():
     assert all("basic" not in d.to_dict() for d in found if not d.basic)
 
 
-def test_dropped_carry_cannot_default_and_saved_evidence_rejects_changed_geometry(tmp_path):
+def test_stated_pmi_reads_back_whole():
+    """ADR P11: the stated text and fields carry the fit class, the zone and Ⓜ, and the thread."""
+    spindle = Path(__file__).resolve().parents[2] / "ui" / "test" / "fixtures" / "19-spindle-semantic-links-only.step.gz"
+    found = read_existing(spindle)
+    bore = next(d for d in found if d.kind == "dimension" and d.faces == (14,))
+    assert bore.text == "⌀3.3 H11" and bore.fields["fit"] == "H11"
+    assert abs(bore.upper - 0.075) < 1e-9 and bore.lower == 0
+    assert bore.to_dict()["fit"] == "H11" and "text_only" not in bore.to_dict()
+    position = next(d for d in found if d.type == "Position" and d.faces == (14,))
+    assert position.text == "⌖ ⌀0.3Ⓜ A"
+    assert position.fields["diametral"] is True and position.fields["mmc"] is True
+    thread = next(d for d in found if d.type == "internal thread")
+    assert thread.text == "M2×0.4-6H ↧ 2"
+    assert (thread.fields["designation"], thread.fields["class"]) == ("M2", "6H")
+
+
+def test_dropped_carry_cannot_default(tmp_path):
     revisions = Path(__file__).resolve().parents[1] / "fixtures" / "revisions"
-    old = revisions / "plate_split.old.step.gz"
     new = revisions / "plate_split.new.step.gz"
-    given = {"part.material": "6061-T6", "datum.A": [4]}
     analysis = api.analyse(new)
     # An answers file carried with its datum dropped, as an earlier diff returned one (diff no
     # longer returns answers: ADR P11).
-    carried = api.export_answers(new, analysis, {"part.material": "6061-T6"})
-    carried["_specify"]["unresolved"] = {"datum.A": "face 4 has no match in the new part"}
+    carried = {"part.material": "6061-T6",
+               "_specify": {"unresolved": {"datum.A": "face 4 has no match in the new part"}}}
     blocked = next(q for q in api.questions(analysis, carried) if q.id == "datum.A")
     assert blocked.default is None and blocked.attention == "required"
     assert blocked.reason == "carried answer could not be applied: " + carried["_specify"]["unresolved"]["datum.A"]
@@ -414,9 +429,3 @@ def test_dropped_carry_cannot_default_and_saved_evidence_rejects_changed_geometr
     carried["datum.A"] = [4, 8]
     intent = api.apply(analysis, carried, accept_defaults=True)
     api.write(new, intent, tmp_path / "resolved.step", answers=carried)
-    saved = api.export_answers(old, api.analyse(old), given)
-    api.write(old, api.apply(api.analyse(old), saved, accept_defaults=True),
-              tmp_path / "unchanged.step", answers=saved)
-    with pytest.raises(ValueError, match="stale answers.*another revision"):
-        api.write(new, intent, tmp_path / "stale.step", answers=saved)
-    assert not (tmp_path / "stale.step").exists()

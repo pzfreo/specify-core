@@ -37,10 +37,31 @@ export interface PmiExisting {
   readonly kind: 'dimension' | 'geometric_tolerance' | 'datum' | 'note';
   readonly type: string;
   readonly faces?: readonly number[];
+  /** A location dimension's second set: the faces it locates (`faces` is its "from"). */
+  readonly faces2?: readonly number[];
   readonly value?: number;
   readonly upper?: number;
   readonly lower?: number;
   readonly datums?: readonly string[];
+  /** A limit dimension's absolute bounds, [lower, upper]. */
+  readonly limits?: readonly number[];
+  /** A basic (theoretically exact) dimension. */
+  readonly basic?: boolean;
+  /** The item as a drawing states it, in full: "⌀3.3 H11", "⌖ ⌀0.3Ⓜ A", "M2×0.4-6H ↧ 2". */
+  readonly text?: string;
+  /** It states something only `text` holds (a datum reference's modifier, a projected zone ...). */
+  readonly text_only?: boolean;
+  /** A size's ISO 286 class ("H11"). */
+  readonly fit?: string;
+  /** A tolerance's ⌀ zone, its Ⓜ, and its modifiers as stated (schema names). */
+  readonly diametral?: boolean;
+  readonly mmc?: boolean;
+  readonly modifiers?: readonly string[];
+  /** A thread's designation ("M2"), pitch and class, as the planner states them. */
+  readonly designation?: string;
+  readonly pitch?: number;
+  readonly class?: string;
+  readonly hand?: string;
 }
 
 export interface PmiAnalysis {
@@ -60,7 +81,13 @@ export interface PmiAnalysis {
     readonly unresolved?: readonly { readonly id: string; readonly feature?: string | null; readonly answer: unknown; readonly reason: string }[];
     /** Specify alpha.8+: why the answers were matched by feature ID, without checking the faces (a pre-alpha file). */
     readonly unverified?: string;
+    /** 0.3.0 (D11): stored answers left out on reopening, reported once, and not stored again. */
+    readonly dropped_answers?: readonly { readonly id: string; readonly value: unknown; readonly reason: string }[];
   };
+  /** The file's numbered characteristics (`characteristics::read`). */
+  readonly characteristics?: readonly { readonly number: number; readonly kind: string; readonly type: string; readonly faces: readonly number[] }[];
+  /** 0.3.0 (ADR P11, D3): the feature table, a row per question with its state in the file. */
+  readonly table?: { readonly rows: readonly { readonly id: string; readonly state: 'stated' | 'gap' | 'decided_none'; readonly value?: unknown }[] };
 }
 
 /** Triangles of the part, ranged face by face in the analysis's face numbering. */

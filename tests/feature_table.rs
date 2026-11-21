@@ -117,7 +117,7 @@ fn another_tools_requirement_and_specifys_give_the_same_table() {
             row(t, "hole.position:holes:12")["value"]
                 .as_str()
                 .unwrap()
-                .contains("Position 0.1"),
+                .contains("⌖ ⌀0.1 A B C"),
             "{t}"
         );
     }
@@ -203,7 +203,7 @@ fn a_0_2_files_repeats_are_ignored_on_read_and_dropped_at_save() {
         row(&before, "hole.position:holes:14")["value"]
             .as_str()
             .unwrap()
-            .contains("Position 0.3")
+            .contains("⌖ ⌀0.3")
     );
     // A save with the session's answers drops the repeats from the file, and changes no
     // requirement.
@@ -248,7 +248,7 @@ fn a_stored_answer_whose_pmi_was_deleted_is_a_gap_again_mentioned_once() {
         row(t, "hole.position:holes:12")["value"]
             .as_str()
             .unwrap()
-            .contains("Position 0.2")
+            .contains("⌖ ⌀0.2")
     );
     assert!(analysis["resume"].get("conflicts").is_none());
     assert!(analysis["resume"].get("foreign").is_none());
@@ -320,14 +320,28 @@ fn agree(analysis: &Value) {
             );
         }
     }
+    let mut rowless = Vec::new();
     for id in &open {
-        if let Some(r) = rows.iter().find(|r| r["id"] == *id) {
-            assert_eq!(
+        match rows.iter().find(|r| r["id"] == *id) {
+            Some(r) => assert_eq!(
                 r["open"], true,
                 "{id} is open in questions, not in the table: {r}"
-            );
+            ),
+            None => rowless.push(id.clone()),
         }
     }
+    // The open questions with no row are exactly the open choices that are not
+    // requirements (today `part.locating` alone, when it is open).
+    let choices: Vec<_> = open
+        .iter()
+        .filter(|id| !specify_core::feature_table::is_requirement(id))
+        .cloned()
+        .collect();
+    assert_eq!(rowless, choices, "open with no table row");
+    assert!(
+        choices.iter().all(|id| id == "part.locating"),
+        "{choices:?}"
+    );
 }
 
 #[test]
@@ -341,7 +355,17 @@ fn questions_and_the_table_agree_on_what_is_open() {
         agree(&api::analyse(&part).unwrap());
     }
     // The plate's "none" suggestions are gaps, not open, in both.
-    let (_, open) = asked(&api::analyse(&plate()).unwrap());
+    let analysis = api::analyse(&plate()).unwrap();
+    let (_, open) = asked(&analysis);
+    // Its one open question with no row is the locating choice.
+    assert!(open.contains(&"part.locating".to_string()), "{open:?}");
+    assert!(
+        analysis["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["id"] != "part.locating")
+    );
     for id in ["datum.A.flatness", "part.coating", "part.notes"] {
         assert!(!open.contains(&id.to_string()), "{id}");
     }
@@ -394,7 +418,9 @@ fn a_knurl_states_its_diameter_on_the_spindle() {
         "{t}"
     );
     assert!(
-        !warnings.iter().any(|w| w.contains("no longer in the file")),
+        !warnings
+            .iter()
+            .any(|w| w.contains("no requirement for this answer in the file")),
         "{warnings:?}"
     );
     // The thread the file states is not asked; the other hole is.
@@ -444,8 +470,9 @@ fn a_direct_intent_measuring_a_stated_feature_otherwise_is_not_added() {
     let p = plate();
     let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
     intent.datums.push(map(json!({"letter":"A", "faces":[4]})));
+    // D8: a location states its own direction only, so the first measures x (from face 0).
     intent.requirements.push(map(
-        json!({"kind":"location", "faces":[9], "reference":[4], "distance":20., "basic":true}),
+        json!({"kind":"location", "faces":[9], "reference":[0], "distance":50., "basic":true}),
     ));
     let first = api::write_bytes(p.bytes.to_vec(), &[(intent.clone(), None)])
         .unwrap()
@@ -461,8 +488,9 @@ fn a_direct_intent_measuring_a_stated_feature_otherwise_is_not_added() {
     assert_eq!(locations(&first), 1);
     // The same feature-and-kind measured from another reference: the file's stands.
     let mut other = specify_core::rules::Intent::new(serde_json::to_value(&first.binding).unwrap());
+    // D8: from the other end face 5, in the same direction (x) the file already locates.
     other.requirements.push(map(
-        json!({"kind":"location", "faces":[9], "reference":[5], "distance":30., "basic":true}),
+        json!({"kind":"location", "faces":[9], "reference":[5], "distance":50., "basic":true}),
     ));
     let (bytes, report) = api::write_bytes(first.bytes.to_vec(), &[(other, None)]).unwrap();
     assert_eq!(locations(&load_bytes("plate.step", bytes).unwrap()), 1);
@@ -492,6 +520,11 @@ fn a_hole_located_by_a_plus_minus_dimension_is_stated_in_position_mode() {
         "kind": "location", "faces": [12], "reference": [0],
         "distance": 95., "upper": 0.1, "lower": -0.1,
     })));
+    // D8: a hole is stated when located in every direction it needs, so y (from B) too.
+    intent.requirements.push(map(json!({
+        "kind": "location", "faces": [12], "reference": [1],
+        "distance": 30., "upper": 0.1, "lower": -0.1,
+    })));
     let bytes = api::write_bytes(p.bytes.to_vec(), &[(intent, None)])
         .unwrap()
         .0;
@@ -500,13 +533,7 @@ fn a_hole_located_by_a_plus_minus_dimension_is_stated_in_position_mode() {
     let hole = "hole.position:holes:12";
     let r = row(&analysis["table"], hole);
     assert_eq!(r["state"], "stated", "{r}");
-    assert!(
-        r["value"]
-            .as_str()
-            .unwrap()
-            .contains("Location_LinearDistance 95"),
-        "{r}"
-    );
+    assert!(r["value"].as_str().unwrap().contains("95 ±0.1"), "{r}");
     let (questions, _) = asked(&analysis);
     assert!(!questions.contains(&hole.to_string()), "{questions:?}");
     assert_eq!(analysis["part"].get("locating"), None);
@@ -530,4 +557,361 @@ fn a_hole_located_by_a_plus_minus_dimension_is_stated_in_position_mode() {
             .filter(|e| e.r#type == "Position" && e.faces == [12])
             .count();
     assert_eq!(positions, 0, "{:?}", report.written);
+}
+
+/// A blind hole's depth, a location dimension to its floor, does not locate the hole: its
+/// position row stays a gap (the hole's faces are its bore; the floor is not one of them).
+#[test]
+fn a_depth_dimension_to_a_hole_floor_does_not_locate_the_hole() {
+    let shaft = load(&common::fixtures().join("parts/GRM-02_shaft.step"), None).unwrap();
+    let mut intent =
+        specify_core::rules::Intent::new(serde_json::to_value(&shaft.binding).unwrap());
+    intent
+        .datums
+        .push(map(json!({"letter": "A", "faces": [0]})));
+    // Hole 15's floor is face 16: a 3.5 mm depth from the end face 7.
+    intent.requirements.push(map(json!({
+        "kind": "location", "faces": [16], "reference": [7], "distance": 3.5,
+        "upper": 0.1, "lower": -0.1,
+    })));
+    let bytes = api::write_bytes(shaft.bytes.to_vec(), &[(intent, None)])
+        .unwrap()
+        .0;
+    let written = load_bytes("shaft.step", bytes).unwrap();
+    assert!(
+        specify_core::existing::read_existing(&written)
+            .unwrap()
+            .iter()
+            .any(|e| e.r#type.starts_with("Location_")
+                && (e.faces.contains(&16) || e.faces2.contains(&16))),
+        "the depth is written"
+    );
+    let (t, _) = table(&written);
+    assert_eq!(row(&t, "hole.position:holes:15.16")["state"], "gap");
+}
+
+/// A file whose datums the rules cannot take as answers still analyses (a table problem never
+/// fails analyse): NIST FTC-09 part 0's datum E is four faces that form no one datum feature.
+#[test]
+fn nist_ftc09_part_0_analyses_and_lists_its_pmi() {
+    let path = common::fixtures().join("nist/nist_ftc_09_asme1_ap242-e1.stp.gz");
+    let analysis = api::analyse(&load(&path, Some(0)).unwrap()).unwrap();
+    let existing = analysis["existing"].as_array().unwrap();
+    assert!(!existing.is_empty());
+    let table = &analysis["table"];
+    let listed =
+        table["rows"].as_array().unwrap().len() + table["file_pmi"].as_array().unwrap().len();
+    assert!(listed > 0, "{table}");
+    agree(&analysis);
+}
+
+/// NIST CTC-02 (its datums form questions the rules refused before) analyses too.
+#[test]
+fn nist_ctc02_analyses_and_lists_its_pmi() {
+    let path = common::fixtures().join("nist/nist_ctc_02_asme1_ap242.stp.gz");
+    let analysis = api::analyse(&load(&path, None).unwrap()).unwrap();
+    assert!(!analysis["existing"].as_array().unwrap().is_empty());
+    agree(&analysis);
+}
+
+/// P9 / D1 (Paul): a general-tolerance answer writes only its note. Answering the material
+/// and "ISO 2768-m" and saving as the editor does (the preview, plus the unasked rows) adds no
+/// dimension; every hole's size and location stays a gap with its suggestion, to be approved
+/// one by one or with "accept suggestions".
+fn the_general_tolerance_writes_only_its_note(loaded: &LoadedPart, name: &str) {
+    let analysis = api::analyse(loaded).unwrap();
+    // Every dimension in the file, those written under the general tolerance included.
+    let dimensions = |l: &LoadedPart| {
+        specify_core::existing::read(l)
+            .unwrap()
+            .model()
+            .dimensions
+            .len()
+    };
+    let before = dimensions(loaded);
+    let answers = map(json!({"part.material": "6082-T6", "part.general_tolerance": "ISO 2768-m"}));
+    let mut intent = api::preview(&analysis, &answers).unwrap();
+    intent
+        .requirements
+        .extend(specify_core::rules::unasked_rows(&analysis, &answers).unwrap());
+    let (bytes, report) =
+        specify_core::writer::write_bytes(loaded, &intent, Some(&answers)).unwrap();
+    let saved = load_bytes(name, bytes).unwrap();
+    assert_eq!(dimensions(&saved), before, "{:?}", report.written);
+    let reopened = api::analyse(&saved).unwrap();
+    assert_eq!(reopened["part"]["general_tolerance"], "ISO 2768-m");
+    let rows: Vec<&Value> = reopened["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| {
+            [
+                "hole.position:",
+                "hole.location:",
+                "hole.function:",
+                "diameter.fit:",
+            ]
+            .iter()
+            .any(|p| r["id"].as_str().unwrap().starts_with(p))
+        })
+        .collect();
+    assert!(
+        rows.iter()
+            .any(|r| r["id"].as_str().unwrap().starts_with("hole.function:")),
+        "no hole size rows: {rows:?}"
+    );
+    // Every size and location row the save could have stated is a gap with its suggestion,
+    // unless the file stated it before the save.
+    let (old, _) = table(loaded);
+    for r in rows {
+        let id = r["id"].as_str().unwrap();
+        if old["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|o| o["id"] == id && o["state"] == "stated")
+        {
+            continue;
+        }
+        assert_eq!(r["state"], "gap", "{r}");
+        assert!(r["suggestion"].is_string(), "{r}");
+    }
+}
+
+#[test]
+fn a_general_tolerance_answer_writes_only_its_note_on_the_plate() {
+    the_general_tolerance_writes_only_its_note(&plate(), "plate.step");
+}
+
+#[test]
+fn a_general_tolerance_answer_writes_only_its_note_on_the_alpha7_part() {
+    the_general_tolerance_writes_only_its_note(
+        &fixture("thread-depth-alpha7.step.gz"),
+        "alpha7.step",
+    );
+}
+
+// --- D8: one location dimension locates a whole line, per direction ------------------------
+
+/// The plate with `datums` and the location `dimensions` (located faces, reference faces,
+/// distance) written by another tool's intent, its locating choice stored as `locating`.
+fn located_plate(
+    datums: &[(&str, &[u64])],
+    dimensions: &[(&[u64], &[u64], f64)],
+    locating: &str,
+) -> LoadedPart {
+    let p = plate();
+    let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
+    for (letter, faces) in datums {
+        intent
+            .datums
+            .push(map(json!({"letter": letter, "faces": faces})));
+    }
+    for (faces, reference, distance) in dimensions {
+        intent.requirements.push(map(json!({
+            "kind": "location", "faces": faces, "reference": reference,
+            "distance": distance, "upper": 0.1, "lower": -0.1,
+        })));
+    }
+    let answers = map(json!({"part.locating": locating}));
+    let bytes = api::write_bytes(p.bytes.to_vec(), &[(intent, Some(answers))])
+        .unwrap()
+        .0;
+    load_bytes("plate.step", bytes).unwrap()
+}
+
+const ABC: [(&str, &[u64]); 3] = [("A", &[2]), ("B", &[1]), ("C", &[0])];
+const PATTERN: &str = "hole_patterns.grid:6.7.8.10.11.13";
+
+/// The location dimensions `loaded` states (those under the general tolerance too), as
+/// (located faces, reference faces).
+fn locations(loaded: &LoadedPart) -> Vec<(Vec<usize>, Vec<usize>)> {
+    let ids = |v: &Value| -> Vec<usize> {
+        v.as_array()
+            .into_iter()
+            .flatten()
+            .map(|f| f.as_u64().unwrap() as usize)
+            .collect()
+    };
+    api::analyse(loaded).unwrap()["existing"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["type"].as_str().unwrap().starts_with("Location_"))
+        .map(|e| (ids(&e["faces2"]), ids(&e["faces"])))
+        .collect()
+}
+
+/// Paul's example: one 50 from the left edge (datum C) to the 6× pattern's centre line. The
+/// pattern is located in x by it, and so is the Ø8 hole, whose axis lies on that line: both
+/// are asked y alone, and a save with every suggestion taken writes no second x location.
+#[test]
+fn one_dimension_locates_every_hole_on_its_line() {
+    let loaded = located_plate(&ABC, &[(&[6, 7, 8, 10, 11, 13], &[0], 50.)], "± dimensions");
+    let analysis = api::analyse(&loaded).unwrap();
+    let t = &analysis["table"];
+    for id in [
+        format!("hole.location:{PATTERN}"),
+        "hole.location:holes:9".to_string(),
+    ] {
+        let r = row(t, &id);
+        assert_eq!(r["state"], "gap", "{r}");
+        assert_eq!(r["missing"], json!(["y"]), "{r}");
+        assert!(
+            r["requirements"][0]["text"]
+                .as_str()
+                .unwrap()
+                .starts_with("50 "),
+            "{r}"
+        );
+    }
+    agree(&analysis);
+    let answers = map(json!({"part.material": "6082-T6", "part.locating": "± dimensions"}));
+    let intent = api::apply(&analysis, &answers, true).unwrap();
+    let (saved, report) =
+        api::write_bytes(loaded.bytes.to_vec(), &[(intent, Some(answers))]).unwrap();
+    let saved = load_bytes("plate.step", saved).unwrap();
+    let on_the_line = [6, 7, 8, 9, 10, 11, 13];
+    // Measured along x: from the end faces 0 and 5, or between two holes at the same y.
+    let along_x = |(to, from): &(Vec<usize>, Vec<usize>)| {
+        to.iter().any(|f| on_the_line.contains(f))
+            && (from.iter().any(|f| [0, 5].contains(f))
+                || (from.iter().all(|f| on_the_line.contains(f))
+                    && from.iter().chain(to).all(|f| [6, 7, 8].contains(f))
+                    || from.iter().chain(to).all(|f| [10, 11, 13].contains(f))))
+    };
+    let x: Vec<_> = locations(&saved).into_iter().filter(along_x).collect();
+    assert_eq!(
+        x,
+        [(vec![6, 7, 8, 10, 11, 13], vec![0])],
+        "{:?}",
+        report.written
+    );
+    let (after, _) = table(&saved);
+    for id in [
+        format!("hole.location:{PATTERN}"),
+        "hole.location:holes:9".into(),
+    ] {
+        assert_eq!(row(&after, &id)["state"], "stated", "{}", row(&after, &id));
+    }
+}
+
+/// A dimension from hole A (the Ø8) to hole B (the Ø4.2) locates B, not A.
+#[test]
+fn a_dimension_from_one_hole_to_another_locates_the_second() {
+    let loaded = located_plate(&ABC, &[(&[12], &[9], 45.)], "± dimensions");
+    let (t, _) = table(&loaded);
+    let b = row(&t, "hole.location:holes:12");
+    assert_eq!(
+        (&b["state"], &b["missing"]),
+        (&json!("gap"), &json!(["y"])),
+        "{b}"
+    );
+    assert!(
+        b["requirements"][0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("45 "),
+        "{b}"
+    );
+    let a = row(&t, "hole.location:holes:9");
+    assert_eq!(a["state"], "gap", "{a}");
+    assert!(
+        a.get("requirements").is_none() && a.get("missing").is_none(),
+        "{a}"
+    );
+}
+
+/// A hole that only ever appears on a reference side (the Ø8, the 45's "from") is not the
+/// origin the part is measured from: it is still asked its location.
+#[test]
+fn a_hole_only_ever_on_a_reference_side_is_still_asked() {
+    let loaded = located_plate(&ABC, &[(&[12], &[9], 45.)], "± dimensions");
+    let analysis = api::analyse(&loaded).unwrap();
+    let hole = "hole.location:holes:9";
+    assert_eq!(row(&analysis["table"], hole)["open"], true);
+    let (questions, open) = asked(&analysis);
+    assert!(questions.contains(&hole.to_string()), "{questions:?}");
+    assert!(open.contains(&hole.to_string()), "{open:?}");
+    agree(&analysis);
+}
+
+/// Position mode, a hole located in x alone: a gap whose suggestion is its y location only.
+/// Taking it writes no position tolerance (a second location in x) and no second x location.
+#[test]
+fn a_hole_located_in_x_only_is_asked_y_only() {
+    let loaded = located_plate(&ABC, &[(&[12], &[0], 95.)], "position tolerances");
+    let analysis = api::analyse(&loaded).unwrap();
+    let hole = "hole.position:holes:12";
+    let r = row(&analysis["table"], hole);
+    assert_eq!(r["state"], "gap", "{r}");
+    assert_eq!(r["missing"], json!(["y"]), "{r}");
+    assert_eq!(r["located"], json!(["x"]), "{r}");
+    assert_eq!(r["open"], true, "{r}");
+    let (questions, _) = asked(&analysis);
+    assert!(questions.contains(&hole.to_string()), "{questions:?}");
+    agree(&analysis);
+    let answers = map(json!({"part.material": "6082-T6", "part.locating": "position tolerances"}));
+    let save = api::apply(&analysis, &answers, true).unwrap();
+    let (saved, report) =
+        api::write_bytes(loaded.bytes.to_vec(), &[(save, Some(answers))]).unwrap();
+    let saved = load_bytes("plate.step", saved).unwrap();
+    let on_twelve: Vec<_> = locations(&saved)
+        .into_iter()
+        .filter(|(to, _)| to.contains(&12))
+        .collect();
+    // The file's 95 in x, and one new location in y (from datum B or the far side).
+    assert_eq!(on_twelve.len(), 2, "{on_twelve:?} {:?}", report.written);
+    assert!(on_twelve.contains(&(vec![12], vec![0])), "{on_twelve:?}");
+    assert!(
+        on_twelve
+            .iter()
+            .any(|(_, from)| from.iter().all(|f| [1, 3].contains(f))),
+        "{on_twelve:?}"
+    );
+    let positions = specify_core::existing::read_existing(&saved)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.r#type == "Position" && e.faces == [12])
+        .count();
+    assert_eq!(positions, 0, "{:?}", report.written);
+    let (after, _) = table(&saved);
+    assert_eq!(
+        row(&after, hole)["state"],
+        "stated",
+        "{}",
+        row(&after, hole)
+    );
+}
+
+/// The datum hole the part is measured from is not asked its location in the directions it
+/// is the origin of; in a direction another datum plane measures, it is.
+#[test]
+fn the_origin_hole_is_not_asked_its_origin_directions() {
+    let hole = "hole.location:holes:9";
+    let origin = located_plate(
+        &[("A", &[2]), ("B", &[9])],
+        &[(&[12], &[9], 45.)],
+        "± dimensions",
+    );
+    let analysis = api::analyse(&origin).unwrap();
+    let r = row(&analysis["table"], hole);
+    assert_eq!(r["state"], "stated", "{r}");
+    assert!(r["value"].as_str().unwrap().contains("datum B"), "{r}");
+    let (questions, _) = asked(&analysis);
+    assert!(!questions.contains(&hole.to_string()), "{questions:?}");
+    agree(&analysis);
+    // Datum C, the end face 0, measures x: the hole is the origin of y alone.
+    let partly = located_plate(
+        &[("A", &[2]), ("B", &[9]), ("C", &[0])],
+        &[(&[12], &[9], 45.)],
+        "± dimensions",
+    );
+    let (t, _) = table(&partly);
+    let r = row(&t, hole);
+    assert_eq!(
+        (&r["state"], &r["missing"]),
+        (&json!("gap"), &json!(["x"])),
+        "{r}"
+    );
 }

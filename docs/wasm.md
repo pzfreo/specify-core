@@ -117,7 +117,6 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `IntentEngine.bom(bytes)` | The file's BOM rows as JSON, one per distinct part, as `specify-core bom` gives them: each field `{value, source}`. Reading never accepts suggestions or allocates numbers. See [BOM](bom.md). |
 | `engine.snapshot(max_deviation_mm?)` | `{analysis, mesh, provenance: {source_sha256, face_entities, part}}`; `part` is the part opened (0 from the constructor). |
 | `engine.review(answersJson)` | `{questions, open, intent, sources, problems, conflicts?}`; adds geometry anchors to `intent.anchors`. `conflicts` (only when there are some) are a reopened file's undecided conflicts with its stored answers, each `{id, kind: "conflict", text, stored, file, choices}`; see "Reopening a file Specify wrote" below. |
-| `engine.exportAnswers(answersJson, approvalsJson?)` | Answer map as a JSON string: the answers given plus exactly the defaults in `approvalsJson` (`{"<part>": {"<id>": value}}` with the values the person saw; none when absent; only this part's apply), never every default (ADR P9), plus `_specify.evidence`, `_specify.unresolved` (carry blocks still open) and `_specify.sources` (each answered default's rule source; see [rule sources](rule-sources.md)). Open questions and carry blocks do not throw; stale evidence does, and so does an approval that is not an open question's default as it stands (naming the part, question and both values). Recursively sorts object keys; preserves array order. Does not write or mutate the session. Save with `JSON.stringify(JSON.parse(result), null, 2) + "\n"`. Accepted directly by review, writePmi and diff. See [answer files](answers.md). |
 | `engine.acceptDefaults(answersJson)` | Answers object with every unanswered default filled to a fixed point, using the same rules as CLI/serve `accept_defaults`. Preserves supplied answers; questions without defaults stay unanswered. |
 | `engine.writePmi(answersJson, projectBase64?, payloadJson?, bom?)` | `{bytes, source_sha256, report}`; `bytes` is an array of byte values. Writes and verifies answered PMI and stored answers in memory. Unanswered defaults remain suggestions. An incomplete set is written (a STEP file need not answer everything), never refused: `report.complete` is `false` and `report.missing` lists what `write` without `--accept-defaults` would refuse as incomplete: the required questions still open, or, while carried answers wait for a decision, those carry blocks only (`[]` when complete). `report` is otherwise the upstream writer's report; its `output` is the constructor's name. `payloadJson` is `{name, value}`: any JSON value carried in the STEP under `name` (give the project or a payload, not both; see below). |
 | `engine.payload(name)` | The JSON text of the payload `name` the opened STEP carries, or `undefined`. |
@@ -531,10 +530,13 @@ the same per-dimension UDAs as native. See [dimension origin and source](pmi-ori
 `JSON.parse(engine.pmiScene(JSON.stringify(answers)))` returns the PMI for the current
 answers on the already-open part. `openPart` uses the same API, in the part's own frame.
 The session caches the source STEP and semantic PMI; answering does not reload geometry.
-Pass the editor's full `{answers, auto?, gdt?}` review state instead of just answers when
-available: `auto` identifies the questions whose values are unreviewed automatic defaults.
-An explicitly supplied value is `answered`, even when it equals a question's default.
-Unanswered suggestions produce no PMI, just as in `review` and `writePmi`.
+The editor's full `{answers, auto?, gdt?}` review state may be passed instead of just answers.
+An item's `status` is the feature table's state of the requirement it belongs to (ADR P11):
+`stated` when the file has it, `gap` when it is planned for an open gap, `decided_none` when it
+was decided none. Who wrote an item, and whether a value was answered or accepted
+automatically, is not shown, and item ids do not depend on either: a requirement keeps its id
+from the preview to the written file. Unanswered suggestions produce no PMI, just as in
+`review` and `writePmi`.
 
 Both calls return a JSON string. The generated declarations export `PmiScene`,
 `PmiSceneItem`, `PmiSceneItems`, `PmiSceneGraphic`, `PmiSceneTextPlacement`,
@@ -549,11 +551,12 @@ scene structure and presentation metadata are typed. The result is:
   presentation: /* haecceity.presentation/1 document */,
   specify: {
     [itemId: string]: {
-      status: 'answered' | 'default' | 'general' | 'existing';
+      status: 'stated' | 'gap' | 'decided_none';
       question?: string; // extra.N for a face-picked extra
       number?: number;   // characteristic number, as the STEP writer allocates it
       notation?: string; // this requirement's own semantic note wording
-      origin?: 'requirement' | 'general_tolerance' | 'imported';
+      general?: true;    // a dimension the general tolerance governs
+      basic?: true;      // a basic dimension
       source?: {schema: number; faces: string; support: number[]; parameter: string};
     }
   }

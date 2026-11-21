@@ -27,15 +27,63 @@ Read first:
 
 ### Added
 
+- What the file states reads back whole (ADR P11): each `existing` item, and each feature-table
+  requirement, has its full notation, `text` (`⌀3.3 H11`, `⌖ ⌀0.3Ⓜ A`, `M2×0.4-6H ↧ 2`), so a
+  stated row reads `⌀3.3 H11`, not `Size_Diameter 3.3`; optional structured fields by the
+  planner's names (a size's `fit`, with its ISO 286 deviations; a tolerance's `diametral`,
+  `zone`, `mmc`, `modifiers`; a thread's `designation`, `spec`, `pitch`, `class`, `hand`,
+  depths; a knurl's parameters; a finish's `finish`); and `text_only: true` where the item
+  states something those fields don't hold (a datum reference's Ⓜ, a projected zone ...). Also
+  in Python's `ExistingPmi` (`text`, `text_only`, `fields`). docs/answers.md, "What the file
+  states, read back whole".
 - `@draftwright/specify-ui`: a `HostView` interface (ui/docs/host-view.md, specify-core #222) so a host can
   draw the 3D view. `StepDiff` and `SpecifyReview` take an optional `view` prop; without one they use
   today's view, now the interface's default implementation. Faces are identified by STEP entity
   (MapShapes order only for solid-only parts), with a check on load. Labels and drawn PMI stay on the
   default view for now. StepDiff now reports the nearest face under the pointer, since a host reports
   only that; known gap: StepDiff runs no load check yet.
+- `diff` lists, for information, the features new in this revision that the new file's PMI states
+  nothing on: "New in this revision with nothing stated: Ø7 × 10 through hole." in the Markdown
+  report (and so on the diff page and in MCP's `markdown`), and `new_unstated: [{feature, what}]`
+  in `report.json` (left out when empty). It never changes the verdict or `check`.
 
 ### Changed
 
+- **`pmiScene` item ids changed** (ADR P11, D3): a planned dimension's id no longer says how it
+  was stated. `planner:specified:dim:…` and `planner:answered:dim:…` are now `planner:dim:…`, and
+  the `planner:stored:dim:…:{nominal}:{tolerance}` form read from a file loses its stored mark and
+  its nominal and tolerance (`planner:dim:…`), so one requirement has one id from preview to the
+  written file, whatever its value. **Hosts that pair callouts with rows by these ids must update
+  them.**
+- **An answer to a question Specify doesn't ask is never dropped silently** (decision D11,
+  #126). In a file's stored answers (an older file), one whose question is not asked given the
+  other stored answers, or a stored "none" where the file now states the requirement, is reported
+  once on reopening and left out of the resumed answers, as a stored answer whose requirement is
+  gone already was: each is listed in the analysis's new `resume.dropped_answers` (`id`, `value`,
+  `reason`) and named in a warning, and the next save lists it in `not_written` and does not store
+  it again. In answers given now, an id that names nothing the part has (a feature it does not
+  have, or a kind that feature's family has no question of) refuses the whole list, named with
+  its reason (`Invalid answers: hole.position:holes:999: unknown feature holes:999`), in the
+  rules (`questions`, `apply`, `preview`, `review`) and the writer; before, the rules ignored it.
+  An answer to a real question that is merely not asked now is reported in `not_written` as
+  before, and is no longer stored (docs/answers.md).
+- **A hole is located per direction** (decision D8): a location dimension locates, along the
+  axis it measures, the holes on its located side and every other hole on the same line from
+  the same reference; its reference side locates nothing. A hole's location row is stated when
+  every direction is located, otherwise a gap whose `missing` lists the directions left; its
+  suggestion then adds only those (no position tolerance, no second location in a located
+  direction). A datum hole is not asked its location in the directions it is the origin of
+  (docs/answers.md).
+- **A general-tolerance answer writes only its note** (ADR P9, decision D1): approving "ISO
+  2768-m" no longer writes the general tolerance's dimensions (every feature's size and
+  location, nominal only) as a side effect. Each is written when its own question is approved
+  (`hole.function`/`diameter.fit` for a size, `hole.position`/`hole.location` for a hole's
+  location); until then the feature table keeps those rows as gaps with their suggestions.
+  Dimensions no question asks about (plane levels) are written once no question is open.
+  "Accept suggestions" and `write --accept-defaults` approve every suggestion, so they write the
+  whole set as before. The writer's upgrade of an old intent without planner rows follows the
+  same rule. Replaces the narrower rule that only held back a hole's general location or size
+  while its position or function was open.
 - **`diff` reads only the PMI in the two files** ([ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md),
   0.3.0 use case 6): reviewing a requirement change is `specify-core diff OLD NEW` between two
   annotated files. It lists requirements added, removed and changed per feature, with their
@@ -79,6 +127,35 @@ Read first:
 - CI filters pull requests by path: a change only under `ui/` skips the Rust jobs, one that does
   not touch `ui/` or a shared file skips the UI jobs. Main and releases run everything. `ci-ok` is
   the one check to require.
+- `pmiScene` statuses are the feature table's states (ADR P11, D3): `stated` (the file has the
+  item, whoever wrote it), `gap` (planned for an open gap in a preview) or `decided_none`, in
+  place of `answered` / `default` / `general` / `existing`. The `origin` field is gone; a dimension
+  the general tolerance governs has `general: true`. Item ids no longer say how a requirement was
+  stated (`planner:dim:hole:9/bore.diameter`, not `planner:specified:…`), and a Specify-written
+  file names its numbered requirements as the preview did, so an item keeps its id from preview
+  to file. The UI draws stated items as the file's PMI and gaps as Specify's.
+- A value read from the file is labelled `file`, whoever wrote it (ADR P11, D5a): the BOM's
+  material source and the process attribute's source (`analysis.process`, `process::of`,
+  `process::read`) no longer say `answered` for a value Specify wrote. An accepted, marked process
+  suggestion still reads as `default`.
+- An answer that differs from a part setting or process the file states is not written, and not
+  refused (ADR P11, D5b): the write report's `not_written` says "`part.process 3D printed: resin`:
+  not written, as the file states 3D printed: FDM (the file's value stands whoever wrote it:
+  changing it is an explicit edit)". Stored answers no longer let a rewrite replace Specify's own
+  process set.
+- A saved answer with no requirement for it in the file now warns "saved answer {id} ({value}): no
+  requirement for this answer in the file; the question is open again", once per answer (ADR
+  P11, D6).
+
+### Removed
+
+- **Answers export** ([ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md):
+  no export of answers as a record; the file is the only copy): CLI `questions
+  --resolve-defaults --step STEP [--accept-defaults FILE]`, serve `export_answers`, MCP
+  `export_answers`, Rust `api::export_answers` (with `api::Exported` and
+  `api::APPROVALS_FORM`), Python `api.export_answers` and WASM `exportAnswers`. Answer files
+  written earlier are still read (`--answers`, `write`, `answers_file`). The app's Export →
+  Answers (JSON) stays for now and says "not available in 0.3.0".
 
 ### Added
 
@@ -112,6 +189,23 @@ Read first:
 
 ### Fixed
 
+- A reopened file's preview no longer plans the general dimensions the file already states
+  (ADR P11), so the app's inspection list showed them twice, once as planned and once as the
+  file's. The file's own rows in that list now read as planned ones: a location dimension is on
+  the faces it locates, "from" its reference, and the file's surface texture keeps its number.
+  A thread and a tolerance now read as planned there too (`M2×0.4-6H`, `⌖ ⌀0.3 Ⓜ`), from the
+  engine's read-back fields; one stating more than its fields hold reads its whole text.
+- The read-only view folds the dimensions a file states under its general tolerance into the
+  "N dimensions under ISO 2768-m" row again (they are the file's own now, not planned).
+- A stated ⌀3.3 H11, ⌖ ⌀0.3 Ⓜ and M2×0.4-6H no longer read back as `⌀3.3`, `⌖ 0.3` and
+  `internal thread` (a 0.3.0 regression from reading stated PMI from the file, ADR P11).
+- MCP `answer` refuses an answer to a feature-and-kind the file states, with the edit list's
+  reason ("the file already states … for …, so there is no gap to fill; to replace it, use
+  change …"); before, it accepted the answer and the save left it out.
+- A save that changes nothing keeps the file's bytes in an assembly whose parts are written in
+  different modes (one with PMI added to, one without replaced); before, only all-Add or
+  all-Replace saves did, and the stored-answer blocks were renumbered.
+
 From the first 0.2.1 trial (#217, pzfreo/specify-ui#14):
 
 - Datum C is no longer asked once datum B is answered none, nor B (or C) once A is: a datum
@@ -141,6 +235,8 @@ From the first 0.2.1 trial (#217, pzfreo/specify-ui#14):
 - `diff(oldName, oldBytes, newName, newBytes, _answers, title, scenes?)`: the fifth argument is
   not read (renamed `_answers`; pass `"{}"`), and `report.answers` (with its opaque
   `_specify_characteristic_numbers`) is gone: `diff` reads only the two files' PMI (ADR P11).
+- `exportAnswers(answers, approved?)` is removed: there is no export of answers as a record
+  (ADR P11).
 
 ## 0.2.1 (2026-11-20)
 

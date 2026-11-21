@@ -156,13 +156,17 @@ pub fn answers_shape(answers: &Map<String, Value>) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn answers(analysis: &Value, answers: &Map<String, Value>) -> Result<(), Error> {
-    answers_shape(answers)?;
+/// Refuses a feature-scoped answer (`kind:feature`) whose feature the part does not have, or
+/// whose kind that feature's family has no question of: an answer that names nothing the part
+/// has refuses the whole map, never ignored (D11, #126). `features` is the analysis's.
+pub fn feature_ids(features: Option<&Value>, answers: &Map<String, Value>) -> Result<(), Error> {
     // Resolve even dormant feature answers: edits may retain a question hidden by a mode.
-    for (id, value) in answers {
-        if let Some((kind, feature)) = id.split_once(':') {
-            let found = analysis
-                .get("features")
+    for id in answers.keys() {
+        if let Some((kind, feature)) = id
+            .split_once(':')
+            .filter(|(kind, _)| FEATURE_KINDS.contains(kind))
+        {
+            let found = features
                 .and_then(Value::as_array)
                 .and_then(|fs| {
                     fs.iter()
@@ -179,6 +183,14 @@ pub fn answers(analysis: &Value, answers: &Map<String, Value>) -> Result<(), Err
                 return Err(bad(id, "unknown answer ID for this feature family"));
             }
         }
+    }
+    Ok(())
+}
+
+pub fn answers(analysis: &Value, answers: &Map<String, Value>) -> Result<(), Error> {
+    answers_shape(answers)?;
+    feature_ids(analysis.get("features"), answers)?;
+    for (id, value) in answers {
         if id.starts_with("datum.")
             && let Some(ids) = value.as_array()
         {

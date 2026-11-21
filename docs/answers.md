@@ -20,78 +20,19 @@ This also applies to **released v0.1.8 and earlier `changes/answers.json` files*
 `--accept-defaults`, because nothing in that file says an answer was dropped. Upgrading the
 writer cannot recover their lost carry decisions.
 
-## Export a sidecar
+## No export of answers
 
-Export after choosing answers, before writing STEP. The approvals file lists the defaults the
-person approved, by part, each with the value they saw; here, every default offered for the
-open questions, once the person has seen the list and agreed:
+There is no export of answers as a record ([ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md),
+0.3.0): the written STEP file is the only copy of its answers. CLI `questions
+--resolve-defaults`, serve and MCP `export_answers`, Rust `api::export_answers`, Python
+`api.export_answers` and WASM `exportAnswers` are removed; the app's Answers (JSON) says "not
+available in 0.3.0".
 
-```sh
-specify-core analyse plate_v1.step -o plate.analysis.json
-specify-core questions plate.analysis.json --answers chosen.json --open \
-  | jq '{"0": (map(select(.default != null) | {(.id): .default}) | add // {})}' > approved.json
-specify-core questions plate.analysis.json --answers chosen.json \
-  --resolve-defaults --step plate_v1.step --accept-defaults approved.json > plate.answers.json
-# write needs a complete set: stderr's "open: …" lists what to answer or approve first.
-specify-core write plate_v1.step plate.analysis.json plate.answers.json -o plate.pmi.step
-```
-
-`questions --resolve-defaults` is the single CLI export surface. It writes an **answer
-map** to stdout, rather than a question list, and never writes STEP. `--step` is required:
-an analysis alone cannot supply verified face evidence. Its binding selects the part of an
-assembly and must match that STEP. `--open` cannot be combined with export.
-
-The map contains every supplied answer (including any whose question is not asked; see
-below) and exactly the PMI defaults the person approved, never every default (ADR P9: a
-default becomes intent only when approved). Approvals are by part, each question id with the
-default value the person saw: `{"<part>": {"<id>": value}}` (`--accept-defaults FILE` on the
-command line), the same form as the page's Save and MCP. Only the exported part's approvals
-apply. Each is checked against the defaults as they stand with the answers given: an id that is
-not an open question with a default, or a value that is no longer its default, refuses the
-export naming the part and question. Without approvals no default is exported. The map also has
-`_specify.evidence` for this part, `_specify.unresolved` (the carry blocks still open), and
-`_specify.sources`: for each answer equal to its question's default, the rule behind it ([rule-sources.md](rule-sources.md#rule-ids)); it is output only,
-ignored when the map is read and recomputed on export. Optional BOM suggestions remain opt-in; supplied BOM answers
-are preserved. Output recursively sorts object keys, uses two-space indentation and a
-final newline, and preserves array order. Identical inputs export identical bytes,
-independent of input key order. Re-exporting the complete map is idempotent.
-
-Incomplete is normal: open questions and carry blocks do not refuse an export. The command
-line lists the questions still open on stderr (`open: …`); serve gives `complete` and
-`missing`. A carry block stays in `_specify.unresolved` until its question is answered. (Contract
-change, 2026-11-19: an export used to take every default and refuse an incomplete set.) A
-refused export prints no JSON on stdout (CLI exit 2). A shell may create or
-truncate a redirected file before the command runs; export to a temporary path and rename
-on success when replacing an existing committed sidecar. Existing saved evidence is checked
-before export, so changed geometry cannot be silently restamped with fresh evidence.
-
-Like `write`, export reads answers only from `--answers`, not from answers already stored
-in the STEP: exporting a PMI-written STEP with `{}` exports no answers. Pass the part's
-committed sidecar (or the answers you want) explicitly.
-
-The same non-writing operation is available in existing front-end shapes:
-
-- Rust: `api::export_answers(&loaded, &analysis, &answers, &approved)` returns
-  `Exported {answers, missing}`; an approval refused is `Error::Unapproved` (part, question,
-  and the value approved and the default now when they differ).
-- Serve: `{"op":"export_answers","step":"plate_v1.step","analysis":<analysis>,"answers":<chosen>,
-  "accept_defaults":{"0":{"part.general_tolerance":"ISO 2768-m"}}}` returns `result.answers`,
-  `complete` and `missing`; a refused approval is `invalid` with `part`, `question`, and
-  `expected`/`current` when the value differs.
-- Python: `api.export_answers(step_or_loaded_part, analysis, answers, accept_defaults=None)`
-  returns a dict (a refused approval raises `ValueError`); serialize with
-  `json.dumps(complete, indent=2) + "\n"` for the same stable file layout.
-- WASM: `engine.exportAnswers(answersJson, approvalsJson?)` returns the answer map as a JSON
-  string; use `JSON.stringify(JSON.parse(result), null, 2) + "\n"` for a formatted sidecar.
-- MCP: the `export_answers` tool, on the session's answers (docs/mcp.md).
-
-Existing `with_all_defaults` / `acceptDefaults` operations still give every default, for
-partial review, and retain their return shapes. Exported maps can be passed directly to
-questions/review, serve, Python and WASM, and to `write` once complete: `write`
-(without its own `--accept-defaults`) refuses an incomplete set, so answer the open questions
-or approve their defaults and export again. Exporting with every default approved and writing
-the unchanged part from the export gives the same semantic PMI as `write --accept-defaults`. Writing changed geometry is refused as stale: the answers belong to
-another revision.
+Answer maps written by earlier versions are still read wherever answers are taken (CLI
+`questions --answers` and `write`, serve, Python, WASM, MCP `answers_file`). Their
+`_specify.evidence` is checked, so a map whose evidence belongs to another revision is refused
+as stale; a carry block in `_specify.unresolved` keeps its question open until it is answered;
+`_specify.sources` is ignored.
 
 ## Answers to questions not asked
 
@@ -119,11 +60,11 @@ Where switching `part.locating` would ask it, the reason says so; otherwise it s
 question is not asked of this part given the other answers, or that the file already states
 the datum. `apply` does not refuse these answers: callers revising answers across a change
 of `part.locating` keep both modes' answers, and the question takes its answer again when it
-returns. The answer is still stored in the STEP with the others, exported unchanged by
-`questions --resolve-defaults` (dropping it would lose it, and refusing would break the same
-callers). A carry block applies only while
+returns. The write does not store it (decision D11, with ADR P11: the file is the only copy, and
+an answer to a question not asked leaves nothing in it): its `not_written` line is the report.
+A carry block applies only while
 its question is asked: a block on `datum.A.flatness` under `"± dimensions"` does not stop
-`write`, export or bulk defaults, and is listed in `not_written` ("datum.A.flatness was
+`write` or bulk defaults, and is listed in `not_written` ("datum.A.flatness was
 carried (carried answer could not be applied: …) but is not asked when part.locating is
 '± dimensions', so nothing was written for it"). It stays in `_specify.unresolved`, so once
 later answers ask the question again it shows as required and refuses again. Write derives
@@ -139,6 +80,43 @@ an accepted default can replace it.
 An unasked answer's value is checked against the question's options only while the question
 is asked. `part.*`, `bom.*` and `extra.*` answers
 are read whether or not asked, so they never appear here.
+
+### Stored answers to questions not asked (D11)
+
+A file an older build wrote may store such an answer, `datum.A.flatness` "none" under
+`part.locating` "± dimensions", say. Reopening reports it **once** and leaves it out of the
+resumed answers, as it does a stored answer whose requirement is no longer in the file: each is
+listed in the analysis's `resume.dropped_answers`, `{"id", "value", "reason"}`, and named in a
+warning:
+
+```text
+saved answer datum.A.flatness ('none'): its question is not asked when part.locating is '± dimensions'; it is not stored again
+saved answer hole.function:holes:12 ('tapped:M5'): no requirement for this answer in the file; the question is open again
+```
+
+The reasons are "its question is not asked …" (given the other answers, as above; or "the file
+already states this requirement", for a stored "none" where the file now states one) and "no
+requirement for this answer in the file; the question is open again". The next save does not
+store a dropped answer again: an intent made from that analysis (`apply`, `rules::unasked_rows`)
+carries an `unasked` row for each dropped answer that would otherwise be kept, so the write lists
+it in `not_written` ("saved answer datum.A.flatness ('none'): …; it was not stored again") and
+leaves it out of the stored answers. Reopening the saved file reports nothing more.
+
+### An answer that names nothing the part has (D11)
+
+In answers given to `questions`, `apply`, `preview`, `review` and every write (CLI `write`,
+serve, MCP `write_pmi`, the session's save, Python and WASM), an id that names a feature the
+part does not have, or a kind that feature's family has no question of, refuses the **whole**
+list, named with its reason:
+
+```text
+Invalid answers: hole.position:holes:999: unknown feature holes:999
+Invalid answers: diameter.fit:holes:12: unknown answer ID for this feature family
+```
+
+The writer checks this itself, whatever intent it is given. It is never ignored. An id that names a real
+question which is merely not asked given the other answers is not refused: it is reported in
+`not_written`, as above.
 
 An ID that **no** question can have, such as `bogus.question`, is refused with
 `Invalid answers: bogus.question: unknown answer ID` by every entry point: Rust `api`,
@@ -167,19 +145,81 @@ and settings, and `analyse` adds the **feature table**, `table`:
 - `file_pmi`: the file's requirements on no recognised feature and kind.
 - `decided_none`: the decided-none ids, read back from the file.
 
+### What the file states, read back whole
+
+The stated row is all anyone sees of what the file says, so nothing the file states is left
+out of it. Each `existing` item, and so each requirement of a row, carries:
+
+- `text`: the item as a drawing states it, in full: `⌀3.3 H11`, `⌀6.6 ±0.1`, `⌀6.5 - ⌀6.7`,
+  `50 (basic)`, `⌖ ⌀0.3Ⓜ A`, `⌓ 0.020000 A FⓂ`, `M2×0.4-6H ↧ 2`, `M5×0.8-6H THRU`,
+  `diamond knurl, pitch 1 mm, major ⌀8 mm`, `√ Ra 1.6`, `datum A`. Values are as the file
+  states them, in its own unit (an inch NIST file's `⌀0.250000 +0.003000/0`); `value`, `upper`
+  and `lower` stay millimetres. A row's `value` is its requirements' texts joined.
+- the structured values a change needs to keep, by the planner's names (optional fields, absent
+  when not stated):
+  - a size's `fit` (its ISO 286 class, `H11`); a class stated alone also gives `upper` and
+    `lower` from the ISO 286 tables (`⌀3.3 H11`: +0.075/0);
+  - a tolerance's `diametral` (a ⌀ zone), `zone` (its zone form as stated), `mmc` (Ⓜ) and
+    `modifiers` (every modifier as stated, schema names: `maximum_material_requirement`,
+    `least_material_requirement`, `separate_requirement`, ...);
+  - a thread's `side`, `designation` (`M2`), `spec` (`M2x0.4`), `pitch`, `class`, `hand`
+    (`RH`/`LH`), `through`, `drill_diameter`, `drill_depth`, `full_thread`, `length`;
+  - a knurl's `pattern`, `pitch`, `diameter`, `teeth`, `tooth_depth`, `root_fillet`,
+    `helix_angle`, `hand`; a finish on faces' `finish` (`Ra 1.6`).
+- `text_only: true` when the item states something those fields don't hold: a datum
+  reference's modifier (`A FⓂ`), a common datum (`A-B`), a projected (`Ⓟ`) or non-uniform zone,
+  a unit basis, a maximum, an unequal zone, all over, a dimension's qualifier, modifier or
+  envelope requirement, a thread's minor or pitch diameter. Its `text` still has all of it; it
+  just cannot be changed field by field. The feature table's requirement carries the same flag.
+
+Two notes of one kind stay two items when they state different things (an M2 and an M3
+thread), and are one item on all their faces when they state the same.
+
 A requirement is matched to a feature and kind by the faces it sits on and its kind. Specify's
 provenance marker plays no part. A hole the file locates by a location dimension (basic,
 toleranced or general) has its location stated even when holes are located by position
 tolerances: that setting only decides what is suggested for a hole the file does not locate.
+
+A hole's location is read per direction (decision D8). A location dimension locates, along
+the axis it measures (its reference face's normal; between two holes, the axis across both
+whose offset is its value), every hole on its located side (the "to", `faces2` in `existing`),
+and every other hole whose axis lies on the same line from the same reference: one 50 from the
+left edge to a row of holes locates the Ø8 on that line too. Its reference side (the "from")
+locates nothing: a dimension from hole A to hole B locates B, not A. A position tolerance on the
+hole locates it in every direction. The location row is stated when every direction across the
+hole's axis is located. Otherwise it is a gap, and when some directions are located, its
+`missing` lists the others (`["y"]`), `located` those already located (`["x"]`), and
+`requirements` the dimensions that locate it so far.
+Its suggestion covers only the missing directions: answering it writes no position tolerance
+(that would locate the hole a second time), only the general-tolerance location in the missing
+directions, and the writer never adds a location along an axis the file already locates the
+hole in. A datum hole is the origin the part is measured from: it is not asked its location in
+the directions across its axis that no other datum plane measures. A hole that only appears on
+a reference side, and is no datum, is asked.
 Questions follow the table: every gap is asked, and nothing the file states is. A gap whose
 suggestion is "none" is not open anywhere: not in `questions --open`, a save's still-open
 list, `write`'s report or MCP. Approving its suggestion still decides it none.
+
+A general-tolerance answer writes only its note (ADR P9, Paul's decision D1): approving
+"ISO 2768-m" writes the general-tolerance note and nothing else. The dimensions the general
+tolerance governs, each feature's size and location with its nominal alone, are written only
+when the question they belong to is approved: a hole's or turned diameter's size with its
+`hole.function` or `diameter.fit` answer, a hole's location with its `hole.position` or
+`hole.location` answer. Until then those rows stay gaps with their suggestions. Dimensions no
+question asks about (plane levels, a hole with no location question) are written only when
+no question is open, as with "accept suggestions" or `write --accept-defaults`, which approve
+every suggestion and so write the whole set as before. The writer's upgrade of an old intent
+without planner rows (#75) keeps the same rule: it writes a planner dimension only on a
+feature and kind the intent itself sizes or locates.
 
 Only answers that leave no PMI behind are stored in the file: "none" answers and choices that
 are not requirements (`part.locating`). `resume.answers` holds those. Stored answers that
 repeat the file's PMI (as Specify 0.2 stored every answer) are ignored on reading and dropped
 at the next save. A stored answer whose PMI is no longer in the file leaves a gap: the deletion
-stands, and the analysis warns about it once. If someone edited a requirement elsewhere, the
+stands, and the analysis warns about it once ("saved answer {id} ({value}): no requirement for
+this answer in the file; the question is open again"). An answer that differs from a part
+setting or process the file states is not written: the file's value stands whoever wrote it,
+changing it is an explicit edit, and the write report lists it in `not_written`. If someone edited a requirement elsewhere, the
 table shows the new value. There is nothing to conflict with, so there are no conflicts, no
 keep and no `resume.present`, `resume.file` or `resume.foreign`.
 
@@ -194,8 +234,8 @@ nothing.
 
 ## Specify metadata
 
-Specify's complete exports and diff answer maps (`answers.json`, `report.answers`, and
-each assembly part's map) add a reserved `_specify` member. Preserve it when editing or storing answers.
+The answer maps earlier Specify versions exported or `diff` returned (`answers.json`,
+`report.answers`, and each assembly part's map) have a reserved `_specify` member. Preserve it when editing or storing answers.
 Old plain files remain accepted by the new tools. New maps require updated Specify/editor
 WASM builds: older builds reject `_specify` as an `unknown answer ID`. Use an updated build
 to open and write these maps.

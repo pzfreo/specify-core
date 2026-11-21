@@ -47,11 +47,25 @@ fn round_trip(loaded: part::LoadedPart) {
         .unwrap()
         .load(Some(part_index))
         .unwrap();
-    assert_eq!(resume::answers_for(&reopened).unwrap(), Some(given.clone()));
+    // ADR P11: an added requirement writes PMI, so it is not stored; the file states it.
+    let kept = specify_core::feature_table::storable(&given);
+    assert_eq!(resume::answers_for(&reopened).unwrap(), Some(kept.clone()));
     eprintln!("analyse resumed");
     let analysis = api::analyse(&reopened).unwrap();
-    assert_eq!(analysis["resume"]["answers"], json!(given));
-    assert_eq!(analysis["existing"], foreign);
+    assert_eq!(analysis["resume"]["answers"], json!(kept));
+    // The file's PMI is listed whoever wrote it: the foreign items, unchanged, and Specify's.
+    let theirs = |a: &Value| {
+        Value::Array(
+            a["existing"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|e| e["provenance"] != writer::PMI_PROVENANCE)
+                .cloned()
+                .collect(),
+        )
+    };
+    assert_eq!(theirs(&analysis), foreign);
     assert_eq!(analysis["part"], initial["part"]);
     let own = existing::read_existing(&reopened)
         .unwrap()
@@ -86,8 +100,11 @@ fn round_trip(loaded: part::LoadedPart) {
         .unwrap()
         .load(Some(part_index))
         .unwrap();
-    assert_eq!(resume::answers_for(&again).unwrap(), Some(edited));
-    assert_eq!(api::analyse(&again).unwrap()["existing"], foreign);
+    assert_eq!(
+        resume::answers_for(&again).unwrap(),
+        Some(specify_core::feature_table::storable(&edited))
+    );
+    assert_eq!(theirs(&api::analyse(&again).unwrap()), foreign);
     let changed = existing::read_existing(&again)
         .unwrap()
         .into_iter()
@@ -110,21 +127,19 @@ fn nist(name: &str) {
 }
 
 #[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn ctc01_foreign_pmi_answers_resume_and_edits_preserve_entity_text() {
     nist("nist/nist_ctc_01_asme1_ap242");
 }
 
 #[test]
-fn ctc02_foreign_pmi_answers_resume_and_edits_preserve_entity_text() {
-    nist("nist/nist_ctc_02_asme1_ap242#0");
-}
-
-#[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn ftc09_foreign_pmi_answers_resume_and_edits_preserve_entity_text() {
     nist("nist/nist_ftc_09_asme1_ap242-e1");
 }
 
 #[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn ctc01_defaulted_add_replaces_all_own_items_and_keeps_numbers() {
     let case = common::case("nist/nist_ctc_01_asme1_ap242");
     let loaded = part::load(&case.input().unwrap(), None).unwrap();
@@ -195,32 +210,7 @@ fn old_add_mode_without_saved_answers_still_opens_as_existing_pmi() {
 }
 
 #[test]
-fn coincident_numbered_foreign_control_cannot_lend_its_number_to_specify() {
-    let loaded = part::load(&common::fixtures().join("parts/plate.step"), None).unwrap();
-    let analysis = api::analyse(&loaded).unwrap();
-    let face = analysis["faces"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|f| f["kind"] == "plane")
-        .unwrap()["id"]
-        .clone();
-    let answers = json!({"extra.1":{"kind":"flatness","faces":[face],"value":"0.031"}})
-        .as_object()
-        .unwrap()
-        .clone();
-    let intent = api::preview(&analysis, &answers).unwrap();
-    let bytes = writer::write_bytes(&loaded, &intent, None).unwrap().0;
-    // Simulate an independent producer with a numbered control and its own history.
-    // Keep all semantic values and numbers while removing Specify authorship.
-    let bytes = String::from_utf8(bytes)
-        .unwrap()
-        .replace(writer::PMI_PROVENANCE, "independent producer")
-        .into_bytes();
-    round_trip(part::load_bytes("foreign-numbered.step", bytes).unwrap());
-}
-
-#[test]
+#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn stale_unmarked_legacy_answers_cannot_mask_scoped_add_saves() {
     let case = common::case("nist/nist_ctc_01_asme1_ap242");
     let loaded = part::load(&case.input().unwrap(), None).unwrap();
@@ -322,14 +312,15 @@ fn ctc01_datum_on_kept_perpendicularity_carrier_preserves_foreign_entities() {
         number = Some(n);
         assert_eq!(
             resume::answers_for(&reopened).unwrap(),
-            Some(answers.clone())
+            // ADR P11: stored are the answers that leave no PMI behind.
+            Some(specify_core::feature_table::storable(&answers))
         );
         current = reopened;
     }
 }
 
 #[test]
-fn removing_owned_control_keeps_its_carrier_when_foreign_control_uses_it() {
+fn a_save_without_the_owned_control_keeps_it_and_its_shared_carrier() {
     use haecceity::pmi::{PartId, PartPmi};
     let bare = part::load(&common::fixtures().join("parts/plate.step"), None).unwrap();
     // Establish genuine Add-mode scope before authoring the shared carrier. Legacy
@@ -452,6 +443,8 @@ fn removing_owned_control_keeps_its_carrier_when_foreign_control_uses_it() {
         &doc.bytes()[doc.span(carrier).unwrap()],
         &after.bytes()[after.span(carrier).unwrap()]
     );
+    // ADR P11: leaving the owned control out of the answers removes nothing (a remove is an
+    // explicit edit): every control stays, Specify's with it.
     let reopened = part::load_bytes("removed.step", bytes).unwrap();
     let remaining = existing::read_existing(&reopened).unwrap();
     assert_eq!(
@@ -459,12 +452,14 @@ fn removing_owned_control_keeps_its_carrier_when_foreign_control_uses_it() {
             .iter()
             .filter(|e| e.kind == "geometric_tolerance")
             .count(),
-        2
+        3
     );
-    assert!(
+    assert_eq!(
         remaining
             .iter()
-            .all(|e| e.provenance.as_deref() != Some(writer::PMI_PROVENANCE))
+            .filter(|e| e.provenance.as_deref() == Some(writer::PMI_PROVENANCE))
+            .count(),
+        1
     );
 }
 

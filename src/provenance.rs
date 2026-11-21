@@ -340,8 +340,12 @@ pub(crate) fn without_owned_except(
             if let RawEntity::Simple {
                 name, attributes, ..
             } = e
-                && (matches!(name.as_str(), "ID_ATTRIBUTE" | "UUID_ATTRIBUTE")
-                    || description_target(e).is_some())
+                // Any description of a removed record goes with it, whatever it says (another
+                // tool's marker on Specify's number record included).
+                && matches!(
+                    name.as_str(),
+                    "ID_ATTRIBUTE" | "UUID_ATTRIBUTE" | "DESCRIPTION_ATTRIBUTE"
+                )
                 && matches!(attributes.get(1), Some(Attribute::EntityRef(target)) if seeds.contains(target))
                 && !seeds.contains(&id)
                 && !protected.contains(&id)

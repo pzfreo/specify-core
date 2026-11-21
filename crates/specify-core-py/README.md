@@ -126,8 +126,5 @@ file is read back and checked before it is kept.
 Status: early (0.x). The JSON formats may change between minor versions; changes are listed in
 the changelog. Draftwright® is a registered trade mark of Betwixt Ltd.
 
-Answer sidecars (with geometry evidence) can be exported before writing:
-`api.export_answers(step, analysis, answers, accept_defaults=None)` returns a dict of the
-answers given plus exactly the defaults approved (`{"<part>": {"<id>": value}}`).
-Open questions and carry blocks do not refuse it (`write` still needs a complete set). See
-[answer files](../../docs/answers.md#export-a-sidecar).
+There is no export of answers as a record (ADR P11, 0.3.0: `api.export_answers` is removed);
+the written STEP holds them. See [answer files](../../docs/answers.md#no-export-of-answers).

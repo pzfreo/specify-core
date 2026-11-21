@@ -2,11 +2,12 @@
 //! can move a part between engines.
 //!
 //! - (a) `rust_written_files_match_the_current_presentation_writer`: the committed files
-//!   are what `examples/write_fixtures.rs` produces, including #65 ids/history,
-//!   with only the version-specific history key fields normalized for #95. All other
-//!   bytes remain exact, including #77 dimension origin/source UDAs and
-//!   quiddity-rust#137 presentation and aspect shapes. Deliberate changes require regenerating
-//!   them and independently recapturing Python's read-back (the example documents how).
+//!   read back as what `examples/write_fixtures.rs` writes today: each part's existing PMI
+//!   (with #77 origin/source), settings, stored answers and #65 characteristic numbers. No
+//!   output bytes are pinned. A semantic change requires regenerating them and independently
+//!   recapturing Python's read-back (the example documents how), or a reviewed entry, exact
+//!   case and path, in `known_differences/cross_engine_written.json` (the committed file's
+//!   read-back as "python", today's write's as "rust").
 //!   The Python reference predates inspection numbers and origin/source UDAs; their absence is an explicit ledger
 //!   difference, while the native characteristic tests check their exact standard slots.
 //!   Stored-answer schema 2 writes zeros unsigned, keeping these bytes portable.
@@ -81,16 +82,42 @@ fn rust_written_files_match_the_current_presentation_writer() {
     let scratch = write_fixtures::scratch();
     let cases = write_fixtures::cases();
     assert!(!cases.is_empty(), "no synthetic or NIST oracle cases");
-    let mut stale = Vec::new();
+    let (mut stale, mut changed) = (Vec::new(), Vec::new());
     for case in &cases {
         let dir = write_fixtures::case_dir(&case.name);
         let output = scratch.join(format!("{}.step", case.name.replace(['/', '#'], "_")));
         let (step, refused) = (dir.join("rust.step.gz"), dir.join("rust.refused.txt"));
         match (write_fixtures::write(case, &output), step.is_file()) {
-            (Ok(bytes), true)
-                if common::numbering::comparable_number_history(&gunzip(&step))
-                    == common::numbering::comparable_number_history(&bytes) => {}
-            (Ok(_), true) => stale.push(format!("{}: writer bytes changed", case.name)),
+            // No output bytes are pinned: the committed file and today's write must read back
+            // the same (each part's existing PMI, settings, stored answers and characteristic
+            // numbers), so Python's read-back of the committed file, (b), is a read-back of
+            // what today's writer writes.
+            (Ok(_), true) => {
+                let count = case.intents.len();
+                let committed = rust_written(&case.name).unwrap();
+                for k in 0..count {
+                    let (now, then) = (
+                        load_part(&output, k, count).map(|l| semantic_readback(&l)),
+                        load_part(&committed, k, count).map(|l| semantic_readback(&l)),
+                    );
+                    if let (Ok(then), Ok(now)) = (&then, &now) {
+                        // Each change, field by field, must be a reviewed one
+                        // (`known_differences/cross_engine_written.json`).
+                        let name = if count > 1 {
+                            format!("{}#{k}", case.name)
+                        } else {
+                            case.name.clone()
+                        };
+                        changed.extend(compare_written(&name, then, now));
+                    } else if now != then {
+                        stale.push(format!(
+                            "{} part {k}: the written file reads back differently: {}",
+                            case.name,
+                            readback_change(&then, &now)
+                        ));
+                    }
+                }
+            }
             (Ok(_), false) => stale.push(format!("{}: written now, not committed", case.name)),
             (Err(why), false)
                 if std::fs::read_to_string(&refused).ok().as_deref()
@@ -120,6 +147,81 @@ fn rust_written_files_match_the_current_presentation_writer() {
          Python's read-back (examples/write_fixtures.rs says how):\n  {}",
         stale.join("\n  ")
     );
+    // A semantic change the committed files do not have fails unless it is reviewed, exactly:
+    // "python" is the committed file's read-back, "rust" today's write's.
+    check_known("cross_engine_written", &changed);
+}
+
+/// The fields in which two [`semantic_readback`]s of one part differ, as differences named by
+/// `case` (`then` the committed file's, `now` today's write's): `existing` paired as the
+/// existing-PMI sweep pairs it, `characteristics` paired by kind, type, faces and reference,
+/// `part` and `resume` by key.
+fn compare_written(case: &str, then: &Value, now: &Value) -> Vec<Difference> {
+    let tolerances = Tolerances::default()
+        .align("existing", "key")
+        .align("characteristics", "key")
+        .with("existing*", 1e-9, 1e-9);
+    let view = |v: &Value| {
+        json!({
+            "existing": if v["existing"].is_array() { keyed(&v["existing"]) } else { v["existing"].clone() },
+            "part": v["part"],
+            "resume": v["resume"],
+            "characteristics": keyed_characteristics(&v["characteristics"]),
+        })
+    };
+    compare(case, &view(then), &view(now), &tolerances)
+}
+
+/// Each characteristic keyed by kind, type, faces and reference (and its occurrence, for a
+/// repeat), so a renumbering reads as `characteristics[key=…].number`.
+fn keyed_characteristics(items: &Value) -> Value {
+    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    let out: Vec<Value> = items
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|item| {
+            let base = format!(
+                "{}|{}|{}|{}",
+                item["kind"].as_str().unwrap_or_default(),
+                item["type"].as_str().unwrap_or_default(),
+                item["faces"],
+                item.get("reference")
+                    .map_or(String::new(), Value::to_string)
+            );
+            let n = seen.entry(base.clone()).or_default();
+            *n += 1;
+            let mut item = item.clone();
+            item["key"] = json!(format!("{base}#{n}"));
+            item
+        })
+        .collect();
+    Value::Array(out)
+}
+
+/// What a file reads back as for (a): [`readback_of`] and the characteristic numbers, without
+/// their entity ids.
+fn semantic_readback(loaded: &LoadedPart) -> Value {
+    let mut out = readback_of(loaded);
+    let mut numbers = specify_core::characteristics::read(loaded).unwrap_or_default();
+    for c in &mut numbers {
+        c.entity = 0;
+    }
+    out["characteristics"] = serde_json::to_value(numbers).unwrap();
+    out
+}
+
+/// The keys of two [`semantic_readback`]s that differ, for a message.
+fn readback_change(then: &Result<Value, String>, now: &Result<Value, String>) -> String {
+    match (then, now) {
+        (Ok(then), Ok(now)) => ["existing", "part", "resume", "characteristics"]
+            .iter()
+            .filter(|k| then[**k] != now[**k])
+            .map(|k| format!("{k}: {} -> {}", then[*k], now[*k]))
+            .collect::<Vec<_>>()
+            .join("; "),
+        _ => format!("{then:?} -> {now:?}"),
+    }
 }
 
 /// The case directories under `root`: those holding a `rust.step.gz` or `rust.refused.txt`.

@@ -1182,6 +1182,67 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
     Ok(())
 }
 
+/// [`apply`] for an old intent without planner rows (the writer's upgrade, #75), writing only
+/// the general dimensions the intent approved (ADR P9 / D1). The rules wrote the general
+/// tolerance's provisional rows only for approved features (`rules::only_approved_general`);
+/// the planner's general rows are kept where they are on the same features and kind: a hole's
+/// size (a depth, a counterbore) or location when the intent sizes or locates that hole (a
+/// general row, or an answer to its function or location question), and any other row when a
+/// general row of its kind touches the same faces.
+pub(crate) fn upgrade(input: Input, intent: &mut Intent) -> Result<(), String> {
+    let holes: Vec<Vec<usize>> = input
+        .holes
+        .iter()
+        .map(|h| h.support.faces.clone())
+        .collect();
+    let before = intent.clone();
+    apply(input, intent)?;
+    let on = |r: &Map<String, Value>| {
+        let mut faces = ids(r, "faces");
+        if r.get("kind").and_then(Value::as_str) == Some("location") {
+            faces.extend(ids(r, "reference"));
+        }
+        faces
+    };
+    // (kind, faces) the old intent sizes or locates.
+    let mut given: Vec<(&str, Vec<usize>)> = Vec::new();
+    for r in &before.general {
+        if let Some(kind @ ("size" | "location")) = r.get("kind").and_then(Value::as_str) {
+            given.push((kind, on(r)));
+        }
+    }
+    for r in &before.requirements {
+        let question = r.get("question").and_then(Value::as_str).unwrap_or("");
+        let kind = if question.starts_with("hole.function:")
+            || question.starts_with("diameter.fit:")
+        {
+            "size"
+        } else if question.starts_with("hole.position:") || question.starts_with("hole.location:") {
+            "location"
+        } else {
+            continue;
+        };
+        given.push((kind, on(r)));
+    }
+    let approved = |r: &Map<String, Value>| {
+        let kind = r.get("kind").and_then(Value::as_str).unwrap_or("");
+        let faces = on(r);
+        let touched: Vec<&Vec<usize>> = holes.iter().filter(|h| overlaps(&faces, h)).collect();
+        if touched.is_empty() {
+            given.iter().any(|(k, g)| *k == kind && overlaps(g, &faces))
+        } else {
+            touched
+                .iter()
+                .all(|h| given.iter().any(|(k, g)| *k == kind && overlaps(g, h)))
+        }
+    };
+    intent.general.retain(|r| approved(r));
+    intent
+        .requirements
+        .retain(|r| r.get("general") != Some(&json!(true)) || approved(r));
+    Ok(())
+}
+
 /// Already-stated dimensions are planner authorities, not fresh writer jobs. Their exact
 /// tolerance is opaque to the planner; the original PMI remains the authority in Add mode.
 pub(crate) fn stated(p: &haecceity::pmi::PartPmi) -> Vec<Map<String, Value>> {

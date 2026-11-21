@@ -22,8 +22,6 @@ Shared/generic labels retain geometric matching and are omitted from analysis. K
 duplicate names are unresolved without geometric fallback. See
 [face-name matching and compatibility](https://github.com/pzfreo/specify-core/blob/main/docs/face-names.md).
 
-Answer sidecars (with geometry evidence) can be exported before writing:
-`engine.exportAnswers(answersJson, approvalsJson?)` returns an answer map as JSON: the answers
-given plus exactly the defaults approved (`{"<part>": {"<id>": value}}`).
-Open questions and carry blocks do not throw (`writePmi` reports what is open). See
-[answer files](https://github.com/pzfreo/specify-core/blob/main/docs/answers.md#export-a-sidecar).
+There is no export of answers as a record (ADR P11, 0.3.0: `exportAnswers` is removed); the
+written STEP holds them. See
+[answer files](https://github.com/pzfreo/specify-core/blob/main/docs/answers.md#no-export-of-answers).

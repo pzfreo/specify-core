@@ -290,10 +290,10 @@ fn cylinder_ties_use_total_seat_area_and_a_needs_no_plane() {
 }
 
 fn thumbwheel_answers() -> Map<String, Value> {
-    // Keep the reviewer's supplied map verbatim. The pinned kernel names the M2 bore
-    // holes:12.13, rather than holes:14; its default is already tapped:M2.
+    // The reviewer's supplied map, less its stale "hole.function:holes:14": tapped:M2. The
+    // pinned kernel names the M2 bore holes:12.13, whose default is already tapped:M2, and an
+    // id naming nothing the part has now refuses the whole list (D11, #126).
     json!({
-        "hole.function:holes:14": "tapped:M2",
         "diameter.fit:turned_steps:6": "thread:M3",
         "diameter.fit:turned_steps:3": "knurl:straight"
     })
