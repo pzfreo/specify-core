@@ -489,7 +489,13 @@ pub fn check(loaded: &LoadedPart, text: &str) -> Outcome {
         Ok(found) => found,
         Err(why) => return Outcome::malformed(whole(why)),
     };
-    let mut outcome = validated(loaded, &list, &table, &analysis).1;
+    let (pmi_list, bom) = bom_edits(&list, &analysis);
+    let mut outcome = validated(loaded, &pmi_list, &table, &analysis).1;
+    if let Err(failures) = bom {
+        outcome.failures.extend(failures);
+    }
+    outcome.entries = list.len();
+    outcome.applicable = outcome.failures.is_empty();
     if outcome.failures.is_empty()
         && let Err(failures) = apply(loaded, &list)
     {
@@ -1063,7 +1069,123 @@ pub(crate) fn apply_numbered(
     applied_with(loaded, list, numbers, &[])
 }
 
+/// The `bom.*` entries of `list` (a part of an assembly's BOM fields: `fill` with a value, or
+/// `accept_suggestions` taking the BOM's own suggestion) as the intent that appends them, and the
+/// list without them. Every part of the file is numbered when the BOM is written, as `write`'s
+/// BOM acceptance does. Refused for a file with no assembly structure (`bom_no_assembly`), for a
+/// value the BOM does not take, and for a suggestion the BOM does not have.
+fn bom_edits(
+    list: &EditList,
+    analysis: &Json,
+) -> (EditList, Result<Option<crate::rules::Intent>, Vec<Failure>>) {
+    let is_bom = |id: &str| id.starts_with("bom.");
+    let mut rest = list.clone();
+    rest.fill.retain(|id, _| !is_bom(id));
+    rest.accept_suggestions.retain(|id| !is_bom(id));
+    let fills: Vec<(&String, &Json)> = list.fill.iter().filter(|(id, _)| is_bom(id)).collect();
+    let accepted: Vec<&String> = list
+        .accept_suggestions
+        .iter()
+        .filter(|id| is_bom(id))
+        .collect();
+    if fills.is_empty() && accepted.is_empty() {
+        return (rest, Ok(None));
+    }
+    let entry = |section: &str, id: &str| format!("{section}[{}]", Json::from(id));
+    let mut failures = Vec::new();
+    if !analysis.get("bom").is_some_and(Json::is_object) {
+        for (id, _) in &fills {
+            failures.push(entry_failure(
+                entry("fill", id),
+                format!(
+                    "{}: the file has no assembly structure, so there is no BOM to write",
+                    crate::bom::NO_ASSEMBLY
+                ),
+            ));
+        }
+        for id in &accepted {
+            failures.push(entry_failure(
+                entry("accept_suggestions", id),
+                format!(
+                    "{}: the file has no assembly structure, so there is no BOM to write",
+                    crate::bom::NO_ASSEMBLY
+                ),
+            ));
+        }
+        return (rest, Err(failures));
+    }
+    let mut fields = Map::new();
+    let mut answers = Map::new();
+    for (id, value) in fills {
+        let key = &id["bom.".len()..];
+        match crate::bom::validate(key, value) {
+            Ok(()) => {
+                fields.insert(key.to_string(), value.clone());
+                answers.insert(id.clone(), value.clone());
+            }
+            Err(why) => failures.push(entry_failure(entry("fill", id), why)),
+        }
+    }
+    if !accepted.is_empty() {
+        let mut proposed = crate::rules::Intent::new(analysis["binding"].clone());
+        match crate::bom::accept_suggestions(analysis, &answers, &mut proposed) {
+            Ok(()) => {
+                let suggested = proposed.part.get("bom").and_then(Json::as_object);
+                for id in accepted {
+                    let key = &id["bom.".len()..];
+                    match suggested.and_then(|s| s.get(key)) {
+                        Some(value) => {
+                            fields.insert(key.to_string(), value.clone());
+                        }
+                        None => failures.push(entry_failure(
+                            entry("accept_suggestions", id),
+                            format!("the BOM has no suggestion for {id}; give a value with fill"),
+                        )),
+                    }
+                }
+            }
+            Err(why) => failures.push(entry_failure("(the whole list)".into(), why)),
+        }
+    }
+    if !failures.is_empty() {
+        return (rest, Err(failures));
+    }
+    let mut intent = crate::rules::Intent::new(analysis["binding"].clone());
+    intent.part.insert("bom".into(), Json::Object(fields));
+    (rest, Ok(Some(intent)))
+}
+
 fn applied_with(
+    loaded: &LoadedPart,
+    list: &EditList,
+    numbers: Option<&Map<String, Json>>,
+    extra: &[haecceity::pmi::AttributeSet],
+) -> Result<Applied, Vec<Failure>> {
+    if !list
+        .fill
+        .keys()
+        .chain(&list.accept_suggestions)
+        .any(|id| id.starts_with("bom."))
+    {
+        return applied_pmi(loaded, list, numbers, extra);
+    }
+    let analysis = crate::api::analyse(loaded).map_err(|e| whole(e.to_string()))?;
+    let (list, bom) = bom_edits(list, &analysis);
+    let intent = bom?.expect("the list has BOM entries");
+    let mut applied = applied_pmi(loaded, &list, numbers, extra)?;
+    // The BOM is appended after the PMI edit: every entity already there keeps its bytes.
+    applied.bytes = crate::bom::append(applied.bytes, &[(loaded, &intent, None)])
+        .map_err(|why| whole(format!("the BOM cannot be written: {why}")))?;
+    if let Some(fields) = intent.part.get("bom").and_then(Json::as_object) {
+        for (key, value) in fields {
+            applied.report.written.push(format!("BOM {key} {value}"));
+        }
+    }
+    applied.unchanged = false;
+    Ok(applied)
+}
+
+fn applied_pmi(
     loaded: &LoadedPart,
     list: &EditList,
     numbers: Option<&Map<String, Json>>,

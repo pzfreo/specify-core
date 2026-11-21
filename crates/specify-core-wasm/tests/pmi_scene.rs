@@ -218,7 +218,6 @@ fn assembly_live_diameters_match_actual_mesh_faces_and_frame() {
 /// The same answers saved with the engine's `edit`, then drawn view-only and live from the
 /// file written.
 #[test]
-#[ignore = "0.3.0: waits on assembly-edits"]
 fn assembly_view_only_diameters_match_actual_mesh_faces_and_frame_after_an_edit() {
     let bytes = assembly();
     for part in [0, 1] {

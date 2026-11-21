@@ -107,8 +107,10 @@ BOM suggestions are explicitly accepted (using a current assembly analysis):
   (one analysis/answers pair per part to include; `--accept-defaults` independently accepts PMI).
 - Rust: apply/preview normally, then `bom::accept_suggestions(&analysis, &answers, &mut intent)`.
 - Python: `api.apply(analysis, answers, accept_defaults=True, bom=True)`.
-- WASM: none since 0.3.0. The engine writes only an edit list (`IntentEngine.edit`), which has
-  no BOM entry; `writePmi(..., bom)` is gone. Use the command line's `--bom`.
+- Edit lists (WASM `IntentEngine.openPart(...).edit`, and every surface that applies one): a
+  `fill` of `bom.<field>` with a value, or `accept_suggestions` of `bom.<field>` taking the
+  BOM's suggestion, for the part the list is applied to (`writePmi(..., bom)` is gone since
+  0.3.0). Refused with `bom_no_assembly` on a file with no assembly structure.
 
 Without opt-in, neither single parts nor assemblies receive new BOM records, history,
 numbers or owner changes; the ordinary PMI write bytes remain unchanged. Reading never

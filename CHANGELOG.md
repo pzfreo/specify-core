@@ -130,6 +130,11 @@ Read first:
     holes are located, `part.locating`), checked against its options, or decide it none where
     none is an option; it is stored beside the PMI, and the planner reads it for the rest of the
     list.
+  - A part of an assembly is edited through WASM as through `write --part`: `IntentEngine.openPart`
+    then `edit`. Its BOM goes in the same list: `fill` of `bom.<field>`, or `accept_suggestions`
+    of `bom.<field>` for the BOM's suggestion (what `writePmi`'s `bom` argument did); the BOM is
+    appended and every part numbered. A `bom.*` entry on a file with no assembly is refused
+    (`bom_no_assembly`).
   - Rust: `session::save` (answers) and its approvals are gone; `session::save_edits` takes the
     `rev` the caller saw and refuses a list as `SaveError::Edits(failures)`; `session::check_edits`.
 

@@ -280,6 +280,57 @@ fn edit_takes_an_added_requirements_state_from_the_file() {
         row(&back.table(), "hole.function:holes:9")["value"]
             .as_str()
             .unwrap()
-            .contains("[7.9, 8.1]")
+            .contains("⌀7.9 - ⌀8.1")
     );
+}
+
+/// A part of an assembly (opened with `open_part`) is edited in place through `edit`, and its
+/// BOM written with it (the editor's route: a part's edits, then the BOM): `bom.*` fills and
+/// accepted BOM suggestions, every part of the file numbered; the other part keeps its PMI.
+#[test]
+fn a_part_of_an_assembly_is_edited_with_its_bom() {
+    let bytes = include_bytes!("../../../tests/fixtures/parts/assembly.step");
+    let before = specify_core::bom::read_bytes(bytes.to_vec()).unwrap();
+    assert!(
+        before.iter().all(|r| r.item_number.value.is_null()),
+        "no BOM yet"
+    );
+    let pin = Session::open_part("assembly.step", bytes, 1).unwrap();
+    let list = json!({
+        "fill": {"part.material": "brass", "bom.description": "Locating pin"},
+        "accept_suggestions": ["bom.make_buy"],
+    });
+    assert_eq!(pin.check_edits(&list.to_string())["applicable"], true);
+    let out = pin.edit(&list.to_string());
+    assert_eq!(out["written"], true, "{out}");
+    let written = bytes_of(&out);
+    let rows = specify_core::bom::read_bytes(written.clone()).unwrap();
+    assert_eq!(rows[1].description.value, "Locating pin");
+    assert!(!rows[1].make_buy.value.is_null(), "{:?}", rows[1].make_buy);
+    assert!(
+        rows.iter().all(|r| r.item_number.value.is_u64()),
+        "every part numbered: {:?}",
+        rows.iter().map(|r| &r.item_number).collect::<Vec<_>>()
+    );
+    // The pin states its material; the plate is as it was.
+    let reopened = Session::open_part("written.step", &written, 1).unwrap();
+    assert_eq!(row(&reopened.table(), "part.material")["state"], "stated");
+    let plate = |b: &[u8]| {
+        Session::open_part("a.step", b, 0).unwrap().snapshot()["analysis"]["existing"].clone()
+    };
+    assert_eq!(plate(&written), plate(bytes));
+    // A BOM value the BOM does not take, or a file of one part, is refused; nothing written.
+    let bad = pin.edit(r#"{"fill": {"bom.optional": "perhaps"}}"#);
+    assert_eq!(bad["written"], false, "{bad}");
+    let single = plate_session().edit(r#"{"fill": {"bom.description": "Plate"}}"#);
+    assert_eq!(single["written"], false, "{single}");
+    assert!(single.to_string().contains("bom_no_assembly"), "{single}");
+}
+
+fn bytes_of(result: &Value) -> Vec<u8> {
+    bytes(result)
+}
+
+fn plate_session() -> Session {
+    plate()
 }
