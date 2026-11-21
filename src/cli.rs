@@ -983,6 +983,8 @@ fn carry(old: &Path, new: &Path, output: &Path, out: &mut impl Write) -> Result<
         report.written = false;
     }
     print(out, &indent1_keeping_non_ascii(&report.to_json()))?;
+    // As `diff` flags its own: the counts on stderr, whatever the verdict.
+    eprintln!("{}: {}", report.verdict(), report.summary());
     if !report.refused.is_empty() {
         let mut message = "cannot carry: nothing was written. A carry is applied all or \
                            nothing, and these could not be applied:"

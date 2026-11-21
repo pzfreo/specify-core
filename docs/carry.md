@@ -84,10 +84,17 @@ not address keeps its bytes.
 
 ## The report
 
-The command prints the report as JSON, with its Markdown in `markdown`:
+The command prints the report as JSON, with its Markdown in `markdown`. It starts with the
+counts, plainly (`summary`: "Carried 12, not carried 3, to check 1."), and a `verdict` as
+`diff`'s: `ok` when everything OLD states was carried or NEW states it alike, `decide` when
+anything is not carried or is to check, never a clean 0 that hides them. The command also
+prints the verdict and counts on stderr; it exits 0 when it wrote OUT, 2 when the carry was
+refused.
 
 ```json
 {
+  "verdict": "decide",
+  "summary": "Carried 12, not carried 3, to check 1.",
   "written": true,
   "carried": [{"old": "hole.function:holes:6", "new": "hole.function:holes:6", "value": "fit:H7", "stated": "Size_Diameter 5 H7"}],
   "to_check": [{"old": "...", "new": "...", "value": "general", "stated": "Size_Diameter 6", "check": "Ø6 × 10 through hole changed (position)"}],

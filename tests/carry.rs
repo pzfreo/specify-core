@@ -104,6 +104,17 @@ fn a_bare_new_revision_gets_everything() {
     let report = &outcome.report;
     assert!(report.written && report.refused.is_empty());
     assert!(report.kept.is_empty() && report.to_check.is_empty());
+    // The planner's own dimensions are not carried: never a clean verdict.
+    assert_eq!(report.verdict(), "decide");
+    assert!(
+        report.summary().starts_with(&format!(
+            "Carried {}, not carried {}, to check 0",
+            report.carried.len(),
+            report.not_carried.len()
+        )),
+        "{}",
+        report.summary()
+    );
     let old_part = old.load(None).unwrap();
     let before = table(&old_part);
     let out = written(&outcome);
@@ -454,10 +465,11 @@ fn a_carry_that_cannot_be_applied_writes_nothing_and_says_why() {
     let a = report.kept.iter().find(|k| k.new == "datum.A").unwrap();
     assert_eq!(a.old_value, "datum A on faces [27]");
     assert_eq!(a.new_value, "datum A on faces [19]");
+    assert!(report.summary().ends_with("Nothing was written."));
     assert!(
         report
             .markdown()
-            .starts_with("# Carry\n\nNothing was written.")
+            .contains("\n\nNothing was written. A carry is applied all or nothing")
     );
 
     // The command line: exit 2, the reasons on stderr, the report on stdout, no file.
@@ -718,6 +730,20 @@ fn the_command_line_writes_out_and_prints_the_report() {
     let printed: Value = serde_json::from_slice(&run.stdout).unwrap();
     assert_eq!(printed["written"], true);
     assert_eq!(printed["carried"].as_array().unwrap().len(), 3);
+    // The counts, plainly, and a hole not carried is a decision, as diff flags its own.
+    assert_eq!(printed["summary"], "Carried 3, not carried 1, to check 0.");
+    assert_eq!(printed["verdict"], "decide");
+    assert!(
+        printed["markdown"]
+            .as_str()
+            .unwrap()
+            .starts_with("# Carry\n\n⚠️ Carried 3, not carried 1, to check 0.\n")
+    );
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(
+        stderr.contains("decide: Carried 3, not carried 1, to check 0."),
+        "{stderr}"
+    );
     assert!(printed["markdown"].as_str().unwrap().contains("## Carried"));
     let loaded = specify_core::part::load(&out, None).unwrap();
     assert_eq!(numbers(&loaded).len(), 3);

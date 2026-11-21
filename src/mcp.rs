@@ -2101,7 +2101,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "carry",
             "title": "Carry requirements to a new revision",
-            "description": "Carry an older revision's requirements onto a new revision of the geometry, file to file, and write the result to output (inside the allowed directories; an existing output is replaced only with overwrite: true). OLD's features are matched to NEW's as diff matches them. For each feature-and-kind OLD states: a gap in NEW is filled (carried); one NEW states already keeps NEW's value, a difference reported (kept); one on a feature that moved or changed size is carried and listed to_check; one whose feature is not found or is ambiguous is not carried and reported. Decided-none and characteristic numbers carry too (in an assembly, BOM item numbers). What Specify does not understand is reported not_carried with its kind and faces. All or nothing: if any of it cannot be applied, nothing is written (written: false) and refused says why. Returns the report with a Markdown rendering.",
+            "description": "Carry an older revision's requirements onto a new revision of the geometry, file to file, and write the result to output (inside the allowed directories; an existing output is replaced only with overwrite: true). OLD's features are matched to NEW's as diff matches them. For each feature-and-kind OLD states: a gap in NEW is filled (carried); one NEW states already keeps NEW's value, a difference reported (kept); one on a feature that moved or changed size is carried and listed to_check; one whose feature is not found or is ambiguous is not carried and reported. Decided-none and characteristic numbers carry too (in an assembly, BOM item numbers). What Specify does not understand is reported not_carried with its kind and faces. All or nothing: if any of it cannot be applied, nothing is written (written: false) and refused says why. Returns verdict (ok, or decide when anything is not carried or is to check, as diff's), summary (the counts: carried, not carried, to check), and the report with a Markdown rendering.",
             "inputSchema": input(json!({
                 "old": {"type": "string", "description": "The annotated STEP file of the earlier revision."},
                 "new": {"type": "string", "description": "The STEP file of the new revision."},
@@ -2109,6 +2109,8 @@ pub fn tools() -> Vec<Value> {
                 "overwrite": {"type": "boolean", "description": "Replace output if it exists."}
             }), &["old", "new", "output"]),
             "outputSchema": output(json!({
+                "verdict": {"type": "string", "enum": ["ok", "decide"]},
+                "summary": {"type": "string"},
                 "written": {"type": "boolean"},
                 "output": {"type": "string"},
                 "carried": {"type": "array"},
@@ -2119,7 +2121,7 @@ pub fn tools() -> Vec<Value> {
                 "new_unstated": {"type": "array"},
                 "refused": {"type": "array"},
                 "markdown": {"type": "string"}
-            }), &["written", "carried", "to_check", "kept", "not_carried", "decided_none", "markdown"]),
+            }), &["verdict", "summary", "written", "carried", "to_check", "kept", "not_carried", "decided_none", "markdown"]),
             "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
         }),
         json!({

@@ -977,15 +977,65 @@ fn carry_assembly(old: &File, new: &File) -> Result<Outcome, Error> {
 impl Report {
     /// The report as JSON, with its Markdown.
     pub fn to_json(&self) -> Value {
-        let mut value = serde_json::to_value(self).expect("a carry report serializes");
-        value["markdown"] = Value::from(self.markdown());
-        value
+        let mut out = Map::new();
+        out.insert("verdict".into(), Value::from(self.verdict()));
+        out.insert("summary".into(), Value::from(self.summary()));
+        if let Value::Object(fields) =
+            serde_json::to_value(self).expect("a carry report serializes")
+        {
+            out.extend(fields);
+        }
+        out.insert("markdown".into(), Value::from(self.markdown()));
+        Value::Object(out)
+    }
+
+    /// As `diff`'s: `ok` when everything OLD states was carried (or NEW states it alike), and
+    /// `decide` when anything is not carried or is to be checked.
+    pub fn verdict(&self) -> &'static str {
+        if self.not_carried.is_empty() && self.to_check.is_empty() {
+            "ok"
+        } else {
+            "decide"
+        }
+    }
+
+    /// The counts, plainly: `Carried 12, not carried 3, to check 1.` (decided none and kept too,
+    /// when there are any), and `Nothing was written.` when the carry was refused.
+    pub fn summary(&self) -> String {
+        let mut s = format!(
+            "Carried {}, not carried {}, to check {}",
+            self.carried.len(),
+            self.not_carried.len(),
+            self.to_check.len()
+        );
+        if !self.decided_none.is_empty() {
+            s.push_str(&format!(
+                ", decided none carried {}",
+                self.decided_none.len()
+            ));
+        }
+        if !self.kept.is_empty() {
+            s.push_str(&format!(
+                ", kept (the new file differs) {}",
+                self.kept.len()
+            ));
+        }
+        s.push('.');
+        if !self.refused.is_empty() {
+            s.push_str(" Nothing was written.");
+        }
+        s
     }
 
     /// The report in Markdown.
     pub fn markdown(&self) -> String {
         use std::fmt::Write;
-        let mut s = String::from("# Carry\n\n");
+        let mark = if self.verdict() == "ok" {
+            "✅"
+        } else {
+            "⚠️"
+        };
+        let mut s = format!("# Carry\n\n{mark} {}\n\n", self.summary());
         if !self.refused.is_empty() {
             s.push_str(
                 "Nothing was written. A carry is applied all or nothing, and these could not be \
