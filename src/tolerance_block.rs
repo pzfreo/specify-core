@@ -271,8 +271,11 @@ impl Block {
             .unit
             .clone()
             .or_else(|| self.inch_notation().then_some(LengthUnit::Inch));
+        // The unit is named whenever the notation alone does not imply it: inches without a
+        // `.XX` line or a fraction (`X ±.5 in`), and any other unit stated.
         let suffix = match &resolved {
-            Some(LengthUnit::Inch) | None => String::new(),
+            None => String::new(),
+            Some(LengthUnit::Inch) if self.inch_notation() => String::new(),
             Some(u) => format!(" {}", unit_name(u)),
         };
         let inch = resolved == Some(LengthUnit::Inch);
@@ -292,6 +295,7 @@ impl Block {
                 } else {
                     format!("{t}{suffix}")
                 }),
+                // (A fraction implies inches, so an inch block with one names no unit.)
                 Line::Angle(t) => out.push(t.clone()),
                 Line::Places { .. } => {}
             }
@@ -409,7 +413,9 @@ fn value_text(v: &Value, file_unit: &LengthUnit, inch_implied: bool) -> String {
 
 /// One table cell as a line, read from its items whoever wrote it; `None` when it has neither a
 /// number of digits or a range nor a tolerance.
-fn cell_text(cell: &ToleranceCell, file_unit: &LengthUnit) -> Option<String> {
+/// `dotted_inch`: the table has an inch cell shown in inch notation (`.XX`), which implies
+/// inches for its other inch cells; otherwise an inch value outside an inch file names its unit.
+fn cell_text(cell: &ToleranceCell, file_unit: &LengthUnit, dotted_inch: bool) -> Option<String> {
     let get = |name: &str| cell.items.iter().find(|(n, _)| n == name).map(|(_, v)| v);
     let value = |name: &str| match get(name) {
         Some(CellValue::Value(v)) => Some(v),
@@ -451,7 +457,7 @@ fn cell_text(cell: &ToleranceCell, file_unit: &LengthUnit) -> Option<String> {
         ),
         _ => return None,
     };
-    let inch_implied = inch && places.is_some();
+    let inch_implied = inch && (dotted_inch || places.as_ref().is_some_and(|d| d.to_f64() >= 1.));
     let tolerance = if let Some(v) = value("plus minus tolerance value") {
         format!("±{}", value_text(v, file_unit, inch_implied))
     } else if let (Some(up), Some(lo)) = (
@@ -492,9 +498,21 @@ fn items_text(cell: &ToleranceCell, file_unit: &LengthUnit) -> String {
 /// `None` for a table without cells.
 #[must_use]
 pub fn table_text(cells: &[ToleranceCell], file_unit: &LengthUnit) -> Option<String> {
+    let dotted_inch = cells.iter().any(|c| {
+        let inch = c.items.iter().any(|(_, v)| {
+            matches!(v, CellValue::Value(v)
+                if matches!(&v.quantity, Quantity::Length(l) if l.unit == LengthUnit::Inch))
+        });
+        let places = c.items.iter().any(|(n, v)| {
+            matches!(v, CellValue::Count(d)
+                if (n == "significant number of digits" || n == "number of decimal places")
+                    && d.to_f64() >= 1.)
+        });
+        inch && places
+    });
     let lines: Vec<String> = cells
         .iter()
-        .map(|c| cell_text(c, file_unit).unwrap_or_else(|| items_text(c, file_unit)))
+        .map(|c| cell_text(c, file_unit, dotted_inch).unwrap_or_else(|| items_text(c, file_unit)))
         .collect();
     (!lines.is_empty()).then(|| lines.join(SEPARATOR))
 }

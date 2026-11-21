@@ -744,3 +744,70 @@ fn a_change_replaces_only_the_table_and_its_note() {
     }
     assert!(gone > 0);
 }
+
+/// Units as stated (Paul's decision 3): an explicit `in` or `mm` survives into the canonical
+/// text, the written unit and the row, in a millimetre file and in an inch file.
+#[test]
+fn an_explicit_unit_is_kept_in_either_files_unit() {
+    let mm_file = half_shell();
+    // The plate is in millimetres; an inch file from it by rewriting its length unit.
+    let source = String::from_utf8(plate().bytes.to_vec()).unwrap();
+    let inch_source = source.replace(
+        "#1018 = ( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.) );",
+        "#1018 = ( CONVERSION_BASED_UNIT('INCH',#9001) LENGTH_UNIT() NAMED_UNIT(#9002) );\n\
+         #9001 = LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(25.4),#9003);\n\
+         #9002 = DIMENSIONAL_EXPONENTS(1.,0.,0.,0.,0.,0.,0.);\n\
+         #9003 = ( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.) );",
+    );
+    assert_ne!(source, inch_source);
+    let inch_file = load_bytes("inch.step", inch_source.into_bytes()).unwrap();
+    assert_eq!(
+        inch_file.definition.declared_length_unit,
+        Some(LengthUnit::Inch)
+    );
+    let cases = [
+        (&mm_file, "X ±.5 in", LengthUnit::Inch, "0.5", "X ±.5 in"),
+        (
+            &mm_file,
+            "X ±0.5 mm",
+            LengthUnit::Millimetre,
+            "0.5",
+            "X ±0.5",
+        ),
+        (&inch_file, "X ±.5 in", LengthUnit::Inch, "0.5", "X ±.5"),
+        (
+            &inch_file,
+            "X ±0.5 mm",
+            LengthUnit::Millimetre,
+            "0.5",
+            "X ±0.5 mm",
+        ),
+    ];
+    for (part, typed, unit, value, row) in cases {
+        let canonical = specify_core::choices::interpret(
+            "part.general_tolerance",
+            typed,
+            &["ISO 2768-m"],
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(canonical, typed, "the unit stays in the canonical text");
+        let mut intent =
+            specify_core::rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
+        intent.part.insert("general_tolerance".into(), json!(typed));
+        let (bytes, report) = specify_core::writer::write_bytes(part, &intent, None).unwrap();
+        let saved = load_bytes("unit.step", bytes).unwrap();
+        assert_eq!(
+            cells(&pmi_of(&saved)),
+            vec![("0".into(), value.into(), unit.clone())],
+            "{typed}: {:?}",
+            report.written
+        );
+        assert_eq!(
+            general_row(&saved),
+            ("stated".into(), json!(row)),
+            "{typed}"
+        );
+    }
+}

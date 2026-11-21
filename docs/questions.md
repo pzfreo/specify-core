@@ -80,7 +80,9 @@ and never converted: a unit written on a line (`in`, `"`, `mm`) is the block's; 
 (`.XX`) or a fraction means inches; else the block is in the file's length unit. The notation
 decides, not how the tolerance is spelled: `X.XX ±.01` in a millimetre file is ±0.01 mm. No
 decimal places is `X` in both systems (`X ±.5`, `X ±0.5`); it is inches when the block also has an
-inch-notation line or a fraction, or says `in`, and otherwise the file's unit.
+inch-notation line or a fraction, or says `in`, and otherwise the file's unit. The block is
+shown back, and its row read, naming the unit whenever the notation alone does not imply it
+(`X ±.5 in` in a millimetre file, `X ±0.5 mm` in an inch file).
 
 In the file the decimal-place lines are AP242's `default_tolerance_table`, one
 `default_tolerance_table_cell` per line: its `significant number of digits`, its `plus minus
