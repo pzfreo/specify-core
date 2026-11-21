@@ -9,12 +9,14 @@
 //!   "items":  {"change": {"#21": {"tolerance": "±0.05", "expect": "±0.1"}},
 //!              "remove": ["#17"]},
 //!   "none":   ["part.coating", "datum.A.flatness"],
-//!   "accept_suggestions": ["hole.size:holes:3"]
+//!   "accept_suggestions": ["hole.size:holes:3"],
+//!   "clear":  ["part.locating"]
 //! }
 //! ```
 //!
-//! Ids are feature-and-kind (`hole.position:holes:12`); items are characteristic numbers
-//! (`#N`). Anything the list does not mention is left alone. A list is all or nothing (Paul,
+//! Ids are feature-and-kind (`hole.position:holes:12`), a choice the part asks that is not a
+//! requirement and has no row (`part.locating`), or an added requirement (`extra.<name>`, a fill
+//! of its spec adds it, as a 0.2 answer did); items are characteristic numbers (`#N`). Anything the list does not mention is left alone. A list is all or nothing (Paul,
 //! 2026-11-20): if any entry cannot be applied, nothing is written and every failing entry is
 //! named with its reason.
 //!
@@ -28,7 +30,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 /// The top-level fields of an edit list.
-pub const FIELDS: [&str; 5] = ["fill", "change", "items", "none", "accept_suggestions"];
+pub const FIELDS: [&str; 6] = [
+    "fill",
+    "change",
+    "items",
+    "none",
+    "accept_suggestions",
+    "clear",
+];
 
 /// An edit list, as agreed in the proposal's Appendix.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -49,6 +58,16 @@ pub struct EditList {
     /// Gaps to fill with Specify's suggestion.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub accept_suggestions: BTreeSet<String>,
+    /// Stored decisions that leave no PMI to take back (a decided none, or a choice such as
+    /// how holes are located): the feature-and-kind is a gap, or the choice unanswered, again.
+    /// PMI is never touched by a clear (that is `change` and `items.remove`).
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub clear: BTreeSet<String>,
+    /// A 0.2 answers file read as this list ([`from_answers`]): its answers with their
+    /// `_specify` metadata, so its face evidence is checked against the file (an answers file
+    /// from another revision is refused). Not part of the JSON form.
+    #[serde(skip)]
+    pub answers_file: Option<Map<String, Value>>,
 }
 
 /// A change of a stated feature-and-kind: the new value, and the value the caller saw.
@@ -201,6 +220,7 @@ impl EditList {
             + self.items.remove_ids.len()
             + self.none.len()
             + self.accept_suggestions.len()
+            + self.clear.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -362,7 +382,7 @@ pub fn parse_value(value: Value) -> Result<EditList, Vec<Failure>> {
                 leaf::<Change>(path, value)
             }),
             "items" => items(v, &mut errors),
-            "none" | "accept_suggestions" => ids(field, v, &mut errors),
+            "none" | "accept_suggestions" | "clear" => ids(field, v, &mut errors),
             other => errors.push(failure(
                 other,
                 format!("unknown field; an edit list has {}", FIELDS.join(", ")),
@@ -483,6 +503,7 @@ pub fn from_answers(answers: &Map<String, Value>) -> EditList {
             list.fill.insert(id.clone(), value.clone());
         }
     }
+    list.answers_file = Some(answers.clone());
     list
 }
 
@@ -767,6 +788,26 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
         }
     }
 
+    for id in &list.clear {
+        let entry = key("clear", id);
+        match state.kind(id) {
+            None => failures.push(unknown_id(entry, id)),
+            Some(KindState::DecidedNone) => {}
+            Some(KindState::Gap { .. }) => failures.push(failure(
+                entry,
+                format!("nothing is stored for {id}, so there is nothing to clear"),
+            )),
+            Some(KindState::Stated { value }) => failures.push(failure(
+                entry,
+                format!(
+                    "the file states {value} for {id}; a clear takes back only a stored decision \
+                     and never touches PMI: use change, or remove its requirement by number \
+                     (items.remove)"
+                ),
+            )),
+        }
+    }
+
     failures.extend(contradictions(list));
     failures.extend(item_contradictions(list, &requirements));
     Outcome {
@@ -804,6 +845,9 @@ fn sections(list: &EditList) -> BTreeMap<&str, Vec<&'static str>> {
     }
     for id in &list.accept_suggestions {
         out.entry(id).or_default().push("accept_suggestions");
+    }
+    for id in &list.clear {
+        out.entry(id).or_default().push("clear");
     }
     out
 }
@@ -1007,7 +1051,7 @@ pub fn json_schema() -> Value {
     let number = json!({"type": "string", "pattern": "^#[0-9]+$"});
     json!({
         "type": "object",
-        "description": "Edits to apply to the file, all or nothing: if any entry cannot be applied, nothing is written and every failing entry is named. Ids are feature-and-kind (hole.position:holes:12); items are characteristic numbers (#17). Anything not mentioned is left alone.",
+        "description": "Edits to apply to the file, all or nothing: if any entry cannot be applied, nothing is written and every failing entry is named. Ids are feature-and-kind (hole.position:holes:12), a choice with no row (part.locating), or an added requirement (extra.<name>, filled with its spec); items are characteristic numbers (#17). Anything not mentioned is left alone.",
         "properties": {
             "fill": {
                 "type": "object",
@@ -1044,7 +1088,8 @@ pub fn json_schema() -> Value {
                 "additionalProperties": false
             },
             "none": ids("Feature-and-kinds decided none (nothing is needed)."),
-            "accept_suggestions": ids("Gaps to fill with Specify's suggestion.")
+            "accept_suggestions": ids("Gaps to fill with Specify's suggestion."),
+            "clear": ids("Stored decisions that leave no PMI to take back (a decided none, or a choice such as part.locating): the feature-and-kind is a gap, or the choice unanswered, again. Never touches PMI (use change or items.remove).")
         },
         "additionalProperties": false
     })
@@ -1062,10 +1107,11 @@ mod tests {
           "items":  {"change": {"#21": {"tolerance": "±0.05", "expect": "±0.1"}},
                      "remove": ["#17"]},
           "none":   ["part.coating", "datum.A.flatness"],
-          "accept_suggestions": ["hole.size:holes:3"]
+          "accept_suggestions": ["hole.size:holes:3"],
+          "clear": ["part.locating"]
         }"##;
         let list = parse(text).unwrap();
-        assert_eq!(list.len(), 7);
+        assert_eq!(list.len(), 8);
         assert!(list.items.remove.contains(&Number(17)));
         let again: EditList = serde_json::from_value(serde_json::to_value(&list).unwrap()).unwrap();
         assert_eq!(again, list);

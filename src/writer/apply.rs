@@ -96,7 +96,9 @@ fn limits(list: &EditList) -> Vec<Failure> {
 /// reads the file back: the questions of the part with its PMI set aside but for its datums
 /// (every feature-and-kind asked), given that one answer. A value they refuse ("Choose one
 /// of …", "'none' is not an answer") fails its entry.
-fn answers_refused(list: &EditList, table: &FeatureTable, analysis: &Json) -> Vec<Failure> {
+/// The part's analysis with its PMI set aside but for its datums, as the feature table asks its
+/// questions (every feature-and-kind asked).
+fn bare(analysis: &Json) -> Json {
     let mut bare = analysis.clone();
     if let Some(object) = bare.as_object_mut() {
         object.remove("table");
@@ -109,6 +111,11 @@ fn answers_refused(list: &EditList, table: &FeatureTable, analysis: &Json) -> Ve
         object.remove("dimensioning_stated");
         object.remove("process");
     }
+    bare
+}
+
+fn answers_refused(list: &EditList, table: &FeatureTable, analysis: &Json) -> Vec<Failure> {
+    let bare = bare(analysis);
     let choices: Map<String, Json> = analysis["resume"]["answers"]
         .as_object()
         .into_iter()
@@ -146,8 +153,13 @@ fn answers_refused(list: &EditList, table: &FeatureTable, analysis: &Json) -> Ve
             none_answer(table, id),
         ));
     }
+    let choices_asked = choice_questions(table, analysis);
     for id in &list.accept_suggestions {
-        if let Some(s) = table.row(id).and_then(|r| r.suggestion.clone()) {
+        let suggestion = table
+            .row(id)
+            .and_then(|r| r.suggestion.clone())
+            .or_else(|| choices_asked.get(id).cloned().flatten());
+        if let Some(s) = suggestion {
             entries.push((
                 format!("accept_suggestions[{}]", Json::from(id.as_str())),
                 id,
@@ -172,11 +184,291 @@ fn answers_refused(list: &EditList, table: &FeatureTable, analysis: &Json) -> Ve
         .collect()
 }
 
-fn validated(list: &EditList, table: &FeatureTable, analysis: &Json) -> (EditList, Outcome) {
-    let list = edits::normalise(list, table);
-    let mut outcome = edits::validate(&list, table);
+/// The choices the part asks that are not requirements and have no feature-table row (how holes
+/// are located, `part.locating`): an edit list may fill one (validated against its options) or
+/// decide it none where none is an option; it is stored beside the PMI, as it leaves none. By
+/// id, with the question's default (`accept_suggestions`).
+fn choice_questions(table: &FeatureTable, analysis: &Json) -> BTreeMap<String, Option<Json>> {
+    let stored: Map<String, Json> = analysis["resume"]["answers"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(id, _)| is_choice(table, id))
+        .map(|(id, v)| (id.clone(), v.clone()))
+        .collect();
+    crate::rules::questions(&bare(analysis), &stored)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|q| is_choice(table, &q.id))
+        .map(|q| (q.id, q.default))
+        .collect()
+}
+
+/// Whether `id` is an added requirement (`extra.<name>`): a fill of its spec adds it.
+fn is_extra(id: &str) -> bool {
+    id.strip_prefix("extra.")
+        .is_some_and(|name| !name.is_empty())
+}
+
+/// Whether `id` is a choice that is not a requirement and has no feature-table row.
+fn is_choice(table: &FeatureTable, id: &str) -> bool {
+    !crate::feature_table::is_requirement(id)
+        && !id.starts_with('_')
+        && !id.starts_with("bom.")
+        && table.row(id).is_none()
+}
+
+/// The file's state as an edit list sees it: the feature table; the choice questions
+/// ([`choice_questions`]), each a gap that a fill, a none or its suggestion may answer, or, once
+/// stored, a decision a clear takes back; and added requirements (`extra.<name>`), which a fill
+/// adds, as a 0.2 answer did.
+struct WithChoices<'a> {
+    table: &'a FeatureTable,
+    choices: BTreeMap<String, Option<Json>>,
+    stored: Map<String, Json>,
+    /// Questions the part asks only given the list's other answers (a datum's runout once the
+    /// datum is answered), with no row of their own: gaps, with their suggestion.
+    dependent: BTreeMap<String, Option<Json>>,
+}
+
+impl edits::FileState for WithChoices<'_> {
+    fn kind(&self, id: &str) -> Option<edits::KindState> {
+        if is_extra(id) {
+            return Some(edits::KindState::Gap { suggestion: None });
+        }
+        self.table.kind(id).or_else(|| {
+            if self.stored.contains_key(id) && is_choice(self.table, id) {
+                return Some(edits::KindState::DecidedNone);
+            }
+            self.choices
+                .get(id)
+                .or_else(|| self.dependent.get(id))
+                .map(|default| edits::KindState::Gap {
+                    suggestion: default.clone().filter(|d| !d.is_null()),
+                })
+        })
+    }
+    fn requirement(&self, number: u64) -> Option<edits::Requirement> {
+        self.table.requirement(number)
+    }
+    fn file_item(&self, id: &str) -> bool {
+        self.table.file_item(id)
+    }
+}
+
+/// Each added requirement the list fills (`extra.<name>`), planned on its own, against what the
+/// file states: one the file does not state is a gap (written); one it states with the same
+/// value changes nothing (`unchanged`); one it states with another value is refused, as a
+/// differing fill is, unless the list also removes that requirement by number.
+fn extra_states(
+    loaded: &LoadedPart,
+    list: &EditList,
+    analysis: &Json,
+) -> Result<(Vec<Failure>, Vec<String>), String> {
+    let extras: Vec<(&String, &Json)> = list.fill.iter().filter(|(id, _)| is_extra(id)).collect();
+    if extras.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let source = Source::of(&loaded.bytes).map_err(|e| e.to_string())?;
+    let k = loaded.binding.part;
+    let before = &source.read.parts[k];
+    let prov = &source.read.provenance.parts[k];
+    let removed: BTreeSet<u64> = list.items.remove.iter().map(|n| n.0).collect();
+    let choices: Map<String, Json> = analysis["resume"]["answers"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(id, _)| !crate::feature_table::is_requirement(id) && !id.starts_with('_'))
+        .map(|(id, v)| (id.clone(), v.clone()))
+        .collect();
+    let mut failures = Vec::new();
+    let mut unchanged = Vec::new();
+    for (id, value) in extras {
+        let entry = format!("fill[{}]", Json::from(id.as_str()));
+        let states = planned_states(loaded, analysis, &choices, before, prov, &source, id, value);
+        if states.is_empty() {
+            continue;
+        }
+        let differing: Vec<String> = states
+            .iter()
+            .filter_map(|(what, state)| match state {
+                Some((false, numbers)) if !numbers.iter().any(|n| removed.contains(n)) => {
+                    let named: Vec<String> = numbers.iter().map(|n| format!("#{n}")).collect();
+                    Some(format!("{what} ({})", named.join(", ")))
+                }
+                _ => None,
+            })
+            .collect();
+        if !differing.is_empty() {
+            failures.push(entry_failure(
+                entry,
+                format!(
+                    "the file already states {} with another value; to replace it, remove it \
+                     by number in the same list (items.remove)",
+                    differing.join("; ")
+                ),
+            ));
+        } else if states
+            .iter()
+            .all(|(_, state)| matches!(state, Some((true, _))))
+        {
+            unchanged.push(entry);
+        }
+    }
+    Ok((failures, unchanged))
+}
+
+/// The requirements `id` answered `value` plans on its own (with the file's stored choices), each
+/// against what the file states ([`crate::characteristics::against`]); empty when it plans none.
+#[allow(clippy::too_many_arguments)]
+fn planned_states(
+    loaded: &LoadedPart,
+    analysis: &Json,
+    choices: &Map<String, Json>,
+    before: &PartPmi,
+    prov: &haecceity::pmi::PartProvenance,
+    source: &Source,
+    id: &str,
+    value: &Json,
+) -> Vec<crate::characteristics::Against> {
+    let mut answers = choices.clone();
+    answers.insert(id.to_string(), value.clone());
+    // A value the rules refuse is said by `answers_refused`.
+    // Asked as the feature table asks it: the file's PMI set aside but for its datums.
+    let Ok(mut intent) = crate::rules::preview(&bare(analysis), &answers) else {
+        return Vec::new();
+    };
+    intent
+        .requirements
+        .retain(|r| r.get("question").and_then(Json::as_str) == Some(id));
+    intent
+        .datums
+        .retain(|d| d.get("existing") == Some(&Json::Bool(true)));
+    intent.part.clear();
+    let Ok((planned, _)) = part_pmi(loaded, &intent, before, Mode::Add, &[]) else {
+        return Vec::new();
+    };
+    crate::characteristics::against(&planned, before, prov, &source.doc)
+}
+
+/// A fill on a stated feature-and-kind whose value is written otherwise than the table shows
+/// it (`tapped:M2` for the file's "internal thread"): planned on its own, it changes nothing
+/// when every requirement it plans is one the file states with the same value. Such fills
+/// are taken out of the list and named as unchanged.
+fn same_as_stated(
+    loaded: &LoadedPart,
+    list: &mut EditList,
+    table: &FeatureTable,
+    analysis: &Json,
+) -> Vec<String> {
+    let stated: Vec<(String, Json)> = list
+        .fill
+        .iter()
+        .filter(|(id, value)| match edits::FileState::kind(table, id) {
+            Some(edits::KindState::Stated { value: shown }) => !edits::same_value(&shown, value),
+            _ => false,
+        })
+        .map(|(id, value)| (id.clone(), value.clone()))
+        .collect();
+    if stated.is_empty() {
+        return Vec::new();
+    }
+    let Ok(source) = Source::of(&loaded.bytes) else {
+        return Vec::new();
+    };
+    let k = loaded.binding.part;
+    let (before, prov) = (&source.read.parts[k], &source.read.provenance.parts[k]);
+    let choices: Map<String, Json> = analysis["resume"]["answers"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(id, _)| !crate::feature_table::is_requirement(id) && !id.starts_with('_'))
+        .map(|(id, v)| (id.clone(), v.clone()))
+        .collect();
+    let mut out = Vec::new();
+    for (id, value) in stated {
+        let states = planned_states(
+            loaded, analysis, &choices, before, prov, &source, &id, &value,
+        );
+        if !states.is_empty() && states.iter().all(|(_, s)| matches!(s, Some((true, _)))) {
+            list.fill.remove(&id);
+            out.push(format!("fill[{}]", Json::from(id.as_str())));
+        }
+    }
+    out
+}
+
+/// The questions the part asks given the list's answers (and the file's stored choices) that
+/// have no feature-table row and are not choices: those asked only once another is answered.
+fn dependent_questions(
+    list: &EditList,
+    table: &FeatureTable,
+    analysis: &Json,
+) -> BTreeMap<String, Option<Json>> {
+    let mut answers: Map<String, Json> = analysis["resume"]["answers"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(id, _)| !crate::feature_table::is_requirement(id) && !id.starts_with('_'))
+        .map(|(id, v)| (id.clone(), v.clone()))
+        .collect();
+    answers.extend(list.fill.iter().map(|(id, v)| (id.clone(), v.clone())));
+    answers.extend(list.change.iter().map(|(id, c)| (id.clone(), c.to.clone())));
+    for id in &list.none {
+        answers.insert(id.clone(), none_answer(table, id));
+    }
+    crate::rules::questions(&bare(analysis), &answers)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|q| table.row(&q.id).is_none() && !is_extra(&q.id) && !is_choice(table, &q.id))
+        .map(|q| (q.id, q.default))
+        .collect()
+}
+
+fn validated(
+    loaded: &LoadedPart,
+    list: &EditList,
+    table: &FeatureTable,
+    analysis: &Json,
+) -> (EditList, Outcome) {
+    let mut list = edits::normalise(list, table);
+    let same = same_as_stated(loaded, &mut list, table, analysis);
+    let state = WithChoices {
+        table,
+        dependent: dependent_questions(&list, table, analysis),
+        choices: choice_questions(table, analysis),
+        stored: analysis["resume"]["answers"]
+            .as_object()
+            .cloned()
+            .unwrap_or_default(),
+    };
+    let mut outcome = edits::validate(&list, &state);
+    outcome.entries += same.len();
+    outcome.unchanged.extend(same);
+    // A 0.2 answers file carries its face evidence: one saved on another revision of the part
+    // is refused, as 0.2's write refused it ("stale answers").
+    if let Some(answers) = &list.answers_file
+        && answers.contains_key(crate::answer_file::META)
+        && let Err(why) = crate::answer_file::check(loaded, answers)
+    {
+        outcome.failures.push(entry_failure(
+            format!("{}.evidence", crate::answer_file::META),
+            why,
+        ));
+    }
     if outcome.failures.is_empty() {
         outcome.failures = answers_refused(&list, table, analysis);
+    }
+    if outcome.failures.is_empty() {
+        match extra_states(loaded, &list, analysis) {
+            Ok((failures, unchanged)) => {
+                outcome.failures.extend(failures);
+                outcome.unchanged.extend(unchanged);
+            }
+            Err(why) => outcome
+                .failures
+                .push(entry_failure("(the whole list)".into(), why)),
+        }
     }
     outcome.failures.extend(limits(&list));
     outcome.applicable = outcome.failures.is_empty();
@@ -197,7 +489,7 @@ pub fn check(loaded: &LoadedPart, text: &str) -> Outcome {
         Ok(found) => found,
         Err(why) => return Outcome::malformed(whole(why)),
     };
-    let mut outcome = validated(&list, &table, &analysis).1;
+    let mut outcome = validated(loaded, &list, &table, &analysis).1;
     if outcome.failures.is_empty()
         && let Err(failures) = apply(loaded, &list)
     {
@@ -698,12 +990,15 @@ pub(crate) fn planned_intent(
         .part
         .retain(|key, _| given.contains_key(&format!("part.{key}")));
     // The general tolerance is its class alone: the planner's dimensions under it are for
-    // the other features, which the list does not name. A hole the list leaves to the
-    // general tolerance (`general`) keeps its own size under it.
+    // the other features, which the list does not name. A hole or a diameter the list
+    // leaves to the general tolerance (`general`) keeps its own size under it.
     // (Matched by faces: the planner's rows name no feature.)
     let general_holes: Vec<(&String, BTreeSet<usize>)> = given
         .iter()
-        .filter(|(id, v)| v.as_str() == Some("general") && id.starts_with("hole.function:"))
+        .filter(|(id, v)| {
+            v.as_str() == Some("general")
+                && (id.starts_with("hole.function:") || id.starts_with("diameter.fit:"))
+        })
         .filter_map(|(id, _)| Some((id, table.row(id)?.faces.iter().copied().collect())))
         .collect();
     let hole_of = |r: &Map<String, Json>| -> Option<String> {
@@ -741,7 +1036,19 @@ pub(crate) fn planned_intent(
 /// Applies `list` to `loaded`'s part, all or nothing: the whole list, or nothing and every
 /// failing entry with its reason.
 pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failure>> {
-    apply_numbered(loaded, list, None)
+    apply_with(loaded, list, &[])
+}
+
+/// [`apply`], also writing `extra`: attribute sets an application carries in the file (the
+/// editor's project and the record of the original, `carried::attributes`). Each replaces the
+/// file's attribute sets of its name, so a payload is never carried twice; every other item is
+/// left as it is. With extras the file is always written.
+pub fn apply_with(
+    loaded: &LoadedPart,
+    list: &EditList,
+    extra: &[haecceity::pmi::AttributeSet],
+) -> Result<Applied, Vec<Failure>> {
+    applied_with(loaded, list, None, extra)
 }
 
 /// [`apply`], with `numbers` an older revision's characteristic-number history carried onto
@@ -753,9 +1060,18 @@ pub(crate) fn apply_numbered(
     list: &EditList,
     numbers: Option<&Map<String, Json>>,
 ) -> Result<Applied, Vec<Failure>> {
+    applied_with(loaded, list, numbers, &[])
+}
+
+fn applied_with(
+    loaded: &LoadedPart,
+    list: &EditList,
+    numbers: Option<&Map<String, Json>>,
+    extra: &[haecceity::pmi::AttributeSet],
+) -> Result<Applied, Vec<Failure>> {
     let (analysis, table) = table_of(loaded).map_err(whole)?;
     let (list, nominals) = field_changes(list, &table, &analysis)?;
-    let (list, outcome) = validated(&list, &table, &analysis);
+    let (list, outcome) = validated(loaded, &list, &table, &analysis);
     if !outcome.failures.is_empty() {
         return Err(outcome.failures);
     }
@@ -776,11 +1092,35 @@ pub(crate) fn apply_numbered(
     for (id, change) in &list.change {
         given.insert(id.clone(), change.to.clone());
     }
+    let choices_asked = choice_questions(&table, &analysis);
     for id in &list.accept_suggestions {
-        if let Some(s) = table.row(id).and_then(|r| r.suggestion.clone()) {
+        let suggestion = table
+            .row(id)
+            .and_then(|r| r.suggestion.clone())
+            .or_else(|| choices_asked.get(id).cloned().flatten());
+        if let Some(s) = suggestion {
             given.insert(id.clone(), s);
         }
     }
+    // A choice with no table row (how holes are located) writes nothing of its own: it is
+    // stored, and the planner reads it for the rest of the list. One equal to what the file
+    // stores changes nothing.
+    let stored_choices = analysis["resume"]["answers"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    let mut chosen: BTreeMap<String, Json> = BTreeMap::new();
+    for id in list.none.iter().filter(|id| is_choice(&table, id)) {
+        chosen.insert(id.clone(), none_answer(&table, id));
+    }
+    given.retain(|id, value| {
+        if !is_choice(&table, id) {
+            return true;
+        }
+        chosen.insert(id.clone(), value.clone());
+        false
+    });
+    chosen.retain(|id, value| stored_choices.get(id) != Some(&*value));
     // A value that writes nothing ("none"; "general", a hole left to the general tolerance)
     // is a decision, stored as given.
     given.retain(|id, value| {
@@ -795,13 +1135,16 @@ pub(crate) fn apply_numbered(
         }
         !nothing
     });
-    for id in &list.none {
+    for id in list.none.iter().filter(|id| !is_choice(&table, id)) {
         if !skip("none", id) {
             none.insert(id.clone(), none_answer(&table, id));
         }
     }
-    if given.is_empty()
+    if extra.is_empty()
+        && list.clear.is_empty()
+        && given.is_empty()
         && none.is_empty()
+        && chosen.is_empty()
         && list.change.is_empty()
         && list.items.remove.is_empty()
         && list.items.remove_ids.is_empty()
@@ -831,7 +1174,7 @@ pub(crate) fn apply_numbered(
     let mut still_stated: Vec<String> = Vec::new();
     let mut remove: BTreeSet<(String, usize)> = BTreeSet::new();
     // Each changed row's items taken out, so its new items keep what the change does not touch.
-    let mut replaced: BTreeMap<String, Vec<(String, usize)>> = BTreeMap::new();
+    let mut changed_items: BTreeMap<String, Vec<(String, usize)>> = BTreeMap::new();
     for n in &list.items.remove {
         match located.iter().find(|l| l.number == Some(n.0)) {
             Some(l) => {
@@ -1005,7 +1348,10 @@ pub(crate) fn apply_numbered(
             }
             match locate(req, &located, &remove) {
                 Some(at) => {
-                    replaced.entry(id.clone()).or_default().push(at.clone());
+                    changed_items
+                        .entry(id.clone())
+                        .or_default()
+                        .push(at.clone());
                     remove.insert(at);
                 }
                 None => failures.push(entry_failure(
@@ -1036,6 +1382,16 @@ pub(crate) fn apply_numbered(
         .filter(|at| !all.contains(at))
         .collect();
     let mut give_way = bookkeeping.clone();
+    // The attribute sets the extras replace.
+    let replaced: BTreeSet<&str> = extra.iter().map(|set| set.name.as_str()).collect();
+    give_way.extend(
+        before
+            .attributes
+            .iter()
+            .enumerate()
+            .filter(|(_, set)| replaced.contains(set.name.as_str()))
+            .map(|(i, _)| ("attributes".to_string(), i)),
+    );
     give_way.extend(remove.iter().cloned());
     let mut features = BTreeSet::new();
     for (c, i) in &remove {
@@ -1127,8 +1483,10 @@ pub(crate) fn apply_numbered(
             !crate::feature_table::is_requirement(id)
                 && !id.starts_with('_')
                 && !id.starts_with("bom.")
+                && !list.clear.contains(*id)
         })
         .map(|(id, v)| (id.clone(), v.clone()))
+        .chain(chosen.iter().map(|(id, v)| (id.clone(), v.clone())))
         .collect();
     let mut lines = super::Lines::default();
     let mut pmi = if given.is_empty() {
@@ -1152,7 +1510,16 @@ pub(crate) fn apply_numbered(
                         .any(|d| d.get("question") == Some(&Json::from(id.as_str())))
                     || id
                         .strip_prefix("part.")
-                        .is_some_and(|key| intent.part.contains_key(key));
+                        .is_some_and(|key| intent.part.contains_key(key))
+                    // A hole's full-thread depth is written in its thread, which the hole's
+                    // function plans.
+                    || id.strip_prefix("hole.full_thread:").is_some_and(|feature| {
+                        let function = format!("hole.function:{feature}");
+                        intent.requirements.iter().any(|r| {
+                            r.get("question").and_then(Json::as_str) == Some(function.as_str())
+                                && r.get("kind").and_then(Json::as_str) == Some("thread")
+                        })
+                    });
                 !written
             })
             .map(|id| {
@@ -1229,7 +1596,8 @@ pub(crate) fn apply_numbered(
         let (mut pmi, planned) = part_pmi(&loaded_clean, &intent, clean_before, mode, &[])
             .map_err(|e| whole(e.to_string()))?;
         lines = planned;
-        keep_untouched(&mut pmi, before, &replaced, &nominals).map_err(|e| whole(e.to_string()))?;
+        keep_untouched(&mut pmi, before, &changed_items, &nominals)
+            .map_err(|e| whole(e.to_string()))?;
         // A change replaces its row's own items: it never adds a location dimension beside
         // one the row shares with another feature (another tool's group dimension, say).
         if mode == Mode::Add {
@@ -1287,7 +1655,7 @@ pub(crate) fn apply_numbered(
     // The stored state: decided none, and the choices that are not requirements.
     let mut saved = choices;
     for id in &table.decided_none {
-        if !given.contains_key(id) {
+        if !given.contains_key(id) && !list.clear.contains(id) {
             saved.insert(id.clone(), none_answer(&table, id));
         }
     }
@@ -1308,7 +1676,11 @@ pub(crate) fn apply_numbered(
                     })
                 })
         });
-        if shared_only && crate::feature_table::leaves_nothing(value) && !given.contains_key(id) {
+        if shared_only
+            && crate::feature_table::leaves_nothing(value)
+            && !given.contains_key(id)
+            && !list.clear.contains(id)
+        {
             saved.insert(id.clone(), value.clone());
         }
     }
@@ -1319,6 +1691,7 @@ pub(crate) fn apply_numbered(
         let payload = crate::resume::payload(loaded, &saved).map_err(|e| whole(e.to_string()))?;
         pmi.attributes.push(crate::resume::attribute_set(&payload));
     }
+    pmi.attributes.extend_from_slice(extra);
     crate::characteristics::allocate(
         loaded,
         &mut pmi,

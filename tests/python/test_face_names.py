@@ -6,8 +6,10 @@ import re
 from pathlib import Path
 
 from specify_core import api
+from specify_core.rules import with_all_defaults
 
 from p11 import storable
+from written import write_answers
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "revisions"
 ITEM = re.compile(r"(DESCRIPTIVE_REPRESENTATION_ITEM\('pmi-assist answers',')([A-Za-z0-9+/=]+)('\))")
@@ -40,8 +42,8 @@ def test_python_named_rebuild_resume_and_diff(tmp_path):
     written = []
     for path, given in [(old, before), (new, after)]:
         out = tmp_path / f"{path.stem}-pmi.step"
-        api.write(path, api.preview(api.analyse(path), given), out, answers=given)
-        assert api.analyse(out)["resume"]["answers"] == storable(given)
+        write_answers(path, given, out, accept_defaults=True)
+        assert api.analyse(out)["resume"]["answers"] == storable(with_all_defaults(api.analyse(path), given))
         written.append(out)
     # Carry the stored schema-3 evidence into a rebuilt file, as a CAD author would, with the
     # feature answers an older engine stored beside it.
@@ -82,8 +84,8 @@ def test_python_shared_and_generic_source_labels_write_and_resume(tmp_path):
         analysis = api.analyse(path)
         assert "name" not in analysis["faces"][hole]
         out = tmp_path / f"{name}-written.step"
-        api.write(path, api.preview(analysis, answers), out, answers=answers)
-        assert api.analyse(out)["resume"]["answers"] == storable(answers)
+        write_answers(path, answers, out, accept_defaults=True)
+        assert api.analyse(out)["resume"]["answers"] == storable(with_all_defaults(analysis, answers))
         payload = json.loads(base64.b64decode(ITEM.search(out.read_text()).group(2)))
         assert payload["schema"] == schema
         if schema == 3:

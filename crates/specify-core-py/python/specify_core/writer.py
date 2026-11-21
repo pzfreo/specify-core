@@ -1,5 +1,5 @@
-"""What a write reports: ``WriteReport`` and ``VerificationError``, as specify-core's ``writer``
-defines them. The writing is the Rust engine's (``api.write``, ``api.write_parts``).
+"""What a write reports: ``WriteReport``, ``VerificationError`` and ``EditsRefused``. The writing
+is the Rust engine's (``api.write``, ``api.write_parts``).
 """
 
 from __future__ import annotations
@@ -23,6 +23,10 @@ class WriteReport:
     retained_shared: list[int] = field(default_factory=list)
     #: Kernel findings about the default Notes saved view ({kind, part?, ids, entity, detail}).
     saved_view_findings: list[dict[str, Any]] = field(default_factory=list)
+    #: An edit list's write (``api.write``): the characteristic numbers it retired.
+    retired: list[int] = field(default_factory=list)
+    #: An edit list's write: nothing changed, the file's own bytes were written.
+    unchanged: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         result = {
@@ -41,6 +45,10 @@ class WriteReport:
             result["retained_shared"] = self.retained_shared
         if self.saved_view_findings:
             result["saved_view_findings"] = self.saved_view_findings
+        if self.retired:
+            result["retired"] = self.retired
+        if self.unchanged:
+            result["unchanged"] = self.unchanged
         return result
 
     @classmethod
@@ -55,8 +63,19 @@ class WriteReport:
             data.get("preserved_normalizations", []),
             data.get("retained_shared", []),
             data.get("saved_view_findings", []),
+            data.get("retired", []),
+            data.get("unchanged", False),
         )
 
 
 class VerificationError(RuntimeError):
     pass
+
+
+class EditsRefused(ValueError):
+    """An edit list that cannot be applied: nothing was written. ``failures`` is every failing
+    entry, ``[{"entry": ..., "reason": ...}]``."""
+
+    def __init__(self, message: str, failures: list[dict[str, str]]):
+        super().__init__(message)
+        self.failures = failures

@@ -1,6 +1,38 @@
-//! Exercise the native implementation of IntentEngine, including verified PMI readback.
+//! Exercise the native implementation of IntentEngine, including verified PMI readback. Saves
+//! go through the engine's `edit` (Specify 0.3.0): the answers given, as a 0.2 answers map read
+//! as fills; a default is written only when it is named.
 use serde_json::{Map, Value, json};
 use specify_core_wasm::session::Session;
+
+/// The engine's `edit` of `answers` (read as fills): the result, written or refused.
+fn edit(session: &Session, answers: &Map<String, Value>) -> Value {
+    session.edit(&Value::Object(answers.clone()).to_string())
+}
+
+/// [`edit`], written: the file's bytes.
+fn written(session: &Session, answers: &Map<String, Value>) -> Vec<u8> {
+    let out = edit(session, answers);
+    assert_eq!(out["written"], json!(true), "{out}");
+    serde_json::from_value(out["bytes"].clone()).unwrap()
+}
+
+/// The free `acceptDefaults` on the session's analysis (the engine's own method is gone).
+fn accept_defaults(
+    session: &Session,
+    answers: &Map<String, Value>,
+) -> Result<Map<String, Value>, String> {
+    specify_core_wasm::accept_defaults(session.analysis(), answers)
+}
+
+/// The answers a file stores, `{}` when it stores none.
+fn stored(snapshot: &Value) -> Value {
+    json!(
+        snapshot["analysis"]["resume"]["answers"]
+            .as_object()
+            .cloned()
+            .unwrap_or_default()
+    )
+}
 
 #[test]
 fn alpha7_answered_tap_keeps_computed_depth_in_write_pmi_and_resave() {
@@ -44,8 +76,7 @@ fn alpha7_answered_tap_keeps_computed_depth_in_write_pmi_and_resave() {
                 2.0
             );
         }
-        let out = session.write_pmi(&given, None, None).unwrap();
-        let bytes: Vec<u8> = serde_json::from_value(out["bytes"].clone()).unwrap();
+        let bytes = written(&session, &given);
         let defs = read_part_definitions(&bytes).unwrap();
         let doc = Document::parse(bytes).unwrap();
         let read = pmi::read(&doc, &defs).unwrap();
@@ -77,7 +108,7 @@ fn full_thread_edit_is_optional_and_survives_a_session_write() {
         .as_object()
         .unwrap()
         .clone();
-    let accepted = session.accept_defaults(&given).unwrap();
+    let accepted = accept_defaults(&session, &given).unwrap();
     assert_eq!(accepted[id], "1.8");
     assert_eq!(
         accepted,
@@ -93,8 +124,7 @@ fn full_thread_edit_is_optional_and_survives_a_session_write() {
             .unwrap()["full_thread"],
         1.8
     );
-    let written = session.write_pmi(&given, None, None).unwrap();
-    let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
+    let bytes = written(&session, &given);
     // ADR P11: the depth is the file's thread PMI, not a stored answer.
     let reopened = Session::open("edited.step", &bytes).unwrap();
     assert!(
@@ -115,7 +145,7 @@ fn full_thread_edit_is_optional_and_survives_a_session_write() {
         .unwrap()
         .clone();
     assert!(session.review(&bad).is_err());
-    assert!(session.accept_defaults(&bad).is_err());
+    assert!(accept_defaults(&session, &bad).is_err());
 }
 
 #[test]
@@ -164,14 +194,13 @@ fn answering_material_does_not_write_unanswered_defaults() {
                 .is_none()
         );
 
-        let written = session.write_pmi(&answers, None, None).unwrap();
-        let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
+        let bytes = written(&session, &answers);
         let reopened = Session::open("shaft-written.step", &bytes)
             .unwrap()
             .snapshot();
         // ADR P11: only answers that leave no PMI behind are stored.
         assert_eq!(
-            reopened["analysis"]["resume"]["answers"],
+            stored(&reopened),
             json!(specify_core::feature_table::storable(&answers))
         );
         // A resumed analysis hides its PMI in favour of stored answers; inspect the actual
@@ -219,8 +248,7 @@ fn accepting_one_default_writes_only_that_default() {
             .unwrap()
             .contains(&json!("datum.B"))
     );
-    let written = session.write_pmi(&given, None, None).unwrap();
-    let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
+    let bytes = written(&session, &given);
     let loaded = specify_core::part::load_bytes("plate-written.step", bytes).unwrap();
     let existing = specify_core::existing::read_existing(&loaded).unwrap();
     let datums: Vec<_> = existing.iter().filter(|p| p.kind == "datum").collect();
@@ -254,14 +282,13 @@ fn session_reports_an_answered_control_until_its_frame_is_accepted() {
             .iter()
             .any(|p| p["code"] == "awaits_datum_frame" && p["about"] == position)
     );
-    let written = session.write_pmi(&given, None, None).unwrap();
-    let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
-    let loaded = specify_core::part::load_bytes("pending.step", bytes).unwrap();
+    // Was: written without its position (the frame is not accepted). An edit list refuses the
+    // position, naming the datums to fill in the same list, and writes nothing.
+    let pending = edit(&session, &given);
+    assert_eq!(pending["written"], json!(false), "{pending}");
     assert!(
-        specify_core::existing::read_existing(&loaded)
-            .unwrap()
-            .iter()
-            .all(|p| p.kind != "geometric_tolerance")
+        pending["message"].as_str().unwrap().contains("datum.A"),
+        "{pending}"
     );
     for q in questions {
         if q["id"]
@@ -279,8 +306,7 @@ fn session_reports_an_answered_control_until_its_frame_is_accepted() {
             .iter()
             .all(|p| p["code"] != "awaits_datum_frame")
     );
-    let written = session.write_pmi(&given, None, None).unwrap();
-    let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
+    let bytes = written(&session, &given);
     let loaded = specify_core::part::load_bytes("accepted.step", bytes).unwrap();
     assert!(
         specify_core::existing::read_existing(&loaded)
@@ -294,12 +320,12 @@ fn check_bulk_acceptance(path: &std::path::Path, given: Map<String, Value>) {
     let bytes = std::fs::read(path).unwrap();
     let session = Session::open("accepted.step", &bytes).unwrap();
     let analysis = session.snapshot()["analysis"].clone();
-    let accepted = session.accept_defaults(&given).unwrap();
+    let accepted = accept_defaults(&session, &given).unwrap();
     assert_eq!(
         accepted,
         specify_core_wasm::accept_defaults(&analysis, &given).unwrap()
     );
-    assert_eq!(accepted, session.accept_defaults(&accepted).unwrap());
+    assert_eq!(accepted, accept_defaults(&session, &accepted).unwrap());
     for (id, value) in &given {
         assert_eq!(accepted.get(id), Some(value));
     }
@@ -341,15 +367,18 @@ fn check_bulk_acceptance(path: &std::path::Path, given: Map<String, Value>) {
         }
     }
     assert_eq!(actual, expected.to_dict());
-    let written = session.write_pmi(&accepted, None, None).unwrap();
-    let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
-    let (expected_bytes, _) =
-        specify_core::writer::write_bytes(&loaded, &expected, Some(&accepted)).unwrap();
+    // The engine's edit of every accepted answer is the library's edit writer's, byte for byte
+    // (was: the whole-intent write's, `writer::write_bytes`).
+    let bytes = written(&session, &accepted);
+    let list = specify_core::edits::read(&Value::Object(accepted.clone()).to_string()).unwrap();
+    let expected_bytes = specify_core::writer::apply::apply(&loaded, &list)
+        .unwrap()
+        .bytes;
     assert_eq!(bytes, expected_bytes);
     // ADR P11: only answers that leave no PMI behind are stored.
     let reopened = Session::open("accepted.step", &bytes).unwrap();
     assert_eq!(
-        reopened.snapshot()["analysis"]["resume"]["answers"],
+        stored(&reopened.snapshot()),
         json!(specify_core::feature_table::storable(&accepted))
     );
     let semantic = specify_core::part::load_bytes("accepted.step", bytes).unwrap();
@@ -371,7 +400,7 @@ fn check_bulk_acceptance(path: &std::path::Path, given: Map<String, Value>) {
     let mut edited = accepted;
     edited.insert("part.general_tolerance".into(), json!("ISO 2768-f"));
     assert_eq!(
-        session.accept_defaults(&edited).unwrap()["part.general_tolerance"],
+        accept_defaults(&session, &edited).unwrap()["part.general_tolerance"],
         "ISO 2768-f"
     );
     assert_eq!(
@@ -420,7 +449,7 @@ fn accepting_defaults_leaves_questions_without_defaults_open_and_does_not_mutate
         .join("../../tests/fixtures/parts/plate.step");
     let session = Session::open("plate.step", &std::fs::read(path).unwrap()).unwrap();
     let before = session.review(&Map::new()).unwrap();
-    let accepted = session.accept_defaults(&Map::new()).unwrap();
+    let accepted = accept_defaults(&session, &Map::new()).unwrap();
     assert!(!accepted.contains_key("part.material"));
     let after = session.review(&accepted).unwrap();
     assert_eq!(after["open"], json!(["part.material"]));
@@ -434,11 +463,11 @@ fn accepting_defaults_preserves_explicit_rejections_and_empty_answers() {
     let session = Session::open("plate.step", &std::fs::read(path).unwrap()).unwrap();
     let given = json!({"datum.A": [], "part.notes": [], "part.material": "steel", "part.general_tolerance": "ISO 2768-f"})
         .as_object().unwrap().clone();
-    let accepted = session.accept_defaults(&given).unwrap();
+    let accepted = accept_defaults(&session, &given).unwrap();
     for (id, value) in &given {
         assert_eq!(accepted.get(id), Some(value));
     }
-    assert_eq!(session.accept_defaults(&accepted).unwrap(), accepted);
+    assert_eq!(accept_defaults(&session, &accepted).unwrap(), accepted);
     let review = session.review(&accepted).unwrap();
     assert!(
         review["intent"]["datums"]
@@ -463,40 +492,77 @@ fn a_partial_write_is_written_and_says_what_is_open() {
         .as_object()
         .unwrap()
         .clone();
-    let written = session.write_pmi(&answers, None, None).unwrap();
-    let report = &written["report"];
-    // The same ids `write` refuses as incomplete, and the file is written all the same.
+    // The same ids `write` refuses as incomplete, and the file is written all the same; what is
+    // still open is what the file's feature table leaves open (was: the write's `complete` and
+    // `missing`; the engine's `edit` reports the file, and the open questions are its table's).
+    let bytes = written(&session, &answers);
     let Err(specify_core::api::Error::Rules(specify_core::rules::Error::Incomplete(e))) =
         specify_core::api::apply(&analysis, &answers, false)
     else {
         panic!("the shaft with only a material must be incomplete");
     };
     assert!(!e.missing.is_empty());
-    assert_eq!(report["complete"], json!(false));
-    assert_eq!(report["missing"], json!(e.missing));
-    assert!(!written["bytes"].as_array().unwrap().is_empty());
+    assert!(!bytes.is_empty());
+    let open_gaps = |bytes: &[u8]| -> Vec<String> {
+        Session::open("w.step", bytes).unwrap().table()["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["state"] == "gap" && r["open"] == json!(true))
+            .map(|r| r["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    // A question with no table row (how holes are located) is open while nothing is stored
+    // for it; every other missing id is an open gap of the table.
+    let rows = |bytes: &[u8]| -> Vec<String> {
+        Session::open("w.step", bytes).unwrap().table()["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let open = open_gaps(&bytes);
+    let reopened = Session::open("w.step", &bytes).unwrap().snapshot();
+    for id in &e.missing {
+        if rows(&bytes).contains(id) {
+            assert!(open.contains(id), "{id} still open: {open:?}");
+        } else {
+            assert!(stored(&reopened).get(id).is_none(), "{id} unanswered");
+        }
+    }
 
-    // Every default taken: nothing open, so the report says complete.
-    let all = session.accept_defaults(&answers).unwrap();
+    // Every default taken: nothing open.
+    let all = accept_defaults(&session, &answers).unwrap();
     let complete = specify_core::api::apply(&analysis, &all, false).is_ok();
-    let written = session.write_pmi(&all, None, None).unwrap();
-    assert_eq!(written["report"]["complete"], json!(complete));
+    let bytes = written(&session, &all);
     if complete {
-        assert_eq!(written["report"]["missing"], json!([]));
+        let open = open_gaps(&bytes);
+        assert!(e.missing.iter().all(|id| !open.contains(id)), "{open:?}");
     }
     let plate = Session::open(
         "plate.step",
         &std::fs::read(root.join("plate.step")).unwrap(),
     )
     .unwrap();
-    let plate_answers = plate
-        .accept_defaults(json!({"part.material": "6061-T6"}).as_object().unwrap())
-        .unwrap();
+    let plate_answers = accept_defaults(
+        &plate,
+        json!({"part.material": "6061-T6"}).as_object().unwrap(),
+    )
+    .unwrap();
     let plate_analysis = plate.snapshot()["analysis"].clone();
     if let Err(e) = specify_core::api::apply(&plate_analysis, &plate_answers, false) {
         panic!("the plate's answers must be complete: {e}");
     }
-    let written = plate.write_pmi(&plate_answers, None, None).unwrap();
-    assert_eq!(written["report"]["complete"], json!(true));
-    assert_eq!(written["report"]["missing"], json!([]));
+    let bytes = written(&plate, &plate_answers);
+    let reopened = Session::open("plate.step", &bytes).unwrap();
+    let reanalysed = reopened.snapshot()["analysis"].clone();
+    let resumed = reanalysed["resume"]["answers"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        specify_core::api::apply(&reanalysed, &resumed, false).is_ok(),
+        "the plate saved with every answer is complete"
+    );
 }

@@ -18,15 +18,14 @@ fn bytes(result: &Value) -> Vec<u8> {
 }
 
 #[test]
-fn snapshot_exposes_file_numbers_written_by_write_pmi() {
+fn snapshot_exposes_file_numbers_written_by_an_edit() {
     let old = fixture("revisions/hole_removed.old.step.gz");
     let s = Session::open("old", &old).unwrap();
     assert!(s.snapshot()["analysis"].get("characteristics").is_none());
     let answers = json!({"hole.function:holes:6":"fit:H7", "hole.function:holes:7":"fit:H7", "hole.function:holes:8":"fit:H7", "hole.function:holes:9":"fit:H7"});
-    let written = bytes(
-        &s.write_pmi(answers.as_object().unwrap(), None, None)
-            .unwrap(),
-    );
+    let out = s.edit(&json!({ "fill": answers }).to_string());
+    assert_eq!(out["written"], json!(true), "{out}");
+    let written = bytes(&out);
     let reopened = Session::open("old", &written).unwrap();
     let numbers = reopened.snapshot()["analysis"]["characteristics"].clone();
     assert_eq!(numbers.as_array().unwrap().len(), 4);
@@ -46,10 +45,9 @@ fn carried_revision() -> (Value, Vec<u8>) {
     let new = fixture("revisions/hole_removed.new.step.gz");
     let s = Session::open("old", &old).unwrap();
     let answers = json!({"hole.function:holes:6":"fit:H7", "hole.function:holes:7":"fit:H7", "hole.function:holes:8":"fit:H7", "hole.function:holes:9":"fit:H7"});
-    let written = bytes(
-        &s.write_pmi(answers.as_object().unwrap(), None, None)
-            .unwrap(),
-    );
+    let out = s.edit(&json!({ "fill": answers }).to_string());
+    assert_eq!(out["written"], json!(true), "{out}");
+    let written = bytes(&out);
     let numbers =
         Session::open("old", &written).unwrap().snapshot()["analysis"]["characteristics"].clone();
     assert_eq!(numbers.as_array().unwrap().len(), 4);
@@ -87,20 +85,15 @@ fn snapshot_exposes_the_numbers_carry_carried() {
 }
 
 #[test]
-#[ignore = "0.3.0: no-change byte-identity is fixed in piece 6 (wasm-session-edits); un-ignore on merge"]
-fn snapshot_exposes_the_numbers_carry_carried_and_a_write_pmi_keeps_them() {
-    // The page's save still writes an empty stored-answers record when it has nothing to store
-    // (`src/writer.rs:1102`, `write_bytes_with`); the in-place writer writes none.
+fn snapshot_exposes_the_numbers_carry_carried_and_a_save_keeps_them() {
+    // The page's save is an edit list (piece 6): one that changes nothing keeps the carried
+    // file's bytes, and so its numbers.
     let (numbers, revised_bytes) = carried_revision();
     let revised = Session::open("new", &revised_bytes).unwrap();
-    let snapshot = assert_carried_numbers(&numbers, &revised);
-    let answers = snapshot["analysis"]["resume"]["answers"]
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
+    assert_carried_numbers(&numbers, &revised);
     // A save that adds nothing keeps the file's bytes (ADR P11).
-    assert_eq!(
-        bytes(&revised.write_pmi(&answers, None, None).unwrap()),
-        revised_bytes
-    );
+    let out = revised.edit("{}");
+    assert_eq!(out["written"], json!(true), "{out}");
+    assert_eq!(out["report"]["unchanged"], json!(true), "{out}");
+    assert_eq!(bytes(&out), revised_bytes);
 }

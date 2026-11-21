@@ -478,6 +478,48 @@ pub(crate) fn statements(p: &PartPmi) -> Vec<Statement> {
         .collect()
 }
 
+/// What [`against`] says of one planned requirement: what it measures, and `None` or
+/// `Some((same value, the numbers of the file's requirements that measure it))`.
+pub(crate) type Against = (String, Option<(bool, Vec<u64>)>);
+
+/// Each requirement `planned` makes, against what `before` (the file's PMI, with its provenance
+/// and document) states: `None` when the file states nothing that measures the same (kind, type,
+/// faces, reference); else whether one it states has the same value, and the characteristic
+/// numbers of those that measure it (to tell a requirement the list also removes).
+pub(crate) fn against(
+    planned: &PartPmi,
+    before: &PartPmi,
+    prov: &PartProvenance,
+    doc: &Document,
+) -> Vec<Against> {
+    let stated = items(before, Some(prov), Some(doc));
+    items(planned, None, None)
+        .into_iter()
+        .map(|item| {
+            let k = &item.key;
+            let text = format!("{} {} {:?} {:?}", k.kind, k.r#type, k.faces, k.reference);
+            let same_key: Vec<&Item> = stated
+                .iter()
+                .filter(|s| {
+                    s.key.kind == k.kind
+                        && s.key.r#type == k.r#type
+                        && s.key.faces == k.faces
+                        && s.key.reference == k.reference
+                })
+                .collect();
+            if same_key.is_empty() {
+                return (text, None);
+            }
+            let same = same_key.iter().any(|s| s.value_hint == item.value_hint);
+            let numbers = same_key
+                .iter()
+                .filter_map(|s| number(doc, s.entity))
+                .collect();
+            (text, Some((same, numbers)))
+        })
+        .collect()
+}
+
 /// A numbered kind of requirement in the file (as [`measures`] lists them), with where it
 /// is in haecceity's collections and its characteristic number, if it has one.
 #[derive(Clone, Debug, PartialEq, Eq)]

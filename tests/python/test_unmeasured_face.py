@@ -4,6 +4,8 @@ from pathlib import Path
 
 from specify_core import api
 
+from written import write_answers
+
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
 
@@ -24,7 +26,7 @@ def test_unmeasured_face_is_reported_and_the_part_is_written(tmp_path):
 
     answers = {"part.material": "steel"}
     out = tmp_path / "out.step"
-    report = api.write(step, api.preview(analysis, answers), out, answers=answers)
+    report = write_answers(step, answers, out, accept_defaults=True)
     assert report.written
     again = api.analyse(out)
     assert again["unmeasured_faces"][0]["face"] == face

@@ -76,9 +76,14 @@ try {
   const { analysis, mesh, provenance } = JSON.parse(engine.snapshot());
   const answersJson = JSON.stringify({ 'part.material': 'steel' });
   const state = JSON.parse(engine.review(answersJson));
-  const result = JSON.parse(engine.writePmi(answersJson, projectBase64));
-  const stepBytes = Uint8Array.from(result.bytes);
-  // Download stepBytes; present result.report and state.problems to the user.
+  // Edits are applied all or nothing: the new file, or every entry that cannot be applied.
+  const result = JSON.parse(engine.edit(JSON.stringify({ fill: { 'part.material': 'steel' } })));
+  if (result.written) {
+    const stepBytes = Uint8Array.from(result.bytes);
+    // Download stepBytes; present result.report and state.problems to the user.
+  } else {
+    // Nothing was written: show result.message (it names each failing entry).
+  }
 } finally {
   engine.free();
 }
@@ -117,17 +122,25 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `IntentEngine.bom(bytes)` | The file's BOM rows as JSON, one per distinct part, as `specify-core bom` gives them: each field `{value, source}`. Reading never accepts suggestions or allocates numbers. See [BOM](bom.md). |
 | `engine.snapshot(max_deviation_mm?)` | `{analysis, mesh, provenance: {source_sha256, face_entities, part}}`; `part` is the part opened (0 from the constructor). |
 | `engine.review(answersJson)` | `{questions, open, intent, sources, problems, conflicts?}`; adds geometry anchors to `intent.anchors`. `conflicts` (only when there are some) are a reopened file's undecided conflicts with its stored answers, each `{id, kind: "conflict", text, stored, file, choices}`; see "Reopening a file Specify wrote" below. |
-| `engine.acceptDefaults(answersJson)` | Answers object with every unanswered default filled to a fixed point, using the same rules as CLI/serve `accept_defaults`. Preserves supplied answers; questions without defaults stay unanswered. |
-| `engine.writePmi(answersJson, projectBase64?, payloadJson?, bom?)` | `{bytes, source_sha256, report}`; `bytes` is an array of byte values. Writes and verifies answered PMI and stored answers in memory. Unanswered defaults remain suggestions. An incomplete set is written (a STEP file need not answer everything), never refused: `report.complete` is `false` and `report.missing` lists what `write` without `--accept-defaults` would refuse as incomplete: the required questions still open, or, while carried answers wait for a decision, those carry blocks only (`[]` when complete). `report` is otherwise the upstream writer's report; its `output` is the constructor's name. `payloadJson` is `{name, value}`: any JSON value carried in the STEP under `name` (give the project or a payload, not both; see below). |
+| `engine.table()` | The feature table (Specify 0.3.0, ADR P11), read from the file: `{rows, file_pmi, decided_none}`. Each row `{id, kind, feature, faces, state, value?, requirements?, suggestion?, open}`: `state` is `stated` (with the file's `value` and its `requirements`, each `{number?, kind, type, faces, text}`), `gap` (with Specify's `suggestion`, `null` when it has none) or `decided_none`. `file_pmi` lists the requirements on no recognised feature, each with its `id` (`file_pmi:#<entity>`, for `items.remove`). Row ids are question ids, and the ids an edit list names. |
+| `engine.checkEdits(editsJson)` | An edit list (or a 0.2 answers file) checked against this file, all or nothing, as `specify-core write STEP EDITS.json --check` checks it: `{well_formed, checked_against_file, applicable, entries, unchanged, failures: [{entry, reason}], written: false, message}`. Writes nothing; a list it passes is one `edit` applies, and one it refuses `edit` refuses with the same reasons. |
+| `engine.edit(editsJson, project?, payload?)` | An edit list (or a 0.2 answers file) applied to this file in memory, all or nothing, with the same writer as `specify-core write STEP EDITS.json`: `{written: true, bytes, report, source_sha256}`, `bytes` an array of byte values and `report` the writer's report with `retired` (the characteristic numbers the edit retired) and `unchanged` (the list changed nothing: the bytes are the file's own); or `{written: false, failures: [{entry, reason}], message}`, every entry that cannot be applied named, and nothing written. A refused or malformed list is a result, not a thrown error; only an oversized input throws. The engine is not changed: open the returned bytes to edit further. A part of an assembly (opened with `IntentEngine.openPart`) is edited in place: only that part changes, once however often it is placed; every other part and placement keeps its bytes. `project` (the editor's base64 project, stored as `draftwright editor project`) or `payload` (`{name, value}` JSON), at most one, is carried with the record of the original part, as `writePmi` carried it: it replaces what the file carried under that name, and the file is then always written; a plain edit keeps whatever the file carries. The edit list (`src/edits.rs`): `{fill: {id: value}, change: {id: {to, expect}}, items: {change: {"#N": {tolerance, expect}}, remove: ["#N", {"id": "<stated row or file_pmi:#entity>"}]}, none: [id], accept_suggestions: [id], clear: [id]}`; anything it does not mention is left alone. `clear` takes back a stored decision that leaves no PMI (a decided none, or a choice such as `part.locating`), so the feature-and-kind is a gap, or the choice unanswered, again; it never touches PMI (that is `change` and `items.remove`). A fill of `extra.<name>` with a requirement's spec (`{kind, faces, value, …}`, as an answer gave it) adds that requirement. A 0.2 answers file whose `_specify.evidence` is from another revision is refused as stale (`_specify.evidence`). |
 | `engine.payload(name)` | The JSON text of the payload `name` the opened STEP carries, or `undefined`. |
 | `engine.original()` | `Uint8Array` of the part the opened STEP was first written from (without what the writer added, its `FILE_SCHEMA` and `FILE_DESCRIPTION` restored), or `undefined` when it records none or the bytes do not hash to the recorded sha256. |
 | `engine.evidence()` | `{schema, face_count, faces}`: the face evidence to keep with answers saved outside the STEP. |
 | `engine.rematchAnswers(answersJson, evidenceJson?, automaticJson?)` | Saved answers matched to this part as now recognised: `{answers, unresolved?, migrated?, unverified?, automatic?}`. Does not change the session. See "Answers saved outside the STEP". |
 | `review(analysisJson, answersJson)` | Same review composition without a session or geometry anchors. Calls `specify_core::api::review`. |
-| `acceptDefaults(analysisJson, answersJson)` | Same accepted answers as the session method, using the supplied analysis. |
+| `acceptDefaults(analysisJson, answersJson)` | Answers object with every unanswered default filled to a fixed point, using the same rules as CLI/serve `accept_defaults`, for previews (showing what the defaults would be). Preserves supplied answers; questions without defaults stay unanswered. Nothing is written: a save writes only what an edit list names. |
 | `interpret(analysisJson, answersJson, questionId, text)` | `{value, code, callout?}` for a choice question; includes a diameter callout for `hole.function:` and `diameter.fit:`. |
-| `diff(oldName, oldBytes, newName, newBytes, _answers, title, scenes?)` | Two revisions of a part compared, as `specify-core diff` compares two files, from their geometry and PMI only (ADR P11): `_answers` is not read (pass `"{}"`; it keeps its place so callers need not change), and the report carries no answers: `{report, markdown, view}`. `report` is what `report.json` holds and `markdown` is the report headed `title` with no picture. `view` is what a viewer needs to draw the change as `model.png` does: `new` and `old` meshes (as `snapshot().mesh`), `faces` (each new face's class, `changed`, `new` or `ambiguous`, keyed by face number; unchanged faces left out), `gone` (the old faces gone or moved), `motion` (`{rotation, translation}` taking the old part's frame to the new one's, or `null`) and `changes`, the report's "What changed" lines in order, each `{line, features, new, old}`: its text, its features (indices in `report.features`) and their faces on the new part and the old, for linking the lines and the faces. Two revisions of an assembly are compared part by part: `{report, markdown, parts}`, the assembly's report and Markdown, and each part's `{name, status, old, new}`, with its `report` when it is in both files and, when it changed, its `markdown` (headed `#### name`) and `view`, shaped as a part's. Refuses gzip. |
+| `diff(oldName, oldBytes, newName, newBytes, title, scenes?)` | Two revisions of a part compared, as `specify-core diff` compares two files, from their geometry and PMI only (ADR P11); the report carries no answers: `{report, markdown, view}`. `report` is what `report.json` holds and `markdown` is the report headed `title` with no picture. `view` is what a viewer needs to draw the change as `model.png` does: `new` and `old` meshes (as `snapshot().mesh`), `faces` (each new face's class, `changed`, `new` or `ambiguous`, keyed by face number; unchanged faces left out), `gone` (the old faces gone or moved), `motion` (`{rotation, translation}` taking the old part's frame to the new one's, or `null`) and `changes`, the report's "What changed" lines in order, each `{line, features, new, old}`: its text, its features (indices in `report.features`) and their faces on the new part and the old, for linking the lines and the faces. Two revisions of an assembly are compared part by part: `{report, markdown, parts}`, the assembly's report and Markdown, and each part's `{name, status, old, new}`, with its `report` when it is in both files and, when it changed, its `markdown` (headed `#### name`) and `view`, shaped as a part's. Refuses gzip. |
 | `start()` | Installs `console_error_panic_hook`; initialization also calls it automatically. |
+
+**Removed in 0.3.0** (Specify 0.3.0, "What goes away"): `engine.writePmi` (writing a whole
+intent; a save applies an edit list, `edit`), `engine.acceptDefaults` (the free
+`acceptDefaults` stays for previews), `engine.validateEdits` (replaced by `checkEdits`, which
+checks against the file), and `diff`'s fifth argument, `answers`, which it never read. The
+editor's project and an application payload are carried by `edit`'s `project` and `payload`;
+`rematchAnswers` stays. Sections below that mention `writePmi` describe 0.2.
 
 `engine.snapshot(0.05)` requests a measured mesh deviation of at most 0.05 mm.
 The optional argument is named `max_deviation_mm` in the generated declarations;
@@ -148,20 +161,20 @@ is the list of ids returned by `rules::open_questions`. `intent` is `api::previe
 `problems` comes from `problems::problems`. Native front ends can use `api::review` directly.
 
 Defaults and their reasons remain in `questions`, and unanswered ids remain in `open`.
-They contribute no PMI to review or `writePmi` until their values are supplied in answers;
+They contribute no PMI to review or an edit until their values are supplied (answers, or fills);
 in particular, an unanswered general tolerance is absent from `intent.part`, so a drawing
 can continue reporting `general_tolerance_missing`. Existing file datums remain available.
 The shared #16 settling path still records its automatic ±/plain answers in `state.auto`;
 it does not accept datum or general-tolerance suggestions. Diagnostic `problems` continues
 to inspect the proposed scheme. These are behaviour changes with no signature changes.
 
-For an explicit bulk acceptance, store `JSON.parse(engine.acceptDefaults(answersJson))`
-as the editor's ordinary answers (or use the free function). The call returns answers only;
+For an explicit bulk acceptance, store `JSON.parse(acceptDefaults(analysisJson, answersJson))`
+as the editor's ordinary answers. The call returns answers only;
 it does not mutate the session or write PMI. Defaults that reveal further questions are
 accepted until no more defaults can be added. Repeating the call is idempotent. Feed the
 result to `review`, `settle` (as `state.answers`, with `state.auto = []` to mark the bulk
-result as manual) and `writePmi`: accepted items are answered,
-editable, absent from `open`, and drawn/written through the existing paths. Accepting
+result as manual): accepted items are answered, editable, absent from `open`, and drawn
+through the existing paths. To write them, send them as an edit list's fills (`edit`). Accepting
 `part.general_tolerance` puts it in `intent.part.general_tolerance`, clearing the condition
 for `general_tolerance_missing`. A required question without a default, such as material,
 still needs an answer. These two exports are additive; existing signatures are unchanged.

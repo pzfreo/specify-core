@@ -1,10 +1,10 @@
 //! `specify-core open` (src/open.rs, src/session.rs, docs/open.md): the local Specify app,
 //! against the built binary on a real loopback port with a stub app and engine, and
 //! `--no-browser` so no browser opens. The app, engine, file and config are served under the
-//! token at exactly `Host: 127.0.0.1:<port>`; the session's answers are read, replaced and
-//! streamed; saves come only from the app's own origin, are written by the command from the
-//! session's answers with `write`'s writer, and never overwrite (unless `--in-place`, which
-//! keeps a `.bak`); `closed` stops the server.
+//! token at exactly `Host: 127.0.0.1:<port>`; the session's answers are read and streamed;
+//! saves come only from the app's own origin, apply the page's edit list to the file all or
+//! nothing (as `specify-core write STEP EDITS.json`), and never overwrite (unless
+//! `--in-place`, which keeps a `.bak`); `closed` stops the server.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -28,13 +28,6 @@ fn revision(name: &str) -> PathBuf {
 }
 
 /// The fixture's STEP text.
-/// ADR P11: of `answers`, those a file stores (they leave no PMI behind).
-fn kept(answers: &Value) -> Value {
-    Value::Object(specify_core::feature_table::storable(
-        answers.as_object().unwrap(),
-    ))
-}
-
 fn step_text() -> Vec<u8> {
     gunzip(&std::fs::read(fixture()).unwrap())
 }
@@ -199,9 +192,9 @@ impl Opened {
         self.page().config()
     }
 
-    /// A save from the app's own page.
-    fn save(&self, rev: u64, approved: Value) -> Response {
-        self.page().save(rev, approved)
+    /// A save of the edit list `edits` from the app's own page.
+    fn save(&self, rev: u64, edits: Value) -> Response {
+        self.page().save(rev, edits)
     }
 
     /// The next line on stdout.
@@ -284,26 +277,13 @@ impl Page {
         )
     }
 
-    fn put(&self, rev: u64, part: usize, answers: Value) -> Response {
-        self.send(
-            "PUT",
-            "answers",
-            &json!({"rev": rev, "part": part, "answers": answers}),
-        )
+    /// A save from the page of the edit list `edits`.
+    fn save(&self, rev: u64, edits: Value) -> Response {
+        self.send("POST", "save", &json!({"rev": rev, "edits": edits}))
     }
 
-    /// A save from the page, approving `approved` (`{id: value}`) on part 0.
-    fn save(&self, rev: u64, approved: Value) -> Response {
-        self.send(
-            "POST",
-            "save",
-            &json!({"rev": rev, "acceptDefaults":
-            if approved.as_object().is_some_and(|a| a.is_empty()) {
-                json!({})
-            } else {
-                json!({"0": approved})
-            }}),
-        )
+    fn rev(&self) -> u64 {
+        self.answers()["rev"].as_u64().unwrap()
     }
 
     fn events(&self) -> Events {
@@ -571,15 +551,6 @@ fn analysis_of(path: &Path) -> Value {
     specify_core::api::analyse_file(path, None).unwrap()
 }
 
-/// The required questions open given these answers.
-fn open_ids(analysis: &Value, answers: &Map<String, Value>) -> Vec<String> {
-    let qs = specify_core::api::questions(analysis, answers).unwrap();
-    specify_core::rules::open_questions(&qs, answers)
-        .iter()
-        .map(|q| q.id.clone())
-        .collect()
-}
-
 /// How many times `needle` occurs in the STEP text of `path` (gzipped or not).
 fn occurrences(path: &Path, needle: &str) -> usize {
     let bytes = std::fs::read(path).unwrap();
@@ -595,35 +566,10 @@ fn is_step(path: &Path) -> bool {
     std::fs::read(path).unwrap().starts_with(b"ISO-10303-21;")
 }
 
-/// The open questions of part 0 that have a default, with it: what the page offers to approve.
-fn open_defaults(analysis: &Value, answers: &Map<String, Value>) -> Map<String, Value> {
-    let qs = specify_core::api::questions(analysis, answers).unwrap();
-    specify_core::rules::open_questions(&qs, answers)
-        .iter()
-        .filter_map(|q| q.default.clone().map(|d| (q.id.clone(), d)))
-        .collect()
-}
-
-/// Approves every default offered, round by round (taking one can ask another), each with the
-/// value shown, as the page would: the last save's reply.
-fn approve_all(page: &Page, analysis: &Value) -> Value {
-    loop {
-        let state = page.answers();
-        let rev = state["rev"].as_u64().unwrap();
-        let answers: Map<String, Value> =
-            serde_json::from_value(state["parts"]["0"].clone()).unwrap_or_default();
-        let offered = open_defaults(analysis, &answers);
-        let got = page.save(rev, Value::Object(offered.clone()));
-        assert_eq!(got.status, 200, "{}", String::from_utf8_lossy(&got.body));
-        let got = got.json();
-        let left = open_defaults(
-            analysis,
-            &serde_json::from_value(page.answers()["parts"]["0"].clone()).unwrap_or_default(),
-        );
-        if offered.is_empty() || left.is_empty() {
-            return got;
-        }
-    }
+/// An edit list that stores a decision in the fixture's file (decided none leaves no PMI, so
+/// it is stored with Specify's answers, and the session's answers change: a new rev).
+fn decide_coating() -> Value {
+    json!({"none": ["part.coating"]})
 }
 
 /// A write report without where it was written.
@@ -710,7 +656,8 @@ fn the_app_engine_config_and_file_are_served_under_the_token() {
     assert_eq!(opened.get("diff").status, 404);
 
     let config = opened.config();
-    assert_eq!(config["api"], 1);
+    // Contract api 2 (0.3.0): Save sends an edit list, and there is no `PUT answers`.
+    assert_eq!(config["api"], 2);
     assert_eq!(config["mode"], "specify");
     assert_eq!(config["name"], "part.step");
     assert_eq!(config["path"], scratch.input().display().to_string());
@@ -913,7 +860,16 @@ fn other_hosts_tokens_origins_and_paths_outside_the_app_are_refused() {
         b"",
     );
     assert_eq!(post.status, 405);
-    assert_eq!(post.header("allow"), Some("GET, PUT"));
+    assert_eq!(post.header("allow"), Some("GET"));
+    // Contract api 2: the page no longer changes the session's answers.
+    let put = page.send(
+        "PUT",
+        "answers",
+        &json!({"rev": 0, "part": 0, "answers": {"part.material": "6061-T6"}}),
+    );
+    assert_eq!(put.status, 405);
+    assert_eq!(put.header("allow"), Some("GET"));
+    assert_eq!(page.rev(), 0);
     assert!(opened.still_running());
 }
 
@@ -1009,7 +965,7 @@ fn saves_update_the_sessions_copy_and_never_overwrite_another_file() {
 }
 
 #[test]
-fn a_save_from_elsewhere_of_another_type_without_defaults_said_or_too_large_is_refused() {
+fn a_save_from_elsewhere_of_another_type_without_edits_or_too_large_is_refused() {
     let scratch = Scratch::new("save-refused");
     let opened = Opened::start(&scratch.input(), &scratch, &[]);
     let page = opened.page();
@@ -1017,8 +973,8 @@ fn a_save_from_elsewhere_of_another_type_without_defaults_said_or_too_large_is_r
     let localhost_origin = format!("http://localhost:{}", opened.port);
     let target = page.path("save");
     let json_type = ("Content-Type", "application/json");
-    let body = br#"{"rev": 0, "acceptDefaults": {}}"#.to_vec();
-    let over = (64 * 1024 + 1).to_string();
+    let body = br#"{"rev": 0, "edits": {}}"#.to_vec();
+    let over = (16 * 1024 * 1024 + 1).to_string();
     let cases: Vec<RefusedSave> = vec![
         (
             "no origin",
@@ -1082,43 +1038,37 @@ fn a_save_from_elsewhere_of_another_type_without_defaults_said_or_too_large_is_r
             400,
         ),
         (
-            "acceptDefaults absent",
+            "edits absent",
             vec![("Host", &host), ("Origin", &origin), json_type],
             br#"{"rev": 0}"#.to_vec(),
             400,
         ),
         (
-            "acceptDefaults a bool, as before",
+            "acceptDefaults, as api 1 sent",
             vec![("Host", &host), ("Origin", &origin), json_type],
-            br#"{"rev": 0, "acceptDefaults": true}"#.to_vec(),
+            br#"{"rev": 0, "acceptDefaults": {}}"#.to_vec(),
             400,
         ),
         (
-            "ids listed without their values, as before",
+            "edits a list",
             vec![("Host", &host), ("Origin", &origin), json_type],
-            br#"{"rev": 0, "acceptDefaults": {"0": ["part.material"]}}"#.to_vec(),
+            br#"{"rev": 0, "edits": []}"#.to_vec(),
             400,
         ),
         (
-            "acceptDefaults a list, not by part",
+            "edits a bool",
             vec![("Host", &host), ("Origin", &origin), json_type],
-            br#"{"rev": 0, "acceptDefaults": []}"#.to_vec(),
-            400,
-        ),
-        (
-            "acceptDefaults not by part",
-            vec![("Host", &host), ("Origin", &origin), json_type],
-            br#"{"rev": 0, "acceptDefaults": "yes"}"#.to_vec(),
+            br#"{"rev": 0, "edits": true}"#.to_vec(),
             400,
         ),
         (
             "rev absent",
             vec![("Host", &host), ("Origin", &origin), json_type],
-            br#"{"acceptDefaults": {}}"#.to_vec(),
+            br#"{"edits": {}}"#.to_vec(),
             400,
         ),
         (
-            "over 64 KB",
+            "over 16 MB",
             vec![
                 ("Host", &host),
                 ("Origin", &origin),
@@ -1134,29 +1084,67 @@ fn a_save_from_elsewhere_of_another_type_without_defaults_said_or_too_large_is_r
         assert_eq!(got.status, status, "{what}");
         assert!(got.json()["error"].is_string(), "{what}");
     }
-    // An id that is not an open question with a default is named, and nothing is written.
-    let unknown = page.save(0, json!({"no.such.question": "x"}));
-    assert_eq!(unknown.status, 400);
-    assert_eq!(unknown.json()["question"], "no.such.question");
-    assert_eq!(unknown.json()["part"], 0);
-    assert!(unknown.json()["error"].is_string());
-    assert_eq!(page.answers()["rev"], 0, "nothing approved");
-    // A rev the session has moved on from.
-    assert_eq!(
-        page.put(0, 0, json!({"part.material": "6061-T6"})).status,
-        200
+    // Not an edit list: every part that does not parse is named.
+    let malformed = page.save(0, json!({"fill": [], "remove": ["#1"]}));
+    assert_eq!(malformed.status, 400);
+    let failures = malformed.json()["failures"].clone();
+    let entries: Vec<&str> = failures
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["entry"].as_str().unwrap())
+        .collect();
+    assert_eq!(entries, ["fill", "remove"], "{failures}");
+    // A list one of whose entries cannot be applied: all or nothing, every failing entry named,
+    // nothing written and the session unchanged.
+    let refused = page.save(
+        0,
+        json!({"fill": {"part.material": "6061-T6"}, "none": ["part.coating"],
+               "items": {"remove": ["#404"]}}),
     );
-    let stale = page.save(0, json!({}));
-    assert_eq!(stale.status, 409);
-    assert_eq!(stale.json()["rev"], 1);
-    assert!(stale.json()["error"].is_string());
+    assert_eq!(refused.status, 422);
+    let refused = refused.json();
+    assert!(
+        refused["error"]
+            .as_str()
+            .unwrap()
+            .contains("nothing was written")
+    );
+    let entries: Vec<&str> = refused["failures"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["entry"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        entries,
+        [r#"fill["part.material"]"#, r##"items.remove["#404"]"##],
+        "{refused}"
+    );
+    assert_eq!(page.rev(), 0);
     let get = request(opened.port, "GET", &target, &[("Host", &host)], b"");
     assert_eq!(get.status, 405);
     assert_eq!(scratch.work(), ["part.step"], "nothing written");
+    // A rev the session has moved on from: refused, and nothing more written.
+    assert_eq!(page.save(0, decide_coating()).status, 200);
+    assert_eq!(page.rev(), 1);
+    let stale = page.save(0, json!({"none": ["part.heat_treatment"]}));
+    assert_eq!(stale.status, 409);
+    assert_eq!(stale.json()["rev"], 1);
+    assert!(stale.json()["error"].is_string());
+    let written = scratch.path("work/part.specified.step");
+    let table = analysis_of(&written)["table"].clone();
+    assert!(
+        !table["decided_none"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("part.heat_treatment")),
+        "{table}"
+    );
 }
 
 #[test]
-fn read_only_refuses_saves_and_answer_changes_and_writes_nothing() {
+fn read_only_refuses_saves_and_writes_nothing() {
     let scratch = Scratch::new("read-only");
     let opened = Opened::start(&scratch.input(), &scratch, &["--read-only"]);
     let config = opened.config();
@@ -1166,9 +1154,8 @@ fn read_only_refuses_saves_and_answer_changes_and_writes_nothing() {
     let got = opened.save(0, json!({}));
     assert_eq!(got.status, 409);
     assert!(got.json()["error"].is_string());
-    let put = opened.page().put(0, 0, json!({"part.material": "6061-T6"}));
-    assert_eq!(put.status, 409);
-    assert!(put.json()["error"].is_string());
+    let decided = opened.save(0, decide_coating());
+    assert_eq!(decided.status, 409);
     assert_eq!(opened.page().answers()["rev"], 0);
     assert_eq!(scratch.work(), ["part.step"]);
 }
@@ -1226,14 +1213,7 @@ fn rev_saved_serves_what_the_last_save_wrote() {
     );
 
     // A later save updates the session's copy: `rev=saved` follows it.
-    assert_eq!(
-        opened
-            .page()
-            .put(0, 0, json!({"part.material": "6061-T6"}))
-            .status,
-        200
-    );
-    let second = opened.save(1, json!({}));
+    let second = opened.save(0, decide_coating());
     assert_eq!(second.status, 200);
     assert_eq!(
         second.json()["path"],
@@ -1242,7 +1222,7 @@ fn rev_saved_serves_what_the_last_save_wrote() {
     let second_bytes = saved(&work("part.specified.step"));
     assert_ne!(
         second_bytes, first_bytes,
-        "the second save wrote the new answer"
+        "the second save wrote the decision"
     );
 
     // Changed on disk since the save: refused, never the other bytes.
@@ -1282,14 +1262,7 @@ fn rev_saved_after_an_in_place_save_is_the_input() {
     let input = std::fs::read(scratch.input()).unwrap();
     let opened = Opened::start(&scratch.input(), &scratch, &["--in-place"]);
     assert_eq!(opened.get("file?rev=saved").status, 404);
-    assert_eq!(
-        opened
-            .page()
-            .put(0, 0, json!({"part.material": "6061-T6"}))
-            .status,
-        200
-    );
-    let got = opened.save(1, json!({}));
+    let got = opened.save(0, decide_coating());
     assert_eq!(got.status, 200);
     assert_eq!(got.json()["path"], scratch.input().display().to_string());
     let now = std::fs::read(scratch.input()).unwrap();
@@ -1331,7 +1304,8 @@ fn rev_saved_follows_a_save_from_the_agent() {
     });
     let page = Page { port, prefix };
     assert_eq!(page.get("file?rev=saved").status, 404);
-    let saved = specify_core::session::save(&session, None, &Default::default(), "mcp").unwrap();
+    let saved =
+        specify_core::session::save_edits(&session, None, &Default::default(), "mcp").unwrap();
     let written = scratch.path("work/part.specified.step");
     assert_eq!(saved.path, written.display().to_string());
     let got = page.get("file?rev=saved");
@@ -1343,10 +1317,11 @@ fn rev_saved_follows_a_save_from_the_agent() {
     assert_eq!(got.body, std::fs::read(&written).unwrap());
 }
 
-/// The session's answers: read, replaced at the current rev only, and streamed to every open
-/// page, at most four streams at once.
+/// The session's answers: read, and streamed to every open page (a save's change too, with a
+/// `saved` event), at most four streams at once. The page cannot replace them (`PUT answers` is
+/// gone, contract api 2).
 #[test]
-fn answers_are_replaced_at_the_current_rev_and_streamed() {
+fn answers_are_read_and_streamed_with_each_save() {
     let scratch = Scratch::new("answers");
     let opened = Opened::start(&scratch.input(), &scratch, &[]);
     let page = opened.page();
@@ -1358,61 +1333,43 @@ fn answers_are_replaced_at_the_current_rev_and_streamed() {
         start,
         json!({"rev": 0, "parts": {"0": resumed}, "source": "start"})
     );
-
-    let put = page.put(0, 0, json!({"part.material": "6061-T6"}));
-    assert_eq!(put.status, 200);
-    assert_eq!(put.json(), json!({"rev": 1}));
-    let (name, change) = events.next();
-    assert_eq!(name, "answers");
-    assert_eq!(
-        change,
-        json!({"rev": 1, "part": 0, "answers": {"part.material": "6061-T6"}, "source": "page"})
-    );
-    assert_eq!(
-        page.answers(),
-        json!({"rev": 1, "parts": {"0": {"part.material": "6061-T6"}}})
-    );
-
-    // Another change on rev 0: refused with the current state, nothing changed.
-    let stale = page.put(0, 0, json!({"part.material": "6082-T6"}));
-    assert_eq!(stale.status, 409);
-    let stale = stale.json();
-    assert_eq!(stale["rev"], 1);
-    assert_eq!(stale["parts"], json!({"0": {"part.material": "6061-T6"}}));
-    assert!(stale["error"].is_string());
-    // Not an answer map, no part, no such part, another origin.
-    for body in [
-        json!({"rev": 1, "part": 0, "answers": ["part.material"]}),
-        json!({"rev": 1, "answers": {}}),
-        json!({"rev": 1, "part": 7, "answers": {}}),
-    ] {
-        let got = page.send("PUT", "answers", &body);
-        assert_eq!(got.status, 400, "{body}");
-        assert!(got.json()["error"].is_string());
-    }
-    let elsewhere = request(
-        opened.port,
+    let put = page.send(
         "PUT",
-        &page.path("answers"),
-        &[
-            ("Host", &page.host()),
-            ("Origin", "https://example.com"),
-            ("Content-Type", "application/json"),
-        ],
-        br#"{"rev": 1, "part": 0, "answers": {}}"#,
+        "answers",
+        &json!({"rev": 0, "part": 0, "answers": {"part.material": "6061-T6"}}),
     );
-    assert_eq!(elsewhere.status, 403);
-    assert_eq!(page.answers()["rev"], 1);
+    assert_eq!(put.status, 405);
 
-    // Clearing is a change too; every page gets it.
+    // A save that stores a decision changes the session's answers: every page hears it.
     let mut second = page.events();
-    assert_eq!(second.next().1["rev"], 1);
-    assert_eq!(page.put(1, 0, json!({})).json(), json!({"rev": 2}));
+    assert_eq!(second.next().1["rev"], 0);
+    let saved = page.save(0, decide_coating());
+    assert_eq!(
+        saved.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&saved.body)
+    );
+    let saved = saved.json();
+    assert_eq!(saved["rev"], 1);
+    let written = scratch.path("work/part.specified.step");
+    let stored = analysis_of(&written)["resume"]["answers"].clone();
+    assert!(stored.get("part.coating").is_some(), "{stored}");
     for stream in [&mut events, &mut second] {
-        let (_, change) = stream.next();
-        assert_eq!(change["rev"], 2);
-        assert_eq!(change["answers"], json!({}));
+        let (name, change) = stream.next();
+        assert_eq!(name, "answers");
+        assert_eq!(
+            change,
+            json!({"rev": 1, "part": 0, "answers": stored, "source": "page"})
+        );
+        let (name, told) = stream.next();
+        assert_eq!(name, "saved");
+        assert_eq!(
+            told,
+            json!({"path": saved["path"], "bytes": saved["bytes"], "rev": 1, "source": "page"})
+        );
     }
+    assert_eq!(page.answers(), json!({"rev": 1, "parts": {"0": stored}}));
 
     // Four streams at once: a fifth is refused until one closes.
     let _third = page.events();
@@ -1423,18 +1380,17 @@ fn answers_are_replaced_at_the_current_rev_and_streamed() {
     assert!(fifth.json()["error"].is_string());
 }
 
-/// An incomplete save is written: what is answered, the answers stored, and reopening it
-/// resumes them with the same questions open.
+/// A save writes what `specify-core write STEP EDITS.json` writes for the same edit list.
 #[test]
-fn an_incomplete_save_is_written_and_resumes_with_the_same_questions_open() {
-    let scratch = Scratch::new("incomplete");
+fn a_save_writes_what_write_writes_for_the_same_list() {
+    let scratch = Scratch::new("as-write");
     let opened = Opened::start(&scratch.input(), &scratch, &[]);
     let page = opened.page();
-    let answers = json!({"part.material": "6061-T6"});
-    assert_eq!(page.put(0, 0, answers.clone()).status, 200);
-    let mut events = page.events();
-    events.next();
-    let saved = page.save(1, json!({}));
+    let list = json!({
+        "fill": {"part.general_tolerance": "ISO 2768-m", "hole.function:holes:14": "tapped:M4"},
+        "none": ["part.coating"],
+    });
+    let saved = page.save(0, list.clone());
     assert_eq!(
         saved.status,
         200,
@@ -1442,85 +1398,24 @@ fn an_incomplete_save_is_written_and_resumes_with_the_same_questions_open() {
         String::from_utf8_lossy(&saved.body)
     );
     let saved = saved.json();
-    assert_eq!(saved["complete"], false);
-    assert_eq!(saved["rev"], 1);
-    let missing: Vec<String> = serde_json::from_value(saved["missing"].clone()).unwrap();
-    assert!(!missing.is_empty());
-    let analysis = analysis_of(&scratch.input());
-    let answers = answers.as_object().unwrap().clone();
-    assert_eq!(missing, open_ids(&analysis, &answers));
-    let (name, told) = events.next();
-    assert_eq!(name, "saved");
     assert_eq!(
-        told,
-        json!({"path": saved["path"], "bytes": saved["bytes"], "rev": 1, "source": "page"})
+        saved["complete"],
+        json!(saved["missing"].as_array().unwrap().is_empty())
     );
-    let written = scratch.path("work/part.specified.step");
-    assert!(is_step(&written));
-    drop(opened);
 
-    // Reopened: the session resumes the stored answers (ADR P11: those that leave no PMI
-    // behind; the material is the file's), with the same questions open.
-    let reopened = Opened::start(&written, &scratch, &[]);
-    assert_eq!(
-        reopened.page().answers(),
-        json!({"rev": 0, "parts": {"0": kept(&Value::Object(answers.clone()))}})
-    );
-    let resumed = analysis_of(&written);
-    assert_eq!(open_ids(&resumed, &answers), missing);
-
-    // With every default approved, it is complete.
-    let defaults = approve_all(&reopened.page(), &resumed);
-    assert_eq!(defaults["complete"], true);
-    assert_eq!(defaults["missing"], json!([]));
-}
-
-/// A complete save writes the PMI `specify-core write` writes for the same answers.
-#[test]
-fn a_complete_save_writes_what_write_writes() {
-    let scratch = Scratch::new("as-write");
-    let opened = Opened::start(&scratch.input(), &scratch, &[]);
-    let page = opened.page();
-    let given = json!({"part.material": "6082-T6"});
-    assert_eq!(page.put(0, 0, given.clone()).status, 200);
-    // Every default approved: they become answers, and the file stores them.
-    let given = given.as_object().unwrap().clone();
-    let input_analysis = analysis_of(&scratch.input());
-    let saved = approve_all(&page, &input_analysis);
-    assert_eq!(saved["complete"], true);
-    let answers = page.answers()["parts"]["0"].clone();
-    assert!(answers.as_object().unwrap().len() > given.len());
-    for (id, value) in &given {
-        assert_eq!(&answers[id], value);
-    }
-
-    let analysis = scratch.path("analysis.json");
-    let answers_file = scratch.path("answers.json");
+    let edits = scratch.path("edits.json");
     let out = scratch.path("written.step");
-    std::fs::write(&answers_file, answers.to_string()).unwrap();
-    let cli = |args: &[&std::ffi::OsStr]| {
-        let run = Command::new(env!("CARGO_BIN_EXE_specify-core"))
-            .args(args)
-            .output()
-            .unwrap();
-        assert!(run.status.success(), "{run:?}");
-        String::from_utf8(run.stdout).unwrap()
-    };
-    cli(&[
-        "analyse".as_ref(),
-        scratch.input().as_os_str(),
-        "-o".as_ref(),
-        analysis.as_os_str(),
-    ]);
-    let report: Value = serde_json::from_str(&cli(&[
-        "write".as_ref(),
-        scratch.input().as_os_str(),
-        analysis.as_os_str(),
-        answers_file.as_os_str(),
-        "-o".as_ref(),
-        out.as_os_str(),
-    ]))
-    .unwrap();
+    std::fs::write(&edits, list.to_string()).unwrap();
+    let run = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        .arg("write")
+        .arg(scratch.input())
+        .arg(&edits)
+        .arg("-o")
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(run.status.success(), "{run:?}");
+    let report: Value = serde_json::from_slice(&run.stdout).unwrap();
     assert_eq!(
         report_without_output(&saved["report"]),
         report_without_output(&report)
@@ -1556,16 +1451,15 @@ fn in_place_keeps_one_bak_per_run_and_writes_from_the_original() {
         opened.config()["saveTarget"],
         scratch.input().display().to_string()
     );
-    assert_eq!(
-        page.put(0, 0, json!({"part.material": "6061-T6"})).status,
-        200
+    let got = page.save(
+        0,
+        json!({"fill": {"datum.A": [0], "part.general_tolerance": "ISO 2768-m"},
+               "none": ["part.coating"]}),
     );
-    let given: Map<String, Value> =
-        serde_json::from_value(json!({"part.material": "6061-T6"})).unwrap();
-    assert!(!given.is_empty());
-    let got = approve_all(&page, &analysis_of(&scratch.input()));
+    assert_eq!(got.status, 200, "{}", String::from_utf8_lossy(&got.body));
+    let got = got.json();
     let rev = got["rev"].as_u64().unwrap();
-    assert!(rev >= 2);
+    assert_eq!(rev, 1);
     assert_eq!(got["path"], scratch.input().display().to_string());
     let once = std::fs::read(scratch.input()).unwrap();
     assert!(once.starts_with(b"ISO-10303-21;") && once != input);
@@ -1583,10 +1477,12 @@ fn in_place_keeps_one_bak_per_run_and_writes_from_the_original() {
         .map(|e| occurrences(path, e))
     };
     let first = pmi(&scratch.input());
-    assert!(first[2] > 0, "the answers are stored");
+    assert!(first[0] > 0, "the datum is written");
+    assert!(first[2] > 0, "the decision is stored");
 
-    // A later save replaces the file, from the file as opened (its PMI is not added twice),
-    // and makes no other backup: the .bak still holds the original.
+    // A later save replaces the file, from the file as the last save left it (an empty list
+    // changes nothing, and adds nothing twice), and makes no other backup: the .bak still
+    // holds the original.
     assert_eq!(opened.save(rev, json!({})).status, 200);
     assert_eq!(pmi(&scratch.input()), first);
     assert_eq!(
@@ -1618,9 +1514,12 @@ fn in_place_keeps_one_bak_per_run_and_writes_from_the_original() {
     // backs up to .bak-2, once.
     let before = std::fs::read(scratch.input()).unwrap();
     let opened = Opened::start(&scratch.input(), &scratch, &["--in-place"]);
-    // ADR P11: the file states its material (steel), so the session's answer was not written
-    // over it, nor stored.
-    assert_eq!(analysis_of(&scratch.input())["part"]["material"], "steel");
+    assert!(
+        opened.page().answers()["parts"]["0"]
+            .get("part.coating")
+            .is_some(),
+        "the decision resumes"
+    );
     assert_eq!(opened.save(0, json!({})).status, 200);
     assert_eq!(opened.save(0, json!({})).status, 200);
     assert_eq!(
@@ -1680,10 +1579,10 @@ fn a_linked_input_saves_beside_the_link_and_shows_the_path_as_given() {
     // In place: the link's target is replaced, the link kept, the .bak beside the link.
     let opened = Opened::start(&given, &scratch, &["--in-place"]);
     assert_eq!(opened.config()["saveTarget"], shown("part.step"));
-    let got = opened.save(0, json!({}));
+    let got = opened.save(0, decide_coating());
     assert_eq!(got.status, 200);
     assert_eq!(got.json()["path"], shown("part.step"));
-    assert_eq!(opened.save(0, json!({})).status, 200);
+    assert_eq!(opened.save(1, json!({})).status, 200);
     assert!(
         std::fs::symlink_metadata(scratch.path("proj/part.step"))
             .unwrap()
@@ -1741,7 +1640,7 @@ fn in_place_on_a_gzipped_input_writes_it_gzipped() {
     let gz = scratch.path("work/part.step.gz");
     std::fs::copy(fixture(), &gz).unwrap();
     let opened = Opened::start(&gz, &scratch, &["--in-place"]);
-    let saved = opened.save(0, json!({}));
+    let saved = opened.save(0, decide_coating());
     assert_eq!(saved.status, 200);
     let stored = std::fs::read(&gz).unwrap();
     assert_eq!(saved.json()["bytes"], stored.len());
@@ -2268,85 +2167,58 @@ fn step_names_are_step_or_stp_or_either_gzipped() {
     }
 }
 
-/// Saves racing answer changes: every file written holds exactly the answers of the rev it was
-/// asked for, and a save of a rev the session has left is refused (409), never written.
+/// Saves racing each other at one rev: exactly one is written; the others find the session
+/// moved on (409) and write nothing, so the file holds exactly the winner's list.
 #[test]
-fn racing_saves_write_exactly_their_rev() {
+fn racing_saves_at_one_rev_write_exactly_one() {
     let scratch = Scratch::new("race");
     let opened = Opened::start(&scratch.input(), &scratch, &[]);
     let page = opened.page();
-    let start = page.answers();
-    let mut by_rev = std::collections::BTreeMap::new();
-    by_rev.insert(0u64, start["parts"]["0"].clone());
-    let materials = ["6061-T6", "6082-T6", "7075-T6", "2024-T3"];
-    // Every other save races a change sent as the save is sent; the others race nothing.
-    let (go, went) = std::sync::mpsc::channel::<()>();
-    let (done, finished) = std::sync::mpsc::channel::<()>();
-    let changes = {
-        let page = page.clone();
-        std::thread::spawn(move || {
-            let mut written = Vec::new();
-            let mut rev = 0;
-            for i in 0.. {
-                if went.recv().is_err() {
-                    break;
-                }
-                // A choice that writes no PMI rides along, so each rev's stored answers differ
-                // (ADR P11: the material is written as PMI, not stored).
-                let answers = json!({
-                    "part.material": materials[i % materials.len()],
-                    "part.locating": specify_core::rules::LOCATING[i % 2],
-                });
-                let got = page.put(rev, 0, answers.clone());
-                assert_eq!(got.status, 200);
-                rev = got.json()["rev"].as_u64().unwrap();
-                written.push((rev, answers));
-                done.send(()).unwrap();
-            }
-            written
+    let ids = [
+        "part.coating",
+        "part.heat_treatment",
+        "part.surface_finish",
+        "part.edges",
+    ];
+    let racers: Vec<_> = ids
+        .iter()
+        .map(|id| {
+            let page = page.clone();
+            let id = id.to_string();
+            // Each a list the file takes on its own: a decision of none where none is an
+            // option, else a fill of one of the question's options.
+            let list = match id.as_str() {
+                "part.surface_finish" => json!({"fill": {(id.clone()): "Ra 3.2"}}),
+                "part.edges" => json!({"fill": {(id.clone()): "Deburr only"}}),
+                _ => json!({"none": [id]}),
+            };
+            std::thread::spawn(move || (id.clone(), page.save(0, list).status))
         })
-    };
-    let mut saved = Vec::new();
-    let mut stale = 0;
-    for i in 0..8 {
-        let rev = page.answers()["rev"].as_u64().unwrap();
-        let racing = i % 2 == 1;
-        if racing {
-            go.send(()).unwrap();
-        }
-        let got = page.save(rev, json!({}));
-        if racing {
-            finished.recv().unwrap();
-        }
-        match got.status {
-            200 => {
-                let body = got.json();
-                assert_eq!(body["rev"], rev);
-                let path = PathBuf::from(body["path"].as_str().unwrap());
-                // Read now: a later save updates the same copy (#217).
-                let stored = analysis_of(&path)["resume"]["answers"].clone();
-                saved.push((rev, path, stored));
-            }
-            409 if racing => {
-                assert!(got.json()["rev"].as_u64().unwrap() > rev);
-                stale += 1;
-            }
-            other => panic!("save {i}: {other}"),
-        }
+        .collect();
+    let results: Vec<(String, u16)> = racers.into_iter().map(|r| r.join().unwrap()).collect();
+    let won: Vec<&String> = results
+        .iter()
+        .filter(|(_, status)| *status == 200)
+        .map(|(id, _)| id)
+        .collect();
+    assert_eq!(won.len(), 1, "{results:?}");
+    assert!(
+        results.iter().all(|(_, s)| *s == 200 || *s == 409),
+        "{results:?}"
+    );
+    assert_eq!(page.rev(), 1);
+    let table = analysis_of(&scratch.path("work/part.specified.step"))["table"].clone();
+    for id in ids {
+        let row = table["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == id)
+            .unwrap();
+        assert_eq!(row["state"] != "gap", id == won[0].as_str(), "{id}: {row}");
     }
-    drop(go);
-    by_rev.extend(changes.join().unwrap());
     // One more, certainly stale.
     assert_eq!(page.save(0, json!({})).status, 409);
-    assert!(saved.len() >= 4, "{stale} stale");
-    for (rev, path, stored) in saved {
-        assert_eq!(
-            stored,
-            kept(&by_rev[&rev]),
-            "{} holds rev {rev}",
-            path.display()
-        );
-    }
 }
 
 /// An event stream that stops reading is dropped once it is more than `MAX_BEHIND` events
@@ -2380,88 +2252,45 @@ fn a_stream_too_far_behind_is_dropped_and_the_others_carry_on() {
     assert!(reading.try_recv().is_ok(), "the reader carries on");
 }
 
-/// ADR P9: a default is written only when the person approves it, per id. The approved ones
-/// become answers (a new rev, an event naming them), are stored and written as answers are;
-/// the others stay open and are not written.
+/// ADR P9: a suggestion is written only when the list names it. The one accepted is stated
+/// in the file; the others stay gaps.
 #[test]
-fn only_the_approved_defaults_are_written() {
+fn only_the_suggestions_named_are_written() {
     let scratch = Scratch::new("approved");
     let opened = Opened::start(&scratch.input(), &scratch, &[]);
     let page = opened.page();
-    let given = json!({"part.material": "6061-T6"});
-    assert_eq!(page.put(0, 0, given.clone()).status, 200);
-    let given = given.as_object().unwrap().clone();
-    let analysis = analysis_of(&scratch.input());
-    let qs = specify_core::api::questions(&analysis, &given).unwrap();
-    let offered: Vec<(String, Value)> = specify_core::rules::open_questions(&qs, &given)
+    let gaps: Vec<String> = analysis_of(&scratch.input())["table"]["rows"]
+        .as_array()
+        .unwrap()
         .iter()
-        .filter_map(|q| q.default.clone().map(|d| (q.id.clone(), d)))
+        .filter(|r| r["state"] == "gap" && r["open"] == true)
+        .map(|r| r["id"].as_str().unwrap().to_string())
         .collect();
-    assert!(offered.len() >= 2, "{offered:?}");
-    let (approved, default) = offered[0].clone();
-    // A value that is not the default now: refused, naming it, and nothing written.
-    let stale = page.save(1, json!({&approved: "not what the person saw"}));
-    assert_eq!(stale.status, 400);
-    let stale = stale.json();
-    assert_eq!(stale["part"], 0);
-    assert_eq!(stale["question"], json!(approved));
-    assert_eq!(stale["expected"], "not what the person saw");
-    assert_eq!(stale["current"], default);
-    assert_eq!(page.answers()["rev"], 1);
-    assert_eq!(scratch.work(), ["part.step"], "nothing written");
-    let mut events = page.events();
-    events.next();
-    let saved = page.save(1, json!({&approved: default}));
+    assert!(
+        gaps.contains(&"part.general_tolerance".to_string()),
+        "{gaps:?}"
+    );
+    let saved = page.save(0, json!({"accept_suggestions": ["part.general_tolerance"]}));
     assert_eq!(
         saved.status,
         200,
         "{}",
         String::from_utf8_lossy(&saved.body)
     );
-    let saved = saved.json();
-    assert_eq!(saved["rev"], 2);
-    assert_eq!(saved["complete"], false);
-    let missing: Vec<String> = serde_json::from_value(saved["missing"].clone()).unwrap();
-    assert!(!missing.contains(&approved));
-    for (other, _) in &offered[1..] {
-        assert!(missing.contains(other), "{other} stays open");
+    let written = PathBuf::from(saved.json()["path"].as_str().unwrap());
+    let rows = analysis_of(&written)["table"]["rows"].clone();
+    let state = |id: &str| {
+        rows.as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == id)
+            .map(|r| r["state"].clone())
+            .unwrap()
+    };
+    assert_eq!(state("part.general_tolerance"), "stated");
+    for other in gaps.iter().filter(|g| *g != "part.general_tolerance") {
+        assert_eq!(state(other), "gap", "{other} is not written");
     }
-    let mut answered = given.clone();
-    answered.insert(approved.clone(), default);
-    let (name, change) = events.next();
-    assert_eq!(name, "answers");
-    assert_eq!(
-        change,
-        json!({"rev": 2, "part": 0, "answers": answered, "source": "page",
-               "defaults": {"0": [approved]}})
-    );
-    assert_eq!(events.next().0, "saved");
-    drop(opened);
-
-    // Reopened: the approved default is an answer, the others are open, and the PMI is what
-    // the same answers given explicitly write.
-    let written = scratch.path("work/part.specified.step");
-    let resumed = analysis_of(&written);
-    // ADR P11: stored are the answers that leave no PMI behind.
-    assert_eq!(
-        resumed["resume"]["answers"],
-        kept(&Value::Object(answered.clone()))
-    );
-    let open = open_ids(&resumed, &answered);
-    assert!(!open.contains(&approved));
-    for (other, _) in &offered[1..] {
-        assert!(open.contains(other), "{other} is open on reopening");
-    }
-    let explicit = Opened::start(&scratch.input(), &scratch, &[]);
-    assert_eq!(
-        explicit.page().put(0, 0, Value::Object(answered)).status,
-        200
-    );
-    let same = explicit.save(1, json!({})).json();
-    assert_eq!(
-        report_without_output(&same["report"]),
-        report_without_output(&saved["report"])
-    );
 }
 
 /// PMI counts that a write keeps or loses, from the STEP text.
@@ -2504,191 +2333,112 @@ fn a_part_with_only_metadata_answers_keeps_its_pmi() {
     );
 
     let shared = session_of(&old);
-    let saved = specify_core::session::save(&shared, None, &Default::default(), "page")
+    let saved = specify_core::session::save_edits(&shared, None, &Default::default(), "page")
         .unwrap_or_else(|e| panic!("{e}"));
     let path = PathBuf::from(&saved.path);
     assert_eq!(pmi_counts(&path), before, "nothing dropped");
     assert_eq!(saved.report["written"], json!([]));
 }
 
-/// Several approvals in one save are checked against the defaults as they stand and applied
-/// together: each is written with the value approved.
+/// ADR P11: leaving something out removes nothing. A save of an empty list keeps the
+/// decisions the file stores (and every byte); removing one takes an explicit edit.
 #[test]
-fn approvals_are_applied_together_with_the_values_approved() {
-    let scratch = Scratch::new("together");
-    let opened = Opened::start(&scratch.input(), &scratch, &[]);
-    let page = opened.page();
-    let given = json!({"part.material": "6061-T6"});
-    assert_eq!(page.put(0, 0, given.clone()).status, 200);
-    let given = given.as_object().unwrap().clone();
-    let analysis = analysis_of(&scratch.input());
-    let offered = open_defaults(&analysis, &given);
-    assert!(offered.len() >= 2, "{offered:?}");
-    let two: Map<String, Value> = offered.into_iter().take(2).collect();
-    let saved = page.save(1, Value::Object(two.clone()));
-    assert_eq!(
-        saved.status,
-        200,
-        "{}",
-        String::from_utf8_lossy(&saved.body)
-    );
-    // ADR P11: stored when it leaves no PMI behind, else the file states it.
-    let stored = analysis_of(&PathBuf::from(saved.json()["path"].as_str().unwrap()));
-    let storable = kept(&Value::Object(two.clone()));
-    for (id, value) in &two {
-        if storable.get(id).is_some() {
-            assert_eq!(&stored["resume"]["answers"][id], value, "{id}");
-        } else {
-            assert!(
-                stored["table"]["rows"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|r| r["id"] == *id && r["state"] == "stated"),
-                "{id}"
-            );
-        }
-    }
-}
-
-/// Clearing every answer of a part is a change the session writes, but (ADR P11: leaving
-/// something out removes nothing) the decisions the file stores stay until removed by an
-/// explicit edit (piece 3).
-#[test]
-fn clearing_every_answer_is_written_and_removes_no_stored_decision() {
+fn an_empty_list_removes_no_stored_decision() {
     let scratch = Scratch::new("cleared");
-    // A file that stores an answer (ADR P11: one that leaves no PMI behind).
     let first = Opened::start(&scratch.input(), &scratch, &[]);
-    assert_eq!(
-        first
-            .page()
-            .put(0, 0, json!({"part.locating": "position tolerances"}))
-            .status,
-        200
-    );
-    let stored = first.page().save(1, json!({}));
+    let stored = first.page().save(0, decide_coating());
     assert_eq!(stored.status, 200);
     let stored = PathBuf::from(stored.json()["path"].as_str().unwrap());
     drop(first);
     let opened = Opened::start(&stored, &scratch, &[]);
     let page = opened.page();
     let resumed = page.answers()["parts"]["0"].clone();
-    assert!(resumed.as_object().is_some_and(|a| !a.is_empty()));
-    assert_eq!(page.put(0, 0, json!({})).status, 200);
-    let saved = page.save(1, json!({}));
+    assert!(resumed.get("part.coating").is_some(), "{resumed}");
+    let saved = page.save(0, json!({}));
     assert_eq!(
         saved.status,
         200,
         "{}",
         String::from_utf8_lossy(&saved.body)
     );
-    let written = PathBuf::from(saved.json()["path"].as_str().unwrap());
+    let saved = saved.json();
+    assert_eq!(saved["report"]["unchanged"], true);
+    let written = PathBuf::from(saved["path"].as_str().unwrap());
+    assert_eq!(
+        std::fs::read(&written).unwrap(),
+        std::fs::read(&stored).unwrap()
+    );
     drop(opened);
     let reopened = Opened::start(&written, &scratch, &[]);
     let parts = reopened.page().answers()["parts"].clone();
     assert_eq!(parts["0"], resumed, "{parts}");
 }
 
-/// Sets part 1's answers, as a page's first change to it would, between a save's two holds of
-/// the session's lock.
-fn part_one_answered_meanwhile(shared: &specify_core::session::Shared) {
-    let answers: Map<String, Value> =
-        serde_json::from_value(json!({"part.material": "6061-T6"})).unwrap();
-    specify_core::session::lock(shared).set(1, answers, "page");
+/// ADR P11: a page Save that changes nothing (a fill equal to what the file states) leaves the
+/// file byte-identical, beside it and over it in place: nothing is rewritten or added (the old
+/// answers save wrote it again through `writer::write_bytes_with`, adding an empty stored-answers
+/// record and a description).
+#[test]
+fn a_no_change_save_leaves_the_file_byte_identical() {
+    for in_place in [false, true] {
+        let scratch = Scratch::new(if in_place {
+            "same-in-place"
+        } else {
+            "same-copy"
+        });
+        // A file Specify wrote, stating the material (nothing stored beside it).
+        let first = Opened::start(&scratch.input(), &scratch, &[]);
+        let steel = json!({"fill": {"part.material": "steel"}});
+        let stored = first.page().save(0, steel.clone());
+        assert_eq!(stored.status, 200);
+        let input = PathBuf::from(stored.json()["path"].as_str().unwrap());
+        drop(first);
+        let before = std::fs::read(&input).unwrap();
+        let extra: &[&str] = if in_place { &["--in-place"] } else { &[] };
+        let opened = Opened::start(&input, &scratch, extra);
+        // The material again, as the file states it: a fill that changes nothing (the old
+        // answers save of the same answer wrote the file again, with an empty stored record).
+        let saved = opened.page().save(0, steel);
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let saved = saved.json();
+        assert_eq!(saved["report"]["unchanged"], true, "{saved}");
+        let written = PathBuf::from(saved["path"].as_str().unwrap());
+        assert_eq!(written == input, in_place, "{saved}");
+        assert!(
+            std::fs::read(&written).unwrap() == before,
+            "in place {in_place}: the saved file differs from the input"
+        );
+    }
 }
 
-/// A part joining while an agent's save (no rev) is under way: refused as stale, not a panic.
+/// Sets part 0's answers, as an agent's `answer` would, between a save's applying its list and
+/// its writing the file.
+fn answered_meanwhile(shared: &specify_core::session::Shared) {
+    let mut s = specify_core::session::lock(shared);
+    let mut answers = s.answers(0).cloned().unwrap_or_default();
+    answers.insert("part.heat_treatment".into(), json!("None"));
+    s.set(0, answers, "mcp");
+}
+
+/// A session changed while a save without a rev applies its list (an agent's answer): refused as
+/// stale, nothing written, rather than the answer lost under the saved file's.
 #[test]
-fn a_part_joining_during_a_save_without_a_rev_is_refused_not_a_crash() {
-    let scratch = Scratch::new("joined-meanwhile");
-    let two = scratch.path("work/two.step");
-    std::fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/parts/a_file_with_two_parts_must_say_which.step"),
-        &two,
-    )
-    .unwrap();
-    let shared = session_of(&two);
-    {
-        let mut s = specify_core::session::lock(&shared);
-        let answers: Map<String, Value> =
-            serde_json::from_value(json!({"part.material": "6082-T6"})).unwrap();
-        s.set(0, answers, "mcp");
-        s.between_locks = Some(part_one_answered_meanwhile);
-    }
-    let refused = specify_core::session::save(&shared, None, &Default::default(), "mcp");
+fn a_session_changed_during_a_save_without_a_rev_is_refused() {
+    let scratch = Scratch::new("changed-meanwhile");
+    let shared = session_of(&scratch.input());
+    specify_core::session::lock(&shared).between_locks = Some(answered_meanwhile);
+    let list = specify_core::edits::parse_value(decide_coating()).unwrap();
+    let refused = specify_core::session::save_edits(&shared, None, &list, "mcp");
     assert!(
-        matches!(refused, Err(specify_core::session::SaveError::Stale(_))),
+        matches!(refused, Err(specify_core::session::SaveError::Stale(1))),
         "{refused:?}"
     );
-    assert_eq!(scratch.work(), ["part.step", "two.step"], "nothing written");
-    specify_core::session::lock(&shared).between_locks = None;
-    let saved = specify_core::session::save(&shared, None, &Default::default(), "mcp");
-    assert!(saved.is_ok(), "{saved:?}");
-}
-
-/// Approvals on several parts make one rev; an id given twice with the same value is taken
-/// once, and with different values refused.
-#[test]
-fn approvals_on_several_parts_make_one_rev_and_duplicates_are_checked() {
-    let scratch = Scratch::new("one-rev");
-    let two = scratch.path("work/two.step");
-    std::fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/parts/a_file_with_two_parts_must_say_which.step"),
-        &two,
-    )
-    .unwrap();
-    let shared = session_of(&two);
-    let mut approved = specify_core::session::Approved::new();
-    for k in 0..2 {
-        let analysis = specify_core::session::analysis(&shared, k).unwrap();
-        let offered = open_defaults(&analysis, &Map::new());
-        let (id, value) = offered.into_iter().next().unwrap();
-        approved.insert(k, Map::from_iter([(id, value)]));
-    }
-    let before = specify_core::session::lock(&shared).rev();
-    let saved = specify_core::session::save(&shared, None, &approved, "page").unwrap();
-    assert_eq!(saved.rev, before + 1);
+    assert_eq!(scratch.work(), ["part.step"], "nothing written");
     let s = specify_core::session::lock(&shared);
-    for (k, ids) in &approved {
-        for (id, value) in ids {
-            assert_eq!(&s.answers(*k).unwrap()[id], value);
-        }
-    }
-    drop(s);
-
-    // Through the page: a duplicate id with the same value is one approval; with another, 400.
-    let opened = Opened::start(&scratch.input(), &scratch, &[]);
-    let page = opened.page();
-    let answers: Map<String, Value> =
-        serde_json::from_value(page.answers()["parts"]["0"].clone()).unwrap();
-    let (id, value) = open_defaults(&analysis_of(&scratch.input()), &answers)
-        .into_iter()
-        .next()
-        .unwrap();
-    let send = |body: String| {
-        request(
-            page.port,
-            "POST",
-            &page.path("save"),
-            &[
-                ("Host", &page.host()),
-                ("Origin", &page.origin()),
-                ("Content-Type", "application/json"),
-            ],
-            body.as_bytes(),
-        )
-    };
-    let conflict = send(format!(
-        r#"{{"rev": 0, "acceptDefaults": {{"0": {{"{id}": {value}, "{id}": "other"}}}}}}"#
-    ));
-    assert_eq!(conflict.status, 400);
-    assert_eq!(conflict.json()["question"], json!(id));
-    assert_eq!(conflict.json()["part"], 0);
-    let same = send(format!(
-        r#"{{"rev": 0, "acceptDefaults": {{"0": {{"{id}": {value}, "{id}": {value}}}}}}}"#
-    ));
-    assert_eq!(same.status, 200, "{}", String::from_utf8_lossy(&same.body));
-    assert_eq!(page.answers()["parts"]["0"][&id], value);
+    assert_eq!(s.answers(0).unwrap()["part.heat_treatment"], "None");
 }

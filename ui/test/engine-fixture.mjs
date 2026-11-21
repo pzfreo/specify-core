@@ -6,7 +6,7 @@ import { requireEngine } from './engine-path.mjs';
 export { wasmDirectory } from './engine-path.mjs';
 
 const { modulePath, wasmPath } = requireEngine();
-const { default: init, IntentEngine, pmiScene } = await import(pathToFileURL(modulePath).href);
+const { default: init, IntentEngine, pmiScene, acceptDefaults } = await import(pathToFileURL(modulePath).href);
 await init({ module_or_path: readFileSync(wasmPath) });
 export { IntentEngine };
 
@@ -26,7 +26,8 @@ export function validateOpening(name, bytes, answers) {
   try {
     const snapshot = JSON.parse(engine.snapshot());
     const given = JSON.stringify(answers);
-    const accepted = engine.acceptDefaults(given);
+    // As the worker previews defaults (specify-core 0.3.0: the free acceptDefaults on the analysis).
+    const accepted = acceptDefaults(JSON.stringify(snapshot.analysis), given);
     const review = JSON.parse(engine.review(accepted));
     engine.review(given);
     const scene = JSON.parse(engine.pmiScene(JSON.stringify({ answers: JSON.parse(accepted) })));

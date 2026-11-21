@@ -98,6 +98,41 @@ Read first:
   whole set as before. The writer's upgrade of an old intent without planner rows follows the
   same rule. Replaces the narrower rule that only held back a hole's general location or size
   while its position or function was open.
+- **Saving is an edit list everywhere** (proposal specify-0.3.0 piece 6, ADR P11): the page, MCP,
+  WASM and Python apply an edit list to the file, all or nothing, as `write STEP EDITS.json` does.
+  Writing a whole intent from answers is gone from them.
+  - **Page contract, session `api` 2** (docs/open.md; breaking): `POST save` takes `{rev, edits}`
+    and applies the list with `session::save_edits` (422 `{error, failures}` naming every entry
+    that cannot be applied; 400 for a malformed list; 409 for a stale `rev`). `acceptDefaults` and
+    `PUT answers` are gone: the page keeps its changes until Save. A save is refused while the
+    session holds answers an agent gave with `answer` and did not save. `complete` and `missing`
+    are now those of the saved file. The app checks the `api` (a command without one, 0.2.0's
+    contract 1, is refused), and its manifest says 2.
+  - **MCP:** `save {doc, edits, rev?}` applies an edit list (its refusal lists `failures`), and
+    `check {doc, edits}` checks one without writing. `write_pmi` and `save`'s `accept_defaults`
+    are gone.
+  - **Python:** `api.write(step, edits, output)` applies an edit list (`EditsRefused`, a
+    `ValueError` with `failures`, when any entry cannot be applied), and `api.check_edits(step,
+    edits)` checks one; the report adds `retired` and `unchanged`. `write(step, intent, output,
+    answers=)` and `validate_edits` are gone. The command line's whole-intent `write` stays.
+  - **The app** (ui/app) sends its answers as fills and the defaults the person confirmed as fills
+    of the values seen, and an answer the file stores that the person cleared as a clear. It
+    cannot send changes on two parts of an assembly yet (an edit list applies to one part). After a save the part is opened again
+    from the file saved. `@draftwright/specify-ui`'s worker no longer has the `write` and
+    `rematch` operations.
+  - The edit list gains `clear`: it takes back a stored decision that leaves no PMI (a decided
+    none, a stored choice), never PMI. A fill of `extra.<name>` adds that requirement, as a 0.2
+    answer did; one the file already states is a no-op with the same spec and refused with
+    another (remove it by number in the same list to replace it). A 0.2 answers file whose evidence is from another revision is refused as stale
+    (`_specify.evidence`), as 0.2's write refused it. MCP `check` refuses as `save` does while
+    the session holds unsaved answers.
+  - An edit list may fill a choice that is not a requirement and has no feature-table row (how
+    holes are located, `part.locating`), checked against its options, or decide it none where
+    none is an option; it is stored beside the PMI, and the planner reads it for the rest of the
+    list.
+  - Rust: `session::save` (answers) and its approvals are gone; `session::save_edits` takes the
+    `rev` the caller saw and refuses a list as `SaveError::Edits(failures)`; `session::check_edits`.
+
 - **`diff` reads only the PMI in the two files** ([ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md),
   0.3.0 use case 6): reviewing a requirement change is `specify-core diff OLD NEW` between two
   annotated files. It lists requirements added, removed and changed per feature, with their
@@ -178,8 +213,7 @@ Read first:
   path, and validated all or nothing against the file's state (a differing fill, a stale
   `expect`, an unknown id or number, an unsupported item change, contradictory entries). A 0.2
   answers file is read as fills plus nones. `write STEP EDITS.json --check` validates and writes
-  nothing; Python `api.validate_edits`. The WASM and Python checks still check a list only
-  against itself (`checked_against_file: false`) until the page's save takes a list.
+  nothing; so do MCP `check`, WASM `checkEdits` and Python `api.check_edits`, against the file.
 - Saving edits in place (proposal specify-0.3.0 use cases 3, 4 and 7; ADR P11):
   `write STEP EDITS.json -o OUT` applies an edit list all or nothing, and `--check` now checks it
   against the file's feature table. A save touches only what the list names: every other
@@ -193,8 +227,7 @@ Read first:
   the frame with the basic dimensions only it used. `--check` applies the list in memory, so it
   refuses exactly what `write` would. Every numbered requirement is in the feature table (a
   finish on the whole part on `part.surface_finish`), so any can be removed by number. After
-  `session::save_edits`, the session works on the file saved: a later save of answers keeps the
-  edits. Rust: `writer::apply::{apply, apply_bytes, check}`, `session::save_edits`. Not yet:
+  `session::save_edits`, the session works on the file saved: a later save keeps the edits. Rust: `writer::apply::{apply, apply_bytes, check}`, `session::save_edits`. Not yet:
   changing one requirement by its number (`items.change`).
 - Edits in place on a part of an assembly (Paul, 2026-11-21; as 0.2's `write` could):
   `write STEP EDITS.json --part K -o OUT` (and `--check --part K`), `session::save_part_edits`,
@@ -220,7 +253,24 @@ Read first:
 
 ### WASM API
 
-- `IntentEngine.validateEdits(json)`: the edit-list check above, as JSON; writes nothing.
+- `IntentEngine.edit(editsJson, project?, payload?)`: an edit list (or a 0.2 answers file)
+  applied to the file in memory, all or nothing: `{written: true, bytes, report, source_sha256}`
+  (the report with `retired` and `unchanged`), or `{written: false, failures, message}` naming
+  every entry that cannot be applied. The engine is not changed. A part of an assembly is
+  refused for now. `project` (the editor's base64 project) or `payload` (`{name, value}`), at
+  most one, is carried with the record of the original part, as `writePmi` carried it: it
+  replaces what the file carried under its name, and the file is then always written; a plain
+  edit keeps what the file carries.
+- `IntentEngine.checkEdits(editsJson)`: the list checked against the file, as `write --check`
+  checks it; writes nothing. It replaces `validateEdits`, which checked a list only against itself
+  and is removed.
+- `IntentEngine.table()`: the feature table, `{rows, file_pmi, decided_none}`.
+- Removed (Specify 0.3.0, "What goes away"): `IntentEngine.writePmi` (writing a whole intent; use
+  `edit`), `IntentEngine.acceptDefaults` (the free `acceptDefaults(analysis, answers)` stays, for
+  previews). `rematchAnswers` stays: the editor matches the answers its project keeps to the
+  part with it.
+- `diff(oldName, oldBytes, newName, newBytes, title, scenes?)`: the unused fifth argument
+  (`_answers`) is removed.
 
 ### Fixed
 

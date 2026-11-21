@@ -641,17 +641,35 @@ fn the_session_saves_an_edit_list_in_place_on_its_own_copy() {
     let before = std::fs::read(&path).unwrap();
     let err = session::save_edits(
         &shared,
+        None,
         &list(json!({"items": {"remove": ["#404"]}})),
         "mcp",
     )
     .unwrap_err();
     assert!(err.to_string().contains("#404"), "{err}");
+    assert!(
+        matches!(&err, session::SaveError::Edits(f) if f.len() == 1 && f[0].entry.contains("#404")),
+        "{err:?}"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    // A save at a rev the session has moved on from is refused, and writes nothing.
+    let first = list(json!({"change": {"hole.position:holes:12": {"to": "0.1", "expect": "0.2"}}}));
+    let rev = session::lock(&shared).rev();
+    let stale = session::save_edits(&shared, Some(rev + 1), &first, "page").unwrap_err();
+    assert!(
+        matches!(stale, session::SaveError::Stale(r) if r == rev),
+        "{stale:?}"
+    );
     assert_eq!(std::fs::read(&path).unwrap(), before);
     // Two saves: the second applies to what the first left.
-    let first = list(json!({"change": {"hole.position:holes:12": {"to": "0.1", "expect": "0.2"}}}));
-    session::save_edits(&shared, &first, "mcp").unwrap();
-    let saved =
-        session::save_edits(&shared, &list(json!({"items": {"remove": ["#5"]}})), "mcp").unwrap();
+    session::save_edits(&shared, Some(rev), &first, "page").unwrap();
+    let saved = session::save_edits(
+        &shared,
+        None,
+        &list(json!({"items": {"remove": ["#5"]}})),
+        "mcp",
+    )
+    .unwrap();
     assert_eq!(saved.report["retired"], json!([5]));
     let after = load(&path, None).unwrap();
     assert!(!numbers(&after).contains_key(&5));
@@ -949,46 +967,33 @@ fn a_change_to_none_takes_the_basic_dimensions_only_its_frame_used() {
 }
 
 #[test]
-fn an_answers_save_after_edits_in_place_keeps_the_edits() {
+fn a_second_edits_save_keeps_the_first_saves_edits() {
     use specify_core::session::{self, Opened, Session};
     use std::sync::{Arc, Mutex};
-    for touch in [false, true] {
-        let dir = std::env::temp_dir().join(format!(
-            "specify-edits-then-answers-{}-{touch}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("plate.step");
-        std::fs::write(&path, &*fixture("resume-p9/edited-plate.step.gz").bytes).unwrap();
-        let shared = Arc::new(Mutex::new(
-            Session::open(Opened::read(&path).unwrap(), true).unwrap(),
-        ));
-        let list = json!({
-            "change": {"hole.position:holes:12": {"to": "0.1", "expect": "0.2"}},
-            "items": {"remove": ["#5"]},
-        });
-        session::save_edits(&shared, &edits::parse_value(list).unwrap(), "mcp").unwrap();
-        if touch {
-            let mut s = session::lock(&shared);
-            let mut answers = s.answers(0).cloned().unwrap_or_default();
-            answers.insert("part.coating".into(), json!("None (as machined)"));
-            s.set(0, answers, "page");
-        }
-        session::save(&shared, None, &Default::default(), "page").unwrap();
-        let after = load(&path, None).unwrap();
-        assert!(!numbers(&after).contains_key(&5), "touch {touch}");
-        assert!(
-            row(&table(&after), "hole.position:holes:12")["value"]
-                .as_str()
-                .unwrap()
-                .contains("⌖ ⌀0.1"),
-            "touch {touch}"
-        );
-        if touch {
-            assert_eq!(row(&table(&after), "part.coating")["state"], "decided_none");
-        }
-        let _ = std::fs::remove_dir_all(&dir);
-    }
+    let dir = std::env::temp_dir().join(format!("specify-edits-then-edits-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("plate.step");
+    std::fs::write(&path, &*fixture("resume-p9/edited-plate.step.gz").bytes).unwrap();
+    let shared = Arc::new(Mutex::new(
+        Session::open(Opened::read(&path).unwrap(), true).unwrap(),
+    ));
+    let list = json!({
+        "change": {"hole.position:holes:12": {"to": "0.1", "expect": "0.2"}},
+        "items": {"remove": ["#5"]},
+    });
+    session::save_edits(&shared, None, &edits::parse_value(list).unwrap(), "mcp").unwrap();
+    let none = json!({"none": ["part.coating"]});
+    session::save_edits(&shared, None, &edits::parse_value(none).unwrap(), "page").unwrap();
+    let after = load(&path, None).unwrap();
+    assert!(!numbers(&after).contains_key(&5));
+    assert!(
+        row(&table(&after), "hole.position:holes:12")["value"]
+            .as_str()
+            .unwrap()
+            .contains("⌖ ⌀0.1")
+    );
+    assert_eq!(row(&table(&after), "part.coating")["state"], "decided_none");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// The review's sweep: every gap with a suggestion, accepted alone, either applies and changes
@@ -1058,7 +1063,7 @@ fn an_edits_save_is_refused_while_answers_are_unsaved() {
         s.set(0, answers, "page");
     }
     let remove = edits::parse_value(json!({"items": {"remove": ["#5"]}})).unwrap();
-    let err = session::save_edits(&shared, &remove, "mcp").unwrap_err();
+    let err = session::save_edits(&shared, None, &remove, "mcp").unwrap_err();
     assert!(
         err.to_string()
             .contains("save or discard the unsaved answers first"),
@@ -1069,9 +1074,14 @@ fn an_edits_save_is_refused_while_answers_are_unsaved() {
         session::lock(&shared).answers(0).unwrap()["part.coating"],
         "anodise clear"
     );
-    // Saved, the answers are no longer unsaved, and the edits save goes ahead.
-    session::save(&shared, None, &Default::default(), "page").unwrap();
-    session::save_edits(&shared, &remove, "mcp").unwrap();
+    // Discarded (the answers back as the file holds them), the edits save goes ahead.
+    {
+        let mut s = session::lock(&shared);
+        let mut answers = s.answers(0).cloned().unwrap_or_default();
+        answers.remove("part.coating");
+        s.set(0, answers, "page");
+    }
+    session::save_edits(&shared, None, &remove, "mcp").unwrap();
     let after = load(&path, None).unwrap();
     assert!(!numbers(&after).contains_key(&5));
     let _ = std::fs::remove_dir_all(&dir);
@@ -1355,9 +1365,14 @@ fn a_refusal_on_one_part_of_an_assembly_writes_nothing_anywhere() {
     let shared = Arc::new(Mutex::new(
         Session::open(Opened::read(&step).unwrap(), true).unwrap(),
     ));
-    let err =
-        session::save_part_edits(&shared, Some(PIN), &edits::parse_value(bad).unwrap(), "mcp")
-            .unwrap_err();
+    let err = session::save_part_edits(
+        &shared,
+        Some(PIN),
+        None,
+        &edits::parse_value(bad).unwrap(),
+        "mcp",
+    )
+    .unwrap_err();
     assert!(err.to_string().contains("holes:404"), "{err}");
     assert_eq!(std::fs::read(&step).unwrap(), plate);
     let _ = std::fs::remove_dir_all(&dir);
@@ -1438,17 +1453,22 @@ fn write_and_the_session_edit_one_part_of_an_assembly() {
         Session::open(Opened::read(&step).unwrap(), true).unwrap(),
     ));
     let parse = |v: Value| edits::parse_value(v).unwrap();
-    session::save_part_edits(&shared, Some(PLATE), &parse(plate_list()), "mcp").unwrap();
+    session::save_part_edits(&shared, Some(PLATE), None, &parse(plate_list()), "mcp").unwrap();
     let after_plate = std::fs::read(&step).unwrap();
     only_part_changed(&assembly(), &after_plate, &Default::default());
-    session::save_part_edits(&shared, Some(PIN), &parse(pin_list()), "mcp").unwrap();
+    session::save_part_edits(&shared, Some(PIN), None, &parse(pin_list()), "mcp").unwrap();
     let after_pin = std::fs::read(&step).unwrap();
     only_part_changed(&after_plate, &after_pin, &Default::default());
     assert_eq!(numbers(&part_of(&after_pin, PIN)).len(), 4);
     assert_eq!(numbers(&part_of(&after_pin, PLATE)).len(), 7);
     // A file of several parts needs its part.
-    let err =
-        session::save_edits(&shared, &parse(json!({"none": ["part.coating"]})), "mcp").unwrap_err();
+    let err = session::save_edits(
+        &shared,
+        None,
+        &parse(json!({"none": ["part.coating"]})),
+        "mcp",
+    )
+    .unwrap_err();
     assert_eq!(std::fs::read(&step).unwrap(), after_pin, "{err}");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -1710,6 +1730,49 @@ fn a_text_only_requirement_is_refused_a_change_rather_than_losing_parts() {
     }
 }
 
+/// A choice that is not a requirement and has no feature-table row (how holes are located,
+/// `part.locating`; writer decision 4): a fill sets it, validated against its options, and it is
+/// stored beside the PMI; the same value again changes nothing; a value it does not offer, or
+/// none (not one of its options), refuses the whole list. (Asked of a part with holes and no
+/// datums of its own: the bare plate.)
+#[test]
+fn a_choice_with_no_row_is_filled_and_stored() {
+    let part = fixture("parts/plate.step");
+    let t = table(&part);
+    assert!(
+        t["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["id"] != "part.locating"),
+        "part.locating has no row"
+    );
+    let saved = applied(&part, json!({"fill": {"part.locating": "± dimensions"}}));
+    assert!(!saved.unchanged);
+    let after = reload(&saved.bytes);
+    assert_eq!(
+        stored_answers(&saved.bytes)["part.locating"],
+        "± dimensions"
+    );
+    assert_eq!(
+        api::analyse(&after).unwrap()["resume"]["answers"]["part.locating"],
+        "± dimensions"
+    );
+    let again = applied(&after, json!({"fill": {"part.locating": "± dimensions"}}));
+    assert!(again.unchanged, "the same choice again changes nothing");
+    assert_eq!(again.bytes, saved.bytes);
+    for bad in [
+        json!({"fill": {"part.locating": "by eye"}}),
+        json!({"none": ["part.locating"]}),
+    ] {
+        let failures = refused(&part, bad.clone());
+        assert!(
+            failures.iter().any(|f| f.entry.contains("part.locating")),
+            "{bad}: {failures:?}"
+        );
+    }
+}
+
 /// The assembly with PMI and a property of its own, on its root (`#5`, shape `#4`): a datum,
 /// a flatness on a shape aspect, and a property with its representation. Returned with the
 /// ids of those records.
@@ -1792,4 +1855,136 @@ fn assembly_level_items_keep_their_bytes_through_part_edits() {
         failures[0].reason.contains("items the list does not name"),
         "{failures:?}"
     );
+}
+
+/// An added requirement (`extra.<name>`, the editor's added requirements): a fill of its spec
+/// adds it, as a 0.2 answer did, all or nothing with the rest of the list; a spec the rules refuse
+/// fails its entry and nothing is written.
+#[test]
+fn a_fill_of_an_added_requirement_adds_it() {
+    let part = fixture("parts/plate.step");
+    let saved = applied(
+        &part,
+        json!({"fill": {"part.material": "steel",
+                        "extra.1": {"kind": "size", "faces": [9], "value": "7.8/8.2"}}}),
+    );
+    let limits: Vec<_> = specify_core::existing::read_existing(&reload(&saved.bytes))
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| e.limits)
+        .collect();
+    assert_eq!(limits, [[7.8, 8.2]], "{:?}", saved.report.written);
+    let bad = refused(
+        &part,
+        json!({"fill": {"part.material": "steel",
+                        "extra.1": {"kind": "size", "faces": [9999], "value": "7.8/8.2"}}}),
+    );
+    assert!(bad.iter().any(|f| f.entry.contains("extra.1")), "{bad:?}");
+}
+
+/// An added requirement's state comes from the file: stated once written. A fill of the same
+/// spec again changes nothing (the bytes are the file's own); a fill with another value is
+/// refused, all or nothing, naming the requirement's number; removing it by number in the same
+/// list and filling the new value replaces it.
+#[test]
+fn an_added_requirement_the_file_states_is_a_no_op_or_refused() {
+    let size = |value: &str| json!({"kind": "size", "faces": [9], "value": value});
+    let part = fixture("parts/plate.step");
+    let first = applied(&part, json!({"fill": {"extra.1": size("7.8/8.2")}}));
+    let written = reload(&first.bytes);
+    let again = applied(&written, json!({"fill": {"extra.1": size("7.8/8.2")}}));
+    assert!(again.unchanged, "{:?}", again.report.written);
+    assert_eq!(
+        again.bytes, first.bytes,
+        "a same-value fill is a byte-identical no-op"
+    );
+    let differing = refused(
+        &written,
+        json!({"fill": {"part.material": "steel", "extra.1": size("7.9/8.1")}}),
+    );
+    assert_eq!(differing.len(), 1, "{differing:?}");
+    assert_eq!(differing[0].entry, r#"fill["extra.1"]"#);
+    assert!(differing[0].reason.contains("#1"), "{differing:?}");
+    let number = *numbers(&written).keys().next().unwrap();
+    let replaced = applied(
+        &written,
+        json!({"items": {"remove": [format!("#{number}")]}, "fill": {"extra.1": size("7.9/8.1")}}),
+    );
+    let limits: Vec<_> = specify_core::existing::read_existing(&reload(&replaced.bytes))
+        .unwrap()
+        .into_iter()
+        .filter_map(|e| e.limits)
+        .collect();
+    assert_eq!(limits, [[7.9, 8.1]]);
+}
+
+/// `clear` takes back a stored decision that leaves no PMI (a decided none, a stored choice):
+/// the row is a gap, the choice unanswered, again. It never touches PMI: a clear of something
+/// stated, or of a gap, is refused.
+#[test]
+fn clear_takes_back_a_stored_decision_and_never_pmi() {
+    let part = fixture("parts/plate.step");
+    let decided = applied(
+        &part,
+        json!({"none": ["part.coating"], "fill": {"part.material": "steel",
+               "part.locating": "± dimensions"}}),
+    );
+    let after = reload(&decided.bytes);
+    assert_eq!(row(&table(&after), "part.coating")["state"], "decided_none");
+    assert_eq!(
+        stored_answers(&decided.bytes)["part.locating"],
+        "± dimensions"
+    );
+    let cleared = applied(&after, json!({"clear": ["part.coating", "part.locating"]}));
+    let back = reload(&cleared.bytes);
+    assert_eq!(row(&table(&back), "part.coating")["state"], "gap");
+    assert!(
+        stored_answers(&cleared.bytes)
+            .get("part.locating")
+            .is_none()
+    );
+    assert_eq!(
+        row(&table(&back), "part.material")["state"],
+        "stated",
+        "PMI untouched"
+    );
+    for (bad, why) in [
+        (json!({"clear": ["part.material"]}), "never touches PMI"),
+        (
+            json!({"clear": ["part.surface_finish"]}),
+            "nothing is stored",
+        ),
+        (
+            json!({"clear": ["part.coating"], "none": ["part.coating"]}),
+            "keep one of them",
+        ),
+    ] {
+        let failures = refused(&after, bad.clone());
+        assert!(
+            failures.iter().any(|f| f.reason.contains(why)),
+            "{bad}: {failures:?}"
+        );
+    }
+}
+
+/// A 0.2 answers file carries its face evidence: one saved on another revision of the part is
+/// refused as stale, by `check` and by `apply` alike, naming `_specify.evidence`, as 0.2's write
+/// refused it; on its own revision it applies.
+#[test]
+fn an_answers_file_from_another_revision_is_refused_as_stale() {
+    let old = fixture("revisions/plate_split.old.step.gz");
+    let new = fixture("revisions/plate_split.new.step.gz");
+    let given = json!({"part.material": "6061-T6"});
+    // An answers file saved on OLD with its face evidence (as 0.2 exported one; the export is
+    // removed, ADR P11, but such files are still read).
+    let mut saved = given.as_object().unwrap().clone();
+    specify_core::answer_file::attach(&old, &mut saved, &Default::default(), []).unwrap();
+    let text = Value::Object(saved).to_string();
+    let checked = specify_core::writer::apply::check(&new, &text);
+    let stale = |f: &Failure| f.entry == "_specify.evidence" && f.reason.contains("stale answers");
+    assert!(checked.failures.iter().any(stale), "{checked:?}");
+    let list = edits::read(&text).unwrap();
+    let refused = apply(&new, &list).expect_err("refused");
+    assert!(refused.iter().any(stale), "{refused:?}");
+    assert!(apply(&old, &list).is_ok(), "on its own revision it applies");
 }

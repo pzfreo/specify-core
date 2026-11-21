@@ -6,7 +6,7 @@
 //! serde_json's text round-trips every number through Python's `json` exactly.
 //!
 //! A part loaded once is a [`LoadedPart`] handle (Python's `LoadedPart`, opaque here): `analyse`,
-//! `mesh`, `write`, `write_parts`, `read_existing` and `part_settings` take it (or a path), so a
+//! `mesh`, `write`, `check_edits`, `write_parts`, `read_existing` and `part_settings` take it (or a path), so a
 //! caller that reuses a part, as `serve` does, reads the file once.
 //!
 //! The command line ([`cli`]) and a serving session ([`Server`], `serve.reply`) are the engine's
@@ -302,31 +302,57 @@ fn pmi_scene(
     .map_err(PyValueError::new_err)
 }
 
-/// Write `intent` (JSON) into `step` at `output`, on the part it was made for, or into a part
-/// already loaded, verified by reading back; given the `answers` (JSON) it came from, they are
-/// stored too. The report, as JSON (`api.write`).
+/// Apply the edit list `edits` (JSON: an edit list, or a 0.2 answers file) to `step` (a path,
+/// or a part already loaded) and write the result to `output`, all or nothing
+/// (`writer::apply::apply_to`). JSON: `{applied: true, report}`, the write's report with
+/// `retired` and `unchanged`, or `{applied: false, failures, message}` when any entry cannot be
+/// applied (nothing is written).
 #[pyfunction]
-#[pyo3(signature = (step, intent, output, answers=None))]
 fn write(
     py: Python<'_>,
     step: &Bound<'_, PyAny>,
-    intent: &str,
+    edits: &str,
     output: PathBuf,
-    answers: Option<&str>,
 ) -> PyResult<String> {
-    let intent = intent_of(intent)?;
-    let answers = answers.map(answers_of).transpose()?;
-    let report = match loaded(step, None)? {
-        Some(handle) => {
-            py.detach(|| api::write(&handle.loaded, &intent, &output, answers.as_ref()))
-        }
+    let owned;
+    let handle = match loaded(step, None)? {
+        Some(handle) => handle,
         None => {
-            let path: PathBuf = step.extract()?;
-            py.detach(|| api::write_file(&path, &intent, &output, answers.as_ref()))
+            owned = load_path(py, step, None)?;
+            &owned
         }
-    }
-    .map_err(raised)?;
-    Ok(report.to_dict().to_string())
+    };
+    let refused = |failures: Vec<specify_core::edits::Failure>| {
+        json!({"applied": false, "message": specify_core::session::edits_refused(&failures),
+               "failures": failures})
+    };
+    let out = py.detach(|| match specify_core::edits::read(edits) {
+        Err(failures) => refused(failures),
+        Ok(list) => match specify_core::writer::apply::apply_to(&handle.loaded, &list, &output) {
+            Ok(applied) => json!({"applied": true, "report": applied.to_dict()}),
+            Err(failures) => refused(failures),
+        },
+    });
+    Ok(out.to_string())
+}
+
+/// The edit list `edits` (JSON) checked against `step` (a path, or a part already loaded) as
+/// `write` would apply it, all or nothing (`writer::apply::check`). Writes nothing.
+#[pyfunction]
+fn check_edits(py: Python<'_>, step: &Bound<'_, PyAny>, edits: &str) -> PyResult<String> {
+    let owned;
+    let handle = match loaded(step, None)? {
+        Some(handle) => handle,
+        None => {
+            owned = load_path(py, step, None)?;
+            &owned
+        }
+    };
+    Ok(py.detach(|| {
+        specify_core::writer::apply::check(&handle.loaded, edits)
+            .to_json()
+            .to_string()
+    }))
 }
 
 /// Write several parts of `step` (a path, or any part of the file, loaded) together: each
@@ -450,17 +476,6 @@ impl Server {
         let server = &mut self.0;
         Ok(py.detach(|| server.reply(&request)).to_string())
     }
-}
-
-/// An edit list (or a 0.2 answers file) validated all or nothing, as JSON (`edits::check`).
-/// Writes nothing. Until the feature table can be read, it is checked only against itself.
-#[pyfunction]
-fn validate_edits(py: Python<'_>, edits: &str) -> String {
-    py.detach(|| {
-        specify_core::edits::check(edits, None)
-            .to_json()
-            .to_string()
-    })
 }
 
 /// What may be wrong with the answers so far, as JSON (`problems.problems`).
@@ -708,7 +723,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Server>()?;
     m.add_function(wrap_pyfunction!(cli, m)?)?;
     m.add_function(wrap_pyfunction!(problems, m)?)?;
-    m.add_function(wrap_pyfunction!(validate_edits, m)?)?;
+    m.add_function(wrap_pyfunction!(check_edits, m)?)?;
     m.add_function(wrap_pyfunction!(choices_interpret, m)?)?;
     m.add_function(wrap_pyfunction!(choices_check, m)?)?;
     m.add_function(wrap_pyfunction!(choices_describe, m)?)?;

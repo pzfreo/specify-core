@@ -34,13 +34,12 @@ export type AnswersEvent =
   | { rev: number; parts: Record<string, PmiAnswers>; source: 'start' }
   | {
     rev: number; part: number; answers: PmiAnswers; source: 'page' | 'mcp';
-    /** A save approved these defaults, by part: question ids now answered with their defaults. */
-    defaults?: Record<string, string[]>;
     /** The part joined the session (the agent opened it, or the page first changed it); its answers may be `{}`. */
     joined?: boolean;
   };
 export interface SavedEvent { path: string; bytes: number; rev: number; source: 'page' | 'mcp' }
-/** A save's answer: what was written, and the required questions still open in it. */
+/** A save's answer: what was written (``report.retired``: the characteristic numbers retired), and the
+ * required questions the saved file still leaves open. */
 export interface Saved { path: string; bytes: number; rev: number; report: unknown; complete: boolean; missing: string[] }
 
 /** A refusal: the command's `error`, its status, and the body's other fields (``rev``, ``parts``). */
@@ -80,24 +79,30 @@ export async function getFile(rev: 'old' | 'new' | 'saved' = 'new'): Promise<Blo
 
 export const getAnswers = () => json<SessionAnswers>(fetch('answers', { cache: 'no-store' }));
 
-/** Replaces part ``part``'s answers if the session is still at ``rev``: the new rev. A 409 is
- * thrown as `Refused` with the current ``rev`` and ``parts``. */
-export const putAnswers = (rev: number, part: number, answers: PmiAnswers, signal?: AbortSignal) => json<{ rev: number }>(fetch('answers', {
-  method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, part, answers }), signal,
-}));
+/** An edit list (specify-core docs/session.md, the 0.3.0 edit list): ``fill`` gaps with a value (a
+ * value meaning none records "decided: none"), ``change`` what the file states (``expect``: the value
+ * seen), ``items`` by characteristic number, ``none`` decided none, ``accept_suggestions``, ``clear``
+ * a stored decision. */
+export interface EditList {
+  fill?: Record<string, unknown>;
+  change?: Record<string, { to: unknown; expect: unknown }>;
+  items?: { change?: Record<string, { tolerance: string; expect: string }>; remove?: string[] };
+  none?: string[];
+  accept_suggestions?: string[];
+  /** Stored decisions that leave no PMI to take back (a decided none, a choice such as how holes
+   * are located): a gap, or unanswered, again. Never PMI. */
+  clear?: string[];
+}
 
-/** The defaults the person approved, each with the value they saw, by part index:
- * `{"<part>": {"<question id>": <value>}}`; `{}` for none. */
-export type AcceptDefaults = Record<string, Record<string, unknown>>;
+/** One entry of an edit list that cannot be applied, and why. */
+export interface EditFailure { entry: string; reason: string }
 
-/** The command writes the specified STEP from the session's answers at ``rev``, after setting
- * ``acceptDefaults`` (exactly the defaults the person approved, per part) as answers. Never refused
- * for open questions; 409 when the session moved on (or its set of parts changed during the save),
- * or (--in-place) the file changed on disk; 400 `{error, part, question}` when a default listed is
- * not an open question with a default there, plus `expected` (the value sent) and `current` (the
- * default now) when its value is no longer that default. A failed write rolls its approvals back. */
-export const save = (rev: number, acceptDefaults: AcceptDefaults, signal?: AbortSignal) => json<Saved>(fetch('save', {
-  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, acceptDefaults }), signal,
+/** The command applies the edit list ``edits`` to the file and writes it, if the session is still at
+ * ``rev``: all or nothing. 409 when the session moved on, or (--in-place) the file changed on disk;
+ * 422 `{error, failures}` when an entry cannot be applied (nothing written), or while the session
+ * holds answers changed by an agent and not saved; 400 for a malformed list. */
+export const save = (rev: number, edits: EditList, signal?: AbortSignal) => json<Saved>(fetch('save', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, edits }), signal,
 }));
 
 /** Diff mode: the command's comparison, exactly what WASM `diff()` returns with the PMI scenes

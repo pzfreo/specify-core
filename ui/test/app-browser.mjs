@@ -9,7 +9,8 @@ import { characteristicHistory, validateOpening, wasmDirectory } from './engine-
 // The local app (dist-app, `npm run build:app`) served by the real `specify-core open`, the manual
 // way in (no agent; test/app-agent.mjs is the agent's): on a part it loads, is titled for the file,
 // takes an answer, has the command save part.specified.step beside it (whose PMI `specify-core
-// analyse` reads back) even with questions open, saying which, saves with the defaults when asked,
+// analyse` reads back) even with questions open, saying which, saves with the defaults when asked
+// (each confirmed default an edit list's fill of the value shown: session API 2, `POST save {rev, edits}`),
 // resumes from that file with the open questions still open, and has no Save when read-only. With
 // `open --diff OLD NEW` it shows what changed, lists what needs a decision, opens NEW's
 // requirements in Graphical, and Save writes NEW with the carried answers. With `--in-place`, a
@@ -18,7 +19,7 @@ import { characteristicHistory, validateOpening, wasmDirectory } from './engine-
 // when it gets one. Nothing is requested from anywhere but 127.0.0.1. `npm run test:app`.
 //
 //   SPECIFY_CORE  the specify-core binary (default: specify-core on PATH); it needs the session
-//                 contract (`GET answers`, `POST save {rev, acceptDefaults}`, `open --diff`).
+//                 contract, API 2 (`GET answers`, `POST save {rev, edits}`, `open --diff`).
 //   SPECIFY_WASM_DIR  the engine's pkg/ (default: public/wasm/intent, from `npm run fetch:wasm`).
 //   SPECIFY_APP_BUILT_IN=1  serve the app and engine built into SPECIFY_CORE (ADR P12) instead
 //                 of passing --app dist-app --wasm SPECIFY_WASM_DIR (the release's check).
@@ -105,9 +106,27 @@ let listed = [];
 /** The answers a person gave: Specify's own `_` records left out. */
 const given = answers => Object.fromEntries(Object.entries(answers ?? {}).filter(([id]) => !id.startsWith('_')));
 const analyse = file => JSON.parse(execFileSync(cli, ['analyse', '--output', '-', file], { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] }));
-// What a file states, by question id: its feature table's stated rows (ADR P11: an answer that
-// leaves PMI is stated by the file, not stored as an answer).
-const stated = file => Object.fromEntries((analyse(file).table?.rows ?? []).filter(r => r.state === 'stated').map(r => [r.id, r.value]));
+/** ADR P11: what the file states, by feature-and-kind (the analysis's table): each row's state and value. */
+const table = file => Object.fromEntries((analyse(file).table?.rows ?? []).map(r => [r.id, r]));
+/** The feature-and-kinds the file holds, stated or decided none, and the choices with no row it
+ * stores (how holes are located, `part.locating`: it writes no PMI, so the file stores it). */
+const held = file => {
+  const rows = table(file);
+  const choices = Object.keys(given(analyse(file).resume?.answers)).filter(id => !(id in rows));
+  return [...Object.entries(rows).filter(([, r]) => r.state === 'stated' || r.state === 'decided_none').map(([id]) => id), ...choices];
+};
+/** The file holds exactly ``ids``: each is stated or decided none, and any other row it holds is stated
+ * only by requirements of those (a tapped hole's thread also states its full-thread depth). */
+function holdsExactly(file, ids, message) {
+  const rows = table(file);
+  assert.deepEqual(ids.filter(id => !held(file).includes(id)), [], `${message}: each is in the file`);
+  const theirs = new Set(ids.flatMap(id => (rows[id]?.requirements ?? []).map(r => r.number ?? r.text)));
+  const others = held(file).filter(id => !ids.includes(id) && !(rows[id]?.state === 'stated'
+    && rows[id].requirements?.length && rows[id].requirements.every(r => theirs.has(r.number ?? r.text))));
+  assert.deepEqual(others, [], `${message}: nothing else`);
+}
+/** A save from the page's origin with an edit list (session API 2). */
+const post = (server, body) => fetch(`${server.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: server.origin }, body: JSON.stringify(body) });
 
 async function downloadFile(page, name, filename) {
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name }).click()]);
@@ -218,9 +237,12 @@ try {
     await check(page.locator('.app-saved')).toContainText(specified);
     await check.poll(() => (server.output().match(/Saved /g) ?? []).length).toBe(2);
     copyFileSync(specified, withDefaults);
-    // The value the person confirmed is exactly what lands in the file.
-    // ADR P11: the general tolerance leaves PMI (its note), so the file states it; no answer stores it.
-    assert.equal(stated(withDefaults)['part.general_tolerance'], shownTolerance, 'the file states the value listed');
+    // The value the person confirmed is exactly what lands in the file. ADR P11: the file states it
+    // (its table row), it is not a stored answer (was: `resume.answers`, an inherited failure since P11).
+    const tolerance = table(withDefaults)['part.general_tolerance'];
+    assert.equal(tolerance.state, 'stated', 'the confirmed general tolerance is stated in the file');
+    assert.match(JSON.stringify(tolerance.value), new RegExp(shownTolerance.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'the value stated is the value listed');
+    holdsExactly(withDefaults, listed, 'the confirmed defaults are in the file, stated or decided none');
     await check(page.getByRole('alert')).toHaveCount(0);
     assert.ok(existsSync(withDefaults), 'the defaults save written');
     assert.match(server.output(), /Saved .*part\.specified\.step[^\n]*\n[^]*Saved .*part\.specified\.step/);
@@ -237,10 +259,8 @@ try {
     // The exports stay those of the file as saved, not the unsaved answer.
     await inspectSaved(page, specified, withDefaults);
     await answersUnavailable(page);
-    // A plain Save writes the answers given and assumes no new defaults. The defaults the person
-    // confirmed earlier are answers in the session now (the command made them so), so with the
-    // material given nothing is left open (before the per-part contract they were never answers, so
-    // the page said 'still open' and stored the material alone).
+    // A plain Save writes the answer given (a fill) and assumes no new defaults. The defaults the
+    // person confirmed earlier are in the file now, so with the material given nothing is left open.
     const beforeAnswer = await savedLine(page);
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await check(page.locator('.app-saved')).toContainText(specified);
@@ -249,11 +269,10 @@ try {
     copyFileSync(specified, second);
     await assertExportsFromSaved(page, second, beforeAnswer);
     await check(page.locator('.app-dirty')).toHaveCount(0);
-    // ADR P11: the file stores only the answers that leave no PMI; it states the rest.
-    const kept = given(analyse(second).resume?.answers), said = stated(second);
-    assert.deepEqual([...listed, 'part.material'].filter(id => !(id in kept) && !(id in said)), [], 'Save keeps every answer given and default confirmed, stored or stated');
-    assert.deepEqual(Object.keys(kept).filter(id => !listed.includes(id) && id !== 'part.material'), [], 'nothing else stored');
-    assert.equal(said['part.material'], 'Aluminium 6082-T6');
+    // ADR P11: the file holds the answer given and the defaults confirmed (stated, or decided none),
+    // and nothing else of the suggestions (was: the stored answers, an inherited failure since P11).
+    holdsExactly(second, [...listed, 'part.material'], 'Save writes the answer given and the defaults confirmed');
+    assert.match(JSON.stringify(table(second)['part.material'].value), /Aluminium 6082-T6/);
     onlyLocal(requests, server.origin);
     // Leaving the page (pagehide, not into the back/forward cache) sends `closed`: the command then
     // stops 90 s later (without it, after 30 minutes), checked at the end.
@@ -261,56 +280,14 @@ try {
     first = server;
     await context.close();
   }
-  // A scene can refuse private metadata even when review accepts it. Opening must finish
-  // with the actual engine error and disabled Save, rather than an endless loading state.
-  {
-    const server = await open(part);
-    const { rev } = await (await fetch(`${server.url}answers`)).json();
-    const answers = { 'part.material': 'Steel', _specify: { keep: [], private_state: 'not an answer' },
-      _specify_characteristic_numbers: { schema: 2, high_water: 0, entries: [] } };
-    const put = await fetch(`${server.url}answers`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Origin: server.origin }, body: JSON.stringify({ rev, part: 0, answers }) });
-    assert.equal(put.status, 200);
-    const { context, page } = await load(server, '.app-open-failed');
-    await check(page.getByRole('alert')).toContainText('_specify_characteristic_numbers: missing field `faces`');
-    await check(page.getByRole('alert')).toContainText('Correct the session answers, then reload this page');
-    await check(page.locator('.app-loading')).toHaveCount(0);
-    await check(page.locator('.pmi-lab-panel')).toHaveCount(0);
-    for (const name of ['Save', 'Save with defaults']) {
-      const button = page.getByRole('button', { name, exact: true });
-      await check(button).toBeDisabled();
-      await check(button).toHaveAttribute('title', /Save is disabled until the file and its answers can be loaded/);
-    }
-    await context.close();
-    server.stop();
-  }
-  // Answers with a real writer record open. The old invented history was invalid (no faces
-  // fingerprint), so it tested an opening refusal.
-  {
-    const server = await open(part);
-    const { rev } = await (await fetch(`${server.url}answers`)).json();
-    const history = characteristicHistory(new Uint8Array(readFileSync(withDefaults)));
-    assert.ok(history.faces && history.entries.length, 'use the history written by the earlier successful Save');
-    const answers = { 'part.material': 'Steel', _specify: { keep: [] }, _specify_characteristic_numbers: history };
-    assert.doesNotThrow(() => validateOpening('part.step', new Uint8Array(readFileSync(part)), answers), 'the fixture passes review AND scene in the served 0.2.0 engine');
-    const put = await fetch(`${server.url}answers`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Origin: server.origin }, body: JSON.stringify({ rev, part: 0, answers }) });
-    assert.equal(put.status, 200);
-    const { context, page } = await load(server);
-    await check(page.locator('.pmi-lab-panel')).toBeVisible();
-    await answersUnavailable(page);
-    await context.close();
-    server.stop();
-  }
   // The PMI Specify wrote reads back.
   {
     const analysis = analyse(withDefaults);
     assert.ok(!('part.material' in (analysis.resume?.answers ?? {})), 'the defaults save had no material');
-    // The page sends the ids it listed and the person confirmed, each with the value seen (`acceptDefaults: {"0": {id: value}}`): the
-    // command makes exactly those answers (a new rev) and stores them, so the answers stored are the
-    // confirmed defaults and nothing else (before the per-part contract: the session's, none here).
-    // ADR P11: stored are those of them that leave no PMI; the file states the rest.
-    const kept = given(analysis.resume?.answers), said = stated(withDefaults);
-    assert.deepEqual(Object.keys(kept).filter(id => !listed.includes(id)), [], 'no answer stored but the defaults confirmed');
-    assert.deepEqual(listed.filter(id => !(id in kept) && !(id in said)), [], 'every default confirmed is stored or stated');
+    // The page sends the ids it listed and the person confirmed, each a fill of the value seen
+    // (`edits: {fill: {id: value}}`): the file holds exactly those and nothing else (ADR P11: stated or
+    // decided none; was the stored answers, an inherited failure since P11).
+    holdsExactly(withDefaults, listed, 'the file holds the defaults confirmed');
     const plain = (analyse(plainSave).characteristics ?? []).length;
     assert.ok((analysis.characteristics ?? []).length > plain, 'the defaults save has the defaults\' PMI');
     const kinds = new Set((analysis.characteristics ?? []).map(c => c.kind));
@@ -321,7 +298,9 @@ try {
     const server = await open(second);
     const { context, page, requests } = await load(server);
     await check(page).toHaveTitle('part.specified-3.step — Specify');
-    await check(page.locator('.pmi-lab-resumed')).toBeVisible();
+    // ADR P11: the file states what was saved (nothing here is a stored decision), and the page shows
+    // it as the file's (was: the "opened with the answers" note, which needs stored answers).
+    assert.equal(table(second)['part.material'].state, 'stated');
     await check(page.locator('.pmi-lab-panel')).toContainText('6082');
     await check(page.locator('.app-dirty')).toHaveCount(0);
     // The heartbeat: `GET config` again within 30 s of the first.
@@ -332,8 +311,8 @@ try {
     await context.close();
     server.stop();
   }
-  // An assembly saved with its defaults: the 3D view draws the saved file's PMI for the part
-  // shown, for another part shown next, and again on coming back (specify-ui#14).
+  // An assembly: Save with defaults lists every part's, but an edit list applies to one part (the
+  // piece-2 follow-on brings edits on parts of an assembly): the page says so and writes nothing.
   {
     const asmDir = join(dir, 'drawn');
     mkdirSync(asmDir);
@@ -341,36 +320,14 @@ try {
     writeFileSync(asm, gunzipSync(readFileSync('test/fixtures/gramil_assembly_before.step.gz')));
     const server = await open(asm);
     const { context, page, requests } = await load(server);
-    const viewPmi = page.getByRole('radiogroup', { name: 'View PMI' });
-    const select = page.locator('.app-part select');
-    await check(select).toBeVisible();
-    /** The PMI drawn for the part shown: its graphics, by the planes they are looked square at. */
-    const drawn = async () => {
-      await check(viewPmi).toBeVisible();
-      await viewPmi.getByRole('radio', { name: 'Graphical' }).check();
-      const squares = page.locator('.pmi-lab-squares button');
-      await check(squares.first()).toBeAttached();
-      return squares.allTextContents();
-    };
-    // Before the save: the scene built on opening, from the answers then.
-    const opening = await drawn();
+    await check(page.locator('.app-part select')).toBeVisible();
     await page.getByRole('button', { name: 'Save with defaults' }).click();
     const list = page.getByRole('dialog', { name: 'Save with defaults' });
+    await check(list.locator('[data-part]').first()).toBeVisible();
+    assert.ok(await list.locator('[data-part]').count() > 1, 'defaults listed for several parts');
     await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
-    await check(page.locator('.app-saved')).toContainText(join(asmDir, 'asm.specified.step'));
-    // After it: the saved file's PMI, as the file states it (its datum features and callouts).
-    await check.poll(async () => JSON.stringify(await drawn())).not.toBe(JSON.stringify(opening));
-    const afterSave = await drawn();
-    assert.ok(afterSave.length > 0, 'the saved PMI is drawn');
-    const shownPart = await select.inputValue();
-    const values = await select.locator('option').evaluateAll(options => options.map(o => o.value));
-    const other = values.find(v => v !== shownPart);
-    await select.selectOption(other);
-    await check(select).toHaveValue(other);
-    assert.ok((await drawn()).length > 0, 'another part shows its saved PMI');
-    await select.selectOption(shownPart);
-    await check(select).toHaveValue(shownPart);
-    assert.deepEqual(await drawn(), afterSave, 'coming back shows the saved PMI again');
+    await check(page.getByRole('alert').first()).toContainText('cannot be saved together yet');
+    assert.ok(!existsSync(join(asmDir, 'asm.specified.step')), 'nothing written');
     onlyLocal(requests, server.origin);
     await context.close();
     server.stop();
@@ -386,9 +343,9 @@ try {
     await context.close();
     server.stop();
   }
-  // A default whose value no longer matches (the command's 400 with expected and current) is said
-  // plainly, nothing is written and the defaults are listed again; a failed write rolls its approvals
-  // back, so the page does not show them as applied.
+  // An edit list the command refuses (all or nothing: 422, every failing entry named) writes nothing,
+  // and the page says which change; a failed write (the folder read-only) is said, and nothing is
+  // written; writable again, the same confirmation saves.
   {
     const copy = join(dir, 'fresh');
     mkdirSync(copy);
@@ -396,31 +353,30 @@ try {
     writeFileSync(file, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
     const server = await open(file);
     const { context, page } = await load(server);
-    const { rev, parts } = await (await fetch(`${server.url}answers`)).json();
+    const { rev } = await (await fetch(`${server.url}answers`)).json();
+    // The command's own refusals: a list with an unknown id (422, naming it), a malformed list (400),
+    // and no list at all (400).
+    const refused = await post(server, { rev, edits: { fill: { 'part.material': 'Steel', 'nope.unknown': 1 } } });
+    assert.equal(refused.status, 422);
+    const body = await refused.json();
+    assert.deepEqual(body.failures.map(f => f.entry), ['fill["nope.unknown"]']);
+    assert.equal((await post(server, { rev, edits: { fill: [] } })).status, 400, 'a malformed list');
+    assert.equal((await post(server, { rev, acceptDefaults: {} })).status, 400, 'the API 1 body is not a list');
+    assert.ok(!existsSync(join(copy, 'shaft.specified.step')), 'nothing written');
     await page.getByRole('button', { name: 'Save with defaults' }).click();
     const list = page.getByRole('dialog', { name: 'Save with defaults' });
     await check(list.locator('[data-default]').first()).toBeVisible();
-    const id = await list.locator('[data-default]').first().getAttribute('data-default');
-    // The command's own refusal of a stale value: what was sent and what the default is.
-    const wrong = await fetch(`${server.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: server.origin }, body: JSON.stringify({ rev, acceptDefaults: { 0: { [id]: 'not-the-default' } } }) });
-    assert.equal(wrong.status, 400);
-    const body = await wrong.json();
-    assert.deepEqual([body.part, body.question, body.expected], [0, id, 'not-the-default']);
-    assert.ok('current' in body);
-    assert.ok(!existsSync(join(copy, 'shaft.specified.step')), 'nothing written');
-    // The page, meeting it: says what changed, and lists the defaults again.
-    await page.route('**/save', route => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ ...body, current: 'a new default' }) }));
+    // The page, meeting a refusal: says which change cannot be applied, and that nothing was written.
+    await page.route('**/save', route => route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify(body) }));
     await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
-    await check(page.getByRole('alert').first()).toContainText(`the default for ${id}`);
-    await check(page.getByRole('alert').first()).toContainText('changed. You confirmed');
-    await check(page.getByRole('alert').first()).toContainText('it is now a new default');
-    await check(page.getByRole('alert').first()).toContainText('Nothing was written');
-    await check(list).toBeVisible();
+    await check(page.getByRole('alert').first()).toContainText('nothing was written');
+    await check(page.getByRole('alert').first()).toContainText('nope.unknown');
     await page.unroute('**/save');
-    problems.splice(0, problems.length, ...problems.filter(p => !/400/.test(p)));
+    problems.splice(0, problems.length, ...problems.filter(p => !/40\d|422/.test(p)));
     assert.ok(!existsSync(join(copy, 'shaft.specified.step')), 'nothing written');
-    // The write fails (the folder is read-only): the approvals are rolled back, the page shows none of them.
+    // The write fails (the folder is read-only): Not saved, nothing changed in the session.
     if (process.getuid?.() !== 0) {
+      await page.getByRole('button', { name: 'Save with defaults' }).click();
       chmodSync(copy, 0o555);
       try {
         await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
@@ -428,8 +384,6 @@ try {
       } finally { chmodSync(copy, 0o755); }
       await check(page.locator('.app-saved')).toHaveCount(0);
       await check(page.locator('.app-dirty')).toHaveCount(0);
-      const now = await (await fetch(`${server.url}answers`)).json();
-      assert.deepEqual(given(now.parts['0'] ?? {}), given(parts['0'] ?? {}), 'the session holds no approval after the failed write');
       await check(page.locator('.pmi-lab-panel')).toContainText('Suggested: ISO 2768-m');
       problems.splice(0, problems.length, ...problems.filter(p => !/50\d/.test(p)));
       // The folder writable again, the same confirmation saves.
@@ -451,7 +405,7 @@ try {
     if (shots) await page.screenshot({ path: join(shots, 'read-only.png') });
     // The command refuses a save as the page would send it (its Origin, the session's rev).
     const { rev } = await (await fetch(`${server.url}answers`)).json();
-    const refused = await fetch(`${server.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: server.origin }, body: JSON.stringify({ rev, acceptDefaults: {} }) });
+    const refused = await post(server, { rev, edits: {} });
     assert.equal(refused.status, 409, 'a save is refused when read-only');
     onlyLocal(requests, server.origin);
     await context.close();
@@ -475,9 +429,9 @@ try {
     const original = await inspectSaved(page, saved);
     assert.match(original.form2, /MATERIAL:? Aluminium 6082-T6/);
     assert.ok(existsSync(`${saved}.bak`), 'successful in-place save retained the original backup');
-    await page.locator('.pmi-lab-panel').getByRole('button', { name: /^Material/ }).click();
-    await box.fill('Brass CW614N');
-    await box.press('Enter');
+    // A further edit (after the save the material is the file's, which this page cannot change yet:
+    // piece 7; so another question's suggestion is kept): the saved exports do not change.
+    await page.locator('.pmi-lab-suggestion:has([data-suggestion="part.surface_finish"])').getByRole('button', { name: 'Keep', exact: true }).click();
     await check(page.locator('.app-dirty')).toBeVisible();
     assert.deepEqual(await inspectSaved(page, saved), original, 'further edits leave both saved inspection downloads unchanged');
     await context.close();
@@ -595,13 +549,10 @@ try {
     const before = problems.length;
     const { context, page, requests } = await load(server);
     await check(page.locator('.app-offline')).toContainText('Not receiving live updates');
-    // Another tab answers meanwhile: this page cannot hear it yet.
-    const { rev } = await (await fetch(`${server.url}answers`)).json();
-    const put = await fetch(`${server.url}answers`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Origin: server.origin }, body: JSON.stringify({ rev, part: 0, answers: { 'part.material': 'Brass CW614N' } }) });
-    assert.equal(put.status, 200);
+    // (Session API 2: there is no `PUT answers`, so no other tab can change the session meanwhile in
+    // `open`; app-agent.mjs covers an agent's answers. Here: the page catches up once it gets a stream.)
     for (const { stop } of taken) stop.abort();
     await check(page.locator('.app-offline')).toHaveCount(0);
-    await check(page.locator('.pmi-lab-panel')).toContainText('CW614N');
     // The refused stream's 503s are the browser's console errors, expected here.
     problems.splice(before, problems.length - before, ...problems.slice(before).filter(p => !/503|EventSource|events/.test(p)));
     onlyLocal(requests, server.origin);

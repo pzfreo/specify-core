@@ -2,6 +2,8 @@
 import pytest
 from specify_core import api
 
+from written import write_answers
+
 UNKNOWN = "Invalid answers: bogus.question: unknown answer ID"
 
 
@@ -17,9 +19,7 @@ def answers(locating):
 
 
 def written(plate, tmp_path, given):
-    analysis = api.analyse(plate)
-    intent = api.apply(analysis, given, accept_defaults=True)
-    return api.write(plate, intent, tmp_path / "out.step", answers=given)
+    return write_answers(plate, given, tmp_path / "out.step", accept_defaults=True)
 
 
 def test_flatness_under_both_ways_of_locating(plate, tmp_path):

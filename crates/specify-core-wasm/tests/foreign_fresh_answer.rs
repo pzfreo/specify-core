@@ -1,7 +1,8 @@
-//! ADR P11 through the editor's session: another tool re-authored Specify's hole position 0.5
-//! as its own 1.5. Reopening shows 1.5 (no conflict); a save keeps it; answering 0.5 afresh
-//! and writing (`acceptDefaults`, then `writePmi`, as the editor's worker does) must keep the
-//! file's 1.5 alone and say why 0.5 wasn't written (changing it is an explicit edit).
+//! ADR P11 through the engine: another tool re-authored Specify's hole position 0.5 as its own
+//! 1.5. Reopening shows 1.5 (no conflict); a save (`edit` of the answers it opened with) keeps
+//! it; answering 0.5 afresh and saving is refused, all or nothing, saying the file states 1.5
+//! (changing it is an explicit `change`), and the file keeps its 1.5 alone. (The fixture is a
+//! file Specify 0.2 wrote, made by the library's writer.)
 use serde_json::{Map, Value, json};
 use specify_core::{api, existing::read_existing, part::load_bytes};
 use specify_core_wasm::session::Session;
@@ -67,12 +68,14 @@ fn opened(session: &Session) -> Map<String, Value> {
     resume["answers"].as_object().unwrap().clone()
 }
 
-/// The editor's Save: `writePmi(acceptDefaults(answers))`.
-fn save(session: &Session, answers: &Map<String, Value>) -> (Vec<u8>, Value) {
-    let accepted = session.accept_defaults(answers).unwrap();
-    let written = session.write_pmi(&accepted, None, None).unwrap();
-    let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
-    (bytes, written["report"].clone())
+/// A save: the engine's `edit` of these answers (a 0.2 answers map, read as fills), the bytes
+/// written, or what refused it.
+fn save(session: &Session, answers: &Map<String, Value>) -> Result<Vec<u8>, Value> {
+    let written = session.edit(&Value::Object(answers.clone()).to_string());
+    if written["written"] != json!(true) {
+        return Err(written);
+    }
+    Ok(serde_json::from_value(written["bytes"].clone()).unwrap())
 }
 
 #[test]
@@ -86,7 +89,7 @@ fn the_editor_does_not_replace_another_tools_position_with_a_fresh_answer() {
         "{}",
         analysis["resume"]
     );
-    let (saved, _) = save(&session, &opened(&session));
+    let saved = save(&session, &opened(&session)).unwrap();
     assert_eq!(positions(&saved), [(1.5, false)]);
     let session = Session::open("plate.step", &saved).unwrap();
     let resume = session.snapshot()["analysis"]["resume"].clone();
@@ -94,19 +97,23 @@ fn the_editor_does_not_replace_another_tools_position_with_a_fresh_answer() {
     assert!(resume["answers"].get(HOLE).is_none(), "{resume}");
     let mut answers = opened(&session);
     answers.insert(HOLE.into(), json!("0.5"));
-    let (answered, report) = save(&session, &answers);
-    assert_eq!(positions(&answered), [(1.5, false)], "{report}");
+    // Was: written with 0.5 not written ("the file already states this requirement"); an edit
+    // list refuses the differing fill instead, naming it, and writes nothing.
+    let refused = save(&session, &answers).unwrap_err();
     assert!(
-        report["not_written"]
+        refused["failures"]
             .as_array()
             .unwrap()
             .iter()
-            .filter_map(Value::as_str)
-            .any(|l| l.starts_with(HOLE) && l.contains("the file already states this requirement")),
-        "{report}"
+            .any(|f| f["entry"].as_str().is_some_and(|e| e.contains(HOLE))
+                && f["reason"]
+                    .as_str()
+                    .is_some_and(|r| r.contains("already states"))),
+        "{refused}"
     );
+    assert_eq!(positions(&saved), [(1.5, false)]);
     // Reopened once more: still the other tool's 1.5, and no answer stored for it.
-    let again = Session::open("plate.step", &answered).unwrap();
+    let again = Session::open("plate.step", &saved).unwrap();
     let resume = again.snapshot()["analysis"]["resume"].clone();
     assert!(resume["answers"].get(HOLE).is_none(), "{resume}");
 }

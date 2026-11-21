@@ -1,10 +1,12 @@
-// Save: the command writes the specified STEP from the session's answers (`POST save {rev,
-// acceptDefaults}`, specify-core docs/open.md), with the same writer and naming as the agent's
-// `save`. It never refuses for open questions: many AP242 files have no complete answer to
-// everything, and a part with incomplete PMI is still worth saving. It says what is still open.
+// Save: the page sends the edits it has collected (`POST save {rev, edits}`, specify-core
+// docs/open.md, session API 2) and the command applies them to the file, all or nothing, with the
+// same writer and naming as the agent's `save`. Each answer the person gave is a fill (a value
+// meaning none records "decided: none"); each default the person confirmed is a fill of the value
+// they saw. Anything not sent is left as the file has it. It never refuses for open questions: many
+// AP242 files have no complete answer to everything. It says what is still open.
 import type { PmiAnswers } from '../src/types/pmi';
 import type { AnswersSession, AnswersStore } from './answers.ts';
-import { Refused, save as post, type AcceptDefaults, type Saved } from './local.ts';
+import { Refused, save as post, type EditFailure, type EditList, type Saved } from './local.ts';
 
 /** A default a save with defaults would write: part ``part``'s question ``id`` set to ``value``
  * (``raw``, the default itself, is what is compared; ``value`` is how it reads). */
@@ -28,16 +30,20 @@ export class Stale extends Error {}
 export class FileChanged extends Error {}
 /** Nothing saved: the defaults a save would write are no longer the ones the person confirmed. */
 export class DefaultsChanged extends Error {}
-/** Nothing saved: the command refused a default listed (not an open question with a default on that part). */
-export class DefaultRefused extends Error {
-  readonly part: number | null;
-  readonly question: string | null;
-  /** Set when the value confirmed is no longer the default: what the person saw, and what it is now. */
-  readonly values: { expected: unknown; current: unknown } | null;
-  constructor(message: string, part: number | null, question: string | null, values: { expected: unknown; current: unknown } | null = null) {
-    super(message); this.part = part; this.question = question; this.values = values;
-  }
+/** Nothing saved: the command refused the edit list (all or nothing); ``failures`` names every entry
+ * that cannot be applied, and why. */
+export class EditsRefused extends Error {
+  readonly failures: readonly EditFailure[];
+  constructor(message: string, failures: readonly EditFailure[]) { super(message); this.failures = failures; }
 }
+/** Nothing saved: changes this page cannot send as an edit list yet: changes on several parts of an
+ * assembly (a list applies to one part). ``ids``: the parts concerned. */
+export class CannotSend extends Error {
+  readonly ids: readonly string[];
+  constructor(message: string, ids: readonly string[]) { super(message); this.ids = ids; }
+}
+const severalParts = (parts: readonly number[]) => new CannotSend(
+  `changes on ${parts.length} parts of an assembly cannot be saved together yet: an edit list applies to one part`, parts.map(String));
 
 /** The parts a save writes (specify-core docs/open.md): every part with at least one answer in the
  * session (approved defaults count), and a file's only part. A part with no answers is left as it is. */
@@ -55,12 +61,21 @@ export function defaultParts(parts: Record<string, PmiAnswers>, indexes: readonl
   return [...new Set([...indexes, ...Object.keys(parts).map(Number)])].sort((a, b) => a - b);
 }
 
-/** The defaults as the command takes them: each question id confirmed with the value the person
- * saw (``raw`` is that value as JSON), by part index. */
-export function acceptedDefaults(defaults: readonly Default[]): AcceptDefaults {
-  const out: AcceptDefaults = {};
-  for (const d of defaults) (out[String(d.part)] ??= {})[d.id] = JSON.parse(d.raw);
-  return out;
+/** The edit list for a part: each answer the page shows (``after``) that differs from the session's
+ * (``base``, what the file stores) is a fill, each default confirmed (``raw``, the value the person
+ * saw, as JSON) is a fill of that value, and an answer the file stores that the page cleared is a
+ * clear (the file stores only decisions that leave no PMI). Specify's own `_` records are never sent. */
+export function editsFor(base: PmiAnswers, after: PmiAnswers, defaults: readonly Pick<Default, 'id' | 'raw'>[] = []): EditList {
+  const fill: Record<string, unknown> = {};
+  const clear: string[] = [];
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  for (const id of new Set([...Object.keys(base), ...Object.keys(after)])) {
+    if (id.startsWith('_') || same(base[id], after[id])) continue;
+    if (id in after) fill[id] = after[id];
+    else clear.push(id);
+  }
+  for (const d of defaults) if (!(d.id in fill)) fill[d.id] = JSON.parse(d.raw);
+  return { ...(Object.keys(fill).length ? { fill } : {}), ...(clear.length ? { clear } : {}) };
 }
 
 const given = (answers: PmiAnswers) => JSON.stringify(Object.entries(answers).filter(([id]) => !id.startsWith('_')).sort(([a], [b]) => (a < b ? -1 : 1)));
@@ -71,41 +86,46 @@ export function sameDefaults(a: readonly Default[], b: readonly Default[]): bool
   return key(a) === key(b);
 }
 
-/** Saves the session at the revision the page shows, once the page's own changes are in it.
- * ``shown()``: the answers the page shows, so a save never writes answers the person has not seen.
- * ``defaultsOf(parts)``: the defaults a save with defaults would write for the session's answers
- * ``parts`` (every part's, by index): those of every part the save writes. */
-export function sessionSaver(store: AnswersStore, session: Pick<AnswersSession, 'parts' | 'signal'>, shown: () => PmiAnswers, defaultsOf: (parts: Record<string, PmiAnswers>) => Promise<Default[]>, write = post): Saver {
+/** Saves the page's edits at the revision the page shows. ``shown()``: the answers the page shows for
+ * the part shown, so a save never writes answers the person has not seen. ``defaultsOf(parts)``: the
+ * defaults a save with defaults would write for the answers ``parts`` (every part's, by index). The
+ * edit list covers every part the page changed (the command applies a list to a file of one part). */
+export function sessionSaver(store: AnswersStore, session: Pick<AnswersSession, 'parts' | 'signal' | 'answers' | 'shown' | 'changedParts' | 'commit'>, shown: () => PmiAnswers, defaultsOf: (parts: Record<string, PmiAnswers>) => Promise<Default[]>, write = post): Saver {
   return {
     async save({ defaults }) {
       session.signal.throwIfAborted();
       const rev = await store.settled();
       session.signal.throwIfAborted();
       const answers = store.get();
-      const parts = session.parts();
       if (given(answers) !== given(shown())) throw new NotShown('the answers changed just now');
+      // The parts as the page shows them: the session's, with the page's unsaved changes.
+      const parts = session.parts();
+      for (const part of session.changedParts()) parts[String(part)] = session.shown(part);
       // The whole set, part by part, value by value: any default added, gone or changed (an agent
       // answered meanwhile) means a list the person has not confirmed.
       if (defaults.length && !sameDefaults(await defaultsOf(parts), defaults)) throw new DefaultsChanged('the defaults to write changed');
-      // Pagehide may have run while PUTs or the defaults review were pending. It cancels this
-      // signal before closed, preventing a deferred POST and aborting an in-flight request.
+      // Pagehide may have run while the defaults review was pending. It cancels this signal before
+      // closed, preventing a deferred POST and aborting an in-flight request.
       session.signal.throwIfAborted();
+      const indexes = [...new Set([...session.changedParts(), ...defaults.map((d) => d.part)])].sort((a, b) => a - b);
+      if (indexes.length > 1) throw severalParts(indexes);
+      const edits: EditList = indexes.length
+        ? editsFor(session.answers(indexes[0]!), session.shown(indexes[0]!), defaults)
+        : {};
       try {
-        // Exactly the defaults the person confirmed, each on the part it was listed for; checked
-        // above for every part at this rev (a later rev is a 409).
-        const approved = acceptedDefaults(defaults);
-        const saved = await write(rev, approved, session.signal);
+        const saved = await write(rev, edits, session.signal);
+        // The edits are in the file now.
+        session.commit();
         const answers = { ...parts };
-        for (const [part, values] of Object.entries(approved)) answers[part] = { ...answers[part], ...values };
+        for (const d of defaults) answers[String(d.part)] = { ...answers[String(d.part)], [d.id]: JSON.parse(d.raw) };
         return { ...saved, answers };
       } catch (error) {
         // Both are 409s with the session's rev: when the session is still at the page's rev, it is the file that changed.
         if (error instanceof Refused && error.status === 409 && typeof error.body.rev === 'number') {
           throw error.body.rev === rev ? new FileChanged(error.message) : new Stale(error.message);
         }
-        if (error instanceof Refused && error.status === 400 && typeof error.body.question === 'string') {
-          const values = 'expected' in error.body && 'current' in error.body ? { expected: error.body.expected, current: error.body.current } : null;
-          throw new DefaultRefused(error.message, typeof error.body.part === 'number' ? error.body.part : null, error.body.question, values);
+        if (error instanceof Refused && Array.isArray(error.body.failures)) {
+          throw new EditsRefused(error.message, error.body.failures as EditFailure[]);
         }
         throw error;
       }

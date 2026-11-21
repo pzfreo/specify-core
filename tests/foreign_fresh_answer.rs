@@ -182,7 +182,9 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_on_the_cli() {
     assert_held(&report);
 }
 
-/// The same over MCP: `open`, `save`, then reopen, `answer` 0.5 and `save`.
+/// The same over MCP: `open`, `save`, then reopen; `answer` 0.5 is refused, and so is `save`
+/// with a fill of 0.5 (Specify 0.3.0: a fill differing from what the file states refuses the whole list, naming it, and writes
+/// nothing; the other tool's 1.5 stands).
 #[test]
 fn a_fresh_answer_does_not_replace_another_tools_requirement_over_mcp() {
     let dir = dir("mcp");
@@ -197,29 +199,27 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_over_mcp() {
                 "io.modelcontextprotocol/clientCapabilities": {}
             }
         }});
-        let result = server.handle(&request, None).body.unwrap()["result"].clone();
+        server.handle(&request, None).body.unwrap()["result"].clone()
+    };
+    let mut ok = |name: &str, arguments: Value| -> Value {
+        let result = call(name, arguments);
         assert_ne!(result["isError"], json!(true), "{name}: {result}");
         result["structuredContent"].clone()
     };
-    let opened = call("open", json!({"path": input}));
+    let opened = ok("open", json!({"path": input}));
     assert!(opened.get("conflicts").is_none(), "{opened}");
-    let saved = call("save", json!({"doc": opened["doc"], "accept_defaults": {}}));
+    let saved = ok("save", json!({"doc": opened["doc"], "edits": {}}));
     let path = saved["path"].as_str().unwrap().to_string();
     let back = load(std::fs::read(&path).unwrap());
     assert_eq!(positions(&back), [(1.5, false)]);
     assert_no_conflict(&api::analyse(&back).unwrap());
-    let reopened = call("open", json!({"path": path}));
-    // ADR P11: the file states the hole's position, so the answer is refused up front with the
-    // edit list's reason (before, it was accepted and the save held the file's 1.5).
-    let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
-        "name": "answer",
-        "arguments": {"doc": reopened["doc"], "set": {(HOLE): "0.5"}},
-        "_meta": {
-            "io.modelcontextprotocol/protocolVersion": specify_core::mcp::MODERN,
-            "io.modelcontextprotocol/clientCapabilities": {}
-        }
-    }});
-    let refused = server.handle(&request, None).body.unwrap()["result"].clone();
+    let reopened = ok("open", json!({"path": path}));
+    // ADR P11: the file states the hole's position, so an answer is refused up front with the
+    // edit list's reason.
+    let refused = call(
+        "answer",
+        json!({"doc": reopened["doc"], "set": {(HOLE): "0.5"}}),
+    );
     assert_eq!(refused["isError"], json!(true), "{refused}");
     let message = refused["structuredContent"]["error"]["message"]
         .as_str()
@@ -230,22 +230,21 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_over_mcp() {
             && message.contains(&format!("for {HOLE}, so there is no gap to fill")),
         "{message}"
     );
-    let mut call = |name: &str, arguments: Value| -> Value {
-        let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
-            "name": name, "arguments": arguments,
-            "_meta": {
-                "io.modelcontextprotocol/protocolVersion": specify_core::mcp::MODERN,
-                "io.modelcontextprotocol/clientCapabilities": {}
-            }
-        }});
-        let result = server.handle(&request, None).body.unwrap()["result"].clone();
-        assert_ne!(result["isError"], json!(true), "{name}: {result}");
-        result["structuredContent"].clone()
-    };
-    let saved = call(
+    let before = std::fs::read(&path).unwrap();
+    let refused = call(
         "save",
-        json!({"doc": reopened["doc"], "accept_defaults": {}}),
+        json!({"doc": reopened["doc"], "edits": {"fill": {(HOLE): "0.5"}}}),
     );
-    let back = load(std::fs::read(saved["path"].as_str().unwrap()).unwrap());
-    assert_eq!(positions(&back), [(1.5, false)], "{saved}");
+    assert_eq!(refused["isError"], json!(true), "{refused}");
+    let failures = &refused["structuredContent"]["error"]["failures"];
+    assert!(
+        failures.as_array().is_some_and(|f| f.len() == 1
+            && f[0]["entry"].as_str().is_some_and(|e| e.contains(HOLE))
+            && f[0]["reason"]
+                .as_str()
+                .is_some_and(|r| r.contains("already states"))),
+        "{refused}"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before, "nothing written");
+    assert_eq!(positions(&load(before)), [(1.5, false)]);
 }

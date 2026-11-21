@@ -1,7 +1,8 @@
 export class IntentEngine {
   [Symbol.dispose](): void;
-  acceptDefaults(answers: string): string;
+  checkEdits(edits: string): string;
   constructor(name: string, bytes: Uint8Array);
+  edit(edits: string, project?: string | null, payload?: string | null): string;
   evidence(): string;
   free(): void;
   original(): Uint8Array | undefined;
@@ -14,8 +15,7 @@ export class IntentEngine {
   static bom(bytes: Uint8Array): string;
   static openPart(name: string, bytes: Uint8Array, part: number): IntentEngine;
   static parts(name: string, bytes: Uint8Array): string;
-  validateEdits(edits: string): string;
-  writePmi(answers: string, project?: string | null, payload?: string | null, bom?: boolean | null): string;
+  table(): string;
 }
 
 export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;
@@ -24,7 +24,7 @@ export function acceptDefaults(analysis: string, answers: string): string;
 
 export function answerEdit(state: string, answers: string): string;
 
-export function diff(old_name: string, old: Uint8Array, new_name: string, _new: Uint8Array, _answers: string, title: string, scenes?: boolean | null): string;
+export function diff(old_name: string, old: Uint8Array, new_name: string, _new: Uint8Array, title: string, scenes?: boolean | null): string;
 
 export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
 
@@ -93,9 +93,10 @@ export interface InitOutput {
   readonly __wbindgen_start: () => void;
   readonly acceptDefaults: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly answerEdit: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-  readonly diff: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number) => [number, number, number, number];
-  readonly intentengine_acceptDefaults: (a: number, b: number, c: number) => [number, number, number, number];
+  readonly diff: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => [number, number, number, number];
   readonly intentengine_bom: (a: number, b: number) => [number, number, number, number];
+  readonly intentengine_checkEdits: (a: number, b: number, c: number) => [number, number, number, number];
+  readonly intentengine_edit: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
   readonly intentengine_evidence: (a: number) => [number, number, number, number];
   readonly intentengine_open: (a: number, b: number, c: number, d: number) => [number, number, number];
   readonly intentengine_openPart: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
@@ -107,8 +108,7 @@ export interface InitOutput {
   readonly intentengine_review: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_settle: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_snapshot: (a: number, b: number, c: number) => [number, number, number, number];
-  readonly intentengine_validateEdits: (a: number, b: number, c: number) => [number, number, number, number];
-  readonly intentengine_writePmi: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
+  readonly intentengine_table: (a: number) => [number, number];
   readonly interpret: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
   readonly memory: WebAssembly.Memory;
   readonly openedTolerancing: (a: number, b: number, c: number, d: number) => [number, number, number, number];
@@ -233,18 +233,20 @@ export interface SavedViewFinding {
 }
 
 export interface WriteReport {
-  complete: boolean;
   geometry_carrier_exemptions?: GeometryCarrierExemption[];
-  missing: string[];
   not_written: string[];
   output: string;
   presentation_warnings?: string[];
   preserved_normalizations?: PreservedNormalization[];
   retained_shared?: number[];
+  retired: number[];
   saved_view_findings?: SavedViewFinding[];
+  unchanged: boolean;
   warnings: string[];
   written: string[];
 }
+
+export type EditResult = | { written: true; bytes: number[]; report: WriteReport; source_sha256: string } | { written: false; failures: { entry: string; reason: string }[]; message: string };
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 

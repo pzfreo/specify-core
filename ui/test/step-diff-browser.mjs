@@ -122,7 +122,7 @@ try {
   // reworded (test/fixtures/README.md). The list is the engine's report, item for item.
   await init({ module_or_path: readFileSync('public/wasm/intent/specify_core_wasm_bg.wasm') });
   const spindle = which => gunzipSync(readFileSync(`test/fixtures/spindle_pmi_${which}.step.gz`));
-  const spindlePmi = JSON.parse(diff('spindle_pmi_before.step', spindle('before'), 'spindle_pmi_after.step', spindle('after'), '{}', 'spindle', true)).report.pmi;
+  const spindlePmi = JSON.parse(diff('spindle_pmi_before.step', spindle('before'), 'spindle_pmi_after.step', spindle('after'), 'spindle', true)).report.pmi;
   const reported = spindlePmi.items;
   // Square to an item's callout: looking into its plane (along -normal), its up the plane's
   // normal × x axis, so its text reads along its x axis, left to right; as data-camera writes it.
@@ -264,12 +264,23 @@ try {
   // (The new file's defaults locate the shoulder from the chamfer, 1.5, not 36.1 as before: that
   // is now one removed and another added, never a value changed into another.)
   const shaft = which => gunzipSync(readFileSync(`test/fixtures/gramil_shaft_${which}.step.gz`));
+  // Written with Specify's suggestions (specify-core 0.3.0: an edit list accepting every gap's
+  // suggestion that the file can take, all or nothing; a suggestion the check refuses is left out).
+  // The checks below need the shaft's sizes and locations: they fail until feature-table D1 gives
+  // each its own row with a suggestion (Paul, 2026-11-21), which this list then accepts.
   const written = bytes => {
     const e = new IntentEngine('part.step', bytes);
-    try { return Buffer.from(JSON.parse(e.writePmi(e.acceptDefaults('{}'))).bytes); } finally { e.free(); }
+    try {
+      const gaps = JSON.parse(e.table()).rows.filter(r => r.state === 'gap' && r.suggestion != null).map(r => r.id);
+      const refused = new Set(JSON.parse(e.checkEdits(JSON.stringify({ accept_suggestions: gaps }))).failures
+        .map(f => JSON.parse(f.entry.replace(/^accept_suggestions/, ''))[0]));
+      const result = JSON.parse(e.edit(JSON.stringify({ accept_suggestions: gaps.filter(id => !refused.has(id)) })));
+      assert.ok(result.written, result.message);
+      return Buffer.from(result.bytes);
+    } finally { e.free(); }
   };
   const [shaftBefore, shaftAfter] = [written(shaft('before')), written(shaft('after'))];
-  const shaftReport = JSON.parse(diff('gramil_shaft_before.step', shaftBefore, 'gramil_shaft_after.step', shaftAfter, '{}', 'gramil_shaft_after.step', true)).report.pmi;
+  const shaftReport = JSON.parse(diff('gramil_shaft_before.step', shaftBefore, 'gramil_shaft_after.step', shaftAfter, 'gramil_shaft_after.step', true)).report.pmi;
   assert.deepEqual(shaftReport.items.filter(c => c.class === 'renumbered').map(c => [c.class, c.number, c.old, c.new, c.reason]), [
     ['renumbered', 6, '37.6', '37.6', 'characteristic number #5 → #6']], 'the shaft\'s pairing (specify-core #106)');
   assert.ok(!shaftReport.items.some(c => c.class === 'changed' && c.old !== c.new), 'each dimension keeps its own value');
@@ -284,7 +295,7 @@ try {
   // not spindle_pmi_before rewritten: that file states ⌀3.3 H11, and a save never edits what the
   // file states (ADR P11), so no default M4 replaces it.
   const spindleBefore = shaftAfter;
-  const spindleReport = JSON.parse(diff('spindle_pmi_before.step', spindleBefore, 'spindle_pmi_after.step', spindle('after'), '{}', 'spindle_pmi_after.step', true)).report.pmi;
+  const spindleReport = JSON.parse(diff('spindle_pmi_before.step', spindleBefore, 'spindle_pmi_after.step', spindle('after'), 'spindle_pmi_after.step', true)).report.pmi;
   const thread = spindleReport.items.find(c => c.class === 'removed' && c.kind === 'thread' && /^M4×0\.7-6H THRU$/.test(c.old ?? ''));
   assert.ok(renamed && thread, 'the shaft has a renumbered item with an old id; the spindle its thread removed');
   assert.ok(spindleReport.items.some(c => c.class === 'added' && c.new === '⌀3.3 H11'), 'the file\'s ⌀3.3 H11 added');
