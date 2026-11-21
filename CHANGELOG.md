@@ -25,8 +25,38 @@ Read first:
   all of them, so `@draftwright/specify-ui` goes from 0.2.0 to 0.3.0 (there is no specify-ui
   0.2.1). `@draftwright/specify-ui` X depends on `@draftwright/specify-core-wasm` X exactly.
 
+### Added
+
+- `@draftwright/specify-ui`: a `HostView` interface (ui/docs/host-view.md, specify-core #222) so a host can
+  draw the 3D view. `StepDiff` and `SpecifyReview` take an optional `view` prop; without one they use
+  today's view, now the interface's default implementation. Faces are identified by STEP entity
+  (MapShapes order only for solid-only parts), with a check on load. Labels and drawn PMI stay on the
+  default view for now. StepDiff now reports the nearest face under the pointer, since a host reports
+  only that; known gap: StepDiff runs no load check yet.
+
 ### Changed
 
+- **`diff` reads only the PMI in the two files** ([ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md),
+  0.3.0 use case 6): reviewing a requirement change is `specify-core diff OLD NEW` between two
+  annotated files. It lists requirements added, removed and changed per feature, with their
+  characteristic numbers, and the new file's requirements on a feature that moved or changed
+  size, to check. Each file is read alone, whoever wrote it: stored answers are never read to
+  compare, so the same requirements pair the same way with or without them (items keep their
+  `pmiScene` ids and statuses). A change of limits on the same feature and kind
+  is `changed` with both values and the same number; a different measurement is one removed
+  and another added, also when the last-resort pairing by kind would have joined them; a datum
+  relettered on the same faces is `changed`. The geometric matching, the picture and the
+  Markdown report are as before.
+  - **Removed:** `diff --answers` and the `answers.json` that `diff` wrote; `open --diff`'s
+    `--answers` and its default of carrying the answers stored in OLD (the session is NEW's own);
+    MCP `open`'s `old_answers` and `diff`'s `doc` and `answers`; Python `api.diff`'s `answers`;
+    the report's `answers`, `migrated`, `unresolved`, `questions` and `problems`, and the
+    deprecated `pmi.stored`, `pmi.existing`, `pmi.existing_count`, `pmi.answers_from` and
+    `pmi.new_stored`; the `problems` verdict. `check` rows are now `{number, id, requirement,
+    feature, changes}`. The `_specify_characteristic_numbers` and `_specify_bom` answer
+    transports, which only `diff` produced, are no longer produced (the writer still accepts
+    them); carrying requirements and numbers to a new revision is for `carry`.
+  - The STEP diff action no longer reads `<part>.answers.json` sidecars or reports them stale.
 - `open` and MCP `show` no longer download anything: the first-run download of the app and
   engine, its cache (`app/` and `wasm/` under the user cache directory, which can be deleted) and
   `app.lock.json` (the pin of a specify-ui release) are gone, and with them the `ureq`, `tar`,
@@ -75,6 +105,12 @@ From the first 0.2.1 trial (#217, pzfreo/specify-ui#14):
   for an unanswered datum in the Datums row. "Datums" is not marked answered while the engine
   lists one of its questions (datum C) as open. Rows and messages name a question by the same
   label ("Coating", not "Coating or treatment" in one and "Coating" in the other).
+
+### WASM API
+
+- `diff(oldName, oldBytes, newName, newBytes, _answers, title, scenes?)`: the fifth argument is
+  not read (renamed `_answers`; pass `"{}"`), and `report.answers` (with its opaque
+  `_specify_characteristic_numbers`) is gone: `diff` reads only the two files' PMI (ADR P11).
 
 ## 0.2.1 (2026-11-20)
 
