@@ -13,17 +13,17 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 267 | 0 | 52 | 0 | 2 | 1 | 322 |
-| [cross_engine](#cross_engine) | 61 | 2 | 0 | 1 | 1 | 20 | 85 |
-| [cross_engine_written](#cross_engine_written) | 9 | 0 | 0 | 0 | 0 | 0 | 9 |
-| [existing](#existing) | 37 | 0 | 0 | 0 | 7 | 0 | 44 |
+| [cli](#cli) | 274 | 0 | 52 | 0 | 2 | 1 | 329 |
+| [cross_engine](#cross_engine) | 142 | 2 | 0 | 1 | 1 | 20 | 166 |
+| [cross_engine_written](#cross_engine_written) | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
+| [existing](#existing) | 96 | 0 | 0 | 0 | 7 | 0 | 103 |
 | [features](#features) | 3454 | 1414 | 571 | 2491 | 1066 | 1886 | 10882 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
-| [writer](#writer) | 1184 | 0 | 0 | 0 | 15 | 1 | 1200 |
-| **all** | 5141 | 1433 | 1249 | 2497 | 1101 | 1908 | 13329 |
+| [writer](#writer) | 1652 | 0 | 0 | 0 | 15 | 1 | 1668 |
+| **all** | 5755 | 1433 | 1249 | 2497 | 1101 | 1908 | 13943 |
 
 ## analysis
 
@@ -77,7 +77,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (267 entries)
+### cli: rust-correct (274 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -183,6 +183,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Maintainer decision (5 November 2026, docs/process.md): part.process is appended after every other question of a made part, so no existing question moves; an unanswered part is machined and its other questions, defaults and writes are unchanged. Python has no such question. tests/process.rs covers the question, its defaults and the STEP attribute.
 
+- **ADR P11 rule 2: an approval the planner wrote nothing for is reported in not_written and stored as decided** (7 entries, 7 case globs)
+
+  The pin's (or a turned part's) diameter answered 'general' is on a datum's own faces, where the writer writes no size (src/writer.rs: a size there would make the datum a datum feature of size); before, the answer was neither written, reported nor stored, so the gap reopened and write --accept-defaults on the saved file refused 'incomplete' (review of eba27eb, blocker 1). It is now named in not_written and stored under no_pmi; Python, which stores every answer, reports nothing. tests/answers_without_pmi.rs an_approval_that_writes_nothing_stays_decided checks the round trip.
+
 ### cli: equivalent (52 entries)
 
 - **mesh's triangle count is the triangulation stand-in's** (`cli/*` at `stdout.triangles`)
@@ -215,7 +219,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cross_engine
 
-### cross_engine: rust-correct (61 entries)
+### cross_engine: rust-correct (142 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `python_readback.existing[key=*].provenance`)
 
@@ -261,29 +265,29 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension\|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics.
 
-- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (`*` at `python_readback.existing[key=*].text`)
+- **the existing item's fit, a 0.3.0 read-back field the Python reference does not have** (9 entries, 9 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's fit, a 0.3.0 read-back field the Python reference does not have** (`*` at `python_readback.existing[key=*].fit`)
+- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (11 entries, 6 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (`*` at `python_readback.existing[key=*].diametral`)
+- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (11 entries, 6 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (`*` at `python_readback.existing[key=*].zone`)
+- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (18 entries, 9 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (`*` at `python_readback.existing[key=*].mmc`)
+- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (20 entries, 10 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (`*` at `python_readback.existing[key=*].modifiers`)
+- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (18 entries, 9 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
 ### cross_engine: rust-wrong (2 entries)
 
@@ -315,7 +319,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cross_engine_written
 
-### cross_engine_written: rust-correct (9 entries)
+### cross_engine_written: rust-correct (8 entries)
 
 - **ADR P11 rule 2: the material answer is written as PMI, so it is no longer stored** (`*` at `resume.part.material`)
 
@@ -325,13 +329,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Maintainer decision D8 (commit d9067fb; the writer.json entry for this case's write.not_written): CTC-03's datum B is the hole 11/12, the origin of the x and y dimensions, so the planner's general location of B from the hole 16/17 is stated by the file and left out (the write reports 'dimension Location_LinearDistance [11, 12] [16, 17]: the file already states it; not written again'). Present in a write at 9717139, absent at d9067fb (bisected). Its characteristic number goes with it; the renumbering of the rest has its own entries. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
 
-- **D8: a direction already located by the file gets no second general location** (`nist/nist_ctc_05_asme1_ap242` at `characteristics[key=dimension|Location_LinearDistance|[37,51,53,54,56]|[9]#1]`)
+- **D1: dimensioning::upgrade's heuristic for an old intent keeps a planner general row only on a hole it sizes or locates** (2 entries, 1 case glob)
 
-  Maintainer decision D8 (commit d9067fb): one location dimension locates every hole on its located side and every other hole on the same line from the same reference, and the writer adds only the missing directions, never a second location. Today's write of CTC-05 reports 'dimension Location_LinearDistance [37, 51, 53, 54, 56] [9]: the file already states it; not written again'; this general location was written at 9717139 and is not at d9067fb (bisected). Its characteristic number goes with it. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
-
-- **D1: an old intent keeps a planner general row only on a hole it sizes or locates** (2 entries, 1 case glob)
-
-  The evidence is stated per entry (2 distinct; all in `cross_engine_written.json`). The first, for `nist/nist_ctc_05_asme1_ap242` at `characteristics[key=dimension|Location_LinearDistance|[]|[70]#1]`: Decision D1 (commit 9717139, 'A general-tolerance answer writes only its note'): the writer's upgrade of an old intent without planner rows (dimensioning::upgrade) keeps a planner general row only on a hole the intent sizes or locates, or, off holes, where a general row of its kind touches the same faces. Python's accept-defaults intent for CTC-05 has no planner rows, and the general depth location from the entry face 70 (a hole depth ending at a point, so no faces of its own) is no longer written: present in a write at 9717139~1, absent at 9717139 (bisected). Its characteristic number goes with it. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
+  The evidence is stated per entry (2 distinct; all in `cross_engine_written.json`). The first, for `nist/nist_ctc_05_asme1_ap242` at `characteristics[key=dimension|Location_LinearDistance|[]|[70]#1]`: A heuristic for old intents only (no planner rows): Decision D1 (commit 9717139, 'A general-tolerance answer writes only its note'): the writer's upgrade of an old intent without planner rows (dimensioning::upgrade) keeps a planner general row only on a hole the intent sizes or locates, or, off holes, where a general row of its kind touches the same faces. Python's accept-defaults intent for CTC-05 has no planner rows, and the general depth location from the entry face 70 (a hole depth ending at a point, so no faces of its own) is no longer written: present in a write at 9717139~1, absent at 9717139 (bisected). Its characteristic number goes with it. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
 
 - **characteristic numbers close up over the items no longer written** (4 entries, 2 case globs)
 
@@ -339,7 +339,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## existing
 
-### existing: rust-correct (37 entries)
+### existing: rust-correct (96 entries)
 
 - **presentation read as a dimension** (`*` at `existing[key=dimension|DimensionPresentation|*`)
 
@@ -433,29 +433,29 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension\|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics.
 
-- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].text`)
+- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (17 entries, 17 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's text_only, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].text_only`)
+- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (14 entries, 14 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].diametral`)
+- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (8 entries, 8 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].zone`)
+- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (8 entries, 8 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].mmc`)
+- **the existing item's text_only, a 0.3.0 read-back field the Python reference does not have** (4 entries, 4 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].modifiers`)
+- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (14 entries, 14 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
 ### existing: not-applicable (7 entries)
 
@@ -1279,7 +1279,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (1184 entries)
+### writer: rust-correct (1652 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1385,77 +1385,97 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   Maintainer decision D8 (draftwright-project proposals/specify-0.3.0.md, 'One dimension locates a whole line', Paul 2026-11-21): the datum or origin feature the part's dimensions are measured from is not asked its location in the directions it is the origin of, and a feature already located in a direction never gets a second location in it. CTC-03's datum B is the hole 11/12; no other datum plane measures x or y (A is the bottom face, C the hole 9/10), so B is the origin in both. The planner's general location of B from the hole 16/17 (447.3448 in y) is therefore stated by the file and left out, reported in not_written; tests/feature_table.rs the_origin_hole_is_not_asked_its_origin_directions covers the rule.
 
-- **the existing item's class, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].class`)
+- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (46 entries, 46 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's designation, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].designation`)
+- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (31 entries, 31 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's diameter, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].diameter`)
+- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (31 entries, 31 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's drill_depth, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].drill_depth`)
+- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (48 entries, 48 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's drill_diameter, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].drill_diameter`)
+- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (46 entries, 46 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's finish, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].finish`)
+- **the existing item's fit, a 0.3.0 read-back field the Python reference does not have** (36 entries, 36 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's fit, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].fit`)
+- **the existing item's class, a 0.3.0 read-back field the Python reference does not have** (28 entries, 28 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's full_thread, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].full_thread`)
+- **the existing item's designation, a 0.3.0 read-back field the Python reference does not have** (28 entries, 28 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's hand, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].hand`)
+- **the existing item's drill_diameter, a 0.3.0 read-back field the Python reference does not have** (28 entries, 28 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's length, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].length`)
+- **the existing item's hand, a 0.3.0 read-back field the Python reference does not have** (28 entries, 28 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's pattern, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].pattern`)
+- **the existing item's pitch, a 0.3.0 read-back field the Python reference does not have** (28 entries, 28 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's pitch, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].pitch`)
+- **the existing item's side, a 0.3.0 read-back field the Python reference does not have** (28 entries, 28 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's root_fillet, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].root_fillet`)
+- **the existing item's spec, a 0.3.0 read-back field the Python reference does not have** (28 entries, 28 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's side, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].side`)
+- **the existing item's through, a 0.3.0 read-back field the Python reference does not have** (17 entries, 17 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's spec, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].spec`)
+- **the existing item's drill_depth, a 0.3.0 read-back field the Python reference does not have** (11 entries, 11 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's teeth, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].teeth`)
+- **the existing item's full_thread, a 0.3.0 read-back field the Python reference does not have** (11 entries, 11 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's through, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].through`)
+- **the existing item's finish, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **the existing item's tooth_depth, a 0.3.0 read-back field the Python reference does not have** (`*` at `existing[key=*].tooth_depth`)
+- **the existing item's diameter, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
 
-  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields (fit, diametral, zone, mmc, modifiers; a thread's side, designation, spec, pitch, class, hand, depths; a knurl's parameters; a finish's finish): docs/answers.md, 'What the file states, read back whole'. The Python reference has no such fields; they are additions and no existing field changes meaning. tests/readback.rs checks them against what the writer wrote and against each NIST AP242 item's semantic content.
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
+
+- **the existing item's pattern, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
+
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
+
+- **the existing item's root_fillet, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
+
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
+
+- **the existing item's teeth, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
+
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
+
+- **the existing item's tooth_depth, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
+
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
+
+- **the existing item's length, a 0.3.0 read-back field the Python reference does not have** (`scenarios/turned_external_thread_and_straight_knurl` at `existing[key=*].length`)
+
+  Specify 0.3.0 (ADR P11, feature-table read-back): each existing item carries its full notation (text), text_only where it states something the structured fields don't hold, and the planner-named structured fields: docs/answers.md, 'What the file states, read back whole'. The Python reference has no such field; it is an addition and no existing field changes meaning. tests/readback.rs checks it against what the writer wrote and against each NIST AP242 item's semantic content.
 
 ### writer: not-applicable (15 entries)
 
