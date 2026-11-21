@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 268 | 0 | 52 | 0 | 2 | 1 | 323 |
+| [cli](#cli) | 307 | 0 | 52 | 0 | 2 | 1 | 362 |
 | [cross_engine](#cross_engine) | 61 | 2 | 0 | 1 | 1 | 20 | 85 |
 | [cross_engine_written](#cross_engine_written) | 9 | 0 | 0 | 0 | 0 | 0 | 9 |
 | [existing](#existing) | 37 | 0 | 0 | 0 | 7 | 0 | 44 |
@@ -23,7 +23,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 1184 | 0 | 0 | 0 | 15 | 1 | 1200 |
-| **all** | 5142 | 1433 | 1249 | 2497 | 1101 | 1908 | 13330 |
+| **all** | 5181 | 1433 | 1249 | 2497 | 1101 | 1908 | 13369 |
 
 ## analysis
 
@@ -77,7 +77,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (268 entries)
+### cli: rust-correct (307 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -85,7 +85,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **Absolute slash bounds are accepted by CLI answers** (3 entries, 1 case glob)
 
-  The frozen scenario gives extra.1 size limits 6.58/6.62 on the plate’s Ø6.6 face 6. This requested unsigned slash grammar is now valid: questions exits 0 without the former invalid-answer stderr. Apply accepts the dimension and instead reports the still-unanswered required part.material question. cli_datum_origins.json.gz pins these exact three command envelope changes; rule_defaults_oracle.json.gz pins the corresponding accepted intent and tests/limits_and_classes.rs verifies Limits STEP write/read/resume. The original refused scenario and Python result are retained.
+  The frozen scenario gives extra.1 size limits 6.58/6.62 on the plate’s Ø6.6 face 6. This requested unsigned slash grammar is now valid: questions exits 0 without the former invalid-answer stderr. Apply accepts the dimension; write then writes it and lists the still-unanswered part.material in the report's missing (#228: gaps are not a refusal). cli_datum_origins.json.gz pins this case's exact command envelope changes (questions exit and stderr, apply refusal; its apply exit is pinned under #228); rule_defaults_oracle.json.gz pins the corresponding accepted intent and tests/limits_and_classes.rs verifies Limits STEP write/read/resume. The original refused scenario and Python result are retained.
 
 - **Shared planner report item in serve (#75)** (62 entries, 4 case globs)
 
@@ -186,6 +186,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **One JSON after STEP is an edit list** (`cli/usage/10 write tests/fixtures/parts/plate.step {tmp}/a.json -o {tmp}/o.step` at `exit`)
 
   Proposal specify-0.3.0 use case 7 (Paul, 2026-11-20): write STEP EDITS.json -o OUT applies an edit list in place, so one JSON after STEP is no longer a usage error (exit 2) but an edit list; here the list file does not exist, which is a file error (exit 1, `a.json: No such file`). tests/cli.rs::usage_or_help checks that message for this capture; cli_datum_origins.json.gz records the exit departure. Three or more positionals still give the usage error.
+
+- **Open questions are gaps: write writes what is answered (#228)** (39 entries, 19 case globs)
+
+  The evidence is stated per entry (5 distinct; all in `cli.json`). The first, for `cli/errors/write-no-material` at `exit`: #228 and ADR P11 (proposal specify-0.3.0, '#228': write no longer refuses while gaps remain). Python refuses an answers file with no material (IncompleteError: part.material). Rust's CLI write writes what is answered, exits 0 and lists the open question ids in the report's `missing`, as the editor's save and MCP write_pmi already did; a carried answer not applied, an invalid answer, a wrong file and a different stated general tolerance still refuse. tests/cli.rs issue_228_write_writes_what_is_answered_and_lists_the_gaps and exit_codes_say_what_happened check it; cli_datum_origins.json.gz pins this exact envelope change. Frozen Python captures are unchanged.
 
 ### cli: equivalent (52 entries)
 
