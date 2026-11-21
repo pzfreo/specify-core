@@ -1,6 +1,6 @@
 // ADR P11 rule 2, as src/feature_table.rs `storable`: a file stores only the answers that leave
-// no PMI behind (a choice that is not a requirement, or one decided none); the file's PMI is the
-// only copy of the rest. The node scripts compare what a reopened file resumes with this.
+// no PMI behind (a choice that is not a requirement, one decided none, or an approval the planner
+// wrote nothing for, listed in `_specify.no_pmi`); the file's PMI is the only copy of the rest. The node scripts compare what a reopened file resumes with this.
 const NOT_REQUIREMENTS = ['part.locating'];
 
 function isRequirement(id) {
@@ -17,5 +17,7 @@ function isNone(value) {
 }
 
 export function storable(answers) {
-  return Object.fromEntries(Object.entries(answers).filter(([id, value]) => !isRequirement(id) || isNone(value)));
+  const nothing = answers._specify?.no_pmi ?? [];
+  return Object.fromEntries(Object.entries(answers)
+    .filter(([id, value]) => !isRequirement(id) || isNone(value) || nothing.includes(id)));
 }

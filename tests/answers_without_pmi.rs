@@ -376,13 +376,80 @@ fn an_assembly_part_with_only_approved_defaults_is_written() {
     // ADR P11: stored when they leave no PMI behind; the others are not (the file states
     // what they wrote).
     let answers = again["resume"]["answers"].as_object().unwrap();
-    let storable = specify_core::feature_table::storable(&defaults);
+    // An approval that wrote nothing (the ⌀10 on datum A's faces) is stored too, listed.
+    assert_eq!(
+        answers["_specify"]["no_pmi"],
+        json!(["diameter.fit:turned_steps:0"]),
+        "{}",
+        again["resume"]
+    );
+    let mut stored = defaults.clone();
+    stored.insert(
+        "_specify".into(),
+        answers.get("_specify").cloned().unwrap_or(Value::Null),
+    );
+    let storable = specify_core::feature_table::storable(&stored);
     for (id, value) in &defaults {
         match storable.get(id) {
             Some(_) => assert_eq!(answers.get(id), Some(value), "{id}: {}", again["resume"]),
             None => assert!(answers.get(id).is_none(), "{id}: {}", again["resume"]),
         }
     }
+}
+
+/// ADR P11 rule 2: an approval the plan writes nothing for (the pin's ⌀10 left to the general
+/// tolerance: its surface is datum A, and no size is written on a datum's own faces) is
+/// reported and stored as decided. Reopened, its row is decided, not a gap; a save with the
+/// defaults taken writes again with no refusal.
+#[test]
+fn an_approval_that_writes_nothing_stays_decided() {
+    let dir = scratch("writes-nothing");
+    let input = dir.join("assembly.step");
+    std::fs::copy(
+        common::fixtures().join("parts").join("assembly.step"),
+        &input,
+    )
+    .unwrap();
+    let id = "diameter.fit:turned_steps:0";
+    let shared = session_of(&input);
+    let pin = map(json!({"part.material": "steel", (id): "general"}));
+    session::lock(&shared).set(1, pin.clone(), "page");
+    let analysis = api::analyse_file(&input, Some(1)).unwrap();
+    let approved: session::Approved = BTreeMap::from([(1, offered(&analysis, &pin))]);
+    let saved = session::save(&shared, None, &approved, "page").unwrap_or_else(|e| panic!("{e}"));
+    let report = saved.report.to_string();
+    assert!(
+        report.contains(&format!(
+            "answer {id} ('general'): there is no PMI to write for it"
+        )),
+        "{report}"
+    );
+    let again = api::analyse_file(Path::new(&saved.path), Some(1)).unwrap();
+    let row = again["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == id)
+        .unwrap();
+    assert_eq!(
+        (&row["state"], &row["value"]),
+        (&json!("decided_none"), &json!("general")),
+        "{row}"
+    );
+    let answers = again["resume"]["answers"].as_object().unwrap();
+    assert_eq!(
+        answers.get(id),
+        Some(&json!("general")),
+        "{}",
+        again["resume"]
+    );
+    // Written again with every default taken: nothing is incomplete.
+    api::apply(&again, answers, true).unwrap_or_else(|e| panic!("{e}"));
+    let shared = session_of(Path::new(&saved.path));
+    let approved: session::Approved = BTreeMap::from([(1, offered(&again, answers))]);
+    let twice = session::save(&shared, None, &approved, "page").unwrap_or_else(|e| panic!("{e}"));
+    let third = api::analyse_file(Path::new(&twice.path), Some(1)).unwrap();
+    assert_eq!(third["resume"]["answers"].get(id), Some(&json!("general")));
 }
 
 /// `bytes` with `added` written by haecceity's own writer (Add): another tool's PMI, without
@@ -443,17 +510,17 @@ fn silent_answers_resume_on_clean_plate_and_enclosure_faces() {
                 .is_empty()
         );
         let again = api::analyse(&back).unwrap();
-        // ADR P11: what leaves no PMI behind is stored. The hole's `general` is a requirement
-        // answer, so it is not stored; written by preview it wrote nothing, so the hole is a
-        // gap again and asked.
-        assert_eq!(
-            again["resume"]["answers"],
-            json!(specify_core::feature_table::storable(&answers))
-        );
+        // ADR P11: what leaves no PMI behind is stored. The hole's `general`, written by
+        // preview (which plans no general dimension), wrote nothing: rule 2 stores it, listed
+        // as such, so the hole stays decided and is not asked again.
+        let mut stored = specify_core::feature_table::storable(&answers);
+        stored.insert(hole.id.clone(), json!("general"));
+        stored.insert("_specify".into(), json!({"no_pmi": [hole.id]}));
+        assert_eq!(again["resume"]["answers"], json!(stored));
         assert!(again["resume"].get("conflicts").is_none());
         let open = asked(&again).1;
         for id in answers.keys() {
-            assert_eq!(open.contains(id), *id == hole.id, "{id}");
+            assert!(!open.contains(id), "{id}");
         }
     }
 }

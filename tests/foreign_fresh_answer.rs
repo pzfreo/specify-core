@@ -225,7 +225,7 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_over_mcp() {
         .as_str()
         .unwrap();
     assert!(
-        message.starts_with("the file already states")
+        message.starts_with("the file states")
             && message.contains("⌖ ⌀1.5 A B C")
             && message.contains(&format!("for {HOLE}, so there is no gap to fill")),
         "{message}"

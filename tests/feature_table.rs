@@ -446,12 +446,15 @@ fn a_general_hole_writes_its_size_so_its_answer_is_not_stored() {
     assert!(stored.get("hole.function:holes:9").is_none(), "{stored}");
     let (t, _) = table(&load_bytes("plate.step", bytes).unwrap());
     assert_eq!(row(&t, "hole.function:holes:9")["state"], "stated");
-    // Its dimension deleted (the file written without it): a gap, not decided none.
+    // Its dimension deleted (the file written without it, with the answers the first file
+    // stores: not the hole's, which wrote its size): a gap, not decided none.
     let mut without = intent;
     let on_nine = |r: &Map<String, Value>| r.get("faces") == Some(&json!([9]));
     without.general.retain(|r| !on_nine(r));
     without.requirements.retain(|r| !on_nine(r));
-    let bytes = api::write_bytes(plate.bytes.to_vec(), &[(without, Some(answers))])
+    let mut kept = answers;
+    kept.shift_remove("hole.function:holes:9");
+    let bytes = api::write_bytes(plate.bytes.to_vec(), &[(without, Some(kept))])
         .unwrap()
         .0;
     let (t, _) = table(&load_bytes("plate.step", bytes).unwrap());

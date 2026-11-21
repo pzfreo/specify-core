@@ -1230,13 +1230,17 @@ fn blind_hole_diameters_and_axis_locations_stay_on_bores_but_depth_uses_planes()
                     "depth must not be a dimensional size"
                 );
             }
-            pmi::DimensionKind::Location { .. } => location += 1,
+            pmi::DimensionKind::Location { .. } => {
+                assert_eq!(support, [37, 51, 53, 54, 56], "{d:?}");
+                location += 1
+            }
         }
     }
     assert_eq!(depth, 1);
     // D8: the bore (faces 37/38) is datum B, the origin of x and y (datum A is a bore too), so
-    // the file states its location there and no general location of it is added.
-    assert_eq!(location, 0);
+    // the file states its location there; but the planner's one location from face 9 also
+    // locates holes 51/53 and 54/56, which nothing else locates in x, so it is written (once).
+    assert_eq!(location, 1);
 }
 
 #[test]
