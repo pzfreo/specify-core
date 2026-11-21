@@ -1024,15 +1024,15 @@ pub(crate) fn planned_intent(
             .find(|(_, on)| !faces.is_empty() && faces.is_subset(on))
             .map(|(id, _)| (*id).clone())
     };
-    // D1: the dimensions no question asks about (plane levels) are written once no question is
-    // open: a list that answers every open gap (accepting every suggestion) writes the whole
-    // general set, as `write --accept-defaults` does; otherwise only what it names. Not for
-    // `carry` (`whole_general` false), which writes only what the older revision states.
+    // D1: the dimensions no question asks about (plane levels) are written once every
+    // suggestion is approved: a list that answers every open gap with a suggestion writes the
+    // whole general set, as `write --accept-defaults` does (a question with no suggestion, the
+    // material, may stay open); otherwise only what it names. Not for `carry` (`whole_general`
+    // false), which writes only what the older revision states.
     let nothing_open = whole_general
-        && table
-            .rows
-            .iter()
-            .all(|r| !r.open || given.contains_key(&r.id));
+        && table.rows.iter().all(|r| {
+            !r.open || given.contains_key(&r.id) || r.suggestion.as_ref().is_none_or(Json::is_null)
+        });
     if !nothing_open {
         intent.general.retain(|r| hole_of(r).is_some());
     }
