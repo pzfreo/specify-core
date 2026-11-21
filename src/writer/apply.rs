@@ -219,6 +219,9 @@ struct WithChoices<'a> {
     table: &'a FeatureTable,
     choices: BTreeMap<String, Option<Json>>,
     stored: Map<String, Json>,
+    /// Questions the part asks only given the list's other answers (a datum's runout once the
+    /// datum is answered), with no row of their own: gaps, with their suggestion.
+    dependent: BTreeMap<String, Option<Json>>,
 }
 
 impl edits::FileState for WithChoices<'_> {
@@ -230,9 +233,12 @@ impl edits::FileState for WithChoices<'_> {
             if self.stored.contains_key(id) && is_choice(self.table, id) {
                 return Some(edits::KindState::DecidedNone);
             }
-            self.choices.get(id).map(|default| edits::KindState::Gap {
-                suggestion: default.clone().filter(|d| !d.is_null()),
-            })
+            self.choices
+                .get(id)
+                .or_else(|| self.dependent.get(id))
+                .map(|default| edits::KindState::Gap {
+                    suggestion: default.clone().filter(|d| !d.is_null()),
+                })
         })
     }
     fn requirement(&self, number: u64) -> Option<edits::Requirement> {
@@ -382,6 +388,33 @@ fn same_as_stated(
     out
 }
 
+/// The questions the part asks given the list's answers (and the file's stored choices) that
+/// have no feature-table row and are not choices: those asked only once another is answered.
+fn dependent_questions(
+    list: &EditList,
+    table: &FeatureTable,
+    analysis: &Json,
+) -> BTreeMap<String, Option<Json>> {
+    let mut answers: Map<String, Json> = analysis["resume"]["answers"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(id, _)| !crate::feature_table::is_requirement(id) && !id.starts_with('_'))
+        .map(|(id, v)| (id.clone(), v.clone()))
+        .collect();
+    answers.extend(list.fill.iter().map(|(id, v)| (id.clone(), v.clone())));
+    answers.extend(list.change.iter().map(|(id, c)| (id.clone(), c.to.clone())));
+    for id in &list.none {
+        answers.insert(id.clone(), none_answer(table, id));
+    }
+    crate::rules::questions(&bare(analysis), &answers)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|q| table.row(&q.id).is_none() && !is_extra(&q.id) && !is_choice(table, &q.id))
+        .map(|q| (q.id, q.default))
+        .collect()
+}
+
 fn validated(
     loaded: &LoadedPart,
     list: &EditList,
@@ -392,6 +425,7 @@ fn validated(
     let same = same_as_stated(loaded, &mut list, table, analysis);
     let state = WithChoices {
         table,
+        dependent: dependent_questions(&list, table, analysis),
         choices: choice_questions(table, analysis),
         stored: analysis["resume"]["answers"]
             .as_object()
@@ -1085,12 +1119,15 @@ pub fn apply_with(
             .part
             .retain(|key, _| given.contains_key(&format!("part.{key}")));
         // The general tolerance is its class alone: the planner's dimensions under it are for
-        // the other features, which the list does not name. A hole the list leaves to the
-        // general tolerance (`general`) keeps its own size under it.
+        // the other features, which the list does not name. A hole or a diameter the list
+        // leaves to the general tolerance (`general`) keeps its own size under it.
         // (Matched by faces: the planner's rows name no feature.)
         let general_holes: Vec<(&String, BTreeSet<usize>)> = given
             .iter()
-            .filter(|(id, v)| v.as_str() == Some("general") && id.starts_with("hole.function:"))
+            .filter(|(id, v)| {
+                v.as_str() == Some("general")
+                    && (id.starts_with("hole.function:") || id.starts_with("diameter.fit:"))
+            })
             .filter_map(|(id, _)| Some((id, table.row(id)?.faces.iter().copied().collect())))
             .collect();
         let hole_of = |r: &Map<String, Json>| -> Option<String> {
