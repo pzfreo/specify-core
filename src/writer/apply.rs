@@ -463,6 +463,36 @@ fn item_ids<'a>(prov: &'a haecceity::pmi::PartProvenance, c: &str, i: usize) -> 
     }
 }
 
+/// The file's assembly-level entities: every record that refers, directly or through others,
+/// to a product definition that is not one of the parts `defs` (an assembly's): its structure,
+/// its placements, and any PMI or property on the assembly itself. A part edit never changes
+/// them. Empty for a file of one part used once.
+fn assembly_level(
+    doc: &haecceity::p21::Document,
+    defs: &[haecceity::step::PartDefinition],
+) -> BTreeSet<u64> {
+    use haecceity::p21::RawEntity;
+    let parts: BTreeSet<u64> = defs.iter().map(|d| d.product_definition).collect();
+    let mut todo: Vec<u64> = doc
+        .ids()
+        .filter(|id| !parts.contains(id))
+        .filter(|&id| {
+            matches!(doc.get(id), Some(RawEntity::Simple { name, .. })
+                if name == "PRODUCT_DEFINITION"
+                    || name == "PRODUCT_DEFINITION_WITH_ASSOCIATED_DOCUMENTS")
+        })
+        .collect();
+    let mut seen: BTreeSet<u64> = todo.iter().copied().collect();
+    while let Some(id) = todo.pop() {
+        for &by in doc.referrers(id) {
+            if seen.insert(by) {
+                todo.push(by);
+            }
+        }
+    }
+    seen
+}
+
 fn kept_bytes(doc: &haecceity::p21::Document, id: u64) -> Option<&[u8]> {
     doc.span(id).map(|s| &doc.bytes()[s])
 }
@@ -1061,8 +1091,9 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
     verify(&source, &items, &[mode], &back).map_err(|e| whole(e.to_string()))?;
 
     // ADR P11: every item not named keeps its bytes, whoever wrote it: this part's kept items,
-    // and every item of the file's other parts (decision D3: in an assembly only the part
-    // edited is written; a part placed several times is one definition, edited once).
+    // every item of the file's other parts, and every assembly-level record (decision D3: in
+    // an assembly only the part edited is written; a part placed several times is one
+    // definition, edited once).
     let after = haecceity::p21::Document::parse(back.clone()).map_err(|e| whole(e.to_string()))?;
     let others = original
         .read
@@ -1084,6 +1115,7 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         .iter()
         .flat_map(|(c, i)| item_ids(prov, c, *i).iter().copied())
         .chain(others)
+        .chain(assembly_level(&original.doc, &original.defs))
         .filter(|&id| kept_bytes(&original.doc, id) != kept_bytes(&after, id))
         .collect::<BTreeSet<u64>>()
         .into_iter()

@@ -1505,3 +1505,87 @@ fn every_none_is_refused_or_reads_again() {
         }
     }
 }
+
+/// The assembly with PMI and a property of its own, on its root (`#5`, shape `#4`): a datum,
+/// a flatness on a shape aspect, and a property with its representation. Returned with the
+/// ids of those records.
+fn with_assembly_items() -> (Vec<u8>, Vec<u64>) {
+    let text = String::from_utf8(assembly()).unwrap();
+    let records = [
+        "#5001=SHAPE_ASPECT('assembly face','',#4,.F.);",
+        "#5002=DATUM('assembly datum','',#4,.F.,'A');",
+        "#5003=LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(0.05),#28);",
+        "#5004=FLATNESS_TOLERANCE('assembly flatness','',#5003,#5001);",
+        "#5005=PROPERTY_DEFINITION('assembly note','',#5);",
+        "#5006=DESCRIPTIVE_REPRESENTATION_ITEM('torque','5 Nm');",
+        "#5007=REPRESENTATION('assembly note',(#5006),#27);",
+        "#5008=PROPERTY_DEFINITION_REPRESENTATION(#5005,#5007);",
+    ];
+    let end = text.rfind("ENDSEC;").unwrap();
+    let bytes = format!("{}{}\n{}", &text[..end], records.join("\n"), &text[end..]).into_bytes();
+    (bytes, (5001..=5008).collect())
+}
+
+#[test]
+fn assembly_level_items_keep_their_bytes_through_part_edits() {
+    let (bare, ids) = with_assembly_items();
+    let kept = |bytes: &[u8]| {
+        let (old, new) = (records(&bare), records(bytes));
+        for id in &ids {
+            assert_eq!(new.get(id), old.get(id), "assembly-level #{id}");
+        }
+    };
+    // A fill on the plate, a none on the pin, then a change and a removal on the plate.
+    let filled = applied(&part_of(&bare, PLATE), plate_list());
+    kept(&filled.bytes);
+    let none = applied(
+        &part_of(&filled.bytes, PIN),
+        json!({"none": ["part.coating"]}),
+    );
+    kept(&none.bytes);
+    assert_eq!(
+        row(&table(&part_of(&none.bytes, PIN)), "part.coating")["state"],
+        "decided_none"
+    );
+    let changed = applied(
+        &part_of(&none.bytes, PLATE),
+        json!({"change": {"hole.position:holes:11": {"to": "0.1", "expect": "0.25"}}}),
+    );
+    kept(&changed.bytes);
+    let thread = numbers(&part_of(&changed.bytes, PLATE))
+        .into_values()
+        .find(|c| c.r#type == "Internal")
+        .unwrap()
+        .number;
+    let remove = json!({"items": {"remove": [format!("#{thread}")]}});
+    let removed = applied(&part_of(&changed.bytes, PLATE), remove.clone());
+    assert_eq!(removed.retired, [thread]);
+    kept(&removed.bytes);
+
+    // A record the assembly's items reach that the removal would rewrite (the plate's
+    // callouts model, made to list the assembly's datum too): the removal is refused, and
+    // nothing is written.
+    let text = String::from_utf8(changed.bytes.clone()).unwrap();
+    let model = text
+        .lines()
+        .position(|l| l.contains("DRAUGHTING_MODEL('PMI callouts"))
+        .unwrap();
+    let lines: Vec<String> = text
+        .lines()
+        .enumerate()
+        .map(|(i, l)| {
+            if i == model {
+                l.replacen("',(", "',(#5002,", 1)
+            } else {
+                l.to_string()
+            }
+        })
+        .collect();
+    let mut tied = lines.join("\n");
+    tied.push('\n');
+    let failures = refused(&part_of(tied.as_bytes(), PLATE), remove);
+    assert!(
+        failures[0].reason.contains("items the list does not name"),
+        "{failures:?}"
+    );
+}
