@@ -67,6 +67,8 @@ export interface PmiAnalysis {
   };
   /** The file's numbered characteristics (`characteristics::read`). */
   readonly characteristics?: readonly { readonly number: number; readonly kind: string; readonly type: string; readonly faces: readonly number[] }[];
+  /** 0.3.0 (ADR P11, D3): the feature table, a row per question with its state in the file. */
+  readonly table?: { readonly rows: readonly { readonly id: string; readonly state: 'stated' | 'gap' | 'decided_none'; readonly value?: unknown }[] };
 }
 
 /** Triangles of the part, ranged face by face in the analysis's face numbering. */

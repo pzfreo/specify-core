@@ -36,8 +36,14 @@ const dir = mkdtempSync(join(tmpdir(), 'specify-agent-'));
 // Empty overrides are unset: the command's own app and engine.
 const env = builtIn ? { SPECIFY_APP_DIR: '', SPECIFY_WASM_DIR: '' } : { SPECIFY_APP_DIR: app, SPECIFY_WASM_DIR: wasm };
 const analyse = (file, part) => JSON.parse(execFileSync(cli, ['analyse', '--output', '-', ...(part === undefined ? [] : ['--part', String(part)]), file], { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] }));
-const stored = file => analyse(file).resume?.answers ?? {};
-const stored2 = (file, part) => analyse(file, part).resume?.answers ?? {};
+// What a file keeps of its answers: those stored, and (ADR P11) those that leave PMI, which the
+// file states instead (its feature table's stated rows), by question id.
+const kept = analysis => ({
+  ...Object.fromEntries((analysis.table?.rows ?? []).filter(r => r.state === 'stated').map(r => [r.id, r.value])),
+  ...(analysis.resume?.answers ?? {}),
+});
+const stored = file => kept(analyse(file));
+const stored2 = (file, part) => kept(analyse(file, part));
 /** The answers a person or agent gave: Specify's own `_` keys left out. */
 const given = answers => Object.fromEntries(Object.entries(answers).filter(([id]) => !id.startsWith('_')));
 
@@ -184,9 +190,9 @@ try {
     const shown = await second.call('show', { doc: docB2, browser: false });
     // `show` names the part: the page starts on it (not on the first part with answers).
     assert.equal((await (await fetch(`${shown.url}config`)).json()).part, b);
-    const session = await (await fetch(`${shown.url}answers`)).json();
-    assert.equal(session.parts[String(a)]?.['part.material'], 'Steel 1.4301', `the other part's stored answers resume: ${JSON.stringify(session.parts).slice(0, 300)}`);
-    assert.equal(session.parts[String(b)]?.['part.material'], 'Brass CW614N');
+    // ADR P11: the material leaves PMI, so each part's file states it (no stored answer to resume).
+    assert.equal(stored2(written.path, a)['part.material'], 'Steel 1.4301', 'the other part keeps its material');
+    assert.equal(stored2(written.path, b)['part.material'], 'Brass CW614N');
     // The page shows one part at a time and offers the others.
     const { context, page, requests } = await load(shown.url);
     await check(page.locator('.app-part select')).toBeVisible();
@@ -212,7 +218,9 @@ try {
     const stillOpen = page.locator('.app-saved details');
     await stillOpen.locator('summary').click();
     const expected = [];
-    for (const { part, name } of listed.parts.filter(({ part }) => part === a || part === b)) {
+    // A save reports the parts it writes. ADR P11: the other part's material is stated by the
+    // file, not a stored answer, so with no answer in this session it is not written or reported.
+    for (const { part, name } of listed.parts.filter(({ part }) => part === showing)) {
       const { doc } = await second.call('open', { path: written.path, part });
       const { questions } = await second.call('questions', { doc, state: 'open' });
       assert.ok(questions.length, `${name} has open questions`);
@@ -241,7 +249,9 @@ try {
     const [a, b] = listed.parts.map(p => p.part);
     const docA = (await agent.call('open', { path: asm, part: a })).doc;
     const docB = (await agent.call('open', { path: asm, part: b })).doc;
-    await agent.call('answer', { doc: docB, set: { 'part.material': 'Bronze CC491K' } });
+    // ADR P11: this file states b's material (Brass CW614N), so it is no question and a save never
+    // edits it; the agent changes b by answering a question b still has open.
+    await agent.call('answer', { doc: docB, set: { 'part.general_tolerance': 'ISO 2768-f' } });
     const shown = await agent.call('show', { doc: docA, browser: false });
     const { context, page } = await load(shown.url);
     await check(page.locator('.app-part select')).toHaveValue(String(a));
@@ -280,7 +290,7 @@ try {
     const withDefaults = (analyse(saved, b).characteristics ?? []).length;
     const without = (analyse(asm, b).characteristics ?? []).length;
     assert.ok(withDefaults > without, `part b's defaults written: ${withDefaults} > ${without}`);
-    assert.equal(given(analyse(saved, b).resume?.answers ?? {})['part.material'], 'Bronze CC491K');
+    assert.equal(given(stored2(saved, b))['part.general_tolerance'], 'ISO 2768-f');
     await check(page.locator('.app-dirty')).toHaveCount(0);
     await context.close();
     agent.stop();
@@ -397,7 +407,11 @@ try {
     assert.equal(good.status, 200, await good.clone().text());
     const { path } = await good.json();
     const was = id => analyse(asm, id).characteristics?.length ?? 0;
-    assert.ok((analyse(path, a).characteristics ?? []).length > was(a), 'part a has the default\'s PMI');
+    // ADR P11 (D3): the default's row in part a's feature table was a gap and the file now settles it
+    // (the general tolerance writes its note, which has no characteristic number to count).
+    const state = (file, part) => analyse(file, part).table?.rows.find(r => r.id === id)?.state;
+    assert.equal(state(asm, a), 'gap');
+    assert.notEqual(state(path, a), 'gap', 'part a has the default\'s PMI');
     assert.equal((analyse(path, b).characteristics ?? []).length, was(b), 'part b is untouched');
     assert.ok(id in given(stored2(path, a)), 'the approved default is an answer stored on part a');
     assert.ok(!(id in given(stored2(path, b))) || ofB.length === 0, 'part b has no default answer');

@@ -160,7 +160,14 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const datumGroup = rows.find((g) => g.key === 'datums') ?? { key: 'datums', title: 'Datums', questions: [] };
   const featureRows = rows.filter((g) => g.key !== 'datums');
   // Settings the file already states are not asked; they are shown as read.
-  const stated = Object.entries(session.analysis.part ?? {});
+  // `part` leaves a part of an assembly's material and general tolerance out; the feature
+  // table states them for every part (ADR P11), so its stated part rows fill the gaps.
+  const stated = Object.entries({
+    ...Object.fromEntries((session.analysis.table?.rows ?? [])
+      .filter((r) => r.state === 'stated' && r.id.startsWith('part.') && r.id !== 'part.process' && typeof r.value === 'string')
+      .map((r) => [r.id.slice('part.'.length), r.value as string])),
+    ...(session.analysis.part ?? {}),
+  });
   const notes = partGroup?.questions.filter((q) => NOTE_FIELDS.has(q.id)) ?? [];
   // A suggestion that states nothing is said as such, by its question (specify-ui#14).
   const notesSummary = notes.map((q) => (noneSuggested(q, answers) ? `${labelOf(q)}: ${NONE_SUGGESTED}` : String(answerOf(q, answers) ?? '')))

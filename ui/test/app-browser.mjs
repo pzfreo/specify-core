@@ -105,6 +105,9 @@ let listed = [];
 /** The answers a person gave: Specify's own `_` records left out. */
 const given = answers => Object.fromEntries(Object.entries(answers ?? {}).filter(([id]) => !id.startsWith('_')));
 const analyse = file => JSON.parse(execFileSync(cli, ['analyse', '--output', '-', file], { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] }));
+// What a file states, by question id: its feature table's stated rows (ADR P11: an answer that
+// leaves PMI is stated by the file, not stored as an answer).
+const stated = file => Object.fromEntries((analyse(file).table?.rows ?? []).filter(r => r.state === 'stated').map(r => [r.id, r.value]));
 
 async function downloadFile(page, name, filename) {
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name }).click()]);
@@ -216,7 +219,8 @@ try {
     await check.poll(() => (server.output().match(/Saved /g) ?? []).length).toBe(2);
     copyFileSync(specified, withDefaults);
     // The value the person confirmed is exactly what lands in the file.
-    assert.equal(given(analyse(withDefaults).resume?.answers)['part.general_tolerance'], shownTolerance, 'the stored answer is the value listed');
+    // ADR P11: the general tolerance leaves PMI (its note), so the file states it; no answer stores it.
+    assert.equal(stated(withDefaults)['part.general_tolerance'], shownTolerance, 'the file states the value listed');
     await check(page.getByRole('alert')).toHaveCount(0);
     assert.ok(existsSync(withDefaults), 'the defaults save written');
     assert.match(server.output(), /Saved .*part\.specified\.step[^\n]*\n[^]*Saved .*part\.specified\.step/);
@@ -245,8 +249,11 @@ try {
     copyFileSync(specified, second);
     await assertExportsFromSaved(page, second, beforeAnswer);
     await check(page.locator('.app-dirty')).toHaveCount(0);
-    assert.deepEqual(Object.keys(given(analyse(second).resume?.answers)).sort(), [...listed, 'part.material'].sort(), 'Save stores the answers given and the defaults confirmed, nothing else');
-    assert.equal(given(analyse(second).resume?.answers)['part.material'], 'Aluminium 6082-T6');
+    // ADR P11: the file stores only the answers that leave no PMI; it states the rest.
+    const kept = given(analyse(second).resume?.answers), said = stated(second);
+    assert.deepEqual([...listed, 'part.material'].filter(id => !(id in kept) && !(id in said)), [], 'Save keeps every answer given and default confirmed, stored or stated');
+    assert.deepEqual(Object.keys(kept).filter(id => !listed.includes(id) && id !== 'part.material'), [], 'nothing else stored');
+    assert.equal(said['part.material'], 'Aluminium 6082-T6');
     onlyLocal(requests, server.origin);
     // Leaving the page (pagehide, not into the back/forward cache) sends `closed`: the command then
     // stops 90 s later (without it, after 30 minutes), checked at the end.
@@ -300,7 +307,10 @@ try {
     // The page sends the ids it listed and the person confirmed, each with the value seen (`acceptDefaults: {"0": {id: value}}`): the
     // command makes exactly those answers (a new rev) and stores them, so the answers stored are the
     // confirmed defaults and nothing else (before the per-part contract: the session's, none here).
-    assert.deepEqual(Object.keys(given(analysis.resume?.answers)).sort(), listed, 'the answers stored are the defaults confirmed');
+    // ADR P11: stored are those of them that leave no PMI; the file states the rest.
+    const kept = given(analysis.resume?.answers), said = stated(withDefaults);
+    assert.deepEqual(Object.keys(kept).filter(id => !listed.includes(id)), [], 'no answer stored but the defaults confirmed');
+    assert.deepEqual(listed.filter(id => !(id in kept) && !(id in said)), [], 'every default confirmed is stored or stated');
     const plain = (analyse(plainSave).characteristics ?? []).length;
     assert.ok((analysis.characteristics ?? []).length > plain, 'the defaults save has the defaults\' PMI');
     const kinds = new Set((analysis.characteristics ?? []).map(c => c.kind));

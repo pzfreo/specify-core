@@ -280,7 +280,10 @@ try {
   // specify-core 0.1.8 (#110) the thread is reported removed, with its wording (#106), and the
   // ⌀3.3 H11 added; 0.1.7 paired the thread with an unrelated dimension and kept an M4 the new
   // file does not hold.
-  const spindleBefore = written(spindle('before'));
+  // The old side is the spindle's bare geometry (the shaft's after) written with the defaults,
+  // not spindle_pmi_before rewritten: that file states ⌀3.3 H11, and a save never edits what the
+  // file states (ADR P11), so no default M4 replaces it.
+  const spindleBefore = shaftAfter;
   const spindleReport = JSON.parse(diff('spindle_pmi_before.step', spindleBefore, 'spindle_pmi_after.step', spindle('after'), '{}', 'spindle_pmi_after.step', true)).report.pmi;
   const thread = spindleReport.items.find(c => c.class === 'removed' && c.kind === 'thread' && /^M4×0\.7-6H THRU$/.test(c.old ?? ''));
   assert.ok(renamed && thread, 'the shaft has a renumbered item with an old id; the spindle its thread removed');
