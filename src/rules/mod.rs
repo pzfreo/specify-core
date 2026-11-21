@@ -1248,41 +1248,73 @@ pub fn preview(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent>
     let ctx = Ctx::new(analysis)?;
     let qs = questions_in(&ctx, answers)?;
     let mut intent = intent(&ctx, answers, &qs, IntentMode::Preview)?;
-    unapproved_general(&mut intent, answers, &qs);
     mark_defaults(&mut intent, answers);
     Ok(intent)
 }
 
-/// ADR P9: a save never writes a planner default nobody approved. The general tolerance's
-/// dimensions of a hole whose location (`hole.position`) or function (`hole.function`) is
-/// still open would state that requirement in the file, and it would never be asked again: a
-/// hole's general location waits for its position answer, its general size for its function.
-fn unapproved_general(intent: &mut Intent, answers: &Map<String, Value>, qs: &[Question]) {
-    let mut open: Vec<(&str, BTreeSet<i64>)> = Vec::new();
-    for q in open_questions(qs, answers) {
-        for (prefix, kind) in [("hole.position:", "location"), ("hole.function:", "size")] {
-            if q.id.starts_with(prefix) {
-                open.push((kind, q.faces.iter().copied().collect()));
-            }
-        }
-    }
+/// ADR P9 / D1: a save writes only what was seen and approved. The general tolerance's answer
+/// writes its note; the dimensions it governs (every feature's size and location, nominal
+/// under the general tolerance) are each written only when the question they belong to is
+/// approved: a hole's or turned diameter's size with its `hole.function` / `diameter.fit`, a
+/// hole's location with its `hole.position` / `hole.location`. A dimension no question asks
+/// about (a plane level, a hole with no location question) is approved with every suggestion:
+/// when no question with a suggestion is open. With every suggestion approved (`apply`,
+/// "accept suggestions") the whole set is written.
+fn only_approved_general(intent: &mut Intent, answers: &Map<String, Value>, qs: &[Question]) {
+    let open_qs = open_questions(qs, answers);
+    // Every suggestion approved: a question still open has none to approve (a material).
+    let suggestions_open = open_qs.iter().any(|q| q.default.is_some());
+    let open: BTreeSet<&str> = open_qs.iter().map(|q| q.id.as_str()).collect();
     if open.is_empty() {
         return;
     }
-    let unapproved = |r: &Map<String, Value>| {
-        r.get("general") == Some(&Value::Bool(true))
-            && open.iter().any(|(kind, faces)| {
-                r.get("kind").and_then(Value::as_str) == Some(kind)
-                    && r.get("faces")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(Value::as_i64)
-                        .any(|f| faces.contains(&f))
-            })
+    // (kind, question id, its faces) of every question that owns a size or a location.
+    let owners: Vec<(&str, &str, BTreeSet<i64>)> = qs
+        .iter()
+        .filter_map(|q| {
+            let kind = if q.id.starts_with("hole.function:") || q.id.starts_with("diameter.fit:") {
+                "size"
+            } else if q.id.starts_with("hole.position:") || q.id.starts_with("hole.location:") {
+                "location"
+            } else {
+                return None;
+            };
+            let faces = q
+                .faces
+                .iter()
+                .chain(q.parts.iter().flat_map(|(_, f)| f))
+                .copied()
+                .collect();
+            Some((kind, q.id.as_str(), faces))
+        })
+        .collect();
+    let faces = |r: &Map<String, Value>, key: &str| -> Vec<i64> {
+        r.get(key)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_i64)
+            .collect()
     };
-    intent.requirements.retain(|r| !unapproved(r));
-    intent.general.retain(|r| !unapproved(r));
+    let approved = |r: &Map<String, Value>| {
+        let kind = r.get("kind").and_then(Value::as_str).unwrap_or("");
+        let mut on = faces(r, "faces");
+        if kind == "location" {
+            on.extend(faces(r, "reference"));
+        }
+        let mut owned = owners
+            .iter()
+            .filter(|(k, _, f)| *k == kind && on.iter().any(|i| f.contains(i)))
+            .peekable();
+        if owned.peek().is_none() {
+            return !suggestions_open;
+        }
+        owned.all(|(_, id, _)| !open.contains(id))
+    };
+    intent
+        .requirements
+        .retain(|r| r.get("general") != Some(&Value::Bool(true)) || approved(r));
+    intent.general.retain(|r| approved(r));
 }
 
 /// Prospective diagnostics still examine the suggested scheme, without accepting it. This is
@@ -1593,6 +1625,7 @@ fn intent(
             .requirements
             .retain(|r| r.get("stored") != Some(&Value::Bool(true)));
     }
+    only_approved_general(&mut intent, answers, qs);
     Ok(intent)
 }
 

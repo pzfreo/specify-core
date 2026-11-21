@@ -612,3 +612,80 @@ fn nist_ctc02_analyses_and_lists_its_pmi() {
     assert!(!analysis["existing"].as_array().unwrap().is_empty());
     agree(&analysis);
 }
+
+/// P9 / D1 (Paul): a general-tolerance answer writes only its note. Answering the material
+/// and "ISO 2768-m" and saving as the editor does (the preview, plus the unasked rows) adds no
+/// dimension; every hole's size and location stays a gap with its suggestion, to be approved
+/// one by one or with "accept suggestions".
+fn the_general_tolerance_writes_only_its_note(loaded: &LoadedPart, name: &str) {
+    let analysis = api::analyse(loaded).unwrap();
+    // Every dimension in the file, those written under the general tolerance included.
+    let dimensions = |l: &LoadedPart| {
+        specify_core::existing::read(l)
+            .unwrap()
+            .model()
+            .dimensions
+            .len()
+    };
+    let before = dimensions(loaded);
+    let answers = map(json!({"part.material": "6082-T6", "part.general_tolerance": "ISO 2768-m"}));
+    let mut intent = api::preview(&analysis, &answers).unwrap();
+    intent
+        .requirements
+        .extend(specify_core::rules::unasked_rows(&analysis, &answers).unwrap());
+    let (bytes, report) =
+        specify_core::writer::write_bytes(loaded, &intent, Some(&answers)).unwrap();
+    let saved = load_bytes(name, bytes).unwrap();
+    assert_eq!(dimensions(&saved), before, "{:?}", report.written);
+    let reopened = api::analyse(&saved).unwrap();
+    assert_eq!(reopened["part"]["general_tolerance"], "ISO 2768-m");
+    let rows: Vec<&Value> = reopened["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| {
+            [
+                "hole.position:",
+                "hole.location:",
+                "hole.function:",
+                "diameter.fit:",
+            ]
+            .iter()
+            .any(|p| r["id"].as_str().unwrap().starts_with(p))
+        })
+        .collect();
+    assert!(
+        rows.iter()
+            .any(|r| r["id"].as_str().unwrap().starts_with("hole.function:")),
+        "no hole size rows: {rows:?}"
+    );
+    // Every size and location row the save could have stated is a gap with its suggestion,
+    // unless the file stated it before the save.
+    let (old, _) = table(loaded);
+    for r in rows {
+        let id = r["id"].as_str().unwrap();
+        if old["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|o| o["id"] == id && o["state"] == "stated")
+        {
+            continue;
+        }
+        assert_eq!(r["state"], "gap", "{r}");
+        assert!(r["suggestion"].is_string(), "{r}");
+    }
+}
+
+#[test]
+fn a_general_tolerance_answer_writes_only_its_note_on_the_plate() {
+    the_general_tolerance_writes_only_its_note(&plate(), "plate.step");
+}
+
+#[test]
+fn a_general_tolerance_answer_writes_only_its_note_on_the_alpha7_part() {
+    the_general_tolerance_writes_only_its_note(
+        &fixture("thread-depth-alpha7.step.gz"),
+        "alpha7.step",
+    );
+}

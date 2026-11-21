@@ -115,6 +115,18 @@ Questions follow the table: every gap is asked, and nothing the file states is. 
 suggestion is "none" is not open anywhere: not in `questions --open`, a save's still-open
 list, `write`'s report or MCP. Approving its suggestion still decides it none.
 
+A general-tolerance answer writes only its note (ADR P9, Paul's decision D1): approving
+"ISO 2768-m" writes the general-tolerance note and nothing else. The dimensions the general
+tolerance governs, each feature's size and location with its nominal alone, are written only
+when the question they belong to is approved: a hole's or turned diameter's size with its
+`hole.function` or `diameter.fit` answer, a hole's location with its `hole.position` or
+`hole.location` answer. Until then those rows stay gaps with their suggestions. Dimensions no
+question asks about (plane levels, a hole with no location question) are written only when
+no question is open, as with "accept suggestions" or `write --accept-defaults`, which approve
+every suggestion and so write the whole set as before. The writer's upgrade of an old intent
+without planner rows (#75) keeps the same rule: it writes a planner dimension only on a
+feature and kind the intent itself sizes or locates.
+
 Only answers that leave no PMI behind are stored in the file: "none" answers and choices that
 are not requirements (`part.locating`). `resume.answers` holds those. Stored answers that
 repeat the file's PMI (as Specify 0.2 stored every answer) are ignored on reading and dropped

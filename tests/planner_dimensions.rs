@@ -238,8 +238,11 @@ fn an_existing_written_plate_retires_member_numbers_and_never_reuses_them() {
 fn reference_flag_is_written_as_a_standard_auxiliary_dimension() {
     let p = plate();
     let a = api::analyse(&p).unwrap();
+    // P9 / D1: the general tolerance writes only its note; with every suggestion approved
+    // ("accept suggestions") the general dimensions are written.
     let given = json!({"part.general_tolerance":"ISO 2768-m"});
-    let mut i = api::preview(&a, given.as_object().unwrap()).unwrap();
+    let given = rules::with_all_defaults(&a, given.as_object().unwrap()).unwrap();
+    let mut i = api::preview(&a, &given).unwrap();
     let r = i
         .general
         .iter_mut()
@@ -247,7 +250,7 @@ fn reference_flag_is_written_as_a_standard_auxiliary_dimension() {
         .unwrap();
     r["planner"]["required"]["reference"] = json!(["determining-plane-path"]);
     r["planner"]["required"]["tolerance"] = json!("untoleranced");
-    let (bytes, _) = writer::write_bytes(&p, &i, Some(given.as_object().unwrap())).unwrap();
+    let (bytes, _) = writer::write_bytes(&p, &i, Some(&given)).unwrap();
     let p = part::load_bytes("reference.step", bytes).unwrap();
     let read = model(&p);
     assert_eq!(
@@ -349,16 +352,27 @@ fn stored_pattern_origin_is_a_specified_authority_not_a_second_origin() {
 fn an_old_general_only_analysis_is_upgraded_at_the_writer_boundary() {
     let p = plate();
     let a = api::analyse(&p).unwrap();
-    let given = json!({"part.general_tolerance":"ISO 2768-m"});
-    let current = api::preview(&a, given.as_object().unwrap()).unwrap();
-    let expected = required(&current).len();
-    assert!(expected > 0);
     let mut old = a.clone();
     old.as_object_mut().unwrap().shift_remove("dimensioning");
+    let given = json!({"part.general_tolerance":"ISO 2768-m"});
+    // P9 / D1: the general tolerance writes only its note, so a general-only intent from an
+    // old analysis has nothing to upgrade and the writer adds no dimension nobody approved.
     let i = api::preview(&old, given.as_object().unwrap()).unwrap();
     assert!(i.requirements.is_empty());
     assert!(i.datums.is_empty());
+    assert!(i.general.is_empty());
+    let (bytes, _) = writer::write_bytes(&p, &i, None).unwrap();
+    let written = part::load_bytes("old-general.step", bytes).unwrap();
+    assert!(model(&written).parts[0].dimensions.is_empty());
+    // Every suggestion approved: the old intent is upgraded to the current plan.
+    let all = rules::with_all_defaults(&a, given.as_object().unwrap()).unwrap();
+    let current = api::preview(&a, &all).unwrap();
+    let expected = required(&current).len();
+    assert!(expected > 0);
+    let all = rules::with_all_defaults(&old, given.as_object().unwrap()).unwrap();
+    let i = api::preview(&old, &all).unwrap();
     assert!(required(&i).is_empty());
+    assert!(!i.general.is_empty());
     let (bytes, _) = writer::write_bytes(&p, &i, None).unwrap();
     let written = part::load_bytes("old-general.step", bytes).unwrap();
     let read = model(&written);
@@ -371,6 +385,39 @@ fn an_old_general_only_analysis_is_upgraded_at_the_writer_boundary() {
             .count(),
         expected
     );
+}
+
+/// P9 / D1 at the writer boundary: an old intent (no planner input) that approves one hole's
+/// size is upgraded to that hole's dimensions only, never the planner's whole general set.
+#[test]
+fn an_old_intent_is_upgraded_only_where_it_approves_general_dimensions() {
+    let p = plate();
+    let mut old = api::analyse(&p).unwrap();
+    old.as_object_mut().unwrap().shift_remove("dimensioning");
+    let given = json!({"part.general_tolerance":"ISO 2768-m", "hole.function:holes:9":"general"});
+    let i = api::preview(&old, given.as_object().unwrap()).unwrap();
+    assert!(!i.general.is_empty());
+    assert!(
+        i.general.iter().all(|r| r["faces"] == json!([9])),
+        "{:?}",
+        i.general
+    );
+    let (bytes, _) = writer::write_bytes(&p, &i, None).unwrap();
+    let written = part::load_bytes("old-hole.step", bytes).unwrap();
+    // The file's whole PMI (ADR P11), the general tolerance's dimensions included.
+    let existing = api::analyse(&written).unwrap()["existing"].clone();
+    let dimensions: Vec<&Value> = existing
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["kind"] == "dimension")
+        .collect();
+    assert_eq!(dimensions.len(), model(&written).parts[0].dimensions.len());
+    assert!(!dimensions.is_empty());
+    for d in dimensions {
+        assert_eq!(d["faces"], json!([9]), "{d}");
+        assert!(d.get("faces2").is_none_or(|f| f == &json!([9])), "{d}");
+    }
 }
 
 mod common;

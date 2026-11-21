@@ -36,13 +36,11 @@ test('saved ISO 2768-m exports every dimension in the written STEP', (t) => {
   const saved = readSaved(t, write(open(t), { 'part.general_tolerance': 'ISO 2768-m' }));
   // Decision 2026-11-19: export stored PMI, so every written dimension is included.
   // The old twelfth row was an unnumbered class note rather than an individual characteristic.
-  // ADR P9: a save no longer writes the general tolerance's dimensions of a hole whose
-  // position or function is still open: holes 13 and 14.15 (faces 13–15) lose their size and
-  // location rows, so 7 of the former 11 are written.
-  assert.equal(saved.chars.length, 7);
-  assert.ok(saved.chars.every((row) => !row.faces.some((face) => [13, 14, 15].includes(face))), 'no open hole is dimensioned');
-  assert.equal(toCsv(saved.chars).trimEnd().split('\n').length, 8);
-  assert.equal(as9102({ name: 'shaft' }, saved.chars, new Set(), saved.notes)[2].rows.length, 11);
+  // P9 / D1: the general tolerance writes only its note; each feature's size and location
+  // waits for its own approval, so this save writes no dimension (formerly 7).
+  assert.equal(saved.chars.length, 0);
+  assert.equal(toCsv(saved.chars).trimEnd().split('\n').length, 1);
+  assert.equal(as9102({ name: 'shaft' }, saved.chars, new Set(), saved.notes)[2].rows.length, 4);
   assertNumbers(saved);
 });
 
@@ -146,8 +144,15 @@ test('preview-to-writer parity includes general dimensions, hole depth, thread a
     const numbered = withCharacteristicNumbers(intent, JSON.parse(engine.pmiScene(JSON.stringify({ answers }))));
     return characteristics(numbered, analysis, new Map()).filter((row) => row.n);
   };
+  // P9 / D1: the general tolerance writes only its note: alone it plans and writes no
+  // dimension. Its dimensions are written once their suggestions are approved ("accept
+  // suggestions").
+  const general = { 'part.general_tolerance': 'ISO 2768-m' };
+  assert.deepEqual(planned(engine, general), []);
+  assert.deepEqual(readSaved(t, write(engine, general)).chars, []);
+  const approved = JSON.parse(engine.acceptDefaults(JSON.stringify({ ...general, 'part.material': 'Steel' })));
   for (const answers of [
-    { 'part.general_tolerance': 'ISO 2768-m' },
+    approved,
     { 'hole.function:holes:13': 'tapped:M4', 'datum.A': [0], 'part.surface_finish': 'Ra 3.2' },
   ]) {
     const before = planned(engine, answers);
@@ -156,6 +161,7 @@ test('preview-to-writer parity includes general dimensions, hole depth, thread a
     const after = planned(open(t, bytes), stored.analysis.resume.answers);
     const ids = (rows) => rows.map((row) => row.n);
     assert.ok(before.length > 0);
+    assert.ok(answers !== approved || before.some((row) => String(row.source).startsWith('general:')), 'general dimensions are planned');
     assert.deepEqual(ids(before), ids(stored.chars), 'every displayed planned number is written and exported');
     assert.deepEqual(after.map((row) => [row.n, row.text]), before.map((row) => [row.n, row.text]), 'readback preview preserves numbers and wording');
     // The writer can narrow preview supports (e.g. a depth's end face). Exports must

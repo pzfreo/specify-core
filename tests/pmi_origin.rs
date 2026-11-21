@@ -50,6 +50,10 @@ fn every_dimension_has_origin_and_recognised_sources_round_trip_losslessly_and_r
     // this test reads are written.
     let mut given = answers();
     given.insert("part.locating".into(), json!("± dimensions"));
+    // P9 / D1: the general tolerance writes only its note; each hole's general size and
+    // location are written once approved, here with every suggestion accepted.
+    let given =
+        specify_core::rules::with_all_defaults(&api::analyse(&plate).unwrap(), &given).unwrap();
     let written = write(&plate, &given);
     let doc = Document::parse(written.bytes.to_vec()).unwrap();
     let original = Document::parse(plate.bytes.to_vec()).unwrap();

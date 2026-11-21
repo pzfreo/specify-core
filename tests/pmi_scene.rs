@@ -134,7 +134,9 @@ fn requirement_ids_are_stable_and_statuses_are_the_feature_table_state() {
         "hole.function:holes:9"
     );
     assert!(metadata.values().all(|m| m["status"] == "gap"));
-    assert!(metadata.values().any(|m| m["general"] == true));
+    // P9 / D1: the general tolerance writes only its note; its dimensions are planned once
+    // their questions are approved (below, with every suggestion accepted).
+    assert!(!metadata.values().any(|m| m["general"] == true));
     let accepted_defaults = specify_core::rules::with_all_defaults(&analysis, &answers).unwrap();
     let state = specify_core::tolerancing::State {
         auto: Some(
@@ -156,6 +158,13 @@ fn requirement_ids_are_stable_and_statuses_are_the_feature_table_state() {
             .scene(&loaded, Some(&analysis), Some(&state.answers))
             .unwrap()["specify"],
         "an automatically accepted answer is a gap like any other"
+    );
+    assert!(
+        defaults["specify"]
+            .as_object()
+            .unwrap()
+            .values()
+            .any(|m| m["general"] == true)
     );
     let mut changed = answers.clone();
     changed.insert("hole.function:holes:9".into(), json!("fit:H8"));
@@ -200,6 +209,14 @@ fn requirement_ids_are_stable_and_statuses_are_the_feature_table_state() {
             .values()
             .all(|m| m["status"] == "stated" && m.get("origin").is_none())
     );
+    // P9 / D1: the general tolerance writes only its note; the general dimensions are
+    // written, and read back flagged general, once their suggestions are approved.
+    let intent = api::preview(&analysis, &state.answers).unwrap();
+    let bytes = writer::write_bytes(&loaded, &intent, Some(&state.answers))
+        .unwrap()
+        .0;
+    let stored = pmi_scene::pmi_scene(&bytes, None).unwrap();
+    validate(&stored);
     let general: Vec<_> = stored["specify"]
         .as_object()
         .unwrap()
@@ -207,6 +224,7 @@ fn requirement_ids_are_stable_and_statuses_are_the_feature_table_state() {
         .filter(|m| m["general"] == true)
         .collect();
     assert!(!general.is_empty());
+    assert!(general.iter().all(|m| m["status"] == "stated"));
 }
 #[test]
 fn scene_face_anchors_are_snapshot_mesh_indices_even_when_step_faces_have_names() {

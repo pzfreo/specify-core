@@ -82,7 +82,15 @@ fn a_moved_holes_general_location_changes_without_a_stored_location_answer() {
         json!({"part.general_tolerance":"ISO 2768-m", "part.locating":"position tolerances"}),
     );
     // Each revision written with the same answers: diff compares the two files' PMI.
-    let (old, new) = (write(&before, &answers), write(&after, &answers));
+    // P9 / D1: the general tolerance writes only its note; the holes' general locations are
+    // written with their suggestions approved ("accept suggestions").
+    let accepted = |p: &part::LoadedPart| {
+        specify_core::rules::with_all_defaults(&api::analyse(p).unwrap(), &answers).unwrap()
+    };
+    let (old, new) = (
+        write(&before, &accepted(&before)),
+        write(&after, &accepted(&after)),
+    );
     let report =
         revision::diff_with_options(&old, &new, revision::DiffOptions { scenes: true }).unwrap();
     let changes: Vec<_> = report

@@ -2813,7 +2813,7 @@ fn part_pmi_observed(
         }
         match crate::dimensioning::input(&loaded.part) {
             Ok(input) => {
-                crate::dimensioning::apply(input, &mut upgraded).map_err(WriteError::Failed)?;
+                crate::dimensioning::upgrade(input, &mut upgraded).map_err(WriteError::Failed)?;
                 &upgraded
             }
             // A face whose area cannot be computed leaves the part without a frame to plan
