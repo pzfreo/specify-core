@@ -392,8 +392,9 @@ fn conversation(era: &'static str) {
     assert_eq!(pmi["resumed"], json!(false));
 
     // check: an edit list filling the answers and the defaults the person approved, checked
-    // against the file as save would apply it (ADR P9: never taken unasked). save is refused
-    // while the session holds the answers set with `answer`, and writes nothing.
+    // against the file as save would apply it (ADR P9: never taken unasked). While the session
+    // holds the answers set with `answer`, check says so and save is refused, writing nothing;
+    // the list itself applies to the file.
     let offered: Map<String, Value> = client.call("questions", json!({"doc": doc}))["questions"]
         .as_array()
         .unwrap()
@@ -412,13 +413,18 @@ fn conversation(era: &'static str) {
     assert!(fill.len() > 2, "{fill:?}");
     let list = json!({"fill": fill});
     let checked = client.call("check", json!({"doc": doc, "edits": list}));
-    assert_eq!(checked["applicable"], json!(true), "{checked}");
+    assert_eq!(checked["applicable"], json!(false), "{checked}");
+    assert!(
+        checked["failures"].to_string().contains("unsaved answers"),
+        "{checked}"
+    );
     assert_eq!(checked["written"], json!(false));
     assert_eq!(checked["doc"], json!(doc));
     let expected = specify_core::writer::apply::check(
         &specify_core::part::load(&plate, None).unwrap(),
         &list.to_string(),
     );
+    assert!(expected.applicable, "{expected:?}");
     assert_eq!(checked["entries"], json!(expected.entries));
     let refused = client.refusal("save", json!({"doc": doc, "edits": list}));
     assert_eq!(refused["code"], json!("invalid"), "{refused}");
