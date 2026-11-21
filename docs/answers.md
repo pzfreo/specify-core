@@ -141,7 +141,10 @@ and settings, and `analyse` adds the **feature table**, `table`:
   - `gap`: nothing is there. `suggestion` is Specify's default (`null` when there is none).
     It is asked. `open` is false when the suggestion is "none": leaving it and accepting
     "none" give the same file.
-  - `decided_none`: an answer that nothing is needed, stored in the file.
+  - `decided_none`: an answer that nothing is needed, stored in the file; or an approval the
+    planner wrote nothing for (a ⌀ left to the general tolerance on a datum's own faces: no size
+    is written on a datum feature), stored and listed in the payload's `no_pmi` (resumed as
+    `_specify.no_pmi`), its `value` the answer. The write report's `not_written` names it.
 - `file_pmi`: the file's requirements on no recognised feature and kind.
 - `decided_none`: the decided-none ids, read back from the file.
 
@@ -151,10 +154,14 @@ The stated row is all anyone sees of what the file says, so nothing the file sta
 out of it. Each `existing` item, and so each requirement of a row, carries:
 
 - `text`: the item as a drawing states it, in full: `⌀3.3 H11`, `⌀6.6 ±0.1`, `⌀6.5 - ⌀6.7`,
-  `50 (basic)`, `⌖ ⌀0.3Ⓜ A`, `⌓ 0.020000 A FⓂ`, `M2×0.4-6H ↧ 2`, `M5×0.8-6H THRU`,
+  `50 (basic)`, `⌖ ⌀0.3Ⓜ A`, `⌓ 0.02 A FⓂ`, `M2×0.4-6H ↧ 2`, `M5×0.8-6H THRU`,
   `diamond knurl, pitch 1 mm, major ⌀8 mm`, `√ Ra 1.6`, `datum A`. Values are as the file
-  states them, in its own unit (an inch NIST file's `⌀0.250000 +0.003000/0`); `value`, `upper`
-  and `lower` stay millimetres. A row's `value` is its requirements' texts joined.
+  states them, in its own unit (an inch NIST file's `⌀0.25 +0.003/0`), shown as a drawing reads
+  them: float noise beyond 10 significant digits rounded away (`⌀1.06500000000426` →
+  `⌀1.065`) and trailing zeros trimmed (`0.016000` → `0.016`); a value with fewer digits is
+  never rounded. `value`, `upper` and `lower` stay millimetres, as read. A dimension the file
+  states without a value reads its kind in words (`Diameter, no value stated`). A row's
+  `value` is its requirements' texts joined.
 - the structured values a change needs to keep, by the planner's names (optional fields, absent
   when not stated):
   - a size's `fit` (its ISO 286 class, `H11`); a class stated alone also gives `upper` and

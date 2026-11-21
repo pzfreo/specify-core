@@ -116,7 +116,7 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `IntentEngine.openPart(name, bytes, part)` | Opens part `part` (an index from `parts`) of any file: an assembly's part, or a part placed more than once. See "Assemblies" below. Part 0 of a file of one part used once opens exactly as the constructor opens it. |
 | `IntentEngine.bom(bytes)` | The file's BOM rows as JSON, one per distinct part, as `specify-core bom` gives them: each field `{value, source}`. Reading never accepts suggestions or allocates numbers. See [BOM](bom.md). |
 | `engine.snapshot(max_deviation_mm?)` | `{analysis, mesh, provenance: {source_sha256, face_entities, part}}`; `part` is the part opened (0 from the constructor). |
-| `engine.review(answersJson)` | `{questions, open, intent, sources, problems, conflicts?}`; adds geometry anchors to `intent.anchors`. `conflicts` (only when there are some) are a reopened file's undecided conflicts with its stored answers, each `{id, kind: "conflict", text, stored, file, choices}`; see "Reopening a file Specify wrote" below. |
+| `engine.review(answersJson)` | `{questions, open, intent, sources, problems}`; adds geometry anchors to `intent.anchors`. What a reopened file states is not asked (see "Reopening a file" below). |
 | `engine.acceptDefaults(answersJson)` | Answers object with every unanswered default filled to a fixed point, using the same rules as CLI/serve `accept_defaults`. Preserves supplied answers; questions without defaults stay unanswered. |
 | `engine.writePmi(answersJson, projectBase64?, payloadJson?, bom?)` | `{bytes, source_sha256, report}`; `bytes` is an array of byte values. Writes and verifies answered PMI and stored answers in memory. Unanswered defaults remain suggestions. An incomplete set is written (a STEP file need not answer everything), never refused: `report.complete` is `false` and `report.missing` lists what `write` without `--accept-defaults` would refuse as incomplete: the required questions still open, or, while carried answers wait for a decision, those carry blocks only (`[]` when complete). `report` is otherwise the upstream writer's report; its `output` is the constructor's name. `payloadJson` is `{name, value}`: any JSON value carried in the STEP under `name` (give the project or a payload, not both; see below). |
 | `engine.payload(name)` | The JSON text of the payload `name` the opened STEP carries, or `undefined`. |
@@ -698,29 +698,15 @@ Add preserves original entities in the kernel. It can add a separate datum featu
 on a kept carrier; an upgrade requiring original-entity repairs instead fails with
 ids and repair details. Specify never automatically retries a refused Add with Replace.
 
-## Reopening a file Specify wrote
+## Reopening a file
 
-On reopening, the PMI is the truth (ADR P9; [answers](answers.md#reopening-a-file-specify-wrote-the-pmi-is-the-truth)).
-`snapshot().analysis` reads the file's PMI first: `resume.answers` holds only the stored
-answers the file agrees with, `existing` the file's PMI they do not explain, and
-`resume.conflicts: [{id, stored, file}]` the stored answers the file changed (`file`, its
-notation) or removed (`file: null`). `resume.present: {id: value}` lists the defaults the
-file states (written but not stored as answers): the engine's `review`, `writePmi` and the
-other calls take each as its question's answer unless the answers give one, so a page may
-show them as answered. `review` presents the undecided ones as `conflicts`,
-`{id, kind: "conflict", text, stored, file, choices: [{choice: "keep", label}, {choice:
-"restore", label, answer}]}`. The page asks the person; it never decides for them:
-
-- **Restore:** set `answers[id] = conflict.stored` (the choice's `answer`). `writePmi` then
-  writes the stored value and not the file's.
-- **Keep the file's:** add `id` to `answers._specify.keep` (a list of ids). `writePmi`
-  writes the file's requirement without Specify's provenance marker, so it stays the file's
-  own; a kept removal is stored with the answers and comes back in `resume.answers._specify`.
-
-The conflict's question is not in `questions` or `open` until decided, and an undecided
-conflict never blocks `writePmi`: the file's state is what is written.
-
-`resume.foreign` (only when there are some) lists the ids of questions the file answers with
-another tool's requirement among Specify's own, such as a hole's position tolerance beside
-Specify's location dimensions. Like a foreign conflict, such a question is not asked, and an
-answer to it is neither written nor stored; the report's `not_written` gives the reason.
+The file is the only copy (ADR P11; [answers](answers.md#reopening-a-file-the-file-is-the-only-copy)):
+its PMI is the state, whoever wrote it. `snapshot().analysis` has `existing` (the file's whole
+PMI, Specify's own included, each item with its full `text`, `text_only` and planner-named
+fields) and `table`, the feature table: each feature-and-kind `stated`, `gap` (with Specify's
+suggestion) or `decided_none`. A stated row is not asked; `review` asks the gaps.
+`resume.answers` holds only the stored answers that leave no PMI behind: decided none, choices
+that are not requirements, and approvals the planner wrote nothing for (listed in
+`_specify.no_pmi`). A stored answer the file no longer bears out is listed once in
+`resume.dropped_answers`. There are no conflicts, no `_specify.keep`, and no `resume.present`
+or `resume.foreign` (0.2.x); changing what the file states is an explicit edit.

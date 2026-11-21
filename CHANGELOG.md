@@ -21,6 +21,22 @@ Read first:
   unchanged: `specify-core` (crates.io, PyPI), `@draftwright/specify-core-wasm` and
   `@draftwright/specify-ui` (npm). pzfreo/specify-ui is to be archived (kept, so 0.2.1 can still download its app); its changes up to 0.2.0 are in
   its own history and release notes.
+- **The file is the only copy** ([ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md)):
+  a file's PMI is the state, whoever wrote it (docs/answers.md, "Reopening a file").
+  - `analyse` adds the feature table, `table: {rows, file_pmi, decided_none}`: each
+    feature-and-kind `stated`, `gap` (with Specify's suggestion) or `decided_none`. Only gaps are
+    asked.
+  - `existing` is the file's whole PMI, Specify's own included (before, a reopened file's
+    `existing` left out what its stored answers explained), each item with its full `text`.
+  - **Removed:** conflicts (`resume.conflicts`, `review`'s and MCP `open`/`questions`'
+    `conflicts`, `kind: "conflict"`), `keep` (MCP `answer`'s `keep`, `_specify.keep`),
+    `resume.foreign` and `resume.present`. What the file states stands; changing it is an
+    explicit edit.
+  - **Storage:** only answers that leave no PMI behind are stored in the file: decided none,
+    choices that are not requirements, and approvals the planner wrote nothing for (the
+    payload's `no_pmi`, `_specify.no_pmi` among resumed answers). An answer that wrote PMI is
+    not stored; the file states it. A file saved by 0.2.x reopens with its other stored answers
+    ignored (the file states them) and is stored the new way on the next save.
 - **Lockstep versions.** Every package is released together at one version: 0.3.0 is the next for
   all of them, so `@draftwright/specify-ui` goes from 0.2.0 to 0.3.0 (there is no specify-ui
   0.2.1). `@draftwright/specify-ui` X depends on `@draftwright/specify-core-wasm` X exactly.
@@ -169,9 +185,21 @@ Read first:
   "N dimensions under ISO 2768-m" row again (they are the file's own now, not planned).
 - A stated ⌀3.3 H11, ⌖ ⌀0.3 Ⓜ and M2×0.4-6H no longer read back as `⌀3.3`, `⌖ 0.3` and
   `internal thread` (a 0.3.0 regression from reading stated PMI from the file, ADR P11).
-- MCP `answer` refuses an answer to a feature-and-kind the file states, with the edit list's
-  reason ("the file already states … for …, so there is no gap to fill; to replace it, use
-  change …"); before, it accepted the answer and the save left it out.
+- MCP `answer` refuses an answer to a feature-and-kind the file states ("the file states … for
+  …, so there is no gap to fill; changing what the file states is an explicit edit (the edit
+  list's change), not an answer"); one equal to what the file states is a no-op, as on the
+  command line. Before, it accepted the answer and the save left it out.
+- An approval the planner writes nothing for (a ⌀ left to the general tolerance on a datum's own
+  faces) is no longer dropped silently: `not_written` says so, it is stored (`no_pmi`), and on
+  reopening its row is decided, so `write --accept-defaults` on the saved file no longer
+  refuses "incomplete".
+- A location the planner shares across several holes is written unless the file already
+  locates every one of them: on NIST CTC-05, 263.525 from face 9 to holes 37, 51/53 and 54/56
+  was left out because hole 37 (datum B) is located, and the other holes lost their only x
+  location.
+- Stated text reads as a drawing does: no float noise (`⌀1.06500000000426` → `⌀1.065`), no
+  trailing zeros (`0.016000` → `0.016`), and a dimension with no value in words (`Diameter,
+  no value stated`, not `⌀` or `Location_LinearDistance`).
 - A save that changes nothing keeps the file's bytes in an assembly whose parts are written in
   different modes (one with PMI added to, one without replaced); before, only all-Add or
   all-Replace saves did, and the stored-answer blocks were renumbered.
