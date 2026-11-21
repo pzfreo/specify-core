@@ -55,3 +55,57 @@ body { background: #fff; color: #1a1d21; font: 13px/1.45 ui-sans-serif, -apple-s
 .app-defaults { margin: 0; padding: 8px 14px; background: #fff8ea; border-bottom: 1px solid #e0b56a; }
 .app-defaults p { margin: 0 0 4px; }
 .app-defaults ul { margin: 0 0 8px; padding-left: 20px; max-height: 240px; overflow: auto; }
+/* The review panel (Panel.tsx; specify-panel.md and its mock-up): features, each kind of requirement
+   stated, a gap or decided none. Only the remove confirmation is red; only unsaved edits are highlighted. */
+.app { --spec-accent: #2f5fb3; --spec-accent-soft: #e6edf9; --spec-gap: #8a5a00; --spec-gap-soft: #fdf3dc;
+  --spec-none: #6b7482; --spec-danger: #a8322d; --spec-danger-soft: #fbe9e8; --spec-ok: #1f6b3a; --spec-line: #d9dee4; }
+.spec-panel .spec-rows, .spec-panel .spec-chars { flex: 1; min-height: 0; overflow-y: auto; background: #fff; }
+.spec-panel .spec-rows[hidden], .spec-panel .spec-chars[hidden] { display: none; }
+.spec-chars .pmi-lab.pmi-lab-pane { position: static; background: transparent; }
+.spec-chars .pmi-lab-panel { position: static; width: auto; border: 0; border-radius: 0; box-shadow: none; background: #fff; }
+.spec-chars .pmi-lab-panel > header { display: none; }
+.spec-group { padding: 10px 12px 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #707880; }
+.spec-feat { border-top: 1px solid var(--spec-line); padding: 6px 12px; }
+.spec-feat > .name { font-weight: 600; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; padding-top: 2px; }
+.spec-feat .balloon, .spec-row .num { font: 500 11.5px var(--specify-mono-font); border: 1px solid #1a1d21; border-radius: 10px; padding: 0 6px; }
+.spec-row .num { margin-left: 6px; }
+.spec-row { display: flex; gap: 6px; align-items: center; padding: 4px 0; flex-wrap: wrap; }
+.app .spec-row > .k { flex: 0 0 104px; text-align: left; padding: 0; border: 0; background: none; color: #707880; font-size: 12.5px; cursor: pointer; }
+.spec-row > .v { flex: 1 1 110px; min-width: 0; overflow-wrap: anywhere; }
+.spec-row .acts { display: flex; gap: 5px; }
+.app .spec-row .acts button { padding: 2px 8px; font-size: 12.5px; }
+.app .spec-row .acts button.spec-icon { padding: 4px 5px; line-height: 0; color: #1a1d21; border-color: var(--spec-line); background: #fff; }
+.app .spec-row .acts button.spec-icon:hover:not(:disabled) { background: #f3f5f8; border-color: #707880; }
+.spec-icon svg { width: 16px; height: 16px; display: block; }
+.spec-row.stated > .v::before { content: "✓ "; color: var(--spec-ok); }
+.spec-row.gap { background: var(--spec-gap-soft); border-radius: 6px; padding: 4px 6px; margin: 2px -6px; }
+.spec-row.gap > .v { color: var(--spec-gap); }
+.spec-row .sugg { display: inline-block; font-size: 11.5px; border: 1px dashed var(--spec-gap); border-radius: 10px; padding: 0 6px; margin-left: 6px; }
+.spec-row > .v > .t { white-space: normal; }
+.spec-row .acts { flex: none; margin-left: auto; }
+.spec-row.nonerow > .v { color: var(--spec-none); font-style: italic; }
+.spec-row.changed > .v { color: var(--spec-accent); font-weight: 600; }
+.spec-row.changed { box-shadow: inset 3px 0 0 var(--spec-accent); padding-left: 6px; }
+.spec-row.removed > .v { text-decoration: line-through; color: var(--spec-danger); }
+.spec-edit { flex-basis: 100%; background: var(--spec-accent-soft); border-radius: 6px; padding: 7px 9px; display: grid; gap: 6px; }
+.spec-edit.rm { background: var(--spec-danger-soft); }
+.spec-edit input, .spec-edit textarea, .spec-edit select { font: inherit; padding: 3px 7px; border: 1px solid var(--spec-line); border-radius: 4px; background: #fff; max-width: 100%; }
+.spec-edit > input, .spec-edit > textarea { width: 100%; box-sizing: border-box; }
+.spec-edit .now { font-size: 12.5px; }
+.spec-edit .foot { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.app .spec-edit button.primary { background: var(--spec-accent); border-color: var(--spec-accent); color: #fff; font-weight: 600; }
+.app .spec-edit button.danger { color: var(--spec-danger); border-color: var(--spec-danger); }
+.spec-edit .muted, .spec-bar .muted { color: #707880; font-size: 12px; }
+.spec-problem { color: #b3261e; font-size: 12px; white-space: pre-wrap; }
+.spec-gt { display: grid; gap: 5px; }
+.spec-gt-form { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12.5px; }
+.spec-gt-row { display: flex; gap: 5px; align-items: center; }
+.spec-gt-row input { flex: 1; min-width: 0; }
+.app .spec-gt-row button { padding: 1px 7px; }
+.app .spec-gt-add { justify-self: start; padding: 2px 9px; font-size: 12.5px; }
+.spec-gt-line, .spec-gt-units { display: flex; gap: 6px; align-items: center; font-size: 12.5px; }
+.spec-gt-line input { flex: 1; min-width: 0; }
+.spec-gt-text code { font-family: var(--specify-mono-font); }
+.spec-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 14px; border-top: 1px solid var(--spec-line); background: #fff; }
+.spec-bar ul { margin: 0; padding: 0; list-style: none; display: flex; gap: 4px 14px; flex-wrap: wrap; flex: 1 1 240px; min-width: 0; font-size: 12.5px; }
+.spec-bar li { overflow-wrap: anywhere; }

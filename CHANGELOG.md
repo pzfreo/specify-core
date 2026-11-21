@@ -113,6 +113,27 @@ Read first:
   whole set as before. The writer's upgrade of an old intent without planner rows follows the
   same rule. Replaces the narrower rule that only held back a hole's general location or size
   while its position or function was open.
+- **The local app's review panel** (proposal specify-0.3.0 piece 7; draftwright-project
+  proposals/specify-panel.md, accepted with its mock-up). The page lists the part's features from the
+  file's feature table, each kind of requirement stated, a gap (with its suggestion as a chip) or
+  decided none, and "Other PMI in the file" last. Stated rows have a pencil and a bin, matching and
+  uncoloured; change opens one line with the current value first; the bin asks once, in red, and says
+  the number is retired. A gap offers Add (pre-filled) and None needed; a decided none offers Undo
+  (`clear`). "Other PMI" rows have remove only. Edits are listed in a bar at the bottom and written
+  together by Save, as one edit list, all or nothing, or dropped by Discard; each is checked against
+  the file (with those already listed) before it joins the bar. Only unsaved edits are highlighted;
+  nothing says who wrote a requirement. The general tolerance's line is a row editor (#228): a class,
+  or a block of decimal places and their tolerances, an angles line and a note line, written as one
+  line of text (`.XX ±.01, .XXX ±.005, angles ±1°`). A part of an assembly is shown read only, with a
+  note, until edits on parts of an assembly land. **Save with defaults** becomes the bar's **Add all
+  suggestions** (Paul, 2026-11-21): every gap's suggestion queued as a pending edit (a suggestion of
+  none as None needed; a gap with no suggestion left alone), through the same check, written only by
+  Save. Removed from the app: the questions list and the Answers (JSON) export; the 3D view now
+  draws the file's PMI only. Values read as drawn ("⌖ 0.2 A"). Every stated row has the bin; a removal
+  sends the numbers, or `{"id": …}` in `items.remove` for a requirement without one. Save with nothing listed says "Nothing to
+  save." and writes nothing. `SpecifyReview` no longer says "from the file" (datum chips, stated part
+  settings) and its Show menu's "PMI from the file" is "Requirements": origin is never shown.
+  `@draftwright/specify-ui`'s worker gains a `check-edits` operation (WASM `checkEdits`).
 - **Saving is an edit list everywhere** (proposal specify-0.3.0 piece 6, ADR P11): the page, MCP,
   WASM and Python apply an edit list to the file, all or nothing, as `write STEP EDITS.json` does.
   Writing a whole intent from answers is gone from them.

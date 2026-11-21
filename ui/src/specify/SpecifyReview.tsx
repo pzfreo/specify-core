@@ -895,7 +895,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                     onChange={(event) => setShow({ ...show, [key]: event.target.checked })}
                   />{' '}
                   {{
-                    labels: 'Labels', defaults: 'Defaults to check', existing: 'PMI from the file',
+                    labels: 'Labels', defaults: 'Defaults to check', existing: 'Requirements',
                     general: 'General dimensions', farSide: 'Hide far side',
                   }[key]}
                 </label>
@@ -966,7 +966,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                   >
                     {c.letter}
                   </button>
-                  <span className="what">{c.existing ? `${c.text}, from the file` : c.text}</span>
+                  <span className="what">{c.text}</span>
                 </span>
               ))}
             </div>
@@ -1074,7 +1074,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               {stated.map(([key, value]) => (
                 <div key={key} className="pmi-lab-line stated">
                   <span className="name">{PART_FIELD[`part.${key}`] ?? key}</span>
-                  <span className="value">{value} <small>(from the file)</small></span>
+                  <span className="value">{value}</span>
                 </div>
               ))}
               {partGroup?.questions.filter((q) => !NOTE_FIELDS.has(q.id)).map((q) => {
@@ -1175,7 +1175,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                   >
                     {c.letter}
                   </button>
-                  <span className="what">{c.existing ? `${c.text}, from the file` : c.text}</span>
+                  <span className="what">{c.text}</span>
                   {!c.existing && !(`datum.${c.letter}` in answers) && <small className="sg">suggested</small>}
                   {!c.existing && !readOnly && (
                     <button

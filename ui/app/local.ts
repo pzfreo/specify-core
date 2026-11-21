@@ -86,13 +86,17 @@ export const getAnswers = () => json<SessionAnswers>(fetch('answers', { cache: '
 export interface EditList {
   fill?: Record<string, unknown>;
   change?: Record<string, { to: unknown; expect: unknown }>;
-  items?: { change?: Record<string, { tolerance: string; expect: string }>; remove?: string[] };
+  items?: { change?: Record<string, { tolerance: string; expect: string }>; remove?: RemoveTarget[] };
   none?: string[];
   accept_suggestions?: string[];
   /** Stored decisions that leave no PMI to take back (a decided none, a choice such as how holes
    * are located): a gap, or unanswered, again. Never PMI. */
   clear?: string[];
 }
+
+/** What `items.remove` names: a characteristic number ("#4"), or, for a requirement without one, the
+ * stated row's id or the existing-PMI item's id (`{"id": …}`; the engine route for these is being added). */
+export type RemoveTarget = string | { id: string };
 
 /** One entry of an edit list that cannot be applied, and why. */
 export interface EditFailure { entry: string; reason: string }
