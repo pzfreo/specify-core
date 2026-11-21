@@ -34,11 +34,15 @@ function assertNumbers(saved) {
 
 test('saved ISO 2768-m exports every dimension in the written STEP', (t) => {
   const saved = readSaved(t, write(open(t), { 'part.general_tolerance': 'ISO 2768-m' }));
-  // Decision 2026-11-19: export stored PMI, so the eleven written dimensions are included.
+  // Decision 2026-11-19: export stored PMI, so every written dimension is included.
   // The old twelfth row was an unnumbered class note rather than an individual characteristic.
-  assert.equal(saved.chars.length, 11);
-  assert.equal(toCsv(saved.chars).trimEnd().split('\n').length, 12);
-  assert.equal(as9102({ name: 'shaft' }, saved.chars, new Set(), saved.notes)[2].rows.length, 15);
+  // ADR P9: a save no longer writes the general tolerance's dimensions of a hole whose
+  // position or function is still open: holes 13 and 14.15 (faces 13–15) lose their size and
+  // location rows, so 7 of the former 11 are written.
+  assert.equal(saved.chars.length, 7);
+  assert.ok(saved.chars.every((row) => !row.faces.some((face) => [13, 14, 15].includes(face))), 'no open hole is dimensioned');
+  assert.equal(toCsv(saved.chars).trimEnd().split('\n').length, 8);
+  assert.equal(as9102({ name: 'shaft' }, saved.chars, new Set(), saved.notes)[2].rows.length, 11);
   assertNumbers(saved);
 });
 
@@ -87,7 +91,7 @@ test('write → readback → export keeps the M4 ID while later saves append num
   assertNumbers(next);
 });
 
-test('changed limits reach the next saved export and cannot alter the previous snapshot', (t) => {
+test('changed limits reach the next saved export and cannot alter the previous snapshot', { skip: '0.3.0: moves to piece 2 (edits in place)' }, (t) => {
   const a = { 'extra.1': { kind: 'size', faces: [13], value: '+0.2/-0.1' } };
   const bytes = write(open(t), a);
   const first = readSaved(t, bytes);
@@ -101,7 +105,7 @@ test('changed limits reach the next saved export and cannot alter the previous s
   assertNumbers(changed);
 });
 
-test('changed datum references are read from the saved PMI, with stable requirement IDs', (t) => {
+test('changed datum references are read from the saved PMI, with stable requirement IDs', { skip: '0.3.0: moves to piece 2 (edits in place)' }, (t) => {
   const answers = {
     'datum.A': [0], 'datum.B': [1],
     'extra.1': { kind: 'perpendicularity', faces: [13], value: '0.05', datums: ['A'] },

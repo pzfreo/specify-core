@@ -155,7 +155,7 @@ fn numbered_requirement_changes_use_the_same_identity_as_pmi_scene() {
     // ADR P11: a save does not change a stated fit (a change is an explicit edit), so the
     // new revision is the bare part written with H8.
     let old = write(&bare, "fit:H7");
-    let new = write(&old, "fit:H8");
+    let new = write(&bare, "fit:H8");
     let result = session::diff(("old.step", &old.bytes), ("new.step", &new.bytes), "Fit").unwrap();
     let scene = pmi_scene::pmi_scene(&new.bytes, None).unwrap();
     let items = result["report"]["pmi"]["items"].as_array().unwrap();
