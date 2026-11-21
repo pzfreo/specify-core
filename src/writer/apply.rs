@@ -85,9 +85,54 @@ fn limits(list: &EditList) -> Vec<Failure> {
 }
 
 /// The list validated against `table`, with this writer's limits.
-fn validated(list: &EditList, table: &FeatureTable) -> (EditList, Outcome) {
+/// The feature table, with the choice questions that have no "none" option.
+struct Choices<'a> {
+    table: &'a FeatureTable,
+    no_none: BTreeSet<String>,
+}
+
+impl edits::FileState for Choices<'_> {
+    fn kind(&self, id: &str) -> Option<edits::KindState> {
+        self.table.kind(id)
+    }
+    fn requirement(&self, number: u64) -> Option<edits::Requirement> {
+        self.table.requirement(number)
+    }
+    fn none_is_an_answer(&self, id: &str) -> bool {
+        !self.no_none.contains(id)
+    }
+}
+
+/// The choice questions of `analysis` none of whose options means none.
+fn without_none(analysis: &Json) -> BTreeSet<String> {
+    let answers = analysis["resume"]["answers"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    crate::rules::questions(analysis, &answers)
+        .map(|qs| {
+            qs.into_iter()
+                .filter(|q| {
+                    q.kind == "choice"
+                        && !q.options.is_empty()
+                        && !q
+                            .options
+                            .iter()
+                            .any(|o| crate::feature_table::is_none_value(&Json::String(o.clone())))
+                })
+                .map(|q| q.id)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn validated(list: &EditList, table: &FeatureTable, analysis: &Json) -> (EditList, Outcome) {
     let list = edits::normalise(list, table);
-    let mut outcome = edits::validate(&list, table);
+    let state = Choices {
+        table,
+        no_none: without_none(analysis),
+    };
+    let mut outcome = edits::validate(&list, &state);
     outcome.failures.extend(limits(&list));
     outcome.applicable = outcome.failures.is_empty();
     (list, outcome)
@@ -103,11 +148,11 @@ pub fn check(loaded: &LoadedPart, text: &str) -> Outcome {
         Ok(list) => list,
         Err(failures) => return Outcome::malformed(failures),
     };
-    let table = match table_of(loaded) {
-        Ok((_, table)) => table,
+    let (analysis, table) = match table_of(loaded) {
+        Ok(found) => found,
         Err(why) => return Outcome::malformed(whole(why)),
     };
-    let mut outcome = validated(&list, &table).1;
+    let mut outcome = validated(&list, &table, &analysis).1;
     if outcome.failures.is_empty()
         && let Err(failures) = apply(loaded, &list)
     {
@@ -368,7 +413,7 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         ));
     }
     let (analysis, table) = table_of(loaded).map_err(whole)?;
-    let (list, outcome) = validated(list, &table);
+    let (list, outcome) = validated(list, &table, &analysis);
     if !outcome.failures.is_empty() {
         return Err(outcome.failures);
     }

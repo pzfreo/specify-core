@@ -516,7 +516,7 @@ fn an_added_control_on_the_same_face_is_a_change_that_keeps_its_number() {
 fn only_decided_none_and_choices_are_stored() {
     // The 0.2 spindle stores every answer; a save keeps only what leaves no PMI behind.
     let spindle = fixture("revisions/spindle_pmi.old.step.gz");
-    let saved = applied(&spindle, json!({"none": ["part.process"]}));
+    let saved = applied(&spindle, json!({"items": {"remove": ["#11"]}}));
     let stored = stored_answers(&saved.bytes);
     let keys: Vec<&str> = stored
         .as_object()
@@ -532,10 +532,37 @@ fn only_decided_none_and_choices_are_stored() {
             "part.heat_treatment",
             "part.notes",
             "datum.C",
-            "datum.B.control",
-            "part.process"
+            "datum.B.control"
         ]
     );
+    // Every file saved here reads again.
+    for list in [
+        json!({"items": {"remove": ["#11"]}}),
+        json!({"none": ["part.notes"]}),
+        json!({"accept_suggestions": ["part.process"]}),
+    ] {
+        let part = fixture("revisions/spindle_pmi.new.step.gz");
+        let saved = applied(&part, list.clone());
+        api::analyse(&reload(&saved.bytes)).unwrap_or_else(|e| panic!("{list}: {e}"));
+    }
+}
+
+#[test]
+fn none_for_a_choice_without_a_none_option_is_refused() {
+    // part.process is machined, printed, …: "none" is not one of them, and a file storing
+    // it would not read again.
+    let spindle = fixture("revisions/spindle_pmi.old.step.gz");
+    for list in [
+        json!({"none": ["part.process"]}),
+        json!({"fill": {"part.process": "none"}}),
+    ] {
+        let failures = refused(&spindle, list.clone());
+        assert_eq!(failures.len(), 1, "{list}: {failures:?}");
+        assert!(failures[0].entry.contains("part.process"), "{failures:?}");
+        assert!(failures[0].reason.contains("no \"none\""), "{failures:?}");
+        let checked = specify_core::writer::apply::check(&spindle, &list.to_string());
+        assert_eq!(checked.failures, failures);
+    }
 }
 
 fn cli(args: &[&str]) -> (i32, String, String) {
