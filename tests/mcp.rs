@@ -284,6 +284,7 @@ fn conversation(era: &'static str) {
             "write_pmi",
             "export_answers",
             "diff",
+            "carry",
             "changes",
             "show",
             "save"
@@ -475,6 +476,33 @@ fn conversation(era: &'static str) {
     assert_eq!(compared["verdict"], json!(expected.verdict));
     assert_eq!(compared["summary"], json!(expected.summary));
     assert_eq!(compared["report"], serde_json::to_value(&expected).unwrap());
+
+    // carry == the command's carry, written where asked; an existing output only with
+    // overwrite.
+    let (old, new) = (
+        revision("enclosure_pmi.old.step.gz"),
+        common::fixtures().join("parts/electronics-enclosure-base.step.gz"),
+    );
+    let out = dir.join("enclosure.carried.step");
+    let carried = client.call("carry", json!({"old": old, "new": new, "output": out}));
+    let expected = specify_core::carry::carry(
+        &specify_core::part::File::read(&old).unwrap(),
+        &specify_core::part::File::read(&new).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(carried["written"], json!(true));
+    assert!(
+        carried["output"]
+            .as_str()
+            .unwrap()
+            .ends_with("enclosure.carried.step")
+    );
+    assert_eq!(carried["carried"], json!(expected.report.carried));
+    assert_eq!(carried["not_carried"], json!(expected.report.not_carried));
+    assert_eq!(carried["markdown"], json!(expected.report.markdown()));
+    assert_eq!(std::fs::read(&out).unwrap(), expected.bytes.unwrap());
+    let refused = client.refusal("carry", json!({"old": old, "new": new, "output": out}));
+    assert_eq!(refused["code"], json!("refused"), "{refused}");
 
     // A resource of no open document: not found, by each era's code.
     let missing = client.request(
@@ -996,7 +1024,7 @@ fn http_needs_the_token_the_host_and_no_origin() {
             .as_array()
             .unwrap()
             .len(),
-        13
+        14
     );
     // A legacy-era JSON-RPC error is a 200 body (2025-11-25 Streamable HTTP); an
     // unsupported header version is still 400.
