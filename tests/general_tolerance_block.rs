@@ -805,3 +805,124 @@ fn an_explicit_unit_is_kept_in_either_files_unit() {
         );
     }
 }
+
+/// The edit list's `change` of `part.general_tolerance` goes the one route that replaces a
+/// stated general tolerance (`write_bytes_changing_general_tolerance`): ISO 2768-m changed to a
+/// block. Only the old note, the table and the Notes view that draws them change; the material,
+/// every characteristic and every other entity keep their bytes.
+#[test]
+fn an_edit_list_change_replaces_iso_2768_m_with_a_block() {
+    let bare = plate();
+    let fill = specify_core::edits::parse_value(json!({"fill": {
+        "part.material": "steel",
+        "part.general_tolerance": "ISO 2768-m",
+        "hole.function:holes:9": "fit:H7",
+    }}))
+    .unwrap();
+    let first =
+        specify_core::writer::apply::apply(&bare, &fill).unwrap_or_else(|f| panic!("{f:#?}"));
+    let part = load_bytes("iso.step", first.bytes.clone()).unwrap();
+    assert_eq!(general_row(&part), ("stated".into(), json!("ISO 2768-m")));
+    let before = pmi_of(&part);
+    let is_class = |g: &GeneralTolerance| matches!(g, GeneralTolerance::Class { .. });
+    assert!(before.general.iter().any(is_class), "{:?}", before.general);
+    let change = specify_core::edits::parse_value(json!({"change": {
+        "part.general_tolerance": {"to": ".XX ±.01, angles ±1°", "expect": "ISO 2768-m"}
+    }}))
+    .unwrap();
+    let applied =
+        specify_core::writer::apply::apply(&part, &change).unwrap_or_else(|f| panic!("{f:#?}"));
+    let saved = load_bytes("block.step", applied.bytes.clone()).unwrap();
+    assert_eq!(
+        general_row(&saved),
+        ("stated".into(), json!(".XX ±.01 · angles ±1°"))
+    );
+    let after = pmi_of(&saved);
+    assert!(!cells(&after).is_empty(), "the block's table is written");
+    assert!(
+        !after.general.iter().any(is_class),
+        "the class gave way: {:?}",
+        after.general
+    );
+    assert_eq!(after.material, before.material);
+    assert_eq!(after.dimensions, before.dimensions);
+    // Every characteristic keeps its number and its record.
+    let numbers = |l: &LoadedPart| specify_core::characteristics::read(l).unwrap();
+    assert_eq!(numbers(&saved), numbers(&part));
+    // Only the old general tolerance (what it reaches and what describes it) and the Notes view
+    // that draws the notes change: every other entity, Specify's number record included, keeps
+    // its bytes.
+    let outside = changed_outside_the_general_tolerance(&part.bytes, &applied.bytes);
+    assert_eq!(outside, Vec::<String>::new());
+}
+
+/// The entities of `before` that `after` removed or changed, other than the old general
+/// tolerance's (its classes or table, its note, what each reaches, the description and
+/// presentation links on them) and the Notes view's drawing (presentation, redrawn with the
+/// notes), as their record text.
+fn changed_outside_the_general_tolerance(before: &[u8], after: &[u8]) -> Vec<String> {
+    use haecceity::p21::{Attribute, RawEntity, visit_attributes};
+    use std::collections::BTreeSet;
+    let doc = Document::parse(before.to_vec()).unwrap();
+    let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
+    let read = pmi::read(&doc, &defs).unwrap();
+    let (p, prov) = (&read.parts[0], &read.provenance.parts[0]);
+    let mut seeds: Vec<u64> = prov.general.iter().flatten().copied().collect();
+    for (i, set) in p.attributes.iter().enumerate() {
+        if set.items.iter().any(|(n, _)| n == "general tolerance") {
+            seeds.extend(&prov.attributes[i]);
+        }
+    }
+    let mut reach: BTreeSet<u64> = seeds.iter().copied().collect();
+    let mut todo = seeds;
+    while let Some(id) = todo.pop() {
+        if let Some(e) = doc.get(id) {
+            visit_attributes(e, &mut |a| {
+                if let Attribute::EntityRef(t) = a
+                    && reach.insert(*t)
+                {
+                    todo.push(*t);
+                }
+            });
+        }
+        for &r in doc.referrers(id) {
+            if matches!(doc.get(r), Some(RawEntity::Simple { name, .. })
+                if name == "DESCRIPTION_ATTRIBUTE" || name == "DRAUGHTING_MODEL_ITEM_ASSOCIATION")
+            {
+                reach.insert(r);
+            }
+        }
+    }
+    let semantic: BTreeSet<u64> = prov.all().into_iter().collect();
+    let mut drawn: BTreeSet<u64> = doc
+        .ids()
+        .filter(|&id| {
+            matches!(doc.get(id), Some(RawEntity::Simple { name, attributes, .. })
+                if (name == "DRAUGHTING_MODEL" || name == "DEFAULT_MODEL_GEOMETRIC_VIEW")
+                    && matches!(attributes.first(), Some(Attribute::String(s)) if s == "Notes"))
+        })
+        .collect();
+    let mut todo: Vec<u64> = drawn.iter().copied().collect();
+    while let Some(id) = todo.pop() {
+        if let Some(e) = doc.get(id) {
+            visit_attributes(e, &mut |a| {
+                if let Attribute::EntityRef(t) = a
+                    && !semantic.contains(t)
+                    && drawn.insert(*t)
+                {
+                    todo.push(*t);
+                }
+            });
+        }
+    }
+    let now = Document::parse(after.to_vec()).unwrap();
+    doc.ids()
+        .filter(|&id| {
+            let was = &doc.bytes()[doc.span(id).unwrap()];
+            now.span(id).map(|s| &now.bytes()[s]) != Some(was)
+                && !reach.contains(&id)
+                && !(drawn.contains(&id) && !semantic.contains(&id))
+        })
+        .map(|id| String::from_utf8_lossy(&doc.bytes()[doc.span(id).unwrap()]).into_owned())
+        .collect()
+}

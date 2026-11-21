@@ -1167,7 +1167,64 @@ fn bom_edits(
     (rest, Ok(Some(intent)))
 }
 
+/// A change of the part's general tolerance to a value (not none) goes the one route that
+/// replaces a stated general tolerance (#228: `writer::write_bytes_changing_general_tolerance`,
+/// `Replace::GeneralTolerance`): the file's table, classes and general-tolerance note give way
+/// to the new one, every other entity byte for byte. The rest of the list is applied first, as
+/// any list is; the whole list is validated first, so it is still all or nothing.
 fn applied_with(
+    loaded: &LoadedPart,
+    list: &EditList,
+    numbers: Option<&Map<String, Json>>,
+    extra: &[haecceity::pmi::AttributeSet],
+    carrying: bool,
+) -> Result<Applied, Vec<Failure>> {
+    const GENERAL: &str = "part.general_tolerance";
+    let Some(change) = list
+        .change
+        .get(GENERAL)
+        .filter(|c| !crate::feature_table::is_none_value(&c.to))
+    else {
+        return applied_parts(loaded, list, numbers, extra, carrying);
+    };
+    let (analysis, table) = table_of(loaded).map_err(whole)?;
+    let (pmi_list, bom) = bom_edits(list, &analysis);
+    bom?;
+    let (_, outcome) = validated(loaded, &pmi_list, &table, &analysis);
+    if !outcome.failures.is_empty() {
+        return Err(outcome.failures);
+    }
+    let mut rest = list.clone();
+    rest.change.remove(GENERAL);
+    let first = applied_parts(loaded, &rest, numbers, extra, carrying)?;
+    let entry = || format!("change[{}]", Json::from(GENERAL));
+    let part = loaded.binding.part;
+    let now = part::File::of_bytes(&loaded.path, first.bytes.clone())
+        .and_then(|f| f.load((f.parts().len() > 1).then_some(part)))
+        .map_err(|e| whole(e.to_string()))?;
+    let mut intent = crate::rules::Intent::new(
+        serde_json::to_value(&now.binding).map_err(|e| whole(e.to_string()))?,
+    );
+    intent
+        .part
+        .insert("general_tolerance".into(), change.to.clone());
+    // What the file stores beside its PMI (decided none, choices) is stored again as it is.
+    let stored = crate::resume::answers_for(&now)
+        .map_err(|e| whole(e.to_string()))?
+        .filter(|a| !a.is_empty());
+    let (bytes, report) =
+        super::write_bytes_changing_general_tolerance(&now, &intent, stored.as_ref())
+            .map_err(|e| vec![entry_failure(entry(), e.to_string())])?;
+    let mut applied = first;
+    applied.bytes = bytes;
+    applied.report.written.extend(report.written);
+    applied.report.not_written.extend(report.not_written);
+    applied.report.warnings.extend(report.warnings);
+    applied.unchanged = false;
+    Ok(applied)
+}
+
+fn applied_parts(
     loaded: &LoadedPart,
     list: &EditList,
     numbers: Option<&Map<String, Json>>,
