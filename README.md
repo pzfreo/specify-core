@@ -240,6 +240,13 @@ two annotated files. It reads only the PMI in the two files.
 specify-core diff old.step new.step -o changes
 ```
 
+To carry the old revision's requirements onto the new one (filling what the new file does not
+state, all or nothing, with their characteristic numbers), see [docs/carry.md](docs/carry.md):
+
+```bash
+specify-core carry old.step new.step -o new.specified.step
+```
+
 `changes/` gets:
 - `report.md`: the review, written to post as a pull request comment;
 - `model.png`: the new part, with changed faces orange, new faces green, and gone or moved faces

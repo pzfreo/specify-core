@@ -161,10 +161,10 @@ names and stored/occurrence order; they do not acquire new numbers due to ambigu
 STEP entity IDs never establish identity. A fresh CAD export with no transported history
 has no prior allocation to preserve and starts at 1 (unless native find numbers exist).
 The writer still accepts a history transported in the opaque answer member `_specify_bom`
-(destination history wins over transport), but `diff` no longer produces one: it reads the
-two files' PMI only and returns no answers (ADR P11). Carrying the history to a new revision
-is for `carry`.
-Keep the returned transport in answers passed to `write`, including subset writes.
+(destination history wins over transport). `diff` no longer produces one: it reads the two
+files' PMI only and returns no answers (ADR P11). `carry OLD NEW -o OUT` carries the history
+to a new revision ([carry.md](carry.md)): each new part matched to an old one keeps its item
+number and BOM answers, and the old history's retired numbers stay retired.
 BOM matching uses geometry independently of the existing assembly PMI name-pairing rule.
 
 BOM updates append their complete current overrides and leave earlier UDA records

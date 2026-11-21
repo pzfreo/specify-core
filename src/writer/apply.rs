@@ -658,9 +658,101 @@ fn kept_bytes(doc: &haecceity::p21::Document, id: u64) -> Option<&[u8]> {
     doc.span(id).map(|s| &doc.bytes()[s])
 }
 
+/// The intent of the answers `given` on the part `analysis` reads (its PMI set aside but for
+/// its datums, as the feature table reads it), with the stored `choices`: only what `given`
+/// names is planned (the general tolerance's dimensions only for a hole left to it).
+pub(crate) fn planned_intent(
+    analysis: &Json,
+    table: &FeatureTable,
+    given: &BTreeMap<String, Json>,
+    choices: &Map<String, Json>,
+) -> Result<crate::rules::Intent, String> {
+    let mut analysis_clean = analysis.clone();
+    // The questions are those of the part with its PMI set aside but for its datums, as
+    // the feature table reads them (a stated hole is not asked otherwise); what the plan
+    // states again is not written twice.
+    if let Some(existing) = analysis_clean
+        .get_mut("existing")
+        .and_then(Json::as_array_mut)
+    {
+        existing.retain(|item| item["kind"] == "datum");
+    }
+    // The list was validated against the table: what it names is asked here, whatever
+    // the table says (a changed row is still stated by what stands of it).
+    if let Some(object) = analysis_clean.as_object_mut() {
+        object.remove("table");
+    }
+    let mut answers = choices.clone();
+    answers.extend(given.iter().map(|(id, v)| (id.clone(), v.clone())));
+    let mut intent = crate::rules::preview(&analysis_clean, &answers).map_err(|e| e.to_string())?;
+    let addressed = |item: &Map<String, Json>| {
+        item.get("question")
+            .and_then(Json::as_str)
+            .is_some_and(|q| given.contains_key(q))
+    };
+    intent.requirements.retain(addressed);
+    intent
+        .datums
+        .retain(|d| d.get("existing") == Some(&Json::Bool(true)) || addressed(d));
+    intent
+        .part
+        .retain(|key, _| given.contains_key(&format!("part.{key}")));
+    // The general tolerance is its class alone: the planner's dimensions under it are for
+    // the other features, which the list does not name. A hole the list leaves to the
+    // general tolerance (`general`) keeps its own size under it.
+    // (Matched by faces: the planner's rows name no feature.)
+    let general_holes: Vec<(&String, BTreeSet<usize>)> = given
+        .iter()
+        .filter(|(id, v)| v.as_str() == Some("general") && id.starts_with("hole.function:"))
+        .filter_map(|(id, _)| Some((id, table.row(id)?.faces.iter().copied().collect())))
+        .collect();
+    let hole_of = |r: &Map<String, Json>| -> Option<String> {
+        if r.get("kind").and_then(Json::as_str) != Some("size") {
+            return None;
+        }
+        let faces: BTreeSet<usize> = r
+            .get("faces")?
+            .as_array()?
+            .iter()
+            .filter_map(Json::as_u64)
+            .map(|f| f as usize)
+            .collect();
+        general_holes
+            .iter()
+            .find(|(_, on)| !faces.is_empty() && faces.is_subset(on))
+            .map(|(id, _)| (*id).clone())
+    };
+    intent.general.retain(|r| hole_of(r).is_some());
+    for r in &mut intent.general {
+        if let Some(id) = hole_of(r) {
+            r.insert("question".into(), Json::from(id));
+        }
+    }
+    for item in intent
+        .requirements
+        .iter_mut()
+        .chain(intent.datums.iter_mut())
+    {
+        item.shift_remove("default");
+    }
+    Ok(intent)
+}
+
 /// Applies `list` to `loaded`'s part, all or nothing: the whole list, or nothing and every
 /// failing entry with its reason.
 pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failure>> {
+    apply_numbered(loaded, list, None)
+}
+
+/// [`apply`], with `numbers` an older revision's characteristic-number history carried onto
+/// this part (`characteristics::carry_revision`, for `carry`): a requirement the history
+/// names keeps its number, and its retired numbers stay retired. A file with a number history
+/// of its own keeps that instead.
+pub(crate) fn apply_numbered(
+    loaded: &LoadedPart,
+    list: &EditList,
+    numbers: Option<&Map<String, Json>>,
+) -> Result<Applied, Vec<Failure>> {
     let (analysis, table) = table_of(loaded).map_err(whole)?;
     let (list, nominals) = field_changes(list, &table, &analysis)?;
     let (list, outcome) = validated(&list, &table, &analysis);
@@ -1042,76 +1134,10 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
     let mut pmi = if given.is_empty() {
         PartPmi::default()
     } else {
-        let mut analysis_clean =
+        let analysis_clean =
             crate::api::analyse(&loaded_clean).map_err(|e| whole(e.to_string()))?;
-        // The questions are those of the part with its PMI set aside but for its datums, as
-        // the feature table reads them (a stated hole is not asked otherwise); what the plan
-        // states again is not written twice.
-        if let Some(existing) = analysis_clean
-            .get_mut("existing")
-            .and_then(Json::as_array_mut)
-        {
-            existing.retain(|item| item["kind"] == "datum");
-        }
-        // The list was validated against the table: what it names is asked here, whatever
-        // the table says (a changed row is still stated by what stands of it).
-        if let Some(object) = analysis_clean.as_object_mut() {
-            object.remove("table");
-        }
-        let mut answers = choices.clone();
-        answers.extend(given.iter().map(|(id, v)| (id.clone(), v.clone())));
         let mut intent =
-            crate::rules::preview(&analysis_clean, &answers).map_err(|e| whole(e.to_string()))?;
-        let addressed = |item: &Map<String, Json>| {
-            item.get("question")
-                .and_then(Json::as_str)
-                .is_some_and(|q| given.contains_key(q))
-        };
-        intent.requirements.retain(addressed);
-        intent
-            .datums
-            .retain(|d| d.get("existing") == Some(&Json::Bool(true)) || addressed(d));
-        intent
-            .part
-            .retain(|key, _| given.contains_key(&format!("part.{key}")));
-        // The general tolerance is its class alone: the planner's dimensions under it are for
-        // the other features, which the list does not name. A hole the list leaves to the
-        // general tolerance (`general`) keeps its own size under it.
-        // (Matched by faces: the planner's rows name no feature.)
-        let general_holes: Vec<(&String, BTreeSet<usize>)> = given
-            .iter()
-            .filter(|(id, v)| v.as_str() == Some("general") && id.starts_with("hole.function:"))
-            .filter_map(|(id, _)| Some((id, table.row(id)?.faces.iter().copied().collect())))
-            .collect();
-        let hole_of = |r: &Map<String, Json>| -> Option<String> {
-            if r.get("kind").and_then(Json::as_str) != Some("size") {
-                return None;
-            }
-            let faces: BTreeSet<usize> = r
-                .get("faces")?
-                .as_array()?
-                .iter()
-                .filter_map(Json::as_u64)
-                .map(|f| f as usize)
-                .collect();
-            general_holes
-                .iter()
-                .find(|(_, on)| !faces.is_empty() && faces.is_subset(on))
-                .map(|(id, _)| (*id).clone())
-        };
-        intent.general.retain(|r| hole_of(r).is_some());
-        for r in &mut intent.general {
-            if let Some(id) = hole_of(r) {
-                r.insert("question".into(), Json::from(id));
-            }
-        }
-        for item in intent
-            .requirements
-            .iter_mut()
-            .chain(intent.datums.iter_mut())
-        {
-            item.shift_remove("default");
-        }
+            planned_intent(&analysis_clean, &table, &given, &choices).map_err(whole)?;
         let failing: Vec<Failure> = given
             .keys()
             .filter(|id| {
@@ -1299,7 +1325,7 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         before,
         prov,
         &original.doc,
-        None,
+        numbers,
         if mode == Mode::Replace {
             crate::characteristics::Allocation::Replace
         } else {
@@ -1404,4 +1430,154 @@ fn report(loaded: &LoadedPart, lines: super::Lines) -> WriteReport {
         retained_shared: Vec::new(),
         saved_view_findings: Vec::new(),
     }
+}
+
+/// A file's requirements as `carry` compares a plan with them: the part's PMI, each
+/// requirement located (with its number), and what each states, value included.
+pub(crate) struct Stated {
+    before: PartPmi,
+    located: Vec<crate::characteristics::Located>,
+    said: Vec<crate::characteristics::Statement>,
+}
+
+impl Stated {
+    pub(crate) fn of(loaded: &LoadedPart) -> Result<Stated, String> {
+        let source = Source::of(&loaded.bytes).map_err(|e| e.to_string())?;
+        let k = loaded.binding.part;
+        let before = source.read.parts[k].clone();
+        let located =
+            crate::characteristics::located(&before, &source.read.provenance.parts[k], &source.doc);
+        let said = crate::characteristics::statements(&before);
+        Ok(Stated {
+            before,
+            located,
+            said,
+        })
+    }
+}
+
+impl Stated {
+    /// What the row `row` of this file's table states: each of its requirements, value
+    /// included, or `None` when one cannot be found among the file's requirements (a setting).
+    pub(crate) fn of_row(
+        &self,
+        row: &crate::feature_table::Row,
+    ) -> Option<Vec<&crate::characteristics::Statement>> {
+        let mut taken = BTreeSet::new();
+        let mut out = Vec::new();
+        for req in &row.requirements {
+            let at = locate(req, &self.located, &taken)?;
+            let i = self
+                .located
+                .iter()
+                .position(|l| (l.at.0.to_string(), l.at.1) == at)?;
+            taken.insert(at);
+            out.push(&self.said[i]);
+        }
+        Some(out)
+    }
+}
+
+/// Whether answering the row `row` of `loaded`'s table with `value` states exactly what the
+/// file states for it: the requirements the answer plans on this part, values included, are
+/// the row's own. For a kind answered by a tolerance's magnitude, the tolerance frames alone
+/// are compared (its basic dimensions are the planner's). `analysis` and `table` are the
+/// part's, `choices` its stored answers that are not requirements.
+pub(crate) fn restates(
+    loaded: &LoadedPart,
+    stated: &Stated,
+    (analysis, table, choices): (&Json, &FeatureTable, &Map<String, Json>),
+    row: &crate::feature_table::Row,
+    value: &Json,
+) -> bool {
+    use crate::characteristics::Statement;
+    let given = BTreeMap::from([(row.id.clone(), value.clone())]);
+    let Ok(intent) = planned_intent(analysis, table, &given, choices) else {
+        return false;
+    };
+    let Ok((planned, _)) = super::part_pmi(loaded, &intent, &stated.before, Mode::Add, &[]) else {
+        return false;
+    };
+    let frames_only = edits::answered_by_tolerance(&row.kind);
+    let counted =
+        |s: &Statement| s.kind != "datum" && (!frames_only || s.kind == "geometric_tolerance");
+    let planned = crate::characteristics::statements(&planned);
+    let planned: Vec<&Statement> = planned.iter().filter(|s| counted(s)).collect();
+    let Some(own) = stated.of_row(row) else {
+        return false;
+    };
+    let own: Vec<&Statement> = own.into_iter().filter(|s| counted(s)).collect();
+    // A hole left to the general tolerance: its size has no tolerance of its own. (Planned
+    // on the file that states it, the general tolerance's size is not planned again.)
+    if value == "general"
+        && row.kind == "hole.function"
+        && !own.is_empty()
+        && own.iter().all(|s| s.general_size())
+    {
+        return true;
+    }
+    if planned.is_empty() || planned.len() != own.len() {
+        return false;
+    }
+    let mut used = vec![false; planned.len()];
+    own.iter().all(|o| {
+        let found = (0..planned.len()).find(|&j| !used[j] && planned[j] == *o);
+        if let Some(j) = found {
+            used[j] = true;
+        }
+        found.is_some()
+    })
+}
+
+/// `bytes` with a material added to each part `materials` names (part index, material), for
+/// `carry` onto an assembly's parts that state none: every entity of the file keeps its bytes,
+/// or nothing is written.
+pub(crate) fn add_materials(
+    bytes: &[u8],
+    materials: &[(usize, String)],
+) -> Result<Vec<u8>, String> {
+    if materials.is_empty() {
+        return Ok(bytes.to_vec());
+    }
+    let source = Source::of(bytes).map_err(|e| e.to_string())?;
+    let items: Vec<(haecceity::pmi::PartId, PartPmi)> = materials
+        .iter()
+        .map(|(k, material)| {
+            (
+                haecceity::pmi::PartId(*k),
+                PartPmi {
+                    material: Some(haecceity::pmi::Material {
+                        id: material.clone(),
+                        name: None,
+                        density: None,
+                    }),
+                    ..PartPmi::default()
+                },
+            )
+        })
+        .collect();
+    let modes: Vec<Mode> = materials
+        .iter()
+        // Anything the part has (stored answers too) is kept: added to, never replaced.
+        .map(|(k, _)| {
+            if source.read.parts[*k] != PartPmi::default() {
+                Mode::Add
+            } else {
+                Mode::Replace
+            }
+        })
+        .collect();
+    let (back, _) = write_by_modes(&source, &items, &modes).map_err(|e| e.to_string())?;
+    verify(&source, &items, &modes, &back).map_err(|e| e.to_string())?;
+    let after = haecceity::p21::Document::parse(back.clone()).map_err(|e| e.to_string())?;
+    if let Some(id) = source
+        .doc
+        .ids()
+        .find(|&id| kept_bytes(&source.doc, id) != kept_bytes(&after, id))
+    {
+        return Err(format!(
+            "writing the material would change #{id}; nothing was written"
+        ));
+    }
+    Ok(back)
 }

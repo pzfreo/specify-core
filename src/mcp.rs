@@ -643,6 +643,7 @@ impl Server {
             "read_pmi" => self.read_pmi(args),
             "write_pmi" => self.write_pmi(args),
             "diff" => self.diff(args),
+            "carry" => self.carry(args),
             "changes" => self.changes(args),
             "show" => self.show(args),
             "save" => self.save(args),
@@ -1249,6 +1250,27 @@ impl Server {
         }))
     }
 
+    fn carry(&self, args: &Map<String, Value>) -> ToolResult {
+        let old = self.existing_path(string(args, "old")?)?;
+        let new = self.existing_path(string(args, "new")?)?;
+        let output = self.output_path(string(args, "output")?, flag(args, "overwrite")?)?;
+        let read = |p: &Path| part::File::read(p).map_err(Error::Load);
+        let carried = crate::carry::carry(&read(&old)?, &read(&new)?)
+            .map_err(|e| ToolError::from(Error::Analysis(e)))?;
+        let mut report = carried.report;
+        match carried.bytes {
+            Some(bytes) => {
+                crate::writer::put(&output, bytes).map_err(|e| ToolError::from(Error::Write(e)))?
+            }
+            None => report.written = false,
+        }
+        let mut out = report.to_json();
+        if report.written {
+            out["output"] = json!(output);
+        }
+        Ok(out)
+    }
+
     fn changes(&self, args: &Map<String, Value>) -> ToolResult {
         let (handle, doc) = self.doc(args)?;
         let since = match args.get("since") {
@@ -1787,7 +1809,7 @@ fn flag(args: &Map<String, Value>, name: &str) -> Result<bool, ToolError> {
 
 // ----- tool and resource definitions -----
 
-const TOOL_NAMES: [&str; 12] = [
+const TOOL_NAMES: [&str; 13] = [
     "list_parts",
     "open",
     "questions",
@@ -1797,6 +1819,7 @@ const TOOL_NAMES: [&str; 12] = [
     "read_pmi",
     "write_pmi",
     "diff",
+    "carry",
     "changes",
     "show",
     "save",
@@ -2043,6 +2066,32 @@ pub fn tools() -> Vec<Value> {
                 "markdown": {"type": "string"}
             }), &["kind", "verdict", "summary", "report"]),
             "annotations": {"readOnlyHint": true, "openWorldHint": false},
+        }),
+        json!({
+            "name": "carry",
+            "title": "Carry requirements to a new revision",
+            "description": "Carry an older revision's requirements onto a new revision of the geometry, file to file, and write the result to output (inside the allowed directories; an existing output is replaced only with overwrite: true). OLD's features are matched to NEW's as diff matches them. For each feature-and-kind OLD states: a gap in NEW is filled (carried); one NEW states already keeps NEW's value, a difference reported (kept); one on a feature that moved or changed size is carried and listed to_check; one whose feature is not found or is ambiguous is not carried and reported. Decided-none and characteristic numbers carry too (in an assembly, BOM item numbers). What Specify does not understand is reported not_carried with its kind and faces. All or nothing: if any of it cannot be applied, nothing is written (written: false) and refused says why. Returns verdict (ok, or decide when anything is not carried or is to check, as diff's), summary (the counts: carried, not carried, to check), and the report with a Markdown rendering.",
+            "inputSchema": input(json!({
+                "old": {"type": "string", "description": "The annotated STEP file of the earlier revision."},
+                "new": {"type": "string", "description": "The STEP file of the new revision."},
+                "output": {"type": "string", "description": "The STEP file to write."},
+                "overwrite": {"type": "boolean", "description": "Replace output if it exists."}
+            }), &["old", "new", "output"]),
+            "outputSchema": output(json!({
+                "verdict": {"type": "string", "enum": ["ok", "decide"]},
+                "summary": {"type": "string"},
+                "written": {"type": "boolean"},
+                "output": {"type": "string"},
+                "carried": {"type": "array"},
+                "to_check": {"type": "array"},
+                "kept": {"type": "array"},
+                "not_carried": {"type": "array"},
+                "decided_none": {"type": "array"},
+                "new_unstated": {"type": "array"},
+                "refused": {"type": "array"},
+                "markdown": {"type": "string"}
+            }), &["verdict", "summary", "written", "carried", "to_check", "kept", "not_carried", "decided_none", "markdown"]),
+            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
         }),
         json!({
             "name": "changes",

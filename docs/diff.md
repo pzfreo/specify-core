@@ -15,7 +15,8 @@ The [STEP diff action](../step-diff/README.md) runs it on pull requests.
 each file's requirements are read as any file's are, whoever wrote them. Answers a file
 stores are never read to compare, so the same requirements pair the same way with or without
 them (only the items' labels, each file's `pmiScene` ids and statuses, follow the editor);
-`diff` takes no answers and writes none. (Carrying requirements to a new revision is not `diff`'s.)
+`diff` takes no answers and writes none. Carrying requirements to a new revision is `carry`'s
+([carry.md](carry.md)).
 
 ## What it writes
 
