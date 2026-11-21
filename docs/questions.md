@@ -1,11 +1,21 @@
 # Questions for the maintainer
 
+## Superseded in 0.3.0 (ADR P11): the file is the only copy
+
+The two decisions below this note (2026-11-18, conflicts on reopening; and how the answers that
+write no PMI resume) describe 0.2.x. In 0.3.0 the file's PMI is the state, whoever wrote it:
+there are no conflicts, no `keep`, no `resume.present` and no `resume.foreign`; `existing` is the
+file's whole PMI, Specify's included, and `analyse` adds the feature table (`table`). Only
+answers that leave no PMI behind are stored: decided none, choices that are not requirements,
+and approvals the planner wrote nothing for (listed as `no_pmi`). See
+[answers](answers.md#reopening-a-file-the-file-is-the-only-copy).
+
 ## Decision (2026-11-18): reopening a file Specify wrote, the PMI is the truth (ADR P9 §3)
 
 Stored answers resume only where the file's PMI agrees; the file's additions are `existing`,
 and a stored answer the file changed or removed is `resume.conflicts: [{id, stored, file}]`
 (`file: null` when removed), with an analysis warning each. Built as described in
-[answers](answers.md#reopening-a-file-specify-wrote-the-pmi-is-the-truth). Decisions made in
+answers.md in 0.2.x. Decisions made in
 building it:
 
 - **Shape of the question.** `review` (and WASM `review`, MCP `open`/`questions`) adds

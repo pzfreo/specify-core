@@ -157,13 +157,35 @@ pub fn is_requirement(id: &str) -> bool {
     !(id.starts_with('_') || id.starts_with("bom.") || NOT_REQUIREMENTS.contains(&id))
 }
 
+/// The key, in the answers' metadata (`_specify`) and in the stored payload, listing the
+/// requirement answers that wrote no PMI: an approval the planner had nothing to write for (a
+/// general size on a datum's own faces). ADR P11 rule 2: such an answer is stored, as nothing
+/// in the file states it, so the feature-and-kind stays decided.
+pub const NO_PMI: &str = "no_pmi";
+
+/// The answers listed under [`NO_PMI`] in `answers`' metadata.
+pub fn wrote_nothing(answers: &Map<String, Value>) -> BTreeSet<String> {
+    answers
+        .get(crate::answer_file::META)
+        .and_then(|meta| meta.get(NO_PMI))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect()
+}
+
 /// The answers worth storing in the file (ADR P11): those that leave no PMI behind, being
-/// decided none or a choice that is not a requirement. An answer that writes PMI is not
-/// stored: the file states it.
+/// decided none, a choice that is not a requirement, or an approval that wrote nothing
+/// ([`NO_PMI`]). An answer that writes PMI is not stored: the file states it.
 pub fn storable(answers: &Map<String, Value>) -> Map<String, Value> {
+    let nothing = wrote_nothing(answers);
     answers
         .iter()
-        .filter(|(id, value)| !is_requirement(id) || leaves_nothing(value))
+        .filter(|(id, value)| {
+            !is_requirement(id) || leaves_nothing(value) || nothing.contains(id.as_str())
+        })
         .map(|(id, value)| (id.clone(), value.clone()))
         .collect()
 }
@@ -171,7 +193,7 @@ pub fn storable(answers: &Map<String, Value>) -> Map<String, Value> {
 /// The kind and feature of a question id: `hole.position:holes:12` → (`hole.position`,
 /// `holes:12`); `datum.A.flatness` → (`datum.A.flatness`, `datum.A`); `part.coating` →
 /// (`part.coating`, `part`).
-fn kind_and_feature(id: &str) -> (String, String) {
+pub(crate) fn kind_and_feature(id: &str) -> (String, String) {
     if let Some((kind, feature)) = id.split_once(':') {
         return (kind.to_string(), feature.to_string());
     }
@@ -222,7 +244,11 @@ fn text_of(item: &Value) -> String {
             out
         }
         "dimension" => {
-            let mut out = format!("{type} {}", value.map(number).unwrap_or_default());
+            let mut out = format!(
+                "{} {}",
+                crate::existing::readable_type(r#type),
+                value.map(number).unwrap_or_default()
+            );
             if item["basic"] == Value::Bool(true) {
                 out.push_str(" basic");
             } else if let Some([lo, hi]) = item["limits"]
@@ -745,8 +771,8 @@ fn stated_setting<'a>(settings: &'a Map<String, Value>, id: &str) -> Option<&'a 
 /// The feature table of `analysis` (its `existing` the file's whole PMI, whoever wrote it),
 /// with `settings` the part's settings as the file states them (the material and general
 /// tolerance too, for a part of an assembly), and `answers` the answers stored in the file
-/// that leave no PMI behind ([`storable`]): decided none, and choices that are not
-/// requirements.
+/// that leave no PMI behind ([`storable`]): decided none, choices that are not
+/// requirements, and approvals that wrote nothing ([`NO_PMI`], decided as answered).
 pub fn build(
     analysis: &Value,
     settings: &Map<String, Value>,
@@ -757,6 +783,7 @@ pub fn build(
         .into_iter()
         .flatten()
         .collect();
+    let no_pmi = wrote_nothing(answers);
     let (bare, given) = set_aside(analysis, answers);
     let all = crate::rules::with_all_defaults(&bare, &given).unwrap_or_else(|_| given.clone());
     let questions =
@@ -860,7 +887,10 @@ pub fn build(
                 located: Vec::new(),
                 open: false,
             }
-        } else if let Some(stored) = answers.get(&q.id).filter(|v| leaves_nothing(v)) {
+        } else if let Some(stored) = answers
+            .get(&q.id)
+            .filter(|v| leaves_nothing(v) || no_pmi.contains(q.id.as_str()))
+        {
             decided_none.push(q.id.clone());
             Row {
                 id: q.id.clone(),

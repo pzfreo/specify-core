@@ -356,6 +356,56 @@ fn an_answer_whose_pmi_was_removed_is_a_gap_again() {
     }
 }
 
+/// ADR P11 rule 2: an approval the plan writes nothing for (the pin's ⌀10 left to the general
+/// tolerance: its surface is datum A, and no size is written on a datum's own faces) is stored
+/// as decided. Saved as an edit list (piece 6) on the pin, part 1 of the assembly: reopened,
+/// its row is decided, not a gap, and a second save with every default keeps it.
+#[test]
+fn an_approval_that_writes_nothing_stays_decided() {
+    let dir = scratch("writes-nothing");
+    let input = dir.join("assembly.step");
+    std::fs::copy(
+        common::fixtures().join("parts").join("assembly.step"),
+        &input,
+    )
+    .unwrap();
+    let id = "diameter.fit:turned_steps:0";
+    let shared = session_of(&input);
+    let pin = map(json!({"part.material": "steel", (id): "general"}));
+    let analysis = api::analyse_file(&input, Some(1)).unwrap();
+    let mut fill = pin.clone();
+    fill.extend(offered(&analysis, &pin));
+    let list = specify_core::edits::parse_value(json!({ "fill": fill })).unwrap();
+    let saved = session::save_part_edits(&shared, Some(1), None, &list, "page")
+        .unwrap_or_else(|e| panic!("{e}"));
+    let again = api::analyse_file(Path::new(&saved.path), Some(1)).unwrap();
+    let row = again["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == id)
+        .unwrap();
+    assert_eq!(
+        (&row["state"], &row["value"]),
+        (&json!("decided_none"), &json!("general")),
+        "{row}"
+    );
+    let answers = again["resume"]["answers"].as_object().unwrap();
+    assert_eq!(
+        answers.get(id),
+        Some(&json!("general")),
+        "{}",
+        again["resume"]
+    );
+    // Saved again with every default the reopened file offers: it stays decided.
+    let shared = session_of(Path::new(&saved.path));
+    let more = offered(&again, answers);
+    let list = specify_core::edits::parse_value(json!({ "fill": more })).unwrap();
+    let twice = session::save_part_edits(&shared, Some(1), None, &list, "page")
+        .unwrap_or_else(|e| panic!("{e}"));
+    let third = api::analyse_file(Path::new(&twice.path), Some(1)).unwrap();
+    assert_eq!(third["resume"]["answers"].get(id), Some(&json!("general")));
+}
 /// `bytes` with `added` written by haecceity's own writer (Add): another tool's PMI, without
 /// Specify's provenance marker.
 fn with_foreign(bytes: Vec<u8>, added: haecceity::pmi::PartPmi) -> Vec<u8> {
@@ -414,17 +464,17 @@ fn silent_answers_resume_on_clean_plate_and_enclosure_faces() {
                 .is_empty()
         );
         let again = api::analyse(&back).unwrap();
-        // ADR P11: what leaves no PMI behind is stored. The hole's `general` is a requirement
-        // answer, so it is not stored; written by preview it wrote nothing, so the hole is a
-        // gap again and asked.
-        assert_eq!(
-            again["resume"]["answers"],
-            json!(specify_core::feature_table::storable(&answers))
-        );
+        // ADR P11: what leaves no PMI behind is stored. The hole's `general`, written by
+        // preview (which plans no general dimension), wrote nothing: rule 2 stores it, listed
+        // as such, so the hole stays decided and is not asked again.
+        let mut stored = specify_core::feature_table::storable(&answers);
+        stored.insert(hole.id.clone(), json!("general"));
+        stored.insert("_specify".into(), json!({"no_pmi": [hole.id]}));
+        assert_eq!(again["resume"]["answers"], json!(stored));
         assert!(again["resume"].get("conflicts").is_none());
         let open = asked(&again).1;
         for id in answers.keys() {
-            assert_eq!(open.contains(id), *id == hole.id, "{id}");
+            assert!(!open.contains(id), "{id}");
         }
     }
 }

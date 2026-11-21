@@ -165,7 +165,7 @@ except where a hash is taken (resume fingerprint, `pyjson.rs`).
 - `Binding { source_sha256, face_count, loader_version: 2, part }`.
 - Analysis (`schema` 1): `{schema, binding, faces: [Face], features: [Feature], dimensioning, mates?,
   existing: [ExistingPmi], part: {material?, general_tolerance?, surface_finish?, coating?,
-  heat_treatment?, edges?}, unmeasured_faces?: [{face, reason, detail}], resume?: {answers, conflicts?}}` (ExistingPmi `question?` on a conflict's items). `Face { id, kind: plane|cylinder|cone|torus|
+  heat_treatment?, edges?}, unmeasured_faces?: [{face, reason, detail}], resume?: {answers, dropped_answers?, unresolved?}, table: {rows, file_pmi, decided_none}}` (ExistingPmi adds `text`, `text_only?` and planner-named fields: answers.md, "What the file states, read back whole"). `Face { id, kind: plane|cylinder|cone|torus|
   other, area, centroid, direction?, origin?, radius?, contact? }`. `Feature { id, family, record
   (JSON object), faces, members?, notes?, description? }`. Analysis snapshots add plain
   `description` text for turned bodies, face grooves, cylindrical profiles and concave
@@ -446,7 +446,7 @@ only marked Specify requirements through the kernel removal planner, then append
 intent and saved answers. Foreign dependencies, including shared features and datums, are
 protected. Specify's numbers survive value edits; foreign numbers reserve their values.
 Legacy resumed payloads without `pmi_scope` still use Replace when the file's PMI is all
-Specify's; reopening compares the PMI with the answers (ADR P9, [answers](answers.md#reopening-a-file-specify-wrote-the-pmi-is-the-truth)),
+Specify's; reopening compares the PMI with the answers (ADR P9, [answers](answers.md#reopening-a-file-the-file-is-the-only-copy); 0.3.0: ADR P11),
 and a part that also holds unmarked PMI, or a conflict kept undecided, is rewritten as a
 scoped Add that replaces only its marked requirements. A file with no marked requirements
 (before #22) is rewritten by Replace as before. Old Add-mode files without

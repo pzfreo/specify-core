@@ -23,7 +23,8 @@ X.Y.Z depends on `@draftwright/specify-core-wasm` X.Y.Z exactly.
 
 - **Engine:** it needs `@draftwright/specify-core-wasm` **0.2.0** or later, whose API is not compatible with 0.1.x.
 - **Exports follow ADR P9:** the Answers (JSON) export holds only the answers given, kept or confirmed. Inspection
-  exports never include an unapproved default.
+  exports never include an unapproved default. (0.3.0, ADR P11: the file is the only copy, so the Answers (JSON)
+  export says "not available in 0.3.0", and there are no conflicts to keep.)
 
 A host that implements only the original three engine methods keeps its 0.1 display and exports otherwise.
 `SpecifyEngine.inspection` is optional.
