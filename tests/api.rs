@@ -148,7 +148,9 @@ fn analyses_have_python_layout() {
                 "features",
                 "dimensioning",
                 "existing",
-                "part"
+                "part",
+                // ADR P11: analyses carry the feature table.
+                "table"
             ],
             "{stem}"
         );
@@ -210,7 +212,9 @@ fn analyses_have_python_layout() {
                     "dimensioning",
                     "mates",
                     "existing",
-                    "part"
+                    "part",
+                    // ADR P11: analyses carry the feature table.
+                    "table"
                 ],
                 "{case}"
             );

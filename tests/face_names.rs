@@ -233,7 +233,8 @@ fn schema_three_stored_answers_round_trip_and_resume_on_a_rebuild() {
     assert_eq!(resume::stored(&back.bytes)[&0], object(payload));
     assert_eq!(
         api::analyse(&back).unwrap()["resume"]["answers"],
-        json!(answers(&new))
+        // ADR P11: stored are the answers that leave no PMI behind.
+        json!(specify_core::feature_table::storable(&answers(&new)))
     );
     // Exercise the normal writer, not just an attribute-only embed.
     let a = object(
@@ -248,7 +249,11 @@ fn schema_three_stored_answers_round_trip_and_resume_on_a_rebuild() {
     .0;
     let back = part::load_bytes("written.step", bytes).unwrap();
     assert_eq!(resume::stored(&back.bytes)[&0]["schema"], 3);
-    assert_eq!(api::analyse(&back).unwrap()["resume"]["answers"], json!(a));
+    // ADR P11: stored are the answers that leave no PMI behind.
+    assert_eq!(
+        api::analyse(&back).unwrap()["resume"]["answers"],
+        json!(specify_core::feature_table::storable(&a))
+    );
 }
 
 #[test]
@@ -358,7 +363,8 @@ fn shared_source_names_are_unnamed_and_new_unique_bindings_still_work() {
     let back = part::load_bytes("shared.step", bytes).unwrap();
     assert_eq!(
         api::analyse(&back).unwrap()["resume"]["answers"],
-        json!(before)
+        // ADR P11: stored are the answers that leave no PMI behind.
+        json!(specify_core::feature_table::storable(&before))
     );
 }
 

@@ -72,7 +72,11 @@ fn body_and_face_grooves_are_listed_without_duplicate_questions_or_intent() {
             .unwrap()
             .load(None)
             .unwrap();
-        assert_eq!(resume::answers_for(&back).unwrap(), Some(answers));
+        // ADR P11: stored are the answers that leave no PMI behind.
+        assert_eq!(
+            resume::answers_for(&back).unwrap(),
+            Some(specify_core::feature_table::storable(&answers))
+        );
         let diff = revision::diff(&loaded, &loaded, &Map::new()).unwrap();
         assert!(diff.features.is_empty(), "{name}: {:?}", diff.features);
     }

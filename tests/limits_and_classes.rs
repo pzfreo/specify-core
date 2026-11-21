@@ -232,10 +232,15 @@ fn combined_classes_are_choices_and_round_trip_without_changing_defaults() {
         "ISO 2768-mK"
     );
     let resumed = api::analyse(&written).unwrap();
-    assert_eq!(
-        resumed["resume"]["answers"]["part.general_tolerance"],
-        "ISO 2768-mK"
-    );
+    // ADR P11: the class writes PMI, so the file states it rather than storing the answer.
+    let row = resumed["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == "part.general_tolerance")
+        .unwrap();
+    assert_eq!(row["state"], "stated", "{row}");
+    assert_eq!(row["value"], "ISO 2768-mK", "{row}");
     assert!(
         notation(&pmi_scene::pmi_scene(&written.bytes, None).unwrap())
             .contains("GENERAL TOLERANCES ISO 2768-mK")
@@ -307,7 +312,8 @@ fn nist_ctc01_imported_limits_survive_analysis_resume_and_rewrite() {
     // Add mode stores the answers beside the foreign PMI: both come back on reopening.
     let reopened = api::analyse(&written).unwrap();
     let resumed = reopened["resume"]["answers"].as_object().unwrap().clone();
-    assert_eq!(resumed, answers);
+    // ADR P11: stored are the answers that leave no PMI behind.
+    assert_eq!(resumed, specify_core::feature_table::storable(&answers));
     assert_eq!(
         reopened["existing"]
             .as_array()

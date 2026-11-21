@@ -275,7 +275,8 @@ fn check_accepted_defaults(path: &std::path::Path, given: Map<String, Value>) {
     let reopened = part::load_bytes("accepted.step", actual_bytes).unwrap();
     assert_eq!(
         api::analyse(&reopened).unwrap()["resume"]["answers"],
-        json!(accepted)
+        // ADR P11: stored are the answers that leave no PMI behind.
+        json!(specify_core::feature_table::storable(&accepted))
     );
     assert_eq!(
         specify_core::existing::part_settings(&reopened).unwrap()["general_tolerance"],

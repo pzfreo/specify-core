@@ -336,7 +336,13 @@ fn a_pre_alpha_browser_export_resumes_its_answers() {
     );
     let (analysis, warnings) = api::analyse_reporting(&loaded).unwrap();
     let resume = &analysis["resume"];
-    assert_eq!(resume["answers"], expected);
+    // ADR P11: stored are the answers that leave no PMI behind.
+    assert_eq!(
+        resume["answers"],
+        json!(specify_core::feature_table::storable(
+            expected.as_object().unwrap()
+        ))
+    );
     assert!(resume["unresolved"].is_null(), "{resume}");
     assert!(resume["unverified"].as_str().unwrap().contains("schema 1"));
     // ADR P9: the file's PMI is read on reopening; what its answers do not explain (the
@@ -366,7 +372,13 @@ fn a_pre_alpha_browser_export_resumes_its_answers() {
     let back = part::load_bytes("again.step", bytes).unwrap();
     assert_eq!(resume::stored(&back.bytes)[&0]["schema"], json!(2));
     let again = &api::analyse(&back).unwrap()["resume"];
-    assert_eq!(again["answers"], expected);
+    // ADR P11: stored are the answers that leave no PMI behind.
+    assert_eq!(
+        again["answers"],
+        json!(specify_core::feature_table::storable(
+            expected.as_object().unwrap()
+        ))
+    );
     assert!(again["unverified"].is_null() && again["unresolved"].is_null());
 }
 
@@ -485,7 +497,10 @@ fn the_carried_project_is_read_by_the_editors_reader_and_gives_back_the_original
     let back = part::load_bytes("plate.step", written.clone()).unwrap();
     assert_eq!(
         resume::answers_for(&back).unwrap().map(Value::Object),
-        Some(json!({"part.material": "steel"}))
+        // ADR P11: stored are the answers that leave no PMI behind.
+        Some(Value::Object(specify_core::feature_table::storable(
+            json!({"part.material": "steel"}).as_object().unwrap()
+        )))
     );
 
     // A file the editor wrote (its base64, no original recorded) reads the same.

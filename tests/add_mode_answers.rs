@@ -339,7 +339,8 @@ fn ctc01_datum_on_kept_perpendicularity_carrier_preserves_foreign_entities() {
         number = Some(n);
         assert_eq!(
             resume::answers_for(&reopened).unwrap(),
-            Some(answers.clone())
+            // ADR P11: stored are the answers that leave no PMI behind.
+            Some(specify_core::feature_table::storable(&answers))
         );
         current = reopened;
     }

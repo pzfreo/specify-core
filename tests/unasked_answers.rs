@@ -471,7 +471,15 @@ fn a_stored_unknown_id_is_left_open_with_a_warning() {
     let (analysis, warnings) = api::analyse_reporting(&reopened).unwrap();
     let resumed = analysis["resume"]["answers"].as_object().unwrap();
     assert!(!resumed.contains_key("bogus.question"), "{resumed:?}");
-    assert_eq!(resumed["part.material"], "6082-T6");
+    // ADR P11: the material writes PMI, so the file states it rather than storing the answer.
+    let material = analysis["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == "part.material")
+        .unwrap();
+    assert_eq!(material["state"], "stated", "{material}");
+    assert_eq!(material["value"], "6082-T6", "{material}");
     assert_eq!(analysis["resume"]["unresolved"][0]["id"], "bogus.question");
     assert!(
         warnings

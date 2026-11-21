@@ -263,7 +263,8 @@ fn assembly_notes_belong_to_their_part() {
         );
         assert_eq!(
             api::analyse(&loaded).unwrap()["resume"]["answers"],
-            json!(answers)
+            // ADR P11: stored are the answers that leave no PMI behind.
+            json!(specify_core::feature_table::storable(answers))
         );
     }
 }
