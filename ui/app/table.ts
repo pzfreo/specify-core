@@ -116,11 +116,12 @@ export function displayText(text: string): string {
 /** An engine type name as words: ``Location_LinearDistance`` → "Linear distance". */
 const readable = (name: string) => capital((name.split('_').pop() ?? name).replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase());
 
-/** A changed value as the row will read: a tolerance's new magnitude in its frame ("⌖ 0.2 A" with
- * "0.1" → "⌖ 0.1 A"); otherwise the answer as it reads. */
+/** A changed value as the row will read: a tolerance's new magnitude in its frame, its zone and
+ * modifiers kept as the engine keeps them ("⌖ ⌀0.3Ⓜ A" with "0.2" → "⌖ ⌀0.2Ⓜ A"); otherwise the answer
+ * as it reads. */
 export function changedText(was: string, value: unknown, q?: PmiQuestion): string {
-  const m = /^(\S+) [\d.]+(.*)$/.exec(was);
-  if (m && typeof value === 'string' && /^[\d.]+$/.test(value) && Object.values(CHARACTERISTIC).includes(m[1]!)) return `${m[1]} ${value}${m[2]}`;
+  const m = /^(\S+) (⌀?)[\d.]+(.*)$/.exec(was);
+  if (m && typeof value === 'string' && /^[\d.]+$/.test(value) && Object.values(CHARACTERISTIC).includes(m[1]!)) return `${m[1]} ${m[2]}${value}${m[3]}`;
   return answerText(value, q);
 }
 
