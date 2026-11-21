@@ -653,17 +653,35 @@ fn the_session_saves_an_edit_list_in_place_on_its_own_copy() {
     let before = std::fs::read(&path).unwrap();
     let err = session::save_edits(
         &shared,
+        None,
         &list(json!({"items": {"remove": ["#404"]}})),
         "mcp",
     )
     .unwrap_err();
     assert!(err.to_string().contains("#404"), "{err}");
+    assert!(
+        matches!(&err, session::SaveError::Edits(f) if f.len() == 1 && f[0].entry.contains("#404")),
+        "{err:?}"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    // A save at a rev the session has moved on from is refused, and writes nothing.
+    let first = list(json!({"change": {"hole.position:holes:12": {"to": "0.1", "expect": "0.2"}}}));
+    let rev = session::lock(&shared).rev();
+    let stale = session::save_edits(&shared, Some(rev + 1), &first, "page").unwrap_err();
+    assert!(
+        matches!(stale, session::SaveError::Stale(r) if r == rev),
+        "{stale:?}"
+    );
     assert_eq!(std::fs::read(&path).unwrap(), before);
     // Two saves: the second applies to what the first left.
-    let first = list(json!({"change": {"hole.position:holes:12": {"to": "0.1", "expect": "0.2"}}}));
-    session::save_edits(&shared, &first, "mcp").unwrap();
-    let saved =
-        session::save_edits(&shared, &list(json!({"items": {"remove": ["#5"]}})), "mcp").unwrap();
+    session::save_edits(&shared, Some(rev), &first, "page").unwrap();
+    let saved = session::save_edits(
+        &shared,
+        None,
+        &list(json!({"items": {"remove": ["#5"]}})),
+        "mcp",
+    )
+    .unwrap();
     assert_eq!(saved.report["retired"], json!([5]));
     let after = load(&path, None).unwrap();
     assert!(!numbers(&after).contains_key(&5));
@@ -972,46 +990,33 @@ fn a_change_to_none_takes_the_basic_dimensions_only_its_frame_used() {
 }
 
 #[test]
-fn an_answers_save_after_edits_in_place_keeps_the_edits() {
+fn a_second_edits_save_keeps_the_first_saves_edits() {
     use specify_core::session::{self, Opened, Session};
     use std::sync::{Arc, Mutex};
-    for touch in [false, true] {
-        let dir = std::env::temp_dir().join(format!(
-            "specify-edits-then-answers-{}-{touch}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("plate.step");
-        std::fs::write(&path, &*fixture("resume-p9/edited-plate.step.gz").bytes).unwrap();
-        let shared = Arc::new(Mutex::new(
-            Session::open(Opened::read(&path).unwrap(), true).unwrap(),
-        ));
-        let list = json!({
-            "change": {"hole.position:holes:12": {"to": "0.1", "expect": "0.2"}},
-            "items": {"remove": ["#5"]},
-        });
-        session::save_edits(&shared, &edits::parse_value(list).unwrap(), "mcp").unwrap();
-        if touch {
-            let mut s = session::lock(&shared);
-            let mut answers = s.answers(0).cloned().unwrap_or_default();
-            answers.insert("part.coating".into(), json!("None (as machined)"));
-            s.set(0, answers, "page");
-        }
-        session::save(&shared, None, &Default::default(), "page").unwrap();
-        let after = load(&path, None).unwrap();
-        assert!(!numbers(&after).contains_key(&5), "touch {touch}");
-        assert!(
-            row(&table(&after), "hole.position:holes:12")["value"]
-                .as_str()
-                .unwrap()
-                .contains("Position 0.1"),
-            "touch {touch}"
-        );
-        if touch {
-            assert_eq!(row(&table(&after), "part.coating")["state"], "decided_none");
-        }
-        let _ = std::fs::remove_dir_all(&dir);
-    }
+    let dir = std::env::temp_dir().join(format!("specify-edits-then-edits-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("plate.step");
+    std::fs::write(&path, &*fixture("resume-p9/edited-plate.step.gz").bytes).unwrap();
+    let shared = Arc::new(Mutex::new(
+        Session::open(Opened::read(&path).unwrap(), true).unwrap(),
+    ));
+    let list = json!({
+        "change": {"hole.position:holes:12": {"to": "0.1", "expect": "0.2"}},
+        "items": {"remove": ["#5"]},
+    });
+    session::save_edits(&shared, None, &edits::parse_value(list).unwrap(), "mcp").unwrap();
+    let none = json!({"none": ["part.coating"]});
+    session::save_edits(&shared, None, &edits::parse_value(none).unwrap(), "page").unwrap();
+    let after = load(&path, None).unwrap();
+    assert!(!numbers(&after).contains_key(&5));
+    assert!(
+        row(&table(&after), "hole.position:holes:12")["value"]
+            .as_str()
+            .unwrap()
+            .contains("Position 0.1")
+    );
+    assert_eq!(row(&table(&after), "part.coating")["state"], "decided_none");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// The review's sweep: every gap with a suggestion, accepted alone, either applies and changes
@@ -1081,7 +1086,7 @@ fn an_edits_save_is_refused_while_answers_are_unsaved() {
         s.set(0, answers, "page");
     }
     let remove = edits::parse_value(json!({"items": {"remove": ["#5"]}})).unwrap();
-    let err = session::save_edits(&shared, &remove, "mcp").unwrap_err();
+    let err = session::save_edits(&shared, None, &remove, "mcp").unwrap_err();
     assert!(
         err.to_string()
             .contains("save or discard the unsaved answers first"),
@@ -1092,9 +1097,14 @@ fn an_edits_save_is_refused_while_answers_are_unsaved() {
         session::lock(&shared).answers(0).unwrap()["part.coating"],
         "anodise clear"
     );
-    // Saved, the answers are no longer unsaved, and the edits save goes ahead.
-    session::save(&shared, None, &Default::default(), "page").unwrap();
-    session::save_edits(&shared, &remove, "mcp").unwrap();
+    // Discarded (the answers back as the file holds them), the edits save goes ahead.
+    {
+        let mut s = session::lock(&shared);
+        let mut answers = s.answers(0).cloned().unwrap_or_default();
+        answers.remove("part.coating");
+        s.set(0, answers, "page");
+    }
+    session::save_edits(&shared, None, &remove, "mcp").unwrap();
     let after = load(&path, None).unwrap();
     assert!(!numbers(&after).contains_key(&5));
     let _ = std::fs::remove_dir_all(&dir);

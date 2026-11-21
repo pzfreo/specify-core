@@ -1,4 +1,5 @@
 //! The browser uses exactly the native file numbers, including revision answer transport.
+mod common;
 use serde_json::{Value, json};
 use specify_core::part;
 use specify_core_wasm::session::Session;
@@ -23,10 +24,7 @@ fn snapshot_exposes_file_numbers_written_by_write_pmi() {
     let s = Session::open("old", &old).unwrap();
     assert!(s.snapshot()["analysis"].get("characteristics").is_none());
     let answers = json!({"hole.function:holes:6":"fit:H7", "hole.function:holes:7":"fit:H7", "hole.function:holes:8":"fit:H7", "hole.function:holes:9":"fit:H7"});
-    let written = bytes(
-        &s.write_pmi(answers.as_object().unwrap(), None, None)
-            .unwrap(),
-    );
+    let written = bytes(&common::write_pmi(&s, answers.as_object().unwrap()).unwrap());
     let reopened = Session::open("old", &written).unwrap();
     let numbers = reopened.snapshot()["analysis"]["characteristics"].clone();
     assert_eq!(numbers.as_array().unwrap().len(), 4);
@@ -50,7 +48,7 @@ fn snapshot_exposes_file_numbers_and_diff_answers_carry_them_through_write_pmi()
     //     assert!(s.snapshot()["analysis"].get("characteristics").is_none());
     //     let answers = json!({"hole.function:holes:6":"fit:H7", "hole.function:holes:7":"fit:H7", "hole.function:holes:8":"fit:H7", "hole.function:holes:9":"fit:H7"});
     //     let written = bytes(
-    //         &s.write_pmi(answers.as_object().unwrap(), None, None)
+    //         &common::write_pmi(&s, answers.as_object().unwrap())
     //             .unwrap(),
     //     );
     //     let reopened = Session::open("old", &written).unwrap();
@@ -65,7 +63,7 @@ fn snapshot_exposes_file_numbers_and_diff_answers_carry_them_through_write_pmi()
     //     let result = session::diff(("old", &written), ("new", &new), &Map::new(), "Revision").unwrap();
     //     let carried = result["report"]["answers"].as_object().unwrap();
     //     let s = Session::open("new", &new).unwrap();
-    //     let revised_bytes = bytes(&s.write_pmi(carried, None, None).unwrap());
+    //     let revised_bytes = bytes(&common::write_pmi(&s, carried).unwrap());
     //     let revised = Session::open("new", &revised_bytes).unwrap();
     //     let snapshot = revised.snapshot();
     //     let ns = snapshot["analysis"]["characteristics"].as_array().unwrap();
@@ -87,7 +85,7 @@ fn snapshot_exposes_file_numbers_and_diff_answers_carry_them_through_write_pmi()
     //         .as_object()
     //         .unwrap();
     //     assert_eq!(
-    //         bytes(&revised.write_pmi(answers, None, None).unwrap()),
+    //         bytes(&common::write_pmi(&revised, answers).unwrap()),
     //         revised_bytes
     //     );
     // }

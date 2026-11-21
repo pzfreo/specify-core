@@ -168,17 +168,20 @@ analysis = api.analyse("plate.step")
 for q in api.questions(analysis, {}):                 # what is still unknown
     print(q.id, "|", q.prompt, "| default:", q.default)
 
-answers = {"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"}
-intent = api.apply(analysis, answers, accept_defaults=True)
-report = api.write("plate.step", intent, "plate-pmi.step", answers=answers)
+# An edit list, applied all or nothing (ids are the feature table's: analysis["table"]).
+edits = {"fill": {"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"},
+         "accept_suggestions": ["part.general_tolerance"]}
+print(api.check_edits("plate.step", edits)["applicable"])
+report = api.write("plate.step", edits, "plate-pmi.step")
 
-print(report.written)       # ['datum A', 'Ø8 H7 on holes:9', 'position 0.05 on holes:9', ...]
-print(report.not_written)   # anything not written, with the reason (an unasked answer too)
+print(report.written)       # ['material 6082-T6', 'Ø8 H7 on holes:9', ...]
+print(report.retired)       # characteristic numbers retired by a change or a remove
 ```
 
 The other functions are listed in the [package README](crates/specify-core-py/README.md):
 - `parts` and `load`, for assemblies and reading a file once;
-- `preview`;
+- `preview` and `apply`;
+- `check_edits`;
 - `write_parts`;
 - `mesh`;
 - `diff`;

@@ -28,8 +28,12 @@ test('real writer history passes every opening operation and is removed from the
   const given = { 'part.material': 'Steel', 'hole.function:holes:13': 'tapped:M4' };
   const engine = new IntentEngine('part.step', shaft);
   let written;
-  try { written = new Uint8Array(JSON.parse(engine.writePmi(JSON.stringify(given))).bytes); }
-  finally { engine.free(); }
+  try {
+    // A save (specify-core 0.3.0): the answers as an edit list's fills.
+    const result = JSON.parse(engine.edit(JSON.stringify({ fill: given })));
+    assert.ok(result.written, result.message);
+    written = new Uint8Array(result.bytes);
+  } finally { engine.free(); }
   const history = characteristicHistory(written);
   assert.equal(history.schema, 2);
   assert.equal(typeof history.faces, 'string');

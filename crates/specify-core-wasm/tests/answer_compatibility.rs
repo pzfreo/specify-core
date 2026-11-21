@@ -1,4 +1,5 @@
 //! Pin the binding's compatibility to the independent Python-compatible core rules.
+mod common;
 use serde_json::{Map, json};
 use specify_core::{api, part, rules, tolerancing, writer};
 use specify_core_wasm::session::Session;
@@ -29,12 +30,12 @@ fn text_answers_keep_core_truthiness_and_json_values() {
                 .shift_remove("anchors");
             assert_eq!(actual, expected, "{answers:?}");
             assert_eq!(
-                session.accept_defaults(&answers).unwrap(),
+                common::accept_defaults(&session, &answers).unwrap(),
                 rules::with_all_defaults(&analysis, &answers).unwrap()
             );
             let intent = api::preview(&analysis, &answers).unwrap();
             let (bytes, report) = writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
-            let mut written = session.write_pmi(&answers, None, None).unwrap();
+            let mut written = common::write_pmi(&session, &answers).unwrap();
             assert_eq!(written["bytes"], json!(bytes));
             // The session's report is the writer's plus whether the answers were complete.
             let extra = written["report"].as_object_mut().unwrap();
@@ -90,8 +91,7 @@ fn carried_refusals_survive_wasm_defaults_review_and_write() {
     .unwrap()
     .clone();
     assert!(
-        session
-            .accept_defaults(&answers)
+        common::accept_defaults(&session, &answers)
             .unwrap_err()
             .contains("carried answer could not be applied")
     );
@@ -102,17 +102,16 @@ fn carried_refusals_survive_wasm_defaults_review_and_write() {
             .unwrap()
             .is_empty()
     );
-    assert!(session.write_pmi(&answers, None, None).is_err());
+    assert!(common::write_pmi(&session, &answers).is_err());
     answers.insert("datum.A".into(), json!([4]));
-    let accepted = session.accept_defaults(&answers).unwrap();
+    let accepted = common::accept_defaults(&session, &answers).unwrap();
     assert_eq!(accepted["datum.A"], json!([4]));
-    session.write_pmi(&accepted, None, None).unwrap();
+    common::write_pmi(&session, &accepted).unwrap();
     answers["_specify"]["evidence"] = session.evidence().unwrap();
-    session.write_pmi(&answers, None, None).unwrap();
+    common::write_pmi(&session, &answers).unwrap();
     answers["_specify"]["evidence"]["face_count"] = json!(999);
     assert!(
-        session
-            .write_pmi(&answers, None, None)
+        common::write_pmi(&session, &answers)
             .unwrap_err()
             .contains("stale answers")
     );

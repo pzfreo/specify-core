@@ -449,11 +449,10 @@ fn a_session_save_keeps_pmi_another_tool_added() {
             .is_none()
     );
     assert!(opened.get("conflicts").is_none(), "{opened}");
-    call(
-        "answer",
-        json!({"doc": doc, "set": {"part.coating": "Anodise, clear"}}),
+    let saved = call(
+        "save",
+        json!({"doc": doc, "edits": {"fill": {"part.coating": "Anodise, clear"}}}),
     );
-    let saved = call("save", json!({"doc": doc, "accept_defaults": {}}));
     let back = load(std::fs::read(saved["path"].as_str().unwrap()).unwrap());
     assert_eq!(
         flatness(&back),
@@ -609,15 +608,14 @@ fn another_tools_requirement_stands_against_saved_answers_on_the_cli() {
     );
 }
 
-/// The same over MCP: `open` with an answers file saved before the edit lists the conflict,
-/// and `save` keeps the other tool's 0.05.
+/// The same over MCP: the answers saved before the edit, sent to `save` as a 0.2 answers map
+/// (read as fills), are refused all or nothing: the 0.03 differs from what the file states, so
+/// nothing is written and the other tool's 0.05 stands.
 #[test]
 fn another_tools_requirement_stands_against_an_mcp_answers_file() {
     let dir = dir("mcp-foreign");
     let input = dir.join("plate.step");
     std::fs::write(&input, re_authored_flatness().bytes.as_slice()).unwrap();
-    let answers_file = dir.join("answers.json");
-    std::fs::write(&answers_file, Value::Object(answers("0.03")).to_string()).unwrap();
     let mut server = specify_core::mcp::Server::new(std::slice::from_ref(&dir)).unwrap();
     let mut call = |name: &str, arguments: Value| -> Value {
         let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
@@ -631,12 +629,25 @@ fn another_tools_requirement_stands_against_an_mcp_answers_file() {
         assert_ne!(result["isError"], json!(true), "{name}: {result}");
         result["structuredContent"].clone()
     };
-    let opened = call("open", json!({"path": input, "answers_file": answers_file}));
+    let opened = call("open", json!({"path": input}));
     assert!(opened.get("conflicts").is_none(), "{opened}");
-    let saved = call("save", json!({"doc": opened["doc"], "accept_defaults": {}}));
-    let back = load(std::fs::read(saved["path"].as_str().unwrap()).unwrap());
+    let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+        "name": "save", "arguments": {"doc": opened["doc"], "edits": answers("0.03")},
+        "_meta": {
+            "io.modelcontextprotocol/protocolVersion": specify_core::mcp::MODERN,
+            "io.modelcontextprotocol/clientCapabilities": {}
+        }
+    }});
+    let refused = server.handle(&request, None).body.unwrap()["result"].clone();
+    assert_eq!(refused["isError"], json!(true), "{refused}");
+    let failures = refused["structuredContent"]["error"]["failures"].to_string();
+    assert!(failures.contains("datum.A.flatness"), "{refused}");
+    assert!(
+        !dir.join("plate.specified.step").exists(),
+        "nothing written"
+    );
     assert_eq!(
-        flatness(&back),
+        flatness(&load(std::fs::read(&input).unwrap())),
         [json!({"faces": [2], "value": 0.05, "marked": false})]
     );
 }

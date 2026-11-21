@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import init, { IntentEngine, pmiScene } from '@draftwright/specify-core-wasm';
+import init, { acceptDefaults, IntentEngine, pmiScene } from '@draftwright/specify-core-wasm';
 import { characteristics, balloonsBySource, toCsv } from '../src/specify/characteristics.ts';
 import { inspectionAnswers } from '../src/specify/inspection.ts';
 import { inspectionFromStep } from '../src/specify/saved-inspection.ts';
@@ -22,7 +22,12 @@ function readSaved(t, bytes) {
   const scene = JSON.parse(pmiScene(bytes));
   return { analysis, scene, ...inspectionFromStep(analysis, scene) };
 }
-const write = (engine, answers) => new Uint8Array(JSON.parse(engine.writePmi(JSON.stringify(answers))).bytes);
+// A save (specify-core 0.3.0): the answers as an edit list's fills, applied all or nothing.
+function write(engine, answers) {
+  const result = JSON.parse(engine.edit(JSON.stringify({ fill: answers })));
+  assert.ok(result.written, result.message);
+  return new Uint8Array(result.bytes);
+}
 function assertNumbers(saved) {
   const numbers = saved.analysis.characteristics?.map((row) => row.number).sort((a, b) => a - b) ?? [];
   assert.deepEqual(saved.chars.filter((row) => row.n).map((row) => row.n), numbers, 'every stored number is exported exactly once');
@@ -56,7 +61,7 @@ test('Material appears on Form 2 only and Form 3 omits every unnumbered row', (t
 test('given and kept answers still exclude host suggestions awaiting review', (t) => {
   const engine = open(t);
   const answers = { 'part.material': 'Steel' };
-  const defaults = JSON.parse(engine.acceptDefaults(JSON.stringify(answers)));
+  const defaults = JSON.parse(acceptDefaults(JSON.stringify(JSON.parse(engine.snapshot()).analysis), JSON.stringify(answers)));
   const { questions } = JSON.parse(engine.review(JSON.stringify(defaults)));
   const pending = Object.keys(defaults).filter((id) => !(id in answers));
   assert.deepEqual(inspectionAnswers(defaults, questions, ['part.surface_finish', 'hole.function:holes:13'], pending), {
@@ -80,7 +85,7 @@ test('write → readback → export keeps the M4 ID while later saves append num
   assert.match(saved.chars[0].text, /M4/);
   assertNumbers(saved);
   const resumed = open(t, bytes);
-  const answers = { ...saved.analysis.resume.answers, 'datum.A': [0], 'part.surface_finish': 'Ra 3.2' };
+  const answers = { ...(saved.analysis.resume?.answers ?? {}), 'datum.A': [0], 'part.surface_finish': 'Ra 3.2' };
   const next = readSaved(t, write(resumed, answers));
   assert.equal(next.chars.find((row) => /M4/.test(row.text)).n, 1);
   assert.ok(next.chars.filter((row) => !/M4/.test(row.text)).every((row) => row.n > 1));

@@ -1,12 +1,11 @@
+mod common;
 use haecceity::p21::{Attribute, Document, Edit, RawEntity};
 use serde_json::{Map, Value, json};
 use specify_core::{process, resume};
 use specify_core_wasm::session::Session;
 
 fn write(session: &Session, answers: &Value) -> Vec<u8> {
-    let written = session
-        .write_pmi(answers.as_object().unwrap(), None, None)
-        .unwrap();
+    let written = common::write_pmi(session, answers.as_object().unwrap()).unwrap();
     serde_json::from_value(written["bytes"].clone()).unwrap()
 }
 

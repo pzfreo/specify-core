@@ -1,3 +1,4 @@
+mod common;
 use serde_json::{Map, Value, json};
 use specify_core_wasm::session::Session;
 
@@ -201,7 +202,7 @@ fn assembly_live_and_view_only_diameters_match_actual_mesh_faces_and_frame() {
         );
         let live = engine.pmi_scene(&answers).unwrap();
         assert!(check_diameters(&live, &snapshot) > 0);
-        let output = engine.write_pmi(&answers, None, None).unwrap();
+        let output = common::write_pmi(&engine, &answers).unwrap();
         let written: Vec<u8> = serde_json::from_value(output["bytes"].clone()).unwrap();
         let reopened = Session::open_part("written.step", &written, part).unwrap();
         let after = reopened.snapshot();

@@ -222,8 +222,8 @@ text notes and caller metadata are settings rather than individual inspection ch
   JSON omits `number` when absent. Numbered thread/knurl/finish rows are kept distinct instead
   of aggregating different requirements of the same kind. A default part texture is in the
   authoritative `characteristics` list even though it has no face-note row.
-- WASM `IntentEngine.snapshot().analysis` exposes the same list, `writePmi` uses the same
-  writer, and `diff` reads the same numbers from each file.
+- WASM `IntentEngine.snapshot().analysis` exposes the same list, `edit` applies an edit list
+  with the same writer, and `diff` reads the same numbers from each file.
 
 For #95, history schema 2 replaces the value-sensitive `specification` field with a
 structural `role` (size/location, feature/dimension/relation/whole part, or datum). Schema 1

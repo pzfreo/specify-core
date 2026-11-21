@@ -1,9 +1,37 @@
 # The Python specify-core
 
 Answer maps accept optional `_specify` geometry evidence and unresolved carry blocks.
-Bulk defaults cannot replace dropped answers; write rejects stale evidence. Plain maps
-remain compatible but cannot detect stale in-range face indices. See
-[answer files and changed geometry](answers.md).
+Bulk defaults cannot replace dropped answers. Plain maps remain compatible but cannot detect
+stale in-range face indices. See [answer files and changed geometry](answers.md).
+
+## Writing: an edit list
+
+`api.write(step, edits, output)` applies an edit list to `step` (a path or a `LoadedPart`) and
+writes the result to `output`, as `specify-core write STEP EDITS.json -o OUT` does (Specify
+0.3.0, ADR P11). `edits` is a dict or JSON text:
+
+```python
+from specify_core import api
+
+report = api.write("plate.step", {
+    "fill": {"part.material": "6061-T6", "hole.position:holes:12": "0.2"},
+    "change": {"hole.position:holes:14": {"to": "0.1", "expect": "0.2"}},
+    "items": {"remove": ["#17"]},
+    "none": ["part.coating"],
+    "accept_suggestions": ["part.general_tolerance"],
+}, "plate.specified.step")
+```
+
+Ids are the feature table's (`api.analyse(step)["table"]["rows"]`); items are characteristic
+numbers. Anything the list does not name is left as it is, byte for byte. A 0.2 answers map is
+read as a list of fills. A list is all or nothing: if any entry cannot be applied nothing is
+written and `specify_core.writer.EditsRefused` (a `ValueError`) is raised, its `failures` naming
+every failing entry and why. The report (`WriteReport`) adds `retired`, the characteristic
+numbers the save retired, and `unchanged`. `api.check_edits(step, edits)` checks a list exactly
+as `write` would apply it and writes nothing: `{well_formed, checked_against_file, applicable,
+entries, unchanged, failures, written, message}`. (Until 0.3.0, `write(step, intent, output,
+answers=...)` wrote a whole intent; that is gone. `validate_edits`, which checked a list only
+against itself, is replaced by `check_edits`.)
 
 ## Mesh tolerance
 
@@ -24,8 +52,8 @@ selects an assembly part. It writes no STEP. Open questions and carry blocks do 
 (blocks stay in `_specify.unresolved`); stale saved evidence, a mismatched analysis, or an
 approval that is not an open question's default as it stands raises `ValueError`.
 
-`api.apply` (and so `api.write`) still needs a complete set: answer the open questions, or
-approve their defaults. Here every default offered is approved, once the person has seen them:
+`api.apply` still needs a complete set: answer the open questions, or approve their defaults.
+Here every default offered is approved, once the person has seen them:
 
 ```python
 import json
@@ -39,7 +67,6 @@ defaults = with_all_defaults(analysis, given)
 approved = {"0": {k: v for k, v in defaults.items() if k not in given}}
 answers = api.export_answers("plate_v1.step", analysis, given, approved)
 Path("plate.answers.json").write_text(json.dumps(answers, indent=2) + "\n", encoding="utf-8")
-api.write("plate_v1.step", api.apply(analysis, answers), "plate.pmi.step", answers=answers)
 ```
 
 Keys are sorted recursively; arrays keep their order. The resulting map is accepted by
@@ -86,8 +113,8 @@ and the STEP files they read and write, so Draftwright Specify can drive either,
 ## The Python package
 
 `crates/specify-core-py` builds the Python package `specify_core` on this engine: specify-core's
-API (`load`, `parts`, `analyse`, `questions`, `apply`, `preview`, `write`, `write_parts`,
-`mesh`, with its types `Question`, `Intent`, `WriteReport`, `ExistingPmi` and its errors), plus
+API (`load`, `parts`, `analyse`, `questions`, `apply`, `preview`, `write` (an edit list),
+`check_edits`, `write_parts`, `mesh`, with its types `Question`, `Intent`, `WriteReport`, `ExistingPmi` and its errors), plus
 `problems`, `choices`, `serve.reply` and the `specify-core` command line, which runs this
 engine's (`specify_core::cli`) in the Python process. It needs no Python dependency (no
 quiddity, build123d or OpenCascade). A `LoadedPart` is a handle on the part held by the engine:

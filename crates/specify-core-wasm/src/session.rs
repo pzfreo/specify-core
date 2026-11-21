@@ -4,7 +4,6 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use specify_core::{
     api, carried,
-    features::Feature,
     part::{self, Binding, LOADER_VERSION, LoadedPart},
     resume,
     revision::{self, assembly},
@@ -93,8 +92,8 @@ impl Session {
     /// Opens part `part` (an index from [`Session::parts`]) of any file, an assembly's or one
     /// part's placed several times included, as the command line's `--part` does: the part is
     /// analysed in its own frame, the file's other parts consulted for its mates, and
-    /// [`Session::write_pmi`] writes it into the original file, keeping every other part and
-    /// placement as it was (decision D3). Part 0 of a file of one part used once opens as
+    /// [`Session::edit`] edits it in the original file (a part of an assembly is not supported
+    /// by the edit writer yet). Part 0 of a file of one part used once opens as
     /// [`Session::open`] opens it.
     pub fn open_part(name: &str, bytes: &[u8], part: usize) -> Result<Self, String> {
         Self::load(name, bytes, Some(part))
@@ -224,81 +223,58 @@ impl Session {
             "provenance": {"source_sha256": self.loaded.binding.source_sha256, "face_entities": self.loaded.definition.faces, "part": self.loaded.binding.part}}))
     }
 
-    /// Write and verify the answered PMI, with the answers stored. `project` is the editor's
-    /// project already in base64 (stored as `draftwright editor project`); `payload` is any
-    /// application's `{name, value}`, stored as base64 JSON under `name` (`carried`). Either
-    /// also records the original part, which [`Session::original`] gives back. Without either,
-    /// the written file carries no project, payload or original, even if the opened one did.
-    /// For a part of an assembly ([`Session::open_part`]) all of it is written on that part
-    /// only, into the original file: the other parts, their placements, PMI, answers and
-    /// payloads are kept byte for byte, and the original recorded is the whole file.
-    pub fn write_pmi(
-        &self,
-        answers: &Map<String, Value>,
-        project: Option<&str>,
-        payload: Option<&Value>,
-    ) -> Result<Value, String> {
-        self.write_pmi_with_bom(answers, project, payload, false)
+    /// The part as loaded (native callers and tests; not part of the browser API).
+    pub fn loaded(&self) -> &LoadedPart {
+        &self.loaded
     }
 
-    pub fn write_pmi_with_bom(
-        &self,
-        answers: &Map<String, Value>,
-        project: Option<&str>,
-        payload: Option<&Value>,
-        bom: bool,
-    ) -> Result<Value, String> {
-        // A complete old sidecar may also contain feature IDs that disappeared. Diagnose
-        // its geometry evidence before interpreting any of those IDs on this part.
-        specify_core::answer_file::check(&self.loaded, answers)?;
-        input::answers(&self.analysis, answers).map_err(|e| e.to_string())?;
-        let mut intent =
-            api::preview(&self.analysis, answers).map_err(|error| error.to_string())?;
-        // Preview leaves out what apply reports as not written (#126); a write lists it.
-        intent.requirements.extend(
-            specify_core::rules::unasked_rows(&self.analysis, answers)
-                .map_err(|error| error.to_string())?,
-        );
-        if bom {
-            specify_core::bom::accept_suggestions(&self.analysis, answers, &mut intent)?;
-        }
-        let extra = carried_attributes(&self.loaded.bytes, project, payload)?;
-        let (bytes, report) =
-            specify_core::writer::write_bytes_with(&self.loaded, &intent, Some(answers), &extra)
-                .map_err(|error| error.to_string())?;
-        // A partial write is allowed (an AP242 file need not answer everything), but never
-        // silent: say which required questions are still open, as `write` would list them.
-        let missing = open_required(&self.analysis, answers);
-        let mut report = report.to_dict();
-        if let Some(object) = report.as_object_mut() {
-            object.insert("complete".into(), json!(missing.is_empty()));
-            object.insert("missing".into(), json!(missing));
-        }
-        Ok(
-            json!({"bytes": bytes, "source_sha256": self.loaded.binding.source_sha256, "report": report}),
-        )
+    /// The part's analysis, as `snapshot()` gives it.
+    pub fn analysis(&self) -> &Value {
+        &self.analysis
     }
 
-    /// The face evidence to keep with answers held outside the STEP, for
-    /// [`Session::rematch_answers`]: `AnswerEvidence` JSON (`resume::evidence`).
+    /// The feature table (`analysis.table`): each feature-and-kind stated, gap or decided
+    /// none, the file's PMI on no recognised feature, and the decided-none list.
+    pub fn table(&self) -> Value {
+        self.analysis["table"].clone()
+    }
+
+    /// `text` (an edit list, or a 0.2 answers file) checked against this file, all or nothing,
+    /// as `specify-core write --check` checks it (`writer::apply::check`). Writes nothing.
+    pub fn check_edits(&self, text: &str) -> Value {
+        specify_core::writer::apply::check(&self.loaded, text).to_json()
+    }
+
+    /// `text` (an edit list, or a 0.2 answers file) applied to this file in memory, all or
+    /// nothing (`writer::apply::apply`): `{written: true, bytes, report, source_sha256}`, the
+    /// report with the numbers `retired` and whether the file is `unchanged`; or `{written:
+    /// false, failures, message}` naming every entry that cannot be applied. The session is not
+    /// changed: open the returned bytes to edit further.
+    pub fn edit(&self, text: &str) -> Value {
+        let applied = specify_core::edits::read(text)
+            .and_then(|list| specify_core::writer::apply::apply(&self.loaded, &list));
+        match applied {
+            Ok(applied) => json!({
+                "written": true,
+                "bytes": applied.bytes,
+                "report": applied.to_dict(),
+                "source_sha256": self.loaded.binding.source_sha256,
+            }),
+            Err(failures) => {
+                let mut message = "Nothing was written. An edit list is applied all or nothing, \
+                                   and these entries cannot be applied, so none of it was:"
+                    .to_string();
+                for f in &failures {
+                    message.push_str(&format!("\n- {}: {}", f.entry, f.reason));
+                }
+                json!({"written": false, "failures": failures, "message": message})
+            }
+        }
+    }
+
+    /// The face evidence to keep with answers held outside the STEP: `AnswerEvidence` JSON (`resume::evidence`).
     pub fn evidence(&self) -> Result<Value, String> {
         resume::evidence(&self.loaded).map_err(|error| error.to_string())
-    }
-
-    /// Answers held outside the STEP matched to this part's features (`resume::rematch_answers`):
-    /// `{answers, unresolved?, migrated?, unverified?, automatic?}`. Does not change the session.
-    pub fn rematch_answers(
-        &self,
-        answers: &Map<String, Value>,
-        evidence: Option<&Value>,
-        automatic: Option<&[String]>,
-    ) -> Result<Value, String> {
-        let features: Vec<Feature> = serde_json::from_value(self.analysis["features"].clone())
-            .map_err(|error| error.to_string())?;
-        let resumed =
-            resume::rematch_answers(&self.loaded, &features, answers, evidence, automatic)
-                .map_err(|error| error.to_string())?;
-        serde_json::to_value(resumed).map_err(|error| error.to_string())
     }
 
     /// The payload `name` the opened STEP carries, if any (`carried::payload`); for a part of
@@ -317,18 +293,9 @@ impl Session {
         carried::original(&self.loaded.bytes)
     }
 
-    /// Return ordinary editable answers, preserving supplied values and leaving questions
-    /// without defaults open. This does not mutate the session or write PMI.
-    pub fn accept_defaults(
-        &self,
-        answers: &Map<String, Value>,
-    ) -> Result<Map<String, Value>, String> {
-        crate::accept_defaults(&self.analysis, answers)
-    }
-
     /// An answer file of the answers given, exactly the defaults `approved` (by part, each
     /// with the value the person saw; ADR P9) and this part's evidence (`api::export_answers`).
-    /// Unlike accept_defaults, never takes every default; open questions stay open. Never
+    /// Never takes every default; open questions stay open. Never
     /// writes or changes the session.
     pub fn export_answers(
         &self,
@@ -380,43 +347,5 @@ impl Session {
             .collect::<Vec<Vec<usize>>>();
         review["intent"]["anchors"] = json!(api::anchors(&self.loaded, &groups));
         review
-    }
-}
-
-/// The editor's base64 `project`, or an application's `{name, value}` `payload`, as the
-/// attributes the writer adds; at most one of them.
-fn carried_attributes(
-    source: &[u8],
-    project: Option<&str>,
-    payload: Option<&Value>,
-) -> Result<Vec<haecceity::pmi::AttributeSet>, String> {
-    const PROJECT: &str = "draftwright editor project";
-    if let Some(text) = project {
-        input::size("Project", text.len(), input::JSON_LIMIT).map_err(|e| e.to_string())?;
-    }
-    match (project, payload) {
-        (Some(_), Some(_)) => Err("give a project or a payload, not both".into()),
-        (Some(text), None) => carried::attributes_encoded(source, PROJECT, text)
-            .map_err(|_| "the project to store is not base64".to_string()),
-        (None, Some(payload)) => {
-            let (Some(name), Some(value)) = (payload["name"].as_str(), payload.get("value")) else {
-                return Err("Invalid payload: expected {name, value}".into());
-            };
-            input::size("Payload name", name.len(), input::TEXT_LIMIT)
-                .map_err(|e| e.to_string())?;
-            carried::attributes(source, name, value).map_err(|e| e.to_string())
-        }
-        (None, None) => Ok(vec![]),
-    }
-}
-
-/// The required questions `answers` leaves open: the ids `write` without defaults would refuse
-/// as incomplete (only the pending carry blocks, while there are any, as `write` lists them);
-/// empty when it would write. Any other refusal is the write's business, not this report's, so
-/// it never makes a write fail.
-fn open_required(analysis: &Value, answers: &Map<String, Value>) -> Vec<String> {
-    match api::apply(analysis, answers, false) {
-        Err(api::Error::Rules(specify_core::rules::Error::Incomplete(e))) => e.missing,
-        _ => Vec::new(),
     }
 }

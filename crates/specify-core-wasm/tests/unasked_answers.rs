@@ -1,5 +1,6 @@
 //! #126 through the editor's session: its preview-based write lists answers and carry blocks
 //! whose question is not asked, and a reopened write restores the block.
+mod common;
 use serde_json::{Map, Value, json};
 use specify_core_wasm::session::Session;
 
@@ -24,9 +25,8 @@ fn not_written(written: &Value) -> Vec<String> {
 fn the_session_write_lists_unasked_answers_and_keeps_blocks() {
     let bytes = include_bytes!("../../../tests/fixtures/parts/plate.step");
     let session = Session::open("plate.step", bytes).unwrap();
-    let written = session
-        .write_pmi(&answers(json!({"datum.A.flatness": "0.05"})), None, None)
-        .unwrap();
+    let written =
+        common::write_pmi(&session, &answers(json!({"datum.A.flatness": "0.05"}))).unwrap();
     assert!(
         not_written(&written).contains(
             &"datum.A.flatness is not asked when part.locating is '± dimensions', so its \
@@ -37,7 +37,7 @@ fn the_session_write_lists_unasked_answers_and_keeps_blocks() {
     );
     let block = json!({"_specify": {"unresolved":
         {"datum.A.flatness": "its datum datum.A is unresolved"}}});
-    let written = session.write_pmi(&answers(block), None, None).unwrap();
+    let written = common::write_pmi(&session, &answers(block)).unwrap();
     assert!(
         not_written(&written)
             .iter()

@@ -131,18 +131,6 @@ fn browser_resumes_v024_answers_on_bosses_with_corrected_end_heights() {
                 .unwrap()
                 .is_empty()
         );
-        for evidence in [Some(&base["evidence"]), None] {
-            let out = session
-                .rematch_answers(base["answers"].as_object().unwrap(), evidence, None)
-                .unwrap();
-            assert_eq!(out["answers"], json!(answers));
-            assert_eq!(
-                out.get("migrated").cloned().unwrap_or_else(|| json!([])),
-                json!(migrated)
-            );
-            assert!(out["unresolved"].is_null());
-            assert_eq!(out["unverified"].is_string(), evidence.is_none());
-        }
     }
 }
 
@@ -494,16 +482,6 @@ fn browser_refuses_suppressed_od_boss_answers_in_saved_and_shared_projects() {
         .as_object()
         .unwrap()
         .clone();
-    let session = Session::open("disc.step", &loaded.bytes).unwrap();
-    let evidence = session.evidence().unwrap();
-    for e in [Some(&evidence), None] {
-        let out = session.rematch_answers(&answers, e, None).unwrap();
-        assert_eq!(out["unresolved"].as_array().unwrap().len(), 1);
-        assert_eq!(out["unresolved"][0]["id"], key);
-        assert_eq!(out["unresolved"][0]["answer"], "g6");
-        assert!(out["answers"].get(key).is_none());
-        assert!(out["migrated"].is_null());
-    }
     let a = specify_core::api::analyse(&loaded).unwrap();
     let intent = specify_core::rules::apply_with_defaults(
         &a,

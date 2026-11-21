@@ -2,6 +2,7 @@
 //! as its own 1.5. Reopening shows 1.5 (no conflict); a save keeps it; answering 0.5 afresh
 //! and writing (`acceptDefaults`, then `writePmi`, as the editor's worker does) must keep the
 //! file's 1.5 alone and say why 0.5 wasn't written (changing it is an explicit edit).
+mod common;
 use serde_json::{Map, Value, json};
 use specify_core::{api, existing::read_existing, part::load_bytes};
 use specify_core_wasm::session::Session;
@@ -69,8 +70,8 @@ fn opened(session: &Session) -> Map<String, Value> {
 
 /// The editor's Save: `writePmi(acceptDefaults(answers))`.
 fn save(session: &Session, answers: &Map<String, Value>) -> (Vec<u8>, Value) {
-    let accepted = session.accept_defaults(answers).unwrap();
-    let written = session.write_pmi(&accepted, None, None).unwrap();
+    let accepted = common::accept_defaults(session, answers).unwrap();
+    let written = common::write_pmi(session, &accepted).unwrap();
     let bytes: Vec<u8> = serde_json::from_value(written["bytes"].clone()).unwrap();
     (bytes, written["report"].clone())
 }

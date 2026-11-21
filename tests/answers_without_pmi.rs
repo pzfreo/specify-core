@@ -4,7 +4,6 @@
 
 mod common;
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -124,25 +123,38 @@ fn offered(analysis: &Value, answers: &Map<String, Value>) -> Map<String, Value>
         .collect()
 }
 
-/// The page's Save with every default offered approved, round by round (taking one can ask
-/// another): the file last saved.
+/// The page's Save with the answers given, then every default offered approved, round by round
+/// (taking one can ask another), each an edit list filling them: the file last saved.
 fn approve_all(path: &Path, given: &Map<String, Value>) -> PathBuf {
     let shared = session_of(path);
-    session::lock(&shared).set(0, given.clone(), "page");
-    let analysis = api::analyse_file(path, None).unwrap();
+    let mut fill = given.clone();
     let mut saved = None;
     loop {
+        let analysis = session::analysis(&shared, 0).unwrap();
         let answers = session::lock(&shared)
             .answers(0)
             .cloned()
             .unwrap_or_default();
-        let defaults = offered(&analysis, &answers);
-        if defaults.is_empty() {
+        let mut with_given = answers.clone();
+        with_given.extend(fill.clone());
+        fill.extend(offered(&analysis, &with_given));
+        // An edit list fills the feature table's rows: how holes are located (`part.locating`)
+        // is a choice with no row, so its default cannot be approved this way (piece 7).
+        let rows: Vec<&str> = analysis["table"]["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|r| r["id"].as_str())
+            .collect();
+        fill.retain(|id, _| rows.contains(&id.as_str()));
+        if fill.is_empty() {
             break;
         }
-        let approved: session::Approved = BTreeMap::from([(0, defaults)]);
-        saved =
-            Some(session::save(&shared, None, &approved, "page").unwrap_or_else(|e| panic!("{e}")));
+        let list = specify_core::edits::parse_value(json!({ "fill": fill })).unwrap();
+        saved = Some(
+            session::save_edits(&shared, None, &list, "page").unwrap_or_else(|e| panic!("{e}")),
+        );
+        fill = Map::new();
     }
     PathBuf::from(saved.expect("defaults were offered").path)
 }
@@ -158,13 +170,14 @@ fn approved_defaults_that_write_no_pmi_resume_and_are_not_asked() {
     let again = api::analyse_file(&saved, None).unwrap();
     let resume = &again["resume"];
     assert!(resume.get("conflicts").is_none(), "{resume}");
-    let answers = resume["answers"].as_object().unwrap();
+    // Nothing stored (no resume block) when every answer wrote PMI or was left a gap.
+    let answers = resume["answers"].as_object().cloned().unwrap_or_default();
     // ADR P11: a "none" suggestion is not open, so the page never offers it for approval:
     // left as a gap, it is not stored and is not open on reopening either. The choice that
-    // writes nothing (how holes are located) is offered, approved and stored.
+    // writes nothing (how holes are located) is offered but has no feature-table row, so an
+    // edit list cannot approve it (piece 6: a gap reported for piece 7); it is not stored.
     for id in SILENT {
-        let none = id != "part.locating";
-        assert_eq!(!answers.contains_key(id), none, "{id}: {resume}");
+        assert!(!answers.contains_key(id), "{id}: {resume}");
     }
     // Those that write PMI are not stored; the file states them.
     for id in WRITING {
@@ -350,38 +363,6 @@ fn an_answer_whose_pmi_was_removed_is_a_gap_again() {
     let answers = again["resume"]["answers"].as_object().unwrap();
     for id in SILENT.iter().filter(|id| **id != "datum.A.flatness") {
         assert!(answers.contains_key(*id), "{id}: {}", again["resume"]);
-    }
-}
-
-/// A page's Save of an assembly approving defaults for a part with no answers of its own
-/// (`acceptDefaults: {"1": {...}}`): the part is written with them, and they are stored.
-#[test]
-fn an_assembly_part_with_only_approved_defaults_is_written() {
-    let dir = scratch("assembly");
-    let input = dir.join("assembly.step");
-    std::fs::copy(
-        common::fixtures().join("parts").join("assembly.step"),
-        &input,
-    )
-    .unwrap();
-    let pin = api::analyse_file(&input, Some(1)).unwrap();
-    let defaults = offered(&pin, &Map::new());
-    assert!(!defaults.is_empty());
-    let shared = session_of(&input);
-    let approved: session::Approved = BTreeMap::from([(1, defaults.clone())]);
-    let saved = session::save(&shared, None, &approved, "page").unwrap_or_else(|e| panic!("{e}"));
-    let written = saved.report["written"].to_string();
-    assert!(written != "[]", "{}", saved.report);
-    let again = api::analyse_file(Path::new(&saved.path), Some(1)).unwrap();
-    // ADR P11: stored when they leave no PMI behind; the others are not (the file states
-    // what they wrote).
-    let answers = again["resume"]["answers"].as_object().unwrap();
-    let storable = specify_core::feature_table::storable(&defaults);
-    for (id, value) in &defaults {
-        match storable.get(id) {
-            Some(_) => assert_eq!(answers.get(id), Some(value), "{id}: {}", again["resume"]),
-            None => assert!(answers.get(id).is_none(), "{id}: {}", again["resume"]),
-        }
     }
 }
 
@@ -754,8 +735,8 @@ fn another_tools_general_note_contradicts_stored_no_notes() {
     let input = dir.join("noted.step");
     std::fs::write(&input, back.bytes.as_slice()).unwrap();
     let shared = session_of(&input);
-    let saved =
-        session::save(&shared, None, &Default::default(), "page").unwrap_or_else(|e| panic!("{e}"));
+    let saved = session::save_edits(&shared, None, &Default::default(), "page")
+        .unwrap_or_else(|e| panic!("{e}"));
     let reopened = api::analyse_file(Path::new(&saved.path), None).unwrap();
     assert_eq!(
         reopened["part"]["notes"],

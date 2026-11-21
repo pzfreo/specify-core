@@ -1,4 +1,4 @@
-// Exercise the shipped module's limits/class write, reopen and label contracts.
+// Exercise the shipped module's limits/class labels, and the general tolerance written by an edit.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import init, { IntentEngine, interpret } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
@@ -18,10 +18,12 @@ try {
   assert.ok(q.options.includes('ISO 2768-mK'));
   const interpreted = JSON.parse(interpret(JSON.stringify(JSON.parse(engine.snapshot()).analysis), '{}', q.id, 'mk'));
   assert.deepEqual(interpreted, { value: 'ISO 2768-mK', code: 'ISO 2768-mK' });
-  const write = JSON.parse(engine.writePmi(JSON.stringify(answers)));
+  // The general tolerance is written by an edit (a fill); the limits are drawn from answers.
+  const write = JSON.parse(engine.edit(JSON.stringify({ fill: { 'part.general_tolerance': 'ISO 2768-mK' } })));
+  assert.ok(write.written, write.message);
   const back = new IntentEngine('limits.step', Uint8Array.from(write.bytes));
   try {
-    assert.deepEqual(JSON.parse(back.snapshot()).analysis.resume.answers, answers);
+    assert.equal(JSON.parse(back.table()).rows.find(r => r.id === 'part.general_tolerance').state, 'stated');
     const scene = JSON.parse(back.pmiScene(JSON.stringify(answers)));
     const labels = Object.values(scene.specify).map(m => m.notation ?? '').join('; ');
     assert.ok(labels.includes('9.8 - 10.2') && labels.includes('⌀7.8 - ⌀8.2'), labels);

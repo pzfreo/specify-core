@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import init, { IntentEngine, diff } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
+import init, { IntentEngine, acceptDefaults, diff } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
 const root = new URL('../', import.meta.url);
 await init({module_or_path: readFileSync(new URL('crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm', root))});
 const bytes = which => gunzipSync(readFileSync(new URL(`tests/fixtures/revisions/plate_split.${which}.step.gz`, root)));
@@ -13,7 +13,8 @@ const refuses = (action, pattern) => assert.throws(action, e => typeof e === 'st
 try {
   const given = {'part.material':'6061-T6', 'datum.A':[4], 'datum.B':[1], 'datum.C':[0]};
   // Every default, each approved with the value offered: what a person who confirmed them sends.
-  const every = JSON.parse(old.acceptDefaults(JSON.stringify(given)));
+  const analysis = JSON.stringify(JSON.parse(old.snapshot()).analysis);
+  const every = JSON.parse(acceptDefaults(analysis, JSON.stringify(given)));
   for (const id of Object.keys(given)) delete every[id];
   const approvals = JSON.stringify({'0': every});
   const text = old.exportAnswers(JSON.stringify(given), approvals);
@@ -34,18 +35,13 @@ try {
   assert.deepEqual(saved._specify.evidence, JSON.parse(old.evidence()));
   assert.deepEqual(Object.keys(saved), Object.keys(saved).sort());
   const {_specify, ...plain} = saved;
-  assert.deepEqual(plain, JSON.parse(old.acceptDefaults(JSON.stringify(given))));
+  assert.deepEqual(plain, JSON.parse(acceptDefaults(analysis, JSON.stringify(given))));
   assert.deepEqual(JSON.parse(old.review(text)).open, []);
-  const written = JSON.parse(old.writePmi(text));
-  const back = new IntentEngine('written.step', Uint8Array.from(written.bytes));
-  try { assert.deepEqual(JSON.parse(back.snapshot()).analysis.resume.answers, plain); }
-  finally { back.free(); }
   refuses(() => next.exportAnswers(text), /stale answers/);
-  refuses(() => next.writePmi(text), /stale answers/);
   assert.deepEqual(bare(JSON.parse(old.exportAnswers('{}'))), {});
   // Diff reads the files' PMI only and returns no answers (ADR P11). An answers file carried
   // to the new revision with its datum dropped, as an earlier diff returned one:
-  assert.equal(JSON.parse(diff('v1.step', oldBytes, 'v2.step', newBytes, text, 'Split')).report.answers, undefined);
+  assert.equal(JSON.parse(diff('v1.step', oldBytes, 'v2.step', newBytes, 'Split')).report.answers, undefined);
   const carried = {
     'part.material': given['part.material'],
     _specify: { evidence: JSON.parse(next.evidence()), unresolved: {
@@ -59,4 +55,4 @@ try {
   carried['datum.A.flatness'] = saved['datum.A.flatness'];
   assert.deepEqual(JSON.parse(next.exportAnswers(JSON.stringify(carried)))._specify.unresolved, {});
 } finally { old.free(); next.free(); }
-console.log('Answer export: approved defaults only, deterministic sidecars, resume, stale evidence and carry blocks passed');
+console.log('Answer export: approved defaults only, deterministic sidecars, stale evidence and carry blocks passed');

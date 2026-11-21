@@ -3,6 +3,7 @@
 //! session lists the parts as `specify-core parts` does, opens a chosen one, analyses it as the
 //! command line's `--part` does and writes it into the original file as `api::write_bytes`
 //! does, the other parts and placements kept.
+mod common;
 
 use std::path::{Path, PathBuf};
 
@@ -157,7 +158,7 @@ fn each_part_of_an_assembly_is_analysed_as_the_command_line_does() {
 fn a_part_of_an_assembly_is_written_into_the_original_file() {
     let original = assembly();
     let pin = Session::open_part("assembly.step", &original, PIN).unwrap();
-    let out = pin.write_pmi(&answers(PIN), None, None).unwrap();
+    let out = common::write_pmi(&pin, &answers(PIN)).unwrap();
     let after_pin = written(&out);
     assert_eq!(after_pin, cli_write(&original, PIN, &answers(PIN)));
     assert_eq!(
@@ -171,7 +172,7 @@ fn a_part_of_an_assembly_is_written_into_the_original_file() {
     assert_eq!(read[PIN].material.as_ref().unwrap().id, "brass");
 
     let plate = Session::open_part("assembly.step", &after_pin, PLATE).unwrap();
-    let after_plate = written(&plate.write_pmi(&answers(PLATE), None, None).unwrap());
+    let after_plate = written(&common::write_pmi(&plate, &answers(PLATE)).unwrap());
     assert_eq!(after_plate, cli_write(&after_pin, PLATE, &answers(PLATE)));
     assert_kept(&after_pin, &after_plate);
     let read_again = pmi_of(&after_plate);
@@ -201,7 +202,9 @@ fn a_project_is_carried_on_its_part_of_an_assembly() {
     // base64 of `{"revision":1}`, as the editor encodes its project.
     let project = "eyJyZXZpc2lvbiI6MX0=";
     let pin = Session::open_part("assembly.step", &original, PIN).unwrap();
-    let after_pin = written(&pin.write_pmi(&answers(PIN), Some(project), None).unwrap());
+    let after_pin = written(
+        &common::write_pmi_carrying(&pin, &answers(PIN), false, Some(project), None).unwrap(),
+    );
     assert_kept(&original, &after_pin);
     let plate = Session::open_part("assembly.step", &after_pin, PLATE).unwrap();
     assert_eq!(
@@ -212,9 +215,7 @@ fn a_project_is_carried_on_its_part_of_an_assembly() {
     assert_eq!(plate.original().as_deref(), Some(original.as_slice()));
     let payload = json!({ "name": "app", "value": { "sheet": 2 } });
     let after_plate = written(
-        &plate
-            .write_pmi(&answers(PLATE), None, Some(&payload))
-            .unwrap(),
+        &common::write_pmi_carrying(&plate, &answers(PLATE), false, None, Some(&payload)).unwrap(),
     );
     for (k, project, app) in [
         (PIN, Some(json!({ "revision": 1 })), None),
@@ -253,7 +254,7 @@ fn a_part_placed_twice_is_opened_and_written() {
     );
     assert_eq!(session.snapshot()["mesh"], api::mesh(&loaded));
     let given = answers(PLATE);
-    let out = written(&session.write_pmi(&given, None, None).unwrap());
+    let out = written(&common::write_pmi(&session, &given).unwrap());
     assert_eq!(out, cli_write(&bytes, 0, &given));
     assert_kept(&bytes, &out);
     let back = Session::open_part("twice.step", &out, 0).unwrap();
@@ -280,7 +281,7 @@ fn part_zero_of_one_part_opens_as_before() {
     assert_eq!(open.snapshot()["provenance"]["part"], json!(0));
     let given = answers(PLATE);
     assert_eq!(
-        open.write_pmi(&given, None, None).unwrap(),
-        chosen.write_pmi(&given, None, None).unwrap()
+        common::write_pmi(&open, &given).unwrap(),
+        common::write_pmi(&chosen, &given).unwrap()
     );
 }

@@ -33,18 +33,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let snapshot = session.snapshot();
     assert_eq!(snapshot["analysis"], analysis);
     assert_eq!(snapshot["mesh"], api::mesh(&loaded));
-    let intent = api::preview(&analysis, &answers)?;
-    let (bare_bytes, report) = writer::write_bytes(&loaded, &intent, Some(&answers))?;
     let accepted = accept_defaults(&analysis, &answers)?;
-    assert_eq!(session.accept_defaults(&answers)?, accepted);
-    let applied = api::apply(&analysis, &answers, true)?;
-    let (accepted_bytes, accepted_report) =
-        writer::write_bytes(&loaded, &applied, Some(&accepted))?;
-    let accepted_write = session.write_pmi(&accepted, None, None)?;
-    assert_eq!(accepted_write["bytes"], json!(accepted_bytes));
+    // The edit list the browser applies (`edit`): the answers as fills, all or nothing.
+    let list = json!({ "fill": answers });
+    let edited = match writer::apply::apply(
+        &loaded,
+        &specify_core::edits::parse_value(list.clone()).map_err(|f| format!("{f:?}"))?,
+    ) {
+        Ok(applied) => json!({"written": true, "bytes": applied.bytes, "report": applied.to_dict(),
+            "source_sha256": loaded.binding.source_sha256}),
+        Err(failures) => json!({"written": false, "failures": failures}),
+    };
     assert_eq!(
-        accepted_write["report"],
-        completed(accepted_report.to_dict(), &analysis, &accepted)
+        session.edit(&list.to_string())["written"],
+        edited["written"]
     );
     println!(
         "{}",
@@ -57,30 +59,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "defaults_without_answers": accept_defaults(&analysis, &Map::new())?,
             "accepted_review": session.review(&accepted)?,
             "accepted_free_review": api::review(&analysis, &accepted)?,
-            "accepted_write": accepted_write,
             "accepted_settle": session.settle(&specify_core::tolerancing::State {
                 answers: accepted.clone(), auto: Some(vec![]), gdt: None,
             })?,
             "interpret": interpret(&analysis, &answers,
                 request["question_id"].as_str().ok_or("missing question_id")?,
                 request["text"].as_str().ok_or("missing text")?)?,
-            "bare": {"bytes": bare_bytes, "report": completed(report.to_dict(), &analysis, &answers),
-                "source_sha256": loaded.binding.source_sha256},
-            "project": session.write_pmi(&answers, request["project"].as_str(), None)?,
+            "edit": edited,
+            "check": writer::apply::check(&loaded, &list.to_string()).to_json(),
+            "table": analysis["table"],
         })
     );
     Ok(())
-}
-
-/// The core writer's report as the session gives it: plus whether `answers` were complete,
-/// computed here as `write` would refuse them.
-fn completed(mut report: Value, analysis: &Value, answers: &Map<String, Value>) -> Value {
-    let missing = match api::apply(analysis, answers, false) {
-        Err(api::Error::Rules(specify_core::rules::Error::Incomplete(e))) => e.missing,
-        _ => Vec::new(),
-    };
-    let object = report.as_object_mut().expect("a report is an object");
-    object.insert("complete".into(), json!(missing.is_empty()));
-    object.insert("missing".into(), json!(missing));
-    report
 }

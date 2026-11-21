@@ -21,7 +21,7 @@ import type { StoredInspection } from '../src/specify/saved-inspection';
 import { changedIds, createSession, exportableAnswers, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
 import { getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type LocalConfig } from './local';
-import { DefaultRefused, DefaultsChanged, FileChanged, NotShown, defaultParts, matchMissing, sessionSaver, Stale, writtenParts, type Default, type SavedWithAnswers, type Saver } from './save';
+import { CannotSend, DefaultsChanged, EditsRefused, FileChanged, NotShown, defaultParts, matchMissing, sessionSaver, Stale, writtenParts, type Default, type SavedWithAnswers, type Saver } from './save';
 
 declare const __APP_VERSION__: string;
 const DOCS = 'https://github.com/pzfreo/specify-core#readme';
@@ -30,23 +30,28 @@ const ISSUES = 'https://github.com/pzfreo/specify-core/issues';
  * ``written``: the file stores Specify's answers for it. */
 interface PartRow { part: number; name: string; written: boolean }
 
-/** Part ``part`` of the file, as the engine opens it: a file of one part whole, a part of several as that part. */
-const fileOf = (name: string, bytes: Uint8Array, part: number, several: boolean) => ({
-  name, bytes, sourceId: several ? `${name}#${part}` : name, ...(several ? { part } : {}),
+/** Part ``part`` of the file, as the engine opens it: a file of one part whole, a part of several as that part.
+ * ``generation``: how many saves the bytes are on from the file as opened (each save's file is a new source). */
+const fileOf = (name: string, bytes: Uint8Array, part: number, several: boolean, generation = 0) => ({
+  name, bytes, sourceId: `${several ? `${name}#${part}` : name}${generation ? `@${generation}` : ''}`, ...(several ? { part } : {}),
 });
 
 /** The defaults a save with defaults lists for the session's answers ``parts``: those of every part
  * of the file (``indexes``), answered or not, in part order. */
-async function defaultsOf(worker: WorkerClient, name: string, bytes: Uint8Array, several: boolean, parts: Record<string, PmiAnswers>, indexes: readonly number[]): Promise<Default[]> {
+async function defaultsOf(worker: WorkerClient, name: string, bytes: Uint8Array, several: boolean, parts: Record<string, PmiAnswers>, indexes: readonly number[], generation = 0, fillable?: ReadonlyMap<number, ReadonlySet<string>>): Promise<Default[]> {
   const out: Default[] = [];
   for (const part of defaultParts(parts, indexes, several)) {
     const answers = parts[String(part)] ?? {};
-    const { questions, open } = await worker.request<IntentReview>('review', { ...fileOf(name, bytes, part, several), answers });
+    const { questions, open } = await worker.request<IntentReview>('review', { ...fileOf(name, bytes, part, several, generation), answers });
     const raw = new Map(questions.map((q) => [q.id, JSON.stringify(q.default)] as const));
     // The command takes only open questions' defaults (not the process, a full-thread depth or a
-    // parts-list row, which are never "open"): approving any other is a 400.
+    // parts-list row, which are never "open").
     const asked = new Set(open);
-    out.push(...defaultsToWrite(questions, answers).filter((d) => asked.has(d.id)).map((d) => ({ ...d, part, raw: raw.get(d.id)! })));
+    // Session API 2: a default is saved as an edit list's fill, which names a feature-and-kind of the
+    // file's feature table; a default on anything else (how holes are located) cannot be saved that
+    // way yet (piece 7), so it is not listed.
+    const rows = fillable?.get(part);
+    out.push(...defaultsToWrite(questions, answers).filter((d) => asked.has(d.id) && (!rows || rows.has(d.id))).map((d) => ({ ...d, part, raw: raw.get(d.id)! })));
   }
   return out;
 }
@@ -54,6 +59,10 @@ async function defaultsOf(worker: WorkerClient, name: string, bytes: Uint8Array,
 interface Opened {
   /** The part shown: its index in the session, and whether the file has others. */
   part: number; several: boolean;
+  /** How many saves ``bytes`` are on from the file as opened. */
+  generation: number;
+  /** The feature-and-kinds an edit list can fill, by part (the parts opened: their feature tables). */
+  fillable: ReadonlyMap<number, ReadonlySet<string>>;
   session: PmiLabSession; review: IntentReview; engine: SpecifyEngine; drawn: DrawnPmi | null;
   bytes: Uint8Array; store: AnswersStore; saver: Saver;
   /** What SpecifyReview starts from; a new object only when the answers change outside the page. */
@@ -69,11 +78,12 @@ interface Compared { old: { name: string; bytes: Uint8Array }; next: { name: str
 
 /** Opens the part on the engine with the session's answers: its analysis and mesh, their review,
  * and the PMI as drawn. ``edited``: called on each change the person makes. */
-async function openPart(worker: WorkerClient, answersSession: AnswersSession, name: string, bytes: Uint8Array, at: { part: number; several: boolean }, readOnly: boolean, edited: () => void, indexes: () => readonly number[]): Promise<Opened> {
-  const file = fileOf(name, bytes, at.part, at.several);
+async function openPart(worker: WorkerClient, answersSession: AnswersSession, name: string, bytes: Uint8Array, at: { part: number; several: boolean }, readOnly: boolean, edited: () => void, indexes: () => readonly number[], generation = 0): Promise<Opened> {
+  const file = fileOf(name, bytes, at.part, at.several, generation);
   const { sourceId } = file;
   const snapshot = await worker.request<{ analysis: PmiLabSession['analysis']; mesh: PmiLabSession['mesh']; provenance?: PmiLabSession['provenance'] }>('open', file);
-  const answers = answersSession.answers(at.part);
+  // The session's answers with the page's unsaved changes to this part (kept while another part was shown).
+  const answers = answersSession.shown(at.part);
   const reviewOf = (given: PmiAnswers) => worker.request<IntentReview>(readOnly ? 'review-given' : 'review', { ...file, answers: given });
   const review = await reviewOf(answers);
   const store = answersSession.store(at.part, snapshot.analysis.resume?.answers ?? {});
@@ -100,9 +110,12 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   };
   const scene = drawnFromScene(await worker.request('scene', { ...file, state: { answers } }));
   const drawn = scene.ok ? withoutNotesBlock(scene.value) : null;
-  const defaults = (parts: Record<string, PmiAnswers>) => defaultsOf(worker, name, bytes, at.several, parts, indexes());
+  // The feature-and-kinds an edit list can fill on this part: its feature table's rows.
+  const tableRows = (snapshot.analysis as { table?: { rows?: { id: string }[] } }).table?.rows;
+  const fillable = new Map(tableRows ? [[at.part, new Set(tableRows.map((r) => r.id))]] : []);
+  const defaults = (parts: Record<string, PmiAnswers>) => defaultsOf(worker, name, bytes, at.several, parts, indexes(), generation, fillable);
   return {
-    ...at, session, review, engine, drawn: drawn && hasGraphics(drawn) ? drawn : null, bytes, store, shown,
+    ...at, generation, fillable, session, review, engine, drawn: drawn && hasGraphics(drawn) ? drawn : null, bytes, store, shown,
     saver: sessionSaver(store, answersSession, () => shown.answers, defaults), external: { answers, review }, reviewOf,
   };
 }
@@ -223,14 +236,20 @@ function App() {
           if (ended || load !== inspectionLoad.current) return;
           setInspectionStep({ path: event.path, name: inspectionName(event.path), bytes: written });
           savedBytes.current = written;
-          // The 3D view draws the PMI as the save wrote it: the scene built on opening shows only
-          // what the file had then (specify-ui#14). A scene that fails leaves the view as it was.
+          // The session works on the file as saved from now on (ADR P11: the file is the only
+          // copy): the part shown opens again from it, so what the save wrote reads as the file's
+          // and the next edits apply to it. The 3D view draws the PMI as the save wrote it
+          // (specify-ui#14); a scene that fails leaves the view as the opening drew it.
           const shown = shownRef.current;
           if (!shown || !worker.current) return;
-          const drawn = await savedDrawn(worker.current, written, shown);
-          if (drawn !== undefined && !ended && load === inspectionLoad.current) {
-            setOpened((now) => (now?.store === shown.store ? { ...now, drawn } : now));
-          }
+          const generation = shown.generation + 1;
+          let next = await openPart(worker.current, answersSession, first.name, written, { part: shown.part, several: shown.several }, first.readOnly, edited, () => partIndexes.current, generation);
+          const drawn = await savedDrawn(worker.current, written, next);
+          if (drawn !== undefined) next = { ...next, drawn };
+          if (ended || load !== inspectionLoad.current || shownRef.current?.store !== shown.store) { next.store.close(); return; }
+          shown.store.close();
+          shownRef.current = next;
+          setOpened(next);
         })().catch((error: unknown) => {
           if (!ended && load === inspectionLoad.current) setInspectionProblem(message(error));
         });
@@ -319,7 +338,7 @@ function App() {
     try {
       // The part left keeps its unsaved answers: in the session, and counted as unsaved.
       await opened.store.settled();
-      let next = await openPart(worker.current, answersSession, config.name, opened.bytes, { part: index, several: true }, config.readOnly, edited, () => partIndexes.current);
+      let next = await openPart(worker.current, answersSession, config.name, opened.bytes, { part: index, several: true }, config.readOnly, edited, () => partIndexes.current, opened.generation);
       // After a save, the part's PMI is drawn from the saved file, as for the part shown then.
       const saved = savedBytes.current;
       const drawn = saved ? await savedDrawn(worker.current, saved, next) : undefined;
@@ -437,7 +456,8 @@ function App() {
     try {
       await opened.store.settled();
       const parts = sessionRef.current.parts();
-      const defaults = await defaultsOf(worker.current, config.name, opened.bytes, opened.several, parts, partIndexes.current);
+      for (const part of sessionRef.current.changedParts()) parts[String(part)] = sessionRef.current.shown(part);
+      const defaults = await defaultsOf(worker.current, config.name, opened.bytes, opened.several, parts, partIndexes.current, opened.generation, opened.fillable);
       // Written: every part with a default listed, and those with answers (and a file's only part).
       const written = [...new Set([...writtenParts(parts, opened.several), ...defaults.map((d) => d.part)])].sort((a, b) => a - b);
       setConfirming({ defaults, written, shownLeftOut: opened.several && !written.includes(opened.part) });
@@ -466,9 +486,8 @@ function App() {
       refreshConfig.current();
     } catch (error) {
       if (sessionRef.current?.signal.aborted) return;
-      // A failed write rolls its approvals back in the session: whatever the page was told while
-      // they were applied is replaced by the session as it is now, so none shows as applied.
-      if (!(error instanceof NotShown || error instanceof DefaultsChanged)) {
+      // The session moved on: the page takes it as it is now (its unsaved changes stay laid over it).
+      if (error instanceof Stale) {
         const now = await getAnswers().catch(() => null);
         if (now) sessionRef.current?.receive({ ...now, source: 'start' });
       }
@@ -479,17 +498,12 @@ function App() {
       } else if (error instanceof DefaultsChanged) {
         setProblem('Not saved: the answers changed, so the defaults to write are not the ones you confirmed. Check the new list.');
         void askDefaults(true);
-      } else if (error instanceof DefaultRefused) {
-        // The command refused a default it was sent: said by the part and the question, and the list is made again.
-        const row = error.part === null ? undefined : parts.find((r) => r.part === error.part);
-        const where = error.part === null ? '' : ` on ${row?.name ?? `part ${error.part}`}`;
-        const listed = defaults.find((d) => d.id === error.question && d.part === error.part);
-        const shownValue = (value: unknown) => typeof value === 'string' ? value : JSON.stringify(value);
-        const what = error.question;
-        setProblem(error.values
-          ? `Not saved: the default for ${what}${where} changed. You confirmed ${listed?.value ?? shownValue(error.values.expected)}; it is now ${shownValue(error.values.current)}. Nothing was written; check the new list and confirm again.`
-          : `Not saved: the default for ${what}${where} was refused (${error.message}). Nothing was written; check the new list.`);
-        void askDefaults(true);
+      } else if (error instanceof EditsRefused) {
+        // All or nothing: the command names every edit it cannot apply, and wrote nothing.
+        setProblem(`Not saved: nothing was written, because ${plural(error.failures.length, 'change')} cannot be applied: `
+          + error.failures.map((f) => `${f.entry}: ${f.reason}`).join('; '));
+      } else if (error instanceof CannotSend) {
+        setProblem(`Not saved: ${error.message}.`);
       } else if (error instanceof NotShown && unshown) {
         // The answers that could not be shown: tried again; until they show, Save cannot write them.
         setProblem('Not saved: the latest answers in the session are not shown yet (see below). Trying to show them again.');
