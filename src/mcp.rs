@@ -1066,6 +1066,9 @@ impl Server {
             .map(|q| q.id.as_str())
             .collect();
         for entry in &mut changed {
+            if entry.get("state").is_some() {
+                continue; // Equal to what the file states: nothing changed.
+            }
             let id = entry["id"].as_str().unwrap_or_default().to_string();
             let state = if qs.iter().any(|q| q.id == id) {
                 state_of(&id, &open, &trial)
@@ -1617,9 +1620,6 @@ fn save_error(e: session::SaveError) -> ToolError {
     }
 }
 
-/// One answer of `answer`'s `set`, read against the answers before it (an earlier answer can
-/// ask a new question) and checked with them: its entry `{id, value, interpreted_from?}`, the
-/// answer kept in `trial`; refused, naming the question, with `trial` as it was.
 /// The value of the feature table's row `id`, when the file states it.
 fn stated<'a>(analysis: &'a Value, id: &str) -> Option<&'a Value> {
     analysis["table"]["rows"]
@@ -1629,6 +1629,20 @@ fn stated<'a>(analysis: &'a Value, id: &str) -> Option<&'a Value> {
         .map(|r| r.get("value").unwrap_or(&Value::Null))
 }
 
+/// Whether an answer `given` says what the file's `value` states (the same text, ignoring
+/// surrounding space and case): a fill equal to the file is a no-op, as on the command line.
+fn same_as_stated(value: &Value, given: &Value) -> bool {
+    match (value, given) {
+        (Value::String(a), Value::String(b)) => a.trim().eq_ignore_ascii_case(b.trim()),
+        (a, b) => a == b,
+    }
+}
+
+/// One answer of `answer`'s `set`, read against the answers before it (an earlier answer can
+/// ask a new question) and checked with them: its entry `{id, value, interpreted_from?}`, the
+/// answer kept in `trial`; refused, naming the question, with `trial` as it was. An answer
+/// equal to what the file states is an entry `{id, value, state: "stated"}` and changes
+/// nothing; one that differs is refused.
 fn try_answer(
     analysis: &Value,
     trial: &mut Map<String, Value>,
@@ -1638,9 +1652,18 @@ fn try_answer(
     // ADR P11: what the file states is not a question; an answer to it would be accepted and
     // then left out of the save. Refused with the edit list's reason for a fill on a stated row.
     if let Some(value) = stated(analysis, id) {
+        if same_as_stated(value, given) {
+            let mut entry = Map::new();
+            entry.insert("id".into(), json!(id));
+            entry.insert("value".into(), value.clone());
+            entry.insert("state".into(), json!("stated"));
+            return Ok(entry);
+        }
         return Err(ToolError::invalid(format!(
-            "the file already states {value} for {id}, so there is no gap to fill; to replace \
-             it, use change with \"expect\": {value}"
+            "the file states {value} for {id}, so there is no gap to fill; changing what the \
+             file states is an explicit edit, not an answer: an edit list's change, \
+             {{\"change\": {{\"{id}\": {{\"to\": <the new value>, \"expect\": {value}}}}}}}, \
+             sent with `save` (or checked with `check`) as its `edits`"
         ))
         .with("question", json!(id)));
     }
@@ -1942,7 +1965,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "answer",
             "title": "Answer questions",
-            "description": format!("Set or clear answers on the open document. set maps question id to answer: a choice question takes one of its options or free text Specify interprets (\"M6\" for a hole, \"H7\" for a bore, \"6061-T6\" for material); a faces question takes a list of face indices; text questions take text. Answers are applied in order and all-or-nothing: a refused answer is an error naming the question and nothing changes. With partial: true (answer everything you know in one call), every valid answer is applied in one rev and outcomes gives each id {{stored, interpreted_from?, state}} or {{refused: reason}}. Give only what the person or the design intends: never a default as intent. The change goes to the session (rev goes up) and appears in the Specify page if it is shown. These answers are the session's working state and are not written to the file: save writes an edit list, and refuses while the session holds answers changed here and not saved. {MEMORY_RULE} answers_file also saves them to that JSON file from now on."),
+            "description": format!("Set or clear answers on the open document. set maps question id to answer: a choice question takes one of its options or free text Specify interprets (\"M6\" for a hole, \"H7\" for a bore, \"6061-T6\" for material); a faces question takes a list of face indices; text questions take text. Answers are applied in order and all-or-nothing: a refused answer is an error naming the question and nothing changes. With partial: true (answer everything you know in one call), every valid answer is applied in one rev and outcomes gives each id {{stored, interpreted_from?, state}} or {{refused: reason}}. Give only what the person or the design intends: never a default as intent. The change goes to the session (rev goes up) and appears in the Specify page if it is shown. What the file already states is not a question: an answer equal to it changes nothing, and one that differs is refused (changing the file's PMI is an explicit edit). These answers are the session's working state and are not written to the file: save writes an edit list, and refuses while the session holds answers changed here and not saved. {MEMORY_RULE} answers_file also saves them to that JSON file from now on."),
             "inputSchema": input(json!({
                 "doc": doc(),
                 "set": {"type": "object", "description": "Question id to answer.", "additionalProperties": true},

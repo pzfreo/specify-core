@@ -316,7 +316,7 @@ fn session_reports_an_answered_control_until_its_frame_is_accepted() {
     );
 }
 
-fn check_bulk_acceptance(path: &std::path::Path, given: Map<String, Value>) {
+fn check_bulk_acceptance(path: &std::path::Path, given: Map<String, Value>, no_pmi: Value) {
     let bytes = std::fs::read(path).unwrap();
     let session = Session::open("accepted.step", &bytes).unwrap();
     let analysis = session.snapshot()["analysis"].clone();
@@ -375,10 +375,17 @@ fn check_bulk_acceptance(path: &std::path::Path, given: Map<String, Value>) {
         .unwrap()
         .bytes;
     assert_eq!(bytes, expected_bytes);
-    // ADR P11: only answers that leave no PMI behind are stored.
+    // ADR P11: only answers that leave no PMI behind are stored; rule 2: with the approval
+    // the planner wrote nothing for (GRM-03's ⌀ on a datum's own faces), listed as such.
     let reopened = Session::open("accepted.step", &bytes).unwrap();
+    let resumed = reopened.snapshot()["analysis"]["resume"]["answers"].clone();
+    assert_eq!(resumed["_specify"]["no_pmi"], no_pmi);
+    let mut accepted = accepted.clone();
+    if !no_pmi.is_null() {
+        accepted.insert("_specify".into(), resumed["_specify"].clone());
+    }
     assert_eq!(
-        stored(&reopened.snapshot()),
+        resumed,
         json!(specify_core::feature_table::storable(&accepted))
     );
     let semantic = specify_core::part::load_bytes("accepted.step", bytes).unwrap();
@@ -418,6 +425,7 @@ fn bulk_acceptance_round_trips_the_grm02_shaft() {
             .as_object()
             .unwrap()
             .clone(),
+        Value::Null,
     );
 }
 
@@ -440,6 +448,7 @@ fn bulk_acceptance_round_trips_grm03() {
     check_bulk_acceptance(
         &root.join("gramel/GRM-03_thumbwheel_drive_screw.step"),
         json!({"part.material": "steel", "hole.function:holes:12.13": "tapped:M2", "diameter.fit:turned_steps:6": "thread:M3", "diameter.fit:turned_steps:3": "knurl:straight"}).as_object().unwrap().clone(),
+        json!(["diameter.fit:turned_steps:2"]),
     );
 }
 
