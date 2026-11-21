@@ -382,12 +382,14 @@ fn analyse_with(
             });
     if let Some(mut resumed) = resumed {
         let mut kept = Map::new();
+        let nothing = crate::feature_table::wrote_nothing(&resumed.answers);
         for (id, answer) in &resumed.answers {
             let row = table.row(id);
             let keep = id.starts_with('_')
                 || id.starts_with("bom.")
                 || !crate::feature_table::is_requirement(id)
-                || (crate::feature_table::leaves_nothing(answer)
+                || ((crate::feature_table::leaves_nothing(answer)
+                    || nothing.contains(id.as_str()))
                     && row.is_none_or(|r| r.state != crate::feature_table::State::Stated));
             if keep {
                 kept.insert(id.clone(), answer.clone());

@@ -343,11 +343,15 @@ fn gramel_defaults_edit_step_pmi_and_resume() {
         assert_eq!(length.value.to_string().parse::<f64>().unwrap(), full);
         let reopened = specify_core::part::load_bytes("edited.step", bytes).unwrap();
         // ADR P11: the depth writes PMI (the attribute above), so it is not stored; the file
-        // states it.
-        assert_eq!(
-            specify_core::resume::answers_for(&reopened).unwrap(),
-            Some(specify_core::feature_table::storable(&accepted))
-        );
+        // states it. Rule 2: the approval the planner wrote nothing for (the ⌀ of a turned
+        // step on a datum's own faces) is stored, listed as such.
+        let stored = specify_core::resume::answers_for(&reopened).unwrap().unwrap();
+        let mut accepted = accepted.clone();
+        if let Some(meta) = stored.get("_specify") {
+            assert_eq!(meta["no_pmi"], json!(["diameter.fit:turned_steps:6"]));
+            accepted.insert("_specify".into(), meta.clone());
+        }
+        assert_eq!(stored, specify_core::feature_table::storable(&accepted));
         let a = api::analyse(&reopened).unwrap();
         assert!(a["resume"]["answers"].get(&q.id).is_none());
         // ADR P11: the file states the edited depth, so its row is stated, not asked again.

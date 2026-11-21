@@ -84,6 +84,19 @@ fn without_unknown(out: &mut Resumed) {
 /// 0.2 payload's kept conflicts (`kept`) are ignored: ADR P11 has no conflicts to keep.
 fn restore_blocks(payload: &Map<String, Value>, answers: &mut Map<String, Value>) {
     restore_unresolved(payload, answers);
+    // The approvals that wrote no PMI (ADR P11 rule 2), listed beside the answers.
+    let key = crate::feature_table::NO_PMI;
+    if let Some(ids) = payload.get(key).and_then(Value::as_array)
+        && !ids.is_empty()
+        && ids.iter().all(Value::is_string)
+    {
+        let meta = answers
+            .entry(crate::answer_file::META)
+            .or_insert_with(|| json!({}));
+        if let Some(meta) = meta.as_object_mut() {
+            meta.insert(key.into(), Value::Array(ids.clone()));
+        }
+    }
 }
 
 fn restore_unresolved(payload: &Map<String, Value>, answers: &mut Map<String, Value>) {

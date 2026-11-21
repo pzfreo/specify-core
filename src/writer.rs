@@ -656,6 +656,85 @@ fn requirements(pmi: &PartPmi) -> BTreeSet<(String, usize)> {
     out
 }
 
+/// The requirement answers of `answers` that the plan made no PMI from: no requirement it
+/// made names the answer's question, is on the answer's feature (a general dimension carries
+/// no question; a thread's full-thread answer feeds the thread's requirement) or on its
+/// faces; and the file `loaded` was read from does not state the answer's feature-and-kind
+/// already (a repeated answer, ignored on reopening). Part settings, datums' own answers,
+/// choices that are not requirements, "none" answers and answers to questions not asked are
+/// not counted.
+fn wrote_nothing(
+    loaded: &LoadedPart,
+    answers: &Map<String, Json>,
+    made: &[Map<String, Json>],
+    unasked: &BTreeSet<&str>,
+) -> BTreeSet<String> {
+    let candidates: Vec<&String> = answers
+        .iter()
+        .filter(|(id, value)| {
+            crate::feature_table::is_requirement(id)
+                && !id.starts_with("part.")
+                && !id.starts_with("datum.")
+                && !crate::feature_table::leaves_nothing(value)
+                && !unasked.contains(id.as_str())
+        })
+        .map(|(id, _)| id)
+        .filter(|id| {
+            let (_, feature) = crate::feature_table::kind_and_feature(id);
+            !made.iter().any(|r| {
+                r.get("question").and_then(Json::as_str) == Some(id.as_str())
+                    || r.get("feature").and_then(Json::as_str) == Some(feature.as_str())
+            })
+        })
+        .collect();
+    if candidates.is_empty() {
+        return BTreeSet::new();
+    }
+    let existing: Vec<Json> = crate::existing::read(loaded)
+        .ok()
+        .and_then(|reading| reading.existing_all(loaded).ok())
+        .and_then(|items| serde_json::to_value(items).ok())
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    let geometry: Vec<Json> = crate::features::describe_faces(loaded)
+        .ok()
+        .and_then(|faces| serde_json::to_value(faces).ok())
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    let features = crate::features::recognise(loaded).unwrap_or_default();
+    let ids = |r: &Map<String, Json>| -> BTreeSet<u64> {
+        r.get("faces")
+            .and_then(Json::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Json::as_u64)
+            .collect()
+    };
+    candidates
+        .into_iter()
+        .filter(|id| {
+            let (_, feature) = crate::feature_table::kind_and_feature(id);
+            let Some(f) = features.iter().find(|f| f.id == feature) else {
+                return true;
+            };
+            let faces: BTreeSet<u64> = f.faces.iter().map(|&i| i as u64).collect();
+            // A requirement made on its faces (a pattern's size is made on its members).
+            if made
+                .iter()
+                .any(|r| r.contains_key("kind") && !ids(r).is_disjoint(&faces))
+            {
+                return false;
+            }
+            let mut req = Map::new();
+            req.insert("question".into(), Json::from(id.as_str()));
+            req.insert("faces".into(), Json::from(f.faces.clone()));
+            existing.is_empty()
+                || !crate::feature_table::requirement_stated(&req, &existing, &geometry)
+        })
+        .cloned()
+        .collect()
+}
+
 /// [`part_pmi`] in add mode (ADR P11): what the file already states stays as it is and is
 /// never stated twice. A requirement of `intent` whose feature-and-kind the file states (the
 /// feature table's matching: the faces it sits on and its kind, whatever its value, type or
@@ -665,7 +744,7 @@ fn part_pmi_added(
     loaded: &LoadedPart,
     intent: &Intent,
     before: &PartPmi,
-) -> Result<(PartPmi, Lines), WriteError> {
+) -> Result<(PartPmi, Lines, Vec<Map<String, Json>>), WriteError> {
     let mut sources: Vec<((String, usize), Map<String, Json>)> = Vec::new();
     let (planned, full_lines) =
         part_pmi_observed(loaded, intent, before, Mode::Add, &[], &mut |c, i, r| {
@@ -813,7 +892,9 @@ fn part_pmi_added(
             "{line}: the file already states it; not written again"
         ));
     }
-    Ok((pmi, lines))
+    // The intent's requirements the plan made PMI from (those the file states included).
+    let made = sources.into_iter().map(|(_, req)| req).collect();
+    Ok((pmi, lines, made))
 }
 
 /// Drop from `planned` every requirement that measures what `before` already states (the
@@ -1049,10 +1130,19 @@ fn write_verified(
     for (&(loaded, intent, answers), &mode) in jobs.iter().zip(&modes) {
         // The binding was checked against these same bytes' parts; Source::of verifies reader counts.
         let before = &source.read.parts[loaded.binding.part];
-        let (mut pmi, mut lines) = if mode == Mode::Add {
+        let (mut pmi, mut lines, made) = if mode == Mode::Add {
             part_pmi_added(loaded, intent, before)?
         } else {
-            part_pmi(loaded, intent, before, Mode::Replace, &[])?
+            let mut made = Vec::new();
+            let (pmi, lines) = part_pmi_observed(
+                loaded,
+                intent,
+                before,
+                Mode::Replace,
+                &[],
+                &mut |_, _, r| made.push(r.clone()),
+            )?;
+            (pmi, lines, made)
         };
         if let Some(bom) = intent.part.get("bom").and_then(Json::as_object) {
             for (key, value) in bom {
@@ -1090,6 +1180,28 @@ fn write_verified(
                     .filter_map(|r| r.get("answer").and_then(Json::as_str))
                     .collect();
                 kept.retain(|id, _| !unasked.contains(id.as_str()));
+                // ADR P11 rule 2: an approval the plan made no PMI from (a general size on a
+                // datum's own faces) is stored, listed as such, so it stays decided; else it
+                // would be dropped silently and its gap reopen.
+                let nothing = wrote_nothing(loaded, &saved, &made, &unasked);
+                for id in &nothing {
+                    lines.not_written.push(format!(
+                        "answer {id} ({}): there is no PMI to write for it; it is stored as \
+                         decided",
+                        crate::choices::short_repr(&saved[id.as_str()], 6)
+                    ));
+                }
+                if !nothing.is_empty() {
+                    let meta = saved
+                        .entry(crate::answer_file::META)
+                        .or_insert_with(|| Json::Object(Map::new()));
+                    if let Some(meta) = meta.as_object_mut() {
+                        meta.insert(
+                            crate::feature_table::NO_PMI.into(),
+                            Json::from(nothing.iter().cloned().collect::<Vec<_>>()),
+                        );
+                    }
+                }
                 // An answer given now replaces the stored one, whatever its value.
                 let now = crate::feature_table::storable(&saved);
                 for (id, value) in &saved {
@@ -1102,8 +1214,21 @@ fn write_verified(
                         }
                     }
                 }
+                kept.shift_remove(crate::answer_file::META);
+                // Every stored answer that writes a requirement is one that wrote nothing.
+                let no_pmi: Vec<Json> = kept
+                    .iter()
+                    .filter(|(id, v)| {
+                        crate::feature_table::is_requirement(id)
+                            && !crate::feature_table::leaves_nothing(v)
+                    })
+                    .map(|(id, _)| Json::from(id.as_str()))
+                    .collect();
                 let saved = kept;
                 let mut payload = resume::payload(loaded, &saved).map_err(failed)?;
+                if !no_pmi.is_empty() {
+                    payload[crate::feature_table::NO_PMI] = Json::Array(no_pmi);
+                }
                 // Carry blocks on questions not asked now (#126) are kept beside the answers,
                 // never inside them: older builds refuse `_specify` among answers.
                 let blocks = crate::answer_file::unresolved(answers);
