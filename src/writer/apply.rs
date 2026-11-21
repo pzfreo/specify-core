@@ -23,6 +23,13 @@
 //! What is stored beside the PMI is only the decided-none list (and choices that are not
 //! requirements, such as how holes are located) and the number history; stored answers that
 //! repeat the file's PMI are dropped.
+//!
+//! **Assemblies** (Paul, 2026-11-21). A list applies to one part of a file of several parts,
+//! or of a part placed more than once, chosen as `--part` and `open_part` choose it
+//! ([`apply_bytes`]'s `part`; a [`LoadedPart`] of that part). The part is its definition: one
+//! placed twice is edited once, and every placement shows it. Every other part, placement and
+//! instance, their PMI and stored answers, and any assembly-level item keep their bytes
+//! (decision D3); characteristic numbers are the part's own.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -354,6 +361,25 @@ fn none_answer(table: &FeatureTable, id: &str) -> Json {
     }
 }
 
+/// The entities of item `i` of collection `c` of a part, as its provenance records them.
+fn item_ids<'a>(prov: &'a haecceity::pmi::PartProvenance, c: &str, i: usize) -> &'a [u64] {
+    match c {
+        "features" => &prov.features[i],
+        "datums" => &prov.datums[i],
+        "datum_targets" => &prov.datum_targets[i],
+        "dimensions" => &prov.dimensions[i],
+        "tolerances" => &prov.tolerances[i],
+        "general" => &prov.general[i],
+        "threads" => &prov.threads[i],
+        "knurls" => &prov.knurls[i],
+        "notes" => &prov.notes[i],
+        "surface_textures" => &prov.surface_textures[i],
+        "attributes" => &prov.attributes[i],
+        "material" => &prov.material,
+        _ => &[],
+    }
+}
+
 fn kept_bytes(doc: &haecceity::p21::Document, id: u64) -> Option<&[u8]> {
     doc.span(id).map(|s| &doc.bytes()[s])
 }
@@ -361,12 +387,6 @@ fn kept_bytes(doc: &haecceity::p21::Document, id: u64) -> Option<&[u8]> {
 /// Applies `list` to `loaded`'s part, all or nothing: the whole list, or nothing and every
 /// failing entry with its reason.
 pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failure>> {
-    if loaded.part_count > 1 {
-        return Err(whole(
-            "an edit list applies to a file of one part; a part of an assembly is not supported \
-             yet",
-        ));
-    }
     let (analysis, table) = table_of(loaded).map_err(whole)?;
     let (list, outcome) = validated(list, &table);
     if !outcome.failures.is_empty() {
@@ -957,29 +977,33 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
     let (back, _) = write_by_modes(&source, &items, &[mode]).map_err(|e| whole(e.to_string()))?;
     verify(&source, &items, &[mode], &back).map_err(|e| whole(e.to_string()))?;
 
-    // ADR P11: every item not named keeps its bytes, whoever wrote it.
+    // ADR P11: every item not named keeps its bytes, whoever wrote it: this part's kept items,
+    // and every item of the file's other parts (decision D3: in an assembly only the part
+    // edited is written; a part placed several times is one definition, edited once).
     let after = haecceity::p21::Document::parse(back.clone()).map_err(|e| whole(e.to_string()))?;
-    let ids = |c: &str, i: usize| -> &[u64] {
-        match c {
-            "features" => &prov.features[i],
-            "datums" => &prov.datums[i],
-            "datum_targets" => &prov.datum_targets[i],
-            "dimensions" => &prov.dimensions[i],
-            "tolerances" => &prov.tolerances[i],
-            "general" => &prov.general[i],
-            "threads" => &prov.threads[i],
-            "knurls" => &prov.knurls[i],
-            "notes" => &prov.notes[i],
-            "surface_textures" => &prov.surface_textures[i],
-            "attributes" => &prov.attributes[i],
-            "material" => &prov.material,
-            _ => &[],
-        }
-    };
+    let others = original
+        .read
+        .provenance
+        .parts
+        .iter()
+        .enumerate()
+        .filter(|(j, _)| *j != k)
+        .flat_map(|(j, p)| {
+            requirements(&original.read.parts[j])
+                .into_iter()
+                .chain(
+                    (0..original.read.parts[j].attributes.len())
+                        .map(|i| ("attributes".to_string(), i)),
+                )
+                .flat_map(move |(c, i)| item_ids(p, &c, i).to_vec())
+        });
     let touched: Vec<u64> = keep
         .iter()
-        .flat_map(|(c, i)| ids(c, *i).iter().copied())
+        .flat_map(|(c, i)| item_ids(prov, c, *i).iter().copied())
+        .chain(others)
         .filter(|&id| kept_bytes(&original.doc, id) != kept_bytes(&after, id))
+        .collect::<BTreeSet<u64>>()
+        .into_iter()
         .collect();
     if !touched.is_empty() {
         return Err(whole(format!(

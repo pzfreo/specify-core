@@ -816,9 +816,23 @@ pub fn save(
 /// be applied writes nothing; the refusal names every failing entry. The session then works on
 /// the file saved: a later save of answers writes from it (the edits stand), its analyses are
 /// made again, and each part's answers are those the saved file resumes (a new rev). Every
-/// subscriber gets a `saved` event.
+/// subscriber gets a `saved` event. A file of several parts (or of a part placed more than
+/// once) takes [`save_part_edits`].
 pub fn save_edits(
     shared: &Shared,
+    list: &crate::edits::EditList,
+    source: &'static str,
+) -> Result<Saved, SaveError> {
+    save_part_edits(shared, None, list, source)
+}
+
+/// [`save_edits`] on part `part` of the session's file (None: a file of one part), as
+/// `write STEP EDITS.json --part K` applies it: in an assembly only that part is edited, once
+/// however often it is placed, and every other part, placement and their PMI keep their bytes
+/// (decision D3).
+pub fn save_part_edits(
+    shared: &Shared,
+    part: Option<usize>,
     list: &crate::edits::EditList,
     source: &'static str,
 ) -> Result<Saved, SaveError> {
@@ -857,7 +871,7 @@ pub fn save_edits(
         )
     };
     let loaded = step
-        .load(None)
+        .load(part)
         .map_err(|e| SaveError::Refused(e.to_string()))?;
     let applied = crate::writer::apply::apply(&loaded, list).map_err(|failures| {
         let mut message = "nothing was written: an edit list is applied all or nothing, and \

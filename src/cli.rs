@@ -10,9 +10,9 @@
 //!                        [--resolve-defaults --step STEP [--accept-defaults FILE]]
 //! specify-core write STEP ANALYSIS ANSWERS [ANALYSIS ANSWERS ...] -o OUT
 //!                    [--accept-defaults] [--bom] [--intent INTENT]
-//! specify-core write STEP EDITS.json -o OUT
+//! specify-core write STEP EDITS.json -o OUT [--part K]
 //!                    apply an edit list in place, all or nothing (writer/apply.rs)
-//! specify-core write STEP EDITS.json --check
+//! specify-core write STEP EDITS.json --check [--part K]
 //!                    validate an edit list against the file (edits.rs); writes nothing
 //! specify-core diff OLD NEW -o DIR [--part K] [--title TITLE] [--viewer URL] [--pmi-scenes]
 //!                    what changed between two revisions of a part and the requirements
@@ -184,6 +184,10 @@ wasm-pack pkg/; a build made without the app needs SPECIFY_APP_DIR. See docs/mcp
         /// also write the intent JSON here
         #[arg(long)]
         intent: Option<PathBuf>,
+        /// with an edit list: the part of an assembly it applies to (see parts); the others
+        /// are kept as they are
+        #[arg(long, value_parser = part_number)]
+        part: Option<i64>,
     },
     /// what changed between two revisions of a part or an assembly
     Diff {
@@ -494,8 +498,15 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             print(out, &indent1_keeping_non_ascii(&Value::Array(shown)))
         }
         Cmd::Write {
-            step, pairs, check, ..
-        } if check => check_edits(&step, Path::new(&pairs[0]), out),
+            step,
+            pairs,
+            check,
+            part,
+            ..
+        } if check => {
+            let part = part_arg(&step, part)?;
+            check_edits(&step, Path::new(&pairs[0]), part, out)
+        }
         Cmd::Write {
             step,
             pairs,
@@ -503,6 +514,7 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             accept_defaults,
             bom,
             intent,
+            part,
             ..
         } if pairs.len() == 1 => {
             if accept_defaults || bom || intent.is_some() {
@@ -512,9 +524,11 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
                      the edit list says everything that is written",
                 ));
             }
+            let part = part_arg(&step, part)?;
             write_edits(
                 &step,
                 Path::new(&pairs[0]),
+                part,
                 output.as_deref().expect("clap requires -o without --check"),
                 out,
             )
@@ -526,16 +540,26 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             accept_defaults,
             bom,
             intent,
+            part,
             ..
-        } => write(
-            &step,
-            &pairs,
-            output.as_deref().expect("clap requires -o without --check"),
-            accept_defaults,
-            bom,
-            intent.as_deref(),
-            out,
-        ),
+        } => {
+            if part.is_some() {
+                return Err(Exit::new(
+                    2,
+                    "write STEP ANALYSIS ANSWERS takes no --part: each analysis says its part \
+                     (--part is for an edit list)",
+                ));
+            }
+            write(
+                &step,
+                &pairs,
+                output.as_deref().expect("clap requires -o without --check"),
+                accept_defaults,
+                bom,
+                intent.as_deref(),
+                out,
+            )
+        }
         Cmd::Diff {
             old,
             new,
@@ -685,11 +709,16 @@ fn write(
     print(out, &indent1_keeping_non_ascii(&report.to_dict()))
 }
 
-/// `write STEP EDITS.json --check`: the edit list (or a 0.2 answers file) parsed and validated
-/// against the file's feature table, the outcome printed as JSON; exit 2 with its message when
-/// any entry fails. Nothing is written.
-fn check_edits(step: &Path, edits: &Path, out: &mut impl Write) -> Result<(), Exit> {
-    let loaded = part::load(step, None).map_err(Exit::error)?;
+/// `write STEP EDITS.json --check [--part K]`: the edit list (or a 0.2 answers file) parsed and
+/// validated against the feature table of the file's part, the outcome printed as JSON; exit 2
+/// with its message when any entry fails. Nothing is written.
+fn check_edits(
+    step: &Path,
+    edits: &Path,
+    part: Option<usize>,
+    out: &mut impl Write,
+) -> Result<(), Exit> {
+    let loaded = part::load(step, part).map_err(Exit::error)?;
     let text = std::fs::read_to_string(edits)
         .map_err(|e| Exit::error(format!("{}: {e}", edits.display())))?;
     let outcome = crate::writer::apply::check(&loaded, &text);
@@ -700,11 +729,18 @@ fn check_edits(step: &Path, edits: &Path, out: &mut impl Write) -> Result<(), Ex
     Ok(())
 }
 
-/// `write STEP EDITS.json -o OUT`: the edit list (or a 0.2 answers file) applied to the file
-/// in place, all or nothing, and the report printed. A list that cannot be applied writes
-/// nothing: exit 2, every failing entry named.
-fn write_edits(step: &Path, edits: &Path, output: &str, out: &mut impl Write) -> Result<(), Exit> {
-    let loaded = part::load(step, None).map_err(Exit::error)?;
+/// `write STEP EDITS.json -o OUT [--part K]`: the edit list (or a 0.2 answers file) applied to
+/// the file's part in place, all or nothing, and the report printed; in an assembly the other
+/// parts are kept as they are. A list that cannot be applied writes nothing: exit 2, every
+/// failing entry named.
+fn write_edits(
+    step: &Path,
+    edits: &Path,
+    part: Option<usize>,
+    output: &str,
+    out: &mut impl Write,
+) -> Result<(), Exit> {
+    let loaded = part::load(step, part).map_err(Exit::error)?;
     let text = std::fs::read_to_string(edits)
         .map_err(|e| Exit::error(format!("{}: {e}", edits.display())))?;
     let cannot = |failures: Vec<crate::edits::Failure>| {
