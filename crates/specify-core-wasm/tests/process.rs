@@ -177,10 +177,9 @@ fn removing_the_only_marked_requirement_leaves_a_gap() {
 /// markers, including the one on the saved answers, without changing the payload.
 fn strip_description_markers(bytes: Vec<u8>) -> Vec<u8> {
     let stored = resume::stored(&bytes);
-    assert!(
-        stored[&0].get("pmi_scope").is_none(),
-        "replace-written fixture"
-    );
+    // ADR P11: every save now marks its payload with `pmi_scope` (Replace too), so the
+    // fixture's payload is only required to be there; the markers stripped are the entities'.
+    assert!(stored.contains_key(&0), "the fixture stores answers");
     let doc = Document::parse(bytes).unwrap();
     let mut edit = Edit::new();
     let mut removed = 0;

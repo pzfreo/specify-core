@@ -1693,6 +1693,13 @@ fn unasked(
             .filter(|l| l.len() == 1)
             .and_then(|l| l.chars().next());
         let mut foreign_held = false;
+        // ADR P11 (D5b): an answer that differs from a part setting (or the process) the file
+        // states is not written; the file's value stands, and changing it is an explicit edit.
+        let differs = (id.starts_with("part.") && stated.contains(id.as_str()))
+            .then(|| ctx.table_stated_value(id))
+            .flatten()
+            .zip(answers.get(id.as_str()))
+            .filter(|(old, new)| *old != crate::feature_table::setting_text(new));
         let why = if stated.contains(id.as_str()) {
             foreign_held = true;
             format!("is not asked: {held}")
@@ -1712,10 +1719,17 @@ fn unasked(
         } else {
             "is not asked of this part given the other answers".to_string()
         };
-        let reason = match block {
-            None if foreign_held => format!("{id}: its answer was not written, as {held}"),
-            None => format!("{id} {why}, so its answer was not written"),
-            Some(carry) => format!(
+        let reason = match (block, differs) {
+            (None, Some((old, new))) => format!(
+                "{id} {}: not written, as the file states {old} (the file's value stands \
+                 whoever wrote it: changing it is an explicit edit)",
+                crate::feature_table::setting_text(new)
+            ),
+            (None, None) if foreign_held => {
+                format!("{id}: its answer was not written, as {held}")
+            }
+            (None, None) => format!("{id} {why}, so its answer was not written"),
+            (Some(carry), _) => format!(
                 "{id} was carried (carried answer could not be applied: {carry}) but {why}, \
                  so nothing was written for it"
             ),

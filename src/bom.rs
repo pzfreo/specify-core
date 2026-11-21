@@ -306,7 +306,6 @@ pub(crate) fn read_rows(
     offset: usize,
     pmi: &[haecceity::pmi::PartPmi],
 ) -> Result<Vec<Item>, String> {
-    let saved = crate::resume::stored_in(doc);
     let mut rows = Vec::new();
     for (index, def) in definitions.iter().enumerate() {
         let part = index + offset;
@@ -421,15 +420,6 @@ pub(crate) fn read_rows(
         }
         if row.description.value.is_null() {
             row.description = field(def.name.clone(), "default");
-        }
-        if let Some(a) = saved
-            .get(&part)
-            .and_then(|p| p.get("answers"))
-            .and_then(Value::as_object)
-            && a.get("part.material")
-                .is_some_and(|m| Some(m) == Some(&row.material.value))
-        {
-            row.material.source = "answered".into();
         }
         rows.push(row);
     }

@@ -281,10 +281,8 @@ fn editor_keeps_edited_process(marked: bool) {
     let reopened = api::analyse(&written).unwrap();
     assert!(process_conflict(&reopened).is_none());
     assert_eq!(reopened["part"]["process"], process::CAST);
-    assert_eq!(
-        reopened["process"]["source"],
-        if marked { "answered" } else { "file" },
-    );
+    // ADR P11 (D5a): the stated process is the file's, whoever wrote it.
+    assert_eq!(reopened["process"]["source"], "file");
 }
 
 /// Case 1: a bare part Specify wrote (a replace payload, no `pmi_scope`) to which another

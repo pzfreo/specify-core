@@ -344,7 +344,7 @@ fn setting(id: &str) -> Option<&str> {
     id.strip_prefix("part.")
 }
 
-fn setting_text(value: &Value) -> String {
+pub(crate) fn setting_text(value: &Value) -> String {
     match value {
         Value::String(s) => s.clone(),
         Value::Array(items) => items

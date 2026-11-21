@@ -361,8 +361,8 @@ fn analyse_with(
     crate::process::stated_entries(reading.process().or(process), None, &mut analysis);
     // Stored answers that leave no PMI behind (decided none, and choices that are not
     // requirements) are read back; those that repeat the file's PMI are ignored (dropped at
-    // the next save). One whose requirement is no longer in the file is a gap again: the
-    // deletion stands, and is mentioned here.
+    // the next save). One with no requirement for it in the file leaves its question open
+    // again: the deletion stands, and is mentioned here, once per answer.
     let stored = resumed
         .as_ref()
         .map(|r| crate::feature_table::storable(&r.answers))
@@ -393,8 +393,8 @@ fn analyse_with(
                 kept.insert(id.clone(), answer.clone());
             } else if row.is_some_and(|r| r.state == crate::feature_table::State::Gap) {
                 warnings.push(format!(
-                    "saved answer {id} ({}): its requirement is no longer in the file; it is a \
-                     gap again",
+                    "saved answer {id} ({}): no requirement for this answer in the file; the \
+                     question is open again",
                     crate::choices::short_repr(answer, 6)
                 ));
             }

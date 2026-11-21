@@ -119,7 +119,10 @@ Only answers that leave no PMI behind are stored in the file: "none" answers and
 are not requirements (`part.locating`). `resume.answers` holds those. Stored answers that
 repeat the file's PMI (as Specify 0.2 stored every answer) are ignored on reading and dropped
 at the next save. A stored answer whose PMI is no longer in the file leaves a gap: the deletion
-stands, and the analysis warns about it once. If someone edited a requirement elsewhere, the
+stands, and the analysis warns about it once ("saved answer {id} ({value}): no requirement for
+this answer in the file; the question is open again"). An answer that differs from a part
+setting or process the file states is not written: the file's value stands whoever wrote it,
+changing it is an explicit edit, and the write report lists it in `not_written`. If someone edited a requirement elsewhere, the
 table shows the new value. There is nothing to conflict with, so there are no conflicts, no
 keep and no `resume.present`, `resume.file` or `resume.foreign`.
 

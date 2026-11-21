@@ -418,7 +418,9 @@ fn a_knurl_states_its_diameter_on_the_spindle() {
         "{t}"
     );
     assert!(
-        !warnings.iter().any(|w| w.contains("no longer in the file")),
+        !warnings
+            .iter()
+            .any(|w| w.contains("no requirement for this answer in the file")),
         "{warnings:?}"
     );
     // The thread the file states is not asked; the other hole is.

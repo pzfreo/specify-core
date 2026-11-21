@@ -1211,13 +1211,20 @@ fn write_verified(
                 )
         });
     // ADR P11: a save whose result states exactly what the file did (the same PMI, answers
-    // and number history: nothing was added) keeps the file's bytes.
+    // and number history: nothing was added) keeps the file's bytes, whatever mix of Add and
+    // Replace parts it wrote (a part written by Replace keeps them only when all its items
+    // carry their provenance, as above).
     let adds_nothing = !unchanged
-        && modes.iter().all(|m| *m == Mode::Add)
         && Source::of(&back).is_ok_and(|after| {
-            items.iter().all(|(part, _)| {
+            items.iter().zip(&modes).all(|((part, _), mode)| {
                 differences_as_stated(&original.read.parts[part.0], &after.read.parts[part.0])
                     .is_empty()
+                    && (*mode == Mode::Add
+                        || provenance::all(
+                            &original.read.parts[part.0],
+                            &original.read.provenance.parts[part.0],
+                            &original.doc,
+                        ))
             })
         });
     let unchanged = unchanged || adds_nothing;

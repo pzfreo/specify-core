@@ -485,6 +485,18 @@ impl<'a> Ctx<'a> {
             .collect()
     }
 
+    /// The value of the stated table row `id`, as the table reports it.
+    pub(crate) fn table_stated_value(&self, id: &str) -> Option<&str> {
+        self.analysis
+            .get("table")
+            .and_then(|t| t.get("rows"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .find(|r| r["state"] == "stated" && r["id"] == id)
+            .and_then(|r| r["value"].as_str())
+    }
+
     /// The feature `id`; the analysis is expected to have it (a pattern's member).
     pub fn feature(&self, id: &str) -> Result<&Feature<'a>> {
         self.by_id

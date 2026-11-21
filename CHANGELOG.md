@@ -86,6 +86,18 @@ Read first:
   stated (`planner:dim:hole:9/bore.diameter`, not `planner:specified:…`), and a Specify-written
   file names its numbered requirements as the preview did, so an item keeps its id from preview
   to file. The UI draws stated items as the file's PMI and gaps as Specify's.
+- A value read from the file is labelled `file`, whoever wrote it (ADR P11, D5a): the BOM's
+  material source and the process attribute's source (`analysis.process`, `process::of`,
+  `process::read`) no longer say `answered` for a value Specify wrote. An accepted, marked process
+  suggestion still reads as `default`.
+- An answer that differs from a part setting or process the file states is not written, and not
+  refused (ADR P11, D5b): the write report's `not_written` says "`part.process 3D printed: resin`:
+  not written, as the file states 3D printed: FDM (the file's value stands whoever wrote it:
+  changing it is an explicit edit)". Stored answers no longer let a rewrite replace Specify's own
+  process set.
+- A saved answer with no requirement for it in the file now warns "saved answer {id} ({value}): no
+  requirement for this answer in the file; the question is open again", once per answer (ADR
+  P11, D6).
 
 ### Removed
 
@@ -98,6 +110,10 @@ Read first:
   Answers (JSON) stays for now and says "not available in 0.3.0".
 
 ### Fixed
+
+- A save that changes nothing keeps the file's bytes in an assembly whose parts are written in
+  different modes (one with PMI added to, one without replaced); before, only all-Add or
+  all-Replace saves did, and the stored-answer blocks were renumbered.
 
 From the first 0.2.1 trial (#217, pzfreo/specify-ui#14):
 
