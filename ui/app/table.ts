@@ -6,12 +6,13 @@
 // characteristic numbers), a `gap` (Specify's suggestion, and whether it is open), or `decided_none`.
 // `file_pmi` is the file's PMI on no recognised feature-and-kind ("Other PMI in the file").
 import { codeOf } from '../src/specify/choose.ts';
+import { CHARACTERISTIC } from '../src/specify/labels.ts';
 import type { PmiAnalysis, PmiQuestion } from '../src/types/pmi.ts';
 
 export type RowState = 'stated' | 'gap' | 'decided_none';
 
 /** One requirement in the file: a PMI item or a part setting. */
-export interface TableRequirement { number?: string; kind: string; type: string; faces: number[]; text: string }
+export interface TableRequirement { number?: string; id?: string; kind: string; type: string; faces: number[]; text: string }
 
 /** One feature-and-kind, as the engine gives it. */
 export interface TableRow {
@@ -63,7 +64,9 @@ export interface PanelRow {
 export interface PanelGroup { key: string; title: string; rows: PanelRow[] }
 
 /** A requirement in "Other PMI in the file": remove only. */
-export interface OtherRow { key: string; number?: string; label: string; value: string; faces: number[] }
+/** ``id``: the existing-PMI item's id, for a removal without a number (the payload's, else `file_pmi:<index>`
+ * until the engine gives one). */
+export interface OtherRow { key: string; id: string; number?: string; label: string; value: string; faces: number[] }
 
 export interface PanelModel { part: PanelGroup | null; features: PanelGroup[]; datums: PanelGroup | null; bom: PanelGroup | null; other: OtherRow[] }
 
@@ -85,6 +88,29 @@ export function answerText(value: unknown, q?: PmiQuestion): string {
   }
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
+}
+
+/** A requirement's text as a drawing reads it: "Position 0.2 | A" → "⌖ 0.2 A", "Size_Diameter 3.3" →
+ * "Ø3.3", "Location_LinearDistance 37.6" → "37.6"; several joined by "; ". Anything else as it is. */
+export function displayText(text: string): string {
+  return text.split('; ').map((piece) => {
+    const [head = '', ...rest] = piece.trim().split(' ');
+    const tail = rest.join(' ');
+    const symbol = CHARACTERISTIC[head];
+    if (symbol) return [symbol, ...tail.split(' | ').map((s) => s.trim()).filter(Boolean)].join(' ');
+    if (/^Size_Diameter$/.test(head)) return `Ø${tail}`;
+    if (/^Size_Radius$/.test(head)) return `R${tail}`;
+    if (/^[A-Z][a-z]+_[A-Za-z]+$/.test(head)) return tail || head.replace(/_/g, ' ');
+    return piece;
+  }).join('; ');
+}
+
+/** A changed value as the row will read: a tolerance's new magnitude in its frame ("⌖ 0.2 A" with
+ * "0.1" → "⌖ 0.1 A"); otherwise the answer as it reads. */
+export function changedText(was: string, value: unknown, q?: PmiQuestion): string {
+  const m = /^(\S+) [\d.]+(.*)$/.exec(was);
+  if (m && typeof value === 'string' && /^[\d.]+$/.test(value) && Object.values(CHARACTERISTIC).includes(m[1]!)) return `${m[1]} ${value}${m[2]}`;
+  return answerText(value, q);
 }
 
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
@@ -119,7 +145,7 @@ export function panelModel(table: FeatureTable, questions: readonly PmiQuestion[
     const title = q?.title ?? '';
     const short = title && name.startsWith(title) ? name.slice(title.length).trim() : name;
     const numbers = (row.requirements ?? []).flatMap((r) => (r.number ? [r.number] : []));
-    const value = row.state === 'stated' ? answerText(row.value) || (row.requirements ?? []).map((r) => r.text).join(' · ')
+    const value = row.state === 'stated' ? displayText(answerText(row.value) || (row.requirements ?? []).map((r) => r.text).join('; '))
       : row.state === 'decided_none' ? 'none needed' : 'not stated';
     // A decided none taken back (Undo) is a gap again: its question's default is what it would suggest.
     const offered = row.state === 'gap' ? row.suggestion : row.state === 'decided_none' ? q?.default : undefined;
@@ -135,7 +161,7 @@ export function panelModel(table: FeatureTable, questions: readonly PmiQuestion[
     else group(`feature:${row.feature}`, title || row.feature).rows.push(panelRow);
   }
   const other = table.file_pmi.map((r, i) => ({
-    key: r.number ?? `item:${i}`, ...(r.number ? { number: r.number } : {}), label: capital(r.kind.replace(/_/g, ' ')), value: r.text, faces: r.faces,
+    key: r.number ?? `item:${i}`, id: r.id ?? `file_pmi:${i}`, ...(r.number ? { number: r.number } : {}), label: capital(r.kind.replace(/_/g, ' ')), value: displayText(r.text), faces: r.faces,
   }));
   return {
     part: groups.get('part') ?? null,

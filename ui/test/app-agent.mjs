@@ -162,7 +162,7 @@ try {
     const stopped = page.locator('.app-stopped');
     await check(stopped).toHaveText(`Specify has stopped. Run specify-core open … again (or ask your agent to show it). Your saved file is at ${byAgent.path}.`, { timeout: 30_000 });
     await check(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
-    await check(page.getByRole('button', { name: 'Answers (JSON)', exact: true })).toBeEnabled();
+    await check(page.getByRole('button', { name: 'Answers (JSON)', exact: true })).toHaveCount(0);
     await check(page.locator('.spec-panel')).toContainText('6061-T6');
     problems.splice(beforeStop, problems.length - beforeStop,
       ...problems.slice(beforeStop).filter(p => !/^console: .*net::ERR_CONNECTION_REFUSED$/.test(p)));

@@ -1,25 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSession, createSessionStore, exportableAnswers, reapply } from '../app/answers.ts';
+import { createSession, createSessionStore, reapply } from '../app/answers.ts';
 import { getDiff, Refused, save as postSave } from '../app/local.ts';
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale } from '../app/save.ts';
 // The local app's answers store over the command's session (specify-core docs/open.md, session API 2):
 // the review panel's edits stay in the page until Save sends them as an edit list (`POST save {rev,
 // edits}`); events from others (an agent's answers) land in the session.
-
-test('Answers JSON retains only given answer IDs and documented nested _specify metadata', () => {
-  const given = { 'part.material': 'Steel', 'datum.A.flatness': '0.05', 'extra.check': { kind: 'size', faces: [1], value: '±0.1' } };
-  const metadata = { keep: ['hole.position:holes:12'], evidence: { schema: 2, face_count: 1, faces: 'original fingerprint' },
-    unresolved: { 'datum.B': 'Face removed' }, sources: { 'part.general_tolerance': 'rule.general' } };
-  const input = { ...given, _specify: { ...metadata, private_state: 'drop', _secret: 'drop' },
-    _specify_characteristic_numbers: { high_water: 99 }, _debug: true, '_specify.keep': ['not the documented nested format'], '_specify.future': true };
-  assert.deepEqual(exportableAnswers(input), { ...given, _specify: metadata });
-  assert.deepEqual(input._specify.private_state, 'drop', 'export does not change the session');
-  assert.deepEqual(exportableAnswers({ ...given, _specify: { private_state: true } }), given);
-  for (const malformed of [null, false, ['keep'], 'internal']) {
-    assert.deepEqual(exportableAnswers({ ...given, _specify: malformed }), given);
-  }
-});
 
 // Full answer replay history was removed with reconstruction; retain disk-baseline coverage.
 test('a delayed saved revision still tracks disk answers after further edits', () => {

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { balloonText, bareAnalysis, panelModel, tableOf } from '../app/table.ts';
-import { describe, editList, PendingEdits } from '../app/edits.ts';
+import { balloonText, bareAnalysis, changedText, displayText, panelModel, tableOf } from '../app/table.ts';
+import { describe, editList, PendingEdits, removalTargets } from '../app/edits.ts';
 import { compose, emptyBlock, parse } from '../app/general-tolerance.ts';
 // The review panel's pieces that are not drawn (specify-panel.md): its reading of the engine's feature
 // table, the pending edits as an edit list, and the general tolerance's text (#228).
@@ -50,9 +50,10 @@ test('the panel reads the feature table: features with each kind stated, gap or 
   assert.deepEqual(model.features[0].rows.map(r => [r.label, r.state, r.numbers]), [['Function', 'gap', []], ['Position', 'stated', ['#2']]]);
   assert.equal(model.features[0].rows[0].suggestionText, 'M2 tapped');
   assert.equal(model.features[0].rows[1].expect, 'Position 0.2 | A', 'a change expects the value the file states');
+  assert.equal(model.features[0].rows[1].value, '⌖ 0.2 A', 'and shows it as a drawing writes it');
   assert.deepEqual(model.datums.rows.map(r => r.label), ['Datum A']);
   // "Other PMI in the file": by number when it has one.
-  assert.deepEqual(model.other.map(o => [o.key, o.number]), [['#3', '#3'], ['item:1', undefined]]);
+  assert.deepEqual(model.other.map(o => [o.key, o.id, o.number, o.value]), [['#3', 'file_pmi:0', '#3', '37.6'], ['item:1', 'file_pmi:1', undefined, 'Location LinearDistance']]);
   // Nothing in the model says who wrote a requirement (decision 6).
   assert.doesNotMatch(JSON.stringify(model), /origin|provenance|from the file|written by/);
 });
@@ -71,32 +72,46 @@ test('balloons read as runs', () => {
 test('the pending edits are one edit list, one edit per row, in the bar\'s words', () => {
   let pending = new PendingEdits();
   pending = pending.with({ kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' });
-  pending = pending.with({ kind: 'change', id: 'hole.position:holes:14.15', name: 'Ø1.6 hole position', value: '0.1', text: '0.1', expect: 'Position 0.2 | A', was: 'Position 0.2 | A' });
-  pending = pending.with({ kind: 'remove', id: '#3', name: 'Dimension 37.6', numbers: ['#3'], was: '37.6' });
+  pending = pending.with({ kind: 'change', id: 'hole.position:holes:14.15', name: 'Ø1.6 hole position', value: '0.1', text: '⌖ 0.1 A', expect: 'Position 0.2 | A', was: '⌖ 0.2 A' });
+  pending = pending.with({ kind: 'remove', id: '#3', name: 'Dimension', targets: removalTargets(['#3'], 'file_pmi:0'), was: '37.6' });
+  pending = pending.with({ kind: 'remove', id: 'part.edges', name: 'Edges', targets: removalTargets([], 'part.edges'), was: 'Deburr only' });
   pending = pending.with({ kind: 'none', id: 'part.heat_treatment', name: 'Heat treatment' });
   pending = pending.with({ kind: 'clear', id: 'part.coating', name: 'Coating' });
   assert.deepEqual(pending.list(), {
     fill: { 'part.material': 'Steel' },
     change: { 'hole.position:holes:14.15': { to: '0.1', expect: 'Position 0.2 | A' } },
-    items: { remove: ['#3'] },
+    items: { remove: ['#3', { id: 'part.edges' }] },
     none: ['part.heat_treatment'],
     clear: ['part.coating'],
   });
   assert.deepEqual(pending.values().map(describe), [
     'Add Material: Steel',
-    'Change Ø1.6 hole position: Position 0.2 | A → 0.1',
-    'Remove Dimension 37.6 (#3)',
+    'Change Ø1.6 hole position: ⌖ 0.2 A → ⌖ 0.1 A',
+    'Remove Dimension: 37.6 (#3)',
+    'Remove Edges: Deburr only',
     'None needed: Heat treatment',
     'Undo none needed: Coating',
   ]);
   // A row's next edit replaces its last; dropping it leaves the rest.
   const again = pending.with({ kind: 'fill', id: 'part.material', name: 'Material', value: 'Brass', text: 'Brass' });
-  assert.equal(again.size, 5);
+  assert.equal(again.size, 6);
   assert.deepEqual(again.list().fill, { 'part.material': 'Brass' });
   assert.equal(again.without('part.material').list().fill, undefined);
   assert.deepEqual(editList([]), {}, 'no edits: an empty list (Save writes the file as it is)');
   // Two removes of the same number send it once.
-  assert.deepEqual(editList([{ kind: 'remove', id: 'a', numbers: ['#6'] }, { kind: 'remove', id: 'b', numbers: ['#6', '#7'] }]).items.remove, ['#6', '#7']);
+  assert.deepEqual(editList([{ kind: 'remove', id: 'a', targets: ['#6'] }, { kind: 'remove', id: 'b', targets: ['#6', '#7'] }]).items.remove, ['#6', '#7']);
+});
+
+test('requirements read as a drawing writes them; a removal names its number, else its id', () => {
+  assert.equal(displayText('Position 0.2 | A | B'), '⌖ 0.2 A B');
+  assert.equal(displayText('Perpendicularity 0.05 | A'), '⟂ 0.05 A');
+  assert.equal(displayText('Size_Diameter 3.3'), 'Ø3.3');
+  assert.equal(displayText('Location_LinearDistance 1.5; Location_LinearDistance 2.375'), '1.5; 2.375');
+  assert.equal(displayText('Brass CZ121'), 'Brass CZ121');
+  assert.equal(changedText('⌖ 0.2 A', '0.1'), '⌖ 0.1 A');
+  assert.equal(changedText('Brass', 'Steel'), 'Steel');
+  assert.deepEqual(removalTargets(['#4', '#5'], 'hole.position:holes:13'), ['#4', '#5']);
+  assert.deepEqual(removalTargets([], 'part.material'), [{ id: 'part.material' }]);
 });
 
 // #228: the four worked examples of specify-0.3.0.md, as the editor composes and reads them.

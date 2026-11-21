@@ -54,7 +54,10 @@ Read first:
   line of text (`.XX ±.01, .XXX ±.005, angles ±1°`). A part of an assembly is shown read only, with a
   note, until edits on parts of an assembly land. Removed from the app: **Save with defaults** (each
   gap's Add is pre-filled with its suggestion instead; `accept_suggestions` stays in edit lists for
-  agents and the CLI) and the questions list it replaces; the 3D view now draws the file's PMI only.
+  agents and the CLI), the questions list it replaces, and the Answers (JSON) export; the 3D view now
+  draws the file's PMI only. Values read as drawn ("⌖ 0.2 A"). Every stated row has the bin; a removal
+  sends the numbers, or `{"id": …}` in `items.remove` for a requirement without one (the engine refuses
+  that until its id route lands, and the line says so).
   `@draftwright/specify-ui`'s worker gains a `check-edits` operation (WASM `checkEdits`).
 - **Saving is an edit list everywhere** (proposal specify-0.3.0 piece 6, ADR P11): the page, MCP,
   WASM and Python apply an edit list to the file, all or nothing, as `write STEP EDITS.json` does.

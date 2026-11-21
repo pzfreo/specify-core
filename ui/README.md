@@ -120,8 +120,7 @@ as using STEP numbering, including unnumbered settings.
 In the local app, **Inspection list (CSV)** and **AS9102 FAI (Excel)** describe only the last saved
 STEP, or the opened STEP in read-only mode. Before the first Save they are disabled and say
 “Save first: the inspection files describe the saved STEP”. After an in-place Save the label names
-the source file. Further edits do not change either export. Answers (JSON) exports the session's answers (an
-agent's, and the decisions the file stores); the review panel's edits are not answers, they are what Save writes.
+the source file. Further edits do not change either export. There is no Answers (JSON) export in 0.3.0.
 
 `GET file?rev=new` in specify-core 0.2.0 serves the input, updated after an in-place save. It cannot
 serve Save's separate output. After saving a separate copy, inspection exports stay disabled and
@@ -188,15 +187,19 @@ beside its name), a **gap** ("not stated", with Specify's suggestion as a dashed
 - A stated row has two matching, uncoloured icons: a pencil (change) and a bin (remove). Change opens one line
   under the row with the current value first ("Now: ⌖ 0.2 A") and a box for the new one; the line says that a change
   of limits keeps the number and a different measurement gets a new one. The bin asks once, in one line, the only red
-  in the panel: "Remove ⌖ 0.2 A? Number #4 is retired and never reused." A setting the file states without a number
-  (the material) has the pencil only, and so does another tool's requirement that carries no number.
+  in the panel: "Remove ⌖ 0.2 A? Number #4 is retired and never reused." Values read as a drawing writes them
+  ("⌖ 0.2 A", "Ø3.3"), in the rows, the line and the bar. A removal names the requirement's characteristic numbers,
+  or, for one without a number (the material, another tool's PMI), the row's or item's id:
+  `items.remove: ["#4", {"id": "part.material"}]` (`removalTargets` in `app/edits.ts`). Until the engine takes an
+  id there, its check refuses that removal, and the line says so.
 - A gap offers **Add** (its line pre-filled with the suggestion) and **None needed**. A decided none reads "none
   needed", greyed, with **Undo**, which takes the stored decision back (the edit list's `clear`; it never touches PMI).
 - The general tolerance's line is its own editor (#228): a class (ISO 2768-m and so on), or a block row by row
   (decimal places and their tolerance, Add row), an angles line and a note line. It writes one line of text, the form
   the CLI and edit lists take: `.XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°` (inch places written `.XX`,
   millimetre places `X.XX`; `app/general-tolerance.ts`).
-- "Other PMI in the file" rows have the bin only.
+- "Other PMI in the file" rows have the bin only (an item without a number is named `{"id": "file_pmi:<index>"}`
+  until the table gives items an id).
 - Every edit is checked against the file, with the edits already listed, before it joins the bar (the engine's
   `checkEdits`); one the file cannot take says why on its line. The bar at the bottom lists the edits; **Save**
   sends them as one edit list (`POST save {rev, edits}`), applied all or nothing, and **Discard** drops them.
@@ -213,7 +216,7 @@ questions are still open. Specify's suggestions are written only when the person
 
 Read only (`--read-only`) shows the part's PMI. In diff mode the page shows what changed (StepDiff) and lists the new revision's requirements
 on features that moved or changed size, to check; the session is the new revision's own (nothing is carried:
-ADR P11), and Save writes the new revision. An assembly is shown a part at a time. It offers the answers JSON, inspection list (CSV) and AS9102
+ADR P11), and Save writes the new revision. An assembly is shown a part at a time. It offers the inspection list (CSV) and AS9102
 workbook as downloads; it has no account, AI chat or analytics, stores nothing in the browser, and requests nothing
 but its own origin; IBM Plex Mono is bundled.
 

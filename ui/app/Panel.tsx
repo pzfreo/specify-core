@@ -6,8 +6,8 @@
 // unsaved edits are highlighted.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { EditFailure, EditList } from './local.ts';
-import { describe, type Pending, type PendingEdits } from './edits.ts';
-import { answerText, balloonText, isNoneValue, type OtherRow, type PanelGroup, type PanelModel, type PanelRow } from './table.ts';
+import { describe, removalTargets, type Pending, type PendingEdits } from './edits.ts';
+import { answerText, balloonText, changedText, isNoneValue, type OtherRow, type PanelGroup, type PanelModel, type PanelRow } from './table.ts';
 import { compose, emptyBlock, parse, placesText, type GeneralTolerance, type Units } from './general-tolerance.ts';
 
 export { describe };
@@ -104,7 +104,11 @@ export function Panel(props: PanelProps) {
     try {
       const next = pending.with(p);
       const failures = await props.check(next.list());
-      const keys = p.kind === 'remove' ? p.numbers.map((n) => JSON.stringify(n)) : [JSON.stringify(p.id)];
+      // A removal's entries are named by number ("#4") or by their place in items.remove.
+      const removing = next.list().items?.remove ?? [];
+      const keys = p.kind === 'remove'
+        ? p.targets.flatMap((t) => [JSON.stringify(t), `items.remove[${removing.findIndex((x) => JSON.stringify(x) === JSON.stringify(t))}]`])
+        : [JSON.stringify(p.id)];
       const mine = failures.filter((f) => f.entry === '(the whole list)' || keys.some((k) => f.entry.includes(k)));
       if (mine.length) { setProblem({ id: p.id, text: mine.map((f) => f.reason).join('; ') }); return; }
       onPending(next);
@@ -133,11 +137,9 @@ export function Panel(props: PanelProps) {
         acts = (
           <span className="acts">
             <IconButton label={`Change ${r.name}`} icon="edit" disabled={locked} onClick={() => open(r.id, p?.kind === 'fill' ? 'add' : 'change')} />
-            {/* A part setting the file states without a number (the material) is changed, not removed. */}
-            {(p?.kind === 'fill' || r.numbers.length > 0) && (
-              <IconButton label={`Remove ${r.name}`} icon="bin" disabled={locked}
-                onClick={() => (p?.kind === 'fill' ? onPending(pending.without(r.id)) : open(r.id, 'remove'))} />
-            )}
+            {/* Every stated row has both (decisions 1 and 2); on an Add not yet saved the bin takes it back. */}
+            <IconButton label={`Remove ${r.name}`} icon="bin" disabled={locked}
+              onClick={() => (p?.kind === 'fill' ? onPending(pending.without(r.id)) : open(r.id, 'remove'))} />
           </span>
         );
       } else if (state === 'gap') {
@@ -171,13 +173,13 @@ export function Panel(props: PanelProps) {
               if (here.mode === 'change') {
                 const was = r.value;
                 if (text === was || (p?.kind !== 'change' && JSON.stringify(value) === JSON.stringify(r.expect))) { onPending(pending.without(r.id)); close(); return; }
-                void apply({ kind: 'change', id: r.id, name: r.name, value, text, expect: r.expect, was });
+                void apply({ kind: 'change', id: r.id, name: r.name, value, text: r.id === GENERAL_TOLERANCE ? text : changedText(was, value, r.question), expect: r.expect, was });
               } else void apply({ kind: 'fill', id: r.id, name: r.name, value, text });
             }} />
         )}
         {here?.mode === 'remove' && (
           <RemoveLine what={shown} numbers={r.numbers} problem={problem?.id === r.id ? problem.text : null} checking={checking} onCancel={close}
-            onRemove={() => void apply({ kind: 'remove', id: r.id, name: r.name, numbers: r.numbers, was: r.value })} />
+            onRemove={() => void apply({ kind: 'remove', id: r.id, name: r.name, targets: removalTargets(r.numbers, r.id), was: r.value })} />
         )}
       </div>
     );
@@ -190,12 +192,12 @@ export function Panel(props: PanelProps) {
       <div key={o.key} className={`spec-row stated${p ? ' changed removed' : ''}`} data-row={o.key}>
         <button type="button" className="k" title="Show it on the part" onClick={() => props.onFaces(o.faces)}>{o.label}</button>
         <span className="v">{o.value}{o.number && <span className="num">{o.number}</span>}</span>
-        {!readOnly && !p && o.number && (
+        {!readOnly && !p && (
           <span className="acts"><IconButton label={`Remove ${o.value}`} icon="bin" disabled={disabled} onClick={() => open(o.key, 'remove')} /></span>
         )}
         {here && (
           <RemoveLine what={o.value} numbers={o.number ? [o.number] : []} problem={problem?.id === o.key ? problem.text : null} checking={checking} onCancel={close}
-            onRemove={() => void apply({ kind: 'remove', id: o.key, name: `${o.label} ${o.value}`, numbers: o.number ? [o.number] : [], was: o.value })} />
+            onRemove={() => void apply({ kind: 'remove', id: o.key, name: o.label, targets: removalTargets(o.number ? [o.number] : [], o.id), was: o.value })} />
         )}
       </div>
     );

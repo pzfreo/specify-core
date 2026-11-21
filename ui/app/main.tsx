@@ -20,7 +20,7 @@ import { stepBytes } from '../src/model/diff';
 import { SessionApiMismatch } from './session-api';
 import { saveFile } from '../src/specify/SpecifyReview';
 import type { StoredInspection } from '../src/specify/saved-inspection';
-import { changedIds, createSession, exportableAnswers, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
+import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
 import { getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type EditFailure, type EditList, type LocalConfig } from './local';
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } from './save';
@@ -453,12 +453,6 @@ function App() {
     } finally { setSaving(false); }
   };
 
-  // The answers given and kept, including any defaults already approved in the session.
-  const downloadAnswers = () => {
-    if (!opened || !config) return;
-    const answers = exportableAnswers(opened.store.get());
-    saveFile(new File([`${JSON.stringify(answers, null, 2)}\n`], `${stem(config.name)}.answers.json`, { type: 'application/json' }));
-  };
 
   // A part's exports are derived only from the retained saved/opened STEP. Live answers and
   // subsequent edits cannot refresh this snapshot. A different part reads the same saved bytes.
@@ -531,7 +525,6 @@ function App() {
         </div>
         <div className="app-actions">
           <div className="app-exports">
-            {opened && <button type="button" onClick={downloadAnswers}>Answers (JSON)</button>}
             <button type="button" onClick={downloadCsv} disabled={!inspectionReady} title={inspectionTitle}>Inspection list (CSV)</button>
             <button type="button" onClick={downloadFai} disabled={!inspectionReady} title={inspectionTitle}>AS9102 FAI (Excel)</button>
             {inspectionStep && <span className="app-inspection-source">

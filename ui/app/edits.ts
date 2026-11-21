@@ -1,7 +1,7 @@
 // The review panel's pending edits (specify-panel.md decision 3): each change the person makes is
 // held in the page, one per row, listed in the bar, and sent together by Save as one edit list
 // (specify-core docs/open.md, `POST save {rev, edits}`), all or nothing. Discard drops them all.
-import type { EditList } from './local.ts';
+import type { EditList, RemoveTarget } from './local.ts';
 
 /** One pending edit, by the row it is on (a feature-and-kind id, or an item's `#N` in "Other PMI"). */
 export type Pending =
@@ -9,8 +9,8 @@ export type Pending =
   | { kind: 'fill'; id: string; name: string; value: unknown; text: string }
   /** A stated row given a new value: Change. ``expect`` is the file's value the person saw. */
   | { kind: 'change'; id: string; name: string; value: unknown; text: string; expect: unknown; was: string }
-  /** A stated row (or an item of "Other PMI") removed: its characteristic numbers, retired. */
-  | { kind: 'remove'; id: string; name: string; numbers: string[]; was: string }
+  /** A stated row (or an item of "Other PMI") removed: what `items.remove` names (removalTargets). */
+  | { kind: 'remove'; id: string; name: string; targets: RemoveTarget[]; was: string }
   /** A gap decided "none needed". */
   | { kind: 'none'; id: string; name: string }
   /** A stored "none needed" taken back (Undo): the row is a gap again. Never touches PMI. */
@@ -22,11 +22,20 @@ export function editList(pending: Iterable<Pending>): EditList {
   for (const p of pending) {
     if (p.kind === 'fill') (out.fill ??= {})[p.id] = p.value;
     else if (p.kind === 'change') (out.change ??= {})[p.id] = { to: p.value, expect: p.expect };
-    else if (p.kind === 'remove') ((out.items ??= {}).remove ??= []).push(...p.numbers.filter((n) => !out.items!.remove!.includes(n)));
+    else if (p.kind === 'remove') {
+      const list = ((out.items ??= {}).remove ??= []);
+      for (const t of p.targets) if (!list.some((x) => JSON.stringify(x) === JSON.stringify(t))) list.push(t);
+    }
     else if (p.kind === 'none') (out.none ??= []).push(p.id);
     else (out.clear ??= []).push(p.id);
   }
   return out;
+}
+
+/** The one route for a removal: a requirement's characteristic numbers when it has them, otherwise
+ * the id of the stated row or existing-PMI item, as `{"id": …}` in `items.remove`. */
+export function removalTargets(numbers: readonly string[], id: string): RemoveTarget[] {
+  return numbers.length ? [...numbers] : [{ id }];
 }
 
 /** How the bar lists ``p``. */
@@ -34,7 +43,10 @@ export function describe(p: Pending): string {
   switch (p.kind) {
     case 'fill': return `Add ${p.name}: ${p.text}`;
     case 'change': return `Change ${p.name}: ${p.was} → ${p.text}`;
-    case 'remove': return `Remove ${p.name}${p.numbers.length ? ` (${p.numbers.join(', ')})` : ''}`;
+    case 'remove': {
+      const numbers = p.targets.filter((t): t is string => typeof t === 'string');
+      return `Remove ${p.name}: ${p.was}${numbers.length ? ` (${numbers.join(', ')})` : ''}`;
+    }
     case 'none': return `None needed: ${p.name}`;
     case 'clear': return `Undo none needed: ${p.name}`;
   }
