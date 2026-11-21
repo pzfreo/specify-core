@@ -230,7 +230,11 @@ fn new_revisions_own_requirements_stand_and_differences_are_reported() {
         .find(|k| k.new == "hole.position:holes:14")
         .unwrap();
     assert_eq!(position.old_value, "Position 0.3 | A");
-    assert_eq!(position.new_value, "Position 0.2 | A");
+    // Under D8 the new file's location dimensions that locate hole 14 state its location too.
+    assert_eq!(
+        position.new_value,
+        "Location_LinearDistance 1.5; Location_LinearDistance 2.375; Position 0.2 | A"
+    );
     assert!(report.carried.is_empty() && report.to_check.is_empty());
     let out = written(&outcome);
     assert_eq!(
