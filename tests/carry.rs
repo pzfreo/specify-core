@@ -185,7 +185,10 @@ fn a_bare_new_revision_with_changed_geometry_gets_everything_it_can() {
         report.carried
     );
     assert!(
-        report.new_unstated.iter().any(|u| u.what.contains("chamfer")),
+        report
+            .new_unstated
+            .iter()
+            .any(|u| u.what.contains("chamfer")),
         "{:?}",
         report.new_unstated
     );
@@ -241,7 +244,10 @@ fn a_moved_feature_is_carried_and_flagged_to_check() {
         .iter()
         .find(|c| c.new == "hole.function:holes:8")
         .unwrap_or_else(|| panic!("{report:#?}"));
-    assert!(moved.check.as_deref().unwrap().contains("position"), "{moved:?}");
+    assert!(
+        moved.check.as_deref().unwrap().contains("position"),
+        "{moved:?}"
+    );
     // The holes that stayed are carried without a flag.
     assert!(ids(&report.carried).contains(&"hole.function:holes:7"));
     assert_eq!(
@@ -286,8 +292,11 @@ fn a_kind_specify_does_not_understand_is_reported_not_carried() {
         &file("parts/electronics-enclosure-base.step.gz"),
     );
     let report = &outcome.report;
-    let file_pmi = table(&file("revisions/enclosure_pmi.old.step.gz").load(None).unwrap())
-        ["file_pmi"]
+    let file_pmi = table(
+        &file("revisions/enclosure_pmi.old.step.gz")
+            .load(None)
+            .unwrap(),
+    )["file_pmi"]
         .as_array()
         .unwrap()
         .clone();
@@ -343,10 +352,8 @@ fn characteristic_numbers_carry_and_retired_numbers_stay_retired() {
         // The part has no datum A to put a flatness on: fill it too.
         Err(_) => writer::apply::apply(
             &out,
-            &edits::parse_value(
-                json!({"fill": {"datum.A": [4], "datum.A.flatness": "0.02"}}),
-            )
-            .unwrap(),
+            &edits::parse_value(json!({"fill": {"datum.A": [4], "datum.A.flatness": "0.02"}}))
+                .unwrap(),
         )
         .unwrap(),
     };
@@ -447,7 +454,11 @@ fn a_carry_that_cannot_be_applied_writes_nothing_and_says_why() {
         report.refused
     );
     assert!(report.kept.iter().any(|k| k.new == "datum.C"));
-    assert!(report.markdown().starts_with("# Carry\n\nNothing was written."));
+    assert!(
+        report
+            .markdown()
+            .starts_with("# Carry\n\nNothing was written.")
+    );
 
     // The command line: exit 2, the reasons on stderr, the report on stdout, no file.
     let dir = std::env::temp_dir().join(format!("specify-carry-{}", std::process::id()));
@@ -487,7 +498,12 @@ fn the_command_line_writes_out_and_prints_the_report() {
         .arg(&out)
         .output()
         .unwrap();
-    assert_eq!(run.status.code(), Some(0), "{}", String::from_utf8_lossy(&run.stderr));
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
     let printed: Value = serde_json::from_slice(&run.stdout).unwrap();
     assert_eq!(printed["written"], true);
     assert_eq!(printed["carried"].as_array().unwrap().len(), 3);

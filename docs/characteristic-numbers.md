@@ -196,7 +196,10 @@ mark survives.
 fingerprints/face correspondence to map the old numbered supports to the revised part, and
 pairs requirements by number only where the new file's history continues that mapped
 snapshot (docs/diff.md). It returns no answers, so no `_specify_characteristic_numbers`
-transport (ADR P11). The ordinary writer still accepts that member: it verifies its target
+transport (ADR P11). `carry OLD NEW -o OUT` ([carry.md](carry.md)) carries the history with
+the same mapping: a requirement it carries keeps OLD's number, and the history's high-water
+mark keeps OLD's retired numbers (and those of requirements not carried) from being reused.
+The ordinary writer still accepts that member: it verifies its target
 geometry fingerprint, uses the carried history and consumes the member; it does not store it
 among user answers. Once the destination has its own history, that history takes precedence
 over stale revision transport, so reusing external answers cannot reset its counter or

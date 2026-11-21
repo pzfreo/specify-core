@@ -1427,7 +1427,19 @@ pub(crate) fn assembly_answers(
         return Ok(out);
     };
     refingerprint_in(&mut h, first);
+    // The material each old part's file states, by its item number: a history records only
+    // an answered material, and a file's own material is read from the file (ADR P11).
+    let old_rows = File::of_shared(&first.path, std::sync::Arc::clone(&first.bytes))
+        .map_err(|e| e.to_string())
+        .and_then(|f| read(&f))?;
+    let old_material = |n: u64| {
+        old_rows
+            .iter()
+            .find(|r| number(r) == Some(n))
+            .and_then(|r| r.material.value.as_str().map(str::to_owned))
+    };
     let source = serde_json::to_value(&h).map_err(|e| e.to_string())?;
+    let old_numbers: BTreeSet<u64> = h.entries.iter().map(|e| e.number).collect();
     let geometry: Vec<_> = new
         .iter()
         .map(|p| p.recognition().fingerprints.clone())
@@ -1461,8 +1473,15 @@ pub(crate) fn assembly_answers(
             };
             out[i].insert(format!("bom.{key}"), value);
         }
+        // A part matched to an old one has the old part's number; a new one, a number above.
+        let material = e.material.clone().or_else(|| {
+            old_numbers
+                .contains(&e.number)
+                .then(|| old_material(e.number))
+                .flatten()
+        });
         if new_material[i].is_null()
-            && let Some(material) = &e.material
+            && let Some(material) = material
         {
             out[i].insert("part.material".into(), json!(material));
         }
