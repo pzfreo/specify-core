@@ -1820,6 +1820,52 @@ fn save_writes_only_the_defaults_named() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// ADR P11: an answer to what the file states is refused with the edit list's reason for a
+/// fill on a stated row, never accepted and then left out of the save.
+#[test]
+fn an_answer_to_what_the_file_states_is_refused() {
+    let dir = scratch("stated");
+    let copy = dir.join("spindle.step");
+    let gz = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("ui/test/fixtures/19-spindle-semantic-links-only.step.gz"),
+    )
+    .unwrap();
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(&gz[..]), &mut bytes).unwrap();
+    std::fs::write(&copy, bytes).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let opened = call(&mut server, "open", json!({"path": copy}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    let refused = error_of(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "aluminium"}}),
+    );
+    assert_eq!(refused["question"], json!("part.material"), "{refused}");
+    assert_eq!(
+        refused["message"],
+        json!(
+            "the file already states \"steel\" for part.material, so there is no gap to fill; \
+             to replace it, use change with \"expect\": \"steel\""
+        ),
+        "{refused}"
+    );
+    // With partial: reported as refused, nothing stored, no new rev.
+    let answered = call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"hole.function:holes:14": "fit:H7"}, "partial": true}),
+    );
+    let out = &answered["structuredContent"];
+    let reason = out["outcomes"]["hole.function:holes:14"]["refused"]
+        .as_str()
+        .unwrap();
+    assert!(reason.contains("already states \"⌀3.3 H11\""), "{reason}");
+    assert!(out["set"].as_array().unwrap().is_empty(), "{out}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Intent known: everything answered in one call with `partial`, each id's outcome given, the
 /// valid ones applied in one rev and a refused one reported with its reason.
 #[test]

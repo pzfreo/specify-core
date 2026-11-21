@@ -1622,12 +1622,30 @@ fn save_error(e: session::SaveError) -> ToolError {
 /// One answer of `answer`'s `set`, read against the answers before it (an earlier answer can
 /// ask a new question) and checked with them: its entry `{id, value, interpreted_from?}`, the
 /// answer kept in `trial`; refused, naming the question, with `trial` as it was.
+/// The value of the feature table's row `id`, when the file states it.
+fn stated<'a>(analysis: &'a Value, id: &str) -> Option<&'a Value> {
+    analysis["table"]["rows"]
+        .as_array()?
+        .iter()
+        .find(|r| r["id"] == id && r["state"] == "stated")
+        .map(|r| r.get("value").unwrap_or(&Value::Null))
+}
+
 fn try_answer(
     analysis: &Value,
     trial: &mut Map<String, Value>,
     id: &str,
     given: &Value,
 ) -> Result<Map<String, Value>, ToolError> {
+    // ADR P11: what the file states is not a question; an answer to it would be accepted and
+    // then left out of the save. Refused with the edit list's reason for a fill on a stated row.
+    if let Some(value) = stated(analysis, id) {
+        return Err(ToolError::invalid(format!(
+            "the file already states {value} for {id}, so there is no gap to fill; to replace \
+             it, use change with \"expect\": {value}"
+        ))
+        .with("question", json!(id)));
+    }
     let qs = api::questions(analysis, trial)?;
     let q = qs.iter().find(|q| q.id == id);
     let mut entry = Map::new();
