@@ -357,8 +357,7 @@ def test_limits_and_combined_iso_class_round_trip(plate, tmp_path):
     assert question.default == "ISO 2768-m"
     assert len(question.options) == 16 and "ISO 2768-mK" in question.options
     out = tmp_path / "limits.step"
-    # Added requirements (extra.*) are not in an edit list: written with the command's whole
-    # intent, which needs the material (it has no default).
+    # Added requirements are explicit extra.* fills.
     written = {**given, "part.material": "steel"}
     write_answers(plate, written, out, accept_defaults=True)
     assert api.analyse(out)["resume"]["answers"] == storable(with_all_defaults(analysis, written))

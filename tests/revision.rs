@@ -1,6 +1,8 @@
 //! Revisions: what changed from one revision of a part to the next through quiddity's
 //! correspondence, and the requirements each file's PMI states (ADR P11: nothing else is read).
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -293,29 +295,17 @@ fn specify_pmi_in_the_files_is_read_and_compared() {
             &dir.join(format!("{which}.step")),
             |t| t,
         );
-        let (analysis, given) = (
-            dir.join(format!("{which}.json")),
-            dir.join(format!("{which}.answers.json")),
-        );
-        std::fs::write(&given, answers.to_string()).unwrap();
-        assert!(
-            cli()
-                .arg("analyse")
-                .arg(&step)
-                .arg("-o")
-                .arg(&analysis)
-                .status()
-                .unwrap()
-                .success()
-        );
+        let analysis = specify_core::api::analyse_file(&step, None).unwrap();
+        let edits = common::approve_edits(&analysis, answers.as_object().unwrap());
+        let given = dir.join(format!("{which}-edits.json"));
+        std::fs::write(&given, edits.to_string()).unwrap();
         let out = dir.join(format!("{which}.pmi.step"));
         assert!(
             cli()
                 .arg("write")
-                .args([&step, &analysis, &given])
+                .args([&step, &given])
                 .arg("-o")
                 .arg(&out)
-                .arg("--accept-defaults")
                 .status()
                 .unwrap()
                 .success()

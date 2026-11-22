@@ -1,6 +1,4 @@
-"""A file Specify wrote from a set of answers, for the tests that need one: the command line's
-``specify-core write STEP ANALYSIS ANSWERS -o OUT`` (the whole intent of the answers, which the
-command keeps). Python's ``api.write`` applies an edit list (Specify 0.3.0, ADR P11)."""
+"""Write the edit list approved by a test through the command line."""
 
 import json
 import subprocess
@@ -9,20 +7,41 @@ import tempfile
 from pathlib import Path
 
 from specify_core import api
+from specify_core.rules import with_all_defaults
 from specify_core.writer import WriteReport
 
 
+def approved_edits(analysis, answers, *, accept_defaults=False, bom=False):
+    """Use listed gap suggestions and preserve any values supplied by the caller."""
+    fill = {key: value for key, value in answers.items() if not key.startswith("_")}
+    accept = []
+    if accept_defaults:
+        offered = with_all_defaults(analysis, answers)
+        for row in analysis["table"]["rows"]:
+            key = row["id"]
+            if (row["state"] != "gap" or key in fill or key not in offered
+                    or key == "part.process" or key.startswith(("bom.", "hole.full_thread:"))):
+                continue
+            if row.get("suggestion") == offered[key]:
+                accept.append(key)
+            else:
+                fill[key] = offered[key]
+    if bom:
+        accept.extend(q.id for q in api.questions(analysis, answers)
+                      if q.id.startswith("bom.") and q.suggestions and q.id not in fill)
+    return {"fill": fill, "accept_suggestions": accept}
+
+
 def write_answers(step, answers, out, *, part=None, accept_defaults=False, bom=False) -> WriteReport:
-    """Write ``answers`` (with every default, given ``accept_defaults``) into ``step`` at ``out``;
-    the command's refusal (exit 2) is a ``ValueError`` with its message."""
+    """Apply the given values and explicitly named approvals to the selected part."""
+    analysis = api.analyse(step, part)
+    edits = approved_edits(analysis, answers, accept_defaults=accept_defaults, bom=bom)
     with tempfile.TemporaryDirectory() as scratch:
-        analysis = Path(scratch) / "analysis.json"
-        given = Path(scratch) / "answers.json"
-        analysis.write_text(json.dumps(api.analyse(step, part)), encoding="utf-8")
-        given.write_text(json.dumps(answers), encoding="utf-8")
-        args = ["write", str(step), str(analysis), str(given), "-o", str(out)]
-        args += ["--accept-defaults"] if accept_defaults else []
-        args += ["--bom"] if bom else []
+        given = Path(scratch) / "edits.json"
+        given.write_text(json.dumps(edits), encoding="utf-8")
+        args = ["write", str(step), str(given), "-o", str(out)]
+        if part is not None:
+            args += ["--part", str(part)]
         done = subprocess.run([sys.executable, "-m", "specify_core", *args], capture_output=True,
                               text=True, encoding="utf-8")
     if done.returncode == 2:

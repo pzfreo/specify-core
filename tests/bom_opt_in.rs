@@ -89,34 +89,15 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
             assert!(merged.keys().all(|k| !k.starts_with("bom.")));
             let intent = api::apply(&analysis, &answers, defaults).unwrap();
             assert!(!intent.part.contains_key("bom"));
-            let apath = dir.join(format!("{fixture}-{}.analysis.json", part.binding.part));
-            let bpath = dir.join(format!("{fixture}-{}.answers.json", part.binding.part));
-            std::fs::write(&apath, analysis.to_string()).unwrap();
-            std::fs::write(&bpath, json!(answers).to_string()).unwrap();
-            pairs.push((apath, bpath));
-            // With every default taken, the command line also stores those that write no PMI
-            // (ADR P9): the same PMI, more stored answers.
-            let stored = if defaults {
-                let stored = api::stored_with_defaults(&part, &analysis, &answers).unwrap();
-                // ADR P11: the writer stores only the answers that leave no PMI, so those are
-                // what must agree.
-                let storable = specify_core::feature_table::storable;
-                assert_eq!(
-                    storable(&stored),
-                    storable(&common::accept_all::stored(
-                        &path,
-                        part.binding.part,
-                        &analysis,
-                        &answers
-                    )),
-                    "{fixture} part {}",
-                    part.binding.part
-                );
-                stored
+            let bpath = dir.join(format!("{fixture}-{}.edits.json", part.binding.part));
+            let edits = if defaults {
+                common::approve_edits(&analysis, &answers)
             } else {
-                answers.clone()
+                json!({"fill": answers})
             };
-            cli_jobs.push((intent.clone(), Some(stored)));
+            std::fs::write(&bpath, edits.to_string()).unwrap();
+            cli_jobs.push(edits);
+            pairs.push(bpath);
             jobs.push((intent, Some(answers)));
         }
         let bytes = api::write_bytes(file.bytes().as_ref().clone(), &jobs)
@@ -126,24 +107,31 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
             !String::from_utf8_lossy(&bytes).contains(&format!("'{}", specify_core::bom::PROPERTY)),
             "API {fixture}, complete={all_answered}, defaults={defaults}"
         );
-        let mut command = Command::new(env!("CARGO_BIN_EXE_specify-core"));
-        command.arg("write").arg(&path);
-        for (a, b) in pairs {
-            command.arg(a).arg(b);
+        let mut input = path;
+        for (k, (edits, list)) in pairs.iter().zip(cli_jobs).enumerate() {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_specify-core"));
+            command.arg("write").arg(&input).arg(edits);
+            if fixture == "assembly" {
+                command.arg("--part").arg(k.to_string());
+            }
+            let selected = (fixture == "assembly").then_some(k);
+            let loaded = specify_core::part::load(&input, selected).unwrap();
+            let list = specify_core::edits::parse_value(list).unwrap();
+            let expected = specify_core::writer::apply::apply(&loaded, &list).unwrap();
+            let next = output.with_extension(format!("{k}.step"));
+            let result = command.arg("-o").arg(&next).output().unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let actual = std::fs::read(&next).unwrap();
+            assert_eq!(actual, expected.bytes);
+            assert!(
+                !String::from_utf8_lossy(&actual)
+                    .contains(&format!("'{}", specify_core::bom::PROPERTY))
+            );
+            input = next;
         }
-        command.arg("-o").arg(&output);
-        if defaults {
-            command.arg("--accept-defaults");
-        }
-        let result = command.output().unwrap();
-        assert!(
-            result.status.success(),
-            "{}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-        let cli_bytes = api::write_bytes(file.bytes().as_ref().clone(), &cli_jobs)
-            .unwrap()
-            .0;
-        assert_eq!(std::fs::read(output).unwrap(), cli_bytes);
     }
 }

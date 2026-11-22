@@ -166,7 +166,6 @@ fn each_part_of_an_assembly_is_analysed_as_the_command_line_does() {
 /// bytes are the command line writer's, every instance of the file before is kept (the other
 /// part, both of the pin's placements), and each part resumes its own answers.
 #[test]
-#[ignore = "0.3.0: waits on assembly-edits"]
 fn a_part_of_an_assembly_is_written_into_the_original_file() {
     let original = assembly();
     let pin = Session::open_part("assembly.step", &original, PIN).unwrap();
@@ -193,7 +192,8 @@ fn a_part_of_an_assembly_is_written_into_the_original_file() {
 
     let listed = Session::parts("both.step", &after_plate).unwrap();
     for (k, part) in listed.as_array().unwrap().iter().enumerate() {
-        assert_eq!(part["written"], json!(true));
+        // Under P11 these edits wrote only PMI. `written` reports an embedded answers payload.
+        assert_eq!(part["written"], json!(false));
         let before = &Session::parts("assembly.step", &original).unwrap()[k];
         assert_eq!(part["placements"], before["placements"], "part {k}");
         let session = Session::open_part("both.step", &after_plate, k).unwrap();
@@ -214,7 +214,6 @@ fn a_part_of_an_assembly_is_written_into_the_original_file() {
 /// The editor's project written with a part of an assembly is that part's: it reads back from
 /// that part's session, not the other's, and the original given back is the whole file.
 #[test]
-#[ignore = "0.3.0: waits on assembly-edits"]
 fn a_project_is_carried_on_its_part_of_an_assembly() {
     let original = assembly();
     // base64 of `{"revision":1}`, as the editor encodes its project.
@@ -248,7 +247,9 @@ fn a_project_is_carried_on_its_part_of_an_assembly() {
         assert_eq!(session.original().as_deref(), Some(original.as_slice()));
     }
     assert_kept(&after_pin, &after_plate);
-    assert_eq!(resume::stored(&after_plate).len(), 2);
+    // Project payloads belong to their own parts. With only material written, neither
+    // part stores a duplicate answer under P11.
+    assert!(resume::stored(&after_plate).is_empty());
 }
 
 /// A file of one part placed twice: refused without a part chosen, as before; listed with its
@@ -308,4 +309,43 @@ fn part_zero_of_one_part_opens_as_before() {
     assert_eq!(open.snapshot()["provenance"]["part"], json!(0));
     let given = answers(PLATE);
     assert_eq!(edit(&open, &given), edit(&chosen, &given));
+}
+
+#[test]
+fn edit_changes_general_tolerance_on_a_selected_assembly_part() {
+    let original = assembly();
+    let pin = Session::open_part("assembly.step", &original, PIN).unwrap();
+    let with_pin = written(&edit(&pin, &answers(PIN)));
+    let plate = Session::open_part("assembly.step", &with_pin, PLATE).unwrap();
+    let class = plate.edit(r#"{"fill":{"part.general_tolerance":"ISO 2768-m"}}"#);
+    assert_eq!(class["written"], true, "{class}");
+    let classed = written(&class);
+    let reopened = Session::open_part("classed.step", &classed, PLATE).unwrap();
+    let changed = reopened
+        .edit(r#"{"change":{"part.general_tolerance":{"to":".XX ±.01","expect":"ISO 2768-m"}}}"#);
+    assert_eq!(changed["written"], true, "{changed}");
+    let changed = written(&changed);
+    let after = Session::open_part("changed.step", &changed, PLATE).unwrap();
+    assert!(
+        after.snapshot()["analysis"]["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == "part.general_tolerance"
+                && row["state"] == "stated"
+                && row["value"] == ".XX ±.01")
+    );
+    let (before_doc, after_doc) = (
+        Document::parse(classed).unwrap(),
+        Document::parse(changed).unwrap(),
+    );
+    let defs = read_part_definitions(before_doc.bytes()).unwrap();
+    let before = pmi::read(&before_doc, &defs).unwrap();
+    for id in before.provenance.parts[PIN].all() {
+        assert_eq!(
+            &before_doc.bytes()[before_doc.span(id).unwrap()],
+            &after_doc.bytes()[after_doc.span(id).unwrap()],
+            "other part entity #{id}"
+        );
+    }
 }

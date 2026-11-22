@@ -271,6 +271,94 @@ fn kept_ids(report: &carry::Report) -> Vec<&str> {
     report.kept.iter().map(|k| k.new.as_str()).collect()
 }
 
+fn reviewed_plate() -> File {
+    annotated(
+        "parts/plate.step",
+        json!({
+            "fill": {"part.material":"6061-T6"},
+            "accept_suggestions": ["part.general_tolerance", "hole.function:holes:9",
+                "hole.function:holes:12", "hole.position:holes:12",
+                "hole.function:hole_patterns.grid:6.7.8.10.11.13",
+                "hole.position:hole_patterns.grid:6.7.8.10.11.13",
+                "datum.A", "datum.B", "datum.C", "location:holes:0-9", "length:planes:0-5"],
+            "none": ["part.coating", "datum.A.flatness"],
+        }),
+    )
+}
+
+fn numbered_requirements_are_in_output_or_reported(old: &File, outcome: &Outcome) {
+    let landed = numbers(&written(outcome));
+    for (n, item) in numbers(&old.load(None).unwrap()) {
+        let reported = outcome
+            .report
+            .not_carried
+            .iter()
+            .any(|entry| entry.number == Some(format!("#{n}")));
+        let kept = landed.get(&n).is_some_and(|new| new.r#type == item.r#type);
+        let renumbered = outcome.report.renumbered.iter().any(|entry| {
+            entry.old == n
+                && landed
+                    .get(&entry.new)
+                    .is_some_and(|new| new.r#type == item.r#type)
+        });
+        assert!(
+            kept || reported || renumbered,
+            "#{n} {} missing from OUT and the report",
+            item.r#type
+        );
+    }
+}
+
+#[test]
+fn whole_stack_carry_accounts_for_the_plain_location_shared_with_a_pattern() {
+    let old = reviewed_plate();
+    let old_table = table(&old.load(None).unwrap());
+    let location = row(&old_table, "location:holes:0-9");
+    let plain = location["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["text"] == "50")
+        .unwrap();
+    let outcome = carried(&old, &file("parts/plate.step"));
+    let report = &outcome.report;
+    assert!(
+        report.not_carried.iter().any(|entry| {
+            entry.number.as_deref() == plain["number"].as_str() && entry.text == "50"
+        }),
+        "plain 50 {} missing from not_carried: {report:#?}",
+        plain["number"]
+    );
+    assert!(
+        !report
+            .carried
+            .iter()
+            .any(|entry| entry.old == "location:holes:0-9")
+    );
+    numbered_requirements_are_in_output_or_reported(&old, &outcome);
+}
+
+#[test]
+fn whole_stack_carry_reports_a_difference_in_thread_manufacturing_data() {
+    let new = reviewed_plate();
+    let old = String::from_utf8(new.bytes().as_ref().clone()).unwrap();
+    assert_eq!(old.matches("('through','true')").count(), 1);
+    let old = of_bytes(
+        old.replace("('through','true')", "('through','false')")
+            .into_bytes(),
+    );
+    let outcome = carried(&old, &new);
+    let thread = outcome
+        .report
+        .kept
+        .iter()
+        .find(|k| k.new == "hole.function:holes:12")
+        .expect("the thread's manufacturing differences are reported");
+    assert!(!thread.old_value.as_str().unwrap().contains("THRU"));
+    assert!(thread.new_value.as_str().unwrap().contains("THRU"));
+    numbered_requirements_are_in_output_or_reported(&old, &outcome);
+}
+
 #[test]
 fn a_moved_feature_is_carried_and_flagged_to_check() {
     let old = with_suggestions("revisions/hole_moved.old.step.gz", &[]);
@@ -845,6 +933,7 @@ fn real_pairs_carry_what_they_can_and_report_the_rest() {
         "{report:#?}"
     );
     accounted(&old, report);
+    numbered_requirements_are_in_output_or_reported(&old, &outcome);
     // complex_counterbore: the hole pattern became counterbored, so "general" writes nothing
     // on it; it is reported, and everything else is carried.
     let old = with_suggestions("revisions/complex_counterbore.old.step.gz", &[]);
@@ -866,6 +955,7 @@ fn real_pairs_carry_what_they_can_and_report_the_rest() {
     );
     assert!(ids(&report.carried).contains(&"datum.A"));
     accounted(&old, report);
+    numbered_requirements_are_in_output_or_reported(&old, &outcome);
 }
 
 #[test]

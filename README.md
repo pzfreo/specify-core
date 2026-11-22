@@ -85,13 +85,15 @@ The flow is the same everywhere:
 ```bash
 specify-core analyse plate.step -o plate.analysis.json          # features, faces, existing PMI
 specify-core questions plate.analysis.json --open                # what is still unanswered
-echo '{"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"}' > answers.json
-specify-core write plate.step plate.analysis.json answers.json --accept-defaults -o plate-pmi.step
+echo '{"fill":{"part.material":"6082-T6","hole.function:holes:9":"fit:H7"},"accept_suggestions":["part.general_tolerance"]}' > edits.json
+specify-core write plate.step edits.json -o plate-pmi.step
 ```
 
-`write` refuses until every question has an answer, or its `--accept-defaults` supplies the
-rest. The written file stores the answers; it is their only copy: there is no export of answers
-as a record (ADR P11).
+`write STEP EDITS.json` applies the list in place to the PMI, then writes the result to the chosen
+output. Use `--part K` for a part in an assembly. Add `--check` in place of `-o` to validate the
+list without writing. A save can leave gaps open. The file's PMI records each requirement, and
+only decisions that write no PMI are stored alongside it. See [edit lists](docs/answers.md).
+
 It prints a JSON report with `output`, `written`, `not_written` and `warnings`. `not_written`
 gives each reason, including an answer whose question is not asked given the other answers
 ([answers](docs/answers.md#answers-to-questions-not-asked)).
@@ -99,7 +101,7 @@ gives each reason, including an answer whose question is not asked given the oth
 Exit codes:
 - **0:** done.
 - **1:** a write that didn't verify, or a file that can't be read.
-- **2:** a refusal, such as an unanswered question, an invalid answer or bad arguments.
+- **2:** an edit was refused or the command arguments are invalid.
 
 `specify-core mesh plate.step -o plate.mesh.json` writes the part's triangles grouped by face,
 for a face picker. Add `--max-deviation-mm 0.05` to request a measured chordal
