@@ -119,11 +119,17 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  release-check:
+    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
+    uses: ./.github/workflows/release-check.yml
+    with:
+      tag: ${{ github.event.release.tag_name }}
+
   # Only this job can write to the repository or sign, and only for a release. It attests the
   # archives' build provenance (`gh attestation verify <archive> --repo pzfreo/specify-core`):
   # with the app and engine inside the binary (ADR P12), that covers them too.
   attach:
-    needs: build
+    needs: [build, release-check]
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:

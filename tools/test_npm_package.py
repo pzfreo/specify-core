@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import pathlib
+import subprocess
 import tempfile
 import unittest
 
@@ -27,6 +28,21 @@ def write_pkg(root: pathlib.Path, **meta) -> pathlib.Path:
 
 
 class NpmPackageTests(unittest.TestCase):
+    def test_publish_dist_tags(self):
+        script = pathlib.Path(__file__).with_name("npm_dist_tag.sh")
+        for version, latest, expected in [
+            ("0.2.3", "0.2.3", "latest"),
+            ("0.2.3", "0.3.0", "release-0.2.3"),
+            ("0.3.0", "0.2.3", "latest"),
+            ("0.3.0", "", "latest"),
+            ("0.3.0-rc.1", "0.2.3", "next"),
+            ("0.3.0-rc.1", "0.3.0", "next"),
+            ("0.3.0-rc.1", "", "next"),
+        ]:
+            with self.subTest(version=version, latest=latest):
+                actual = subprocess.check_output(["bash", str(script), version, latest], text=True)
+                self.assertEqual(actual.strip(), expected)
+
     def test_scopes_the_name_and_keeps_the_module(self):
         with tempfile.TemporaryDirectory() as tmp:
             pkg = write_pkg(pathlib.Path(tmp))

@@ -18,8 +18,7 @@ on:
       - '.github/workflows/crates.yml'
       - '.github/workflows/bundle.yml'
   # A published GitHub release publishes specify-core to crates.io, as it publishes the wheel
-  # to PyPI (python.yml): the maintainer's release is the approval. A pre-release is not
-  # published (a crates.io version can be yanked but never removed); a manual run can.
+  # to PyPI (python.yml). Pre-releases are published with their SemVer suffix.
   release:
     types: [published]
   # Backfills an earlier release from its tag. Each run needs the maintainer's word.
@@ -40,9 +39,6 @@ concurrency:
 
 jobs:
   bundle:
-    if: >-
-      github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'release' && !github.event.release.prerelease)
     uses: ./.github/workflows/bundle.yml
     with:
       ref: ${{ github.event.release.tag_name || inputs.tag || github.sha }}
@@ -66,11 +62,15 @@ jobs:
       - run: bash tools/package_crate.sh
       - run: cargo publish --dry-run --locked --allow-dirty -p specify-core
 
+  release-check:
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/release-check.yml
+    with:
+      tag: ${{ github.event.release.tag_name || inputs.tag }}
+
   publish:
-    needs: bundle
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'release' && !github.event.release.prerelease)
+    needs: [bundle, release-check]
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'release'
     runs-on: ubuntu-latest
     # crates.io trusted publishing: the crate trusts this repository, this workflow and this
     # environment, and the job mints a short-lived token; no token is stored. The environment
