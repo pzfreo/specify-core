@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 307 | 0 | 8 | 0 | 234 | 1 | 550 |
+| [cli](#cli) | 352 | 0 | 8 | 0 | 234 | 1 | 595 |
 | [cross_engine](#cross_engine) | 342 | 2 | 0 | 1 | 1 | 20 | 366 |
 | [cross_engine_written](#cross_engine_written) | 75 | 0 | 0 | 0 | 0 | 0 | 75 |
 | [existing](#existing) | 420 | 0 | 0 | 0 | 7 | 0 | 427 |
@@ -23,7 +23,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 2279 | 0 | 0 | 0 | 15 | 1 | 2295 |
-| **all** | 8077 | 1433 | 1201 | 2468 | 1327 | 1905 | 16411 |
+| **all** | 8122 | 1433 | 1201 | 2468 | 1327 | 1905 | 16456 |
 
 ## analysis
 
@@ -77,7 +77,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (307 entries)
+### cli: rust-correct (352 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -186,6 +186,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **0.5.5 / CLI all-axis step count** (`cli/default_datum_a_takes_every_coplanar_face#0/analyse` at `stdout.features.step_levels`)
 
   Quiddity 0.5.5 #307 reports X and Y levels alongside Z, increasing the step level count in the CLI summary.
+
+- **Expanded corpus required measurements in CLI defaults** (45 entries, 43 case globs)
+
+  The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb245` at `questions.defaults.questions.measurement_count`: Round 6 reports standalone measurements as required rows. This exact result counts or names the CGB245 questions that the Python capture had no standalone rows for.
 
 ### cli: equivalent (8 entries)
 

@@ -1890,14 +1890,20 @@ fn check_datum_origin_departures(differences: &[Difference]) {
     if std::env::var_os("UPDATE_CLI_DATUM_ORIGINS").is_some() {
         let mut merged = departures.clone();
         if path.is_file() {
-            merged.extend(
-                read_json_gz(&path)
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .filter(|v| !available(v))
-                    .cloned(),
-            );
+            let old = read_json_gz(&path);
+            let mut reasons = std::collections::HashMap::new();
+            for mut row in old.as_array().unwrap().iter().cloned() {
+                if !available(&row) {
+                    merged.push(row);
+                } else if let Some(reason) = row.as_object_mut().unwrap().shift_remove("reason") {
+                    reasons.insert(row.to_string(), reason);
+                }
+            }
+            for row in &mut merged {
+                if let Some(reason) = reasons.remove(&row.to_string()) {
+                    row["reason"] = reason;
+                }
+            }
         }
         order(&mut merged);
         let file = std::fs::File::create(&path).unwrap();
@@ -1915,6 +1921,15 @@ fn check_datum_origin_departures(differences: &[Difference]) {
         .filter(|v| available(v))
         .cloned()
         .collect();
+    // Explanations are fixture metadata; compare all observation fields literally.
+    for row in &mut expected {
+        if let Some(reason) = row.as_object_mut().unwrap().shift_remove("reason") {
+            assert!(
+                reason.as_str().is_some_and(|text| !text.trim().is_empty()),
+                "an oracle reason must be nonempty: {row}"
+            );
+        }
+    }
     order(&mut expected);
     assert_eq!(
         expected, departures,

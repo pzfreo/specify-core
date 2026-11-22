@@ -167,3 +167,7 @@ existing `tools/capture.py cross-engine` tool (see `../cross_engine/README.md`).
 through its existing `UPDATE_CLI_DATUM_ORIGINS=1 cargo test --release --test cli
 the_command_line_matches_the_oracle` hook, preserving full before/after values if envelopes
 change. The STEP byte fixtures themselves are the cross-engine `rust.step.gz` files.
+
+The CLI datum-origin snapshot records exact observations. A re-recorded entry can also carry
+a `reason` explaining the change. The CLI oracle compares the observation fields and retains
+the reason when a capture reproduces those fields exactly.
