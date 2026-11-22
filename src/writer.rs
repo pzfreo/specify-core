@@ -1174,20 +1174,16 @@ fn write_verified(
             scoped.push(part);
             let before = &original.read.parts[part];
             let mut kept = requirements(before);
-            // The legacy whole-intent API takes the whole caller attribute payload. Its
-            // extras were marked like other writer attributes, so keep the engine's own
-            // PMI sets and let cleanup replace the remaining marked caller sets.
+            let provenance = &original.read.provenance.parts[part];
+            // A caller marker identifies the complete replaceable payload. Older files
+            // shared the regular marker with engine attributes. Preserve those unless
+            // this caller explicitly supplies a replacement for the same property.
             for (i, set) in before.attributes.iter().enumerate() {
-                if !matches!(
-                    set.name.as_str(),
-                    SEMANTIC_TEXT
-                        | "thread manufacturing"
-                        | "specify dimension plan"
-                        | crate::pmi_origin::PROPERTY
-                        | crate::process::PROPERTY
-                        | crate::bom::PROPERTY
-                        | crate::bom::HISTORY
-                ) {
+                let ids = &provenance.attributes[i];
+                let replaces = extra.iter().any(|e| e.name == set.name && e.on == set.on);
+                if provenance::caller_attribute(&original.doc, ids)
+                    || (replaces && provenance::marked(&original.doc, ids, "attribute"))
+                {
                     kept.remove(&("attributes".to_string(), i));
                 }
             }
@@ -1468,7 +1464,7 @@ fn write_verified(
         .iter()
         .map(|p| (PartId(p.loaded.binding.part), p.pmi.clone()))
         .collect();
-    let (back, kernel_report) = write_by_modes(source, &items, &modes)?;
+    let (back, kernel_report) = write_by_modes(source, &items, &modes, extra)?;
     verify(source, &items, &modes, &back)?;
     let stored = resume::stored(&back);
     for p in &planned {
@@ -1578,6 +1574,7 @@ fn write_by_modes(
     source: &Source,
     items: &[(PartId, PartPmi)],
     modes: &[Mode],
+    extra: &[AttributeSet],
 ) -> Result<(Vec<u8>, KernelWriteReport), WriteError> {
     let policy = PresentationPolicy::RemovePresentation;
     let refused = |e: pmi::write::WriteError| match e {
@@ -1722,7 +1719,27 @@ fn write_by_modes(
             .map_err(|e| WriteError::Failed(format!("haecceity could not apply the edit: {e}")))?;
         let after =
             Document::parse(applied.bytes).map_err(|e| WriteError::Failed(e.to_string()))?;
-        let mut marker_edit = provenance::mark_new(current, &after);
+        let mut caller_links = BTreeSet::new();
+        if !extra.is_empty() {
+            let read = pmi::read(&after, defs).map_err(|e| WriteError::Failed(e.to_string()))?;
+            for (part, _) in &these {
+                let attributes = &read.parts[part.0].attributes;
+                let provenance = &read.provenance.parts[part.0].attributes;
+                for (set, ids) in attributes.iter().zip(provenance) {
+                    if extra
+                        .iter()
+                        .any(|e| e.name == set.name && e.items == set.items)
+                    {
+                        caller_links.extend(ids.iter().copied().filter(|&id| {
+                            current.get(id).is_none()
+                                && matches!(after.get(id), Some(p21::RawEntity::Simple { name, .. })
+                                    if name == "PROPERTY_DEFINITION_REPRESENTATION")
+                        }));
+                    }
+                }
+            }
+        }
+        let mut marker_edit = provenance::mark_new(current, &after, &caller_links);
         name_depth_points(current, &after, defs, &mut marker_edit)?;
         let marked = after
             .apply(&marker_edit)

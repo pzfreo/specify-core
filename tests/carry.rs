@@ -23,7 +23,15 @@ fn of_bytes(bytes: Vec<u8>) -> File {
 }
 
 fn carried(old: &File, new: &File) -> Outcome {
-    carry::carry(old, new).unwrap()
+    let outcome = carry::carry(old, new).unwrap();
+    if let Some(bytes) = &outcome.bytes {
+        numbered_requirements_are_in_output_or_reported(
+            old,
+            &of_bytes(bytes.clone()),
+            &json!(outcome.report),
+        );
+    }
+    outcome
 }
 
 fn written(outcome: &Outcome) -> LoadedPart {
@@ -286,26 +294,107 @@ fn reviewed_plate() -> File {
     )
 }
 
-fn numbered_requirements_are_in_output_or_reported(old: &File, outcome: &Outcome) {
-    let landed = numbers(&written(outcome));
-    for (n, item) in numbers(&old.load(None).unwrap()) {
-        let reported = outcome
-            .report
-            .not_carried
+fn numbered_requirements_are_in_output_or_reported(old: &File, out: &File, report: &Value) {
+    let numbered = |part: &LoadedPart| {
+        use haecceity::pmi::{self, DimTolerance, Quantity};
+        let readback = json!(specify_core::existing::read_existing(part).unwrap());
+        let mut values: BTreeMap<_, _> = readback
+            .as_array()
+            .unwrap()
             .iter()
-            .any(|entry| entry.number == Some(format!("#{n}")));
-        let kept = landed.get(&n).is_some_and(|new| new.r#type == item.r#type);
-        let renumbered = outcome.report.renumbered.iter().any(|entry| {
-            entry.old == n
-                && landed
-                    .get(&entry.new)
-                    .is_some_and(|new| new.r#type == item.r#type)
-        });
-        assert!(
-            kept || reported || renumbered,
-            "#{n} {} missing from OUT and the report",
-            item.r#type
-        );
+            .filter_map(|item| {
+                let mut fields = item.as_object().unwrap().clone();
+                let number = fields.remove("number")?.as_u64()?;
+                for key in [
+                    "faces",
+                    "faces2",
+                    "provenance",
+                    "origin",
+                    "source",
+                    "question",
+                ] {
+                    fields.remove(key);
+                }
+                Some((number, Value::Object(fields)))
+            })
+            .collect();
+        let doc = Document::parse(part.bytes.to_vec()).unwrap();
+        let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
+        let read = pmi::read(&doc, &defs).unwrap();
+        let k = part.binding.part;
+        let mut uses = BTreeMap::new();
+        for (n, c) in numbers(part) {
+            // General dimensions can be hidden from the questions' read-back but still
+            // state a numbered nominal. Resolve their exact semantic entity using the
+            // kernel provenance instead of identifying them by an approximate face match.
+            let nominal = read.provenance.parts[k]
+                .dimensions
+                .iter()
+                .position(|ids| ids.contains(&c.entity))
+                .map(|i| &read.parts[k].dimensions[i])
+                .filter(|d| matches!(d.tolerance, DimTolerance::None))
+                .map(|d| {
+                    let raw = d.nominal.as_ref().map(|v| match &v.quantity {
+                        Quantity::Length(l) => l.mm(),
+                        Quantity::Angle(a) => a.rad().to_degrees(),
+                    });
+                    json!({"nominal": raw, "qualifier": format!("{:?}", d.qualifier),
+                            "modifiers": format!("{:?}", d.modifiers),
+                            "principle": format!("{:?}", d.principle)})
+                });
+            let texture = read.provenance.parts[k].surface_textures.iter().position(|ids| ids.contains(&c.entity))
+                .map(|i| &read.parts[k].surface_textures[i])
+                .map(|t| json!({"removal": format!("{:?}", t.material_removal),
+                    "parameters": t.parameters.iter().map(|v| (&v.characteristic, v.value.mm())).collect::<Vec<_>>() }));
+            let value = nominal
+                .or(texture)
+                .or_else(|| values.remove(&n))
+                .unwrap_or_else(|| panic!("#{n} {c:?} of {} has no value in read-back", part.name));
+            uses.insert(n, (c, value));
+        }
+        uses
+    };
+    let assembly = old.definitions().len() > 1;
+    let after: Vec<_> = out
+        .load_all()
+        .unwrap()
+        .iter()
+        .map(|part| (part.name.clone(), numbered(part)))
+        .collect();
+    for part in old.load_all().unwrap() {
+        let name = &part.name;
+        let output = after.iter().find(|(other, _)| !assembly || other == name);
+        for (n, (item, value)) in numbered(&part) {
+            let same = |new: u64| {
+                output
+                    .and_then(|(_, items)| items.get(&new))
+                    .is_some_and(|(c, v)| {
+                        c.kind == item.kind && c.r#type == item.r#type && *v == value
+                    })
+            };
+            let renumbered = report["renumbered"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|entry| {
+                    entry["old"] == n
+                        && entry["type"] == item.r#type
+                        && entry["new"].as_u64().is_some_and(same)
+                });
+            let reported = report["not_carried"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| {
+                    entry["number"] == format!("#{n}") && (!assembly || entry["part"] == *name)
+                });
+            assert!(
+                same(n) || renumbered || reported,
+                "{name} #{n} {} {:?} missing from OUT with its original value and from not_carried",
+                item.r#type,
+                value
+            );
+        }
     }
 }
 
@@ -335,7 +424,6 @@ fn whole_stack_carry_accounts_for_the_plain_location_shared_with_a_pattern() {
             .iter()
             .any(|entry| entry.old == "location:holes:0-9")
     );
-    numbered_requirements_are_in_output_or_reported(&old, &outcome);
 }
 
 #[test]
@@ -356,7 +444,6 @@ fn whole_stack_carry_reports_a_difference_in_thread_manufacturing_data() {
         .expect("the thread's manufacturing differences are reported");
     assert!(!thread.old_value.as_str().unwrap().contains("THRU"));
     assert!(thread.new_value.as_str().unwrap().contains("THRU"));
-    numbered_requirements_are_in_output_or_reported(&old, &outcome);
 }
 
 #[test]
@@ -933,7 +1020,6 @@ fn real_pairs_carry_what_they_can_and_report_the_rest() {
         "{report:#?}"
     );
     accounted(&old, report);
-    numbered_requirements_are_in_output_or_reported(&old, &outcome);
     // complex_counterbore: the hole pattern became counterbored, so "general" writes nothing
     // on it; it is reported, and everything else is carried.
     let old = with_suggestions("revisions/complex_counterbore.old.step.gz", &[]);
@@ -955,7 +1041,6 @@ fn real_pairs_carry_what_they_can_and_report_the_rest() {
     );
     assert!(ids(&report.carried).contains(&"datum.A"));
     accounted(&old, report);
-    numbered_requirements_are_in_output_or_reported(&old, &outcome);
 }
 
 #[test]
@@ -999,6 +1084,11 @@ fn the_command_line_writes_out_and_prints_the_report() {
     assert!(printed["markdown"].as_str().unwrap().contains("## Carried"));
     let loaded = specify_core::part::load(&out, None).unwrap();
     assert_eq!(numbers(&loaded).len(), 3);
+    numbered_requirements_are_in_output_or_reported(
+        &File::read(&old).unwrap(),
+        &File::read(&out).unwrap(),
+        &printed,
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

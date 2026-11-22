@@ -1416,6 +1416,11 @@ fn applied_pmi(
             }
         }
     }
+    let explicitly_removed: BTreeSet<u64> = located
+        .iter()
+        .filter(|l| remove.contains(&(l.at.0.to_string(), l.at.1)))
+        .filter_map(|l| l.number)
+        .collect();
     for id in list.change.keys() {
         let entry = format!("change[{}]", Json::String(id.clone()));
         let Some(row) = table.row(id) else { continue };
@@ -1773,10 +1778,40 @@ fn applied_pmi(
             return Err(failing);
         }
         let clean_before = &source.read.parts[k];
+        for r in &mut intent.requirements {
+            if r.get("kind").and_then(Json::as_str) == Some("size")
+                && let Some(value) = r
+                    .get("question")
+                    .and_then(Json::as_str)
+                    .and_then(|id| nominals.get(id))
+                && let Some(fit) = r.get("fit").and_then(Json::as_str)
+            {
+                let (upper, lower) =
+                    crate::standards::fit_limits(fit, *value).map_err(|e| whole(e.to_string()))?;
+                r.insert("nominal".into(), Json::from(*value));
+                r.insert("upper".into(), Json::from(upper));
+                r.insert("lower".into(), Json::from(lower));
+                if let Some(planner) = r.get_mut("planner") {
+                    planner["required"]["nominal"] = Json::from(*value);
+                }
+            }
+        }
         // A basic location the file states already, as part of a larger group (one
         // dimension to a pattern and this hole), is not stated again for one of its holes.
         let mut held = Vec::new();
         intent.requirements.retain(|r| {
+            // A position-frame change leaves the file's locating dimensions alone.
+            let implicit_position_basic = r.get("kind").and_then(Json::as_str) == Some("location")
+                && r.get("basic") == Some(&Json::Bool(true))
+                && r.get("question").and_then(Json::as_str).is_some_and(|id| {
+                    id.starts_with("hole.position:")
+                        && changed_items
+                            .get(id)
+                            .is_some_and(|items| items.iter().any(|(kind, _)| kind == "tolerances"))
+                });
+            if implicit_position_basic {
+                return false;
+            }
             let covered = covered_by_file(r, clean_before);
             if covered {
                 held.push(format!(
@@ -1927,10 +1962,13 @@ fn applied_pmi(
         prov,
         &original.doc,
         numbers,
-        if mode == Mode::Replace {
+        if mode == Mode::Replace && removed_numbers.is_empty() {
             crate::characteristics::Allocation::Replace
         } else {
-            crate::characteristics::Allocation::Edit(&removed_numbers)
+            crate::characteristics::Allocation::Edit {
+                removed: &removed_numbers,
+                retired: &explicitly_removed,
+            }
         },
     )
     .map_err(whole)?;
@@ -1968,7 +2006,7 @@ fn applied_pmi(
 
     let items = vec![(haecceity::pmi::PartId(k), pmi)];
     let (back, kernel) =
-        write_by_modes(&source, &items, &[mode]).map_err(|e| whole(e.to_string()))?;
+        write_by_modes(&source, &items, &[mode], extra).map_err(|e| whole(e.to_string()))?;
     verify(&source, &items, &[mode], &back).map_err(|e| whole(e.to_string()))?;
 
     // ADR P11: every item not named keeps its bytes, whoever wrote it: this part's kept items,
@@ -2190,7 +2228,7 @@ pub(crate) fn add_materials(
             }
         })
         .collect();
-    let (back, _) = write_by_modes(&source, &items, &modes).map_err(|e| e.to_string())?;
+    let (back, _) = write_by_modes(&source, &items, &modes, &[]).map_err(|e| e.to_string())?;
     verify(&source, &items, &modes, &back).map_err(|e| e.to_string())?;
     let after = haecceity::p21::Document::parse(back.clone()).map_err(|e| e.to_string())?;
     if let Some(id) = source
