@@ -1,0 +1,40 @@
+name: Check release version
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The release tag, or empty for a PyPI backfill from main
+        required: true
+        type: string
+      channel:
+        description: Publishing channel (github, crates, or pypi)
+        type: string
+        default: github
+    outputs:
+      publish:
+        value: ${{ jobs.check.outputs.publish }}
+      prerelease:
+        value: ${{ jobs.check.outputs.prerelease }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.decision.outputs.publish }}
+      prerelease: ${{ steps.decision.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }} # the tagged commit on a release, the selected ref on dispatch
+          persist-credentials: false
+      - name: The release flag and versions agree
+        id: decision
+        env:
+          TAG: ${{ inputs.tag }}
+          CHANNEL: ${{ inputs.channel }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/release_version.py --channel "$CHANNEL" --tag="$TAG"

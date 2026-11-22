@@ -38,6 +38,8 @@ Python. Feature recognition and the STEP/AP242 kernel come from
 components (`@draftwright/specify-ui`) and the local app that `specify-core open` and MCP `show`
 serve. A `v*` release builds and publishes the engine, the command line, the WASM, the Python
 package and the UI together, at one version.
+The same channels publish pre-releases, with the npm packages under `next`. See
+[Cutting a pre-release](CONTRIBUTING.md#cutting-a-pre-release).
 
 ## With AI and code-first CAD
 
