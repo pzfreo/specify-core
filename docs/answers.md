@@ -144,7 +144,13 @@ and settings, and `analyse` adds the **feature table**, `table`:
   - `decided_none`: an answer that nothing is needed, stored in the file; or an approval the
     planner wrote nothing for (a ⌀ left to the general tolerance on a datum's own faces: no size
     is written on a datum feature), stored and listed in the payload's `no_pmi` (resumed as
-    `_specify.no_pmi`), its `value` the answer. The write report's `not_written` names it.
+    `_specify.no_pmi`), its `value` the answer. The write report's `not_written` names it:
+    "answer diameter.fit:turned_steps:0 ('general'): approved, but nothing of its kind was
+    written on its feature (none is written on a datum's own faces; otherwise the planner
+    skipped it); stored as decided, not asked again", so a planner gap stays visible. The
+    check is per feature and kind (per direction for a location): a size written on a hole
+    does not count for its position. Every route treats the stored decisions as answered: the
+    command line's `questions` and `write`, `serve`, MCP, WASM and the page.
 - `file_pmi`: the file's requirements on no recognised feature and kind. Each has an `id`,
   `file_pmi:#<entity>`, naming the STEP entity its characteristic number is (or would be) on
   (`file_pmi:#1397`), so it stays the same while the file is saved in place. An edit list
@@ -152,6 +158,11 @@ and settings, and `analyse` adds the **feature table**, `table`:
   stated row is removed whole the same way, `{"id": "part.material"}`. (A note that is no
   thread, knurl or finish, and a setting on no row, have no id.)
 - `decided_none`: the decided-none ids, read back from the file.
+
+In an edit list, `fill` takes a general dimension row's displayed suggestion, and
+`accept_suggestions` uses the same value by id. `none` records a decision on that row.
+Once stated, the dimension can be removed through `items.remove` by row id or characteristic
+number. An approved dimension the planner cannot write is reported and stays decided.
 
 ### What the file states, read back whole
 
@@ -217,12 +228,23 @@ A general-tolerance answer writes only its note (ADR P9, Paul's decision D1): ap
 tolerance governs, each feature's size and location with its nominal alone, are written only
 when the question they belong to is approved: a hole's or turned diameter's size with its
 `hole.function` or `diameter.fit` answer, a hole's location with its `hole.position` or
-`hole.location` answer. Until then those rows stay gaps with their suggestions. Dimensions no
-question asks about (plane levels, a hole with no location question) are written only when
-no question is open, as with "accept suggestions" or `write --accept-defaults`, which approve
-every suggestion and so write the whole set as before. The writer's upgrade of an old intent
-without planner rows (#75) keeps the same rule: it writes a planner dimension only on a
-feature and kind the intent itself sizes or locates.
+`hole.location` answer. Until then those rows stay gaps with their suggestions.
+
+A general dimension with no owning question is an optional row in its own right. For
+example, the GRM-05 depth-lock bolt offers `14 ±0.2 from B` as `length:planes:2-3`.
+Approve the displayed value by its ID, approve the suggestions together, or use
+`write --accept-defaults`. Answering `none` records `decided_none` in the file. A file
+that already states the measurement shows a `stated` row. If the general-tolerance note
+is still a gap, approving the dimension writes its displayed tolerance on the dimension.
+
+Plane lengths use `length:planes:<side>-<side>` with their two face groups in canonical
+order. Unowned hole locations use `location:holes:<reference>-<located>`, with a planner
+axis suffix for offsets between hole axes. Each face group lists its sorted face numbers
+separated by dots. These IDs identify measurements within one geometry revision.
+
+An older intent upgraded by the writer also needs an approved length between both supports.
+The write report names any general dimension from the intent that the writer omits, with
+its nominal, faces and reason in `not_written`.
 
 Only answers that leave no PMI behind are stored in the file: "none" answers and choices that
 are not requirements (`part.locating`). `resume.answers` holds those. Stored answers that

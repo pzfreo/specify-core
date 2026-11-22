@@ -200,7 +200,14 @@ for (const [part, path] of parts) {
     const settled = JSON.parse(engine.settle(JSON.stringify(state)));
     compare(settled, expected.accepted_settle);
     assert.deepEqual(settled.state.answers, accepted, 'settle preserves accepted answers');
-    const changed = { ...accepted, 'part.general_tolerance': 'ISO 2768-f' };
+    // A changed tolerance class has new suggestions; approvals name their displayed values.
+    const changed = Object.fromEntries(Object.entries(accepted)
+      .filter(([id]) => !id.startsWith('length:planes:') && !id.startsWith('location:holes:')));
+    changed['part.general_tolerance'] = 'ISO 2768-f';
+    if (part === 'spindle') {
+      assert.ok(acceptedReview.intent.general.every(r => r.feature !== 'turned_steps:9'
+        || r.nominal !== 24 || r.faces.length !== 1 || r.faces[0] !== 9));
+    }
     assert.equal(JSON.parse(acceptDefaults(JSON.stringify(snapshot.analysis), JSON.stringify(changed)))['part.general_tolerance'], 'ISO 2768-f');
     // ADR P11 (D5b): a general tolerance the file states stands; a different answer is not
     // written over it (changing it is an explicit edit), so the intent carries none.

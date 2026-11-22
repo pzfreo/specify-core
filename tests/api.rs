@@ -269,7 +269,11 @@ fn an_assembly_is_written_together_and_again_through_the_service() {
         "{:?}",
         report.written
     );
-    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
+    // The pin's general diameter is omitted on datum A and named with its part.
+    assert_eq!(
+        report.not_written,
+        [format!("pin: {}", common::PIN_DATUM_A_SIZE_OMISSION)]
+    );
     // test_each_part_resumes_its_own_answers
     let listed = api::parts(&out).unwrap();
     assert_eq!(
@@ -400,8 +404,8 @@ fn an_intent_made_before_parts_were_told_apart_still_writes() {
     intent.binding.as_object_mut().unwrap().remove("part");
     assert_eq!(api::intent_part(&intent).unwrap(), 0);
     let report = api::write_file(&pin, &intent, &dir.join("old.step"), None).unwrap();
-    // As in Python, nothing is left unwritten (the part's notes too, Q3).
-    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
+    // The pin's datum A keeps its existing size omission, now visible in the report.
+    assert_eq!(report.not_written, [common::PIN_DATUM_A_SIZE_OMISSION]);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
