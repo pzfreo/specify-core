@@ -1,6 +1,5 @@
 //! The browser session shares the opt-in and provenance rules of the native writer: a parts list
-//! is written only when its suggestions are accepted. Every BOM is on a part of an assembly, so
-//! these wait on the assembly edits (piece 2's follow-on): the bodies are the edit-list form.
+//! is written only for an explicit value or accepted suggestion on an assembly part.
 use serde_json::{Map, Value, json};
 use specify_core::{bom, resume};
 use specify_core_wasm::session::Session;
@@ -23,7 +22,6 @@ fn bom_suggestions(session: &Session) -> Vec<String> {
 }
 
 #[test]
-#[ignore = "0.3.0: waits on assembly-edits"]
 fn bom_is_explicit_and_suggestions_do_not_become_answers() {
     let file = include_bytes!("../../../tests/fixtures/parts/assembly.step");
     let session = Session::open_part("assembly", file, 0).unwrap();
@@ -54,7 +52,20 @@ fn bom_is_explicit_and_suggestions_do_not_become_answers() {
     let explicit = json!({"bom.stock":"from stock","bom.description":"Chosen description"});
     let edited = bytes(&session.edit(&json!({ "fill": explicit }).to_string()));
     let snapshot = Session::open_part("edited", &edited, 0).unwrap().snapshot();
-    assert_eq!(snapshot["analysis"]["resume"]["answers"], explicit);
+    // The BOM attribute states these fields, so P11 stores no duplicate answers.
+    assert!(resume::stored(&edited).is_empty());
+    assert_eq!(
+        snapshot["analysis"]["bom"]["description"]["value"],
+        explicit["bom.description"]
+    );
+    assert_eq!(
+        snapshot["analysis"]["bom"]["description"]["source"],
+        "answered"
+    );
+    assert_eq!(
+        snapshot["analysis"]["bom"]["stock"]["value"],
+        explicit["bom.stock"]
+    );
     let reopened = Session::open_part("edited", &edited, 0).unwrap();
     let accepted = json!({ "accept_suggestions": bom_suggestions(&reopened) }).to_string();
     let requested = bytes(&reopened.edit(&accepted));
@@ -68,7 +79,6 @@ fn bom_is_explicit_and_suggestions_do_not_become_answers() {
 /// A file with no assembly structure refuses the parts list with the stable code the editor
 /// matches (`bom::NO_ASSEMBLY`, docs/wasm.md "Errors"), not by its prose.
 #[test]
-#[ignore = "0.3.0: waits on assembly-edits"]
 fn bom_on_loose_parts_refuses_with_the_no_assembly_code() {
     let file = include_bytes!("../../../tests/fixtures/parts/two_parts_without_an_assembly.step");
     let session = Session::open_part("loose", file, 0).unwrap();
