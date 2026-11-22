@@ -767,6 +767,37 @@ pub fn glob_match(glob: &str, text: &str) -> bool {
 // Known differences
 // ---------------------------------------------------------------------------------------------
 
+/// Allow platform float noise using the oracle's relative 1e-9 tolerance, with an absolute
+/// 1e-9 floor for values near zero.
+const EXACT_VALUE_TOLERANCE: f64 = 1e-9;
+
+fn exact_value_matches(recorded: &Value, actual: &Value) -> bool {
+    match (recorded, actual) {
+        (Value::Number(recorded), Value::Number(actual)) => {
+            let a = recorded.as_f64().unwrap_or(f64::NAN);
+            let b = actual.as_f64().unwrap_or(f64::NAN);
+            (a - b).abs()
+                <= (EXACT_VALUE_TOLERANCE * a.abs().max(b.abs())).max(EXACT_VALUE_TOLERANCE)
+        }
+        (Value::Array(recorded), Value::Array(actual)) => {
+            recorded.len() == actual.len()
+                && recorded
+                    .iter()
+                    .zip(actual)
+                    .all(|(recorded, actual)| exact_value_matches(recorded, actual))
+        }
+        (Value::Object(recorded), Value::Object(actual)) => {
+            recorded.len() == actual.len()
+                && recorded.iter().all(|(key, value)| {
+                    actual
+                        .get(key)
+                        .is_some_and(|actual| exact_value_matches(value, actual))
+                })
+        }
+        _ => recorded == actual,
+    }
+}
+
 /// An entry of `tests/fixtures/known_differences/<area>.json`: the differences whose case and
 /// path match its globs, what they are (`pattern`), whether Rust or Python is right
 /// (`verdict`), and what was checked to say so (`evidence`).
@@ -793,7 +824,14 @@ impl KnownDifference {
                 return false;
             }
             let (path, actual) = difference.exact();
-            self.path == path && [values[0].as_ref(), values[1].as_ref()] == actual
+            self.path == path
+                && values.iter().zip(actual).all(|(recorded, actual)| {
+                    match (recorded.as_ref(), actual) {
+                        (Some(recorded), Some(actual)) => exact_value_matches(recorded, actual),
+                        (None, None) => true,
+                        _ => false,
+                    }
+                })
         } else {
             glob_match(&self.case, &difference.case) && glob_match(&self.path, &difference.path)
         }

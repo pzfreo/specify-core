@@ -25,6 +25,35 @@ fn known(case: &str, path: &str, verdict: &str) -> KnownDifference {
 }
 
 #[test]
+fn exact_differences_allow_platform_float_noise() {
+    let mut entry = known("part", "frame", "rust-correct");
+    entry.exact = Some([Some(Value::Null), Some(json!({"origin": [0.0, "z"]}))]);
+    let mut diff = Difference {
+        case: "part".into(),
+        path: "frame".into(),
+        python: Some(Value::Null),
+        rust: Some(json!({"origin": [1e-14, "z"]})),
+        context: None,
+    };
+    assert!(entry.matches(&diff), "a nested 1e-14 change must match");
+
+    for value in [
+        json!({"origin": [1e-6, "z"]}),
+        json!({"origin": [0.0, "y"]}),
+        json!({"origin": [0.0, "z", 0.0]}),
+        json!({"origin": ["z", 0.0]}),
+        json!({"offset": [0.0, "z"]}),
+    ] {
+        diff.rust = Some(value);
+        assert!(!entry.matches(&diff), "{diff}");
+    }
+
+    diff.rust = Some(json!({"origin": [0.0, "z"]}));
+    diff.python = None;
+    assert!(!entry.matches(&diff), "missing and null must differ");
+}
+
+#[test]
 fn exact_differences_pin_a_complete_array_at_its_stable_path() {
     let python = json!({"offset": [1, null]});
     let rust = json!({"offset": [2, 3]});

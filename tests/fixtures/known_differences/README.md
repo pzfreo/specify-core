@@ -37,7 +37,10 @@ One file per area, `<area>.json`, a JSON array of entries:
 Every field is a non-empty string and no other field is allowed (`tests/common`'s `load_known`
 checks it), except for the optional `values` object or `exact` pair. It holds `[python, rust]`, with each side
 represented by `[value]` or by `[]` for a missing key. Exact entries use literal case names
-and paths. When a list has no stable member key, the entry pins the complete list at its
+and paths. Each side must have the same structure, including object keys, array lengths and
+order, and whether a value is missing. Numbers at any depth match when
+`|a - b| <= max(1e-9 * max(|a|, |b|), 1e-9)` to allow platform float noise. All other values
+must match exactly. When a list has no stable member key, the entry pins the complete list at its
 property path. Use `$` for the root. `SPECIFY_DUMP` also writes these candidate values to
 `<area>.exact.json` alongside the legacy dumps.
 
@@ -46,8 +49,8 @@ property path. Use `$` for the root. `SPECIFY_DUMP` also writes these candidate 
 - **Each area's full oracle sweep is one test function that calls `check_known(area, &diffs)`
   once, for its own area.** It fails listing every difference no entry matches, and every entry
   that matched no difference (stale: the difference was fixed, or the entry is too narrow), and
-  otherwise prints a tally of the differences by verdict. A difference is matched by the first
-  entry whose `case` and `path` globs both match it.
+  otherwise prints a tally of the differences by verdict. The first matching entry supplies
+  the verdict for a difference.
 - **Other areas' files are consulted only through `explained(&[areas], &diffs)`**, which returns
   the differences none of their entries match and asserts nothing (no stale check, no tally).
   A sweep that crosses areas (the CLI's, which runs features, rules and the writer together)
