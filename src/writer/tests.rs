@@ -1086,7 +1086,7 @@ fn an_approval_whose_own_kind_was_not_written_is_reported_beside_another_kind() 
             .unwrap()
             .0
     };
-    let nothing = wrote_nothing(
+    let unwritten = unwritten_approvals(
         &loaded,
         &answers,
         std::slice::from_ref(&runout),
@@ -1095,8 +1095,8 @@ fn an_approval_whose_own_kind_was_not_written_is_reported_beside_another_kind() 
         &[],
     );
     assert!(
-        nothing.contains("diameter.fit:turned_steps:0"),
-        "{nothing:?}"
+        unwritten.contains("diameter.fit:turned_steps:0"),
+        "{unwritten:?}"
     );
     // A size made on it does count.
     let size: Map<String, Json> = serde_json::from_value(serde_json::json!({
@@ -1104,7 +1104,7 @@ fn an_approval_whose_own_kind_was_not_written_is_reported_beside_another_kind() 
     }))
     .unwrap();
     assert!(
-        wrote_nothing(
+        unwritten_approvals(
             &loaded,
             &answers,
             std::slice::from_ref(&size),

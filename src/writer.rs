@@ -662,7 +662,7 @@ fn requirements(pmi: &PartPmi) -> BTreeSet<(String, usize)> {
 /// matching, per direction for a location: a size made on a feature does not answer its
 /// position). Part settings, datums' own answers, choices that are not requirements, "none"
 /// answers and answers to questions not asked are not counted.
-fn wrote_nothing(
+fn unwritten_approvals(
     loaded: &LoadedPart,
     answers: &Map<String, Json>,
     made: &[Map<String, Json>],
@@ -887,6 +887,12 @@ fn part_pmi_added(
         if restated.contains_key(at) && (truthy(row.get("general")) || intent.general.contains(row))
         {
             reported.insert(at.clone());
+            if let Some(id) = row.get("question").and_then(Json::as_str) {
+                lines.answer_skips.insert(
+                    id.into(),
+                    "the reconciled measurement is already stated by the file".into(),
+                );
+            }
             lines.not_written.push(format!(
                 "{}: the file already states it; not written again",
                 general_dimension_label(row)
@@ -1083,6 +1089,21 @@ struct Lines {
     not_written: Vec<String>,
     warnings: Vec<String>,
     conveyed_depth_spans: Vec<(DepthPlane, DepthPlane, f64)>,
+    datum_sizes: BTreeSet<String>,
+    answer_skips: std::collections::BTreeMap<String, String>,
+}
+
+fn general_size_question(row: &Map<String, Json>) -> Option<String> {
+    if row.get("kind")?.as_str()? != "size" || !truthy(row.get("general")) {
+        return None;
+    }
+    let feature = row.get("feature")?.as_str()?;
+    let kind = match feature.split_once(':')?.0 {
+        "turned_steps" => "diameter.fit",
+        "holes" | "hole_patterns" => "hole.function",
+        _ => return None,
+    };
+    Some(format!("{kind}:{feature}"))
 }
 
 fn general_dimension_label(row: &Map<String, Json>) -> String {
@@ -1249,6 +1270,20 @@ fn write_verified(
 
     let mut planned = Vec::new();
     for (&(loaded, intent, answers), &mode) in jobs.iter().zip(&modes) {
+        let mut approved_intent;
+        let intent = if let Some(answers) = answers.filter(|a| a.values().any(|v| v == "general")) {
+            approved_intent = intent.clone();
+            for row in &mut approved_intent.general {
+                if let Some(id) = general_size_question(row)
+                    && answers.get(&id).is_some_and(|v| v == "general")
+                {
+                    row.insert("question".into(), Json::from(id));
+                }
+            }
+            &approved_intent
+        } else {
+            intent
+        };
         // The binding was checked against these same bytes' parts; Source::of verifies reader counts.
         let before = &source.read.parts[loaded.binding.part];
         let (mut pmi, mut lines, made) = if mode == Mode::Add {
@@ -1301,17 +1336,37 @@ fn write_verified(
                     .filter_map(|r| r.get("answer").and_then(Json::as_str))
                     .collect();
                 kept.retain(|id, _| !unasked.contains(id.as_str()));
-                // ADR P11 rule 2: an approval the plan made no PMI from (a general size on a
-                // datum's own faces) is stored, listed as such, so it stays decided; else it
-                // would be dropped silently and its gap reopen.
-                let nothing = wrote_nothing(loaded, &saved, &made, &pmi, &unasked, &intent.general);
-                for id in &nothing {
-                    lines.not_written.push(format!(
-                        "answer {id} ({}): approved, but nothing of its kind was written on its \
-                         feature (none is written on a datum's own faces; otherwise the planner \
-                         skipped it); stored as decided, not asked again",
-                        crate::choices::short_repr(&saved[id.as_str()], 6)
-                    ));
+                // P11 rule 2 stores deliberate omissions. A failed PMI approval
+                // stays open, even if the planner produced no requirement for it.
+                let mut nothing = BTreeSet::new();
+                for id in
+                    unwritten_approvals(loaded, &saved, &made, &pmi, &unasked, &intent.general)
+                {
+                    let answer = &saved[&id];
+                    if kept.get(&id) == Some(answer)
+                        && crate::feature_table::is_datum_size_approval(&id, answer)
+                        && !lines.datum_sizes.contains(&id)
+                    {
+                        continue;
+                    }
+                    let value = crate::choices::short_repr(answer, 6);
+                    if lines.datum_sizes.contains(&id)
+                        && crate::feature_table::is_datum_size_approval(&id, answer)
+                    {
+                        lines.not_written.push(format!(
+                            "answer {id} ({value}): approved, but nothing of its kind was written on its \
+                             feature (general size on a datum's own faces); stored as decided"
+                        ));
+                        nothing.insert(id);
+                    } else {
+                        let reason = lines.answer_skips.get(&id).map_or(
+                            "the plan supplied no writable PMI on this feature",
+                            String::as_str,
+                        );
+                        lines
+                            .not_written
+                            .push(format!("answer {id} ({value}): {reason}; remains open"));
+                    }
                 }
                 if !nothing.is_empty() {
                     let meta = saved
@@ -1331,6 +1386,8 @@ fn write_verified(
                         Some(_) => {
                             kept.insert(id.clone(), value.clone());
                         }
+                        None if kept.get(id) == Some(value)
+                            && crate::feature_table::is_datum_size_approval(id, value) => {}
                         None => {
                             kept.shift_remove(id);
                         }
@@ -3358,6 +3415,9 @@ fn part_pmi_observed(
         .chain(intent.general.iter().map(|r| (r, true)))
     {
         let mut skip = |reason: &str| {
+            if let Some(id) = req.get("question").and_then(Json::as_str) {
+                lines.answer_skips.insert(id.into(), reason.into());
+            }
             if general_row {
                 let mut original = original_general
                     .iter()
@@ -3387,7 +3447,10 @@ fn part_pmi_observed(
             && !req
                 .get("question")
                 .and_then(Json::as_str)
-                .is_some_and(crate::rules::general_rows::is_id)
+                .is_some_and(|id| {
+                    crate::rules::general_rows::is_id(id)
+                        || general_size_question(req).as_deref() == Some(id)
+                })
         {
             skip("adding PMI skips dimensions deferred by the shared planner");
             continue;
@@ -3434,6 +3497,9 @@ fn part_pmi_observed(
             })
         {
             skip("the faces establish a datum and the writer cannot mark a datum feature of size");
+            if let Some(id) = general_size_question(req) {
+                lines.datum_sizes.insert(id);
+            }
             continue;
         }
         if let Some(reason) = reported_reason {

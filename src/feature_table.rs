@@ -224,6 +224,13 @@ pub fn is_requirement(id: &str) -> bool {
 /// in the file states it, so the feature-and-kind stays decided.
 pub const NO_PMI: &str = "no_pmi";
 
+/// The only nonempty requirement approval that can deliberately leave no PMI.
+pub(crate) fn is_datum_size_approval(id: &str, value: &Value) -> bool {
+    id.split_once(':')
+        .is_some_and(|(kind, _)| matches!(kind, "diameter.fit" | "hole.function"))
+        && value == "general"
+}
+
 /// The answers listed under [`NO_PMI`] in `answers`' metadata.
 pub fn wrote_nothing(answers: &Map<String, Value>) -> BTreeSet<String> {
     answers
@@ -233,6 +240,11 @@ pub fn wrote_nothing(answers: &Map<String, Value>) -> BTreeSet<String> {
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
+        .filter(|id| {
+            answers
+                .get(*id)
+                .is_some_and(|v| is_datum_size_approval(id, v))
+        })
         .map(str::to_string)
         .collect()
 }
@@ -801,25 +813,60 @@ fn general_matches(
         .unwrap_or_default();
     let from = row("reference");
     if id.starts_with("location:holes:") {
-        let axis = located.measuring_axis(&from, &to, req.get("distance").and_then(Value::as_f64));
-        let positions: BTreeSet<_> = existing
+        let nominal = req.get("distance").and_then(Value::as_f64);
+        let exact_support: BTreeSet<_> = existing
             .iter()
             .enumerate()
-            .filter(|(_, item)| is_position(item) && on_any(item, &faces))
+            .filter(|(_, item)| {
+                item["type"] == "Location_LinearDistance"
+                    && item["value"]
+                        .as_f64()
+                        .zip(nominal)
+                        .is_some_and(|(stated, nominal)| (stated - nominal).abs() < SAME_VALUE)
+                    && faces_of(item, "faces")
+                        .iter()
+                        .copied()
+                        .collect::<BTreeSet<_>>()
+                        == from.iter().copied().collect()
+                    && !to.is_empty()
+                    && faces.is_subset(&faces_of(item, "faces2").into_iter().collect())
+            })
             .map(|(i, _)| i)
             .collect();
-        if !positions.is_empty() {
-            return positions;
+        if !exact_support.is_empty() {
+            return exact_support;
         }
-        if let Some(axis) = axis
-            && located.locates(&faces, Some(axis)) == Some(true)
-        {
-            return to
-                .iter()
-                .filter_map(|&f| located.by.get(&(f, axis)))
-                .flatten()
-                .copied()
-                .collect();
+        let axis = located.measuring_axis(&from, &to, nominal);
+        let holes = located.holes(&faces);
+        if !holes.is_empty() {
+            let mut matches = BTreeSet::new();
+            for (along, members) in holes {
+                let members: BTreeSet<_> = members.into_iter().collect();
+                let positions: BTreeSet<_> = existing
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| is_position(item) && on_any(item, &members))
+                    .map(|(i, _)| i)
+                    .collect();
+                if !positions.is_empty() {
+                    matches.extend(positions);
+                    continue;
+                }
+                let Some(axis) = axis.filter(|&a| a != along) else {
+                    return BTreeSet::new();
+                };
+                let covered: BTreeSet<_> = members
+                    .iter()
+                    .filter_map(|&f| located.by.get(&(f, axis)))
+                    .flatten()
+                    .copied()
+                    .collect();
+                if covered.is_empty() {
+                    return BTreeSet::new();
+                }
+                matches.extend(covered);
+            }
+            return matches;
         }
     }
     let overlaps = |faces: &[usize], side: &[usize]| faces.iter().any(|f| side.contains(f));
@@ -974,14 +1021,24 @@ pub(crate) fn build_with_depths(
     } else {
         crate::rules::dimension_suggestions(&bare_ctx, &all)
     };
-    for s in current
+    let file_datums: Vec<_> = existing
+        .iter()
+        .filter(|item| item["kind"] == "datum")
+        .map(|item| {
+            Map::from_iter([
+                ("letter".into(), item["type"].clone()),
+                ("faces".into(), item["faces"].clone()),
+            ])
+        })
+        .collect();
+    let stated = bare
         .into_iter()
-        .chain(
-            bare.into_iter()
-                .filter(|s| !general_matches(&s.dimension, &existing, &located).is_empty()),
-        )
-        .filter(|s| !crate::rules::general_rows::positioned_location(&ctx, s))
-    {
+        .filter_map(|s| crate::rules::general_rows::without_positioned(s, &ctx, &file_datums))
+        .filter(|s| !general_matches(&s.dimension, &existing, &located).is_empty());
+    let current = current
+        .into_iter()
+        .filter_map(|s| crate::rules::general_rows::without_positioned(s, &ctx, &file_datums));
+    for s in current.chain(stated) {
         if let std::collections::btree_map::Entry::Vacant(entry) =
             dimensions.entry(s.question.id.clone())
         {
@@ -1062,7 +1119,11 @@ pub(crate) fn build_with_depths(
                 requirements.push(requirement(existing[i]));
             }
             if positions.is_empty() && !location.missing.is_empty() {
-                if !location.items.is_empty() {
+                if location
+                    .items
+                    .iter()
+                    .any(|&i| kind.ends_with(".location") || existing[i]["basic"] != true)
+                {
                     missing = location
                         .missing
                         .iter()
@@ -1103,9 +1164,29 @@ pub(crate) fn build_with_depths(
                     );
                 }
             }
+            let bore_faces = (kind == "hole.function").then(|| {
+                support
+                    .iter()
+                    .copied()
+                    .filter(|&f| {
+                        matches!(
+                            geometry.get(f).and_then(|face| face["kind"].as_str()),
+                            Some("cylinder" | "cone")
+                        )
+                    })
+                    .collect()
+            });
             let mut has_requirement = false;
             for (i, item) in existing.iter().enumerate() {
-                let states_kind = states(&kind, &support, item);
+                let carriers = bore_faces
+                    .as_ref()
+                    .filter(|_| {
+                        item["type"]
+                            .as_str()
+                            .is_some_and(|t| t.starts_with("Size_"))
+                    })
+                    .unwrap_or(&support);
+                let states_kind = states(&kind, carriers, item);
                 let hole_depth = kind == "hole.function"
                     && depths
                         .get(&i)

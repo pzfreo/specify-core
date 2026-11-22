@@ -574,7 +574,7 @@ fn silent_answers_resume_on_clean_plate_and_enclosure_faces() {
         answers.insert("part.heat_treatment".into(), json!("None"));
         answers.insert("part.notes".into(), json!([]));
         let intent = api::preview(&analysis, &answers).unwrap();
-        let (bytes, _) =
+        let (bytes, report) =
             api::write_bytes(part.bytes.to_vec(), &[(intent, Some(answers.clone()))]).unwrap();
         let back = load_bytes("clean.step", bytes).unwrap();
         assert!(
@@ -583,17 +583,17 @@ fn silent_answers_resume_on_clean_plate_and_enclosure_faces() {
                 .is_empty()
         );
         let again = api::analyse(&back).unwrap();
-        // ADR P11: what leaves no PMI behind is stored. The hole's `general`, written by
-        // preview (which plans no general dimension), wrote nothing: rule 2 stores it, listed
-        // as such, so the hole stays decided and is not asked again.
-        let mut stored = specify_core::feature_table::storable(&answers);
-        stored.insert(hole.id.clone(), json!("general"));
-        stored.insert("_specify".into(), json!({"no_pmi": [hole.id]}));
+        // A partial preview that leaves out the size has not fulfilled the hole's
+        // general approval. Retain the ordinary decisions and leave this gap open.
+        let stored = specify_core::feature_table::storable(&answers);
         assert_eq!(again["resume"]["answers"], json!(stored));
+        assert!(report.not_written.iter().any(|line| {
+            line == &format!("answer {} ('general'): the plan supplied no writable PMI on this feature; remains open", hole.id)
+        }), "{report:?}");
         assert!(again["resume"].get("conflicts").is_none());
         let open = asked(&again).1;
         for id in answers.keys() {
-            assert!(!open.contains(id), "{id}");
+            assert_eq!(open.contains(id), *id == hole.id, "{id}");
         }
     }
 }

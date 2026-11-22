@@ -82,21 +82,65 @@ fn without_unknown(out: &mut Resumed) {
 
 /// The payload's carry blocks ([`UNRESOLVED`]) as answers' metadata, when well formed. A
 /// 0.2 payload's kept conflicts (`kept`) are ignored: ADR P11 has no conflicts to keep.
-fn restore_blocks(payload: &Map<String, Value>, answers: &mut Map<String, Value>) {
+fn restore_blocks(
+    loaded: &LoadedPart,
+    payload: &Map<String, Value>,
+    answers: &mut Map<String, Value>,
+) {
     restore_unresolved(payload, answers);
-    // The approvals that wrote no PMI (ADR P11 rule 2), listed beside the answers.
+    // Older writes could mark a failed PMI approval as decided. Reopen those
+    // answers so they cannot satisfy the interview without a write.
     let key = crate::feature_table::NO_PMI;
     if let Some(ids) = payload.get(key).and_then(Value::as_array)
         && !ids.is_empty()
         && ids.iter().all(Value::is_string)
     {
+        let mut datum_sizes = None;
+        let mut ids = ids.clone();
+        ids.retain(|id| {
+            let id = id.as_str().unwrap_or_default();
+            if answers
+                .get(id)
+                .is_some_and(|v| crate::feature_table::is_datum_size_approval(id, v))
+                && datum_sizes
+                    .get_or_insert_with(|| datum_size_features(loaded))
+                    .contains(crate::feature_table::kind_and_feature(id).1.as_str())
+            {
+                return true;
+            }
+            answers.shift_remove(id);
+            false
+        });
+        if ids.is_empty() {
+            return;
+        }
         let meta = answers
             .entry(crate::answer_file::META)
             .or_insert_with(|| json!({}));
         if let Some(meta) = meta.as_object_mut() {
-            meta.insert(key.into(), Value::Array(ids.clone()));
+            meta.insert(key.into(), Value::Array(ids));
         }
     }
+}
+
+fn datum_size_features(loaded: &LoadedPart) -> std::collections::BTreeSet<String> {
+    let Ok(reading) = crate::existing::read(loaded) else {
+        return Default::default();
+    };
+    let pmi = reading.model();
+    let datums: std::collections::BTreeSet<Vec<usize>> = pmi
+        .datums
+        .iter()
+        .filter_map(|d| d.feature())
+        .map(|f| crate::existing::faces_of(pmi, &[f]))
+        .filter(|faces| !faces.is_empty())
+        .collect();
+    crate::features::recognise(loaded)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|f| datums.contains(&f.faces))
+        .map(|f| f.id)
+        .collect()
 }
 
 fn restore_unresolved(payload: &Map<String, Value>, answers: &mut Map<String, Value>) {
@@ -491,7 +535,7 @@ fn stored_answers(
     };
     if let Some(answers) = &mut answers {
         answers.retain(|id, _| crate::input::known_id(id));
-        restore_blocks(&payload, answers);
+        restore_blocks(loaded, &payload, answers);
         answers.extend(crate::bom::answered_in(&doc, &loaded.definition));
     }
     Ok(answers)
@@ -647,7 +691,7 @@ fn ordinary_report_for_parsed(
     };
     if let Some(out) = &mut out {
         without_unknown(out);
-        restore_blocks(&payload, &mut out.answers);
+        restore_blocks(loaded, &payload, &mut out.answers);
     }
     Ok(out)
 }

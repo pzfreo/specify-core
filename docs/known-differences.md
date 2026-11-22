@@ -183,9 +183,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Maintainer decision (5 November 2026, docs/process.md): part.process is appended after every other question of a made part, so no existing question moves; an unanswered part is machined and its other questions, defaults and writes are unchanged. Python has no such question. tests/process.rs covers the question, its defaults and the STEP attribute.
 
-- **ADR P11 rule 2: an approval the planner wrote nothing for is reported in not_written and stored as decided** (7 entries, 7 case globs)
+- **ADR P11 rule 2: the omitted general size on a datum is stored as decided** (7 entries, 7 case globs)
 
-  The pin's (or a turned part's) diameter answered 'general' is on a datum's own faces, where the writer writes no size (src/writer.rs: a size there would make the datum a datum feature of size); before, the answer was neither written, reported nor stored, so the gap reopened and write --accept-defaults on the saved file refused 'incomplete' (review of eba27eb, blocker 1). It is now named in not_written and stored under no_pmi; Python, which stores every answer, reports nothing. tests/answers_without_pmi.rs an_approval_that_writes_nothing_stays_decided checks the round trip.
+  The approved general diameter on the datum’s own faces deliberately produces no size characteristic. Writing one would turn the datum into a datum feature of size beyond the writer’s provenance grammar. Rust reports one omission and remembers that decision. Python emits no corresponding line. The assembly and CLI round trips in tests/answers_without_pmi.rs pin the decision.
 
 - **General sizes omitted on a datum feature** (`scenarios/turned_a_straight_knurl_resumes` at `write.not_written[general size 6 on turned_steps:4 faces [4]: the faces establish a datum and the writer cannot mark a datum feature of size]`)
 

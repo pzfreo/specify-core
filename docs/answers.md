@@ -143,22 +143,18 @@ and settings, and `analyse` adds the **feature table**, `table`:
   - `gap`: nothing is there. `suggestion` is Specify's default (`null` when there is none).
     It is asked. `open` is false when the suggestion is "none": leaving it and accepting
     "none" give the same file.
-  - `decided_none`: an answer that nothing is needed, stored in the file; or an approval the
-    planner wrote nothing for (a ⌀ left to the general tolerance on a datum's own faces: no size
-    is written on a datum feature), stored and listed in the payload's `no_pmi` (resumed as
-    `_specify.no_pmi`), its `value` the answer. The write report's `not_written` names it:
-    "answer diameter.fit:turned_steps:0 ('general'): approved, but nothing of its kind was
-    written on its feature (none is written on a datum's own faces; otherwise the planner
-    skipped it); stored as decided, not asked again", so a planner gap stays visible. The
-    check is per feature and kind (per direction for a location): a size written on a hole
-    does not count for its position. Every route treats the stored decisions as answered: the
-    command line's `questions` and `write`, `serve`, MCP, WASM and the page.
+  - `decided_none`: an answer that nothing is needed, stored in the file. A general size on
+    a datum's own faces is deliberately omitted and reported in `not_written`. This approval
+    is stored under the payload's `no_pmi`, exposed as `_specify.no_pmi` on reopen.
+    When a PMI-bearing approval cannot be fulfilled, `not_written` gives the reason and its
+    row stays open. Older payload markers for skipped PMI are discarded on reopen.
 - `file_pmi`: the file's requirements on no recognised feature and kind.
 - `decided_none`: the decided-none ids, read back from the file.
 
 A hole located by position PMI has its location on the position row of the hole or its
-pattern. It has no standalone general location row. A planned depth belongs to the hole's
-function row, including when the STEP dimension measures between endpoint planes or points.
+pattern. A shared general location includes only the holes that still need it. Basic dimensions
+can coexist with the position tolerance that controls them. Bore sizes and planned depths
+belong to the hole function row, including depths measured between endpoint planes or points.
 
 ### What the file states, read back whole
 

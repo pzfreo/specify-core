@@ -60,21 +60,78 @@ pub(crate) fn is_id(id: &str) -> bool {
     })
 }
 
-/// A position tolerance already locates the hole. Its basic dimensions belong to the
-/// position scheme and must never be offered separately under the general tolerance.
-pub(crate) fn positioned_location(ctx: &Ctx<'_>, suggestion: &Suggestion) -> bool {
-    location_on(&suggestion.question.id, &suggestion.dimension, |f| {
-        ctx.positioned.contains(&f)
-    })
-}
-
-fn location_on(id: &str, row: &Dimension, matches: impl FnMut(i64) -> bool) -> bool {
-    id.starts_with("location:holes:") && face_ids(row, "faces").any(matches)
-}
-
 pub(crate) struct Suggestion {
     pub(crate) question: Question,
     pub(crate) dimension: Dimension,
+}
+
+/// A shared offset locates only the holes that still lack position PMI. Keep the
+/// planner's representative, coverage and STEP carrier in agreement with the row.
+fn unpositioned_location(row: &mut Dimension, positioned: impl Fn(i64) -> bool) -> Option<()> {
+    if !measurement_id(row)?.starts_with("location:holes:") {
+        return Some(());
+    }
+    if let Some(value) = row.get_mut("planner") {
+        let mut plan: crate::dimensioning::Planned = serde_json::from_value(value.clone()).ok()?;
+        let quiddity::dimensioning::Kind::Location { to, .. } = &mut plan.required.kind else {
+            return Some(());
+        };
+        let alias = format!("coincident:{}", plan.required.id);
+        if let Some(members) = plan.groups.get_mut(&alias) {
+            let old_len = members.len();
+            let has_position = |id: &str| {
+                plan.supports
+                    .iter()
+                    .find(|s| s.feature == id)
+                    .is_some_and(|s| s.faces.iter().any(|&f| positioned(f as i64)))
+            };
+            members.retain(|id| !has_position(id));
+            let first = members.first()?;
+            if members.len() == old_len {
+                return Some(());
+            }
+            if !members.contains(&to.feature) {
+                *to = plan.supports.iter().find(|s| &s.feature == first)?.clone();
+            }
+            plan.required.covers.retain(|id| !has_position(id));
+            let faces = Value::from(to.faces.clone());
+            let feature = to.feature.replacen("hole:", "holes:", 1);
+            *value = serde_json::to_value(plan).ok()?;
+            row.insert("faces".into(), faces);
+            row.insert("feature".into(), Value::from(feature));
+            return Some(());
+        }
+        return (!to.faces.iter().any(|&f| positioned(f as i64))).then_some(());
+    }
+    let faces: Vec<_> = face_ids(row, "faces").filter(|&f| !positioned(f)).collect();
+    if faces.is_empty() {
+        return None;
+    }
+    row.insert("faces".into(), Value::from(faces));
+    Some(())
+}
+
+pub(crate) fn without_positioned(
+    s: Suggestion,
+    ctx: &Ctx<'_>,
+    datums: &[Dimension],
+) -> Option<Suggestion> {
+    if ctx.positioned.is_empty() {
+        return Some(s);
+    }
+    let Suggestion {
+        question,
+        dimension: mut row,
+    } = s;
+    unpositioned_location(&mut row, |f| ctx.positioned.contains(&f))?;
+    if measurement_id(&row).is_some_and(|id| id == question.id) {
+        Some(Suggestion {
+            question,
+            dimension: row,
+        })
+    } else {
+        suggestion(&row, datums)
+    }
 }
 
 fn support(faces: &BTreeSet<i64>) -> String {
@@ -215,7 +272,15 @@ pub(super) fn suggestions(ctx: &Ctx<'_>, intent: &Intent, owners: &Owners<'_>) -
         .general
         .iter()
         .filter(|r| owners.of(r).next().is_none())
-        .filter_map(|r| suggestion(r, &intent.datums))
-        .filter(|s| !location_on(&s.question.id, &s.dimension, |f| positioned.contains(&f)))
+        .filter_map(|r| {
+            if !ctx.has_table() || (ctx.positioned.is_empty() && positioned.is_empty()) {
+                return suggestion(r, &intent.datums);
+            }
+            let mut row = r.clone();
+            unpositioned_location(&mut row, |f| {
+                ctx.positioned.contains(&f) || positioned.contains(&f)
+            })?;
+            suggestion(&row, &intent.datums)
+        })
         .collect()
 }
