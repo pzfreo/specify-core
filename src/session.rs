@@ -1200,22 +1200,25 @@ fn check_with_drafts(
     drafts: &BTreeMap<usize, EditList>,
     loaded: Option<&part::LoadedPart>,
 ) -> CheckedEdits {
-    let lists = include_drafts(lists, drafts, &step, "mcp").expect("MCP merges every draft");
     let mut outcome = Outcome {
         well_formed: true,
-        checked_against_file: true,
+        checked_against_file: false,
         applicable: true,
         entries: lists.values().map(EditList::len).sum(),
         unchanged: Vec::new(),
         failures: Vec::new(),
     };
-    let result = if let Some(loaded) = loaded.filter(|_| lists.len() == 1) {
-        crate::writer::apply::apply(loaded, &lists[&loaded.binding.part])
-            .map(|applied| applied.outcome.unchanged)
-            .map_err(SaveError::Edits)
-    } else {
-        stage_assembly_edits(step, &lists).map(|staged| staged.unchanged_entries)
-    };
+    let result = include_drafts(lists, drafts, &step, "mcp").and_then(|lists| {
+        outcome.checked_against_file = true;
+        outcome.entries = lists.values().map(EditList::len).sum();
+        if let Some(loaded) = loaded.filter(|_| lists.len() == 1) {
+            crate::writer::apply::apply(loaded, &lists[&loaded.binding.part])
+                .map(|applied| applied.outcome.unchanged)
+                .map_err(SaveError::Edits)
+        } else {
+            stage_assembly_edits(step, &lists).map(|staged| staged.unchanged_entries)
+        }
+    });
     let mut part_failures = Vec::new();
     match result {
         Ok(unchanged) => outcome.unchanged = unchanged,
