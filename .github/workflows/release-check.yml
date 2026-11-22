@@ -7,14 +7,15 @@ on:
         description: The release tag, or empty for a PyPI backfill from main
         required: true
         type: string
-      require-release:
-        description: Require a GitHub release even for a manually published final version
-        type: boolean
-        default: false
-      check-python:
-        description: Check the PyPI version against the release version
-        type: boolean
-        default: false
+      channel:
+        description: Publishing channel (github, crates, or pypi)
+        type: string
+        default: github
+    outputs:
+      publish:
+        value: ${{ jobs.check.outputs.publish }}
+      prerelease:
+        value: ${{ jobs.check.outputs.prerelease }}
 
 permissions:
   contents: read
@@ -22,18 +23,17 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.decision.outputs.publish }}
+      prerelease: ${{ steps.decision.outputs.prerelease }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - name: The release flag and versions agree
+        id: decision
         env:
           TAG: ${{ inputs.tag }}
-          REQUIRE_RELEASE: ${{ inputs.require-release }}
-          CHECK_PYTHON: ${{ inputs.check-python }}
+          CHANNEL: ${{ inputs.channel }}
           GH_TOKEN: ${{ github.token }}
-        run: |
-          flags=()
-          if [ "$REQUIRE_RELEASE" = true ]; then flags+=(--require-release); fi
-          if [ "$CHECK_PYTHON" = true ]; then flags+=(--python); fi
-          python3 tools/release_version.py --tag="$TAG" "${flags[@]}"
+        run: python3 tools/release_version.py --channel "$CHANNEL" --tag="$TAG"

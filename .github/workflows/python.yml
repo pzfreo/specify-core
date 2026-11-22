@@ -177,10 +177,11 @@ jobs:
     uses: ./.github/workflows/release-check.yml
     with:
       tag: ${{ github.event.release.tag_name || '' }}
-      check-python: true
+      channel: pypi
 
   publish:
     needs: [wheels, sdist, test, release-check]
+    if: needs.release-check.outputs.publish == 'true'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

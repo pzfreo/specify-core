@@ -2,11 +2,11 @@ import json
 import os
 import shutil
 import pathlib
-import subprocess
 import tempfile
 import unittest
 
 import npm_package
+from release_version import decide_publish
 
 
 def write_pkg(root: pathlib.Path, **meta) -> pathlib.Path:
@@ -29,7 +29,6 @@ def write_pkg(root: pathlib.Path, **meta) -> pathlib.Path:
 
 class NpmPackageTests(unittest.TestCase):
     def test_publish_dist_tags(self):
-        script = pathlib.Path(__file__).with_name("npm_dist_tag.sh")
         for version, latest, expected in [
             ("0.2.3", "0.2.3", "latest"),
             ("0.2.3", "0.3.0", "release-0.2.3"),
@@ -40,8 +39,9 @@ class NpmPackageTests(unittest.TestCase):
             ("0.3.0-rc.1", "", "next"),
         ]:
             with self.subTest(version=version, latest=latest):
-                actual = subprocess.check_output(["bash", str(script), version, latest], text=True)
-                self.assertEqual(actual.strip(), expected)
+                decision = decide_publish("npm", f"v{version}", "-" in version, latest=latest)
+                self.assertTrue(decision.publish)
+                self.assertEqual(decision.dist_tag, expected)
 
     def test_scopes_the_name_and_keeps_the_module(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -39,6 +39,10 @@ concurrency:
 
 jobs:
   bundle:
+    needs: release-check
+    if: >-
+      ${{ !cancelled() && (github.event_name == 'pull_request' ||
+        (needs.release-check.result == 'success' && needs.release-check.outputs.publish == 'true')) }}
     uses: ./.github/workflows/bundle.yml
     with:
       ref: ${{ github.event.release.tag_name || inputs.tag || github.sha }}
@@ -67,10 +71,11 @@ jobs:
     uses: ./.github/workflows/release-check.yml
     with:
       tag: ${{ github.event.release.tag_name || inputs.tag }}
+      channel: crates
 
   publish:
     needs: [bundle, release-check]
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'release'
+    if: needs.release-check.outputs.publish == 'true'
     runs-on: ubuntu-latest
     # crates.io trusted publishing: the crate trusts this repository, this workflow and this
     # environment, and the job mints a short-lived token; no token is stored. The environment
@@ -83,6 +88,13 @@ jobs:
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
+      # A backfill tag can predate the workflow's release policy. Keep the policy checkout
+      # from the running workflow available when the tagged sources replace it.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - run: cp tools/release_version.py "$RUNNER_TEMP/release_version.py"
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: refs/tags/${{ env.TAG }}
@@ -123,31 +135,26 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
       # A version already on crates.io is skipped, so a rerun or a backfill of a release that
       # was published by hand does nothing.
-      - name: What crates.io lacks
-        id: missing
+      - name: Decide whether to publish to crates.io
+        id: decision
+        env:
+          PRERELEASE: ${{ needs.release-check.outputs.prerelease }}
         run: |
           status=$(curl -s --retry 3 -o /dev/null -w '%{http_code}' \
             -H 'User-Agent: pzfreo/specify-core release workflow' \
             "https://crates.io/api/v1/crates/specify-core/$VERSION")
-          if [ "$status" = 200 ]; then
-            echo "specify-core $VERSION is already on crates.io: skipped"
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-          elif [ "$status" = 404 ]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::error::crates.io answered $status for specify-core $VERSION"
-            exit 1
-          fi
+          python3 "$RUNNER_TEMP/release_version.py" --channel crates --tag="$TAG" \
+            --prerelease="$PRERELEASE" --registry-status="$status"
       # The app and engine, in the crate if it fits (bundle/ is not committed: --allow-dirty).
       - name: Package
-        if: steps.missing.outputs.publish == 'true'
+        if: steps.decision.outputs.publish == 'true'
         run: bash tools/package_crate.sh
       - name: Mint a crates.io token
-        if: steps.missing.outputs.publish == 'true'
+        if: steps.decision.outputs.publish == 'true'
         id: auth
         uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
       - name: Publish
-        if: steps.missing.outputs.publish == 'true'
+        if: steps.decision.outputs.publish == 'true'
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: cargo publish --locked --allow-dirty -p specify-core

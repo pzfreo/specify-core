@@ -1,15 +1,99 @@
 """Offline tests for the release checks used by the publishing workflows."""
 
 import io
+import json
 import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from release_version import check_python_version, check_release, lookup_prerelease
+from release_version import check_python_version, check_release, decide_publish, lookup_prerelease
 
 
 class ReleaseVersionTests(unittest.TestCase):
+    def test_workflow_publish_decisions(self):
+        script = Path(__file__).with_name("release_version.py").resolve()
+        jobs = (
+            ("wasm", "github", False),
+            ("npm", "npm", True),
+            ("ui-guard", "github", False),
+            ("ui-npm", "npm", True),
+            ("crates-bundle", "crates", False),
+            ("crates-publish", "crates", True),
+            ("PyPI", "pypi", False),
+            ("cli-attach", "github", False),
+        )
+        rc = "0.3.0-rc.1"
+        final = "0.3.0"
+        cases = [
+            (rc, True, "0.3.0rc1", "0.2.3", "next", "0.3.0rc1", True),
+            (rc, False, "0.3.0rc1", "0.2.3", "", "", False),
+            (final, True, final, "0.2.3", "", "", False),
+            (final, False, final, "0.2.3", "latest", final, True),
+            (final, False, final, "0.3.1", "release-0.3.0", final, True),
+            (rc, True, final, "0.2.3", "next", "", True),
+        ]
+        header = ("tag", "flag", "pyproject", "npm-latest", *(job[0] for job in jobs))
+        actual_rows = []
+        expected_rows = []
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            pyproject = root / "crates/specify-core-py/pyproject.toml"
+            pyproject.parent.mkdir(parents=True)
+            event = root / "event.json"
+            output = root / "output"
+            env = {**os.environ, "GITHUB_EVENT_NAME": "release",
+                   "GITHUB_EVENT_PATH": str(event), "GITHUB_OUTPUT": str(output)}
+            for version, flag, python_version, latest, dist_tag, pypi_version, eligible in cases:
+                tag = f"v{version}"
+                flag_value = str(flag).lower()
+                event.write_text(json.dumps({"release": {"tag_name": tag, "prerelease": flag}}))
+                pyproject.write_text(f'[project]\nversion = "{python_version}"\n')
+                actual = [tag, flag_value, python_version, latest]
+                expected = actual.copy()
+                for name, channel, queries_registry in jobs:
+                    command = [sys.executable, str(script), "--channel", channel, f"--tag={tag}"]
+                    if queries_registry:
+                        command.extend((f"--prerelease={flag_value}", "--registry-status=404"))
+                    if channel == "npm":
+                        command.append(f"--latest={latest}")
+                    output.unlink(missing_ok=True)
+                    result = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True)
+                    with self.subTest(job=name, tag=tag, flag=flag, pyproject=python_version):
+                        if result.returncode:
+                            self.assertEqual(result.returncode, 1)
+                            self.assertIn("::error::", result.stderr)
+                            self.assertFalse(output.exists())
+                            actual.append("fail")
+                        else:
+                            fields = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                            self.assertEqual(fields["prerelease"], flag_value)
+                            status = "publish" if fields["publish"] == "true" else "skip"
+                            detail = fields["dist_tag"] or fields["python_version"]
+                            actual.append(f"{status}/{detail}" if detail else status)
+                    detail = {"npm": dist_tag, "pypi": pypi_version}.get(channel, "")
+                    if not eligible or (channel == "pypi" and not pypi_version):
+                        expected.append("fail")
+                    else:
+                        expected.append(f"publish/{detail}" if detail else "publish")
+                actual_rows.append(actual)
+                expected_rows.append(expected)
+        print()
+        for row in (header, *actual_rows):
+            print(" | ".join(row))
+        self.assertEqual(actual_rows, expected_rows)
+
+    def test_registry_skip_and_error(self):
+        for channel in ("npm", "crates"):
+            with self.subTest(channel=channel):
+                self.assertFalse(decide_publish(channel, "v0.3.0-rc.1", True, registry_status="200").publish)
+                with self.assertRaisesRegex(ValueError, "answered 503"):
+                    decide_publish(channel, "v0.3.0-rc.1", True, registry_status="503")
+
     def test_release_flags_must_match_tags(self):
         check_release("v0.2.3", False)
         check_release("v0.3.0", False)

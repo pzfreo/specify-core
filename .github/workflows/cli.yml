@@ -130,7 +130,7 @@ jobs:
   # with the app and engine inside the binary (ADR P12), that covers them too.
   attach:
     needs: [build, release-check]
-    if: github.event_name == 'release'
+    if: needs.release-check.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -35,11 +35,10 @@ jobs:
     uses: ./.github/workflows/release-check.yml
     with:
       tag: ${{ github.event.release.tag_name || inputs.tag }}
-      require-release: true
 
   wasm:
     needs: release-check
-    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
+    if: github.event_name == 'release' && needs.release-check.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -108,7 +107,7 @@ jobs:
   npm:
     needs: [release-check, wasm]
     if: >-
-      ${{ !cancelled() && needs.release-check.result == 'success' &&
+      ${{ !cancelled() && needs.release-check.result == 'success' && needs.release-check.outputs.publish == 'true' &&
         (github.event_name == 'workflow_dispatch' || needs.wasm.result == 'success') }}
     runs-on: ubuntu-latest
     environment: npm
@@ -117,7 +116,6 @@ jobs:
       id-token: write
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
-      PACKAGE: '@draftwright/specify-core-wasm'
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -150,35 +148,33 @@ jobs:
       # A version already on npm is skipped, so a rerun or a dispatch of a published release
       # does nothing. An older version than npm's latest keeps `latest` where it is, under the
       # dist-tag release-<version> (npm refuses a dist-tag that is a semver range, like v0.1.16).
-      - name: What npm lacks
-        id: missing
+      - name: Decide whether and where to publish the WASM package
+        id: decision
+        env:
+          PRERELEASE: ${{ needs.release-check.outputs.prerelease }}
         run: |
           url="https://registry.npmjs.org/@draftwright%2fspecify-core-wasm"
           status=$(curl -s --retry 3 -o /dev/null -w '%{http_code}' "$url/$VERSION")
-          if [ "$status" = 200 ]; then
-            echo "$PACKAGE $VERSION is already on npm: skipped"
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          elif [ "$status" != 404 ]; then
-            echo "::error::npm answered $status for $PACKAGE $VERSION"
-            exit 1
+          latest=
+          if [ "$status" = 404 ]; then
+            latest=$(curl -s --retry 3 "$url" | jq -r '."dist-tags".latest // empty')
           fi
-          echo "publish=true" >> "$GITHUB_OUTPUT"
-          latest=$(curl -s --retry 3 "$url" | jq -r '."dist-tags".latest // empty')
-          dist_tag=$(bash tools/npm_dist_tag.sh "$VERSION" "$latest")
-          echo "dist_tag=$dist_tag" >> "$GITHUB_OUTPUT"
+          python3 tools/release_version.py --channel npm --tag="$TAG" --prerelease="$PRERELEASE" \
+            --registry-status="$status" --latest="$latest"
       # npm trusted publishing: npm exchanges the job's OIDC token (id-token: write), so no
       # secret is passed; a publish can only succeed through the trusted publisher.
       - name: Publish
-        if: steps.missing.outputs.publish == 'true'
-        run: npm publish ./release/pkg --tag "${{ steps.missing.outputs.dist_tag }}"
+        if: steps.decision.outputs.publish == 'true'
+        env:
+          DIST_TAG: ${{ steps.decision.outputs.dist_tag }}
+        run: npm publish ./release/pkg --tag "$DIST_TAG"
 
   # The UI library, @draftwright/specify-ui, from ui/: the release guard, the suites on the WASM
   # the wasm job built, and the tarball (its engine dependency pinned to this version,
   # scripts/pack.mjs). Moved from specify-ui's release.yml.
   ui:
-    needs: wasm
-    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
+    needs: [release-check, wasm]
+    if: needs.release-check.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -200,6 +196,7 @@ jobs:
           node-version: 22
       - run: npm ci
       - name: Release guard
+        # The release-check decision gates this job; the guard checks the checkout and built engine.
         env:
           TAG: ${{ github.event.release.tag_name }}
         run: |
@@ -323,10 +320,8 @@ jobs:
   # npmjs.com for pzfreo/specify-core, release.yml and environment `npm`. No npm token is
   # passed. It waits for the engine it depends on to be published (the npm job above).
   ui-npm:
-    needs: [ui, npm]
-    if: >-
-      ${{ !cancelled() && github.event_name == 'release' &&
-        needs.ui.result == 'success' && needs.npm.result == 'success' }}
+    needs: [release-check, ui, npm]
+    if: needs.release-check.outputs.publish == 'true'
     runs-on: ubuntu-latest
     environment: npm
     permissions:
@@ -346,8 +341,11 @@ jobs:
           registry-url: https://registry.npmjs.org
       # Trusted publishing needs npm >= 11.5.1; Node 22 ships npm 10.
       - run: npm install -g npm@11.20.0
-      # npm exchanges the job's OIDC token with the trusted publisher; no secret is used.
-      - name: Publish
+      - name: Verify the tarball and decide whether and where to publish it
+        id: decision
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ needs.release-check.outputs.prerelease }}
         run: |
           set -eu
           set -- ./tarball/*.tgz
@@ -355,16 +353,24 @@ jobs:
           file=$1 # ./ prefix: npm reads a bare "dir/file.tgz" as a GitHub owner/repo
           version=$(tar -xOzf "$file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
           engine=$(tar -xOzf "$file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).dependencies['@draftwright/specify-core-wasm']")
+          [ "$TAG" = "v$version" ] || { echo "::error::Tag $TAG does not match the tarball version $version."; exit 1; }
           [ "$engine" = "$version" ] || { echo "::error::The tarball depends on @draftwright/specify-core-wasm $engine, not $version."; exit 1; }
           published=$(npm view "@draftwright/specify-core-wasm@$engine" version 2>/dev/null || true)
           [ "$published" = "$engine" ] || { echo "::error::@draftwright/specify-core-wasm@$engine is not on npm."; exit 1; }
+          status=404
+          latest=
           if [ "$(npm view "@draftwright/specify-ui@$version" version 2>/dev/null || true)" = "$version" ]; then
-            echo "@draftwright/specify-ui $version is already on npm: skipped"
-            exit 0
+            status=200
+          else
+            latest=$(npm view "@draftwright/specify-ui" dist-tags.latest 2>/dev/null || true)
           fi
-          # `latest` never moves backwards. A version older than npm's latest is published under
-          # release-<version>; a semver prerelease version (1.0.0-rc.1) under `next`.
-          latest=$(npm view "@draftwright/specify-ui" dist-tags.latest 2>/dev/null || true)
-          dist_tag=$(bash tools/npm_dist_tag.sh "$version" "$latest")
-          echo "Publishing $version with dist-tag $dist_tag (npm latest: ${latest:-none})"
-          npm publish "$file" --provenance --access public --tag "$dist_tag"
+          python3 tools/release_version.py --channel npm --tag="$TAG" --prerelease="$PRERELEASE" \
+            --registry-status="$status" --latest="$latest"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+      # npm exchanges the job's OIDC token with the trusted publisher; no secret is used.
+      - name: Publish
+        if: steps.decision.outputs.publish == 'true'
+        env:
+          TARBALL: ${{ steps.decision.outputs.file }}
+          DIST_TAG: ${{ steps.decision.outputs.dist_tag }}
+        run: npm publish "$TARBALL" --provenance --access public --tag "$DIST_TAG"
