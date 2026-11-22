@@ -3315,7 +3315,7 @@ fn part_pmi_observed(
             continue;
         }
         if truthy(req.get("stored")) {
-            skip("the measurement comes from PMI already in the file");
+            skip("the intent marks the measurement as already stated");
             continue;
         }
         let kind = req.get("kind").and_then(Json::as_str).unwrap_or("");
@@ -3366,13 +3366,13 @@ fn part_pmi_observed(
         // A requirement on no faces (a hole whose bores the rules keep no cylinder for) is
         // listed and the rest written (question Q17).
         if let Some(what) = faceless(kind, req).filter(|_| !req.contains_key("planner")) {
-            if under_general {
+            if general_row {
                 skip(&format!("{what} names no faces (question Q17)"));
-                continue;
+            } else if !under_general {
+                lines.not_written.push(format!(
+                    "{what} names no faces, so nothing in the file can carry it (question Q17)"
+                ));
             }
-            lines.not_written.push(format!(
-                "{what} names no faces, so nothing in the file can carry it (question Q17)"
-            ));
             continue;
         }
         if let Some(planned) = req.get("planner") {

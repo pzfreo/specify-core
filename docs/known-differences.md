@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 274 | 0 | 52 | 0 | 2 | 1 | 329 |
+| [cli](#cli) | 275 | 0 | 52 | 0 | 2 | 1 | 330 |
 | [cross_engine](#cross_engine) | 142 | 2 | 0 | 1 | 1 | 20 | 166 |
 | [cross_engine_written](#cross_engine_written) | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
 | [existing](#existing) | 96 | 0 | 0 | 0 | 7 | 0 | 103 |
@@ -22,8 +22,8 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
-| [writer](#writer) | 1652 | 0 | 0 | 0 | 15 | 1 | 1668 |
-| **all** | 5755 | 1433 | 1249 | 2497 | 1101 | 1908 | 13943 |
+| [writer](#writer) | 3092 | 0 | 0 | 0 | 15 | 1 | 3108 |
+| **all** | 7196 | 1433 | 1249 | 2497 | 1101 | 1908 | 15384 |
 
 ## analysis
 
@@ -77,7 +77,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (274 entries)
+### cli: rust-correct (275 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -186,6 +186,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **ADR P11 rule 2: an approval the planner wrote nothing for is reported in not_written and stored as decided** (7 entries, 7 case globs)
 
   The pin's (or a turned part's) diameter answered 'general' is on a datum's own faces, where the writer writes no size (src/writer.rs: a size there would make the datum a datum feature of size); before, the answer was neither written, reported nor stored, so the gap reopened and write --accept-defaults on the saved file refused 'incomplete' (review of eba27eb, blocker 1). It is now named in not_written and stored under no_pmi; Python, which stores every answer, reports nothing. tests/answers_without_pmi.rs an_approval_that_writes_nothing_stays_decided checks the round trip.
+
+- **General sizes omitted on a datum feature** (`scenarios/turned_a_straight_knurl_resumes` at `write.not_written[general size 6 on turned_steps:4 faces [4]: the faces establish a datum and the writer cannot mark a datum feature of size]`)
+
+  The writer cannot mark the resulting datum feature of size for future preservation. P11 requires it to report this omitted general size.
 
 ### cli: equivalent (52 entries)
 
@@ -1279,7 +1283,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (1652 entries)
+### writer: rust-correct (3092 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1476,6 +1480,26 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **the existing item's length, a 0.3.0 read-back field the Python reference does not have** (`scenarios/turned_external_thread_and_straight_knurl` at `existing[key=*].length`)
 
   The existing item's `length` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+
+- **Legacy general dimensions omitted during shared planning** (1328 entries, 24 case globs)
+
+  The old intent contains this measurement, and the shared planner did not retain it when upgrading the intent. P11 requires this named omission in the report.
+
+- **General sizes omitted on a datum feature** (7 entries, 7 case globs)
+
+  The writer cannot mark the resulting datum feature of size for future preservation. P11 requires it to report this omitted general size.
+
+- **General dimensions with missing supports** (45 entries, 4 case globs)
+
+  This general dimension has no valid face support. Q17 and P11 require the writer to say which dimension could not be written.
+
+- **General dimensions deferred when adding to existing PMI** (59 entries, 2 case globs)
+
+  Add mode still omits general rows outside shared planner coverage. P11 requires it to name each affected measurement in the report.
+
+- **General dimensions already stated by imported PMI** (`nist/nist_ctc_03_asme1_ap242` at `write.not_written[general location 447.345 to faces [11, 12] from faces [16, 17]: the file already states it; not written again]`)
+
+  Add mode preserves existing PMI and skips the repeated measurement. P11 requires it to report the omitted general dimension.
 
 ### writer: not-applicable (15 entries)
 
