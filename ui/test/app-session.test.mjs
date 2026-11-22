@@ -29,6 +29,16 @@ test('the second page save uses the HTTP response revision before any event arri
   assert.equal(session.dirty(), true);
 });
 
+test('a delayed save response records the exact disk answers after a newer agent event', () => {
+  const session = createSession(4, { 0: {} });
+  const agentAnswers = { 'part.material': 'Steel' };
+  session.receive({ rev: 6, part: 0, answers: agentAnswers, source: 'mcp' });
+  session.receiveSave({ rev: 5, parts: { 0: { 'part.coating': 'None' } } });
+  assert.equal(session.rev(), 6);
+  assert.deepEqual(session.answers(0), agentAnswers);
+  assert.equal(session.dirty(), true);
+});
+
 // Full answer replay history was removed with reconstruction; retain disk-baseline coverage.
 test('a delayed saved revision still tracks disk answers after further edits', () => {
   const metadata = { schema: 2, high_water: 17, entries: [] };

@@ -127,6 +127,20 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>): A
     changed();
   };
 
+  const markSaved = (at: number, parts?: SessionAnswers['parts']) => {
+    if (savedRev !== null && at < savedRev) return;
+    savedRev = at;
+    awaited = null;
+    const then = parts
+      ? Object.fromEntries(Object.entries(parts).map(([k, a]) => [k, asGiven(a)]))
+      : history.get(at);
+    if (then) onDisk = then;
+    // Older than the history: without a snapshot, the latest known is the best guess.
+    else if (at < state.rev) onDisk = history.get(state.rev)!;
+    else awaited = at;
+    changed();
+  };
+
   const session: AnswersSession = {
     signal: requests.signal,
     rev: () => state.rev,
@@ -188,20 +202,10 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>): A
       onDisk = { ...onDisk, [String(part)]: asGiven(answers) };
       queueMicrotask(changed);
     },
-    markSaved(at) {
-      if (savedRev !== null && at < savedRev) return;
-      savedRev = at;
-      awaited = null;
-      const then = history.get(at);
-      if (then) onDisk = then;
-      // Older than the history: the latest known is the best guess.
-      else if (at < state.rev) onDisk = history.get(state.rev)!;
-      else awaited = at;
-      changed();
-    },
+    markSaved,
     receiveSave(saved) {
       known(saved.rev, saved.parts, true, 'start');
-      session.markSaved(saved.rev);
+      markSaved(saved.rev, saved.parts);
     },
     dirty() {
       const now: Record<string, string> = Object.fromEntries(Object.entries(state.parts).map(([k, a]) => [k, asGiven(a)]));
