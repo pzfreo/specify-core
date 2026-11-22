@@ -727,6 +727,7 @@ impl Session {
 
 fn difference(case: &str, path: &str, python: Option<Value>, rust: Option<Value>) -> Difference {
     Difference {
+        context: None,
         case: case.to_string(),
         path: path.to_string(),
         python,
@@ -1658,6 +1659,9 @@ fn check_area(differences: &[Difference]) {
     let entries: Vec<_> = load_known(&path)
         .into_iter()
         .filter(|e| {
+            if exact_default_array(e) {
+                return false;
+            }
             common::all_corpus()
                 || !e.case.starts_with("corpus/")
                 || (!e.path.starts_with("write") && !e.path.starts_with("apply") && e.path != "whole_intent_write"
@@ -1686,6 +1690,29 @@ fn check_area(differences: &[Difference]) {
     // A broad pre-existing comparison cannot satisfy an exact retired-command case.
     entries.sort_by_key(|entry| entry.path != "whole_intent_write");
     check_known_with(&path.display().to_string(), &entries, differences);
+}
+
+/// The 0.5.5 review pins complete captured default arrays. Check those
+/// before round 6's field-level comparison projects out known rule departures.
+fn exact_default_array(entry: &common::KnownDifference) -> bool {
+    entry.path == "questions.defaults.questions" && entry.exact.is_some()
+}
+
+fn check_default_arrays(differences: &[Difference]) {
+    let entries: Vec<_> = load_known(&common::known_differences_file("cli"))
+        .into_iter()
+        .filter(exact_default_array)
+        .filter(|entry| common::case_selected(&entry.case))
+        .collect();
+    let cases: BTreeSet<_> = entries.iter().map(|entry| entry.case.as_str()).collect();
+    let actual: Vec<_> = differences
+        .iter()
+        .filter(|d| {
+            cases.contains(d.case.as_str()) && d.exact().0 == "questions.defaults.questions"
+        })
+        .cloned()
+        .collect();
+    check_known_with("cli_arrays.json", &entries, &actual);
 }
 
 /// CLI prefixes artifact names onto paths, whereas rules_oracle puts them in case names.
@@ -1804,7 +1831,8 @@ fn check_datum_origin_departures(differences: &[Difference]) {
     let prior: Vec<_> = load_known(&common::known_differences_file("cli"))
         .into_iter()
         .filter(|e| {
-            e.pattern != PATTERN
+            e.exact.is_none()
+                && e.pattern != PATTERN
                 && e.pattern != "Shared planner report item in serve (#75)"
                 && e.pattern != "Exact tap-drill defaults and dependent question order"
                 && e.pattern != "Combined ISO 2768 class choices in CLI and serve"
@@ -1975,6 +2003,7 @@ fn the_command_line_matches_the_oracle() {
     let (retired, active): (Vec<_>, Vec<_>) = python_inputs(&dir)
         .into_iter()
         .partition(|difference| difference.path == "whole_intent_write");
+    check_default_arrays(&active);
     let mut differences = explained(&AREAS, &without_reviewed_rule_departures(active));
     differences.extend(retired);
     differences.extend(command_lines(&dir));

@@ -20,11 +20,33 @@ fn known(case: &str, path: &str, verdict: &str) -> KnownDifference {
         verdict: verdict.into(),
         evidence: "what was checked".into(),
         values: None,
+        exact: None,
     }
+}
+
+#[test]
+fn exact_differences_pin_a_complete_array_at_its_stable_path() {
+    let python = json!({"offset": [1, null]});
+    let rust = json!({"offset": [2, 3]});
+    let diffs = compare("part", &python, &rust, &Tolerances::default());
+    let mut entry = known("part", "offset", "rust-correct");
+    entry.exact = Some([Some(python["offset"].clone()), Some(rust["offset"].clone())]);
+    check_known_with("test", &[entry.clone()], &diffs);
+    let wrong = compare(
+        "part",
+        &python,
+        &json!({"offset": [2, 4]}),
+        &Tolerances::default(),
+    );
+    assert!(
+        wrong.iter().all(|d| !entry.matches(d)),
+        "the full array must agree"
+    );
 }
 
 fn difference(case: &str, path: &str) -> Difference {
     Difference {
+        context: None,
         case: case.into(),
         path: path.into(),
         python: Some(json!(1)),

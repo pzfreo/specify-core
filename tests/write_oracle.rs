@@ -169,6 +169,7 @@ fn lines(name: &str, path: &str, python: &Value, rust: &Value) -> Vec<Difference
         );
         if a != b {
             out.push(Difference {
+                context: None,
                 case: name.into(),
                 path: format!("{path}[{line}]"),
                 python: (a > 0).then(|| json!(a)),
@@ -373,6 +374,7 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
             if p["message"] != r["message"] {
                 // The Rust message in the path, so that an entry names why Rust refused.
                 out.push(Difference {
+                    context: None,
                     case: c.name.clone(),
                     path: format!("write.message[{}]", r["message"].as_str().unwrap_or("")),
                     python: Some(p.clone()),
@@ -381,6 +383,7 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
             }
         }
         (p, r) => out.push(Difference {
+            context: None,
             case: c.name.clone(),
             path: "write".into(),
             python: Some(p.clone()),
@@ -404,6 +407,7 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
             .collect();
         if !problems.is_empty() {
             out.push(Difference {
+                context: None,
                 case: c.name.clone(),
                 path: "conformance".into(),
                 python: None,
@@ -552,6 +556,7 @@ fn dropped() -> Vec<Difference> {
     DROPPED
         .iter()
         .map(|(test, assertion)| Difference {
+            context: None,
             case: format!("tests/{test}"),
             path: "not ported".into(),
             python: Some(json!(assertion)),

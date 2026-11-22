@@ -266,6 +266,30 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
                     .unwrap()
                     .contains("General contract conflicts with an answered requirement")
             );
+        } else {
+            // Quiddity 0.5.5 classifies the round boss cap (face 3) as supporting
+            // evidence. Its old 24 mm location is still in the file PMI.
+            assert_eq!(a["dimensioning"]["supporting_faces"], json!([3]));
+            assert!(
+                annotated["table"]["file_pmi"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|r| r["number"] == "#6"
+                        && r["faces"] == json!([8, 3])
+                        && r["text"] == "24")
+            );
+            let cap = expected_general
+                .iter()
+                .position(|r| r["faces"] == json!([3]) && r["reference"] == json!([8]))
+                .unwrap();
+            assert_eq!(
+                expected_general.remove(cap),
+                json!({
+                    "kind":"location", "feature":"", "faces":[3], "reference":[8],
+                    "distance":24.0, "upper":0.2, "lower":-0.2, "general":true,
+                })
+            );
         }
         let written_general: Vec<_> = current["general"]
             .as_array()

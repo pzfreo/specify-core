@@ -933,6 +933,7 @@ fn every_question(
         }
         out.push(q);
     }
+    // Add fillet rows here when quiddity #341 supplies radius groups.
     out.into_iter().map(|q| reviewed(q, &ctx.faces)).collect()
 }
 
@@ -1722,11 +1723,13 @@ fn raw_intent(
     if let Some(tolerance) = tolerance {
         intent.general = general::dimensions(ctx, &datums, &intent.requirements, tolerance)?;
     }
-    if let Some(input) = ctx.analysis.get("dimensioning")
-        && input.get("applicable") != Some(&Value::Bool(false))
+    if let Some(metadata) = ctx.analysis.get("dimensioning")
+        && metadata.get("applicable") != Some(&Value::Bool(false))
     {
-        let input = serde_json::from_value(input.clone())
+        let mut input = serde_json::from_value(metadata.clone())
             .map_err(|e| Error::Invalid(format!("dimensioning input: {e}")))?;
+        crate::dimensioning::general_plane_rows(&mut intent.general, metadata);
+        crate::dimensioning::step_levels(&mut input, &ctx.features, &intent.general)?;
         if let Some(stated) = ctx.analysis.get("dimensioning_stated") {
             intent.requirements.extend(
                 serde_json::from_value::<Vec<Map<String, Value>>>(stated.clone())
@@ -1750,6 +1753,7 @@ fn raw_intent(
                 .insert("general_tolerance".into(), Value::from(tolerance));
         }
         crate::dimensioning::apply(input, &mut intent, ctx.has_table()).map_err(Error::Invalid)?;
+        crate::dimensioning::general_plane_rows(&mut intent.general, metadata);
         if seed_tolerance.is_some() {
             intent.part.shift_remove("general_tolerance");
         }

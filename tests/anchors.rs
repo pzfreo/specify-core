@@ -241,6 +241,7 @@ fn anchors_match_the_oracle() {
             Ok(loaded) => loaded,
             Err(e) => {
                 differences.push(Difference {
+                    context: None,
                     case: case.name.clone(),
                     path: String::new(),
                     python: Some(python),

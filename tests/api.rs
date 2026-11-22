@@ -189,6 +189,7 @@ fn analyses_have_python_layout() {
                 );
                 assert_eq!(bom["item_number"], json!({"value":null,"source":"default"}));
                 differences.push(common::Difference {
+                    context: None,
                     case: case.clone(),
                     path: "bom".into(),
                     python: None,

@@ -1015,6 +1015,7 @@ fn a_nist_part_keeps_all_its_pmi() {
         "datum.C.control",
         // Appended for every made part (docs/process.md); NIST's PMI states no process.
         "part.process",
+        // Fillet rows wait for quiddity 0.5.6 radius groups (Paul, 2026-11-22).
         // general dimensions are rows (Paul, 2026-11-21).
         "length",
         "location",

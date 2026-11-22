@@ -310,10 +310,7 @@ const NOT_FEATURES: [&str; 3] = ["gusset_rib_patterns", "slot_patterns", "pocket
 /// claims. A record whose faces include an unmeasured face ([`unmeasured_faces`]), and a
 /// pattern with such a member, is left out. Refused on a degraded part ([`LoadedPart::degraded`]).
 pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
-    if let Some(why) = loaded.degraded() {
-        return Err(FeatureError::Degraded(why));
-    }
-    recognise_from(loaded, loaded.recognition())
+    recognise_with_accounting(loaded, None).map(|(features, _)| features)
 }
 
 /// [`recognise`], from quiddity's recognition of `loaded`'s part already made (a revision
@@ -322,12 +319,20 @@ pub fn recognise_from(
     loaded: &LoadedPart,
     recognition: &quiddity::correspondence::Recognition,
 ) -> Result<Vec<Feature>, FeatureError> {
+    recognise_with_accounting(loaded, Some(recognition)).map(|(features, _)| features)
+}
+
+pub(crate) fn recognise_with_accounting(
+    loaded: &LoadedPart,
+    recognition: Option<&quiddity::correspondence::Recognition>,
+) -> Result<(Vec<Feature>, quiddity::recognition::RecognitionDocument), FeatureError> {
     if let Some(why) = loaded.degraded() {
         return Err(FeatureError::Degraded(why));
     }
+    let recognition = recognition.unwrap_or_else(|| loaded.recognition());
+    let document = quiddity::recognition::document(recognition, loaded.part.faces.len());
     let found = &recognition.features;
     // Published IDs and defining faces follow the same merge, without a working typed view.
-    let document = quiddity::recognition::document(recognition, loaded.part.faces.len());
     let published: std::collections::BTreeMap<_, _> = document
         .records
         .iter()
@@ -479,7 +484,7 @@ pub fn recognise_from(
     }
     let sets = hole_sets(&features);
     features.extend(sets);
-    Ok(features)
+    Ok((features, document))
 }
 
 /// Decode a schema-6 measuring direction, or a legacy file-axis letter. No provenance

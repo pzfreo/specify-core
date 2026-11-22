@@ -34,6 +34,13 @@ One file per area, `<area>.json`, a JSON array of entries:
   was absent. With `values`, the case and path must match literally, and no other value is
   covered. The other fields are non-empty strings, checked by `load_known`.
 
+Every field is a non-empty string and no other field is allowed (`tests/common`'s `load_known`
+checks it), except for the optional `values` object or `exact` pair. It holds `[python, rust]`, with each side
+represented by `[value]` or by `[]` for a missing key. Exact entries use literal case names
+and paths. When a list has no stable member key, the entry pins the complete list at its
+property path. Use `$` for the root. `SPECIFY_DUMP` also writes these candidate values to
+`<area>.exact.json` alongside the legacy dumps.
+
 ## The rule
 
 - **Each area's full oracle sweep is one test function that calls `check_known(area, &diffs)`

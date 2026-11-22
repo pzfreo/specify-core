@@ -168,6 +168,13 @@ When a rounded hole diameter leaves its bore unmatched, the feature table checks
 cylinder at the same reported precision. An existing general-tolerance note governs newly
 approved sizes and locations.
 
+Quiddity's step levels along any part axis use the existing plane-to-plane length ids.
+Independently measured plane lengths keep their rows. A stated location between retired
+step levels appears under **Other PMI in the file** when it matches no measured row.
+A face classified as supporting evidence for another feature gets no row of its own.
+As in 0.2, the general tolerance covers fillets. Grouped fillet rows come with
+quiddity 0.5.6 radius groups (Paul, 2026-11-22).
+
 ### What the file states, read back whole
 
 The stated row is all anyone sees of what the file says, so nothing the file states is left

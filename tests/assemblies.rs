@@ -186,6 +186,7 @@ fn a_part_is_analysed_as_before_from_one_read() {
             // For #79 the only additive analysis field is the sourced BOM row.
             // Keep comparing every pre-existing key, value and ordering to the old capture.
             let difference = common::Difference {
+                context: None,
                 case: format!("parts/assembly#{k}"),
                 path: "bom".into(),
                 python: None,

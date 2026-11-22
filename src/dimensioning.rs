@@ -62,6 +62,84 @@ pub(crate) fn input(part: &haecceity::Part) -> Result<Input, String> {
     Input::from_recognition(part, vec![], Policy::default())
 }
 
+/// The shared planner has a single height ladder. Feed any other recognised
+/// levels through its per-axis plane stations, using exact plane coordinates.
+pub(crate) fn step_levels(
+    input: &mut Input,
+    features: &[crate::rules::records::Feature<'_>],
+    general: &[Map<String, Value>],
+) -> Result<(), crate::rules::Error> {
+    use haecceity::geom::dot;
+
+    let axes = [input.frame.x, input.frame.y, input.frame.z];
+    // A retained physical measurement already gives this station its row.
+    // Keep its original reference faces and therefore its existing ID.
+    let measured: BTreeSet<_> = general
+        .iter()
+        .filter(|row| {
+            row.get("kind").and_then(Value::as_str) == Some("location")
+                && row.get("feature").and_then(Value::as_str) == Some("")
+                && deferred(input, row)
+        })
+        .flat_map(|row| ids(row, "faces"))
+        .collect();
+    for level in features.iter().filter(|f| f.family == "step_levels") {
+        let Some(direction) = level
+            .get("height_axis")?
+            .and_then(crate::features::axis_direction)
+        else {
+            continue;
+        };
+        let Some(axis) = axes
+            .iter()
+            .position(|&a| dot(a, direction).abs() > 1.0 - 1e-6)
+        else {
+            continue;
+        };
+        let faces: Vec<_> = level
+            .faces()?
+            .iter()
+            .filter_map(|&f| usize::try_from(f).ok())
+            .collect();
+        for plane in input
+            .planes
+            .iter()
+            .filter(|p| p.axis == axis && overlaps(&faces, &p.support.faces))
+        {
+            let at = plane.support.at[axis];
+            let same = |s: &Support| s.body == plane.support.body && (s.at[axis] - at).abs() < 1e-4;
+            if plane.support.faces.iter().any(|f| measured.contains(f))
+                || (axis == input.steps.axis && input.steps.heights.iter().any(same))
+                || input
+                    .steps
+                    .shoulders
+                    .iter()
+                    .any(|p| p.axis == axis && same(&p.support))
+            {
+                continue;
+            }
+            input.steps.shoulders.push(plane.clone());
+        }
+    }
+    Ok(())
+}
+
+/// A supporting cap has no standalone location. Quiddity's own level
+/// inventory determines step measurements, independently of other plane lengths.
+pub(crate) fn general_plane_rows(general: &mut Vec<Map<String, Value>>, metadata: &Value) {
+    let Some(metadata) = metadata.as_object() else {
+        return;
+    };
+    let supporting = ids(metadata, "supporting_faces");
+    general.retain(|row| {
+        if row.get("kind").and_then(Value::as_str) != Some("location") {
+            return true;
+        }
+        let faces = ids(row, "faces");
+        faces.is_empty() || !faces.iter().all(|f| supporting.contains(f))
+    });
+}
+
 /// quiddity's reason for no planner frame when a face's area cannot be computed (the solid's
 /// volume needs every face).
 const UNMEASURED_FRAME: &str = "dimensioning frame: unmeasured-face";
@@ -896,6 +974,53 @@ pub(crate) fn apply(
         !matches!(&r.kind, Kind::Location { from, to, .. }
         if from.faces.is_empty() || to.faces.is_empty())
     });
+    let depth_intervals = |r: &Required| {
+        let mut spans = Vec::new();
+        if is_straight_depth(&r.kind) && !authorities.contains_key(&r.id) {
+            for h in input
+                .holes
+                .iter()
+                .filter(|h| r.covers.contains(&h.support.feature))
+            {
+                for axis in 0..3 {
+                    if h.direction[axis].abs() > 0.999 {
+                        let entry = h.support.at[axis];
+                        let end = entry + h.direction[axis] * r.nominal;
+                        spans.push((h.support.body, axis, entry, end));
+                    }
+                }
+            }
+        }
+        spans
+    };
+    // A new level can sit on the floor of an enlargement, whose faces the
+    // hole consults without claiming. Keep the existing depth callout when it
+    // measures the same two stations, as on CTC-02's 8 mm counterbore.
+    let supplemental: BTreeSet<_> = input
+        .steps
+        .shoulders
+        .iter()
+        .filter(|p| p.support.feature.starts_with("plane:"))
+        .map(|p| p.support.feature.as_str())
+        .collect();
+    if !supplemental.is_empty() {
+        let depths: Vec<_> = required.iter().flat_map(depth_intervals).collect();
+        required.retain(|r| {
+            let Kind::Location { from, to, axis } = &r.kind else {
+                return true;
+            };
+            authorities.contains_key(&r.id)
+                || !supplemental.contains(to.feature.as_str())
+                || !from.plane
+                || !depths.iter().any(|&(body, k, entry, end)| {
+                    from.body == body
+                        && to.body == body
+                        && *axis == k
+                        && (from.at[k] - entry).abs() < DEPTH_NEAR
+                        && (to.at[k] - end).abs() < DEPTH_NEAR
+                })
+        });
+    }
     let same_span = |row: &Map<String, Value>| {
         let from = support(&input, &ids(row, "reference"), &group_supports);
         let to = support(&input, &ids(row, "faces"), &group_supports);
@@ -1001,28 +1126,9 @@ pub(crate) fn apply(
         }
     }
     for r in &mut required {
-        let Kind::Size { role, .. } = &r.kind else {
-            continue;
-        };
-        if !role.ends_with(".depth") || authorities.contains_key(&r.id) {
-            continue;
-        }
-        for h in input
-            .holes
-            .iter()
-            .filter(|h| r.covers.contains(&h.support.feature))
-        {
-            for axis in 0..3 {
-                if h.direction[axis].abs() < 0.999 {
-                    continue;
-                }
-                let entry = h.support.at[axis];
-                let end = entry + h.direction[axis] * r.nominal;
-                if let Some(by) =
-                    station_path(&baselines, h.support.body, axis, entry, end, DEPTH_NEAR)
-                {
-                    r.reference = Some(by);
-                }
+        for (body, axis, entry, end) in depth_intervals(r) {
+            if let Some(by) = station_path(&baselines, body, axis, entry, end, DEPTH_NEAR) {
+                r.reference = Some(by);
             }
         }
     }

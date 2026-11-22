@@ -166,6 +166,7 @@ fn key_order(case: &str, path: &str, python: &Value, rust: &Value, out: &mut Vec
             rs.sort();
             if ps == rs && pk != rk {
                 out.push(Difference {
+                    context: None,
                     case: case.to_string(),
                     path: at("(key order)"),
                     python: Some(json!(pk)),
@@ -179,8 +180,12 @@ fn key_order(case: &str, path: &str, python: &Value, rust: &Value, out: &mut Vec
             }
         }
         (Value::Array(p), Value::Array(r)) => {
+            let start = out.len();
             for (i, (pv, rv)) in p.iter().zip(r).enumerate() {
                 key_order(case, &format!("{path}[{i}]"), pv, rv, out);
+            }
+            if out.len() > start {
+                common::array_context(&mut out[start..], path, "", Some(python), Some(rust));
             }
         }
         _ => {}

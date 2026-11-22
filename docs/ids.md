@@ -75,7 +75,7 @@ Its `kind` is one of:
 
 | Form | Measurement |
 |---|---|
-| `length:planes:<side>-<side>` | Plane-to-plane length. The two sides are sorted. |
+| `length:planes:<side>-<side>` | Plane-to-plane length, including step levels along any part axis. The two sides are sorted. |
 | `location:holes:<reference>-<located>` | Hole location. The second group is the located side. |
 
 <!-- ids:end -->
