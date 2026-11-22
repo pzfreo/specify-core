@@ -310,6 +310,31 @@ fn ctc04_one_pattern_does_not_close_the_position_of_its_identical_neighbour() {
         "the first pattern is still unpositioned: {r}"
     );
     assert_eq!(r["open"], true, "{r}");
+
+    // This is an intentional partial save. The CLI reports the entire remaining
+    // list, including the row for the first, unpositioned pattern.
+    let dir = scratch("ctc04-open");
+    let input = dir.join("ctc04.step");
+    std::fs::write(&input, reopened.bytes.as_slice()).unwrap();
+    let part = load(&input, None).unwrap();
+    let analysis = api::analyse(&part).unwrap();
+    let report = cli_write(
+        &part,
+        &analysis,
+        &Map::new(),
+        &dir.join("saved.step"),
+        false,
+    );
+    let missing: Vec<_> = after["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["open"] == true)
+        .filter_map(|row| row["id"].as_str())
+        .collect();
+    assert!(missing.contains(&id));
+    assert_eq!(report["missing"], json!(missing), "{report}");
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -469,6 +494,23 @@ fn accepting_corpus_defaults_leaves_no_open_rows() {
             let reopened = load(&output, Some(part_index)).unwrap();
             let after = api::analyse(&reopened).unwrap();
             assert_only_intentional_no_pmi(&reopened, &after, &case.name);
+            let expected_missing: Vec<_> = after["table"]["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|row| row["open"] == true)
+                .map(|row| &row["id"])
+                .collect();
+            if expected_missing.is_empty() {
+                assert!(report.get("missing").is_none(), "{}: {report}", case.name);
+            } else {
+                assert_eq!(
+                    report["missing"],
+                    json!(expected_missing),
+                    "{}: {report}",
+                    case.name
+                );
+            }
             for row in after["table"]["rows"].as_array().unwrap() {
                 if row["open"] == true {
                     gaps.push(format!(

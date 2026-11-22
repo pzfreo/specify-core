@@ -80,6 +80,8 @@ fn answers_with_their_evidence_migrate_as_answers_stored_in_the_step_do() {
     assert!(out.unresolved.is_empty() && out.unverified.is_none());
     // The migrated answers still complete the legacy interview. Each standalone
     // length or location has its own open gap because the suggestion writes PMI.
+    // Quiddity 0.5.5 publishes three further levels on FTC-10's transverse axes,
+    // so the migrated answers still leave their newly measurable spans open too.
     let review = api::review(&analysis, &out.answers).unwrap();
     assert_eq!(
         review["open"],
@@ -110,8 +112,11 @@ fn answers_with_their_evidence_migrate_as_answers_stored_in_the_step_do() {
             "location:holes:115.116-121.122-0",
             "location:holes:115.116-124.125-2",
             "location:holes:113-115.116.118.119.121.122.124.125",
+            "length:planes:114.117.120.123-172",
             "length:planes:172-210",
             "length:planes:108.211-213",
+            "length:planes:131.133.135.137-213",
+            "length:planes:139.141.143.145-213",
             "length:planes:173-213",
             "length:planes:204-213",
             "length:planes:209-213",
