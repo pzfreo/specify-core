@@ -14,6 +14,7 @@
 
 mod common;
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use haecceity::p21::Document;
@@ -52,6 +53,96 @@ fn fixture(name: &str) -> PathBuf {
     common::fixtures()
         .join("parts")
         .join(format!("{name}.step"))
+}
+
+#[test]
+fn every_general_row_is_written_or_named_in_the_report() {
+    use specify_core::{api, writer};
+    for path in [
+        fixture("plate"),
+        fixture("pin"),
+        common::fixtures().join("spindle.step"),
+    ] {
+        let loaded = load(&path, None).unwrap();
+        let analysis = api::analyse(&loaded).unwrap();
+        let given = answers(json!({"part.material": "Steel"}));
+        let intent = api::apply(&analysis, &given, true).unwrap();
+        assert!(!intent.general.is_empty(), "{path:?}");
+        let (bytes, report) = writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
+        let output = specify_core::part::load_bytes("out.step", bytes).unwrap();
+        let read = api::analyse(&output).unwrap();
+        check_general_rows(&intent, &read, &report, &path);
+    }
+}
+
+fn check_general_rows<'a>(
+    intent: &Intent,
+    read: &Value,
+    report: &'a WriteReport,
+    path: &Path,
+) -> BTreeSet<&'a str> {
+    use specify_core::{pyfmt, pyjson};
+    let faces = |v: &Value| -> BTreeSet<u64> {
+        v.as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_u64)
+            .collect()
+    };
+    let mut omitted = BTreeSet::new();
+    let dimensions = read["existing"].as_array().unwrap();
+    for row in &intent.general {
+        let location = row["kind"] == "location";
+        let value = row[if location { "distance" } else { "nominal" }]
+            .as_f64()
+            .unwrap();
+        let on = &row["faces"];
+        let to = faces(on);
+        let reference = row.get("reference").unwrap_or(&Value::Null);
+        let from = faces(reference);
+        let written = dimensions.iter().any(|d| {
+            d["kind"] == "dimension"
+                && d["value"]
+                    .as_f64()
+                    .is_some_and(|n| (n - value).abs() < 1e-6)
+                && if location {
+                    let a = faces(&d["faces"]);
+                    let b = faces(&d["faces2"]);
+                    (a == from && b == to) || (a == to && b == from)
+                } else {
+                    d["type"] == "Size_Diameter" && faces(&d["faces"]) == to
+                }
+        });
+        let value = pyfmt::g(value);
+        let on = pyjson::dumps(on);
+        let label = if location {
+            format!(
+                "general location {value} to faces {on} from faces {}: ",
+                pyjson::dumps(reference)
+            )
+        } else {
+            let feature = row["feature"].as_str().unwrap_or("");
+            let feature = if feature.is_empty() {
+                String::new()
+            } else {
+                format!(" on {feature}")
+            };
+            format!("general size {value}{feature} faces {on}: ")
+        };
+        let reason = report
+            .not_written
+            .iter()
+            .find(|line| line.starts_with(&label));
+        assert!(
+            written || reason.is_some(),
+            "{path:?}: unaccounted general dimension {label}{:?}",
+            report.not_written,
+        );
+        if let Some(reason) = reason {
+            omitted.insert(reason.as_str());
+        }
+    }
+    omitted
 }
 
 /// The oracle's analysis of a case (Python's).
@@ -671,7 +762,8 @@ fn a_finish_on_faces_is_not_a_second_default() {
     let pin = load(&fixture("pin"), None).unwrap();
     let out = dir.join("finishes.step");
     let report = write(&pin, &apply(&analysis, given), &out, None).unwrap();
-    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
+    // The pin's datum A is the only general dimension the writer omits.
+    assert_eq!(report.not_written, [common::PIN_DATUM_A_SIZE_OMISSION]);
     assert!(
         report
             .written
@@ -893,13 +985,8 @@ fn a_nist_part_keeps_all_its_pmi() {
     let given = json!({"part.material": "CZ121"});
     let loaded = load(&input, None).unwrap();
     let out = dir.join("ctc01.step");
-    let report = write(
-        &loaded,
-        &apply(&analysis, given.clone()),
-        &out,
-        given.as_object(),
-    )
-    .unwrap();
+    let intent = apply(&analysis, given.clone());
+    let report = write(&loaded, &intent, &out, given.as_object()).unwrap();
     assert_eq!(
         report.written,
         [
@@ -917,11 +1004,20 @@ fn a_nist_part_keeps_all_its_pmi() {
     let new = read_existing(&load(&out, None).unwrap()).unwrap();
     assert_eq!(old, new);
     assert_eq!(pmi_of(&out, 0).dimensions.len(), 26); // 12 original + 14 reconciled quantities.
-    assert_eq!(report.not_written.iter().cloned().collect::<std::collections::BTreeSet<_>>(),[
+    // The new per-dimension diagnostics must identify rows of this legacy intent.
+    let read = specify_core::api::analyse_file(&out, None).unwrap();
+    let general = check_general_rows(&intent, &read, &report, &input);
+    assert!(general.iter().all(|line| {
+        line.ends_with("adding PMI skips dimensions deferred by the shared planner")
+            || line.ends_with(
+                "the shared planner did not retain this dimension when upgrading the intent",
+            )
+    }));
+    assert_eq!(report.not_written.iter().map(String::as_str).filter(|line| !general.contains(line)).collect::<BTreeSet<_>>(),[
         "shared planner dim:multiple[hole:50.51.56.57,hole:52.53.58.59]/bore.diameter: General contract conflicts with an answered requirement; retained answered intent instead",
         "shared planner dim:pattern[hole:0.1,hole:91.92,hole:93.94,hole:95.96]/bore.diameter: General contract conflicts with an answered requirement; retained answered intent instead",
         "shared planner dim:pattern[hole:71.72,hole:73.74,hole:75.76,hole:89.90]/bore.diameter: General contract conflicts with an answered requirement; retained answered intent instead",
-    ].into_iter().map(String::from).collect());
+    ].into_iter().collect());
     let text = std::fs::read_to_string(&out).unwrap();
     assert!(!text.contains("DRAUGHTING_CALLOUT('Datum "));
     // ADR P11: answers that write PMI are not stored; the file states them.
@@ -976,7 +1072,8 @@ fn a_typed_thread_depth_is_written_and_read_back() {
         given.as_object(),
     )
     .unwrap();
-    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
+    // Reporting the general diameter omitted on datum A leaves the thread unchanged.
+    assert_eq!(report.not_written, [common::PIN_DATUM_A_SIZE_OMISSION]);
     let text = flat(&out);
     assert!(Regex::new(r"MEASURE_WITH_UNIT\(LENGTH_MEASURE\(5\.6\),#\d+\)REPRESENTATION_ITEM\('minimum full thread'\)").unwrap().is_match(&text));
     assert!(Regex::new(r"MEASURE_WITH_UNIT\(LENGTH_MEASURE\(8\.\),#\d+\)REPRESENTATION_ITEM\('tapping drill depth'\)").unwrap().is_match(&text));
@@ -1033,6 +1130,7 @@ fn mmc_positions_are_written_and_notes_are_read_back() {
             .unwrap()
             .starts_with("Anodise black")
     );
+    // The upgraded planner can keep the same span with the two supports reversed.
     assert!(report.not_written.is_empty(), "{:?}", report.not_written);
     for line in [
         "surface finish Ra 1.6".to_string(),

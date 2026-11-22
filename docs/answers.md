@@ -225,6 +225,10 @@ every suggestion and so write the whole set as before. The writer's upgrade of a
 without planner rows (#75) keeps the same rule: it writes a planner dimension only on a
 feature and kind the intent itself sizes or locates.
 
+The write report names any general dimension from the intent that the writer omits, with
+its nominal, faces and reason in `not_written`. When adding to a file that already has PMI,
+general dimensions deferred by the shared planner are reported there.
+
 Only answers that leave no PMI behind are stored in the file: "none" answers and choices that
 are not requirements (`part.locating`). `resume.answers` holds those. Stored answers that
 repeat the file's PMI (as Specify 0.2 stored every answer) are ignored on reading and dropped

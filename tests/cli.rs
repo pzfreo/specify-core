@@ -169,6 +169,42 @@ fn spindle_write_accepts_every_listed_default() {
     write_listed_defaults(&common::fixtures().join("spindle.step"), "spindle-defaults");
 }
 
+#[test]
+fn spindle_reports_all_six_deferred_general_dimensions() {
+    let input = common::fixtures().join("spindle.step");
+    let (output, intent, report) = write_listed_defaults(&input, "spindle-general");
+    assert_eq!(intent["general"].as_array().unwrap().len(), 6);
+    for label in [
+        "general size 24 on turned_steps:9 faces [9]",
+        "general size 15 on turned_steps:6 faces [6]",
+        "general size 10 on turned_steps:2 faces [2]",
+        "general location 12 to faces [8] from faces [10]",
+        "general location 34 to faces [4] from faces [10]",
+        "general location 52 to faces [0] from faces [10]",
+    ] {
+        assert!(
+            report["not_written"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|line| line.as_str().unwrap()
+                    == format!(
+                        "{label}: adding PMI skips dimensions deferred by the shared planner"
+                    )),
+            "missing omission for {label}: {}",
+            report["not_written"]
+        );
+    }
+    // The imported position tolerance is untouched, down to the original entity bytes.
+    let before = std::fs::read_to_string(input).unwrap();
+    let after = std::fs::read_to_string(output).unwrap();
+    let position = before
+        .lines()
+        .find(|line| line.contains("POSITION_TOLERANCE"))
+        .unwrap();
+    assert!(after.lines().any(|line| line == position), "{position}");
+}
+
 /// `-o -` streams the JSON to stdout, byte for byte the file `-o file` writes, and moves the
 /// summary to stderr, so the output can be piped into another program (a CAM bridge, `jq`).
 #[test]
