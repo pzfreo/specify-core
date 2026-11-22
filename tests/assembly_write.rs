@@ -407,11 +407,13 @@ fn a_mixed_write_edits_one_part_at_a_time_regardless_of_origin() {
         let raw = base64::engine::general_purpose::STANDARD
             .decode(&c[1])
             .unwrap();
-        let p: Value = serde_json::from_slice(&raw).unwrap();
+        let mut p: Value = serde_json::from_slice(&raw).unwrap();
         if p["part"] == json!(PIN) {
             format!("'other','{}'", &c[1])
         } else {
-            c[0].to_string()
+            p["answers"]["part.material"] = json!("steel");
+            let legacy = base64::engine::general_purpose::STANDARD.encode(p.to_string());
+            format!("'pmi-assist answers','{legacy}'")
         }
     });
     let mixed = dir.join("mixed.step");
@@ -470,8 +472,18 @@ fn a_mixed_write_edits_one_part_at_a_time_regardless_of_origin() {
             .all(|key| key.starts_with("attribute only in the second:"))
     );
     assert_eq!(
-        part_settings(&load(&x, Some(PIN)).unwrap()).unwrap()["coating"],
-        "Black oxide"
+        after
+            .attributes
+            .iter()
+            .filter(|set| set.on.is_none()
+                && set.name == specify_core::writer::SEMANTIC_TEXT
+                && set.items
+                    == [(
+                        "surface treatment".into(),
+                        pmi::AttributeValue::Text("Black oxide".into())
+                    )])
+            .count(),
+        1
     );
     assert!(
         answers_for(&load(&x, Some(PIN)).unwrap())
