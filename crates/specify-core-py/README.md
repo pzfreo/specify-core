@@ -103,12 +103,13 @@ drives it as a child process:
 ```json
 {"id": 1, "op": "analyse", "step": "/path/part.step"}
 {"id": 2, "op": "questions", "analysis": {...}, "answers": {...}}
-{"id": 3, "op": "write", "step": "/path/part.step", "output": "/path/out.step", "analysis": {...}, "answers": {...}, "accept_defaults": true}
 ```
 
 Each reply is `{"id", "ok": true, "result"}` or `{"id", "ok": false, "error": {"code", "message"}}`,
 where the code is `incomplete` (with what is `missing`), `invalid` or `failed`. `analyse` replies
-with the analysis and the mesh; `write` with the report and the intent.
+with the analysis and the mesh. For edit-list writes use the CLI command above or the
+Python `write` function. The serve protocol retains its intent-based `write` request
+for existing clients.
 `analyse` accepts optional `"max_deviation_mm": 0.05` for its mesh. It must be a
 finite number of at least 0.001 mm; invalid or unmet bounds return `invalid`. Omitting
 it (or `null`) preserves the default mesh. Requested meshes add `max_deviation_mm`

@@ -109,9 +109,8 @@ On reopening, the General tolerance row joins the table cells and note lines wit
 canonical ` · `. STEP stores the cells and note separately and carries no record of
 the separators the author typed. The note retains each free-text line's wording.
 Replaying the typed block leaves the file unchanged. A range cell reads `0.5 to 6 ±0.1`
-and an asymmetric cell reads `X.X +0.3/-0.1`. "None needed" (`none`) is an answer for a file that states no general tolerance; on a file
-that states one it is not written, as for any stated setting. A different general tolerance in
-a fill is refused. Use an edit list's `change` of `part.general_tolerance` to replace
+and an asymmetric cell reads `X.X +0.3/-0.1`. A stated tolerance refuses `none` and
+fills with a different value. Use an edit list's `change` of `part.general_tolerance` to replace
 a stated class, table and accompanying note. The writer preserves the other entities
 byte for byte. The same
 one again is not written twice. ISO 2768 classes work as

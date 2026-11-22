@@ -22,8 +22,8 @@ matching process: filament → FDM, resin → resin, powder → powder, metal �
 material, or none yet, suggests machined. The answered material is used, else the one the file
 states. The suggestion is the question's default; a printed suggestion is marked attention
 `check` with its reason (machined, what no answer means anyway, is `routine`). It is not
-applied until it is answered or accepted. Accepting defaults takes a printed
-suggestion first, on its own, then that process's defaults.
+applied until it is answered or accepted. Approve `part.process` before reviewing
+the suggestions based on that process.
 
 ## What each process changes
 

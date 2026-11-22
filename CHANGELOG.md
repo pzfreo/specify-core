@@ -859,8 +859,8 @@ Read first:
   ("From the file", "Your answer", or "Proposed: made/bought (…)"). The one `check` is a
   standard-hardware name on a part recognised with pockets or keyways (proposed made; its reason asks which). Part number and revision
   carry no suggestion. `bom.stock` is no longer asked: it follows make/buy, is still proposed
-  by `--bom` and an explicit answer is still written. Suggestions stay out of `default`, so
-  The old PMI default-approval option wrote no BOM field.
+  by that release's BOM opt-in and an explicit answer is still written. Suggestions stay
+  out of `default`. The old PMI default-approval option wrote no BOM field.
 
 ### Fixed
 

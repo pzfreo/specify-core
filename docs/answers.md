@@ -298,9 +298,9 @@ write requires the saved count, ordered face fingerprint and indexed authored na
 to match, without remapping by name. This deliberately refuses changed numbering even if names could be rematched.
 Malformed evidence is an error.
 
-The shared writer checks evidence against the loaded part before writing bytes. CLI
-also checks before saving `--intent`; stale evidence exits 2, names the answers path,
-and says they belong to another revision of the part.
+The shared writer checks evidence against the loaded part before writing bytes. A CLI
+edit-list write with stale evidence exits 2, names the answers path, and reports that
+the evidence belongs to another revision of the part.
 An unchanged part's evidence remains valid even if its file bytes change without changing
 faces. Existing in-STEP answer payloads retain their format and evidence; transport
 metadata is consumed before answers are embedded.
@@ -312,9 +312,8 @@ requirement they added, with the same meaning in both revisions; dropping it on 
 because its faces did not carry would silently lose a requirement no question asks for
 again. Answer it again on the new part's faces, or remove its entry to drop it.
 A dropped answer for one of these questions contributes no PMI and cannot be replaced by
-bulk default acceptance. CLI fails with
-`incomplete: datum.A (carried answer could not be applied: <reason>)`, writes no STEP or
-intent output, and preserves any existing output. Serve `accept_defaults`, Python
+suggestion approval. CLI names the unresolved answer and the reason it could not be
+applied, exits 2, and preserves any existing output. Serve `accept_defaults`, Python
 `apply(..., accept_defaults=True)` and WASM `acceptDefaults` use the same block.
 The shared writer also refuses these blocks when called directly with a preview intent.
 
