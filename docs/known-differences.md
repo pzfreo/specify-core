@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 301 | 0 | 8 | 0 | 234 | 1 | 544 |
+| [cli](#cli) | 300 | 0 | 8 | 0 | 234 | 1 | 543 |
 | [cross_engine](#cross_engine) | 142 | 2 | 0 | 1 | 1 | 20 | 166 |
 | [cross_engine_written](#cross_engine_written) | 23 | 0 | 0 | 0 | 0 | 0 | 23 |
 | [existing](#existing) | 96 | 0 | 0 | 0 | 7 | 0 | 103 |
@@ -23,7 +23,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 1764 | 0 | 0 | 0 | 15 | 1 | 1780 |
-| **all** | 5909 | 1433 | 1205 | 2497 | 1333 | 1908 | 14285 |
+| **all** | 5908 | 1433 | 1205 | 2497 | 1333 | 1908 | 14284 |
 
 ## analysis
 
@@ -77,7 +77,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (301 entries)
+### cli: rust-correct (300 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -94,10 +94,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **measurement datum defaults in CLI and serve envelopes** (89 entries, 83 case globs)
 
   The evidence is stated per entry (6 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb217` at `questions.defaults.questions.[37]`: For #21, this exact CLI question field exposes the optional hole.full_thread text edit with refine attention. It is excluded from open and changes neither the accepted tap's inline/computed depth nor review obligations. tests/thread_depth_help.rs verifies exact alpha.7 STEP equivalence; cli_datum_origins.json.gz pins this question value.
-
-- **Python's write prints OpenCascade's transfer statistics on stdout before the report** (`cli/*` at `stdout_noise`)
-
-  specify-core's STEPCAFControl_Writer prints 9 lines of ANSI-coloured 'Statistics on Transfer (Write)' to stdout (captured in tests/fixtures/cli_oracle.json.gz, cut and counted in stdout_noise), so Python's stdout is not JSON and a host must strip it (serve moves fd 1 to stderr for this reason). The Rust binary's stdout is exactly the report, which parses as JSON (tests/cli.rs, check 3).
 
 - **a file or part that cannot be loaded: an error line, not a traceback** (2 entries, 2 case globs)
 

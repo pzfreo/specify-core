@@ -1648,7 +1648,7 @@ fn check_area(differences: &[Difference]) {
                 && (e.path != "*" || differences.iter().any(|d| e.matches(d))))
         })
         .collect();
-    let entries: Vec<_> = if corpus_dir().is_some() {
+    let mut entries: Vec<_> = if corpus_dir().is_some() {
         entries
     } else {
         let on_corpus: Vec<String> = scenarios()
@@ -1665,6 +1665,8 @@ fn check_area(differences: &[Difference]) {
             })
             .collect()
     };
+    // A broad pre-existing comparison cannot satisfy an exact retired-command case.
+    entries.sort_by_key(|entry| entry.path != "whole_intent_write");
     check_known_with(&path.display().to_string(), &entries, differences);
 }
 
@@ -1952,10 +1954,11 @@ fn the_command_line_matches_the_oracle() {
         composition.is_empty(),
         "library/executable differences: {composition:?}"
     );
-    let mut differences = explained(
-        &AREAS,
-        &without_reviewed_rule_departures(python_inputs(&dir)),
-    );
+    let (retired, active): (Vec<_>, Vec<_>) = python_inputs(&dir)
+        .into_iter()
+        .partition(|difference| difference.path == "whole_intent_write");
+    let mut differences = explained(&AREAS, &without_reviewed_rule_departures(active));
+    differences.extend(retired);
     differences.extend(command_lines(&dir));
     let _ = std::fs::remove_dir_all(&dir);
     let differences_for_ledger = field_departures(differences.clone());
