@@ -442,9 +442,15 @@ fn new_row<'a>(row: &Row, table: &'a FeatureTable, map: &FaceMap) -> Result<&'a 
                 .unwrap_or(Err("it is not found in the new revision"))
         })
         .map_err(|why| format!("its measurement support: {why}"))?;
-        return table
+        let target = table
             .row(&id)
-            .ok_or_else(|| format!("the new revision does not offer {id}"));
+            .ok_or_else(|| format!("the new revision does not offer {id}"))?;
+        if row.state == State::Stated && mapped(&row.faces, map)? != target.faces {
+            return Err(
+                "the new revision reverses the measurement's reference and located sides".into(),
+            );
+        }
+        return Ok(target);
     }
     let faces = mapped(&row.faces, map).map_err(|why| format!("its feature: {why}"))?;
     let found: Vec<&Row> = table
