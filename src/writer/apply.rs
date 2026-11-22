@@ -1515,12 +1515,14 @@ fn applied_pmi(
     // Take them out, with Specify's bookkeeping (replaced below) and each removed item's own
     // features unless something kept uses them; every other item is protected.
     let mut all = requirements(before);
-    // An unmarked legacy answer block can be preserved as file data. A scoped payload
-    // supersedes it as Specify's stored decisions, without touching its entities.
+    // Keep unrecognised, unmarked attributes as input data. A scoped payload supersedes
+    // them when the file is read. Recognised legacy duplicates are removed on save (P11).
     let mut unmarked_answers = false;
     for (i, set) in before.attributes.iter().enumerate() {
         if crate::resume::is_answers(set)
             && !crate::provenance::marked(&original.doc, &prov.attributes[i], "attribute")
+            && crate::resume::unrecognised_attribute(loaded, set)
+                .map_err(|e| whole(e.to_string()))?
         {
             all.insert(("attributes".to_string(), i));
             unmarked_answers = true;
