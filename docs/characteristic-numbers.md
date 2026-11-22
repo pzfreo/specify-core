@@ -124,8 +124,9 @@ The **first allocation is in inspection order**, consecutively 1…N without gap
 part with no reserved numeric ids. Later allocations append above `high_water`, even if
 an added characteristic would sort first geometrically. Existing numbers always win,
 including files numbered in category order by the 0.1.3-era writer. Reordering, adding or
-removing another requirement does not compact the numbers. A removed number is retired
-permanently; reintroducing that requirement later receives a new number.
+removing another requirement does not compact the numbers. An explicit `items.remove`
+permanently retires the number, including when the same edit list fills the resulting
+gap. A `change` to a value on the same measurement retains its number.
 
 The first-allocation rule is:
 

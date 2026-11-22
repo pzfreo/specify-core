@@ -368,6 +368,33 @@ fn a_change_to_a_different_measurement_gets_a_new_number_and_retires_the_old() {
 }
 
 #[test]
+fn removing_and_refilling_the_same_measurement_retires_its_number() {
+    let original = applied(
+        &fixture("parts/plate.step"),
+        json!({"fill": {"extra.size": {"kind": "size", "faces": [9], "value": "+0.2/-0.1"}}}),
+    );
+    let original = reload(&original.bytes);
+    let number = *numbers(&original).keys().next().unwrap();
+    let id = format!("#{number}");
+    let fill = json!({"extra.size": {"kind": "size", "faces": [9], "value": "+0.5/-0.3"}});
+    let both = applied(&original, json!({"items": {"remove": [id]}, "fill": fill}));
+    let removed = applied(&original, json!({"items": {"remove": [id]}}));
+    let separate = applied(&reload(&removed.bytes), json!({"fill": fill}));
+    assert_eq!(both.retired, [number]);
+    assert_eq!(removed.retired, [number]);
+    assert!(separate.retired.is_empty());
+    for bytes in [&both.bytes, &separate.bytes] {
+        let saved = reload(bytes);
+        let after = numbers(&saved);
+        assert_eq!(after.keys().copied().collect::<Vec<_>>(), [number + 1]);
+        assert_eq!(after[&(number + 1)].faces, [9]);
+        let existing = api::analyse(&saved).unwrap()["existing"].clone();
+        assert_eq!(existing[0]["upper"], 0.5);
+        assert_eq!(existing[0]["lower"], -0.3);
+    }
+}
+
+#[test]
 fn remove_retires_its_number_and_retired_numbers_are_never_reused() {
     let plate = fixture("resume-p9/edited-plate.step.gz");
     let before = numbers(&plate);

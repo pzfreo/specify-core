@@ -812,6 +812,11 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
             }
         }
     }
+    let explicitly_removed: BTreeSet<u64> = located
+        .iter()
+        .filter(|l| remove.contains(&(l.at.0.to_string(), l.at.1)))
+        .filter_map(|l| l.number)
+        .collect();
     for id in list.change.keys() {
         let entry = format!("change[{}]", Json::String(id.clone()));
         let Some(row) = table.row(id) else { continue };
@@ -1373,10 +1378,13 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         prov,
         &original.doc,
         None,
-        if mode == Mode::Replace {
+        if mode == Mode::Replace && removed_numbers.is_empty() {
             crate::characteristics::Allocation::Replace
         } else {
-            crate::characteristics::Allocation::Edit(&removed_numbers)
+            crate::characteristics::Allocation::Edit {
+                removed: &removed_numbers,
+                retired: &explicitly_removed,
+            }
         },
     )
     .map_err(whole)?;
