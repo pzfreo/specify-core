@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { balloonText, bareAnalysis, changedText, displayText, panelModel, tableOf } from '../app/table.ts';
+import { balloonText, bareAnalysis, changedText, displayText, isNoneValue, panelModel, tableOf } from '../app/table.ts';
 import { describe, editList, PendingEdits, removalTargets, suggestionEdits } from '../app/edits.ts';
 import { compose, emptyBlock, parse } from '../app/general-tolerance.ts';
 // The review panel's pieces that are not drawn (specify-panel.md): its reading of the engine's feature
@@ -174,4 +174,24 @@ test('the general tolerance: no places is "X" with its unit, read back as 0 plac
   assert.equal(compose(angles, 'in'), 'angles ±1°');
   assert.deepEqual(parse(compose(angles, 'in'), 'in'), angles);
   assert.deepEqual(parse(compose({ ...angles, units: 'mm' }), 'mm'), { ...angles, units: 'mm' });
+});
+
+test('plane lengths appear under The part and hole locations under their feature', () => {
+  const length = 'length:planes:2-3';
+  const location = 'location:holes:2-14';
+  const generalRows = [
+    { id: length, kind: 'length', feature: 'planes:2-3', faces: [3], state: 'gap', suggestion: '14 ±0.2 from B', open: false },
+    { id: location, kind: 'location', feature: 'holes:2-14', faces: [14], state: 'gap', suggestion: '15 ±0.2 from B', open: false },
+  ];
+  const model = panelModel({ ...table, rows: [...table.rows, ...generalRows] }, questions, [
+    { id: 'holes:14.15', family: 'holes', faces: [14, 15], record: {} },
+  ]);
+  assert.equal(model.part.rows.find(r => r.id === length)?.label, 'Length');
+  const hole = model.features.find(g => g.key === 'feature:holes:14.15');
+  assert.equal(hole.rows.find(r => r.id === location)?.label, 'Location');
+  const rows = [...model.part.rows, ...hole.rows];
+  const pending = new PendingEdits().with({ kind: 'none', id: length, name: 'Length' });
+  const all = suggestionEdits(rows, pending, isNoneValue);
+  assert.equal(all.find(p => p.id === location)?.value, '15 ±0.2 from B');
+  assert.ok(!all.some(p => p.id === length));
 });

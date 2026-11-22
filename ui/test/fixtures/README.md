@@ -57,3 +57,8 @@ ours (this repository's licence): after changes the four Ø3 × 8 blind holes to
 Ø8 × 3 through hole on the +X side. `specify-core diff` of them leaves one new
 requirement to specify and two carried ones to check, and carries the rest of the answers:
 `test/app-browser.mjs` and `test/app-agent.mjs` use them for diff mode.
+
+
+`grm05_depth_lock_bolt.step.gz` is GRM-05 from Quiddity's corpus
+(`gramel/GRM-05_depth_lock_bolt.step`, gramil's Open Community License v1), gzipped.
+The app exercises the three plane lengths suggested on that part.

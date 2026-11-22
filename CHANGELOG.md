@@ -149,7 +149,8 @@ Read first:
   sends the numbers, or `{"id": …}` in `items.remove` for a requirement without one. Save with nothing listed says "Nothing to
   save." and writes nothing. `SpecifyReview` no longer says "from the file" (datum chips, stated part
   settings) and its Show menu's "PMI from the file" is "Requirements": origin is never shown.
-  `@draftwright/specify-ui`'s worker gains a `check-edits` operation (WASM `checkEdits`).
+  `@draftwright/specify-ui`'s worker gains a `check-edits` operation (WASM `checkEdits`). Plane
+  lengths appear under “The part”, and hole locations appear with the feature they locate.
 - **Saving is an edit list everywhere** (proposal specify-0.3.0 piece 6, ADR P11): the page, MCP,
   WASM and Python apply an edit list to the file, all or nothing, as `write STEP EDITS.json` does.
   Writing a whole intent from answers is gone from them.

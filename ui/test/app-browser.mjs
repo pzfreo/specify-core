@@ -605,6 +605,42 @@ try {
     await context.close();
     server.stop();
   }
+  // GRM-05 offers three plane lengths under The part. Bulk approval writes those rows.
+  const lengths = [['length:planes:2-3', 14], ['length:planes:2-5', 5], ['length:planes:2-8', 18]];
+  for (const declined of [null, lengths[0][0]]) {
+    const copy = join(dir, declined ? 'grm05-decline' : 'grm05-all');
+    mkdirSync(copy);
+    const file = join(copy, 'grm05.step');
+    writeFileSync(file, gunzipSync(readFileSync('test/fixtures/grm05_depth_lock_bolt.step.gz')));
+    const server = await open(file);
+    try {
+      const { context, page } = await load(server);
+      try {
+        const partGroup = page.locator('[data-group="part"]');
+        await check(partGroup.locator('[data-row^="length:planes:"]')).toHaveCount(3);
+        for (const [id, nominal] of lengths) {
+          await check(partGroup.locator(`[data-row="${id}"]`)).toBeVisible();
+          await check(row(page, id)).toContainText(`${nominal} ±`);
+        }
+        if (declined) {
+          await noneNeeded(page, declined);
+          await check(row(page, declined)).toHaveAttribute('data-state', 'decided_none');
+        }
+        await page.getByRole('button', { name: 'Add all suggestions', exact: true }).click();
+        for (const [id] of lengths) {
+          await check(listedEdit(page, id)).toContainText(id === declined ? 'None needed' : 'Add Length');
+        }
+        await save(page, server, 1);
+        const written = analyse(join(copy, 'grm05.specified.step'));
+        for (const [id] of lengths) {
+          assert.equal(written.table.rows.find(r => r.id === id)?.state, id === declined ? 'decided_none' : 'stated', id);
+        }
+        const writtenLengths = written.existing.filter(item => item.type === 'Location_LinearDistance')
+          .map(item => item.value).sort((a, b) => a - b);
+        assert.deepEqual(writtenLengths, lengths.filter(([id]) => id !== declined).map(([, value]) => value).sort((a, b) => a - b));
+      } finally { await context.close(); }
+    } finally { server.stop(); }
+  }
   // Read only: a viewer, no Save, and the command refuses one.
   {
     const server = await open(edited, '--read-only');
