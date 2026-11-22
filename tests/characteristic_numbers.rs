@@ -321,6 +321,17 @@ fn legacy_numberless_files_read_and_take_a_settings_only_write_unnumbered() {
             expected["table_rows"].as_u64().unwrap(),
             "{name}: feature table"
         );
+        if name == "resume-alpha6/shaft.step.gz" {
+            // D8: the imported position tolerance already locates hole 14.
+            assert!(
+                a["table"]["rows"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|row| { row["id"] != "location:holes:2.6-14" }),
+                "{name}: duplicate location on positioned hole 14"
+            );
+        }
         assert!(a.get("characteristics").is_none(), "{name}");
         let mut i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
         i.part.insert("material".into(), json!("steel"));

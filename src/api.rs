@@ -374,12 +374,17 @@ fn analyse_with(
     });
     // A table that cannot be built never fails the analysis: its file PMI is listed whole
     // and the reason is a warning.
-    let table =
-        crate::feature_table::build(&Value::Object(analysis.clone()), &stated_settings, &stored)
-            .unwrap_or_else(|e| {
-                warnings.push(format!("the feature table could not be built: {e}"));
-                crate::feature_table::FeatureTable::unread(&Value::Object(analysis.clone()))
-            });
+    let depths = crate::dimensioning::depth_supports(reading.model());
+    let table = crate::feature_table::build_with_depths(
+        &Value::Object(analysis.clone()),
+        &stated_settings,
+        &stored,
+        &depths,
+    )
+    .unwrap_or_else(|e| {
+        warnings.push(format!("the feature table could not be built: {e}"));
+        crate::feature_table::FeatureTable::unread(&Value::Object(analysis.clone()))
+    });
     if let Some(mut resumed) = resumed {
         let mut kept = Map::new();
         let nothing = crate::feature_table::wrote_nothing(&resumed.answers);
@@ -476,10 +481,11 @@ fn analyse_with(
         {
             // The table reads decided-none answers from the stored ones: without those dropped.
             let stored = crate::feature_table::storable(&answers);
-            table = crate::feature_table::build(
+            table = crate::feature_table::build_with_depths(
                 &Value::Object(analysis.clone()),
                 &stated_settings,
                 &stored,
+                &depths,
             )
             .unwrap_or(table);
             analysis.insert(
@@ -646,6 +652,19 @@ pub fn stored_with_defaults(
         }
     }
     Ok(out)
+}
+
+/// The accepted defaults for a write. Pass every approval through so the
+/// writer can distinguish deliberate omissions from unfulfilled measurements.
+pub(crate) fn defaults_for_write(
+    analysis: &Value,
+    answers: &Map<String, Value>,
+) -> Result<Map<String, Value>> {
+    let mut approved = rules::with_all_defaults(analysis, answers)?;
+    if !answers.contains_key(crate::process::QUESTION) {
+        approved.shift_remove(crate::process::QUESTION);
+    }
+    Ok(approved)
 }
 
 /// Approved defaults by part (ADR P9): each question id with the default value the person saw.

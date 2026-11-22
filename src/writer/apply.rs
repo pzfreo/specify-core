@@ -1251,16 +1251,17 @@ fn applied_pmi(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Fail
         // The questions are those of the part with its PMI set aside but for its datums, as
         // the feature table reads them (a stated hole is not asked otherwise); what the plan
         // states again is not written twice.
-        if let Some(existing) = analysis_clean
-            .get_mut("existing")
-            .and_then(Json::as_array_mut)
+        if !list.change.is_empty()
+            && let Some(existing) = analysis_clean
+                .get_mut("existing")
+                .and_then(Json::as_array_mut)
         {
             existing.retain(|item| item["kind"] == "datum");
         }
-        // The list was validated against the table: what it names is asked here, whatever
-        // the table says (a changed row is still stated by what stands of it).
-        if let Some(object) = analysis_clean.as_object_mut() {
-            object.remove("table");
+        // Keep the file-backed planner and the unaddressed settings. The edit list has
+        // already validated its named requirements, which need planning even if stated.
+        if let Some(rows) = analysis_clean["table"]["rows"].as_array_mut() {
+            rows.retain(|row| row["id"].as_str().is_none_or(|id| !given.contains_key(id)));
         }
         let mut answers = choices.clone();
         answers.extend(given.iter().map(|(id, v)| (id.clone(), v.clone())));
@@ -1502,7 +1503,7 @@ fn applied_pmi(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Fail
         // item the plan makes that measures exactly what the file states (a planner's own
         // dimension) is not written twice.
         if mode == Mode::Add {
-            for what in drop_stated(&mut pmi, clean_before, &BTreeSet::new()) {
+            for (_, what) in drop_stated(&mut pmi, clean_before, &BTreeSet::new()) {
                 lines.not_written.push(format!(
                     "{what}: the file already states it; not written again"
                 ));
@@ -1513,7 +1514,7 @@ fn applied_pmi(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Fail
             .iter()
             .map(|(id, value)| (id.clone(), value.clone()))
             .collect();
-        for id in super::wrote_nothing(
+        for id in super::unwritten_approvals(
             &loaded_clean,
             &approved,
             &made,
@@ -1521,10 +1522,9 @@ fn applied_pmi(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Fail
             &BTreeSet::new(),
             &intent.general,
         ) {
-            lines
-                .not_written
-                .push(super::not_written_approval(&id, &approved[&id]));
-            unwritten.insert(id.clone(), approved[&id].clone());
+            if lines.record_unwritten_approval(&id, &approved[&id]) {
+                unwritten.insert(id.clone(), approved[&id].clone());
+            }
         }
         pmi
     };
