@@ -224,6 +224,45 @@ fn ctc04_writes_the_position_and_shared_locations_for_unpositioned_holes() {
 }
 
 #[test]
+fn ctc04_one_pattern_does_not_close_the_position_of_its_identical_neighbour() {
+    let part = fixture("nist/nist_ctc_04_asme1_ap242.stp.gz");
+    let id = "hole.position:hole_patterns.linear:11.12.13.14.15.16.17.18.19.20";
+    let (before, _) = table(&part);
+    let first: Vec<_> = (11..=20).collect();
+    let second: Vec<_> = (49..=58).collect();
+    let both: Vec<_> = first.iter().chain(&second).copied().collect();
+    assert_eq!(row(&before, id)["faces"], json!(both));
+    assert_eq!(row(&before, id)["state"], "gap");
+    let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
+    intent.datums = [("A", vec![382]), ("B", vec![247, 248]), ("C", vec![3, 4])]
+        .into_iter()
+        .map(|(letter, faces)| map(json!({"letter":letter, "faces":faces})))
+        .collect();
+    intent.requirements.push(map(json!({
+        "kind":"position", "feature":"hole_patterns.linear:49.50.51.52.53.54.55.56.57.58",
+        "faces":second, "tolerance":0.75, "diametral":true, "datums":["A","B","C"]
+    })));
+    let (written, _) = specify_core::writer::write_bytes(&part, &intent, None).unwrap();
+    let reopened = load_bytes("ctc04-one-position.step", written).unwrap();
+    let (after, _) = table(&reopened);
+    let r = row(&after, id);
+    assert_eq!(r["faces"], json!(both));
+    let positions: Vec<_> = r["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["type"] == "Position")
+        .map(|item| item["faces"].clone())
+        .collect();
+    assert_eq!(positions, vec![json!(second)], "{r}");
+    assert_eq!(
+        r["state"], "gap",
+        "the first pattern is still unpositioned: {r}"
+    );
+    assert_eq!(r["open"], true, "{r}");
+}
+
+#[test]
 fn ctc05_pattern_answers_are_stated_after_reopening() {
     // CTC-05 AP242 has the same holes as the corpus AP203 input, with faces 78–89.
     let scratch = scratch("ctc05");
@@ -371,6 +410,12 @@ fn accepting_corpus_defaults_leaves_no_open_rows() {
             }
         }
         visited.insert(case.name);
+    }
+    for name in [
+        "nist/nist_ctc_01_asme1_ap242",
+        "nist/nist_ctc_05_asme1_ap242",
+    ] {
+        assert!(visited.contains(name), "did not visit {name}");
     }
     if corpus.is_some() {
         for name in [

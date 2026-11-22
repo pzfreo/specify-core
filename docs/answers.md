@@ -204,8 +204,10 @@ whose offset is its value), every hole on its located side (the "to", `faces2` i
 and every other hole whose axis lies on the same line from the same reference: one 50 from the
 left edge to a row of holes locates the Ø8 on that line too. Its reference side (the "from")
 locates nothing: a dimension from hole A to hole B locates B, not A. A position tolerance on the
-hole locates it in every direction. The location row is stated when every direction across the
-hole's axis is located. Otherwise it is a gap, and when some directions are located, its
+hole locates it in every direction. Identical patterns can share a row and its face list. A
+position tolerance on one pattern covers that pattern; the shared row stays open until each
+pattern is located. The location row is stated when every direction across the hole's axis is
+located. Otherwise it is a gap, and when some directions are located, its
 `missing` lists the others (`["y"]`), `located` those already located (`["x"]`), and
 `requirements` the dimensions that locate it so far.
 Its suggestion covers only the missing directions: answering it writes no position tolerance

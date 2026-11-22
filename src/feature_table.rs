@@ -1118,27 +1118,53 @@ pub(crate) fn build_with_depths(
                 claimed[i] = true;
                 requirements.push(requirement(existing[i]));
             }
-            if positions.is_empty() && !location.missing.is_empty() {
-                if location.items.iter().any(|&i| {
-                    let item = existing[i];
-                    kind.ends_with(".location")
-                        || (item["basic"] != true
-                            && (item["kind"] != "datum"
-                                || q.frame
-                                    .as_deref()
-                                    .or_else(|| q.default.as_ref().and_then(Value::as_str))
-                                    .is_some_and(|frame| {
-                                        frame.split('|').any(|letter| item["type"] == letter)
-                                    })))
-                }) {
-                    missing = location
+            let unresolved = if positions.is_empty() {
+                Some(location)
+            } else if q.parts.is_empty() {
+                None
+            } else {
+                // Identical groups share one question, but each needs its own location.
+                // A single position may represent a pattern, not a separate pattern.
+                let mut unpositioned = BTreeSet::new();
+                for (id, on) in &q.parts {
+                    let support = if on.is_empty() {
+                        feature_support(&bare_ctx, id, true)?
+                    } else {
+                        on.clone()
+                    };
+                    let support = support
+                        .into_iter()
+                        .filter_map(|f| usize::try_from(f).ok())
+                        .collect();
+                    if !positions.iter().any(|&i| on_any(existing[i], &support)) {
+                        unpositioned.extend(support);
+                    }
+                }
+                located.location(&unpositioned)
+            };
+            if let Some(unresolved) = unresolved.filter(|r| !r.missing.is_empty()) {
+                if !positions.is_empty()
+                    || unresolved.items.iter().any(|&i| {
+                        let item = existing[i];
+                        kind.ends_with(".location")
+                            || (item["basic"] != true
+                                && (item["kind"] != "datum"
+                                    || q.frame
+                                        .as_deref()
+                                        .or_else(|| q.default.as_ref().and_then(Value::as_str))
+                                        .is_some_and(|frame| {
+                                            frame.split('|').any(|letter| item["type"] == letter)
+                                        })))
+                    })
+                {
+                    missing = unresolved
                         .missing
                         .iter()
                         .map(|&a| AXES[a].to_string())
                         .collect();
-                    located_in = location
+                    located_in = unresolved
                         .needed
-                        .difference(&location.missing)
+                        .difference(&unresolved.missing)
                         .map(|&a| AXES[a].to_string())
                         .collect();
                 }
