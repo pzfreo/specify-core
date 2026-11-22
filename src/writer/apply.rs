@@ -1728,6 +1728,11 @@ impl Stated {
 }
 
 impl Stated {
+    pub(crate) fn by_number(&self, number: u64) -> Option<&crate::characteristics::Statement> {
+        let index = self.located.iter().position(|l| l.number == Some(number))?;
+        self.said.get(index)
+    }
+
     /// What the row `row` of this file's table states: each of its requirements, value
     /// included, or `None` when one cannot be found among the file's requirements (a setting).
     pub(crate) fn of_row(
@@ -1743,7 +1748,7 @@ impl Stated {
                 .iter()
                 .position(|l| (l.at.0.to_string(), l.at.1) == at)?;
             taken.insert(at);
-            out.push(&self.said[i]);
+            out.push(self.said.get(i)?);
         }
         Some(out)
     }

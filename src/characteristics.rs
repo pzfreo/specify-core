@@ -122,7 +122,7 @@ enum ValueHint {
         Option<Vec<Vec<String>>>,
     ),
     Texture(pmi::MaterialRemoval, Vec<(String, String)>),
-    Thread(Option<String>),
+    Thread(String, Map<String, Value>),
     Knurl(pmi::KnurlPattern),
 }
 
@@ -333,7 +333,10 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
             faces_of(p, &[t.feature]),
             vec![],
             "feature",
-            ValueHint::Thread(t.qualifier.clone()),
+            {
+                let (text, fields) = crate::existing::thread_signature(t, p);
+                ValueHint::Thread(text, fields)
+            },
             root(
                 doc,
                 prov.map_or(&[], |v| &v.threads[i]),
@@ -437,7 +440,7 @@ impl Statement {
                 .map(|(c, v)| format!("{c} {}", n(v)))
                 .collect::<Vec<_>>()
                 .join(" "),
-            ValueHint::Thread(qualifier) => qualifier.clone().unwrap_or_default(),
+            ValueHint::Thread(text, _) => text.clone(),
             ValueHint::Knurl(_) => String::new(),
         };
         format!("{} {value}", self.r#type).trim().to_string()
