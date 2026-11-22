@@ -2164,11 +2164,7 @@ fn mcp_lists_general_lengths_and_locations_as_open_on_save() {
     let opened = &opened["structuredContent"];
     let doc = &opened["doc"];
     let questions = call(&mut server, "questions", json!({"doc": doc}));
-    let saved = call(
-        &mut server,
-        "save",
-        json!({"doc": doc, "edits": {}}),
-    );
+    let saved = call(&mut server, "save", json!({"doc": doc, "edits": {}}));
     assert_eq!(saved["structuredContent"]["complete"], false, "{saved}");
     for id in ["length:planes:8-10", "location:holes:10-7"] {
         assert!(

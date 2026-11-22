@@ -65,9 +65,8 @@ fn ctc05_pattern_answers_are_stated_after_reopening() {
                 answers.insert(q.id, q.default.unwrap());
             }
         }
-        let (intent, _) = specify_core::session::intent_for(&part, &analysis, &answers).unwrap();
-        let (saved, _) = specify_core::writer::write_bytes(&part, &intent, Some(&answers)).unwrap();
-        part = load_bytes("ctc05.step", saved).unwrap();
+        let saved = common::apply_edits(&part, json!({"fill": answers}));
+        part = load_bytes("ctc05.step", saved.bytes).unwrap();
         let analysis = api::analyse(&part).unwrap();
         let after = &analysis["table"];
         for (id, requirement) in [(&function, "⌀10.7163 H11"), (&position, "⌖ ⌀0.72Ⓜ A B")]
@@ -88,14 +87,16 @@ fn ctc05_pattern_answers_are_stated_after_reopening() {
                 "{id}"
             );
         }
-        let (intent, _) = specify_core::session::intent_for(&part, &analysis, &answers).unwrap();
-        let (saved_again, report) =
-            specify_core::writer::write_bytes(&part, &intent, Some(&answers)).unwrap();
-        assert!(report.written.is_empty(), "{report:?}");
+        let saved_again = common::apply_edits(&part, json!({"fill": answers}));
+        assert!(
+            saved_again.report.written.is_empty(),
+            "{:?}",
+            saved_again.report
+        );
+        assert!(saved_again.unchanged);
         assert_eq!(
-            table(&load_bytes("ctc05.step", saved_again).unwrap()).0,
-            *after,
-            "{report:?}"
+            table(&load_bytes("ctc05.step", saved_again.bytes).unwrap()).0,
+            *after
         );
     }
 }

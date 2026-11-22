@@ -285,25 +285,24 @@ fn grm05_write_refuses_three_unanswered_length_gaps_but_session_saves() {
     };
     let answers = part.other_answers();
     // The model makes any gap whose suggestion writes PMI open. CLI write
-    // refuses incomplete answers on this branch; a partial session save still writes.
+    // refuses incomplete answers on this branch; an edit-list save still writes.
     let refused = part.run_write(answers.clone(), false);
     assert_eq!(refused.code, 2, "{}", refused.stderr);
     assert!(refused.stderr.starts_with("incomplete: "));
     assert!(!part.dir.join("out.step").exists());
     let original = specify_core::part::load(&part.input, None).unwrap();
-    let (intent, missing) =
-        specify_core::session::intent_for(&original, &part.analysis, &answers).unwrap();
-    let (bytes, _) = specify_core::writer::write_bytes(&original, &intent, Some(&answers)).unwrap();
+    let bytes = common::apply_edits(&original, json!({"fill": answers})).bytes;
     let reopened =
         api::analyse(&specify_core::part::load_bytes("partial.step", bytes).unwrap()).unwrap();
-    assert_eq!(missing, GRM05_LENGTHS.map(|(id, ..)| id));
     for (id, face, nominal, _) in GRM05_LENGTHS {
         assert!(refused.stderr.contains(id), "{}", refused.stderr);
         assert!(
             !grm05_written(&reopened, face, nominal),
             "{id} was written without approval"
         );
-        assert_eq!(grm05_row(&reopened, id)["state"], "gap", "{id}");
+        let row = grm05_row(&reopened, id);
+        assert_eq!(row["state"], "gap", "{id}");
+        assert_eq!(row["open"], true, "{id}");
     }
 }
 
@@ -350,12 +349,9 @@ fn grm05_reopening_a_file_with_one_length_shows_it_as_stated() {
     let mut answers = part.other_answers();
     let (approved, _, _, text) = GRM05_LENGTHS[0];
     answers.insert(approved.into(), json!(text));
-    // The other two length gaps make CLI write incomplete; use the same partial
-    // session save as the panel to approve just this row.
+    // Use the edit-list writer to approve a length while the other lengths stay open.
     let original = specify_core::part::load(&part.input, None).unwrap();
-    let (intent, _) =
-        specify_core::session::intent_for(&original, &part.analysis, &answers).unwrap();
-    let (bytes, _) = specify_core::writer::write_bytes(&original, &intent, Some(&answers)).unwrap();
+    let bytes = common::apply_edits(&original, json!({"fill": answers})).bytes;
     let next = part.dir.join("out.step");
     std::fs::write(&next, bytes).unwrap();
     let reopened = api::analyse_file(&next, None).unwrap();

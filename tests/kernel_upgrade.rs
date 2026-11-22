@@ -206,13 +206,22 @@ fn five_real_alpha6_files_resume_all_87_answers_including_a_rotated_part() {
         for id in &reopened {
             given.insert(id.clone(), expected[id].clone());
         }
-        let (intent, missing) =
-            specify_core::session::intent_for(&loaded, &analysis, &given).unwrap();
+        let Err(api::Error::Rules(rules::Error::Incomplete(incomplete))) =
+            api::apply(&analysis, &given, false)
+        else {
+            panic!("{name}: expected the measurement gaps to remain open");
+        };
         assert_eq!(
-            missing.into_iter().collect::<BTreeSet<_>>(),
+            incomplete.missing.into_iter().collect::<BTreeSet<_>>(),
             measurements.into_iter().collect(),
             "{name}"
         );
+        // Replay the legacy answers as a raw intent, including answers whose
+        // value is retained because the writer cannot emit PMI for it.
+        let mut intent = api::preview(&analysis, &given).unwrap();
+        intent
+            .requirements
+            .extend(rules::unasked_rows(&analysis, &given).unwrap());
         let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
         let back = part::File::of_bytes(Path::new(name), bytes)
             .unwrap()
