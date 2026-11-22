@@ -1,4 +1,7 @@
 //! For #79: STEP is the assembly BOM authority; no entity-number identities.
+#[path = "common/carry_values.rs"]
+mod carry_values;
+
 use haecceity::p21::{self, Attribute as A, Document, Edit, RawEntity};
 use serde_json::{Map, Value, json};
 use specify_core::{api, bom, carry, part, resume, rules, writer};
@@ -1105,7 +1108,13 @@ fn a_removed_assembly_part_reports_every_stated_characteristic() {
     let old_part = old.load(Some(index)).unwrap();
     let characteristics = specify_core::characteristics::read(&old_part).unwrap();
     assert!(!characteristics.is_empty());
-    let report = carry::carry(&old, &removed(&source, index)).unwrap().report;
+    let outcome = carry::carry(&old, &removed(&source, index)).unwrap();
+    let report = outcome.report;
+    carry_values::numbered_requirements_are_in_output_or_reported(
+        &old,
+        &file(outcome.bytes.unwrap()),
+        &json!(report),
+    );
     assert!(report.written, "{:?}", report.refused);
     for characteristic in characteristics {
         let number = format!("#{}", characteristic.number);
