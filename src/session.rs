@@ -507,9 +507,7 @@ impl Session {
             data["joined"] = json!(true);
         }
         self.answers.insert(part, answers);
-        if at.is_some() {
-            data["drafts"] = json!({});
-        } else if let Some(refused) = self.refused_answers(part) {
+        if let Some(refused) = self.refused_answers(part) {
             data["draft"] = json!({"refused": refused});
         }
         self.publish(&event("answers", Some(rev), &data));
