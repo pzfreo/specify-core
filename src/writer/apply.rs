@@ -984,7 +984,7 @@ pub(crate) fn planned_intent(
     given: &BTreeMap<String, Json>,
     choices: &Map<String, Json>,
     replacing: bool,
-) -> Result<crate::rules::Intent, String> {
+) -> Result<(crate::rules::Intent, BTreeSet<String>), String> {
     let mut analysis_clean = analysis.clone();
     // The questions are those of the part with its PMI set aside but for its datums, as
     // the feature table reads them (a stated hole is not asked otherwise); what the plan
@@ -999,7 +999,10 @@ pub(crate) fn planned_intent(
     // The list already validated its named requirements. Keep the unaddressed
     // table for the planner, including the stated general tolerance and D8 coverage.
     if let Some(rows) = analysis_clean["table"]["rows"].as_array_mut() {
-        rows.retain(|row| row["id"].as_str().is_none_or(|id| !given.contains_key(id)));
+        rows.retain(|row| {
+            (!replacing && row["state"] != "stated")
+                || row["id"].as_str().is_none_or(|id| !given.contains_key(id))
+        });
     }
     let mut answers = choices.clone();
     answers.extend(given.iter().map(|(id, v)| (id.clone(), v.clone())));
@@ -1049,7 +1052,7 @@ pub(crate) fn planned_intent(
             ))
         })
         .collect();
-    let dimension_owner = |r: &Map<String, Json>| -> Option<String> {
+    let dimension_owners = |r: &Map<String, Json>| -> Option<Vec<&String>> {
         let plan: Option<crate::dimensioning::Planned> = r
             .get("planner")
             .and_then(|p| serde_json::from_value(p.clone()).ok());
@@ -1062,36 +1065,45 @@ pub(crate) fn planned_intent(
                 .filter(|s| p.required.covers.contains(&s.feature))
                 .flat_map(|s| s.faces.iter().copied())
                 .collect()
-        } else if r.get("kind").and_then(Json::as_str) == Some("size") {
-            r.get("faces")?
+        } else {
+            let kind = r.get("kind").and_then(Json::as_str)?;
+            let faces: BTreeSet<_> = r
+                .get("faces")?
                 .as_array()?
                 .iter()
                 .filter_map(Json::as_u64)
                 .map(|f| f as usize)
-                .collect()
-        } else {
-            return None;
+                .collect();
+            if kind != "size" {
+                return None;
+            }
+            faces
         };
-        functions
-            .iter()
-            .find(|(id, value, on)| {
-                !faces.is_disjoint(on)
-                    && if depth.is_some() {
-                        id.starts_with("hole.function:")
-                    } else {
-                        *value == "general"
-                    }
-            })
-            .map(|(id, _, _)| (*id).clone())
+        Some(
+            functions
+                .iter()
+                .filter(|(id, value, on)| {
+                    !faces.is_disjoint(on)
+                        && if depth.is_some() {
+                            id.starts_with("hole.function:")
+                        } else {
+                            *value == "general"
+                        }
+                })
+                .map(|(id, _, _)| *id)
+                .collect(),
+        )
     };
+    let mut general_approvals = BTreeSet::new();
     intent.general.retain_mut(|r| {
-        if addressed(r) {
-            return true;
+        let owners = dimension_owners(r).unwrap_or_default();
+        if !addressed(r) {
+            let Some(id) = owners.first() else {
+                return false;
+            };
+            r.insert("question".into(), Json::from(id.as_str()));
         }
-        let Some(id) = dimension_owner(r) else {
-            return false;
-        };
-        r.insert("question".into(), Json::from(id));
+        general_approvals.extend(owners.into_iter().cloned());
         true
     });
     for item in intent
@@ -1101,7 +1113,7 @@ pub(crate) fn planned_intent(
     {
         item.shift_remove("default");
     }
-    Ok(intent)
+    Ok((intent, general_approvals))
 }
 
 /// Applies `list` to `loaded`'s part, all or nothing: the whole list, or nothing and every
@@ -1730,7 +1742,7 @@ fn applied_pmi(
     } else {
         let analysis_clean =
             crate::api::analyse(&loaded_clean).map_err(|e| whole(e.to_string()))?;
-        let mut intent = planned_intent(
+        let (mut intent, general_approvals) = planned_intent(
             &analysis_clean,
             &table,
             &given,
@@ -1739,11 +1751,34 @@ fn applied_pmi(
         )
         .map_err(whole)?;
         let has_general_tolerance = intent.part.contains_key("general_tolerance")
-            || !analysis_clean["part"]["general_tolerance"].is_null();
+            || table
+                .row("part.general_tolerance")
+                .is_some_and(|r| r.state == State::Stated);
+        if has_general_tolerance {
+            for (id, value) in &given {
+                if crate::feature_table::is_datum_size_approval(id, value)
+                    && let Some(row) = table.row(id)
+                    && intent.datums.iter().any(|d| {
+                        let mut faces: Vec<_> = d
+                            .get("faces")
+                            .and_then(Json::as_array)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Json::as_u64)
+                            .map(|f| f as usize)
+                            .collect();
+                        faces.sort_unstable();
+                        faces == row.faces
+                    })
+                {
+                    lines.datum_sizes.insert(id.clone());
+                }
+            }
+        }
         let failing: Vec<Failure> = given
             .keys()
             .filter(|id| {
-                let written = intent
+                let written = general_approvals.contains(*id) || intent
                     .requirements
                     .iter()
                     .chain(&intent.general)
@@ -1755,6 +1790,9 @@ fn applied_pmi(
                     || id
                         .strip_prefix("part.")
                         .is_some_and(|key| intent.part.contains_key(key))
+                    || id.strip_prefix("hole.frame:").is_some_and(|feature| {
+                        given.contains_key(&format!("hole.position:{feature}"))
+                    })
                     // A hole's full-thread depth is written in its thread, which the hole's
                     // function plans.
                     || id.strip_prefix("hole.full_thread:").is_some_and(|feature| {
@@ -1767,7 +1805,7 @@ fn applied_pmi(
                 let deferred_diameter = has_general_tolerance
                     && id.starts_with("diameter.fit:")
                     && given[*id] == "general";
-                !(written || deferred_diameter)
+                !(written || deferred_diameter || lines.datum_sizes.contains(*id))
             })
             .map(|id| {
                 let section = if list.change.contains_key(id) {
@@ -1875,7 +1913,9 @@ fn applied_pmi(
             &mut |_, _, r| made.push(r.clone()),
         )
         .map_err(|e| whole(e.to_string()))?;
+        let datum_sizes = std::mem::take(&mut lines.datum_sizes);
         lines = planned;
+        lines.datum_sizes.extend(datum_sizes);
         keep_untouched(&mut pmi, before, &changed_items, &nominals)
             .map_err(|e| whole(e.to_string()))?;
         // A change replaces its row's own items: it never adds a location dimension beside
@@ -2197,7 +2237,7 @@ pub(crate) fn restates(
     } else {
         analysis
     };
-    let Ok(intent) = planned_intent(analysis, table, &given, choices, false) else {
+    let Ok((intent, _)) = planned_intent(analysis, table, &given, choices, false) else {
         return false;
     };
     let Ok((planned, _)) = super::part_pmi(loaded, &intent, &stated.before, Mode::Add, &[]) else {

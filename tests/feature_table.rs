@@ -74,7 +74,15 @@ fn cli_write_result(
         .as_array()
         .unwrap()
         .iter()
-        .filter(|r| defaults && r["state"] == "gap" && !r["suggestion"].is_null())
+        // The table also carries dormant follow-ups. Accept the interview's open
+        // rows and its optional none decisions, as all-defaults did.
+        .filter(|r| {
+            defaults
+                && r["state"] == "gap"
+                && !r["suggestion"].is_null()
+                && (r["open"] == true
+                    || specify_core::feature_table::is_none_value(&r["suggestion"]))
+        })
         .filter_map(|r| r["id"].as_str())
         .filter(|id| !answers.contains_key(*id))
         .collect();
