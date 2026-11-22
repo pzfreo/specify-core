@@ -12,8 +12,8 @@
 //!    question id, answer key, intent requirement and report line embedding one would differ.
 //!    In a composition difference, `python` holds the library's result and `rust` the binary's.
 //! 2. **Python's inputs**: given Python's analysis and the oracle's answers (selected cases'
-//!    questions, committed fixtures' base writes, every scenario), the binary's open questions, intent
-//!    (`write --intent`), write report and refusals are compared with Python's; and each
+//!    questions and scenarios), the binary's open questions are compared with Python's. Each
+//!    former whole-intent write has an exact not-applicable entry. Each
 //!    synthetic part's serve transcript is replayed reply by reply through `specify-core serve`
 //!    (an analyse reply by its envelope and mesh summary; questions, interpret, preview and
 //!    write replies, made from Python's analysis, fully, except a preview's anchor points,
@@ -41,11 +41,10 @@ use common::{
     is_error, load_known, read_json_gz, scenarios, without_threads_beyond_python,
 };
 use serde_json::{Map, Value, json};
-use specify_core::api::{self, Error};
+use specify_core::api;
 use specify_core::pyjson;
 use specify_core::rules;
 use specify_core::serve::Server;
-use specify_core::writer::WriteError;
 
 /// The areas whose known differences a CLI difference may already be explained by.
 const AREAS: [&str; 7] = [
@@ -112,7 +111,6 @@ fn write_listed_defaults(input: &Path, name: &str) -> (PathBuf, Value, Value) {
     let analysis = dir.join("analysis.json");
     let answers = dir.join("answers.json");
     let output = dir.join("out.step");
-    let intent = dir.join("intent.json");
     let analysed = run(&["analyse", &s(input), "-o", &s(&analysis)]);
     assert_eq!(analysed.code, 0, "{}", analysed.stderr);
     let listed = run(&["questions", &s(&analysis)]);
@@ -136,21 +134,26 @@ fn write_listed_defaults(input: &Path, name: &str) -> (PathBuf, Value, Value) {
             (id.to_string(), answer)
         })
         .collect::<Map<String, Value>>();
-    save(&answers, &Value::Object(given));
-    let written = run(&[
-        "write",
-        &s(input),
-        &s(&analysis),
-        &s(&answers),
-        "-o",
-        &s(&output),
-        "--intent",
-        &s(&intent),
-    ]);
+    let analysis: Value = serde_json::from_slice(&std::fs::read(analysis).unwrap()).unwrap();
+    let intent = api::apply(&analysis, &given, false).unwrap().to_dict();
+    let mut edits = json!({"fill": given});
+    if name.starts_with("spindle") {
+        // The imported spindle offers a redundant general hole size today. P11 refuses
+        // an explicit fill that has nothing to write, so approve the other offered rows.
+        assert_eq!(
+            edits["fill"]
+                .as_object_mut()
+                .unwrap()
+                .remove("hole.function:holes:7"),
+            Some(json!("general"))
+        );
+    }
+    save(&answers, &edits);
+    let written = run(&["write", &s(input), &s(&answers), "-o", &s(&output)]);
     assert_eq!(written.code, 0, "{}", written.stderr);
     (
         output,
-        serde_json::from_slice(&std::fs::read(intent).unwrap()).unwrap(),
+        intent,
         serde_json::from_str(&written.stdout).unwrap(),
     )
 }
@@ -209,20 +212,14 @@ impl Grm05 {
 
     fn run_write(&self, answers: Map<String, Value>, bulk: bool) -> Run {
         let given = self.dir.join("answers.json");
-        save(&given, &Value::Object(answers));
+        let edits = if bulk {
+            common::approve_edits(&self.analysis, &answers)
+        } else {
+            json!({"fill": answers})
+        };
+        save(&given, &edits);
         let output = self.dir.join("out.step");
-        let mut args = vec![
-            "write".into(),
-            s(&self.input),
-            s(&self.dir.join("analysis.json")),
-            s(&given),
-            "-o".into(),
-            s(&output),
-        ];
-        if bulk {
-            args.push("--accept-defaults".into());
-        }
-        run(&args)
+        run(&["write", &s(&self.input), &s(&given), "-o", &s(&output)])
     }
 
     fn write(&self, answers: Map<String, Value>, bulk: bool) -> Value {
@@ -279,23 +276,18 @@ fn grm05_has_three_suggested_length_gaps_before_save() {
 }
 
 #[test]
-fn grm05_write_refuses_three_unanswered_length_gaps_but_session_saves() {
+fn grm05_write_lists_three_unanswered_length_gaps_and_leaves_them_open() {
     let Some(part) = Grm05::load("grm05-no-lengths-approved") else {
         return;
     };
     let answers = part.other_answers();
-    // The model makes any gap whose suggestion writes PMI open. CLI write
-    // refuses incomplete answers on this branch; an edit-list save still writes.
-    let refused = part.run_write(answers.clone(), false);
-    assert_eq!(refused.code, 2, "{}", refused.stderr);
-    assert!(refused.stderr.starts_with("incomplete: "));
-    assert!(!part.dir.join("out.step").exists());
-    let original = specify_core::part::load(&part.input, None).unwrap();
-    let bytes = common::apply_edits(&original, json!({"fill": answers})).bytes;
-    let reopened =
-        api::analyse(&specify_core::part::load_bytes("partial.step", bytes).unwrap()).unwrap();
+    // #228 writes the answered rows and reports every remaining open gap.
+    let result = part.run_write(answers, false);
+    assert_eq!(result.code, 0, "{}", result.stderr);
+    let report: Value = serde_json::from_str(&result.stdout).unwrap();
+    let reopened = api::analyse_file(&part.dir.join("out.step"), None).unwrap();
+    assert_eq!(report["missing"], json!(GRM05_LENGTHS.map(|(id, ..)| id)));
     for (id, face, nominal, _) in GRM05_LENGTHS {
-        assert!(refused.stderr.contains(id), "{}", refused.stderr);
         assert!(
             !grm05_written(&reopened, face, nominal),
             "{id} was written without approval"
@@ -512,18 +504,12 @@ fn freecad_write_roundtrip(name: &str) {
     let analysis = dir.join("a.json");
     let answers = dir.join("answers.json");
     let output = dir.join("out.step");
-    save(&answers, &json!({"part.material":"6061-T6"}));
     let analysed = run(&["analyse", "-o", &s(&analysis), &s(&input)]);
     assert_eq!(analysed.code, 0, "{}", analysed.stderr);
-    let written = run(&[
-        "write",
-        "-o",
-        &s(&output),
-        "--accept-defaults",
-        &s(&input),
-        &s(&analysis),
-        &s(&answers),
-    ]);
+    let analysed = serde_json::from_slice(&std::fs::read(&analysis).unwrap()).unwrap();
+    let given = object(&json!({"part.material":"6061-T6"}));
+    save(&answers, &common::approve_edits(&analysed, &given));
+    let written = run(&["write", &s(&input), &s(&answers), "-o", &s(&output)]);
     assert_eq!(written.code, 0, "{}", written.stderr);
     let report: Value = serde_json::from_str(&written.stdout).unwrap();
     assert!(
@@ -607,17 +593,9 @@ fn freecad_write_roundtrip(name: &str) {
     // ADR P11: the material is the file's (stated), not a stored answer.
     assert_eq!(reopened["part"]["material"], "6061-T6");
     let rewritten = dir.join("rewritten.step");
-    let back = dir.join("back.json");
-    save(&back, &reopened);
-    let resaved = run(&[
-        "write",
-        "-o",
-        &s(&rewritten),
-        "--accept-defaults",
-        &s(&output),
-        &s(&back),
-        &s(&answers),
-    ]);
+    // Replaying an empty list keeps the saved requirements and their entity bytes.
+    save(&answers, &json!({}));
+    let resaved = run(&["write", &s(&output), &s(&answers), "-o", &s(&rewritten)]);
     assert_eq!(resaved.code, 0, "{}", resaved.stderr);
     assert_eq!(std::fs::read(rewritten).unwrap(), bytes, "unchanged resave");
     std::fs::remove_dir_all(dir).unwrap();
@@ -641,16 +619,14 @@ fn full_thread_depth_uses_the_existing_questions_and_answers_cli() {
     assert_eq!(q["kind"], "text");
     assert_eq!(q["default"], "2");
     let id = q["id"].as_str().unwrap();
-    let given = json!({"part.material": "steel", id: "1.8"});
-    let answers_path = dir.join("answers.json");
-    save(&answers_path, &given);
+    let given = object(&json!({"part.material": "steel", id: "1.8"}));
+    let answers_path = dir.join("edits.json");
+    save(&answers_path, &common::approve_edits(&a, &given));
     let out = dir.join("edited.step");
     let written = run(&[
         "write",
         &s(&part("GRM-02_shaft")),
-        &s(&a_path),
         &s(&answers_path),
-        "--accept-defaults",
         "-o",
         &s(&out),
     ]);
@@ -682,22 +658,10 @@ fn alpha7_tap_survives_cli_resave_without_a_depth_answer() {
     let input = dir.join("alpha7.step");
     std::fs::write(&input, loaded.bytes.as_slice()).unwrap();
     let a = api::analyse_file(&input, None).unwrap();
-    let saved = a["resume"]["answers"].as_object().unwrap();
-    let mut given = rules::with_all_defaults(&a, saved).unwrap();
-    given.retain(|id, _| !id.starts_with("hole.full_thread:"));
-    let analysis = dir.join("analysis.json");
-    let answers = dir.join("answers.json");
-    save(&analysis, &a);
-    save(&answers, &json!(given));
+    let answers = dir.join("edits.json");
+    save(&answers, &common::approve_edits(&a, &Map::new()));
     let output = dir.join("resaved.step");
-    let ran = run(&[
-        "write",
-        &s(&input),
-        &s(&analysis),
-        &s(&answers),
-        "-o",
-        &s(&output),
-    ]);
+    let ran = run(&["write", &s(&input), &s(&answers), "-o", &s(&output)]);
     assert_eq!(ran.code, 0, "{}", ran.stderr);
     let bytes = std::fs::read(output).unwrap();
     let defs = read_part_definitions(&bytes).unwrap();
@@ -902,20 +866,6 @@ fn summary(analysis: &Value) -> Value {
 }
 
 /// The command line's stderr and exit code for an API error, as `main.rs` words it.
-fn refusal(e: &Error, output: &str) -> (i32, String) {
-    match e {
-        Error::Rules(rules::Error::Incomplete(e)) => (2, format!("incomplete: {e}\n")),
-        Error::Rules(rules::Error::Invalid(m)) => (2, format!("invalid answer: {m}\n")),
-        Error::Load(_) | Error::Write(WriteError::Invalid(_)) | Error::Unapproved(_) => {
-            (2, format!("cannot write: {e}\n"))
-        }
-        Error::Write(_) | Error::Analysis(_) => {
-            (1, format!("write failed, {output} left as it was: {e}\n"))
-        }
-    }
-}
-
-/// The case name of part `k` of a file case.
 fn part_case(file: &str, k: Option<usize>) -> String {
     match k {
         Some(k) => format!("{file}#{k}"),
@@ -973,8 +923,8 @@ fn composition(dir: &Path) -> Vec<Difference> {
     save(&answers_path, &base);
     let mut compared = 0;
     for (file, input, parts) in file_cases() {
-        let mut pairs: Vec<String> = Vec::new();
-        let mut analyses: Vec<Value> = Vec::new();
+        let single = parts.len() == 1 && parts[0].is_none();
+        let mut analysed = 0;
         for &k in &parts {
             let name = part_case(&file, k);
             let tag = k.map_or(String::new(), |k| k.to_string());
@@ -1116,136 +1066,42 @@ fn composition(dir: &Path) -> Vec<Difference> {
                     &got,
                 ));
             }
-            pairs.extend([s(&a_path), s(&answers_path)]);
-            analyses.push(analysis);
-        }
-        if analyses.len() != parts.len() {
-            continue;
-        }
-        compared += 1;
-
-        // write: the intent file and the report are the library's.
-        let cli_out = dir.join("cli.step");
-        let intent_path = dir.join("intent.json");
-        let mut args = vec!["write".to_string(), s(&input)];
-        args.extend(pairs);
-        args.extend([
-            "-o".to_string(),
-            s(&cli_out),
-            "--accept-defaults".to_string(),
-            "--intent".to_string(),
-            s(&intent_path),
-        ]);
-        let ran = run(&args);
-        let several = analyses.len() > 1;
-        let mut intents = Vec::new();
-        let mut refused = None;
-        for analysis in &analyses {
-            match api::apply(analysis, &object(&base), true) {
-                // The command line stores the defaults it takes that write no PMI (ADR P9).
-                Ok(intent) => {
-                    let part = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
-                    let loaded = specify_core::part::load(&input, Some(part)).unwrap();
-                    let stored =
-                        api::stored_with_defaults(&loaded, analysis, &object(&base)).unwrap();
-                    // ADR P11: of these, the writer stores what leaves no PMI behind.
-                    let storable = specify_core::feature_table::storable;
-                    assert_eq!(
-                        storable(&stored),
-                        storable(&common::accept_all::stored(
-                            &input,
-                            part,
-                            analysis,
-                            &object(&base)
-                        )),
-                        "{file} part {part}"
-                    );
-                    intents.push((intent, Some(stored)));
-                }
-                Err(e) => {
-                    // An assembly's refusal names the part (as main.rs words it).
-                    let part = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
-                    let e = match e {
-                        Error::Rules(rules::Error::Incomplete(e)) if several => {
-                            Error::from(rules::IncompleteError::new(e.missing, Some(part)))
-                        }
-                        Error::Rules(rules::Error::Invalid(m)) if several => {
-                            Error::Rules(rules::Error::Invalid(format!("part {part}: {m}")))
-                        }
-                        other => other,
-                    };
-                    refused = Some(e);
-                    break;
-                }
-            }
-        }
-        if let Some(e) = refused {
-            let (code, stderr) = refusal(&e, &s(&cli_out));
-            out.extend(same_text(
-                &file,
-                "composition.write.exit",
-                &code.to_string(),
-                &ran.code.to_string(),
-            ));
-            out.extend(same_text(
-                &file,
-                "composition.write.stderr",
-                &stderr,
-                &ran.stderr,
-            ));
-            continue;
-        }
-        let shown: Vec<Value> = intents.iter().map(|(i, _)| i.to_dict()).collect();
-        let shown = if several {
-            Value::Array(shown)
-        } else {
-            shown[0].clone()
-        };
-        let text = std::fs::read_to_string(&intent_path).unwrap_or_default();
-        out.extend(same_text(
-            &file,
-            "composition.write.intent",
-            &pyjson::dumps_indent1(&shown),
-            &text,
-        ));
-        let lib_out = dir.join("library.step");
-        let report = if several {
-            api::write_parts(&input, &intents, &lib_out)
-        } else {
-            api::write_file(&input, &intents[0].0, &lib_out, intents[0].1.as_ref())
-        };
-        match report {
-            Ok(report) => {
-                let mut expected = report.to_dict();
+            analysed += 1;
+            if single {
+                let list = if analysis["part"]["material"].is_null() {
+                    json!({"fill": base})
+                } else {
+                    json!({})
+                };
+                let edits = dir.join("composition-edits.json");
+                save(&edits, &list);
+                let cli_out = dir.join("cli.step");
+                let ran = run(&["write", &s(&input), &s(&edits), "-o", &s(&cli_out)]);
+                assert_eq!(ran.code, 0, "{file}: {}", ran.stderr);
+                let loaded = specify_core::part::load(&input, None).unwrap();
+                let list = specify_core::edits::parse_value(list).unwrap();
+                let applied = specify_core::writer::apply::apply(&loaded, &list).unwrap();
+                let mut expected = applied.to_dict();
                 expected["output"] = json!(s(&cli_out));
-                let got: Value = serde_json::from_str(&ran.stdout).unwrap_or(Value::Null);
-                out.extend(exactly(&file, "composition.write.report", &expected, &got));
-                // The two files are the same bytes: the write is deterministic.
-                let same = std::fs::read(&lib_out).ok() == std::fs::read(&cli_out).ok();
-                if !same {
-                    out.push(difference(&file, "composition.write.file", None, None));
+                let got: Value = serde_json::from_str(&ran.stdout).unwrap();
+                let reopened = api::analyse_file(&cli_out, None).unwrap();
+                let missing: Vec<_> = reopened["table"]["rows"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|row| row["open"] == true)
+                    .map(|row| &row["id"])
+                    .collect();
+                if !missing.is_empty() {
+                    expected["missing"] = json!(missing);
                 }
-            }
-            Err(e) => {
-                let (code, stderr) = refusal(&e, &s(&cli_out));
-                out.extend(same_text(
-                    &file,
-                    "composition.write.exit",
-                    &code.to_string(),
-                    &ran.code.to_string(),
-                ));
-                // The library's message names its own output; the binary's, its own.
-                let stderr = stderr.replace(&s(&lib_out), &s(&cli_out));
-                out.extend(same_text(
-                    &file,
-                    "composition.write.stderr",
-                    &stderr,
-                    &ran.stderr,
-                ));
+                out.extend(exactly(&name, "composition.write.report", &expected, &got));
+                assert_eq!(std::fs::read(&cli_out).unwrap(), applied.bytes, "{file}");
+                std::fs::remove_file(&cli_out).unwrap();
             }
         }
-        for p in [&cli_out, &lib_out, &intent_path] {
-            std::fs::remove_file(p).ok();
+        if analysed == parts.len() {
+            compared += 1;
         }
     }
     println!(
@@ -1316,119 +1172,8 @@ fn questions_against(
 }
 
 /// The command line's stderr for Python's refusal `failure` of an apply.
-fn apply_refusal(failure: &Value) -> String {
-    let message = failure["message"].as_str().unwrap_or_default();
-    match failure["error"].as_str() {
-        Some("IncompleteError") => format!("incomplete: {message}\n"),
-        _ => format!("invalid answer: {message}\n"),
-    }
-}
-
-/// The binary's `write` of `input` with Python's analyses and `answers` (one pair per part),
-/// its intent compared with Python's `applied` (one per part: a value or a refusal) and, when
-/// given, its report with Python's `report`.
-#[allow(clippy::too_many_arguments)]
-fn write_against(
-    dir: &Path,
-    name: &str,
-    input: &Path,
-    analyses: &[(String, Value)],
-    answers: &Value,
-    defaults: bool,
-    applied: &[Value],
-    report: Option<&Value>,
-) -> Vec<Difference> {
-    let mut out = Vec::new();
-    let mut args = vec!["write".to_string(), s(input)];
-    for (k, (_, analysis)) in analyses.iter().enumerate() {
-        let (a, q) = (
-            dir.join(format!("a{k}.json")),
-            dir.join(format!("q{k}.json")),
-        );
-        save(&a, analysis);
-        save(&q, answers);
-        args.extend([s(&a), s(&q)]);
-    }
-    let output = dir.join("written.step");
-    let intent_path = dir.join("intent.json");
-    args.extend([
-        "-o".to_string(),
-        s(&output),
-        "--intent".to_string(),
-        s(&intent_path),
-    ]);
-    if defaults {
-        args.push("--accept-defaults".to_string());
-    }
-    let _ = std::fs::remove_file(&intent_path);
-    let ran = run(&args);
-    let several = analyses.len() > 1;
-    if let Some((k, failure)) = applied.iter().enumerate().find(|(_, a)| is_error(a)) {
-        // Python refused to apply: the same refusal, exit 2. In an assembly the command line
-        // names the part: an incomplete one as the oracle's case-level write records it (an
-        // IncompleteError naming the part), any other refusal prefixed `part K: `, as cli.py
-        // re-raises it (the case-level write records that one unprefixed).
-        let expected = match report.filter(|r| several && is_error(r)) {
-            Some(named) if named["error"] == json!("IncompleteError") => apply_refusal(named),
-            _ if several => apply_refusal(&json!({
-                "error": failure["error"],
-                "message": format!("part {k}: {}", failure["message"].as_str().unwrap_or_default()),
-            })),
-            _ => apply_refusal(failure),
-        };
-        out.extend(same_text(name, "apply.refusal", &expected, &ran.stderr));
-        out.extend(same_text(name, "apply.exit", "2", &ran.code.to_string()));
-        return out;
-    }
-    let text = std::fs::read_to_string(&intent_path).unwrap_or_default();
-    let intent: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-    let intents: Vec<Value> = if several {
-        intent.as_array().cloned().unwrap_or_default()
-    } else {
-        vec![intent]
-    };
-    for (k, python) in applied.iter().enumerate() {
-        let rust = intents.get(k).cloned().unwrap_or(Value::Null);
-        out.extend(prefixed(
-            against_python(&analyses[k].0, python, &rust, &Tolerances::default()),
-            "apply",
-        ));
-    }
-    let Some(report) = report else {
-        let _ = std::fs::remove_file(&output);
-        return out;
-    };
-    // As the writer sweep (tests/write_oracle.rs) words them, so writer.json explains them:
-    // both refused with different messages, `write.message[<Rust's message>]`; one refused and
-    // the other not, `write`; both written, the report's lines.
-    let refused = ran.code != 0;
-    if is_error(report) && refused {
-        let stderr = ran.stderr.trim_end();
-        let message = stderr
-            .strip_prefix("cannot write: ")
-            .or_else(|| stderr.split_once(" left as it was: ").map(|(_, m)| m))
-            .unwrap_or(stderr);
-        if report["message"].as_str() != Some(message) {
-            out.push(difference(
-                name,
-                &format!("write.message[{message}]"),
-                Some(report.clone()),
-                Some(json!({"exit": ran.code, "stderr": ran.stderr})),
-            ));
-        }
-    } else if is_error(report) || refused {
-        out.push(difference(
-            name,
-            "write",
-            Some(report.clone()),
-            Some(json!({"exit": ran.code, "stdout": ran.stdout, "stderr": ran.stderr})),
-        ));
-    } else {
-        let got: Value = serde_json::from_str(&ran.stdout).unwrap_or(Value::Null);
-        out.extend(report_lines(name, report, &got));
-    }
-    let _ = std::fs::remove_file(&output);
-    out
+fn removed_write(case: &str, old: Value) -> Difference {
+    difference(case, "whole_intent_write", Some(old), None)
 }
 
 fn python_inputs(dir: &Path) -> Vec<Difference> {
@@ -1492,22 +1237,17 @@ fn python_inputs(dir: &Path) -> Vec<Difference> {
         if found.iter().any(|(_, a, _)| is_error(a)) {
             continue;
         }
-        let Some(input) = c.input() else { continue };
+        if c.input().is_none() {
+            continue;
+        }
         writes += 1;
-        let analyses: Vec<(String, Value)> = found
+        let status: Vec<_> = found
             .iter()
-            .map(|(n, a, _)| (n.clone(), a.clone()))
+            .map(|(name, _, apply)| json!({"part": name, "error": apply.get("error")}))
             .collect();
-        let applied: Vec<Value> = found.iter().map(|(_, _, i)| i.clone()).collect();
-        out.extend(write_against(
-            dir,
+        out.push(removed_write(
             &c.name,
-            &input,
-            &analyses,
-            &c.meta["answers"],
-            true,
-            &applied,
-            Some(&report),
+            json!({"apply": status, "write_error": report.get("error")}),
         ));
     }
     // Every scenario: its questions, and its intent (and report, when it writes with answers,
@@ -1529,21 +1269,16 @@ fn python_inputs(dir: &Path) -> Vec<Difference> {
             &result["questions"],
             &result["open"],
         ));
-        let Some(input) = c.input() else { continue };
-        let defaults = sc.spec.get("accept_defaults") != Some(&json!(false));
-        let report = (sc.spec.get("write") == Some(&json!("with answers")))
-            .then(|| result.get("write"))
-            .flatten();
-        out.extend(write_against(
-            dir,
-            &name,
-            &input,
-            &[(name.clone(), analysis)],
-            &sc.answers,
-            defaults,
-            std::slice::from_ref(&result["apply"]),
-            report,
-        ));
+        if c.input().is_some() {
+            out.push(removed_write(
+                &name,
+                json!({
+                    "accept_defaults": sc.spec.get("accept_defaults") != Some(&json!(false)),
+                    "apply_error": result["apply"].get("error"),
+                    "write": sc.spec.get("write"),
+                }),
+            ));
+        }
     }
     out.extend(serve_replays(dir));
     println!(
@@ -1737,6 +1472,22 @@ fn command_lines(dir: &Path) -> Vec<Difference> {
         let ran = run(&args);
         let scrub = |t: &str| t.replace(&tmp_s, "{tmp}");
         let (stdout, stderr) = (scrub(&ran.stdout), scrub(&ran.stderr));
+        let whole_intent =
+            args.first().is_some_and(|a| a == "write") && !name.starts_with("cli/usage/");
+        if whole_intent {
+            assert_eq!(ran.code, 2, "{name}: {stderr}");
+            assert!(
+                stderr.contains("whole-intent write was removed"),
+                "{name}: {stderr}"
+            );
+            assert!(stdout.is_empty(), "{name}: {stdout}");
+            out.push(removed_write(
+                &name,
+                json!({"argv": r["argv"], "exit": r["exit"]}),
+            ));
+            std::fs::remove_dir_all(&tmp).unwrap();
+            continue;
+        }
         // Python specify-core is retired and the command line is parsed by clap, so help and
         // usage errors are clap's text, not argparse's: the captures' stdout and stderr differ
         // (explained by `cli/usage/*` in known_differences/cli.json). What matters is checked
@@ -1767,14 +1518,6 @@ fn command_lines(dir: &Path) -> Vec<Difference> {
             serde_json::from_str::<Value>(&stdout),
         );
         match parsed {
-            (Ok(p), Ok(q)) if name.ends_with("/write") && r["exit"] == json!(0) => {
-                // The report's lines are compared in check 2 (the same write from the same
-                // inputs); here, that it is the report of this output.
-                out.extend(prefixed(
-                    against_python(&name, &p["output"], &q["output"], &Tolerances::default()),
-                    "stdout.output",
-                ));
-            }
             (Ok(p), Ok(q)) => {
                 let diffs = prefixed(
                     against_python(&name, &p, &q, &Tolerances::default()),
@@ -1903,7 +1646,7 @@ fn check_area(differences: &[Difference]) {
         .filter(|e| {
             common::all_corpus()
                 || !e.case.starts_with("corpus/")
-                || (!e.path.starts_with("write") && !e.path.starts_with("apply")
+                || (!e.path.starts_with("write") && !e.path.starts_with("apply") && e.path != "whole_intent_write"
                 // Mixed question/write verdicts still explain every observed difference.
                 // Their exact selected question values are independently snapshot-checked.
                 && (e.path != "*" || differences.iter().any(|d| e.matches(d))))
@@ -2218,12 +1961,11 @@ fn the_command_line_matches_the_oracle() {
     );
     differences.extend(command_lines(&dir));
     let _ = std::fs::remove_dir_all(&dir);
-    check_datum_origin_departures(&differences);
-    let differences = field_departures(differences);
+    let differences_for_ledger = field_departures(differences.clone());
     if let Some(dir) = std::env::var_os("SPECIFY_DUMP") {
         let dir = PathBuf::from(dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let rows: Vec<_> = differences
+        let rows: Vec<_> = differences_for_ledger
             .iter()
             .map(|d| json!({"case":d.case,"path":d.path,"python":d.python,"rust":d.rust}))
             .collect();
@@ -2233,51 +1975,52 @@ fn the_command_line_matches_the_oracle() {
         )
         .unwrap();
     }
-    check_area(&differences);
+    check_datum_origin_departures(&differences);
+    check_area(&differences_for_ledger);
 }
 
 // ---------------------------------------------------------------------------------------------
 // Behaviour
 // ---------------------------------------------------------------------------------------------
 
-/// test_assembly.py::test_the_command_line_writes_a_pair_for_each_part
+/// Two explicit writes select the parts in turn and keep the other part's requirements.
 #[test]
-fn the_command_line_writes_a_pair_for_each_part() {
-    let dir = scratch("pairs");
-    let assembly = part("assembly");
-    let mut pairs = Vec::new();
+fn the_command_line_writes_each_selected_part() {
+    let dir = scratch("parts-write");
+    let mut input = part("assembly");
     for (k, material) in [(0, "steel"), (1, "brass")] {
-        let (a, q) = (
-            dir.join(format!("a{k}.json")),
-            dir.join(format!("q{k}.json")),
-        );
+        let edits = dir.join(format!("edits-{k}.json"));
+        let out = dir.join(format!("part-{k}.step"));
+        save(&edits, &json!({"fill":{"part.material": material}}));
         let ran = run(&[
-            "analyse",
-            &s(&assembly),
+            "write",
+            &s(&input),
+            &s(&edits),
             "--part",
             &k.to_string(),
             "-o",
-            &s(&a),
+            &s(&out),
         ]);
         assert_eq!(ran.code, 0, "{}", ran.stderr);
-        save(&q, &json!({"part.material": material}));
-        pairs.extend([s(&a), s(&q)]);
+        let report: Value = serde_json::from_str(&ran.stdout).unwrap();
+        assert!(report["written"].as_array().unwrap().iter().any(|l| {
+            l.as_str()
+                .unwrap()
+                .ends_with(&format!("material {material}"))
+        }));
+        input = out;
     }
-    let out = dir.join("cli.step");
-    let mut args = vec!["write".to_string(), s(&assembly)];
-    args.extend(pairs);
-    args.extend(["-o".to_string(), s(&out), "--accept-defaults".to_string()]);
-    let ran = run(&args);
-    assert_eq!(ran.code, 0, "{}", ran.stderr);
-    let report: Value = serde_json::from_str(&ran.stdout).unwrap();
-    let written = report["written"].as_array().unwrap();
-    assert!(
-        written
-            .iter()
-            .any(|l| l.as_str().unwrap().starts_with("pin: "))
-    );
-    assert!(written.iter().any(|l| l == "pin: material brass"));
-    assert!(written.iter().any(|l| l == "plate: material steel"));
+    for (k, material) in [(0, "steel"), (1, "brass")] {
+        assert_eq!(
+            api::analyse_file(&input, Some(k)).unwrap()["table"]["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["id"] == "part.material")
+                .unwrap()["value"],
+            material
+        );
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -2291,63 +2034,43 @@ fn exit_codes_say_what_happened() {
     let a = dir.join("a.json");
     assert_eq!(run(&["analyse", &s(&plate), "-o", &s(&a)]).code, 0);
     let q = dir.join("q.json");
-    let steel = json!({"part.material": "steel"});
-
+    let output = dir.join("out.step");
     save(&q, &json!({}));
-    let ran = run(&[
-        "write",
-        &s(&plate),
-        &s(&a),
-        &s(&q),
-        "-o",
-        &s(&dir.join("o.step")),
-        "--accept-defaults",
-    ]);
-    assert_eq!(
-        (ran.code, ran.stderr.as_str()),
-        (2, "incomplete: 1 question(s) unanswered: part.material\n")
+    let ran = run(&["write", &s(&plate), &s(&q), "-o", &s(&output)]);
+    assert_eq!(ran.code, 0, "{}", ran.stderr);
+    let report: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert!(
+        report["missing"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("part.material"))
     );
 
-    save(&q, &json!({"part.material": "steel", "datum.A": [99999]}));
-    let ran = run(&[
-        "write",
-        &s(&plate),
-        &s(&a),
-        &s(&q),
-        "-o",
-        &s(&dir.join("o.step")),
-        "--accept-defaults",
-    ]);
-    assert_eq!(
-        (ran.code, ran.stderr.as_str()),
-        (2, "invalid answer: datum A: face 99999 does not exist\n")
+    save(
+        &q,
+        &json!({"fill": {"part.material": "steel", "datum.A": [99999]}}),
+    );
+    let ran = run(&["write", &s(&plate), &s(&q), "-o", &s(&output)]);
+    assert_eq!(ran.code, 2, "{}", ran.stderr);
+    assert!(
+        ran.stderr.contains("face 99999 does not exist"),
+        "{}",
+        ran.stderr
     );
 
-    save(&q, &steel);
-    let ran = run(&[
-        "write",
-        &s(&part("pin")),
-        &s(&a),
-        &s(&q),
-        "-o",
-        &s(&dir.join("o.step")),
-        "--accept-defaults",
-    ]);
-    assert_eq!(
-        (ran.code, ran.stderr.as_str()),
-        (2, "cannot write: intent was made for a different file\n")
+    // Ids in edits address the selected file, and an id from another file can be unknown.
+    save(&q, &json!({"fill": {"hole.function:holes:12": "fit:H7"}}));
+    let ran = run(&["write", &s(&part("pin")), &s(&q), "-o", &s(&output)]);
+    assert_eq!(ran.code, 2, "{}", ran.stderr);
+    assert!(
+        ran.stderr.contains("hole.function:holes:12"),
+        "{}",
+        ran.stderr
     );
 
+    save(&q, &json!({"fill": {"part.material": "steel"}}));
     let missing = dir.join("none").join("o.step");
-    let ran = run(&[
-        "write",
-        &s(&plate),
-        &s(&a),
-        &s(&q),
-        "-o",
-        &s(&missing),
-        "--accept-defaults",
-    ]);
+    let ran = run(&["write", &s(&plate), &s(&q), "-o", &s(&missing)]);
     assert_eq!(ran.code, 1, "{}", ran.stderr);
     assert!(
         ran.stderr
@@ -2412,15 +2135,11 @@ fn usage_or_help(case: &str, exit: i64, stdout: &str, stderr: &str) {
         "05" => &["invalid value 'q' for '--part <PART>'"],
         "07" => &["required arguments were not provided", "<STEP>"],
         "08" => &["required arguments were not provided", "<ANALYSIS>"],
-        "09" => &[
-            "required arguments were not provided",
-            "<ANALYSIS ANSWERS>",
-            "--output",
-        ],
+        "09" => &["required arguments were not provided", "<EDITS.json>"],
         // One JSON after STEP is an edit list (proposal specify-0.3.0, use case 7): no longer a
         // usage error, so the missing file is what is reported.
         "10" => &["a.json: No such file"],
-        "11" => &["error: write takes an analysis and its answers for each part"],
+        "11" => &["whole-intent write was removed"],
         "12" => &["unexpected argument 'extra'"],
         "13" => &["unexpected argument 'z'"],
         "14" => &["unexpected argument '--bogus'"],
@@ -2479,17 +2198,21 @@ fn arguments_are_parsed_as_clap_parses_them() {
         (
             &["write", "S", "-o", "OUT", "a", "b", "--", "c"],
             2,
-            "error: write takes an analysis and its answers for each part",
+            "whole-intent write was removed",
         ),
         // Positionals continue after an option (argparse left `c d`, and below `b`,
         // unrecognised here, a run at a time): the pairs are `a b c d` (and `a b`), so the
         // first analysis is read and found missing.
         (
             &["write", "S", "a", "b", "-o", "OUT", "c", "d"],
-            1,
-            "error: a: ",
+            2,
+            "whole-intent write was removed",
         ),
-        (&["write", "S", "a", "-o", "OUT", "b"], 1, "error: a: "),
+        (
+            &["write", "S", "a", "-o", "OUT", "b"],
+            2,
+            "whole-intent write was removed",
+        ),
         // A value that looks like a negative number is a value, for every option and
         // positional (as on main, where these reached the files and failed reading them);
         // other `-` arguments stay unknown options.
@@ -2509,7 +2232,11 @@ fn arguments_are_parsed_as_clap_parses_them() {
             "error: cannot read STEP file X",
         ),
         (&["parts", "-1"], 1, "error: cannot read STEP file -1"),
-        (&["write", "S", "-1", "-2", "-o", "O"], 1, "error: -1: "),
+        (
+            &["write", "S", "-1", "-2", "-o", "O"],
+            2,
+            "whole-intent write was removed",
+        ),
         (
             &["analyse", "X", "-x"],
             2,
@@ -2591,7 +2318,10 @@ fn every_command_has_help_and_completions_are_printed() {
         let got = run(&["completions", shell]);
         assert_eq!((got.code, got.stderr.as_str()), (0, ""), "{shell}");
         assert!(got.stdout.contains("specify-core"), "{shell}");
-        assert!(got.stdout.contains("accept-defaults"), "{shell}");
+        assert!(
+            got.stdout.contains("--check") || got.stdout.contains("check"),
+            "{shell}"
+        );
     }
     // Every subcommand bash selects has its case in the script (clap_complete's names for them
     // disagree for a program name with a `-`; src/cli.rs mends them).
@@ -2641,25 +2371,15 @@ fn files_escape_non_ascii_and_stdout_keeps_it() {
         Value::Array(qs.iter().map(|q| q.to_dict()).collect())
     );
     let q = dir.join("q.json");
-    save(&q, &json!({"part.material": "steel"}));
-    let intent = dir.join("i.json");
-    let ran = run(&[
-        "write",
-        &s(&plate),
-        &s(&a),
-        &s(&q),
-        "-o",
-        &s(&dir.join("o.step")),
-        "--accept-defaults",
-        "--intent",
-        &s(&intent),
-    ]);
+    save(&q, &json!({"fill":{"part.material":"6061 Al ± anodized"}}));
+    let out = dir.join("o.step");
+    let ran = run(&["write", &s(&plate), &s(&q), "-o", &s(&out)]);
     assert_eq!(ran.code, 0, "{}", ran.stderr);
-    let text = std::fs::read_to_string(&intent).unwrap();
-    assert!(
-        text.is_ascii(),
-        "the intent file is ASCII, non-ASCII escaped"
-    );
+    assert!(ran.stdout.contains("6061 Al ± anodized"));
+    let analysed = dir.join("written.json");
+    assert_eq!(run(&["analyse", &s(&out), "-o", &s(&analysed)]).code, 0);
+    let text = std::fs::read_to_string(analysed).unwrap();
+    assert!(text.is_ascii() && text.contains("\\u00b1"), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -2694,28 +2414,19 @@ fn runs_are_deterministic() {
             ));
             if k.is_none() {
                 let q = dir.join("q.json");
-                save(&q, &json!({"part.material": "steel"}));
-                let (o, i) = (
-                    dir.join(format!("o{tag}.step")),
-                    dir.join(format!("i{tag}.json")),
+                let analysis = serde_json::from_slice(&std::fs::read(&a).unwrap()).unwrap();
+                save(
+                    &q,
+                    &common::approve_edits(&analysis, &object(&json!({"part.material":"steel"}))),
                 );
-                let ran = run(&[
-                    "write",
-                    &step,
-                    &s(&a),
-                    &s(&q),
-                    "-o",
-                    &s(&o),
-                    "--accept-defaults",
-                    "--intent",
-                    &s(&i),
-                ]);
+                let o = dir.join(format!("o{tag}.step"));
+                let ran = run(&["write", &step, &s(&q), "-o", &s(&o)]);
+                assert_eq!(ran.code, 0, "{}", ran.stderr);
                 seen.push((
                     "report".into(),
                     ran.stdout.replace(&s(&o), "OUT").into_bytes(),
                 ));
                 seen.push(("written".into(), std::fs::read(&o).unwrap()));
-                seen.push(("intent".into(), std::fs::read(&i).unwrap()));
             }
         }
         seen
@@ -2761,16 +2472,10 @@ fn split_diff(dir: &Path, new: &Path) -> Value {
 const SPLIT_DROPPED: &str = "face 4 has no match in the new part";
 
 fn split_write(dir: &Path, step: &Path, answers: &Path) -> Run {
-    let analysis = dir.join("analysis.json");
-    save(&analysis, &api::analyse_file(step, None).unwrap());
     run(&[
         "write",
         &s(step),
-        &s(&analysis),
         &s(answers),
-        "--accept-defaults",
-        "--intent",
-        &s(&dir.join("intent.json")),
         "-o",
         &s(&dir.join("out.step")),
     ])
@@ -2815,14 +2520,18 @@ fn dropped_carried_datum_cannot_be_bulk_defaulted_and_explicit_answer_clears_it(
         done.stderr
     );
     assert!(!dir.join("out.step").exists());
-    assert!(!dir.join("intent.json").exists());
     answers["datum.A"] = json!([4, 8]);
     save(&dir.join("resolved.json"), &answers);
     let done = split_write(&dir, &new, &dir.join("resolved.json"));
     assert_eq!(done.code, 0, "{}", done.stderr);
-    let intent: Value =
-        serde_json::from_slice(&std::fs::read(dir.join("intent.json")).unwrap()).unwrap();
-    assert_eq!(intent["datums"][0]["faces"], json!([4, 8]));
+    let analysis = api::analyse_file(&dir.join("out.step"), None).unwrap();
+    let datum = analysis["existing"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["kind"] == "datum" && item["type"] == "A")
+        .unwrap();
+    assert_eq!(datum["faces"], json!([4, 8]));
 }
 
 #[test]
@@ -2834,14 +2543,12 @@ fn specify_written_answers_verify_unchanged_geometry_and_refuse_stale_indices() 
     let done = split_write(&dir, &old, &answers);
     assert_eq!(done.code, 0, "{}", done.stderr);
     std::fs::remove_file(dir.join("out.step")).unwrap();
-    std::fs::remove_file(dir.join("intent.json")).unwrap();
     let done = split_write(&dir, &split_plate("new"), &answers);
     assert_eq!(done.code, 2, "{}", done.stderr);
     assert!(done.stderr.contains("stale answers"), "{}", done.stderr);
     assert!(done.stderr.contains(&s(&answers)), "{}", done.stderr);
     assert!(done.stderr.contains("another revision"), "{}", done.stderr);
     assert!(!dir.join("out.step").exists());
-    assert!(!dir.join("intent.json").exists());
 }
 
 #[test]

@@ -99,21 +99,6 @@ fn assert_no_conflict(analysis: &Value) {
     );
 }
 
-fn assert_held(report: &Value) {
-    let lines: Vec<&str> = report["not_written"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(Value::as_str)
-        .collect();
-    assert!(
-        lines
-            .iter()
-            .any(|l| l.starts_with(HOLE) && l.contains("the file already states this requirement")),
-        "{report}"
-    );
-}
-
 fn dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir()
         .join("specify-core-foreign-fresh-answer")
@@ -136,34 +121,34 @@ fn cli(args: &[&Path]) -> Value {
     serde_json::from_slice(&out.stdout).unwrap_or(Value::Null)
 }
 
-/// `analyse`, then `write --accept-defaults` of `answers` (the resumed ones when `None`).
-fn cli_write(
-    bytes: &[u8],
-    answers: Option<&Map<String, Value>>,
-    name: &str,
-) -> (LoadedPart, Value) {
+/// Apply the list and inspect the saved file or the untouched source after refusal.
+fn cli_write(bytes: &[u8], fill: Option<&Map<String, Value>>, name: &str) -> (LoadedPart, Value) {
     let dir = dir(name);
     let input = dir.join("in.step");
     std::fs::write(&input, bytes).unwrap();
-    let analysis = dir.join("analysis.json");
-    cli(&[Path::new("analyse"), Path::new("-o"), &analysis, &input]);
-    let analysed: Value = serde_json::from_slice(&std::fs::read(&analysis).unwrap()).unwrap();
-    let given = answers.map_or(analysed["resume"]["answers"].clone(), |a| {
-        Value::Object(a.clone())
-    });
-    let file = dir.join("answers.json");
-    std::fs::write(&file, given.to_string()).unwrap();
-    let output = dir.join("out.step");
-    let report = cli(&[
-        Path::new("write"),
-        Path::new("-o"),
-        &output,
-        Path::new("--accept-defaults"),
-        &input,
-        &analysis,
+    let file = dir.join("edits.json");
+    std::fs::write(
         &file,
-    ]);
-    (load(std::fs::read(output).unwrap()), report)
+        fill.map_or_else(|| json!({}), |given| json!({"fill": given}))
+            .to_string(),
+    )
+    .unwrap();
+    let output = dir.join("out.step");
+    let args = [Path::new("write"), &input, &file, Path::new("-o"), &output];
+    if fill.is_none() {
+        let report = cli(&args);
+        return (load(std::fs::read(output).unwrap()), report);
+    }
+    let ran = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        .args(args)
+        .output()
+        .unwrap();
+    assert_eq!(ran.status.code(), Some(2), "{ran:?}");
+    assert!(!output.exists());
+    (
+        load(std::fs::read(input).unwrap()),
+        json!(String::from_utf8(ran.stderr).unwrap()),
+    )
 }
 
 /// Reopen (no conflict), save, reopen, answer 0.5, save: 1.5 stays alone.
@@ -179,7 +164,8 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_on_the_cli() {
     given.insert(HOLE.into(), json!("0.5"));
     let (answered, report) = cli_write(&saved.bytes, Some(&given), "answer");
     assert_eq!(positions(&answered), [(1.5, false)], "{report}");
-    assert_held(&report);
+    let error = report.as_str().unwrap();
+    assert!(error.contains(HOLE) && error.contains("1.5"), "{error}");
 }
 
 /// The same over MCP: `open`, `save`, then reopen; `answer` 0.5 is refused, and so is `save`
