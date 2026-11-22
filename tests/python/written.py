@@ -11,15 +11,17 @@ from specify_core.rules import with_all_defaults
 from specify_core.writer import WriteReport
 
 
-def approved_edits(analysis, answers, *, accept_defaults=False, bom=False):
+def approved_edits(analysis, answers, *, accept_defaults=False, bom=False, skip_suggestions=()):
     """Use listed gap suggestions and preserve any values supplied by the caller."""
     fill = {key: value for key, value in answers.items() if not key.startswith("_")}
     accept = []
     if accept_defaults:
         offered = with_all_defaults(analysis, answers)
+        if "part.locating" in offered and "part.locating" not in fill:
+            fill["part.locating"] = offered["part.locating"]
         for row in analysis["table"]["rows"]:
             key = row["id"]
-            if (row["state"] != "gap" or key in fill or key not in offered
+            if (row["state"] != "gap" or key in fill or key not in offered or key in skip_suggestions
                     or key == "part.process" or key.startswith(("bom.", "hole.full_thread:"))):
                 continue
             if row.get("suggestion") == offered[key]:
@@ -32,10 +34,12 @@ def approved_edits(analysis, answers, *, accept_defaults=False, bom=False):
     return {"fill": fill, "accept_suggestions": accept}
 
 
-def write_answers(step, answers, out, *, part=None, accept_defaults=False, bom=False) -> WriteReport:
+def write_answers(step, answers, out, *, part=None, accept_defaults=False, bom=False,
+                  skip_suggestions=()) -> WriteReport:
     """Apply the given values and explicitly named approvals to the selected part."""
     analysis = api.analyse(step, part)
-    edits = approved_edits(analysis, answers, accept_defaults=accept_defaults, bom=bom)
+    edits = approved_edits(analysis, answers, accept_defaults=accept_defaults, bom=bom,
+                           skip_suggestions=skip_suggestions)
     with tempfile.TemporaryDirectory() as scratch:
         given = Path(scratch) / "edits.json"
         given.write_text(json.dumps(edits), encoding="utf-8")

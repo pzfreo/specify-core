@@ -357,9 +357,11 @@ def test_limits_and_combined_iso_class_round_trip(plate, tmp_path):
     assert question.default == "ISO 2768-m"
     assert len(question.options) == 16 and "ISO 2768-mK" in question.options
     out = tmp_path / "limits.step"
-    # Added requirements are explicit extra.* fills.
+    # The explicit limit dimension supplies the hole size. The general hole suggestion
+    # would try to supply the same size and leaves no separate requirement to write.
     written = {**given, "part.material": "steel"}
-    write_answers(plate, written, out, accept_defaults=True)
+    write_answers(plate, written, out, accept_defaults=True,
+                  skip_suggestions=("hole.function:holes:9",))
     assert api.analyse(out)["resume"]["answers"] == storable(with_all_defaults(analysis, written))
     limits = [d for d in read_existing(out) if d.limits is not None]
     assert {d.limits for d in limits} == {(7.8, 8.2), (9.8, 10.2)}
