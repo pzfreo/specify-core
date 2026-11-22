@@ -100,7 +100,7 @@ test('write → readback → export keeps the M4 ID while later saves append num
   assertNumbers(next);
 });
 
-test('changed limits reach the next saved export and cannot alter the previous snapshot', (t) => {
+test('an explicit remove retires its number with or without a refill in the same save', (t) => {
   const fill = { 'extra.1': { kind: 'size', faces: [13], value: '+0.2/-0.1' } };
   const bytes = write(open(t), fill);
   const first = readSaved(t, bytes);
@@ -108,12 +108,18 @@ test('changed limits reach the next saved export and cannot alter the previous s
   assert.deepEqual(first.chars.map((row) => [row.upper, row.lower]), [[0.2, -0.1]]);
   assert.deepEqual(readSaved(t, bytes).chars, first.chars);
   const replacement = { 'extra.1': { ...fill['extra.1'], value: '+0.5/-0.3' } };
-  const changed = readSaved(t, applyEdits(open(t, bytes), {
-    items: { remove: [`#${size.n}`] }, fill: replacement,
-  }));
-  assert.deepEqual(changed.chars.map((row) => [row.n, row.upper, row.lower]), [[size.n, 0.5, -0.3]]);
-  assert.notEqual(toCsv(changed.chars), toCsv(first.chars));
-  assertNumbers(changed);
+  const items = { remove: [`#${size.n}`] };
+  const removed = applyEdits(open(t, bytes), { items });
+  for (const result of [
+    applyEdits(open(t, bytes), { items, fill: replacement }),
+    write(open(t, removed), replacement),
+  ]) {
+    const changed = readSaved(t, result);
+    assert.deepEqual(changed.chars.map((row) => [row.n, row.upper, row.lower]), [[size.n + 1, 0.5, -0.3]]);
+    assert.notEqual(toCsv(changed.chars), toCsv(first.chars));
+    assertNumbers(changed);
+  }
+  assert.deepEqual(readSaved(t, bytes).chars, first.chars);
 });
 
 test('a measurement with changed datum references is read from saved PMI with a new number', (t) => {

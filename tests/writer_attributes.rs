@@ -242,6 +242,58 @@ fn rewriting_a_resumed_part_replaces_extras_as_it_replaces_answers() {
 }
 
 #[test]
+fn replay_keeps_an_attribute_with_the_old_ambiguous_author_marker() {
+    use haecceity::p21::{Attribute, Edit, RawEntity};
+    let plate = plate();
+    let answers = answers("steel");
+    let custom = AttributeSet {
+        name: "unclassified original data".into(),
+        ..project(1)
+    };
+    let (bytes, _) = writer::write_bytes_with(
+        &plate,
+        &preview_intent(&plate, &answers),
+        Some(&answers),
+        std::slice::from_ref(&custom),
+    )
+    .unwrap();
+    // Prior versions used the same generic marker for caller and engine attributes. Remove
+    // the newer distinction without changing the property or any of its values.
+    let doc = Document::parse(bytes).unwrap();
+    let mut edit = Edit::new();
+    let mut roots = Vec::new();
+    for id in doc.ids() {
+        let Some(RawEntity::Simple {
+            name, attributes, ..
+        }) = doc.get(id)
+        else {
+            continue;
+        };
+        if name == "DESCRIPTION_ATTRIBUTE"
+            && let [Attribute::String(marker), Attribute::EntityRef(root)] = attributes.as_slice()
+            && marker == "specify-core:caller-attribute:v1"
+        {
+            let mut old = doc.get(id).unwrap().clone();
+            if let RawEntity::Simple { attributes, .. } = &mut old {
+                attributes[0] = Attribute::String("specify-core:written:v1".into());
+            }
+            edit.replace(id, old);
+            roots.push(*root);
+        }
+    }
+    let legacy = doc.apply(&edit).unwrap().bytes;
+    let loaded = part::load_bytes("old.step", legacy).unwrap();
+    let (after, _) =
+        writer::write_bytes(&loaded, &preview_intent(&loaded, &answers), Some(&answers)).unwrap();
+    assert_attribute(&pmi_of(&after), &custom);
+    assert_eq!(
+        roots.len(),
+        1,
+        "only the caller attribute has its dedicated marker"
+    );
+}
+
+#[test]
 fn adding_to_foreign_pmi_keeps_existing_attributes_and_adds_extras() {
     let loaded = plate();
     let answers = answers("steel");

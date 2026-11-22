@@ -69,6 +69,9 @@ and neither file retired it; otherwise it takes a new number above both files' h
 and is listed in `renumbered` (`{old, new, kind, type, faces}`). A number either file retired is
 never reused. (A history written before retired numbers were recorded counts every free number
 below its high-water mark as retired.)
+The read-back audit compares the value as well as the number. A replanned
+`to_check` item can keep its number with a new value. The report also lists OLD's
+original value in `not_carried` if OUT does not reproduce it.
 `numbers_carried` is true when at least one carried requirement kept OLD's number. See
 [characteristic-numbers.md](characteristic-numbers.md).
 
