@@ -40,7 +40,7 @@ export type AnswersEvent =
 export interface SavedEvent { path: string; bytes: number; rev: number; source: 'page' | 'mcp' }
 /** A save's answer: what was written (``report.retired``: the characteristic numbers retired), and the
  * required questions the saved file still leaves open. */
-export interface Saved { path: string; bytes: number; rev: number; report: unknown; complete: boolean; missing: string[] }
+export interface Saved extends SessionAnswers { path: string; bytes: number; report: unknown; complete: boolean; missing: string[] }
 
 /** A refusal: the command's `error`, its status, and the body's other fields (``rev``, ``parts``). */
 export class Refused extends Error {

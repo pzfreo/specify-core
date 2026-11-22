@@ -7,6 +7,28 @@ import { EditsRefused, editsSaver, FileChanged, NotShown, Stale } from '../app/s
 // the review panel's edits stay in the page until Save sends them as an edit list (`POST save {rev,
 // edits}`); events from others (an agent's answers) land in the session.
 
+test('the second page save uses the HTTP response revision before any event arrives', async () => {
+  const session = createSession(4, { 0: {} });
+  const store = session.store(0);
+  let serverRev = 4;
+  const saver = editsSaver(store, session, () => store.get(), async (rev, edits) => {
+    assert.equal(rev, serverRev, 'the next POST uses the committed revision');
+    const parts = { 0: edits.none ? { 'part.coating': 'None' } : {} };
+    return { path: 'p', bytes: 1, rev: ++serverRev, parts, report: {}, complete: true, missing: [] };
+  });
+  await saver.save({ none: ['part.coating'] });
+  const first = { answers: store.get(), dirty: session.dirty() };
+  await saver.save({ clear: ['part.coating'] });
+  assert.deepEqual(first, { answers: { 'part.coating': 'None' }, dirty: false });
+  assert.deepEqual(store.get(), {});
+  assert.equal(session.dirty(), false);
+  session.receive({ rev: 7, part: 0, answers: { 'part.material': 'Steel' }, source: 'mcp' });
+  session.receiveSave({ rev: 5, parts: { 0: { 'part.coating': 'None' } } });
+  assert.equal(await store.settled(), 7, 'a late response cannot roll back a newer event');
+  assert.deepEqual(store.get(), { 'part.material': 'Steel' });
+  assert.equal(session.dirty(), true);
+});
+
 // Full answer replay history was removed with reconstruction; retain disk-baseline coverage.
 test('a delayed saved revision still tracks disk answers after further edits', () => {
   const metadata = { schema: 2, high_water: 17, entries: [] };
@@ -40,7 +62,7 @@ test('reapply puts the page\'s change onto answers changed meanwhile', () => {
 /** A write that records what Save sent: the rev and the edit list. */
 const recorder = () => {
   const writes = [];
-  const write = async (rev, edits) => { writes.push([rev, edits]); return { path: 'p', bytes: 1, rev, report: {}, complete: true, missing: [] }; };
+  const write = async (rev, edits) => { writes.push([rev, edits]); return { path: 'p', bytes: 1, rev, parts: {}, report: {}, complete: true, missing: [] }; };
   return { writes, write };
 };
 
