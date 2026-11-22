@@ -59,6 +59,7 @@ pub const FEATURE_KINDS: &[&str] = &[
     "hole.location",
     "diameter.fit",
     "diameter.runout",
+    "fillet.radius",
 ];
 /// The letters a datum answer (`datum.<letter>`) can have. A contract (docs/ids.md).
 #[doc(hidden)]
@@ -184,6 +185,8 @@ pub fn feature_ids(features: Option<&Value>, answers: &Map<String, Value>) -> Re
             let family = found.get("family").and_then(Value::as_str);
             let applicable = if kind.starts_with("hole.") {
                 matches!(family, Some("holes" | "hole_patterns"))
+            } else if kind == "fillet.radius" {
+                family == Some("fillets")
             } else {
                 family == Some("turned_steps")
             };

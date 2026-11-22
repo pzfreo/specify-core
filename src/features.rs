@@ -322,12 +322,20 @@ pub fn recognise_from(
     loaded: &LoadedPart,
     recognition: &quiddity::correspondence::Recognition,
 ) -> Result<Vec<Feature>, FeatureError> {
+    let document = quiddity::recognition::document(recognition, loaded.part.faces.len());
+    recognise_from_document(loaded, recognition, &document)
+}
+
+pub(crate) fn recognise_from_document(
+    loaded: &LoadedPart,
+    recognition: &quiddity::correspondence::Recognition,
+    document: &quiddity::recognition::RecognitionDocument,
+) -> Result<Vec<Feature>, FeatureError> {
     if let Some(why) = loaded.degraded() {
         return Err(FeatureError::Degraded(why));
     }
     let found = &recognition.features;
     // Published IDs and defining faces follow the same merge, without a working typed view.
-    let document = quiddity::recognition::document(recognition, loaded.part.faces.len());
     let published: std::collections::BTreeMap<_, _> = document
         .records
         .iter()

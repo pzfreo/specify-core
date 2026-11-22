@@ -252,11 +252,10 @@ fn analyse_with(
     let refused = |e: &dyn fmt::Display| Error::Analysis(format!("{}: {e}", loaded.path.display()));
     // Features first: on a part rebuilt without its record of unresolved geometry (U1),
     // recognition's refusal names the part and why, which is the failure to pass on.
-    let features = match recognition {
-        Some(r) => features::recognise_from(loaded, r),
-        None => features::recognise(loaded),
-    }
-    .map_err(|e| refused(&e))?;
+    let recognition = recognition.unwrap_or_else(|| loaded.recognition());
+    let document = quiddity::recognition::document(recognition, loaded.part.faces.len());
+    let features = features::recognise_from_document(loaded, recognition, &document)
+        .map_err(|e| refused(&e))?;
     let faces = features::describe_faces(loaded).map_err(|e| refused(&e))?;
     let mut faces = serde_json::to_value(faces).map_err(|e| refused(&e))?;
     let mut analysis = Map::new();
@@ -306,7 +305,30 @@ fn analyse_with(
         analysis.insert("unmeasured_faces".into(), Value::Array(unmeasured));
     }
     let dimensioning = match crate::dimensioning::input(&loaded.part) {
-        Ok(input) => serde_json::to_value(input).map_err(|e| refused(&e))?,
+        Ok(input) => {
+            let mut value = serde_json::to_value(input).map_err(|e| refused(&e))?;
+            let supporting: Vec<_> = document
+                .face_accounting
+                .into_iter()
+                .flatten()
+                .enumerate()
+                .filter_map(|(face, group)| {
+                    matches!(
+                        group,
+                        quiddity::recognition::FaceAccounting::Supporting { .. }
+                    )
+                    .then_some(face)
+                })
+                .collect();
+            if !supporting.is_empty() {
+                value["supporting_faces"] = json!(supporting);
+            }
+            let tilted = crate::dimensioning::tilted_step_faces(&loaded.part, &recognition.frame);
+            if !tilted.is_empty() {
+                value["tilted_step_faces"] = json!(tilted);
+            }
+            value
+        }
         Err(reason) => {
             if crate::dimensioning::is_unmeasured_frame(&reason) {
                 warnings.push(crate::dimensioning::unplanned_note(loaded));

@@ -52,6 +52,7 @@ A feature's requirement has the id `<kind>:<feature>` (below). These are the kin
 | `hole.full_thread` | the minimum full-thread depth of a tapped blind hole |
 | `diameter.fit` | a turned diameter's fit or tolerance |
 | `diameter.runout` | a turned diameter's runout |
+| `fillet.radius` | an optional radius dimension on a recognised fillet, e.g. `fillet.radius:fillets:7` |
 
 ## Added requirement kinds
 
@@ -75,7 +76,7 @@ Its `kind` is one of:
 
 | Form | Measurement |
 |---|---|
-| `length:planes:<side>-<side>` | Plane-to-plane length. The two sides are sorted. |
+| `length:planes:<side>-<side>` | Plane-to-plane length, including step levels along any part axis. The two sides are sorted. |
 | `location:holes:<reference>-<located>` | Hole location. The second group is the located side. |
 
 <!-- ids:end -->

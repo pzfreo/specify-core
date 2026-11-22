@@ -324,6 +324,7 @@ fn states(kind: &str, faces: &BTreeSet<usize>, item: &Value) -> bool {
                 || (item_kind == "dimension" && r#type.starts_with("Location_") && on_located)
         }
         "location" => item_kind == "dimension" && r#type.starts_with("Location_") && on_located,
+        "radius" => item_kind == "dimension" && r#type == "Size_Radius" && on("faces"),
         // A hole's or a diameter's size: its dimension, or the thread or knurl callout that
         // states it.
         "function" | "fit" | "size" => {

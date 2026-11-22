@@ -8,6 +8,12 @@ All notable changes to specify-core-rust. The format follows
 
 To be released as 0.3.0 (every package; see "Lockstep versions").
 
+- **Quiddity 0.5.5.** Step levels on every part axis get plane-to-plane length rows.
+  A location stated on a tilted former step level appears under **Other PMI in the file**.
+  Faces that only support another feature, such as a round boss cap, get no rows of their own.
+  Recognised fillets of any radius get an optional `fillet.radius` row with “none needed”
+  suggested. A radius dimension is written only when its measured radius is chosen.
+
 Read first:
 
 - **The app and engine ship inside the command** ([ADR P12](https://github.com/pzfreo/draftwright-project/blob/main/adr/P12-specify-ships-whole.md)):

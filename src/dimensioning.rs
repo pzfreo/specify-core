@@ -28,6 +28,104 @@ pub(crate) fn input(part: &haecceity::Part) -> Result<Input, String> {
     Input::from_recognition(part, vec![], Policy::default())
 }
 
+/// The shared planner has a single height ladder. Feed any other recognised
+/// levels through its per-axis plane stations, using exact plane coordinates.
+pub(crate) fn step_levels(
+    input: &mut Input,
+    features: &[crate::rules::records::Feature<'_>],
+) -> Result<(), crate::rules::Error> {
+    use haecceity::geom::dot;
+
+    let axes = [input.frame.x, input.frame.y, input.frame.z];
+    for level in features.iter().filter(|f| f.family == "step_levels") {
+        let Some(direction) = level
+            .get("height_axis")?
+            .and_then(crate::features::axis_direction)
+        else {
+            continue;
+        };
+        let Some(axis) = axes
+            .iter()
+            .position(|&a| dot(a, direction).abs() > 1.0 - 1e-6)
+        else {
+            continue;
+        };
+        let faces: Vec<_> = level
+            .faces()?
+            .iter()
+            .filter_map(|&f| usize::try_from(f).ok())
+            .collect();
+        for plane in input
+            .planes
+            .iter()
+            .filter(|p| p.axis == axis && overlaps(&faces, &p.support.faces))
+        {
+            let at = plane.support.at[axis];
+            let same = |s: &Support| s.body == plane.support.body && (s.at[axis] - at).abs() < 1e-4;
+            if (axis == input.steps.axis && input.steps.heights.iter().any(same))
+                || input
+                    .steps
+                    .shoulders
+                    .iter()
+                    .any(|p| p.axis == axis && same(&p.support))
+            {
+                continue;
+            }
+            input.steps.shoulders.push(plane.clone());
+        }
+    }
+    Ok(())
+}
+
+/// Planes in quiddity's original Z level cone that fail 0.5.5's flatness band.
+/// This distinguishes the former step candidates from independently oblique
+/// measurements, which still use the legacy general-dimension path.
+pub(crate) fn tilted_step_faces(
+    part: &haecceity::Part,
+    recognition_frame: &quiddity::frames::RecordFrame,
+) -> Vec<usize> {
+    let quiddity::frames::RecordFrame::Inferred(frame) = recognition_frame else {
+        return Vec::new();
+    };
+    part.faces
+        .iter()
+        .enumerate()
+        .filter_map(|(index, face)| {
+            let haecceity::geom::Surface::Plane { frame: plane } = &face.surface else {
+                return None;
+            };
+            let cos = haecceity::geom::dot(plane.z, frame.z).abs();
+            // The kernel's level normal cone and flatness band (quiddity #307).
+            (cos > 0.99
+                && cos < 1.0 - 1e-12
+                && part
+                    .face_projection_bounds(index, frame.z)
+                    .is_some_and(|(lo, hi)| hi - lo > 0.5))
+            .then_some(index)
+        })
+        .collect()
+}
+
+/// A rejected drafted level or a supporting cap is not a step measurement.
+pub(crate) fn general_plane_rows(general: &mut Vec<Map<String, Value>>, metadata: &Value) {
+    let metadata = metadata.as_object().expect("deserialised planner input");
+    let supporting = ids(metadata, "supporting_faces");
+    let tilted = ids(metadata, "tilted_step_faces");
+    general.retain(|row| {
+        if row.get("kind").and_then(Value::as_str) != Some("location") {
+            return true;
+        }
+        let faces = ids(row, "faces");
+        faces.is_empty()
+            || (!faces.iter().all(|f| supporting.contains(f))
+                && (row.get("feature").and_then(Value::as_str) != Some("")
+                    || !faces
+                        .iter()
+                        .chain(&ids(row, "reference"))
+                        .any(|f| tilted.contains(f))))
+    });
+}
+
 /// quiddity's reason for no planner frame when a face's area cannot be computed (the solid's
 /// volume needs every face).
 const UNMEASURED_FRAME: &str = "dimensioning frame: unmeasured-face";

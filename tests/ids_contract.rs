@@ -174,6 +174,30 @@ fn the_ids_in_the_code_are_the_ones_docs_ids_md_lists() {
     );
 }
 
+#[test]
+fn a_fillet_radius_id_comes_from_its_feature_and_faces() {
+    let Some(corpus) = common::corpus_dir() else {
+        return;
+    };
+    let analysis = api::analyse_file(&corpus.join("gramel/string_post.step"), None).unwrap();
+    let feature = analysis["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["family"] == "fillets" && f["faces"] == json!([7]))
+        .expect("string_post: R0.25 fillet on face 7");
+    let id = format!("fillet.radius:{}", feature["id"].as_str().unwrap());
+    assert_eq!(id, "fillet.radius:fillets:7");
+    assert!(documented()[KINDS].contains(id.split_once(':').unwrap().0));
+    assert!(
+        analysis["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == id)
+    );
+}
+
 /// The doc's worked examples are real rows.
 #[test]
 fn the_docs_examples_are_real_rows() {

@@ -906,6 +906,24 @@ fn every_question(
         }
         out.push(q);
     }
+    for f in ctx.features.iter().filter(|f| f.family == "fillets") {
+        let radius = format!("R{}", crate::pyfmt::g(f.number("radius")?));
+        let label = format!("{radius} fillet");
+        let mut q = Question::new(
+            format!("fillet.radius:{}", f.id),
+            "choice",
+            format!("Call out the {label}?"),
+            f.faces()?.to_vec(),
+        );
+        q.feature = Some(f.id.into());
+        q.title = Some(label);
+        q.default = Some(Value::from(NONE));
+        q.options = vec![NONE.into(), radius];
+        if let Some(value) = answers.get(&q.id) {
+            choices::check(&q.id, value, &q.options, None, None)?;
+        }
+        out.push(q);
+    }
     out.into_iter().map(|q| reviewed(q, &ctx.faces)).collect()
 }
 
@@ -1628,6 +1646,19 @@ fn raw_intent(
             for (fid, cylinders) in &parts {
                 reqs.push(turned::turned_requirement(value, d, fid, cylinders, ctx)?);
             }
+        } else if let Some(feature) = q.id.strip_prefix("fillet.radius:")
+            && !crate::feature_table::is_none_value(value)
+        {
+            reqs.push(object([
+                ("kind", Value::from("size")),
+                ("size_kind", Value::from("radius")),
+                ("feature", Value::from(feature)),
+                ("faces", Value::from(q.faces.clone())),
+                (
+                    "nominal",
+                    Value::from(ctx.feature(feature)?.number("radius")?),
+                ),
+            ]));
         } else if q.id == "datum.A.flatness" && !py::is_str(Some(value), NONE) {
             if !datums.contains('A') {
                 continue;
@@ -1686,11 +1717,13 @@ fn raw_intent(
         };
         intent.general = general::dimensions(ctx, &datums, &intent.requirements, tolerance)?;
     }
-    if let Some(input) = ctx.analysis.get("dimensioning")
-        && input.get("applicable") != Some(&Value::Bool(false))
+    if let Some(metadata) = ctx.analysis.get("dimensioning")
+        && metadata.get("applicable") != Some(&Value::Bool(false))
     {
-        let input = serde_json::from_value(input.clone())
+        let mut input = serde_json::from_value(metadata.clone())
             .map_err(|e| Error::Invalid(format!("dimensioning input: {e}")))?;
+        crate::dimensioning::step_levels(&mut input, &ctx.features)?;
+        crate::dimensioning::general_plane_rows(&mut intent.general, metadata);
         if let Some(stated) = ctx.analysis.get("dimensioning_stated") {
             intent.requirements.extend(
                 serde_json::from_value::<Vec<Map<String, Value>>>(stated.clone())
@@ -1708,6 +1741,7 @@ fn raw_intent(
                 .insert("general_tolerance".into(), tolerance.clone());
         }
         crate::dimensioning::apply(input, &mut intent).map_err(Error::Invalid)?;
+        crate::dimensioning::general_plane_rows(&mut intent.general, metadata);
         if seed_tolerance.is_some() {
             intent.part.shift_remove("general_tolerance");
         }
