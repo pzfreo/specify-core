@@ -143,13 +143,20 @@ async function assertNoOrigin(box) {
   assert.ok(text.trim().length > 0, 'there is text to check');
   assert.doesNotMatch(text, /from the file|answered|\bdefaults?\b|Specify|written by|\bby you\b|another tool/i, `no origin wording: ${text}`);
 }
-/** Save, and wait for the line saying it wrote ``path``; ``n``: the command's saves so far. */
+/** Save and check the acknowledgement and the page's confirmation. The summary can repeat. */
 async function save(page, server, n) {
-  const before = await savedLine(page);
+  const reply = page.waitForResponse(
+    response => response.url() === `${server.url}save` && response.request().method() === 'POST',
+    { timeout: 90000 },
+  );
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  if (before !== null) await check(page.locator('.app-saved')).not.toHaveText(before);
+  const response = await reply;
+  const saved = await response.json();
+  assert.equal(response.status(), 200, JSON.stringify(saved));
+  await check(page.locator('.app-saved code')).toHaveText(saved.path);
   await check.poll(() => (server.output().match(/Saved /g) ?? []).length).toBe(n);
   await check(page.locator('.spec-bar')).toContainText('written, all together');
+  return { rev: saved.rev, requestedRev: response.request().postDataJSON().rev };
 }
 let first = null;
 /** The feature-and-kinds the first two saves list: each is in the file after it, stated or decided none. */
@@ -700,7 +707,7 @@ try {
     const others = await page.locator('[data-group="other"] .spec-row').count();
     await check(page.locator('[data-group="other"] .acts button.spec-icon')).toHaveCount(others);
     await add(page, 'part.material', 'Steel');
-    await save(page, server, 1);
+    const firstSave = await save(page, server, 1);
     const written = readFileSync(join(dir, 'nist-ctc-01.specified.step'), 'utf8').split(/\r?\n/);
     const has = new Set(written);
     const lost = readFileSync(nist, 'utf8').split(/\r?\n/).filter(line => !has.has(line) && !/^FILE_(DESCRIPTION|NAME)\(/.test(line));
@@ -716,7 +723,9 @@ try {
     await gone.getByRole('button', { name: /^Remove / }).click();
     await gone.locator('.spec-edit.rm').getByRole('button', { name: 'Remove', exact: true }).click();
     await check(listedEdit(page, target.id)).toBeVisible();
-    await save(page, server, 2);
+    const secondSave = await save(page, server, 2);
+    assert.equal(secondSave.requestedRev, firstSave.rev);
+    assert.equal(secondSave.rev, firstSave.rev + 1);
     const left = analyse(saved).table.file_pmi;
     assert.ok(!left.some(r => r.id === target.id), `${target.id} (${target.text}) removed`);
     assert.equal(left.length, before.length - 1, 'only that one');
