@@ -2251,7 +2251,10 @@ fn use_case_7_saves_twice_with_the_table_returned_by_mcp() {
 
     // Simulate another tool updating the STEP material directly on disk.
     let external = std::fs::read_to_string(&path).unwrap();
-    assert!(external.contains("'brass'"), "expected a STEP material value");
+    assert!(
+        external.contains("'brass'"),
+        "expected a STEP material value"
+    );
     std::fs::write(&path, external.replace("'brass'", "'aluminium'")).unwrap();
     let reopened = client.call("open", json!({"path": path}));
     let read = client.result("resources/read", json!({"uri": reopened["resources"][0]}));
