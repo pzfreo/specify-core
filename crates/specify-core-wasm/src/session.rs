@@ -93,8 +93,7 @@ impl Session {
     /// Opens part `part` (an index from [`Session::parts`]) of any file, an assembly's or one
     /// part's placed several times included, as the command line's `--part` does: the part is
     /// analysed in its own frame, the file's other parts consulted for its mates, and
-    /// [`Session::edit`] edits it in the original file (a part of an assembly is not supported
-    /// by the edit writer yet). Part 0 of a file of one part used once opens as
+    /// [`Session::edit`] edits that part in the original file. Part 0 of a file of one part used once opens as
     /// [`Session::open`] opens it.
     pub fn open_part(name: &str, bytes: &[u8], part: usize) -> Result<Self, String> {
         Self::load(name, bytes, Some(part))

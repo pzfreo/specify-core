@@ -1581,7 +1581,7 @@ fn sha256(bytes: &[u8]) -> String {
 }
 
 const EDITS_REQUIRED: &str = "edits is required: an edit list, {\"fill\": {id: value}, \
-\"change\": {id: {to, expect}}, \"items\": {\"remove\": [\"#N\"]}, \"none\": [id], \
+\"change\": {id: {to, expect}}, \"items\": {\"remove\": [\"#N\"]}, \"none\": [id], \"clear\": [id], \
 \"accept_suggestions\": [id]} ({} for none)";
 
 /// The `edits` argument (`save`): an edit list (or a 0.2 answers map, read as fills, as

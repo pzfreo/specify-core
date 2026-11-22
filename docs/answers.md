@@ -17,7 +17,7 @@ longer carries answers to edited geometry (ADR P11): it reads the two files' PMI
 
 This also applies to **released v0.1.8 and earlier `changes/answers.json` files**: they have no
 `_specify` metadata. The literal old `changes/answers.json` repro still exits 0 with
-`--accept-defaults`, because nothing in that file says an answer was dropped. Upgrading the
+the current edit-list command, because nothing in that file says an answer was dropped. Upgrading the
 writer cannot recover their lost carry decisions.
 
 ## No export of answers
@@ -25,8 +25,7 @@ writer cannot recover their lost carry decisions.
 There is no export of answers as a record ([ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md),
 0.3.0): the written STEP file is the only copy of its answers. CLI `questions
 --resolve-defaults`, serve and MCP `export_answers`, Rust `api::export_answers`, Python
-`api.export_answers` and WASM `exportAnswers` are removed; the app's Answers (JSON) says "not
-available in 0.3.0".
+`api.export_answers` and WASM `exportAnswers` are removed. The app’s inspection exports read the saved STEP.
 
 Answer maps written by earlier versions are still read wherever answers are taken (CLI
 `questions --answers` and `write`, serve, Python, WASM, MCP `answers_file`). Their

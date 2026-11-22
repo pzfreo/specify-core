@@ -97,7 +97,7 @@ def write(
     """Apply the edit list ``edits`` to ``step`` and write the result to ``output``.
 
     ``edits`` is an edit list (``{"fill": {id: value}, "change": {id: {"to", "expect"}},
-    "items": {"remove": ["#N"]}, "none": [id], "accept_suggestions": [id]}``) or a 0.2
+    "items": {"remove": ["#N"]}, "none": [id], "clear": [id], "accept_suggestions": [id]}``) or a 0.2
     answers map, as a dict or JSON text; ids are the feature table's (``analyse(step)["table"]``).
     Anything the list does not name is left as it is, byte for byte. A list is applied all or
     nothing: if any entry cannot be applied, nothing is written and ``EditsRefused`` (a

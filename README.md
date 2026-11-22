@@ -13,10 +13,9 @@ answer, with its reason, for each question:
 - fits, threads, positions;
 - surface finish and the general tolerance.
 
-It writes your answers into the STEP file as AP242 semantic PMI, which CAD and inspection tools
-can read, and verifies the file by reading it back. The answers are stored in the file too. When
-the part changes, Specify carries them to the new revision and says what changed. An answer it
-can't place is listed, never silently moved.
+It writes requirements into the STEP file as AP242 semantic PMI and verifies them by reading
+the file back. When the part changes, Specify carries requirements to the new revision and lists
+anything it could not place.
 
 Specify captures manufacturing intent; it is not a DFM (design-for-manufacturability) checker.
 It does not judge whether a part can be made, or how cheaply: wall thickness, tool access,
@@ -94,9 +93,13 @@ output. Use `--part K` for a part in an assembly. Add `--check` in place of `-o`
 list without writing. A save can leave gaps open. The file's PMI records each requirement, and
 only decisions that write no PMI are stored alongside it. See [edit lists](docs/answers.md).
 
-It prints a JSON report with `output`, `written`, `not_written` and `warnings`. `not_written`
-gives each reason, including an answer whose question is not asked given the other answers
-([answers](docs/answers.md#answers-to-questions-not-asked)).
+The JSON report lists `written`, `not_written` and `warnings`, with the remaining open
+gaps under `missing`. To revise a stated value, send the value you saw as `expect`.
+
+```bash
+echo '{"change":{"part.material":{"to":"7075-T6","expect":"6082-T6"}}}' > change.json
+specify-core write plate-pmi.step change.json -o plate-revised.step
+```
 
 Exit codes:
 - **0:** done.
@@ -213,27 +216,26 @@ and characteristic numbers are covered in [docs/library.md](docs/library.md).
 
 ### Opening the file again
 
-The answers are stored in the written file, so analysing it again resumes them. In Python,
-`api.analyse("plate-pmi.step")["resume"]["answers"]` returns them. Parts made by code-first CAD
-tools that name their faces (cadgen today) keep their answers on the same faces across rebuilds;
+Analysing the written file reads its requirements back from PMI. In Python,
+`api.analyse("plate-pmi.step")["table"]` shows the file’s stated requirements, gaps and
+decided-none rows. The file stores decisions that leave no PMI. Parts made by code-first CAD
+tools that name their faces (cadgen today) help carry requirements across rebuilds;
 see [docs/face-names.md](docs/face-names.md).
 
 ### Assemblies
 
-An assembly is specified a part at a time. `parts` lists its distinct parts; a part placed
-twice is one part with two placements. `analyse` and `mesh` take a part index. `write` takes an
-analysis and answers for each part and writes them all at once, each part's PMI on its own
-product definition:
+An assembly is specified a part at a time. `parts` lists its distinct parts. A part placed
+twice has one definition and two placements. `analyse`, `mesh` and `write` take a part index.
 
 ```bash
 specify-core parts asm.step
 specify-core analyse asm.step --part 0 -o plate.json
 specify-core analyse asm.step --part 1 -o pin.json
-specify-core write asm.step plate.json plate-a.json pin.json pin-a.json -o out.step --accept-defaults
+specify-core write asm.step plate-edits.json --part 0 -o plate-specified.step
+specify-core write plate-specified.step pin-edits.json --part 1 -o out.step
 ```
 
-Writing a part again replaces its PMI and answers. A part written alone leaves the other parts
-as they were.
+Each edit list applies to the selected part. Every other part and placement keeps its records.
 
 ## Review a revision
 
@@ -245,8 +247,8 @@ two annotated files. It reads only the PMI in the two files.
 specify-core diff old.step new.step -o changes
 ```
 
-To carry the old revision's requirements onto the new one (filling what the new file does not
-state, all or nothing, with their characteristic numbers), see [docs/carry.md](docs/carry.md):
+Carry fills the new revision’s gaps wherever it can, retains characteristic numbers where
+available, and reports requirements that need review or could not carry. See [docs/carry.md](docs/carry.md).
 
 ```bash
 specify-core carry old.step new.step -o new.specified.step
@@ -353,7 +355,8 @@ that implementation wrote. The `specify-core` Python package is now this engine;
 | | |
 | --- | --- |
 | [docs/ids.md](docs/ids.md) | the ids other tools can build on: part-level ids, requirement kinds, feature ids |
-| [docs/diff.md](docs/diff.md) | how revisions are compared and answers carried |
+| [docs/diff.md](docs/diff.md) | review PMI differences between revisions |
+| [docs/carry.md](docs/carry.md) | carry requirements and decisions to a new revision |
 | [docs/face-names.md](docs/face-names.md) | answers on named faces (code-first CAD) |
 | [docs/characteristic-numbers.md](docs/characteristic-numbers.md) | characteristic numbers |
 | [docs/wasm.md](docs/wasm.md) | the WebAssembly module |

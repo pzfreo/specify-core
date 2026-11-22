@@ -23,8 +23,7 @@ X.Y.Z depends on `@draftwright/specify-core-wasm` X.Y.Z exactly.
 
 - **Engine:** it needs `@draftwright/specify-core-wasm` **0.2.0** or later, whose API is not compatible with 0.1.x.
 - **Exports follow ADR P9:** the Answers (JSON) export holds only the answers given, kept or confirmed. Inspection
-  exports never include an unapproved default. (0.3.0, ADR P11: the file is the only copy, so the Answers (JSON)
-  export says "not available in 0.3.0", and there are no conflicts to keep.)
+  exports require approval for defaults. From 0.3.0, the app’s inspection exports read the saved STEP (ADR P11).
 
 A host that implements only the original three engine methods keeps its 0.1 display and exports otherwise.
 `SpecifyEngine.inspection` is optional.
@@ -123,10 +122,8 @@ STEP, or the opened STEP in read-only mode. Before the first Save they are disab
 “Save first: the inspection files describe the saved STEP”. After an in-place Save the label names
 the source file. Further edits do not change either export. There is no Answers (JSON) export in 0.3.0.
 
-`GET file?rev=new` in specify-core 0.2.0 serves the input, updated after an in-place save. It cannot
-serve Save's separate output. After saving a separate copy, inspection exports stay disabled and
-show a copyable command with the real path: `specify-core open '<saved copy>' --read-only`.
-Only bytes served by the session are analysed; the app never reconstructs a saved file.
+The app reads the bytes from `GET file?rev=saved` for inspection exports after Save. The
+session serves those bytes for both in-place saves and separate copies.
 
 The shared component keeps the original three-method host contract. `SpecifyEngine.inspection`
 is optional and called only when an inspection export runs. Display always uses `engine.preview`;
@@ -137,9 +134,8 @@ export override. The local app owns its saved-file buttons and suppresses shared
 Stored STEP identifiers supply inspection numbers, including PMI absent from the interview review.
 Material belongs on AS9102 Form 2 only. Form 3 contains numbered characteristics only.
 
-The worker's legacy `write` operation **writes every default**, including defaults absent from
-`args.answers`. Hosts must obtain approval for every default before choosing that operation.
-The local Specify app saves through the command's session API with the approved defaults.
+The local app sends the explicit list to the session’s Save API. A host can check its edit
+list with the worker’s `check-edits` operation before saving.
 
 On non-persisted `pagehide`, the local app cancels pending answer requests and saves before sending
 `closed`. Cancellation prevents queued work from starting and avoids waiting for a slow write during
