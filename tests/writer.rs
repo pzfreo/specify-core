@@ -1031,9 +1031,9 @@ fn a_nist_part_keeps_all_its_pmi() {
     assert_eq!(
         report.written,
         [
-            // general dimensions are rows (Paul, 2026-11-21). Bulk approval appends
-            // 25 measured dimensions. Three incompatible bore groups are reported.
-            "25 dimensions under the general tolerance",
+            // The legacy accept-all writes the approved measurements still
+            // missing from CTC-01. P11 keeps the 12 imported dimensions.
+            "76 dimensions under the general tolerance",
             "material CZ121",
             "general tolerance ISO 2768-m",
             "surface finish Ra 3.2",
@@ -1043,17 +1043,24 @@ fn a_nist_part_keeps_all_its_pmi() {
     let old = read_existing(&loaded).unwrap();
     let new = read_existing(&load(&out, None).unwrap()).unwrap();
     assert_eq!(old, new);
-    assert_eq!(pmi_of(&out, 0).dimensions.len(), 37); // 12 original plus 25 approved quantities.
+    assert_eq!(pmi_of(&out, 0).dimensions.len(), 88); // 12 original plus 76 accepted.
     // The new per-dimension diagnostics must identify rows of this legacy intent.
     let read = specify_core::api::analyse_file(&out, None).unwrap();
     let general = check_general_rows(&intent, &read, &report, &input);
-    assert!(general.iter().all(|line| {
-        line.ends_with("adding PMI skips dimensions deferred by the shared planner")
-            || line.ends_with(
-                "the shared planner did not retain this dimension when upgrading the intent",
-            )
-    }));
-    assert_eq!(report.not_written.iter().map(String::as_str).filter(|line| !general.contains(line)).collect::<BTreeSet<_>>(),[
+    let already_stated =
+        |line: &str| line.ends_with("the file already states it; not written again");
+    assert_eq!(general.len(), 14);
+    assert!(general.iter().all(|line| already_stated(line)));
+    // The Add report names each of the 14 preserved locations by both intent and STEP support.
+    assert_eq!(
+        report
+            .not_written
+            .iter()
+            .filter(|line| already_stated(line))
+            .count(),
+        28
+    );
+    assert_eq!(report.not_written.iter().map(String::as_str).filter(|line| !already_stated(line)).collect::<BTreeSet<_>>(),[
         "shared planner dim:multiple[hole:50.51.56.57,hole:52.53.58.59]/bore.diameter: General contract conflicts with an answered requirement; retained answered intent instead",
         "shared planner dim:pattern[hole:0.1,hole:91.92,hole:93.94,hole:95.96]/bore.diameter: General contract conflicts with an answered requirement; retained answered intent instead",
         "shared planner dim:pattern[hole:71.72,hole:73.74,hole:75.76,hole:89.90]/bore.diameter: General contract conflicts with an answered requirement; retained answered intent instead",

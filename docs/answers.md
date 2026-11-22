@@ -239,7 +239,7 @@ its `general` array. This approves the recorded measurements, including any the 
 planner leaves out. Specify 0.2 did not serialize this flag in its raw intent export.
 When the approval is known from the original call, carry it with the intent during replay.
 The write report names any omitted dimension with its nominal, faces and reason in
-`not_written`.
+`not_written`. Its general-dimension count includes the dimensions added by the save.
 
 Only answers that leave no PMI behind are stored in the file: "none" answers and choices that
 are not requirements (`part.locating`). `resume.answers` holds those. Stored answers that
