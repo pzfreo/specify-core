@@ -422,7 +422,8 @@ fn accepting_corpus_defaults_leaves_no_open_rows() {
                     "dimensioning frame: no-material"
                 );
                 let result = cli_write_result(&part, &analysis, &answers, &output, true);
-                assert_eq!(result.status.code(), Some(1), "{result:?}");
+                // The edit-list route reports a refused plan as exit 2.
+                assert_eq!(result.status.code(), Some(2), "{result:?}");
                 assert!(
                     String::from_utf8_lossy(&result.stderr)
                         .ends_with("dimensioning frame: no-material\n"),
