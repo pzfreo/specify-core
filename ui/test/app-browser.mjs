@@ -519,6 +519,7 @@ try {
     assert.ok(!existsSync(join(copy, 'shaft.specified.step')), 'nothing written');
     await add(page, 'part.general_tolerance');
     await check(listedEdit(page, 'part.general_tolerance')).toHaveText('Add General tolerance: ISO 2768-m');
+    for (const id of lengthIds) await check(listedEdit(page, id)).toContainText('Add Length');
     // The page, meeting a refusal: says which change cannot be applied, and that nothing was written.
     await page.route('**/save', route => route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify(body) }));
     await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -558,6 +559,15 @@ try {
     writeFileSync(file, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
     const original = readFileSync(file);
     const before = table(file);
+    const lengthIds = [
+      'length:planes:1-3', 'length:planes:1-5', 'length:planes:1-7.11', 'length:planes:1-9',
+      'length:planes:2.6-10', 'length:planes:4-12', 'length:planes:8-10',
+    ];
+    assert.deepEqual(Object.values(before).filter(r => r.kind === 'length').map(r => r.id), lengthIds);
+    const partial = table(plainSave);
+    for (const id of lengthIds) {
+      assert.equal(partial[id]?.open, true, `${id} stays open after a plain save`);
+    }
     const suggested = Object.values(before).filter(r => r.state === 'gap' && r.suggestion !== null && r.suggestion !== undefined);
     const none = v => (Array.isArray(v) ? v.length === 0 : typeof v === 'string' && /^none\b/i.test(v.trim()));
     assert.ok(suggested.length > 5 && suggested.some(r => none(r.suggestion)) && Object.values(before).some(r => r.state === 'gap' && r.suggestion == null),
@@ -596,7 +606,10 @@ try {
     await addAll.click();
     await check(page.locator('.spec-bar li[data-pending]')).toHaveCount(suggested.length);
     await save(page, server, 1);
-    const after = table(join(copy, 'shaft.specified.step'));
+    const written = analyse(join(copy, 'shaft.specified.step'));
+    const kinds = [...new Set(written.characteristics.map(c => c.kind))].sort();
+    assert.deepEqual(kinds, ['datum', 'dimension', 'geometric_tolerance', 'surface_texture', 'thread'], 'the approved PMI reads back');
+    const after = Object.fromEntries(written.table.rows.map(r => [r.id, r]));
     for (const r of suggested) {
       assert.equal(after[r.id].state, none(r.suggestion) ? 'decided_none' : 'stated', `${r.id} is in the file as suggested`);
     }
@@ -612,6 +625,11 @@ try {
     mkdirSync(copy);
     const file = join(copy, 'grm05.step');
     writeFileSync(file, gunzipSync(readFileSync('test/fixtures/grm05_depth_lock_bolt.step.gz')));
+    const before = table(file);
+    for (const [id] of lengths) {
+      assert.equal(before[id]?.state, 'gap', id);
+      assert.equal(before[id]?.open, true, id);
+    }
     const server = await open(file);
     try {
       const { context, page } = await load(server);

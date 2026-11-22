@@ -78,10 +78,47 @@ fn answers_with_their_evidence_migrate_as_answers_stored_in_the_step_do() {
     common::upgrade::check(&loaded, &base, &analysis, common::upgrade::FTC10);
     assert_eq!(out.migrated.len(), 8);
     assert!(out.unresolved.is_empty() && out.unverified.is_none());
-    // ADR P11: a requirement the file states is not asked again, so with these answers no
-    // question is left open (the only one unanswered is part.process, never open).
+    // The migrated answers still complete the legacy interview. Each standalone
+    // length or location has its own open gap because the suggestion writes PMI.
     let review = api::review(&analysis, &out.answers).unwrap();
-    assert_eq!(review["open"], json!([]));
+    assert_eq!(
+        review["open"],
+        json!([
+            "length:planes:110.112-172",
+            "length:planes:164-172",
+            "length:planes:24.31.97-172",
+            "length:planes:172-184.185",
+            "length:planes:20.22.207-172",
+            "length:planes:165-213",
+            "length:planes:163-213",
+            "length:planes:169.171-213",
+            "length:planes:113-212",
+            "length:planes:111-113",
+            "length:planes:113-162",
+            "length:planes:113-166",
+            "length:planes:113-205",
+            "length:planes:113-187",
+            "length:planes:107-113",
+            "length:planes:113-206",
+            "length:planes:113-170",
+            "length:planes:113-186",
+            "length:planes:113-167",
+            "length:planes:113-203",
+            "length:planes:113-168",
+            "length:planes:23-113",
+            "length:planes:113-129",
+            "location:holes:115.116-121.122-0",
+            "location:holes:115.116-124.125-2",
+            "location:holes:113-115.116.118.119.121.122.124.125",
+            "length:planes:172-210",
+            "length:planes:108.211-213",
+            "length:planes:173-213",
+            "length:planes:204-213",
+            "length:planes:209-213",
+            "length:planes:21-213",
+            "length:planes:30-213",
+        ])
+    );
 }
 
 /// Whether `id` is an answer on a feature or a datum (and the datum's settings).
