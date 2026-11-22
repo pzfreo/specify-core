@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 397 | 0 | 52 | 0 | 2 | 1 | 452 |
+| [cli](#cli) | 362 | 0 | 52 | 0 | 2 | 1 | 417 |
 | [cross_engine](#cross_engine) | 322 | 2 | 0 | 1 | 1 | 20 | 346 |
 | [cross_engine_written](#cross_engine_written) | 75 | 0 | 0 | 0 | 0 | 0 | 75 |
 | [existing](#existing) | 420 | 0 | 0 | 0 | 7 | 0 | 427 |
@@ -22,8 +22,8 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
-| [writer](#writer) | 2277 | 0 | 0 | 0 | 15 | 1 | 2293 |
-| **all** | 7074 | 1433 | 1249 | 2497 | 1101 | 1908 | 15262 |
+| [writer](#writer) | 2247 | 0 | 0 | 0 | 15 | 1 | 2263 |
+| **all** | 7009 | 1433 | 1249 | 2497 | 1101 | 1908 | 15197 |
 
 ## analysis
 
@@ -77,7 +77,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (397 entries)
+### cli: rust-correct (362 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -191,9 +191,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The writer cannot mark the resulting datum feature of size for future preservation. P11 requires it to report this omitted general size.
 
-- **general dimensions are rows (Paul, 2026-11-21)** (122 entries, 40 case globs)
+- **general dimensions are rows (Paul, 2026-11-21)** (87 entries, 40 case globs)
 
-  The evidence is stated per entry (73 distinct; all in `cli.json`). The first, for `nist/nist_ctc_03_asme1_ap242` at `write.not_written[dimension Location_LinearDistance [16, 17] [118]: the file already states it; not written again]`: nist/nist_ctc_03_asme1_ap242 already states dimension Location_LinearDistance [16, 17] [118]. P11 preserves the existing PMI when replaying approved measurements.
+  The evidence is stated per entry (38 distinct; all in `cli.json`). The first, for `nist/nist_ctc_03_asme1_ap242` at `write.not_written[general location 117.821 to faces [28, 29] from faces [92]: the file already states it; not written again]`: nist/nist_ctc_03_asme1_ap242 already states general location 117.821 to faces [28, 29] from faces [92]. P11 preserves the existing PMI when replaying approved measurements.
 
 ### cli: equivalent (52 entries)
 
@@ -1291,7 +1291,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (2277 entries)
+### writer: rust-correct (2247 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1393,10 +1393,6 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   The evidence is stated per entry (74 distinct; all in `writer.json`). The first, for `corpus/mfcadpp/1000` at `resume.part.material`: ADR P11 rule 2 (src/feature_table.rs storable): a file stores only the answers that leave no PMI, and the file's PMI is the only copy of the rest. Python stores part.material = "steel" in its payload; that answer is a requirement whose value is not none, so the Rust writer writes it as PMI and does not store it: answers_for leaves it out. Its PMI is written: no other new writer-oracle difference for corpus/mfcadpp/1000 (its existing readback is Python's, apart from the entries already here). Only this exact case and path are covered.
 
-- **General dimensions already stated by imported PMI** (60 entries, 2 case globs)
-
-  The evidence is stated per entry (60 distinct; all in `writer.json`). The first, for `nist/nist_ctc_03_asme1_ap242` at `write.not_written[dimension Location_LinearDistance [11, 12] [16, 17]: the file already states it; not written again]`: On nist/nist_ctc_03_asme1_ap242, dimension Location_LinearDistance [11, 12] [16, 17] is reported because the existing PMI already states this measurement, so P11 preserves it.
-
 - **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (96 entries, 46 case globs)
 
   ADR P11 adds the diametral field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
@@ -1496,6 +1492,10 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **General dimensions with missing supports** (45 entries, 4 case globs)
 
   The evidence is stated per entry (45 distinct; all in `writer.json`). The first, for `corpus/mfcadpp/1007` at `write.not_written[general location 0.778084 to faces [] from faces [1]: the location of holes:4.7.20.21 names no faces (question Q17)]`: On corpus/mfcadpp/1007, general location 0.778084 to faces [] from faces [1] is reported because the location of holes:4.7.20.21 names no faces and AP242 needs both supports.
+
+- **General dimensions already stated by imported PMI** (30 entries, 2 case globs)
+
+  The evidence is stated per entry (30 distinct; all in `writer.json`). The first, for `nist/nist_ctc_03_asme1_ap242` at `write.not_written[general location 447.345 to faces [11, 12] from faces [16, 17]: the file already states it; not written again]`: On nist/nist_ctc_03_asme1_ap242, general location 447.345 to faces [11, 12] from faces [16, 17] is reported because the existing PMI already states this measurement, so P11 preserves it.
 
 ### writer: not-applicable (15 entries)
 
