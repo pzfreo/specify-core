@@ -50,7 +50,7 @@ failed=()
 
 # step NAME COMMAND...: run COMMAND (in a subshell from the repository root), log it, record the result.
 # Quick mode runs only the steps named in `quick_steps`.
-quick_steps='|ci test: fmt|ci test: clippy|ci test: build tests|ci wasm: wasm-pack|ci wasm: API snapshot|ci ui: npm ci|ci ui: fetch:wasm|ci ui: typecheck|'
+quick_steps='|ci test: fmt|ci test: clippy|ci test: build tests|ci wasm: Python version lockstep|ci wasm: wasm-pack|ci wasm: API snapshot|ci ui: npm ci|ci ui: fetch:wasm|ci ui: typecheck|'
 step() {
   local name=$1; shift
   if [ "$quick" = 1 ] && [[ "$quick_steps" != *"|$name|"* ]]; then
@@ -86,6 +86,7 @@ step "ci test: full suite"            "cargo test --workspace --release --locked
 # --- ci.yml: wasm --------------------------------------------------------------------------------
 [ "$dry" = 1 ] || git fetch -q origin main || echo "warning: could not fetch origin/main; the API snapshot compares with the local copy"
 base=$(git merge-base HEAD origin/main) || { echo "VERIFY: FAIL (no origin/main to compare the WASM API with)"; exit 1; }
+step "ci wasm: Python version lockstep" "python3 tools/release_version.py --check-lockstep"
 step "ci wasm: tools unittests"       "python3 -m unittest discover -s tools -p 'test_*.py'"
 step "ci wasm: wasm-pack"             "wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked"
 step "ci wasm: API snapshot"          "python3 tools/check_wasm_api.py --base-ref $base"
