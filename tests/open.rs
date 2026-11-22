@@ -2425,8 +2425,8 @@ fn answered_meanwhile(shared: &specify_core::session::Shared) {
     s.set(0, answers, "mcp");
 }
 
-/// A session changed while a save without a rev applies its list (an agent's answer): refused as
-/// stale, nothing written, rather than the answer lost under the saved file's.
+/// An agent changes the answers just before commit. Even a save without a requested revision
+/// must refuse as stale and keep the newer answers.
 #[test]
 fn a_session_changed_during_a_save_without_a_rev_is_refused() {
     let scratch = Scratch::new("changed-meanwhile");
@@ -2554,4 +2554,64 @@ fn page_saves_part_lists_as_one_assembly_revision() {
             .status,
         409
     );
+}
+
+/// The HTTP outcome of two concurrent writes based on the same revision, through each save form.
+#[test]
+fn simultaneous_page_saves_at_one_revision_have_one_winner() {
+    for format in ["whole", "part", "batch"] {
+        let scratch = Scratch::new(&format!("simultaneous-{format}"));
+        let input = scratch.input();
+        if format != "whole" {
+            std::fs::write(&input, include_bytes!("fixtures/parts/assembly.step")).unwrap();
+        }
+        let opened = Opened::start(&input, &scratch, &["--in-place"]);
+        let page = opened.page();
+        let rev = page.rev();
+        let gate = std::sync::Barrier::new(2);
+        let send = |material| {
+            let edits = json!({"fill": {"part.coating": material}});
+            let body = match format {
+                "whole" => json!({"rev": rev, "edits": edits}),
+                "part" => json!({"rev": rev, "partEdits": [{"part": 0, "edits": edits}]}),
+                _ => json!({"rev": rev, "partEdits": [
+                    {"part": 0, "edits": edits},
+                    {"part": 1, "edits": {"fill": {"part.coating": material}}}
+                ]}),
+            };
+            gate.wait();
+            page.send("POST", "save", &body)
+        };
+        let replies = std::thread::scope(|threads| {
+            let first = threads.spawn(|| send("Zinc"));
+            let second = send("Anodised");
+            [first.join().unwrap(), second]
+        });
+        let mut codes = replies.each_ref().map(|reply| reply.status);
+        codes.sort_unstable();
+        assert_eq!(codes, [200, 409], "{format}");
+        assert_eq!(page.rev(), rev + 1);
+        let winner = if replies[0].status == 200 {
+            "Zinc"
+        } else {
+            "Anodised"
+        };
+        let selection = if format == "whole" {
+            vec![None]
+        } else if format == "part" {
+            vec![Some(0)]
+        } else {
+            vec![Some(0), Some(1)]
+        };
+        for part in selection {
+            let data = specify_core::api::analyse_file(&input, part).unwrap();
+            let coating = data["table"]["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == "part.coating")
+                .unwrap();
+            assert_eq!(coating["value"], winner);
+        }
+    }
 }

@@ -189,13 +189,12 @@ pub struct Session {
     /// The newest `rev` whose change is no longer kept (0: none dropped).
     dropped: u64,
     subscribers: Vec<mpsc::SyncSender<String>>,
-    /// One save at a time (held while writing, without the session's lock).
+    /// One save at a time, including staging outside the session lock.
     save_lock: Arc<Mutex<()>>,
     /// Each part's answers as the file last saved (or opened) holds them: answers that differ
     /// are unsaved.
     saved: BTreeMap<usize, Map<String, Value>>,
-    /// Tests only: called by a save after it applied its list, before it checks the session
-    /// again and writes.
+    /// Tests only: called by a save just before it acquires the final commit lock.
     #[doc(hidden)]
     pub between_locks: Option<fn(&Shared)>,
     /// The page server serving this session, if one was started.
@@ -752,17 +751,15 @@ fn save_with(
     if let Some(hook) = hook {
         hook(shared);
     }
-    // Answers changed in the session while the list was applied (an agent's, which no rev
-    // guards) would be replaced by the saved file's: refused, nothing written.
-    {
-        let s = lock(shared);
-        if s.rev != seen {
-            return Err(SaveError::Stale(s.rev));
-        }
+    // An agent can change the answers while we stage. Keep the lock from this final
+    // revision check through the write and the publication of the new session state.
+    let mut s = lock(shared);
+    if s.rev != seen {
+        return Err(SaveError::Stale(s.rev));
     }
     let cannot = |e: io::Error| SaveError::Failed(format!("cannot save: {e}"));
     let (path, bytes, stored, sha) = if in_place {
-        let stored = replace_input(shared, &file.path, gz, &mut backup, text.as_ref().clone())
+        let stored = replace_input(&mut s, &file.path, gz, &mut backup, text.as_ref().clone())
             .map_err(cannot)?;
         let sha = sha256(&stored);
         (file.path.clone(), stored.len(), Some(stored), sha)
@@ -770,14 +767,13 @@ fn save_with(
         let bytes = text.len();
         let sha = sha256(&text);
         let path = match copy {
-            Some(copy) => update_copy(shared, &file, copy, &text),
+            Some(copy) => update_copy(&s, &file, copy, &text),
             None => write_new(&file, &text),
         };
         (path.map_err(cannot)?, bytes, None, sha)
     };
     let shown = path.display().to_string();
     report["output"] = json!(shown);
-    let mut s = lock(shared);
     if let Some(stored) = stored {
         s.backup = backup;
         s.current = Arc::new(stored);
@@ -878,15 +874,13 @@ pub fn edits_refused(failures: &[crate::edits::Failure]) -> String {
 /// A later save of the session's own copy (see [`Session::own_copy`]): a temporary file is
 /// written, then, under the session's lock, the copy is checked again and the file renamed onto
 /// it. A copy no longer the session's by then is left alone: the save takes a new name.
-fn update_copy(shared: &Shared, file: &Opened, copy: PathBuf, body: &[u8]) -> io::Result<PathBuf> {
+fn update_copy(s: &Session, file: &Opened, copy: PathBuf, body: &[u8]) -> io::Result<PathBuf> {
     let dir = copy
         .parent()
         .ok_or_else(|| io::Error::other("the copy has no directory"))?;
     let temp = temp_file(dir, body)?;
-    let s = lock(shared);
     if s.own_copy() == Some(copy.as_path()) {
         let renamed = fs::rename(&temp, &copy);
-        drop(s);
         return match renamed {
             Ok(()) => Ok(copy),
             Err(e) => {
@@ -895,7 +889,6 @@ fn update_copy(shared: &Shared, file: &Opened, copy: PathBuf, body: &[u8]) -> io
             }
         };
     }
-    drop(s);
     let _ = fs::remove_file(&temp);
     write_new(file, body)
 }
@@ -939,11 +932,10 @@ fn write_new(file: &Opened, body: &[u8]) -> io::Result<PathBuf> {
 /// save of the session (`backup` None) first copies the original to the first free `.bak`
 /// beside the path as given; later saves keep no other copy. A link is followed (its target
 /// replaced, the link kept). The replacement keeps the original's permissions, and a gzipped
-/// input is written gzipped. What is stored is recorded as the session's own before the
-/// rename (and forgotten if it fails), so a reopen or a check meanwhile never takes the file as
-/// changed by someone else. Returns the bytes stored.
+/// input is written gzipped. With the session locked, record the bytes as the session's own
+/// once the rename succeeds. Returns the bytes stored.
 fn replace_input(
-    shared: &Shared,
+    s: &mut Session,
     step: &Path,
     gz: bool,
     backup: &mut Option<PathBuf>,
@@ -967,19 +959,11 @@ fn replace_input(
             *backup = Some(back_up(step, &real)?);
         }
         let sha = sha256(&stored);
-        let recorded = {
-            let mut s = lock(shared);
-            let new = !s.written.contains(&sha);
-            if new {
-                s.written.push(sha.clone());
-            }
-            new
-        };
-        let renamed = fs::rename(&temp, &real);
-        if renamed.is_err() && recorded {
-            lock(shared).written.retain(|w| *w != sha);
+        fs::rename(&temp, &real)?;
+        if !s.written.contains(&sha) {
+            s.written.push(sha);
         }
-        renamed
+        Ok(())
     })();
     if let Err(e) = replaced {
         let _ = fs::remove_file(&temp);

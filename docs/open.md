@@ -141,7 +141,9 @@ page sends no STEP bytes.
 
 - `rev`: the session revision the page last saw (from `answers` or `events`). If the session
   has moved on since, the save is refused (409, with the current `rev`) so the page never
-  saves over changes it has not shown; the page refreshes and the person saves again.
+  saves over changes it has not shown. The session checks the revision again under the same
+  lock it uses to commit the file and publish the new session state. The page refreshes
+  after a conflict so the person can save again.
 - `edits` (an object for a single-part file, `{}` for none): the edit list, as `specify-core write STEP EDITS.json` takes it:
   `fill` gaps, `change` stated feature-and-kinds (with the value the person saw as `expect`),
   `items.remove` requirements by characteristic number, `none` feature-and-kinds decided none,
