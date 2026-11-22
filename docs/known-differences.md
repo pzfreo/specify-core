@@ -22,8 +22,8 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
-| [writer](#writer) | 2279 | 0 | 0 | 0 | 15 | 1 | 2295 |
-| **all** | 8122 | 1433 | 1201 | 2468 | 1327 | 1905 | 16456 |
+| [writer](#writer) | 2267 | 0 | 0 | 0 | 15 | 13 | 2295 |
+| **all** | 8110 | 1433 | 1201 | 2468 | 1327 | 1917 | 16456 |
 
 ## analysis
 
@@ -1327,7 +1327,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (2279 entries)
+### writer: rust-correct (2267 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1397,9 +1397,9 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   The evidence is stated per entry (4 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb243` at `existing[key=dimension|Size_Diameter|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]|#1]`: Shared planner, #75: this exact occurrence now reads Ø70 Basic from answered:dim:pattern[hole:10.11.578.579,hole:12.13.576.577,hole:14.15.574.575,hole:16.17.572.573,hole:2.3.586.587,hole:4.5.584.585,hole:6.7.582.583,hole:8.9.580.581]/bolt_circle.diameter, before the answered-fit bore on the same complete face support. Python states only its member bore size. The separate bore retains its answered fit and moves to the next same-face comparison occurrence; characteristic identities use planner roles and are unchanged. The oracle's fit-limit projection requires both matching faces and matching nominal, preventing the Basic bolt-circle diameter from inheriting the bore fit limits. Exact fresh readback differences: {"case":"corpus/cadgenbench_inputs/cgb243","path":"existing[key=dimension\|Size_Diameter\|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]\|#1]","python":null,"rust":{"kind":"dimension","type":"Size_Diameter","faces":[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587],"value":70.0,"provenance":"specify-core:written:v1","key":"dimension\|Size_Diameter\|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]\|#1"}}. The actual STEP Basic tolerance is verified by the planner regression; no dimensional value is normalized away.
 
-- **Exact unsupported planner proposal is reported, not written (shared planner, #75)** (62 entries, 11 case globs)
+- **Exact unsupported planner proposal is reported, not written (shared planner, #75)** (53 entries, 11 case globs)
 
-  The evidence is stated per entry (62 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `write.not_written[shared planner dim:envelope:0:min/to/hole:1261.1262/0: General contract conflicts with an answered requirement; retained answered intent instead]`: On corpus/cadgenbench_inputs/cgb202, shared planner dim:envelope:0:min/to/hole:1261.1262/0 is reported because the answered tolerance contract takes precedence over this General proposal.
+  The evidence is stated per entry (53 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `write.not_written[shared planner dim:envelope:0:min/to/hole:1261.1262/0: General contract conflicts with an answered requirement; retained answered intent instead]`: On corpus/cadgenbench_inputs/cgb202, shared planner dim:envelope:0:min/to/hole:1261.1262/0 is reported because the answered tolerance contract takes precedence over this General proposal.
 
 - **Exact shared location conveyance or physical-support change (#75)** (903 entries, 31 case globs)
 
@@ -1533,10 +1533,6 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   The evidence is stated per entry (30 distinct; all in `writer.json`). The first, for `nist/nist_ctc_03_asme1_ap242` at `write.not_written[general location 447.345 to faces [11, 12] from faces [16, 17]: the file already states it; not written again]`: On nist/nist_ctc_03_asme1_ap242, general location 447.345 to faces [11, 12] from faces [16, 17] is reported because the existing PMI already states this measurement, so P11 preserves it.
 
-- **0.5.5 / Writer CGB202 stock flat correction** (3 entries, 1 case glob)
-
-  Quiddity 0.5.5 #307 excludes protrusion sides from stock flats. Removing flats 1734 and 1735 retires those deferred general dimensions.
-
 - **0.5.5 / Writer CGB242 bore support** (9 entries, 1 case glob)
 
   Quiddity 0.5.5 #307 requires a proved annular floor for overlapping counterbores. The hub bore loses its false outer step and the staged writer uses the corrected faces for locations and size.
@@ -1563,11 +1559,19 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   Python's own text route ('manufacturing requirement' sentences, leaders) or its own datum symbol lettering, which haecceity does not write (decisions 5 and 6 of docs/step-ap242.md); the semantic content each test also checks is ported in tests/writer.rs.
 
-### writer: resolved (1 entry)
+### writer: resolved (13 entries)
+
+- **Exact unsupported planner proposal is reported, not written (shared planner, #75)** (9 entries, 2 case globs)
+
+  The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `write.not_written[shared planner dim:envelope:2:min/to/step:1876/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]`: Quiddity 0.5.5 #307 no longer publishes this CGB202 side as a stock step, so no unmatched principal-plane proposal is made. The historical exact diagnostic must stay absent.
 
 - **Resolved exact unsupported planner proposal (shared planner, #75)** (`corpus/mfcadpp/10103` at `write.not_written[shared planner dim:plane:2/to/step:29/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]`)
 
   At b590592 quiddity #241 recognises prismatic_through_cuts:28.29.30, so face 29 (Python's step_levels:9.14.29.36) is a through-cut wall and the planner no longer proposes the projected plane:2/to/step:29 location. The diagnostic, previously reported and not written, must not return; no other writer output for this part changes.
+
+- **0.5.5 / Writer CGB202 stock flat correction** (3 entries, 1 case glob)
+
+  The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `write.written[50 dimensions under the general tolerance]`: Quiddity 0.5.5 #307 excludes protrusion sides from stock flats. Removing flats 1734 and 1735 retires those deferred general dimensions. Round 6 retains the captured legacy writer's independently specified measurements; the integrated writer reports exactly 839 general dimensions as before. This reviewed-branch-only line must stay absent.
 
 ## Open work
 
