@@ -136,8 +136,7 @@ fn cli(args: &[&Path]) {
     );
 }
 
-/// The CLI's rewrite of a reopened file: `analyse`, then `write --accept-defaults` with the
-/// resumed answers.
+/// Re-save a reopened file through the CLI with an empty edit list.
 fn cli_rewrite(bytes: &[u8], name: &str) -> LoadedPart {
     let dir = dir(name);
     let input = dir.join("in.step");
@@ -523,7 +522,7 @@ fn a_default_another_tool_changed_is_the_files_answer() {
     assert_eq!(positions(&cli_again), [0.3], "CLI write, again");
 }
 
-/// The CLI's write of `answers` on a file: `analyse`, then `write --accept-defaults`.
+/// A CLI fill against stated data is refused and the source still reads as before.
 fn cli_refuses_fill(bytes: &[u8], answers: &Map<String, Value>, name: &str) -> LoadedPart {
     let dir = dir(name);
     let input = dir.join("in.step");
