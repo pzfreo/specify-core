@@ -1044,43 +1044,24 @@ enum PageEdits {
 impl PageEdits {
     fn read(value: &Value) -> Result<Self, Value> {
         let bad = |why: &str| json!({"error": why});
-        let read_list = |edits: Option<&Value>, part: Option<usize>| {
-            let edits = edits
-                .filter(|e| e.is_object())
-                .ok_or_else(|| bad("edits is required: the edit list to apply ({} for none)"))?;
-            crate::edits::read(&edits.to_string()).map_err(|mut failures| {
-                for failure in &mut failures {
-                    if let Some(part) = part {
-                        failure.entry = format!("Part {part}: {}", failure.entry);
-                    }
-                }
-                json!({"error": session::edits_refused(&failures), "failures": failures})
-            })
-        };
         match (value.get("edits"), value.get("partEdits")) {
-            (edits, None) => Ok(Self::Single(Box::new(read_list(edits, None)?))),
+            (edits, None) => {
+                let object = edits.filter(|e| e.is_object()).ok_or_else(|| {
+                    bad("edits is required: the edit list to apply ({} for none)")
+                })?;
+                crate::edits::read(&object.to_string())
+                    .map(|list| Self::Single(Box::new(list)))
+                    .map_err(|failures| json!({"error": session::edits_refused(&failures), "failures": failures}))
+            }
             (None, Some(parts)) => {
-                let parts = parts
-                    .as_array()
-                    .filter(|parts| !parts.is_empty())
-                    .ok_or_else(|| bad("partEdits must be a nonempty array of {part, edits}"))?;
-                let mut lists = BTreeMap::new();
-                for entry in parts {
-                    let part = entry
-                        .get("part")
-                        .and_then(Value::as_u64)
-                        .and_then(|n| usize::try_from(n).ok())
-                        .ok_or_else(|| {
-                            bad("each partEdits entry requires a nonnegative part index")
-                        })?;
-                    if lists
-                        .insert(part, read_list(entry.get("edits"), Some(part))?)
-                        .is_some()
-                    {
-                        return Err(bad(&format!("partEdits repeats part {part}")));
-                    }
-                }
-                Ok(Self::Assembly(lists))
+                session::read_part_edits(parts)
+                    .map(Self::Assembly)
+                    .map_err(|e| match e {
+                        session::PartEditsError::Shape(why) => bad(&why),
+                        session::PartEditsError::List(failures) => json!({
+                            "error": session::edits_refused(&failures), "failures": failures
+                        }),
+                    })
             }
             (Some(_), Some(_)) => Err(bad("send either edits or partEdits")),
         }

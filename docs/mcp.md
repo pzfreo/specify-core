@@ -93,8 +93,15 @@ JSON-RPC errors.
 | `carry` | `old`, `new`, `output`, `overwrite?` | as `specify-core carry` ([carry.md](carry.md)): OLD's requirements carried onto NEW and written to `output`, all or nothing; `written`, `output`, `carried`, `to_check`, `kept`, `not_carried`, `decided_none`, `new_unstated`, `numbers_carried`, `bom_carried`, `refused?`, `markdown` |
 | `changes` | `doc`, `since` (a `rev`) | `rev`, and `changes`: `[{rev, part, source, set, cleared}]` after `since`, oldest first (`source` `page` or `mcp`); if `since` is older than the 256 changes kept, `full: true` and `answers`, every part's answers by part index |
 | `show` | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`: the Specify page for the document's session on 127.0.0.1 (docs/open.md), started or, if it is running, its address; the browser opened unless `browser: false`. `read_only` makes that page view-only (not for a session opened with `old` or `in_place`). A running page in the other mode is refused (`invalid`, with its `url` and `mode`), never replaced |
-| `save` | `doc`, `edits` (required: the edit list, `{}` for none), `rev?` | `path`, `bytes`, `rev`, `report` (with `retired` and `unchanged`), `complete`, `missing`: the edit list applied to the file all or nothing and written as the page's Save writes it, beside the file (or over it, opened `in_place`). A list with any entry that cannot be applied writes nothing (`invalid`, with `failures`); refused while answers set with `answer` are unsaved |
-| `check` | `doc`, `edits` | `well_formed`, `applicable`, `entries`, `unchanged`, `failures`, `message`, `rev`: the list checked as `save` would apply it; nothing is written |
+| `save` | `doc`, either `edits` or `partEdits`, `rev?` | `path`, `bytes`, `rev`, `report` (with `retired` and `unchanged`), `complete`, `missing`: the edit list applied to the file all or nothing and written as the page's Save writes it, beside the file (or over it, opened `in_place`). A list with any entry that cannot be applied writes nothing (`invalid`, with `failures`); refused while answers set with `answer` are unsaved |
+| `check` | `doc`, either `edits` or `partEdits` | `well_formed`, `applicable`, `entries`, `unchanged`, `failures`, `message`, `rev`: the list checked as `save` would apply it; nothing is written |
+
+With `edits`, both tools target the part named by `doc`. For one or more explicit targets,
+send `partEdits: [{part, edits}, …]` with any open `doc` for the same file. Use the distinct
+zero-based indices returned by `list_parts`. Each index can appear once. A batch can include
+parts without a separate open document. `check` stages the same batch as `save` and returns
+the revision it checked without writing. A batch applies in index order as one commit, with
+a report per part. Its entry failures include the part's name and index.
 
 The edit list is `{"fill": {id: value}, "change": {id: {"to", "expect"}}, "items": {"remove":
 ["#N"]}, "none": [id], "accept_suggestions": [id], "clear": [id]}`, as `specify-core write STEP

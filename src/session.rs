@@ -19,6 +19,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 
 use serde_json::{Map, Value, json};
+
+use crate::edits::{self, EditList, Failure, Outcome};
 use sha2::{Digest, Sha256};
 
 use crate::api::{self, Error};
@@ -616,66 +618,132 @@ pub fn save_part_edits(
     })
 }
 
-/// Applies a list per part through the assembly writer, then commits the file once. Each
-/// writer call takes the staged bytes of the preceding successful call, so part-local entity
-/// and number allocations stay consistent. The session and disk are untouched on refusal.
+/// A malformed assembly edit request. Page and MCP callers share its shape and entry parsing.
+pub(crate) enum PartEditsError {
+    Shape(String),
+    List(Vec<Failure>),
+}
+
+pub(crate) fn read_part_edits(value: &Value) -> Result<BTreeMap<usize, EditList>, PartEditsError> {
+    let bad = |why: &str| PartEditsError::Shape(why.into());
+    let parts = value
+        .as_array()
+        .filter(|parts| !parts.is_empty())
+        .ok_or_else(|| bad("partEdits must be a nonempty array of {part, edits}"))?;
+    let mut lists = BTreeMap::new();
+    for entry in parts {
+        let part = entry
+            .get("part")
+            .and_then(Value::as_u64)
+            .and_then(|n| usize::try_from(n).ok())
+            .ok_or_else(|| bad("each partEdits entry requires a nonnegative part index"))?;
+        let list = entry
+            .get("edits")
+            .filter(|e| e.is_object())
+            .ok_or_else(|| {
+                bad(&format!(
+                    "Part {part} requires an edits object ({{}} for none)"
+                ))
+            })?;
+        let list = edits::read(&list.to_string()).map_err(|mut failures| {
+            for failure in &mut failures {
+                failure.entry = format!("Part {part}: {}", failure.entry);
+            }
+            PartEditsError::List(failures)
+        })?;
+        if lists.insert(part, list).is_some() {
+            return Err(bad(&format!("partEdits repeats part {part}")));
+        }
+    }
+    Ok(lists)
+}
+
+struct StagedAssembly {
+    bytes: Arc<Vec<u8>>,
+    reports: Vec<Value>,
+    unchanged: bool,
+    unchanged_entries: Vec<String>,
+}
+
+/// Runs each list through the assembly writer on the staged result of the preceding lists.
+/// The same staging drives both saves and dry-run checks.
+fn stage_assembly_edits(
+    mut step: Arc<part::File>,
+    path: &Path,
+    lists: &BTreeMap<usize, EditList>,
+) -> Result<StagedAssembly, SaveError> {
+    if lists.is_empty() {
+        return Err(SaveError::Refused("no part lists to apply".into()));
+    }
+    let parts = step.parts();
+    let mut failures = Vec::new();
+    let mut staged = StagedAssembly {
+        bytes: Arc::clone(step.bytes()),
+        reports: Vec::new(),
+        unchanged: true,
+        unchanged_entries: Vec::new(),
+    };
+    for (&part, list) in lists {
+        let name = parts.get(part).map(|p| p.name.as_str());
+        let label = name.map_or_else(
+            || format!("Part {part}"),
+            |name| format!("Part {name:?} ({part})"),
+        );
+        let result = step
+            .load(Some(part))
+            .map_err(|e| {
+                vec![Failure {
+                    entry: "(the whole list)".into(),
+                    reason: e.to_string(),
+                }]
+            })
+            .and_then(|loaded| crate::writer::apply::apply(&loaded, list));
+        match result {
+            Ok(applied) => {
+                staged
+                    .reports
+                    .push(json!({"part": part, "name": name, "report": applied.to_dict()}));
+                staged.unchanged_entries.extend(
+                    applied
+                        .outcome
+                        .unchanged
+                        .iter()
+                        .map(|e| format!("{label}: {e}")),
+                );
+                staged.unchanged &= applied.unchanged;
+                if !applied.unchanged {
+                    staged.bytes = Arc::new(applied.bytes);
+                    step = Arc::new(
+                        part::File::of_shared(path, Arc::clone(&staged.bytes))
+                            .map_err(|e| SaveError::Failed(e.to_string()))?,
+                    );
+                }
+            }
+            Err(refused) => failures.extend(refused.into_iter().map(|mut failure| {
+                failure.entry = format!("{label}: {}", failure.entry);
+                failure
+            })),
+        }
+    }
+    if failures.is_empty() {
+        Ok(staged)
+    } else {
+        Err(SaveError::Edits(failures))
+    }
+}
+
+/// Applies a list per part through the assembly writer, then commits the file once. The
+/// session and disk are untouched on refusal.
 pub fn save_assembly_edits(
     shared: &Shared,
     rev: Option<u64>,
-    lists: &BTreeMap<usize, crate::edits::EditList>,
+    lists: &BTreeMap<usize, EditList>,
     source: &'static str,
 ) -> Result<Saved, SaveError> {
-    save_with(shared, rev, source, |mut step, path| {
-        let parts = step.parts();
-        let mut failures = Vec::new();
-        let mut reports = Vec::new();
-        let mut bytes = None;
-        let mut unchanged = true;
-        for (&part, list) in lists {
-            let name = parts.get(part).map(|p| p.name.as_str());
-            let label = name.map_or_else(
-                || format!("Part {part}"),
-                |name| format!("Part {name:?} ({part})"),
-            );
-            let result = step
-                .load(Some(part))
-                .map_err(|e| {
-                    vec![crate::edits::Failure {
-                        entry: "(the whole list)".into(),
-                        reason: e.to_string(),
-                    }]
-                })
-                .and_then(|loaded| crate::writer::apply::apply(&loaded, list));
-            match result {
-                Ok(applied) => {
-                    reports.push(json!({"part": part, "name": name, "report": applied.to_dict()}));
-                    // Each next list must see the bytes already staged, even if a different
-                    // part failed. Keep checking so the response names every refused entry.
-                    unchanged &= applied.unchanged;
-                    let written = Arc::new(applied.bytes);
-                    if !applied.unchanged {
-                        step = Arc::new(
-                            part::File::of_shared(path, Arc::clone(&written))
-                                .map_err(|e| SaveError::Failed(e.to_string()))?,
-                        );
-                    }
-                    bytes = Some(written);
-                }
-                Err(refused) => failures.extend(refused.into_iter().map(|mut failure| {
-                    failure.entry = format!("{label}: {}", failure.entry);
-                    failure
-                })),
-            }
-        }
-        if !failures.is_empty() {
-            return Err(SaveError::Edits(failures));
-        }
-        let bytes = bytes.ok_or_else(|| SaveError::Refused("no part lists to apply".into()))?;
-        Ok((
-            bytes,
-            json!({"parts": reports, "unchanged": unchanged}),
-            unchanged,
-        ))
+    save_with(shared, rev, source, |step, path| {
+        let staged = stage_assembly_edits(step, path, lists)?;
+        let report = json!({"parts": staged.reports, "unchanged": staged.unchanged});
+        Ok((staged.bytes, report, staged.unchanged))
     })
 }
 
@@ -832,27 +900,75 @@ fn save_with(
 /// `text` (an edit list, or a 0.2 answers file) checked against the session's file as its last
 /// save left it, as [`save_edits`] would apply it (`writer::apply::check`). Nothing is written
 /// and the session is not changed.
-pub fn check_edits(shared: &Shared, text: &str) -> crate::edits::Outcome {
-    let (step, unsaved) = {
+pub fn check_edits(shared: &Shared, text: &str) -> Outcome {
+    check_part_edits(shared, None, text).1
+}
+
+/// Checks the opened part's list and reports the revision checked.
+pub fn check_part_edits(shared: &Shared, part: Option<usize>, text: &str) -> (u64, Outcome) {
+    let (rev, step, unsaved) = {
         let s = lock(shared);
-        (Arc::clone(&s.step), s.has_unsaved())
+        (s.rev, Arc::clone(&s.step), s.has_unsaved())
     };
-    // As `save_edits` refuses it: the answers not saved would be lost.
-    if unsaved {
-        let mut outcome = crate::edits::check(text, None);
-        outcome.failures.push(crate::edits::Failure {
-            entry: "(the session)".into(),
-            reason: UNSAVED.into(),
-        });
+    let outcome = if unsaved {
+        let mut outcome = edits::check(text, None);
+        outcome.failures.push(unsaved_failure());
         outcome.applicable = false;
-        return outcome;
+        outcome
+    } else {
+        match step.load(part) {
+            Ok(loaded) => crate::writer::apply::check(&loaded, text),
+            Err(e) => Outcome::malformed(vec![Failure {
+                entry: "(the whole list)".into(),
+                reason: e.to_string(),
+            }]),
+        }
+    };
+    (rev, outcome)
+}
+
+/// Checks an assembly batch by staging the same writes as a save, with no disk effects.
+pub fn check_assembly_edits(shared: &Shared, lists: &BTreeMap<usize, EditList>) -> (u64, Outcome) {
+    let (rev, step, path, unsaved) = {
+        let s = lock(shared);
+        (
+            s.rev,
+            Arc::clone(&s.step),
+            s.file.path.clone(),
+            s.has_unsaved(),
+        )
+    };
+    let entries = lists.values().map(EditList::len).sum();
+    let mut outcome = Outcome {
+        well_formed: true,
+        checked_against_file: !unsaved,
+        applicable: false,
+        entries,
+        unchanged: Vec::new(),
+        failures: Vec::new(),
+    };
+    if unsaved {
+        outcome.failures.push(unsaved_failure());
+    } else {
+        match stage_assembly_edits(step, &path, lists) {
+            Ok(staged) => {
+                outcome.applicable = true;
+                outcome.unchanged = staged.unchanged_entries;
+            }
+            Err(SaveError::Edits(failures)) => outcome.failures = failures,
+            Err(e) => outcome.failures.push(Failure {
+                entry: "(the whole list)".into(),
+                reason: e.to_string(),
+            }),
+        }
     }
-    match step.load(None) {
-        Ok(loaded) => crate::writer::apply::check(&loaded, text),
-        Err(e) => crate::edits::Outcome::malformed(vec![crate::edits::Failure {
-            entry: "(the whole list)".into(),
-            reason: e.to_string(),
-        }]),
+    (rev, outcome)
+}
+
+fn unsaved_failure() -> Failure {
+    Failure {
+        entry: "(the session)".into(),
+        reason: UNSAVED.into(),
     }
 }
 

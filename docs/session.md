@@ -37,8 +37,8 @@ process; nothing is written to disk unless a save or an `answers_file` asks for 
 memory rule).
 
 MCP's documents are parts (`doc`, one per part, as today). All the parts of one file share
-its session and its `rev`; the page shows the file. An edit list applies to a file of one part
-for now: a save of a file of several parts is refused until edits on a part of an assembly land.
+its session and its `rev`. The page and MCP can save an assembly's part lists together as one
+file revision.
 
 ## MCP tools
 
@@ -51,8 +51,8 @@ The existing tools (docs/mcp.md) work on the session, plus these:
 | `answer` | as today | as today, plus the new `rev`; the page receives it as an `answers` event with `source: "mcp"`. These answers are the session's working state: `save` does not write them |
 | `changes` | `doc`, `since` (a `rev`) | `rev`, and `changes`: `[{rev, part, source, set: {id: answer}, cleared: [id]}]` after `since`, oldest first. If `since` is older than the changes kept, `full: true` and the whole `answers` instead (every part's, by part index, as the page's `GET answers` gives `parts`) |
 | `show` | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`. Starts the page server for this session on 127.0.0.1 (random port and token), or returns the running one's address; opens the browser unless `browser: false`. A session opened with `old` is shown in `diff` mode: the page shows what changed beside the new file, and the person may edit and save the new revision. `read_only: true` makes that page view-only (no Save from the page). Only `read_only: true` is refused for a session opened with `old` or `in_place` (as `open` refuses `--read-only` with `--diff` or `--in-place`). A page already running in the other mode is never replaced: `show` is refused with its `url` and `mode` until the person has closed it |
-| `save` | `doc`, `edits` (required: the edit list, `{}` for none), `rev?` (the session revision the agent last saw) | `path`, `bytes`, `rev`, `report` (with `retired` and `unchanged`), `complete`, `missing`: the list applied to the file all or nothing and written with the same naming as the page's Save (docs/open.md). One entry that cannot be applied writes nothing, and the `invalid` error's `failures` names every failing entry and why. A `rev` the session has left is `stale`. The page gets the same `saved` event |
-| `check` | `doc`, `edits` | `applicable`, `entries`, `unchanged`, `failures`, `message`, `rev`: the list checked against the session's file exactly as `save` would apply it; nothing is written |
+| `save` | `doc`, `edits` for that part or `partEdits: [{part, edits}, …]` for the file, `rev?` (the session revision the agent last saw) | `path`, `bytes`, `rev`, `report` (with `retired` and `unchanged`), `complete`, `missing`: the list applied to the file all or nothing and written with the same naming as the page's Save (docs/open.md). One entry that cannot be applied writes nothing, and the `invalid` error's `failures` names every failing entry and why. A `rev` the session has left is `stale`. The page gets the same `saved` event |
+| `check` | `doc`, either edit form above | `applicable`, `entries`, `unchanged`, `failures`, `message`, `rev`: the list checked against the session's file exactly as `save` would apply it; nothing is written |
 
 `write_pmi`, which wrote the whole intent of the answers to a path of the agent's choosing, is
 gone (ADR P11: a write applies an edit list). `specify-core write STEP EDITS.json -o OUT` writes

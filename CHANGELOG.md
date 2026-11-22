@@ -164,8 +164,10 @@ Read first:
     session holds answers an agent gave with `answer` and did not save. `complete` and `missing`
     are now those of the saved file. The app checks the `api` (a command without one, 0.2.0's
     contract 1, is refused), and its manifest says 2.
-  - **MCP:** `save {doc, edits, rev?}` applies an edit list (its refusal lists `failures`), and
-    `check {doc, edits}` checks one without writing. `write_pmi` and `save`'s `accept_defaults`
+  - **MCP:** `save {doc, edits, rev?}` applies an edit list to the opened part, and
+    `check {doc, edits}` checks it without writing. Both accept `partEdits: [{part, edits}, …]`
+    in place of `edits` to check or save a batch on the same file. A batch saves all or nothing,
+    and a refusal names the part and entry. `write_pmi` and `save`'s `accept_defaults`
     are gone.
   - **Python:** `api.write(step, edits, output)` applies an edit list (`EditsRefused`, a
     `ValueError` with `failures`, when any entry cannot be applied), and `api.check_edits(step,

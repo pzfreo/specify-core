@@ -156,7 +156,8 @@ For an assembly send `partEdits` in place of `edits`. It is a nonempty array wit
 `{part, edits}` object for each edited part. Use the distinct part's zero-based index as listed
 by `parts` or the page's part picker. A definition placed several times is edited once.
 The lists apply in part-index order and each part's characteristic numbers stay local to it.
-The original request form stays supported under session API 2.
+The original request form stays supported under session API 2. MCP `save` and `check` also
+accept the `partEdits` form with an open document for the file.
 
 ```json
 {"rev": 7, "partEdits": [{"part": 0, "edits": {"fill": {"part.material": "Steel"}}},

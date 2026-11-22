@@ -1335,14 +1335,23 @@ impl Server {
     /// page's Save writes it.
     fn save(&self, args: &Map<String, Value>) -> ToolResult {
         let (handle, doc) = self.doc(args)?;
-        let list = edits_arg(args)?;
+        let edits = doc_edits(args)?;
         let rev = match args.get("rev") {
             None | Some(Value::Null) => None,
             Some(v) => Some(v.as_u64().ok_or_else(|| {
                 ToolError::invalid("rev: the session revision you last saw, an integer")
             })?),
         };
-        let saved = session::save_edits(&doc.session, rev, &list, "mcp").map_err(save_error)?;
+        let saved = match edits {
+            DocEdits::Opened(edits) => {
+                let list = crate::edits::read(&edits.to_string()).map_err(invalid_edits)?;
+                session::save_part_edits(&doc.session, Some(doc.part), rev, &list, "mcp")
+            }
+            DocEdits::Parts(lists) => {
+                session::save_assembly_edits(&doc.session, rev, &lists, "mcp")
+            }
+        }
+        .map_err(save_error)?;
         eprintln!("Saved {} ({} bytes).", saved.path, saved.bytes);
         let mut out = saved.to_json();
         out["doc"] = json!(handle);
@@ -1353,14 +1362,15 @@ impl Server {
     /// nothing is written.
     fn check(&self, args: &Map<String, Value>) -> ToolResult {
         let (handle, doc) = self.doc(args)?;
-        let edits = args
-            .get("edits")
-            .filter(|e| e.is_object())
-            .ok_or_else(|| ToolError::invalid(EDITS_REQUIRED))?;
-        let outcome = session::check_edits(&doc.session, &edits.to_string());
+        let (rev, outcome) = match doc_edits(args)? {
+            DocEdits::Opened(edits) => {
+                session::check_part_edits(&doc.session, Some(doc.part), &edits.to_string())
+            }
+            DocEdits::Parts(lists) => session::check_assembly_edits(&doc.session, &lists),
+        };
         let mut out = outcome.to_json();
         out["doc"] = json!(handle);
-        out["rev"] = json!(session::lock(&doc.session).rev());
+        out["rev"] = json!(rev);
         Ok(out)
     }
 
@@ -1573,16 +1583,29 @@ const EDITS_REQUIRED: &str = "edits is required: an edit list, {\"fill\": {id: v
 \"change\": {id: {to, expect}}, \"items\": {\"remove\": [\"#N\"]}, \"none\": [id], \
 \"accept_suggestions\": [id]} ({} for none)";
 
-/// The `edits` argument (`save`): an edit list (or a 0.2 answers map, read as fills, as
-/// `write` reads one), parsed; a malformed one is refused naming every part that does not parse.
-fn edits_arg(args: &Map<String, Value>) -> Result<crate::edits::EditList, ToolError> {
-    let edits = args
-        .get("edits")
-        .filter(|e| e.is_object())
-        .ok_or_else(|| ToolError::invalid(EDITS_REQUIRED))?;
-    crate::edits::read(&edits.to_string()).map_err(|failures| {
-        ToolError::invalid(session::edits_refused(&failures)).with("failures", json!(failures))
-    })
+enum DocEdits<'a> {
+    Opened(&'a Value),
+    Parts(std::collections::BTreeMap<usize, crate::edits::EditList>),
+}
+
+fn doc_edits(args: &Map<String, Value>) -> Result<DocEdits<'_>, ToolError> {
+    match (args.get("edits"), args.get("partEdits")) {
+        (edits, None) => edits
+            .filter(|e| e.is_object())
+            .map(DocEdits::Opened)
+            .ok_or_else(|| ToolError::invalid(EDITS_REQUIRED)),
+        (None, Some(parts)) => session::read_part_edits(parts)
+            .map(DocEdits::Parts)
+            .map_err(|e| match e {
+                session::PartEditsError::Shape(why) => ToolError::invalid(why),
+                session::PartEditsError::List(failures) => invalid_edits(failures),
+            }),
+        (Some(_), Some(_)) => Err(ToolError::invalid("send either edits or partEdits")),
+    }
+}
+
+fn invalid_edits(failures: Vec<crate::edits::Failure>) -> ToolError {
+    ToolError::invalid(session::edits_refused(&failures)).with("failures", json!(failures))
 }
 
 /// A save's refusal as a tool error: an approval named by part and question (with the value
@@ -1605,9 +1628,7 @@ fn save_error(e: session::SaveError) -> ToolError {
             e
         }
         session::SaveError::Refused(m) => ToolError::invalid(m),
-        session::SaveError::Edits(failures) => {
-            ToolError::invalid(session::edits_refused(&failures)).with("failures", json!(failures))
-        }
+        session::SaveError::Edits(failures) => invalid_edits(failures),
         session::SaveError::Changed(m) => ToolError::new("stale", m),
         session::SaveError::Stale(rev) => ToolError::new(
             "stale",
@@ -1876,6 +1897,29 @@ fn source_schema() -> Value {
     })
 }
 
+fn edit_input(save: bool) -> Value {
+    let mut schema = input(
+        json!({
+            "doc": doc_arg(),
+            "edits": crate::edits::json_schema(),
+            "partEdits": {
+                "description": "Edit lists for distinct part indices of this document's file.",
+                "type": "array", "minItems": 1,
+                "items": input(json!({
+                    "part": {"type": "integer", "minimum": 0},
+                    "edits": crate::edits::json_schema()
+                }), &["part", "edits"])
+            }
+        }),
+        &["doc"],
+    );
+    schema["oneOf"] = json!([{"required": ["edits"]}, {"required": ["partEdits"]}]);
+    if save {
+        schema["properties"]["rev"] = rev_schema();
+    }
+    schema
+}
+
 fn input(properties: Value, required: &[&str]) -> Value {
     json!({
         "type": "object",
@@ -2114,12 +2158,8 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "save",
             "title": "Save an edit list into the STEP",
-            "description": format!("Apply an edit list to the opened file and write it as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; later saves update the copy this session wrote, and no other file is overwritten), or over it if it was opened in_place (the original kept once as .bak). edits: fill gaps {{id: value}}, change what the file states {{id: {{to, expect}}}} (expect: the value you saw), items.remove [\"#N\"] to remove a requirement by its characteristic number, none [id] to record that nothing is needed, accept_suggestions [id] to fill a gap with Specify's suggestion. Ids are the feature table's (the analysis resource's table). Anything not named is left as it is, byte for byte. A list is all or nothing: if any entry cannot be applied nothing is written, and the error (failures) names every failing entry and why. Fill or accept only what the person approved: never a suggestion as intent unasked. rev (optional): the session revision you last saw; a session that moved on is refused (stale). A session holding answers changed with answer and not saved is refused. check tests a list without writing. {MEMORY_RULE}"),
-            "inputSchema": input(json!({
-                "doc": doc(),
-                "edits": crate::edits::json_schema(),
-                "rev": {"type": "integer", "minimum": 0, "description": "The session revision you last saw (optional)."}
-            }), &["doc", "edits"]),
+            "description": format!("Apply an edit list to the opened file and write it as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; later saves update the copy this session wrote, and no other file is overwritten), or over it if it was opened in_place (the original kept once as .bak). edits: fill gaps {{id: value}}, change what the file states {{id: {{to, expect}}}} (expect: the value you saw), items.remove [\"#N\"] to remove a requirement by its characteristic number, none [id] to record that nothing is needed, accept_suggestions [id] to fill a gap with Specify's suggestion. Ids are the feature table's (the analysis resource's table). Anything not named is left as it is, byte for byte. Use edits for the opened part or partEdits for one or more part indices in the same file. The save is all or nothing: if any entry cannot be applied nothing is written, and the error (failures) names every failing entry and why. Fill or accept only what the person approved: never a suggestion as intent unasked. rev (optional): the session revision you last saw; a session that moved on is refused (stale). A session holding answers changed with answer and not saved is refused. check tests a list without writing. {MEMORY_RULE}"),
+            "inputSchema": edit_input(true),
             "outputSchema": output(json!({
                 "doc": {"type": "string"},
                 "path": {"type": "string"},
@@ -2134,11 +2174,8 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "check",
             "title": "Check an edit list",
-            "description": format!("Check an edit list against the opened file exactly as save would apply it, without writing anything: applicable, and for each entry that cannot be applied, why (failures); unchanged lists the entries that would change nothing (a fill equal to what the file states). {MEMORY_RULE}"),
-            "inputSchema": input(json!({
-                "doc": doc(),
-                "edits": crate::edits::json_schema()
-            }), &["doc", "edits"]),
+            "description": format!("Check edits for the opened part or partEdits for several part indices of the opened file exactly as save would apply it, without writing anything: applicable, and for each entry that cannot be applied, why (failures); unchanged lists the entries that would change nothing (a fill equal to what the file states). {MEMORY_RULE}"),
+            "inputSchema": edit_input(false),
             "outputSchema": output(json!({
                 "doc": {"type": "string"},
                 "well_formed": {"type": "boolean"},
