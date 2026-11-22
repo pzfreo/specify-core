@@ -317,19 +317,29 @@ fn whole_stack_carry_accounts_for_the_plain_location_shared_with_a_pattern() {
         .find(|r| r["text"] == "50")
         .unwrap();
     let outcome = carried(&old, &file("parts/plate.step"));
-    let report = &outcome.report;
+    let out_table = table(&written(&outcome));
     assert!(
-        report.not_carried.iter().any(|entry| {
-            entry.number.as_deref() == plain["number"].as_str() && entry.text == "50"
-        }),
-        "plain 50 {} missing from not_carried: {report:#?}",
-        plain["number"]
+        row(&out_table, "location:holes:0-9")["requirements"]
+            .as_array()
+            .unwrap()
+            .contains(plain),
+        "plain numbered location changed: {plain}"
     );
     assert!(
-        !report
-            .carried
+        outcome.report.carried.iter().any(|entry| {
+            entry.old == "location:holes:0-9"
+                && entry.stated.as_ref().and_then(Value::as_str)
+                    == Some("Location_LinearDistance 50")
+        }),
+        "{:#?}",
+        outcome.report
+    );
+    assert!(
+        !outcome
+            .report
+            .not_carried
             .iter()
-            .any(|entry| entry.old == "location:holes:0-9")
+            .any(|entry| { entry.number.as_deref() == plain["number"].as_str() })
     );
 }
 
