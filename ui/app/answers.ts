@@ -1,5 +1,5 @@
 import type { PmiAnswers } from '../src/types/pmi';
-import type { AnswersEvent, Source } from './local.ts';
+import type { AnswersEvent, SessionAnswers, Source } from './local.ts';
 
 export type AnswersSource = Source;
 
@@ -54,6 +54,8 @@ export interface AnswersSession {
   fileAnswers(part: number, answers: PmiAnswers): void;
   /** The answers of session revision ``rev`` are on disk (a save's answer, or a `saved` event). */
   markSaved(rev: number): void;
+  /** A successful page save carries the answers at the revision it committed. */
+  receiveSave(saved: SessionAnswers): void;
   /** Answers given, in any part, that are not on disk: since the last save, or since the file was opened. */
   dirty(): boolean;
   /** Called on every change that can change ``dirty()``. */
@@ -187,6 +189,7 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>): A
       queueMicrotask(changed);
     },
     markSaved(at) {
+      if (savedRev !== null && at < savedRev) return;
       savedRev = at;
       awaited = null;
       const then = history.get(at);
@@ -195,6 +198,10 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>): A
       else if (at < state.rev) onDisk = history.get(state.rev)!;
       else awaited = at;
       changed();
+    },
+    receiveSave(saved) {
+      known(saved.rev, saved.parts, true, 'start');
+      session.markSaved(saved.rev);
     },
     dirty() {
       const now: Record<string, string> = Object.fromEntries(Object.entries(state.parts).map(([k, a]) => [k, asGiven(a)]));

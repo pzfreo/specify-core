@@ -92,25 +92,64 @@ fn bytes_in_bytes_out_match_the_file_writer_fresh() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The same on the written file, answered again (H7 → H8), and the answer resumed: an edit
-/// of what the file states, which is piece 2's.
+/// A fit changed on the written file is identical through both edit-list entry points.
 #[test]
-#[ignore = "0.3.0: moves to piece 2 (edits in place): rewriting a stated fit is an edit"]
 fn bytes_in_bytes_out_match_the_file_writer_resumed() {
+    use specify_core::{characteristics, edits, existing};
+    use writer::apply::{apply_bytes, apply_to};
+
     let dir = temp("parity-resumed");
     let mut input = fixture("plate");
-    for (index, fit) in ["fit:H7", "fit:H8"].iter().enumerate() {
+    let mut number = None;
+    for (index, class) in ["H7", "H8"].into_iter().enumerate() {
         let output = dir.join(format!("native-{index}.step"));
-        let written = same_from_memory_and_disk(&input, fit, &output);
-        let resumed = part::load_bytes("written.step", written).unwrap();
-        let resumed = api::analyse(&resumed).unwrap();
+        let list = if index == 0 {
+            json!({"fill": answers("fit:H7")})
+        } else {
+            json!({"change": {"hole.function:holes:9": {"to": "fit:H8", "expect": "⌀8 H7"}}})
+        };
+        let bytes = std::fs::read(&input).unwrap();
+        let in_memory = part::load_bytes("part.step", bytes.clone()).unwrap();
+        let native = part::load(&input, None).unwrap();
+        assert_eq!(in_memory.path, PathBuf::from("part.step"));
+        assert_eq!(in_memory.binding, native.binding);
         assert_eq!(
-            resumed["resume"]["answers"]["hole.function:holes:9"],
-            json!(fit)
+            api::analyse(&in_memory).unwrap(),
+            api::analyse(&native).unwrap()
+        );
+        assert_eq!(api::mesh(&in_memory), api::mesh(&native));
+        let memory = apply_bytes("part.step", bytes, None, &list.to_string()).unwrap();
+        let native = apply_to(&native, &edits::parse_value(list).unwrap(), &output).unwrap();
+        assert_eq!(memory.bytes, std::fs::read(&output).unwrap());
+        assert_eq!(memory.report.output, PathBuf::from("part.step"));
+        assert_eq!(native.report.output, output);
+        let (memory_report, native_report) = (memory.to_dict(), native.to_dict());
+        for key in ["written", "not_written", "warnings", "retired"] {
+            assert_eq!(memory_report[key], native_report[key], "{key} ({class})");
+        }
+        assert!(!memory.report.written.is_empty(), "{class}");
+        let reopened = part::load_bytes("written.step", memory.bytes).unwrap();
+        let fit = existing::read_existing(&reopened)
+            .unwrap()
+            .into_iter()
+            .find(|item| item.faces == [9] && item.fields.contains_key("fit"))
+            .unwrap();
+        assert_eq!(fit.fields["fit"], class);
+        let fit_number = fit.number.unwrap();
+        assert!(
+            characteristics::read(&reopened)
+                .unwrap()
+                .iter()
+                .any(|item| item.number == fit_number)
+        );
+        assert_eq!(fit_number, *number.get_or_insert(fit_number));
+        assert!(
+            api::analyse(&reopened).unwrap()["resume"]["answers"]["hole.function:holes:9"]
+                .is_null()
         );
         input = output;
     }
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 /// A file of several parts is refused from memory as `load` refuses it without a part, the

@@ -26,7 +26,7 @@ const given = (answers: PmiAnswers) => JSON.stringify(Object.entries(answers).fi
 
 /** Saves the panel's edit list at the revision the page shows. ``shown()``: the session's answers as
  * the page shows them, so a save never goes ahead over answers the person has not seen. */
-export function editsSaver(store: Pick<AnswersStore, 'settled' | 'get'>, session: Pick<AnswersSession, 'signal'>, shown: () => PmiAnswers, write = post): Saver {
+export function editsSaver(store: Pick<AnswersStore, 'settled' | 'get'>, session: Pick<AnswersSession, 'signal' | 'receiveSave'>, shown: () => PmiAnswers, write = post): Saver {
   return {
     async save(edits) {
       session.signal.throwIfAborted();
@@ -34,7 +34,9 @@ export function editsSaver(store: Pick<AnswersStore, 'settled' | 'get'>, session
       session.signal.throwIfAborted();
       if (given(store.get()) !== given(shown())) throw new NotShown('the answers changed just now');
       try {
-        return await write(rev, edits, session.signal);
+        const saved = await write(rev, edits, session.signal);
+        session.receiveSave(saved);
+        return saved;
       } catch (error) {
         // Both are 409s with the session's rev: when the session is still at the page's rev, it is the file that changed.
         if (error instanceof Refused && error.status === 409 && typeof error.body.rev === 'number') {

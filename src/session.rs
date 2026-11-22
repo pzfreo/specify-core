@@ -102,6 +102,8 @@ pub struct Saved {
     pub bytes: usize,
     pub rev: u64,
     pub report: Value,
+    /// The session answers at the revision acknowledged by the page save.
+    pub parts: Value,
     pub complete: bool,
     pub missing: Vec<String>,
 }
@@ -744,6 +746,7 @@ pub fn save_part_edits(
         bytes,
         rev: s.rev,
         report,
+        parts: s.parts(),
         complete: missing.is_empty(),
         missing,
     };

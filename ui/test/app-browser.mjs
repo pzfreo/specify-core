@@ -706,25 +706,22 @@ try {
     const lost = readFileSync(nist, 'utf8').split(/\r?\n/).filter(line => !has.has(line) && !/^FILE_(DESCRIPTION|NAME)\(/.test(line));
     assert.deepEqual(lost, [], 'every entity of the original is in the saved file, byte for byte');
     assert.equal(table(join(dir, 'nist-ctc-01.specified.step'))['part.material'].state, 'stated');
-    onlyLocal(requests, server.origin);
-    await context.close();
-    // One without a number is removed by the engine's id for it (`{"id": "file_pmi:#<entity>"}`), on
-    // the file as saved (a page opened on it now).
+    // Remove an unnumbered item on the same page, following the first save immediately.
+    await check(material(page)).toHaveAttribute('data-state', 'stated');
     const saved = join(dir, 'nist-ctc-01.specified.step');
-    const target = analyse(saved).table.file_pmi.find(r => !r.number && r.id);
+    const before = analyse(saved).table.file_pmi;
+    const target = before.find(r => !r.number && r.id);
     assert.ok(target, 'NIST CTC-01 has unnumbered PMI the engine names');
-    const again = await load(server);
-    const gone = row(again.page, target.id);
+    const gone = row(page, target.id);
     await gone.getByRole('button', { name: /^Remove / }).click();
     await gone.locator('.spec-edit.rm').getByRole('button', { name: 'Remove', exact: true }).click();
-    await check(listedEdit(again.page, target.id)).toBeVisible();
-    const before = analyse(saved).table.file_pmi.length;
-    await save(again.page, server, 2);
+    await check(listedEdit(page, target.id)).toBeVisible();
+    await save(page, server, 2);
     const left = analyse(saved).table.file_pmi;
     assert.ok(!left.some(r => r.id === target.id), `${target.id} (${target.text}) removed`);
-    assert.equal(left.length, before - 1, 'only that one');
-    onlyLocal(again.requests, server.origin);
-    await again.context.close();
+    assert.equal(left.length, before.length - 1, 'only that one');
+    onlyLocal(requests, server.origin);
+    await context.close();
     server.stop();
   }
   // Diff: what changed from OLD to NEW, what needs checking, and Save writes NEW with its own answers.
