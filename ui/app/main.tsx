@@ -463,7 +463,6 @@ function App() {
     setSaving(true); setProblem(null);
     try {
       const result = await opened.saver.save({ defaults });
-      sessionRef.current?.markSaved(result.rev);
       // The saved events are ordered by the command. A delayed HTTP reply must not replace a
       // later save at the same answer revision (for example an agent saving again meanwhile).
       if (!heardSaves.current.has(`${result.rev}:${result.path}`)) captureSaved.current(result);

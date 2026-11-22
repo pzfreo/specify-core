@@ -176,7 +176,8 @@ a temporary file next to the input and renamed into place:
   the link, named after it. A gzipped input is written gzipped.
 
 After a save the session works on the file it wrote: its answers are those the saved file
-stores (a new `rev` when they changed, with an `answers` event per part).
+stores. A change to the file or to its stored answers advances `rev`. The success response
+includes the answers at that revision, so the page can save again before an event arrives.
 
 The request: `Content-Type: application/json` (415 otherwise), `Content-Length` and no
 `Transfer-Encoding` (411), at most 16 MB (413), the whole body within 30 s and 1 s more per MiB
@@ -186,7 +187,7 @@ absent).
 Answers:
 
 - `200 {"path": "<absolute path written>", "bytes": <length written>, "rev": <n>, "report": {…},
-  "complete": <bool>, "missing": ["<question id>", …]}`, `report` being `write`'s report for an
+  "parts": {"<part>": {…}}, "complete": <bool>, "missing": ["<question id>", …]}`, `report` being `write`'s report for an
   edit list (with `retired`, the characteristic numbers the save retired, and `unchanged`),
   `missing` the required questions the saved file still leaves open (a file with gaps is a
   valid result);

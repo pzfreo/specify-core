@@ -1075,7 +1075,9 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
             let _ = ctx
                 .tell
                 .send(format!("Saved {} ({} bytes).", saved.path, saved.bytes));
-            reply_json(stream, "200 OK", &saved.to_json());
+            let mut response = saved.to_json();
+            response["parts"] = saved.parts;
+            reply_json(stream, "200 OK", &response);
         }
         Err(session::SaveError::Stale(current)) => reply_json(
             stream,

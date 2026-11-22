@@ -116,6 +116,7 @@ export function sessionSaver(store: AnswersStore, session: Pick<AnswersSession, 
         const saved = await write(rev, edits, session.signal);
         // The edits are in the file now.
         session.commit();
+        session.receiveSave(saved);
         const answers = { ...parts };
         for (const d of defaults) answers[String(d.part)] = { ...answers[String(d.part)], [d.id]: JSON.parse(d.raw) };
         return { ...saved, answers };
