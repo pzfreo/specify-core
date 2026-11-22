@@ -4,16 +4,17 @@ use haecceity::pmi::{PartPmi, PartProvenance};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const MARKER: &str = "specify-core:written:v1";
+const CALLER_ATTRIBUTE: &str = "specify-core:caller-attribute:v1";
 
 fn string(a: Option<&Attribute>, expected: &str) -> bool {
     matches!(a, Some(Attribute::String(s)) if s == expected)
 }
 
-fn description_target(entity: &RawEntity) -> Option<u64> {
+fn description_target_with(entity: &RawEntity, marker: &str) -> Option<u64> {
     match entity {
         RawEntity::Simple {
             name, attributes, ..
-        } if name == "DESCRIPTION_ATTRIBUTE" && string(attributes.first(), MARKER) => {
+        } if name == "DESCRIPTION_ATTRIBUTE" && string(attributes.first(), marker) => {
             match attributes.get(1) {
                 Some(Attribute::EntityRef(id)) => Some(*id),
                 _ => None,
@@ -21,6 +22,21 @@ fn description_target(entity: &RawEntity) -> Option<u64> {
         }
         _ => None,
     }
+}
+
+fn description_target(entity: &RawEntity) -> Option<u64> {
+    description_target_with(entity, MARKER)
+        .or_else(|| description_target_with(entity, CALLER_ATTRIBUTE))
+}
+
+pub(crate) fn caller_attribute(doc: &Document, ids: &[u64]) -> bool {
+    ids.iter().any(|&id| {
+        doc.referrers(id).iter().any(|r| {
+            doc.get(*r)
+                .and_then(|e| description_target_with(e, CALLER_ATTRIBUTE))
+                == Some(id)
+        })
+    })
 }
 
 /// A description attached to this exact representation/link, never to a shared owner.
@@ -99,7 +115,7 @@ fn property_helper(doc: &Document, id: u64, attributes: &[Attribute]) -> bool {
 
 /// Annotate only newly emitted semantic roots. In particular, preserve all UDA vocabulary,
 /// material names, surface-condition parameters and thread parameter helper definitions.
-pub fn mark_new(before: &Document, after: &Document) -> Edit {
+pub fn mark_new(before: &Document, after: &Document, caller_links: &BTreeSet<u64>) -> Edit {
     let mut edit = Edit::new();
     for (&id, entity) in &after.graph().entities {
         if before.get(id).is_some() {
@@ -133,9 +149,14 @@ pub fn mark_new(before: &Document, after: &Document) -> Edit {
                         if name == "PROPERTY_DEFINITION"
                             && !property_helper(after, *root, attributes)));
         if name == "SHAPE_DIMENSION_REPRESENTATION" || property_link {
+            let marker = if caller_links.contains(&id) {
+                CALLER_ATTRIBUTE
+            } else {
+                MARKER
+            };
             edit.add(haecceity::p21::simple(
                 "DESCRIPTION_ATTRIBUTE",
-                vec![Attribute::String(MARKER.into()), Attribute::EntityRef(id)],
+                vec![Attribute::String(marker.into()), Attribute::EntityRef(id)],
             ));
         }
         let slot = match name.as_str() {
