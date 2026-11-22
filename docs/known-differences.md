@@ -22,8 +22,8 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
-| [writer](#writer) | 2247 | 0 | 0 | 0 | 15 | 1 | 2263 |
-| **all** | 7029 | 1433 | 1249 | 2497 | 1101 | 1908 | 15217 |
+| [writer](#writer) | 2266 | 0 | 0 | 0 | 15 | 1 | 2282 |
+| **all** | 7048 | 1433 | 1249 | 2497 | 1101 | 1908 | 15236 |
 
 ## analysis
 
@@ -1291,7 +1291,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (2247 entries)
+### writer: rust-correct (2266 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1301,15 +1301,15 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   The maintainer's decision Q4/Q15 (docs/questions.md): a knurl is written as AP242's turned_knurl, which needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9); Python's intent states pattern, pitch and diameter only, so the Rust writer derives the rest from the knurling standard (src/standards.rs knurl_parameters: teeth round(pi d/P), depth P/2 of DIN 82's 90 degree profile, root fillet the knurling wheel's crest radius, IS 3403:1981 and IS 6776:1980 4.3) and says so in a warning, as decided. The knurl itself is written as Python's line ('straight knurl on turned_steps:0') and reads back in both engines' terms as a knurl note on the same faces; verified by read-back (tests/writer.rs, knurls). Python writes no turned_knurl, only its text route and a UDA.
 
-- **a g6 diameter Python's reader garbles, and reads with no deviations** (2 entries, 2 case globs)
+- **a g6 diameter Python's reader garbles, and reads with no deviations** (7 entries, 2 case globs)
 
-  The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `scenarios/turned_runout_and_a_g6_fit` at `existing[key=dimension|Size_Diameter|[4]|#1]*`: The intent's nominal is 6 (the pin's Ø6 shaft, g6). Python reads back 3.006: OpenCascade's reader cannot return a tolerance whose deviations are both below nominal and garbles the value (writer.py docstring: 'Ø70 g6 reads back as 35.0145'). haecceity reads the nominal as written. Python reads no upper or lower deviation either; the Rust reader reads the fit's class, compared as the limits the class states (ISO 286 g6: -0.004/-0.012 at 6 mm, the intent's own), which the writer checks the intent's limits against before writing.
+  The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `scenarios/turned_runout_and_a_g6_fit` at `existing[key=dimension|Size_Diameter|[4]|#1].value`: The intent's nominal is 6 (the pin's Ø6 shaft, g6). Python reads back 3.006: OpenCascade's reader cannot return a tolerance whose deviations are both below nominal and garbles the value (writer.py docstring: 'Ø70 g6 reads back as 35.0145'). haecceity reads the nominal as written. Python reads no upper or lower deviation either; the Rust reader reads the fit's class, compared as the limits the class states (ISO 286 g6: -0.004/-0.012 at 6 mm, the intent's own), which the writer checks the intent's limits against before writing.
 
 - **a p6 lower deviation whose sign Python's round trip loses** (2 entries, 1 case glob)
 
   The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `scenarios/writer_every_kind_v1_writes` at `existing[key=dimension|Size_Diameter|[70]|#1].lower`: The intent states p6 on the spool's Ø130 (turned_steps:70) with upper 0.068 and lower 0.043, ISO 286's p6 at 130 mm (both above nominal). Python reads back lower -0.043: OpenCascade's plus-minus form cannot hold a range wholly above nominal (writer.py's docstring on fits). The Rust writer writes the class p6, read back and compared as the class's limits +0.068/+0.043.
 
-- **a distance -0.05/-0.1 Python's reader garbles** (`scenarios/callout_a_distance_with_limits_0` at `existing[key=dimension|Location_LinearDistance|[4]|[2]#1]*`)
+- **a distance -0.05/-0.1 Python's reader garbles** (3 entries, 1 case glob)
 
   The intent states distance 10, upper -0.05, lower -0.1 (scenario value '-0.05/-0.1'). Python reads back value 5.05 and no deviations: OpenCascade cannot return a tolerance wholly below nominal (writer.py docstring). haecceity reads 10 with -0.05/-0.1, as written.
 
@@ -1357,7 +1357,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   Shared planner, #75: the frozen Python intent sizes a subset of the recognised bore faces; quiddity::dimensioning v0.4.0 uses the complete defining support of the same hole or equal-hole group. The writer oracle reads the removed subset and added complete-support roots explicitly. Nominals and answered ISO 286 fit classes are preserved; writer verification checks the class against the answered limits. The oracle comparison can expand class limits only on its old intent face set, so the newly keyed full support reads as a class without numeric limits. Only these exact measured roots are covered; deferred owners remain unchanged.
 
-- **Basic bolt-circle and bore use distinct shared roles on the same complete support (#75)** (4 entries, 3 case globs)
+- **Basic bolt-circle and bore use distinct shared roles on the same complete support (#75)** (10 entries, 3 case globs)
 
   The evidence is stated per entry (4 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb243` at `existing[key=dimension|Size_Diameter|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]|#1]`: Shared planner, #75: this exact occurrence now reads Ø70 Basic from answered:dim:pattern[hole:10.11.578.579,hole:12.13.576.577,hole:14.15.574.575,hole:16.17.572.573,hole:2.3.586.587,hole:4.5.584.585,hole:6.7.582.583,hole:8.9.580.581]/bolt_circle.diameter, before the answered-fit bore on the same complete face support. Python states only its member bore size. The separate bore retains its answered fit and moves to the next same-face comparison occurrence; characteristic identities use planner roles and are unchanged. The oracle's fit-limit projection requires both matching faces and matching nominal, preventing the Basic bolt-circle diameter from inheriting the bore fit limits. Exact fresh readback differences: {"case":"corpus/cadgenbench_inputs/cgb243","path":"existing[key=dimension\|Size_Diameter\|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]\|#1]","python":null,"rust":{"kind":"dimension","type":"Size_Diameter","faces":[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587],"value":70.0,"provenance":"specify-core:written:v1","key":"dimension\|Size_Diameter\|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]\|#1"}}. The actual STEP Basic tolerance is verified by the planner regression; no dimensional value is normalized away.
 
@@ -1393,23 +1393,23 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   The evidence is stated per entry (74 distinct; all in `writer.json`). The first, for `corpus/mfcadpp/1000` at `resume.part.material`: ADR P11 rule 2 (src/feature_table.rs storable): a file stores only the answers that leave no PMI, and the file's PMI is the only copy of the rest. Python stores part.material = "steel" in its payload; that answer is a requirement whose value is not none, so the Rust writer writes it as PMI and does not store it: answers_for leaves it out. Its PMI is written: no other new writer-oracle difference for corpus/mfcadpp/1000 (its existing readback is Python's, apart from the entries already here). Only this exact case and path are covered.
 
-- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (96 entries, 46 case globs)
+- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (97 entries, 47 case globs)
 
   ADR P11 adds the diametral field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (54 entries, 31 case globs)
+- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (55 entries, 32 case globs)
 
   ADR P11 adds the mmc field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (54 entries, 31 case globs)
+- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (55 entries, 32 case globs)
 
   ADR P11 adds the modifiers field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (387 entries, 48 case globs)
+- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (389 entries, 49 case globs)
 
   ADR P11 adds the text field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (96 entries, 46 case globs)
+- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (97 entries, 47 case globs)
 
   ADR P11 adds the zone field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
