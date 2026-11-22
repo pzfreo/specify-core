@@ -109,6 +109,10 @@ try {
     await check(question(page, 'part.general_tolerance')).toHaveClass(/app-agent-lit/);
     await check(question(page, 'part.general_tolerance')).toHaveAttribute('data-state', 'gap');
     await check(question(page, 'part.general_tolerance')).not.toContainText('2768-f');
+    await page.getByRole('tab', { name: /^Characteristics/ }).click();
+    await check(page.locator('.spec-chars')).toBeVisible();
+    await check(page.locator('.spec-chars')).not.toContainText('2768-f');
+    await page.getByRole('tab', { name: 'Review / Edit' }).click();
     await check(page.locator('.app-dirty')).toHaveText('Unsaved agent answers');
     if (shots) await page.screenshot({ path: join(shots, 'agent-update.png') });
     await page.locator('.app-agent').getByRole('button', { name: 'Dismiss' }).click();
@@ -203,7 +207,10 @@ try {
     await check(page.locator('.app-part select')).toHaveValue(String(b));
     await check(question(page, 'part.material')).toHaveAttribute('data-state', 'gap');
     await check(page.locator('.spec-panel')).not.toContainText('CW614N');
-    await page.locator('.app-part select').selectOption(String(a));
+    const picker = page.locator('.app-part select');
+    await picker.selectOption(String(a));
+    await check(picker).toBeEnabled();
+    await check(picker).toHaveValue(String(a));
     await check(question(page, 'part.material')).toHaveAttribute('data-state', 'gap');
     await check(page.locator('.spec-panel')).not.toContainText('1.4301');
     // The agent answers the part not shown now: the page says so, by name, and offers to show it.
