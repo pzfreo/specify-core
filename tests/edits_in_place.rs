@@ -1544,7 +1544,7 @@ fn write_and_the_session_edit_one_part_of_an_assembly() {
         row(&table(&part_of(&written, PIN)), "part.material")["value"],
         "brass"
     );
-    // --part is for an edit list; an analysis says its part.
+    // Selecting a part does not bring back the retired analysis and answers form.
     let (code, _, stderr) = cli(&[
         "write",
         &s(&step),
@@ -1556,7 +1556,13 @@ fn write_and_the_session_edit_one_part_of_an_assembly() {
         &s(&out),
     ]);
     assert_eq!(code, 2, "{stderr}");
-    assert!(stderr.contains("takes no --part"), "{stderr}");
+    assert!(
+        stderr.contains("whole-intent write was removed")
+            && stderr.contains("write STEP EDITS.json")
+            && stderr.contains("docs/answers.md"),
+        "{stderr}"
+    );
+    assert_eq!(std::fs::read(&out).unwrap(), written);
 
     // The session: the plate, then the pin, each saved in place.
     let shared = Arc::new(Mutex::new(

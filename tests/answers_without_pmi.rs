@@ -178,9 +178,8 @@ fn approved_defaults_that_write_no_pmi_resume_and_are_not_asked() {
     assert!(open.is_empty(), "asked again: {open:?}");
 }
 
-/// `write --accept-defaults` (every default, the person's "accept all"): the defaults that
-/// write no PMI are stored with the answers and resumed; those that write PMI are not stored
-/// and read back from the file as present (#204), and nothing is asked again.
+/// The CLI edit list approves each named suggestion. Decisions that leave no PMI are stored
+/// and the other approvals read back from the file as stated (#204).
 #[test]
 fn accept_defaults_on_the_command_line_stores_the_defaults_that_write_no_pmi() {
     let dir = scratch("cli");
@@ -413,9 +412,8 @@ fn an_approval_that_writes_nothing_stays_decided() {
     assert_eq!(third["resume"]["answers"].get(id), Some(&json!("general")));
 }
 
-/// The same round trip on the command line, step by step: `write --accept-defaults`, then on
-/// the saved file `questions --open` does not list the decided approval, and a plain `write`
-/// (no defaults, no answers) is not refused as incomplete.
+/// The CLI approves suggestions by name. `questions --open` omits the saved decision
+/// and a later write with an empty edit list succeeds.
 #[test]
 fn the_command_line_keeps_an_approval_that_writes_nothing_decided() {
     let dir = scratch("writes-nothing-cli");
