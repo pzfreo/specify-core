@@ -38,10 +38,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let accepted = accept_defaults(&analysis, &answers)?;
     assert_eq!(session.accept_defaults(&answers)?, accepted);
     let applied = api::apply(&analysis, &answers, true)?;
-    let (accepted_bytes, accepted_report) =
+    let (accepted_bytes, mut accepted_report) =
         writer::write_bytes(&loaded, &applied, Some(&accepted))?;
     let accepted_write = session.write_pmi(&accepted, None, None)?;
     assert_eq!(accepted_write["bytes"], json!(accepted_bytes));
+    if name == "spindle.step" {
+        // P11: the browser writes a preview, which hides the diameter stated by
+        // the knurl. Apply still sends that row to the writer, which reports it.
+        let preview = api::preview(&analysis, &accepted)?;
+        let omitted: Vec<_> = applied
+            .general
+            .iter()
+            .filter(|row| !preview.general.contains(row))
+            .map(|row| (&row["feature"], &row["nominal"], &row["faces"]))
+            .collect();
+        assert_eq!(
+            omitted,
+            [(&json!("turned_steps:9"), &json!(24.0), &json!([9]))]
+        );
+        let line = "general size 24 on turned_steps:9 faces [9]: adding PMI skips dimensions deferred by the shared planner";
+        let at = accepted_report
+            .not_written
+            .iter()
+            .position(|entry| entry == line)
+            .expect("apply reports the general diameter omitted from the preview");
+        accepted_report.not_written.remove(at);
+    }
     assert_eq!(
         accepted_write["report"],
         completed(accepted_report.to_dict(), &analysis, &accepted)
