@@ -17,6 +17,7 @@ use specify_core::{api, bom, extras, input, rules};
 const PART_LEVEL: &str = "Part-level ids";
 const KINDS: &str = "Requirement kinds";
 const ADDED: &str = "Added requirement kinds";
+const GENERAL: &str = "General dimension ids";
 
 /// The doc's lists, by section: the first cell of each table row between the markers.
 fn documented() -> BTreeMap<String, BTreeSet<String>> {
@@ -46,7 +47,7 @@ fn documented() -> BTreeMap<String, BTreeSet<String>> {
 /// Every question and feature-table row id of a set of fixtures, with every default taken, and
 /// what went wrong getting them (the rules refuse an id they ask, after a rename in one place).
 fn emitted() -> (BTreeSet<String>, Vec<String>) {
-    let cases: [(&str, Option<usize>, Value); 8] = [
+    let cases: [(&str, Option<usize>, Value); 9] = [
         ("parts/plate.step", None, json!({})),
         (
             "parts/plate.step",
@@ -55,6 +56,7 @@ fn emitted() -> (BTreeSet<String>, Vec<String>) {
         ),
         ("parts/GRM-02_shaft.step", None, json!({})),
         ("spindle.step", None, json!({})),
+        ("revisions/complex_pattern.old.step.gz", None, json!({})),
         ("parts/pin.step", None, json!({})),
         ("parts/assembly.step", Some(0), json!({})),
         ("parts/assembly.step", Some(1), json!({})),
@@ -101,8 +103,29 @@ fn in_code() -> (BTreeMap<String, BTreeSet<String>>, Vec<String>) {
     part.extend(input::DATUM_CONTROLS.iter().map(|c| format!("datum.{c}")));
     part.extend(bom::KEYS.iter().map(|key| format!("bom.{key}")));
     part.insert(format!("{}<name>", extras::PREFIX));
+    let mut measurements = BTreeSet::new();
     for id in &emitted {
-        if let Some((kind, _)) = id.split_once(':') {
+        if let Some((prefix, support)) = id.rsplit_once(':')
+            && let Some((reference, located)) = support.split_once('-')
+        {
+            let (located, axis) = located
+                .split_once('-')
+                .map_or((located, None), |(side, axis)| (side, Some(axis)));
+            let face_group = |side: &str| side.split('.').all(|n| n.parse::<usize>().is_ok());
+            let plane = prefix.ends_with(":planes");
+            if !(face_group(reference)
+                && face_group(located)
+                && axis.is_none_or(|axis| !plane && matches!(axis, "0" | "1" | "2")))
+            {
+                errors.push(format!("invalid measurement supports on {id}"));
+            }
+            let shape = if plane {
+                "<side>-<side>"
+            } else {
+                "<reference>-<located>"
+            };
+            measurements.insert(format!("{prefix}:{shape}"));
+        } else if let Some((kind, _)) = id.split_once(':') {
             kinds.insert(kind.to_string());
         } else if id.strip_prefix("datum.").is_some_and(|l| l.len() == 1) {
             part.insert("datum.<letter>".into());
@@ -115,6 +138,7 @@ fn in_code() -> (BTreeMap<String, BTreeSet<String>>, Vec<String>) {
         (PART_LEVEL.to_string(), part),
         (KINDS.to_string(), kinds),
         (ADDED.to_string(), added),
+        (GENERAL.to_string(), measurements),
     ]);
     (lists, errors)
 }
@@ -123,7 +147,7 @@ fn in_code() -> (BTreeMap<String, BTreeSet<String>>, Vec<String>) {
 fn the_ids_in_the_code_are_the_ones_docs_ids_md_lists() {
     let documented = documented();
     let (code, mut problems) = in_code();
-    for section in [PART_LEVEL, KINDS, ADDED] {
+    for section in [PART_LEVEL, KINDS, ADDED, GENERAL] {
         let doc = documented.get(section).cloned().unwrap_or_default();
         let have = &code[section];
         let gone: Vec<&String> = doc.difference(have).collect();

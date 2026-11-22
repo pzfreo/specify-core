@@ -71,6 +71,13 @@ Its `kind` is one of:
 | `size` |
 | `distance` |
 
+## General dimension ids
+
+| Form | Measurement |
+|---|---|
+| `length:planes:<side>-<side>` | Plane-to-plane length. The two sides are sorted. |
+| `location:holes:<reference>-<located>` | Hole location. The second group is the located side. |
+
 <!-- ids:end -->
 
 ## A feature id is a kind and the faces it is on
@@ -93,6 +100,10 @@ same faces when the model is rebuilt: [face-names.md](face-names.md).)
 
 The family names (`holes`, `hole_patterns.<kind>`, `turned_steps`, …) come from quiddity's
 feature recognition, and can grow with it.
+
+Each measurement side is a sorted, dot-separated face group. Between two hole axes, the
+location id also ends in `-<axis>` (`0` for x, `1` for y, `2` for z). These ids use the same
+revision-local face numbers as feature ids.
 
 ## An item of the file's other PMI has an id from its STEP entity
 
