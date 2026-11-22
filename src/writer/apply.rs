@@ -986,22 +986,33 @@ pub(crate) fn planned_intent(
     replacing: bool,
 ) -> Result<(crate::rules::Intent, BTreeSet<String>), String> {
     let mut analysis_clean = analysis.clone();
-    // The questions are those of the part with its PMI set aside but for its datums, as
-    // the feature table reads them (a stated hole is not asked otherwise); what the plan
-    // states again is not written twice.
-    if replacing
-        && let Some(existing) = analysis_clean
+    if replacing {
+        // Recover the interview for an existing control. Stated sibling rows
+        // can otherwise hide the hole function or frame that determines it.
+        if let Some(existing) = analysis_clean
             .get_mut("existing")
             .and_then(Json::as_array_mut)
-    {
-        existing.retain(|item| item["kind"] == "datum");
-    }
-    // The list already validated its named requirements. Keep the unaddressed
-    // table for the planner, including the stated general tolerance and D8 coverage.
-    if let Some(rows) = analysis_clean["table"]["rows"].as_array_mut() {
+        {
+            existing.retain(|item| item["kind"] == "datum");
+        }
+        if analysis_clean["part"]["general_tolerance"].is_null()
+            && let Some(tolerance) = analysis_clean["table"]["rows"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|r| r["id"] == "part.general_tolerance" && r["state"] == "stated")
+                .map(|r| r["value"].clone())
+        {
+            analysis_clean["part"]["general_tolerance"] = tolerance;
+        }
+        if let Some(object) = analysis_clean.as_object_mut() {
+            object.remove("table");
+        }
+    } else if let Some(rows) = analysis_clean["table"]["rows"].as_array_mut() {
+        // A new fill keeps the live feature-table context and its D8 coverage.
+        // The edit list has already validated named rows against the file.
         rows.retain(|row| {
-            (!replacing && row["state"] != "stated")
-                || row["id"].as_str().is_none_or(|id| !given.contains_key(id))
+            row["state"] != "stated" || row["id"].as_str().is_none_or(|id| !given.contains_key(id))
         });
     }
     let mut answers = choices.clone();
@@ -2237,15 +2248,28 @@ pub(crate) fn restates(
     } else {
         analysis
     };
-    let Ok((intent, _)) = planned_intent(analysis, table, &given, choices, false) else {
+    let Ok((intent, _)) = planned_intent(analysis, table, &given, choices, true) else {
         return false;
     };
     let Ok((planned, _)) = super::part_pmi(loaded, &intent, &stated.before, Mode::Add, &[]) else {
         return false;
     };
     let frames_only = edits::answered_by_tolerance(&row.kind);
-    let counted =
-        |s: &Statement| s.kind != "datum" && (!frames_only || s.kind == "geometric_tolerance");
+    // A planned depth is attached to the hole function for read-back. Let carry
+    // find the bore's answer from its size or thread. The numbered audit checks
+    // each attached depth against the final output and reports any omission.
+    let depths = row
+        .requirements
+        .iter()
+        .filter(|r| r.kind == "dimension" && r.r#type.starts_with("Location_"));
+    let compare_bore = row.kind == "hole.function"
+        && depths.clone().count() != 0
+        && depths.clone().all(|r| r.number.is_some());
+    let counted = |s: &Statement| {
+        s.kind != "datum"
+            && (!frames_only || s.kind == "geometric_tolerance")
+            && (!compare_bore || !s.r#type.starts_with("Location_"))
+    };
     let planned = crate::characteristics::statements(&planned);
     let planned: Vec<&Statement> = planned.iter().filter(|s| counted(s)).collect();
     let Some(own) = stated.of_row(row) else {

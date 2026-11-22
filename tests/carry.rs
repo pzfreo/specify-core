@@ -116,8 +116,9 @@ fn a_bare_new_revision_gets_everything() {
     let report = &outcome.report;
     assert!(report.written && report.refused.is_empty());
     assert!(report.kept.is_empty() && report.to_check.is_empty());
-    // The planner's own dimensions are not carried: never a clean verdict.
-    assert_eq!(report.verdict(), "decide");
+    // The feature table now includes the planner's depth on the bore row.
+    assert_eq!(report.verdict(), "ok");
+    assert!(report.not_carried.is_empty());
     assert!(
         report.summary().starts_with(&format!(
             "Carried {}, not carried {}, to check 0",
@@ -251,8 +252,14 @@ fn new_revisions_own_requirements_stand_and_differences_are_reported() {
         .iter()
         .find(|k| k.new.starts_with("hole.function:"))
         .unwrap_or_else(|| panic!("{kept:#?}"));
-    assert_eq!(holes.old_value, "Size_Diameter 3 H11");
-    assert_eq!(holes.new_value, "Size_Diameter 3.4 H11");
+    assert_eq!(
+        holes.old_value,
+        "Size_Diameter 3 H11; Location_LinearDistance 8"
+    );
+    assert_eq!(
+        holes.new_value,
+        "Size_Diameter 3.4 H11; Location_LinearDistance 8"
+    );
     // The spindle: hole 14's position is 0.3 in the old file and 0.2 in the new; the new
     // file's stands, in its file as it was.
     let new = file("revisions/spindle_pmi.new.step.gz");
@@ -397,22 +404,31 @@ fn an_unmatched_feature_is_not_written_and_is_reported() {
 
 #[test]
 fn a_kind_specify_does_not_understand_is_reported_not_carried() {
-    // The enclosure's planner dimensions sit on no feature-and-kind: each is listed with its
-    // kind, type, faces and number.
-    let outcome = carried(
-        &file("revisions/enclosure_pmi.old.step.gz"),
-        &file("parts/electronics-enclosure-base.step.gz"),
-    );
+    // Depths now belong to the hole function row. Seed a profile that has no
+    // feature-and-kind row so the test still exercises unsupported file PMI.
+    let old = file("revisions/enclosure_pmi.old.step.gz")
+        .load(None)
+        .unwrap();
+    let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&old.binding).unwrap());
+    intent.requirements = vec![
+        json!({"kind":"profile","faces":[0],"tolerance":0.05})
+            .as_object()
+            .unwrap()
+            .clone(),
+    ];
+    let (bytes, _) = specify_core::writer::write_bytes(&old, &intent, None).unwrap();
+    let old = of_bytes(bytes);
+    let outcome = carried(&old, &file("parts/electronics-enclosure-base.step.gz"));
     let report = &outcome.report;
-    let file_pmi = table(
-        &file("revisions/enclosure_pmi.old.step.gz")
-            .load(None)
-            .unwrap(),
-    )["file_pmi"]
+    let file_pmi = table(&old.load(None).unwrap())["file_pmi"]
         .as_array()
         .unwrap()
         .clone();
-    assert!(!file_pmi.is_empty());
+    assert!(
+        file_pmi
+            .iter()
+            .any(|item| item["type"] == "ProfileOfSurface")
+    );
     for item in &file_pmi {
         let n = report
             .not_carried
@@ -920,24 +936,39 @@ fn real_pairs_carry_what_they_can_and_report_the_rest() {
         "{report:#?}"
     );
     accounted(&old, report);
-    // complex_counterbore: the hole pattern became counterbored, so "general" writes nothing
-    // on it; it is reported, and everything else is carried.
+    // The recognition retains the counterbored pattern's writable bore size.
+    // Its supports changed, so the replanned result needs a review and the old
+    // characteristic still needs an exact disposition.
     let old = with_suggestions("revisions/complex_counterbore.old.step.gz", &[]);
     let outcome = carried(&old, &file("revisions/complex_counterbore.new.step.gz"));
     let report = &outcome.report;
     assert!(report.written, "{:#?}", report.refused);
     let pattern = report
-        .not_carried
+        .to_check
         .iter()
-        .find(|n| {
-            n.id.as_deref()
-                .is_some_and(|i| i.starts_with("hole.function:"))
-        })
+        .find(|entry| entry.old.starts_with("hole.function:"))
         .unwrap_or_else(|| panic!("{report:#?}"));
+    assert_eq!(
+        pattern.check.as_deref(),
+        Some("the new revision has different bore supports")
+    );
+    let original = row(&table(&old.load(None).unwrap()), &pattern.old);
+    let current = row(&table(&written(&outcome)), &pattern.new);
+    assert_eq!(pattern.value, "general");
+    assert_eq!(current["state"], "stated");
     assert!(
-        pattern.reason.contains("writes no requirement"),
-        "{}",
-        pattern.reason
+        current["requirements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["type"] == "Size_Diameter")
+    );
+    let old_size = original["requirements"][0]["number"].as_str().unwrap();
+    assert!(
+        report
+            .not_carried
+            .iter()
+            .any(|entry| entry.number.as_deref() == Some(old_size))
     );
     assert!(ids(&report.carried).contains(&"datum.A"));
     accounted(&old, report);

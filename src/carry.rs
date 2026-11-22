@@ -492,22 +492,28 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
     let revised = revision::diff(old, new).map_err(|e| e.to_string())?;
     let map = face_map(&revised);
     let (old_analysis, old_table) = analysed(old)?;
-    let (_, new_table) = analysed(new)?;
+    let (new_analysis, new_table) = analysed(new)?;
     let new_stated = crate::writer::apply::Stated::of(new)?;
-    let old_features: BTreeMap<String, Vec<usize>> = old_analysis["features"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|f| {
-            let faces = f["faces"]
-                .as_array()?
-                .iter()
-                .filter_map(Value::as_u64)
-                .map(|x| x as usize)
-                .collect();
-            Some((f["id"].as_str()?.to_owned(), faces))
-        })
-        .collect();
+    let feature_faces = |analysis: &Value| -> BTreeMap<String, Vec<usize>> {
+        analysis["features"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|f| {
+                let mut faces: Vec<_> = f["faces"]
+                    .as_array()?
+                    .iter()
+                    .filter_map(Value::as_u64)
+                    .map(|x| x as usize)
+                    .collect();
+                faces.sort_unstable();
+                faces.dedup();
+                Some((f["id"].as_str()?.to_owned(), faces))
+            })
+            .collect()
+    };
+    let old_features = feature_faces(&old_analysis);
+    let new_features = feature_faces(&new_analysis);
     let reader = Old {
         part: old,
         choices: choices(&old_analysis),
@@ -705,7 +711,15 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
             }
         }
         list.fill.insert(target.id.clone(), value.clone());
-        let check = moved(&row.faces, &revised, &old_features).or(datum_check);
+        let changed_bore = || {
+            let old = old_features.get(&row.feature)?;
+            let new = new_features.get(&target.feature)?;
+            (row.kind == "hole.function" && mapped(old, &map).as_ref() != Ok(new))
+                .then(|| "the new revision has different bore supports".into())
+        };
+        let check = moved(&row.faces, &revised, &old_features)
+            .or(datum_check)
+            .or_else(changed_bore);
         let entry = Carried {
             old: row.id.clone(),
             new: target.id.clone(),
