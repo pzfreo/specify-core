@@ -747,7 +747,7 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
         }
         ("GET", "answers") => {
             let s = session::lock(&shared.session);
-            let answers = json!({"rev": s.rev(), "parts": s.parts()});
+            let answers = s.answer_snapshot();
             drop(s);
             reply_json(stream, "200 OK", &answers);
         }
