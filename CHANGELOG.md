@@ -136,13 +136,13 @@ Read first:
   uncoloured; change opens one line with the current value first; the bin asks once, in red, and says
   the number is retired. A gap offers Add (pre-filled) and None needed; a decided none offers Undo
   (`clear`). "Other PMI" rows have remove only. Edits are listed in a bar at the bottom and written
-  together by Save, as one edit list, all or nothing, or dropped by Discard; each is checked against
-  the file (with those already listed) before it joins the bar. Only unsaved edits are highlighted;
+  together by Save, all or nothing, or dropped by Discard. The part picker opens each assembly
+  part for editing. Each edit is checked against its part and that part's listed edits, and its
+  entry names the part. Switching parts keeps the edits in the one bar. Only unsaved edits are highlighted;
   nothing says who wrote a requirement. The general tolerance's line is a row editor (#228): a class,
   or a block of decimal places and their tolerances, an angles line and a note line, written as one
-  line of text (`.XX ±.01, .XXX ±.005, angles ±1°`). A part of an assembly is shown read only, with a
-  note, until edits on parts of an assembly land. **Save with defaults** becomes the bar's **Add all
-  suggestions** (Paul, 2026-11-21): every gap's suggestion queued as a pending edit (a suggestion of
+  line of text (`.XX ±.01, .XXX ±.005, angles ±1°`). **Save with defaults** becomes the bar's **Add all
+  suggestions** (Paul, 2026-11-21): the selected part's gap suggestions queued as pending edits (a suggestion of
   none as None needed; a gap with no suggestion left alone), through the same check, written only by
   Save. Removed from the app: the questions list and the Answers (JSON) export; the 3D view now
   draws the file's PMI only. Values read as drawn ("⌖ 0.2 A"). Every stated row has the bin; a removal
@@ -155,8 +155,11 @@ Read first:
   WASM and Python apply an edit list to the file, all or nothing, as `write STEP EDITS.json` does.
   Writing a whole intent from answers is gone from them.
   - **Page contract, session `api` 2** (docs/open.md; breaking): `POST save` takes `{rev, edits}`
-    and applies the list with `session::save_edits` (422 `{error, failures}` naming every entry
-    that cannot be applied; 400 for a malformed list; 409 for a stale `rev`). `acceptDefaults` and
+    for a single-part file and also accepts `{rev, partEdits: [{part, edits}, …]}`
+    for one or more parts of an assembly under API 2. `session::save_assembly_edits` stages
+    each list through the part writer and commits the file once. A 422 `{error, failures}`
+    names the part and entry for assembly refusals. A malformed list returns 400 and a
+    stale `rev` returns 409. `acceptDefaults` and
     `PUT answers` are gone: the page keeps its changes until Save. A save is refused while the
     session holds answers an agent gave with `answer` and did not save. `complete` and `missing`
     are now those of the saved file. The app checks the `api` (a command without one, 0.2.0's
@@ -169,9 +172,9 @@ Read first:
     edits)` checks one; the report adds `retired` and `unchanged`. `write(step, intent, output,
     answers=)` and `validate_edits` are gone. The command line's whole-intent `write` stays.
   - **The app** (ui/app) sends its answers as fills and the defaults the person confirmed as fills
-    of the values seen, and an answer the file stores that the person cleared as a clear. It
-    cannot send changes on two parts of an assembly yet (an edit list applies to one part). After a save the part is opened again
-    from the file saved. `@draftwright/specify-ui`'s worker no longer has the `write` and
+    of the values seen, and an answer the file stores that the person cleared as a clear. One
+    Save applies all edited parts' lists together. After a save the selected part opens again
+    from the saved file. `@draftwright/specify-ui`'s worker no longer has the `write` and
     `rematch` operations.
   - The edit list gains `clear`: it takes back a stored decision that leaves no PMI (a decided
     none, a stored choice), never PMI. A fill of `extra.<name>` adds that requirement, as a 0.2

@@ -98,15 +98,19 @@ export interface EditList {
  * stated row's id or the existing-PMI item's id (`{"id": …}`; the engine route for these is being added). */
 export type RemoveTarget = string | { id: string };
 
+/** An edit list scoped to a distinct part index from the file's part picker. */
+export interface PartEdits { part: number; edits: EditList }
+export type SaveEdits = EditList | PartEdits[];
+
 /** One entry of an edit list that cannot be applied, and why. */
 export interface EditFailure { entry: string; reason: string }
 
-/** The command applies the edit list ``edits`` to the file and writes it, if the session is still at
+/** The command applies the edit list or part lists ``edits`` to the file and writes it, if the session is still at
  * ``rev``: all or nothing. 409 when the session moved on, or (--in-place) the file changed on disk;
  * 422 `{error, failures}` when an entry cannot be applied (nothing written), or while the session
  * holds answers changed by an agent and not saved; 400 for a malformed list. */
-export const save = (rev: number, edits: EditList, signal?: AbortSignal) => json<Saved>(fetch('save', {
-  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, edits }), signal,
+export const save = (rev: number, edits: SaveEdits, signal?: AbortSignal) => json<Saved>(fetch('save', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Array.isArray(edits) ? { rev, partEdits: edits } : { rev, edits }), signal,
 }));
 
 /** Diff mode: the command's comparison, exactly what WASM `diff()` returns with the PMI scenes

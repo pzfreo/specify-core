@@ -60,8 +60,6 @@ export interface PanelProps {
   check(edits: EditList): Promise<EditFailure[]>;
   /** Values the session holds that the file does not yet (an agent's answers, not saved): shown as unsaved. */
   unsaved: Readonly<Record<string, unknown>>;
-  /** Rows can't be changed here (a part of an assembly, on this base): why, shown once. */
-  readOnly: string | null;
   disabled: boolean;
   /** The file's length unit, for a new general tolerance block. */
   units: Units;
@@ -74,7 +72,7 @@ export interface PanelProps {
 }
 
 export function Panel(props: PanelProps) {
-  const { model, pending, onPending, readOnly, disabled } = props;
+  const { model, pending, onPending, disabled } = props;
   const [tab, setTab] = useState<'review' | 'table'>('review');
   const [editing, setEditing] = useState<Editing | null>(null);
   const [problem, setProblem] = useState<{ id: string; text: string } | null>(null);
@@ -98,8 +96,8 @@ export function Panel(props: PanelProps) {
 
   const close = () => { setEditing(null); setProblem(null); };
   /** ``p`` joins the bar once the file takes the whole list with it (every edit already listed, as
-   * Save would send them), so the bar always holds a list Save can write. Any failure, on this edit or
-   * on one listed earlier that it breaks, is said on its line, and it does not join. */
+   * Save would send for this part). Any failure, on this edit or on one listed earlier that it
+   * breaks, is said on its line, and it does not join. */
   const apply = async (p: Pending) => {
     setChecking(true);
     try {
@@ -125,9 +123,9 @@ export function Panel(props: PanelProps) {
     const cls = ['spec-row', state === 'stated' ? 'stated' : state === 'gap' ? 'gap' : 'nonerow',
       p || agent !== undefined ? 'changed' : '', p?.kind === 'remove' ? 'removed' : ''].filter(Boolean).join(' ');
     const here = editing?.id === r.id ? editing : null;
-    const locked = Boolean(readOnly) || disabled;
+    const locked = disabled || checking;
     let acts: ReactNode = null;
-    if (!readOnly && p?.kind !== 'remove') {
+    if (p?.kind !== 'remove') {
       if (state === 'stated') {
         acts = (
           <span className="acts">
@@ -163,7 +161,7 @@ export function Panel(props: PanelProps) {
         </span>
         {acts}
         {here && here.mode !== 'remove' && (
-          <EditLine row={r} mode={here.mode} pending={p} units={props.units} checking={checking} problem={problem?.id === r.id ? problem.text : null}
+          <EditLine row={r} mode={here.mode} pending={p} units={props.units} checking={checking || disabled} problem={problem?.id === r.id ? problem.text : null}
             onCancel={close} onApply={(value, text) => {
               if (here.mode === 'change') {
                 const was = r.value;
@@ -173,7 +171,7 @@ export function Panel(props: PanelProps) {
             }} />
         )}
         {here?.mode === 'remove' && (
-          <RemoveLine what={shown} numbers={r.numbers} problem={problem?.id === r.id ? problem.text : null} checking={checking} onCancel={close}
+          <RemoveLine what={shown} numbers={r.numbers} problem={problem?.id === r.id ? problem.text : null} checking={checking || disabled} onCancel={close}
             onRemove={() => void apply({ kind: 'remove', id: r.id, name: r.name, targets: removalTargets(r.numbers, r.id), was: r.value })} />
         )}
       </div>
@@ -187,11 +185,11 @@ export function Panel(props: PanelProps) {
       <div key={o.key} className={`spec-row stated${p ? ' changed removed' : ''}`} data-row={o.key}>
         <button type="button" className="k" title="Show it on the part" onClick={() => props.onFaces(o.faces)}>{o.label}</button>
         <span className="v">{o.value}{o.number && <span className="num">{o.number}</span>}</span>
-        {!readOnly && !p && (o.number || o.id) && (
-          <span className="acts"><IconButton label={`Remove ${o.value}`} icon="bin" disabled={disabled} onClick={() => open(o.key, 'remove')} /></span>
+        {!p && (o.number || o.id) && (
+          <span className="acts"><IconButton label={`Remove ${o.value}`} icon="bin" disabled={disabled || checking} onClick={() => open(o.key, 'remove')} /></span>
         )}
         {here && (
-          <RemoveLine what={o.value} numbers={o.number ? [o.number] : []} problem={problem?.id === o.key ? problem.text : null} checking={checking} onCancel={close}
+          <RemoveLine what={o.value} numbers={o.number ? [o.number] : []} problem={problem?.id === o.key ? problem.text : null} checking={checking || disabled} onCancel={close}
             onRemove={() => void apply({ kind: 'remove', id: o.key, name: o.label, targets: removalTargets(o.number ? [o.number] : [], o.id), was: o.value })} />
         )}
       </div>
@@ -214,10 +212,9 @@ export function Panel(props: PanelProps) {
       <aside className="pmi-lab-panel spec-panel">
         <header>
           <div className="title"><strong>{props.filename}</strong></div>
-          {readOnly && <p className="pmi-lab-note spec-readonly" role="status">{readOnly}</p>}
           <div className="pmi-lab-views" role="tablist">
             <button type="button" role="tab" aria-selected={tab === 'review'} className={tab === 'review' ? 'on' : ''} onClick={() => setTab('review')}>
-              {readOnly ? 'Review' : 'Review / Edit'}
+              Review / Edit
             </button>
             <button type="button" role="tab" aria-selected={tab === 'table'} className={tab === 'table' ? 'on' : ''} onClick={() => setTab('table')}>
               Characteristics ({props.characteristics?.count ?? 0})
@@ -256,6 +253,7 @@ function EditLine({ row, mode, pending, units, checking, problem, onApply, onCan
   const list = (row.question?.kind as string | undefined) === 'text_list';
   const number = row.numbers.length === 1 ? row.numbers[0] : row.numbers.length ? row.numbers.join(', ') : '';
   const submit = () => {
+    if (checking) return;
     const value = valueOf(row, text);
     if (isNoneValue(value) && !(value === 'none' || (Array.isArray(value) && mode === 'add'))) return;
     onApply(value, gt ? text.trim() : answerText(value, row.question));
@@ -354,24 +352,25 @@ export function GeneralToleranceEditor({ text, units, classes, onChange }: {
   );
 }
 
-/** The bar at the bottom (decision 3): the pending edits, Save and Discard. */
-export function EditBar({ pending, saving, blocked, savedNote, onSave, onDiscard, onAddAll, adding, readOnly }: {
-  pending: PendingEdits; saving: boolean; blocked: string | undefined; savedNote: string | null;
-  onSave(): void; onDiscard(): void; onAddAll(): void; adding: boolean; readOnly: string | null;
+/** The bar at the bottom (decision 3): every part's pending edits, Save and Discard. */
+export function EditBar({ items, saving, busy, blocked, savedNote, onSave, onDiscard, onAddAll }: {
+  items: { part: number; name?: string; edit: Pending }[];
+  saving: boolean; busy: boolean; blocked: string | undefined; savedNote: string | null;
+  onSave(): void; onDiscard(): void; onAddAll(): void;
 }) {
-  const items = pending.values();
   return (
     <div className="spec-bar" role="region" aria-label="Changes to save">
       <ul>
-        {items.length ? items.map((p) => <li key={p.id} data-pending={p.id}>{describe(p)}</li>)
-          : <li className="muted">{savedNote ?? (readOnly ? readOnly : 'No changes yet. Nothing is written until Save.')}</li>}
+        {items.length ? items.map(({ part, name, edit }) => (
+          <li key={`${part}:${edit.id}`} data-part={part} data-pending={edit.id}>{name ? `${name} · ` : ''}{describe(edit)}</li>
+        )) : <li className="muted">{savedNote ?? 'No changes yet. Nothing is written until Save.'}</li>}
       </ul>
-      <button type="button" className="app-add-all" onClick={onAddAll} disabled={saving || adding || Boolean(readOnly) || Boolean(blocked)}
-        title="Queue every gap's suggestion as an edit (a suggestion of none as None needed); nothing is written until Save">
+      <button type="button" className="app-add-all" onClick={onAddAll} disabled={busy || Boolean(blocked)}
+        title="Queue this part's gap suggestions as edits (a suggestion of none as None needed); nothing is written until Save">
         Add all suggestions
       </button>
-      <button type="button" className="app-discard" onClick={onDiscard} disabled={!items.length || saving}>Discard</button>
-      <button type="button" className="app-save" onClick={onSave} disabled={saving || Boolean(blocked)} title={blocked}>
+      <button type="button" className="app-discard" onClick={onDiscard} disabled={!items.length || busy}>Discard</button>
+      <button type="button" className="app-save" onClick={onSave} disabled={busy || Boolean(blocked)} title={blocked}>
         {saving ? 'Saving…' : 'Save'}
       </button>
     </div>

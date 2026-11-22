@@ -1,6 +1,6 @@
 // The review panel's pending edits (specify-panel.md decision 3): each change the person makes is
-// held in the page, one per row, listed in the bar, and sent together by Save as one edit list
-// (specify-core docs/open.md, `POST save {rev, edits}`), all or nothing. Discard drops them all.
+// held in the page, one per row of a part. Save sends the lists together, all or nothing.
+// Discard drops them all (specify-core docs/open.md, `POST save`).
 import type { EditList, RemoveTarget } from './local.ts';
 
 /** One pending edit, by the row it is on (a feature-and-kind id, or an item's `#N` in "Other PMI"). */

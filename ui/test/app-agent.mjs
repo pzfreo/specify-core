@@ -12,8 +12,8 @@ import { mcp } from './mcp-client.mjs';
 // review panel, as unsaved. Saving is an edit list (session API 2): the agent's `save {doc, edits}`
 // (refused while its own `answer`s are unsaved; `check` first) and the page's Save write the same
 // naming, and an incomplete save says what is `missing`. Then an assembly (an agent's answer to a
-// part not shown is said and unsaved; an edit list applies to one part, so an assembly's rows are read
-// only and its save is refused until the assembly-edits update), a part opened through a symbolic link
+// part not shown is said and unsaved; the page can queue assembly edits, and the save is refused
+// while an agent's answers are unsaved), a part opened through a symbolic link
 // (the link's path is kept, Save writes beside the link), and a diff the agent opened, which `show`
 // serves in diff mode.
 // `npm run test:app` runs it after app-browser.mjs.
@@ -181,9 +181,8 @@ try {
   }
 
   // An assembly: the agent's answers on two parts are shown, a part at a time, and an agent's answer
-  // to the part not shown is said, by name, and unsaved. An edit list applies to one part, so an
-  // assembly's save is refused (the assembly-edits update brings edits on parts of an assembly) and
-  // nothing is written: the panel shows the rows read only, saying so, and Save is off.
+  // to the part not shown is said, by name, and unsaved. The page can queue a part edit, but a
+  // save that would overwrite the agent's unsaved answers is refused and nothing is written.
   {
     const asm = join(dir, 'asm.step');
     writeFileSync(asm, gunzipSync(readFileSync('test/fixtures/gramil_assembly_before.step.gz')));
@@ -216,11 +215,21 @@ try {
     await page.getByRole('button', { name: 'Show it' }).click();
     await check(page.locator('.app-part select')).toHaveValue(String(b));
     await check(page.locator('.spec-panel')).toContainText('2768-f');
-    // The agent's answer is on its row, as unsaved; the rows are read only on this version, said once.
     await check(question(page, 'part.general_tolerance')).toHaveClass(/changed/);
-    await check(page.locator('.spec-readonly')).toContainText('This part is in an assembly');
-    await check(page.locator('.spec-panel .acts')).toHaveCount(0);
-    await check(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+    const coating = question(page, 'part.coating');
+    await coating.locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
+    await coating.locator('.spec-edit input').fill('Zinc');
+    await coating.locator('.spec-edit').getByRole('button', { name: 'Add', exact: true }).click();
+    const queued = page.locator('.spec-bar [data-pending="part.coating"]');
+    await check(queued).toContainText(nameB);
+    const beforeErrors = problems.length;
+    const saving = page.waitForResponse(response => response.url() === `${shown.url}save`);
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    assert.equal((await saving).status(), 422);
+    await check(page.locator('.app-problem')).toContainText('the session has unsaved answers');
+    await check(queued).toBeVisible();
+    problems.splice(beforeErrors, problems.length - beforeErrors,
+      ...problems.slice(beforeErrors).filter(p => !/^console: .*422/.test(p)));
     if (shots) await page.screenshot({ path: join(shots, 'assembly.png') });
     assert.ok(!existsSync(join(dir, 'asm.specified.step')), 'nothing written');
     onlyLocal(requests, shown.url);
@@ -256,10 +265,10 @@ try {
     const stale = await post(shown.url, { rev: before.rev, edits: {} });
     assert.equal(stale.status, 409);
     assert.ok(!existsSync(join(dir, 'asm-join.specified.step')), 'nothing written for the stale save');
-    // The part joined is shown like the others: its rows, read only.
+    // The joined part opens with the same review actions as a part already in the session.
     await page.getByRole('button', { name: 'Show it' }).click();
     await check(page.locator('.app-part select')).toHaveValue(String(b));
-    await check(page.locator('.spec-readonly')).toContainText('This part is in an assembly');
+    await check(question(page, 'part.material').getByRole('button', { name: 'Add', exact: true })).toBeEnabled();
     void docB;
     await context.close();
     agent.stop();

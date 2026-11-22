@@ -1,13 +1,13 @@
-// Save: the page sends the edits the review panel has collected (`POST save {rev, edits}`,
+// Save: the page sends the edits the review panel has collected (`POST save {rev, edits}` or `{rev, partEdits}`,
 // specify-core docs/open.md, session API 2) and the command applies them to the file, all or
 // nothing, with the same writer and naming as the agent's `save`. Anything not sent is left as the
 // file has it. It never refuses for open questions: many AP242 files have no complete answer to
 // everything. It says what is still open.
 import type { PmiAnswers } from '../src/types/pmi';
 import type { AnswersSession, AnswersStore } from './answers.ts';
-import { Refused, save as post, type EditFailure, type EditList, type Saved } from './local.ts';
+import { Refused, save as post, type EditFailure, type SaveEdits, type Saved } from './local.ts';
 
-export interface Saver { save(edits: EditList): Promise<Saved> }
+export interface Saver { save(edits: SaveEdits): Promise<Saved> }
 
 /** Nothing saved: the session holds answers the page has not shown yet (they are being shown). */
 export class NotShown extends Error {}

@@ -162,7 +162,8 @@ The original request form stays supported under session API 2.
 ```
 
 **Save is all or nothing across the file.** The command stages the lists in memory through
-the assembly writer and commits once. Other parts and placements keep their entity bytes.
+the assembly writer and commits once. Requirement edits preserve other parts’ and placements’
+entity bytes.
 If an entry cannot be applied, the response names the part and entry and the save writes
 nothing. Unsaved answers from the agent's `answer` also refuse a save.
 
