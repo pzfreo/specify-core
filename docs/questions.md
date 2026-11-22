@@ -7,7 +7,7 @@ write no PMI resume) describe 0.2.x. In 0.3.0 the file's PMI is the state, whoev
 there are no conflicts, no `keep`, no `resume.present` and no `resume.foreign`; `existing` is the
 file's whole PMI, Specify's included, and `analyse` adds the feature table (`table`). Only
 answers that leave no PMI behind are stored: decided none, choices that are not requirements,
-and approvals the planner wrote nothing for (listed as `no_pmi`). See
+and general sizes deliberately omitted on datum faces (listed as `no_pmi`). See
 [answers](answers.md#reopening-a-file-the-file-is-the-only-copy).
 
 ## Decision (2026-11-18): reopening a file Specify wrote, the PMI is the truth (ADR P9 §3)
