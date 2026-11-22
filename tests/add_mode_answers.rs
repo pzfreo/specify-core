@@ -79,13 +79,13 @@ fn round_trip(loaded: part::LoadedPart) {
             .collect::<Vec<_>>()
     };
     assert_eq!(ids(&initial), ids(&analysis));
-    let changed = common::apply_edits(
+    let replacement = common::apply_edits(
         &reopened,
         json!({"items":{"remove": [format!("#{number}")]}, "fill":{"extra.1": flatness("0.047")}}),
-    )
-    .bytes;
-    assert_entities_identical(&original, &changed);
-    let again = part::File::of_bytes(std::path::Path::new("changed.step"), changed)
+    );
+    assert_eq!(replacement.retired, [number]);
+    assert_entities_identical(&original, &replacement.bytes);
+    let again = part::File::of_bytes(std::path::Path::new("changed.step"), replacement.bytes)
         .unwrap()
         .load(Some(part_index))
         .unwrap();
@@ -101,7 +101,7 @@ fn round_trip(loaded: part::LoadedPart) {
         1,
         "edited requirement must replace its predecessor"
     );
-    assert_eq!(changed[0].number, Some(number));
+    assert_eq!(changed[0].number, Some(number + 1));
     assert!((changed[0].value.unwrap() - 0.047).abs() < 1e-12);
     assert_eq!(characteristics::read(&again).unwrap().len(), numbers.len());
 }
