@@ -1182,14 +1182,14 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
     Ok(())
 }
 
-/// [`apply`] for an old intent without planner rows (the writer's upgrade, #75), writing only
-/// the general dimensions the intent approved (ADR P9 / D1). The rules wrote the general
-/// tolerance's provisional rows only for approved features (`rules::only_approved_general`);
-/// the planner's general rows are kept where they are on the same features and kind: a hole's
-/// size (a depth, a counterbore) or location when the intent sizes or locates that hole (a
-/// general row, or an answer to its function or location question), and any other row when a
-/// general row of its kind touches the same faces.
-pub(crate) fn upgrade(input: Input, intent: &mut Intent) -> Result<(), String> {
+/// [`apply`] for an old intent without planner rows (the writer's upgrade, #75).
+/// A hole's owning question approves a size or location on its feature. A standalone
+/// plane length needs approval of the measurement itself, including both endpoints.
+pub(crate) fn upgrade(
+    input: Input,
+    intent: &mut Intent,
+    same_measurement: impl Fn(&Map<String, Value>, &Map<String, Value>) -> bool,
+) -> Result<(), String> {
     let holes: Vec<Vec<usize>> = input
         .holes
         .iter()
@@ -1207,6 +1207,12 @@ pub(crate) fn upgrade(input: Input, intent: &mut Intent) -> Result<(), String> {
     // (kind, faces) the old intent sizes or locates.
     let mut given: Vec<(&str, Vec<usize>)> = Vec::new();
     for r in &before.general {
+        if r.get("question")
+            .and_then(Value::as_str)
+            .is_some_and(crate::rules::general_rows::is_id)
+        {
+            continue;
+        }
         if let Some(kind @ ("size" | "location")) = r.get("kind").and_then(Value::as_str) {
             given.push((kind, on(r)));
         }
@@ -1228,8 +1234,11 @@ pub(crate) fn upgrade(input: Input, intent: &mut Intent) -> Result<(), String> {
         let kind = r.get("kind").and_then(Value::as_str).unwrap_or("");
         let faces = on(r);
         let touched: Vec<&Vec<usize>> = holes.iter().filter(|h| overlaps(&faces, h)).collect();
+        if kind == "location" && before.general.iter().any(|old| same_measurement(old, r)) {
+            return true;
+        }
         if touched.is_empty() {
-            given.iter().any(|(k, g)| *k == kind && overlaps(g, &faces))
+            kind != "location" && given.iter().any(|(k, g)| *k == kind && overlaps(g, &faces))
         } else {
             touched
                 .iter()

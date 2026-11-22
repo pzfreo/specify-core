@@ -497,7 +497,10 @@ fn analyse_with(
         .and_then(|r| r["answers"].as_object())
         .cloned()
         .unwrap_or_default();
-    if let Ok(questions) = rules::questions(&Value::Object(analysis.clone()), &answers) {
+    let analysis_for_questions = Value::Object(analysis.clone());
+    if let Ok(questions) = rules::Ctx::new(&analysis_for_questions)
+        .and_then(|ctx| rules::ordinary_questions_in(&ctx, &answers))
+    {
         let open: std::collections::BTreeSet<&str> = rules::open_questions(&questions, &answers)
             .iter()
             .map(|q| q.id.as_str())
@@ -573,6 +576,24 @@ pub fn review(analysis: &Value, answers: &Map<String, Value>) -> Result<Value> {
 
 /// Intent from `answers`; with `accept_defaults`, unanswered defaults are taken first, to a
 /// fixed point (some questions only exist once an earlier default is taken).
+/// `answers` with the decisions the file stores (`analysis.resume.answers`: decided none,
+/// choices that are not requirements, approvals that wrote nothing) for every question the
+/// answers do not give (ADR P11): what the file decided stays decided on every route, the
+/// command line's `questions` and `write` and `serve` as the sessions (MCP, WASM, the page),
+/// which start from them. Their metadata (`_specify`) is not taken.
+pub fn with_stored(analysis: &Value, answers: &Map<String, Value>) -> Map<String, Value> {
+    let Some(stored) = analysis["resume"]["answers"].as_object() else {
+        return answers.clone();
+    };
+    let mut out = answers.clone();
+    for (id, value) in stored {
+        if id != crate::answer_file::META && !out.contains_key(id) {
+            out.insert(id.clone(), value.clone());
+        }
+    }
+    out
+}
+
 pub fn apply(
     analysis: &Value,
     answers: &Map<String, Value>,
@@ -668,9 +689,10 @@ pub fn with_approved(
     let mut open = rules::open_questions(&qs, answers);
     open.extend(qs.iter().filter(|q| {
         !answers.contains_key(&q.id)
-            && q.default
-                .as_ref()
-                .is_some_and(crate::feature_table::is_none_value)
+            && (rules::general_rows::is_id(&q.id)
+                || q.default
+                    .as_ref()
+                    .is_some_and(crate::feature_table::is_none_value))
     }));
     for (id, value) in approved {
         let current = open

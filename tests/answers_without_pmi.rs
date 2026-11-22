@@ -420,7 +420,7 @@ fn an_approval_that_writes_nothing_stays_decided() {
     let report = saved.report.to_string();
     assert!(
         report.contains(&format!(
-            "answer {id} ('general'): there is no PMI to write for it"
+            "answer {id} ('general'): approved, but nothing of its kind was written on its feature"
         )),
         "{report}"
     );
@@ -450,6 +450,79 @@ fn an_approval_that_writes_nothing_stays_decided() {
     let twice = session::save(&shared, None, &approved, "page").unwrap_or_else(|e| panic!("{e}"));
     let third = api::analyse_file(Path::new(&twice.path), Some(1)).unwrap();
     assert_eq!(third["resume"]["answers"].get(id), Some(&json!("general")));
+}
+
+/// The same round trip on the command line, step by step: `write --accept-defaults`, then on
+/// the saved file `questions --open` does not list the decided approval, and a plain `write`
+/// (no defaults, no answers) is not refused as incomplete.
+#[test]
+fn the_command_line_keeps_an_approval_that_writes_nothing_decided() {
+    let dir = scratch("writes-nothing-cli");
+    let run = |args: &[&std::ffi::OsStr]| {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_specify-core"))
+            .args(args)
+            .output()
+            .unwrap();
+        (
+            out.status.success(),
+            String::from_utf8_lossy(&out.stdout).to_string(),
+            String::from_utf8_lossy(&out.stderr).to_string(),
+        )
+    };
+    let path = |name: &str| dir.join(name).into_os_string();
+    std::fs::copy(
+        common::fixtures().join("parts/pin.step"),
+        dir.join("pin.step"),
+    )
+    .unwrap();
+    std::fs::write(dir.join("steel.json"), r#"{"part.material": "steel"}"#).unwrap();
+    std::fs::write(dir.join("none.json"), "{}").unwrap();
+    let os = |s: &str| std::ffi::OsString::from(s);
+    let (ok, _, err) = run(&[
+        &os("analyse"),
+        &path("pin.step"),
+        &os("-o"),
+        &path("a.json"),
+    ]);
+    assert!(ok, "{err}");
+    let (ok, out, err) = run(&[
+        &os("write"),
+        &path("pin.step"),
+        &path("a.json"),
+        &path("steel.json"),
+        &os("--accept-defaults"),
+        &os("-o"),
+        &path("saved.step"),
+    ]);
+    assert!(ok, "{err}");
+    assert!(
+        out.contains("diameter.fit:turned_steps:0"),
+        "reported: {out}"
+    );
+    let (ok, _, err) = run(&[
+        &os("analyse"),
+        &path("saved.step"),
+        &os("-o"),
+        &path("b.json"),
+    ]);
+    assert!(ok, "{err}");
+    let (ok, out, err) = run(&[&os("questions"), &path("b.json"), &os("--open")]);
+    assert!(ok, "{err}");
+    assert!(!out.contains("diameter.fit:turned_steps:0"), "{out}");
+    let (ok, _, err) = run(&[
+        &os("write"),
+        &path("saved.step"),
+        &path("b.json"),
+        &path("none.json"),
+        &os("-o"),
+        &path("again.step"),
+    ]);
+    assert!(ok, "a plain write of the saved file: {err}");
+    let again = api::analyse_file(&dir.join("again.step"), None).unwrap();
+    assert_eq!(
+        again["resume"]["answers"]["diameter.fit:turned_steps:0"],
+        json!("general")
+    );
 }
 
 /// `bytes` with `added` written by haecceity's own writer (Add): another tool's PMI, without
@@ -625,6 +698,9 @@ fn flatness_on_the_files_moved_datum_survives_two_saves() {
     assert_eq!(stored["datum.A"], json!([2]));
     assert_eq!(stored["datum.A.flatness"], "none");
     let mut answers = stored.clone();
+    // general dimensions are rows (Paul, 2026-11-21). Accept their suggestions with
+    // datum A in its final position, as the measured spans can change when it moves.
+    answers.retain(|id, _| !id.starts_with("length:planes:") && !id.starts_with("location:holes:"));
     answers.insert("datum.A".into(), json!([4]));
     answers.insert("datum.A.flatness".into(), json!("0.05"));
     let mut part = load(written(&answers, &stored));

@@ -106,6 +106,7 @@ use Kind::{Assumption, Convention, Standard, Vendor};
 // Part settings.
 pub static GENERAL_TOLERANCE_MACHINED: Rule =
     rule("part.general_tolerance.machined", Convention, &[ISO_2768_1]);
+pub static GENERAL_DIMENSION: Rule = rule("dimensions.general", Convention, &[]);
 pub static GENERAL_TOLERANCE_PRINTED: Rule = rule("part.general_tolerance.printed", Vendor, &[]);
 pub static SURFACE_FINISH_MACHINED: Rule = rule("part.surface_finish.machined", Convention, &[]);
 pub static EDGES_MACHINED: Rule = rule("part.edges.machined", Convention, &[]);
@@ -157,9 +158,10 @@ pub static MAKE_BUY_GUESS: Rule = rule("bom.make_buy.guess", Convention, &[]);
 pub static MAKE_BUY_RECORDED: Rule = rule("bom.make_buy.recorded", Convention, &[]);
 
 /// Every rule, in the order `docs/rule-sources.md` lists them.
-pub static RULES: [&Rule; 40] = [
+pub static RULES: [&Rule; 41] = [
     &GENERAL_TOLERANCE_MACHINED,
     &GENERAL_TOLERANCE_PRINTED,
+    &GENERAL_DIMENSION,
     &SURFACE_FINISH_MACHINED,
     &EDGES_MACHINED,
     &EDGES_SHEET_METAL,

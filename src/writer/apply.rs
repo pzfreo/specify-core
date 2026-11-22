@@ -453,6 +453,23 @@ fn same_requirement(
     }
 }
 
+/// The general measurement rows can show that the file's location already covers their
+/// direction. That readback must not make the original location or position uneditable.
+fn shared_by_other_feature(
+    table: &FeatureTable,
+    row: &crate::feature_table::Row,
+    req: &crate::feature_table::Requirement,
+) -> bool {
+    table.rows.iter().any(|other| {
+        other.feature != row.feature
+            && !crate::rules::general_rows::is_id(&other.id)
+            && other
+                .requirements
+                .iter()
+                .any(|item| same_requirement(item, req))
+    })
+}
+
 /// An answer that records "none" for `id`: its suggestion when that is a "none", an empty list
 /// for a datum, else `"none"`.
 fn none_answer(table: &FeatureTable, id: &str) -> Json {
@@ -755,12 +772,14 @@ pub(crate) fn planned_intent(
             .find(|(_, on)| !faces.is_empty() && faces.is_subset(on))
             .map(|(id, _)| (*id).clone())
     };
-    intent.general.retain(|r| hole_of(r).is_some());
-    for r in &mut intent.general {
-        if let Some(id) = hole_of(r) {
-            r.insert("question".into(), Json::from(id));
+    intent.general.retain_mut(|r| {
+        if addressed(r) {
+            return true;
         }
-    }
+        let Some(id) = hole_of(r) else { return false };
+        r.insert("question".into(), Json::from(id));
+        true
+    });
     for item in intent
         .requirements
         .iter_mut()
@@ -908,11 +927,8 @@ pub(crate) fn apply_numbered(
             }
             continue;
         }
-        let shared = |req: &crate::feature_table::Requirement| {
-            table.rows.iter().any(|r| {
-                r.feature != row.feature && r.requirements.iter().any(|q| same_requirement(q, req))
-            })
-        };
+        let shared =
+            |req: &crate::feature_table::Requirement| shared_by_other_feature(&table, row, req);
         let own: Vec<_> = row.requirements.iter().filter(|r| !shared(r)).collect();
         if own.is_empty() {
             failures.push(entry_failure(
@@ -961,13 +977,8 @@ pub(crate) fn apply_numbered(
                 .requirements
                 .iter()
                 .any(|r| r.kind == "geometric_tolerance");
-        let same = same_requirement;
-        let shared = |req: &crate::feature_table::Requirement| {
-            table
-                .rows
-                .iter()
-                .any(|r| r.feature != row.feature && r.requirements.iter().any(|q| same(q, req)))
-        };
+        let shared =
+            |req: &crate::feature_table::Requirement| shared_by_other_feature(&table, row, req);
         // Changed to none, the frame goes with the basic dimensions only it used (decision 1).
         let to_none = list
             .change
@@ -1342,12 +1353,10 @@ pub(crate) fn apply_numbered(
         let shared_only = table.row(id).is_some_and(|row| {
             row.state == State::Stated
                 && !row.requirements.is_empty()
-                && row.requirements.iter().all(|req| {
-                    table.rows.iter().any(|r| {
-                        r.feature != row.feature
-                            && r.requirements.iter().any(|q| same_requirement(q, req))
-                    })
-                })
+                && row
+                    .requirements
+                    .iter()
+                    .all(|req| shared_by_other_feature(&table, row, req))
         });
         if shared_only && crate::feature_table::leaves_nothing(value) && !given.contains_key(id) {
             saved.insert(id.clone(), value.clone());

@@ -42,6 +42,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         writer::write_bytes(&loaded, &applied, Some(&accepted))?;
     let accepted_write = session.write_pmi(&accepted, None, None)?;
     assert_eq!(accepted_write["bytes"], json!(accepted_bytes));
+    if name == "spindle.step" {
+        // general dimensions are rows (Paul, 2026-11-21). The knurl states ⌀24,
+        // so neither apply nor preview proposes a general size on the same face.
+        let preview = api::preview(&analysis, &accepted)?;
+        assert_eq!(applied.general, preview.general);
+        assert!(applied.general.iter().all(|row| {
+            row["feature"] != "turned_steps:9"
+                || row["nominal"] != 24.0
+                || row["faces"] != json!([9])
+        }));
+        assert!(
+            !accepted_report
+                .not_written
+                .iter()
+                .any(|line| line.starts_with("general size 24 on turned_steps:9"))
+        );
+    }
     assert_eq!(
         accepted_write["report"],
         completed(accepted_report.to_dict(), &analysis, &accepted)

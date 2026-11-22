@@ -78,6 +78,9 @@ pub fn known_id(id: &str) -> bool {
                 || suffix == "A.flatness"
                 || matches!(suffix, "B.control" | "C.control"));
     }
+    if crate::rules::general_rows::is_id(id) {
+        return true;
+    }
     if let Some((kind, feature)) = id.split_once(':') {
         return FEATURE_KINDS.contains(&kind) && !feature.is_empty();
     }
