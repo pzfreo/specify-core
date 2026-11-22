@@ -295,6 +295,16 @@ pub fn same_value(a: &Value, b: &Value) -> bool {
     a == b || matches!((text(a), text(b)), (Some(x), Some(y)) if x == y)
 }
 
+fn same_for(id: &str, a: &Value, b: &Value) -> bool {
+    if id == "part.general_tolerance"
+        && let (Some(a), Some(b)) = (a.as_str(), b.as_str())
+    {
+        return crate::tolerance_block::canonical(a.trim())
+            == crate::tolerance_block::canonical(b.trim());
+    }
+    same_value(a, b)
+}
+
 /// Whether a 0.2 answer value means "none is needed": `"none"`, a value starting with the word
 /// "None" (`"None (as machined)"`), or an empty list (no other notes).
 pub fn is_none_answer(value: &Value) -> bool {
@@ -633,7 +643,7 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
             None => failures.push(unknown_id(entry, id)),
             Some(KindState::Stated { value: stated }) => {
                 // A fill equal to what the file states does nothing (Paul, 2026-11-20).
-                if same_value(&stated, value) {
+                if same_for(id, &stated, value) {
                     unchanged.push(entry);
                 } else {
                     failures.push(failure(
@@ -654,7 +664,7 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
         match state.kind(id) {
             None => failures.push(unknown_id(entry, id)),
             Some(KindState::Stated { value }) => {
-                if !same_value(&value, &change.expect) {
+                if !same_for(id, &value, &change.expect) {
                     failures.push(failure(
                         entry,
                         format!(
@@ -1028,7 +1038,7 @@ pub fn normalise(list: &EditList, table: &crate::feature_table::FeatureTable) ->
             .filter(|r| r.state == crate::feature_table::State::Stated)?;
         row.value
             .as_ref()
-            .filter(|shown| same_value(shown, value))
+            .filter(|shown| same_for(id, shown, value))
             .map(|_| stated_value(row))
     };
     for (id, change) in &mut out.change {

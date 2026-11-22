@@ -310,3 +310,42 @@ fn part_zero_of_one_part_opens_as_before() {
     let given = answers(PLATE);
     assert_eq!(edit(&open, &given), edit(&chosen, &given));
 }
+
+#[test]
+fn edit_changes_general_tolerance_on_a_selected_assembly_part() {
+    let original = assembly();
+    let pin = Session::open_part("assembly.step", &original, PIN).unwrap();
+    let with_pin = written(&edit(&pin, &answers(PIN)));
+    let plate = Session::open_part("assembly.step", &with_pin, PLATE).unwrap();
+    let class = plate.edit(r#"{"fill":{"part.general_tolerance":"ISO 2768-m"}}"#);
+    assert_eq!(class["written"], true, "{class}");
+    let classed = written(&class);
+    let reopened = Session::open_part("classed.step", &classed, PLATE).unwrap();
+    let changed = reopened
+        .edit(r#"{"change":{"part.general_tolerance":{"to":".XX ±.01","expect":"ISO 2768-m"}}}"#);
+    assert_eq!(changed["written"], true, "{changed}");
+    let changed = written(&changed);
+    let after = Session::open_part("changed.step", &changed, PLATE).unwrap();
+    assert!(
+        after.snapshot()["analysis"]["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == "part.general_tolerance"
+                && row["state"] == "stated"
+                && row["value"] == ".XX ±.01")
+    );
+    let (before_doc, after_doc) = (
+        Document::parse(classed).unwrap(),
+        Document::parse(changed).unwrap(),
+    );
+    let defs = read_part_definitions(before_doc.bytes()).unwrap();
+    let before = pmi::read(&before_doc, &defs).unwrap();
+    for id in before.provenance.parts[PIN].all() {
+        assert_eq!(
+            &before_doc.bytes()[before_doc.span(id).unwrap()],
+            &after_doc.bytes()[after_doc.span(id).unwrap()],
+            "other part entity #{id}"
+        );
+    }
+}

@@ -1202,63 +1202,7 @@ fn bom_edits(
     (rest, Ok(Some(intent)))
 }
 
-/// A change of the part's general tolerance to a value (not none) goes the one route that
-/// replaces a stated general tolerance (#228: `writer::write_bytes_changing_general_tolerance`,
-/// `Replace::GeneralTolerance`): the file's table, classes and general-tolerance note give way
-/// to the new one, every other entity byte for byte. The rest of the list is applied first, as
-/// any list is; the whole list is validated first, so it is still all or nothing.
 fn applied_with(
-    loaded: &LoadedPart,
-    list: &EditList,
-    numbers: Option<&Map<String, Json>>,
-    extra: &[haecceity::pmi::AttributeSet],
-) -> Result<Applied, Vec<Failure>> {
-    const GENERAL: &str = "part.general_tolerance";
-    let Some(change) = list
-        .change
-        .get(GENERAL)
-        .filter(|c| !crate::feature_table::is_none_value(&c.to))
-    else {
-        return applied_parts(loaded, list, numbers, extra);
-    };
-    let (analysis, table) = table_of(loaded).map_err(whole)?;
-    let (pmi_list, bom) = bom_edits(list, &analysis);
-    bom?;
-    let (_, outcome) = validated(loaded, &pmi_list, &table, &analysis);
-    if !outcome.failures.is_empty() {
-        return Err(outcome.failures);
-    }
-    let mut rest = list.clone();
-    rest.change.remove(GENERAL);
-    let first = applied_parts(loaded, &rest, numbers, extra)?;
-    let entry = || format!("change[{}]", Json::from(GENERAL));
-    let part = loaded.binding.part;
-    let now = part::File::of_bytes(&loaded.path, first.bytes.clone())
-        .and_then(|f| f.load((f.parts().len() > 1).then_some(part)))
-        .map_err(|e| whole(e.to_string()))?;
-    let mut intent = crate::rules::Intent::new(
-        serde_json::to_value(&now.binding).map_err(|e| whole(e.to_string()))?,
-    );
-    intent
-        .part
-        .insert("general_tolerance".into(), change.to.clone());
-    // What the file stores beside its PMI (decided none, choices) is stored again as it is.
-    let stored = crate::resume::answers_for(&now)
-        .map_err(|e| whole(e.to_string()))?
-        .filter(|a| !a.is_empty());
-    let (bytes, report) =
-        super::write_bytes_changing_general_tolerance(&now, &intent, stored.as_ref())
-            .map_err(|e| vec![entry_failure(entry(), e.to_string())])?;
-    let mut applied = first;
-    applied.bytes = bytes;
-    applied.report.written.extend(report.written);
-    applied.report.not_written.extend(report.not_written);
-    applied.report.warnings.extend(report.warnings);
-    applied.unchanged = false;
-    Ok(applied)
-}
-
-fn applied_parts(
     loaded: &LoadedPart,
     list: &EditList,
     numbers: Option<&Map<String, Json>>,
@@ -1594,6 +1538,20 @@ fn applied_pmi(
     // Take them out, with Specify's bookkeeping (replaced below) and each removed item's own
     // features unless something kept uses them; every other item is protected.
     let mut all = requirements(before);
+    // A general tolerance has no characteristic number. A change of that setting alone
+    // leaves the complete number history in its original records.
+    let preserve_history = list.len() == 1 && list.change.contains_key("part.general_tolerance");
+    let record = |set: &haecceity::pmi::AttributeSet| set.name == crate::characteristics::PROPERTY;
+    if preserve_history {
+        all.extend(
+            before
+                .attributes
+                .iter()
+                .enumerate()
+                .filter(|(_, set)| record(set))
+                .map(|(i, _)| ("attributes".to_string(), i)),
+        );
+    }
     // Keep unrecognised, unmarked attributes as input data. A scoped payload supersedes
     // them when the file is read. Recognised legacy duplicates are removed on save (P11).
     let mut unmarked_answers = false;
@@ -1976,28 +1934,30 @@ fn applied_pmi(
         pmi.attributes.push(crate::resume::attribute_set(&payload));
     }
     pmi.attributes.extend_from_slice(extra);
-    crate::characteristics::allocate(
-        loaded,
-        &mut pmi,
-        before,
-        prov,
-        &original.doc,
-        numbers,
-        if mode == Mode::Replace {
-            crate::characteristics::Allocation::Replace
-        } else {
-            crate::characteristics::Allocation::Edit(&removed_numbers)
-        },
-    )
-    .map_err(whole)?;
-    // With nothing to number, the file's record is written back as it was.
-    let record = |set: &haecceity::pmi::AttributeSet| set.name == crate::characteristics::PROPERTY;
-    if !pmi.attributes.iter().any(record) {
-        pmi.attributes
-            .extend(before.attributes.iter().filter(|s| record(s)).cloned());
-    }
-    let retired =
-        crate::characteristics::retired(before, prov, &original.doc, &pmi).map_err(whole)?;
+    let retired = if preserve_history {
+        Vec::new()
+    } else {
+        crate::characteristics::allocate(
+            loaded,
+            &mut pmi,
+            before,
+            prov,
+            &original.doc,
+            numbers,
+            if mode == Mode::Replace {
+                crate::characteristics::Allocation::Replace
+            } else {
+                crate::characteristics::Allocation::Edit(&removed_numbers)
+            },
+        )
+        .map_err(whole)?;
+        // With nothing to number, the file's record is written back as it was.
+        if !pmi.attributes.iter().any(record) {
+            pmi.attributes
+                .extend(before.attributes.iter().filter(|s| record(s)).cloned());
+        }
+        crate::characteristics::retired(before, prov, &original.doc, &pmi).map_err(whole)?
+    };
     if !retired.is_empty() {
         lines.warnings.push(format!(
             "retired characteristic numbers: {}",

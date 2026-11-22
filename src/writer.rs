@@ -4129,6 +4129,7 @@ fn part_pmi_observed(
             let written = block.written(&file_unit).map_err(WriteError::Invalid)?;
             let new = general_shown(&text, &file_unit)?;
             if stated("general tolerance", old, &new, &mut lines)? {
+                lines.warnings.extend(block.warnings());
                 if let Some(table) = written.table {
                     p.general.push(table);
                     lines.written.push(format!(

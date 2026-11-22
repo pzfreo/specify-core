@@ -2632,11 +2632,19 @@ fn issue_228_write_writes_what_is_answered_and_lists_the_gaps() {
         missing.contains(&json!("hole.function:holes:96.129")),
         "{missing:?}"
     );
-    assert!(missing.contains(&json!("part.surface_finish")), "{missing:?}");
+    assert!(
+        missing.contains(&json!("part.surface_finish")),
+        "{missing:?}"
+    );
     let reopened = api::analyse_file(&output, None).unwrap();
     assert_eq!(reopened["part"]["material"], "6061 Al");
-    assert!(reopened["table"]["rows"].as_array().unwrap().iter()
-        .any(|row| row["id"] == "part.surface_finish" && row["state"] == "gap"));
+    assert!(
+        reopened["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == "part.surface_finish" && row["state"] == "gap")
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -2647,7 +2655,10 @@ fn issue_228_write_writes_what_is_answered_and_lists_the_gaps() {
 fn write_refuses_a_different_general_tolerance_than_the_file_states() {
     let dir = scratch("stated-general");
     let q = dir.join("edits.json");
-    save(&q, &json!({"fill": {"part.material": "steel", "part.general_tolerance": "ISO 2768-f"}}));
+    save(
+        &q,
+        &json!({"fill": {"part.material": "steel", "part.general_tolerance": "ISO 2768-f"}}),
+    );
     let first = dir.join("f.step");
     let ran = run(&["write", &s(&part("plate")), &s(&q), "-o", &s(&first)]);
     assert_eq!(ran.code, 0, "{}", ran.stderr);
@@ -2655,8 +2666,16 @@ fn write_refuses_a_different_general_tolerance_than_the_file_states() {
     let second = dir.join("c.step");
     let ran = run(&["write", &s(&first), &s(&q), "-o", &s(&second)]);
     assert_eq!(ran.code, 2, "{}", ran.stdout);
-    assert!(ran.stderr.contains("the file already states \"ISO 2768-f\" for part.general_tolerance"), "{}", ran.stderr);
+    assert!(
+        ran.stderr
+            .contains("the file already states \"ISO 2768-f\" for part.general_tolerance"),
+        "{}",
+        ran.stderr
+    );
     assert!(!second.exists());
-    assert_eq!(api::analyse_file(&first, None).unwrap()["part"]["general_tolerance"], "ISO 2768-f");
+    assert_eq!(
+        api::analyse_file(&first, None).unwrap()["part"]["general_tolerance"],
+        "ISO 2768-f"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
