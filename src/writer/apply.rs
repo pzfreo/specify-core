@@ -1549,6 +1549,18 @@ pub(crate) fn restates(
 ) -> bool {
     use crate::characteristics::Statement;
     let given = BTreeMap::from([(row.id.clone(), value.clone())]);
+    // For a standalone measurement, recover the suggestion the file's dimension now
+    // satisfies. Compare that plan to OLD below before carrying anything to NEW.
+    let mut bare;
+    let analysis = if crate::rules::general_rows::is_id(&row.id) {
+        bare = analysis.clone();
+        if let Some(object) = bare.as_object_mut() {
+            object.remove("dimensioning_stated");
+        }
+        &bare
+    } else {
+        analysis
+    };
     let Ok(intent) = planned_intent(analysis, table, &given, choices) else {
         return false;
     };

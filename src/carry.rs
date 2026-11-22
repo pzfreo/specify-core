@@ -435,6 +435,17 @@ fn new_row<'a>(row: &Row, table: &'a FeatureTable, map: &FaceMap) -> Result<&'a 
             .row(&row.id)
             .ok_or_else(|| format!("the new revision has no {}", row.id));
     }
+    if crate::rules::general_rows::is_id(&row.id) {
+        let id = crate::rules::general_rows::remap_id(&row.id, |face| {
+            map.get(&face)
+                .copied()
+                .unwrap_or(Err("it is not found in the new revision"))
+        })
+        .map_err(|why| format!("its measurement support: {why}"))?;
+        return table
+            .row(&id)
+            .ok_or_else(|| format!("the new revision does not offer {id}"));
+    }
     let faces = mapped(&row.faces, map).map_err(|why| format!("its feature: {why}"))?;
     let found: Vec<&Row> = table
         .rows

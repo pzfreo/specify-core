@@ -65,10 +65,10 @@ pub(crate) struct Suggestion {
     pub(crate) dimension: Dimension,
 }
 
-fn support(faces: &BTreeSet<i64>) -> String {
+fn support<T: ToString>(faces: &BTreeSet<T>) -> String {
     faces
         .iter()
-        .map(i64::to_string)
+        .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join(".")
 }
@@ -101,24 +101,55 @@ fn identity(row: &Dimension, from: &BTreeSet<i64>, to: &BTreeSet<i64>) -> Option
     } else {
         "length:planes"
     };
-    let (a, b) = if !hole && to < from {
+    // Distinct offsets can share the same pair of hole axes, but a plane fixes the axis.
+    let axis = row.get("planner").and_then(|p| {
+        let location = &p["required"]["kind"]["location"];
+        (hole && location["from"]["plane"] == false)
+            .then(|| location["axis"].as_u64())
+            .flatten()
+    });
+    Some(row_id(kind, from, to, axis))
+}
+
+fn row_id<T: Ord + std::fmt::Display>(
+    kind: &str,
+    from: &BTreeSet<T>,
+    to: &BTreeSet<T>,
+    axis: Option<u64>,
+) -> String {
+    let (a, b) = if kind == "length:planes" && to < from {
         (to, from)
     } else {
         (from, to)
     };
     let mut id = format!("{kind}:{}-{}", support(a), support(b));
-    // Distinct offsets can share the same pair of hole axes, but a plane fixes the axis.
-    if hole
-        && let Some(axis) = row.get("planner").and_then(|p| {
-            let location = &p["required"]["kind"]["location"];
-            (location["from"]["plane"] == false)
-                .then(|| location["axis"].as_u64())
-                .flatten()
-        })
-    {
+    if let Some(axis) = axis {
         id.push_str(&format!("-{axis}"));
     }
-    Some(id)
+    id
+}
+
+/// Rebind both supports of a measurement to a new revision, keeping its direction.
+pub(crate) fn remap_id(
+    id: &str,
+    map: impl Fn(usize) -> Result<usize, &'static str>,
+) -> Result<String, &'static str> {
+    let (kind, sides) = id.rsplit_once(':').ok_or("invalid measurement id")?;
+    let mut sides = sides.split('-');
+    let faces = |side: Option<&str>| {
+        side.ok_or("missing measurement support")?
+            .split('.')
+            .map(|n| map(n.parse().map_err(|_| "invalid measurement support")?))
+            .collect::<Result<BTreeSet<_>, _>>()
+    };
+    let from = faces(sides.next())?;
+    let to = faces(sides.next())?;
+    let axis = sides
+        .next()
+        .map(str::parse)
+        .transpose()
+        .map_err(|_| "invalid measurement axis")?;
+    Ok(row_id(kind, &from, &to, axis))
 }
 
 fn suggestion(row: &Dimension, datums: &[Dimension]) -> Option<Suggestion> {
@@ -141,7 +172,7 @@ fn suggestion(row: &Dimension, datums: &[Dimension]) -> Option<Suggestion> {
         format!(
             "{noun} {}",
             from.iter()
-                .map(i64::to_string)
+                .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(", ")
         )

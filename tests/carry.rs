@@ -1011,3 +1011,32 @@ fn an_assembly_parts_requirements_carry_through_the_in_place_writer() {
         );
     }
 }
+
+#[test]
+fn a_stated_plane_length_carries_to_the_matched_row_and_other_lengths_stay_gaps() {
+    let old_id = "length:planes:0-5";
+    let new_id = "length:planes:0-9";
+    let unapproved = "length:planes:1-3";
+    let old = annotated(
+        "revisions/plate_split.old.step.gz",
+        json!({"fill": {old_id: "100 ±0.3 from C"}}),
+    );
+    let before = table(&old.load(None).unwrap());
+    assert_eq!(row(&before, old_id)["state"], "stated");
+    assert_eq!(row(&before, unapproved)["state"], "gap");
+
+    let new = file("revisions/plate_split.new.step.gz");
+    let outcome = carried(&old, &new);
+    let out = table(&written(&outcome));
+    assert_eq!(row(&out, new_id)["state"], "stated", "{:?}", outcome.report);
+    assert_eq!(row(&out, new_id)["value"], row(&before, old_id)["value"]);
+    assert_eq!(row(&out, unapproved)["state"], "gap");
+    let carried: Vec<_> = outcome
+        .report
+        .carried
+        .iter()
+        .chain(&outcome.report.to_check)
+        .collect();
+    assert_eq!(carried.len(), 1, "{carried:?}");
+    assert_eq!((&*carried[0].old, &*carried[0].new), (old_id, new_id));
+}
