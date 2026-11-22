@@ -812,7 +812,13 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
             let out = File::of_bytes(std::path::Path::new("carried.step"), applied.bytes.clone())
                 .and_then(|f| f.load((f.parts().len() > 1).then_some(new.binding.part)))
                 .map_err(|e| e.to_string())?;
-            numbered(&mut report, &reader, old, &out, &map)?;
+            numbered(
+                &mut report,
+                &reader.table,
+                &reader.stated,
+                old,
+                Some((&out, &map)),
+            )?;
             Ok(Outcome {
                 bytes: Some(applied.bytes),
                 report,
@@ -893,32 +899,38 @@ fn leave_out(report: &mut Report, id: &str, reader: &Old<'_>, why: String) {
     report.not_carried.push(n);
 }
 
-/// Each carried requirement's number in `out`: OLD's (`numbers_carried`), or a new one, listed in
-/// `renumbered`.
+/// Account for each of OLD's numbered requirements in the output or the report.
 fn numbered(
     report: &mut Report,
-    reader: &Old<'_>,
+    table: &FeatureTable,
+    stated: &crate::writer::apply::Stated,
     old: &LoadedPart,
-    out: &LoadedPart,
-    map: &FaceMap,
+    output: Option<(&LoadedPart, &FaceMap)>,
 ) -> Result<(), Error> {
     let carried: BTreeSet<u64> = report
         .carried
         .iter()
         .chain(&report.to_check)
-        .filter_map(|c| reader.table.row(&c.old))
+        .filter_map(|c| table.row(&c.old))
         .flat_map(|r| &r.requirements)
         .filter_map(|r| r.number.as_deref()?.strip_prefix('#')?.parse().ok())
         .collect();
     let changed: BTreeSet<u64> = report
         .to_check
         .iter()
-        .filter_map(|c| reader.table.row(&c.old))
+        .filter_map(|c| table.row(&c.old))
         .flat_map(|r| &r.requirements)
         .filter_map(|r| r.number.as_deref()?.strip_prefix('#')?.parse().ok())
         .collect();
-    let out_stated = crate::writer::apply::Stated::of(out)?;
-    let now = crate::characteristics::read(out)?;
+    let output = output
+        .map(|(part, map)| {
+            Ok::<_, Error>((
+                crate::writer::apply::Stated::of(part)?,
+                crate::characteristics::read(part)?,
+                map,
+            ))
+        })
+        .transpose()?;
     let mut used = BTreeSet::new();
     let mut missing = BTreeSet::new();
     let sorted = |v: &[usize]| {
@@ -929,7 +941,7 @@ fn numbered(
     };
     for c in crate::characteristics::read(old)? {
         let number = format!("#{}", c.number);
-        let row = reader.table.rows.iter().find(|r| {
+        let row = table.rows.iter().find(|r| {
             r.requirements
                 .iter()
                 .any(|item| item.number.as_deref() == Some(&number))
@@ -937,27 +949,26 @@ fn numbered(
         let requirement = row
             .into_iter()
             .flat_map(|r| &r.requirements)
-            .chain(&reader.table.file_pmi)
+            .chain(&table.file_pmi)
             .find(|item| item.number.as_deref() == Some(&number));
-        let old_statement = reader.stated.by_number(c.number);
-        let found = mapped(&c.faces, map)
-            .ok()
-            .zip(mapped(&c.reference, map).ok())
-            .and_then(|(faces, reference)| {
-                now.iter()
-                    .filter(|n| {
-                        !used.contains(&n.number)
-                            && n.kind == c.kind
-                            && n.r#type == c.r#type
-                            && sorted(&n.faces) == faces
-                            && sorted(&n.reference) == reference
-                            && (old_statement
-                                .zip(out_stated.by_number(n.number))
-                                .is_some_and(|(a, b)| a.same_value(b))
-                                || (changed.contains(&c.number) && n.number == c.number))
-                    })
-                    .min_by_key(|n| n.number != c.number)
-            });
+        let old_statement = stated.by_number(c.number);
+        let found = output.as_ref().and_then(|(out_stated, now, map)| {
+            let faces = mapped(&c.faces, map).ok()?;
+            let reference = mapped(&c.reference, map).ok()?;
+            now.iter()
+                .filter(|n| {
+                    !used.contains(&n.number)
+                        && n.kind == c.kind
+                        && n.r#type == c.r#type
+                        && sorted(&n.faces) == faces
+                        && sorted(&n.reference) == reference
+                        && (old_statement
+                            .zip(out_stated.by_number(n.number))
+                            .is_some_and(|(a, b)| a.same_value(b))
+                            || (changed.contains(&c.number) && n.number == c.number))
+                })
+                .min_by_key(|n| n.number != c.number)
+        });
         if let Some(found) = found {
             used.insert(found.number);
             if found.number == c.number {
@@ -1020,7 +1031,7 @@ fn numbered(
     // produced all their requirements before claiming that they were carried.
     let confirmed = |c: &Carried| {
         c.with.is_none()
-            || reader.table.row(&c.old).is_some_and(|row| {
+            || table.row(&c.old).is_some_and(|row| {
                 row.requirements
                     .iter()
                     .all(|r| r.number.as_ref().is_none_or(|n| !missing.contains(n)))
@@ -1104,16 +1115,19 @@ fn carry_assembly(old: &File, new: &File) -> Result<Outcome, Error> {
     for (i, old_part) in before.iter().enumerate() {
         let Some(&(_, j)) = pairs.iter().find(|(o, _)| *o == i) else {
             let (_, table) = analysed(old_part)?;
+            let mut part = Report::default();
             for row in table.rows.iter().filter(|r| r.state != State::Gap) {
-                let mut n = not_carried_row(row, "no part of the new assembly matches its part");
-                n.part = Some(old_part.name.clone());
-                report.not_carried.push(n);
+                part.not_carried.push(not_carried_row(
+                    row,
+                    "no part of the new assembly matches its part",
+                ));
             }
             for r in &table.file_pmi {
-                report
-                    .not_carried
-                    .push(file_pmi_not_carried(r, Some(&old_part.name)));
+                part.not_carried.push(file_pmi_not_carried(r, None));
             }
+            let stated = crate::writer::apply::Stated::of(old_part)?;
+            numbered(&mut part, &table, &stated, old_part, None)?;
+            merge_part(&mut report, part, &old_part.name, "");
             continue;
         };
         let new_part = File::of_bytes(new.path(), bytes.clone())
