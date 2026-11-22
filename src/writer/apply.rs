@@ -1005,19 +1005,33 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         features.extend(features_of(before, (c, *i)));
     }
     give_way.extend(features.iter().map(|&f| ("features".to_string(), f)));
-    // What belongs to a removed item goes with it: the notes and attribute sets on it (a
-    // dimension's plan, a thread's manufacturing data on its feature, unless kept).
+    // Direct attachments belong to their dimension or tolerance. A feature can carry
+    // several requirements, so sharing its carrier does not establish ownership.
     let owned = |on: &Option<haecceity::pmi::NoteOwner>| {
         use haecceity::pmi::NoteOwner;
         match on {
             Some(NoteOwner::Dimension(d)) => remove.contains(&("dimensions".to_string(), d.0)),
             Some(NoteOwner::Tolerance(t)) => remove.contains(&("tolerances".to_string(), t.0)),
-            Some(NoteOwner::Feature(f)) => features.contains(&f.0),
             _ => false,
         }
     };
     for (i, set) in before.attributes.iter().enumerate() {
-        if owned(&set.on) {
+        let thread_removed = set.name == "thread manufacturing"
+            && matches!(set.on, Some(haecceity::pmi::NoteOwner::Feature(f)) if {
+                let mut removed = false;
+                let mut kept = false;
+                for (i, _) in before.threads.iter().enumerate().filter(|(_, thread)| {
+                    before.same_target(&ToleranceTarget::Feature(f), &ToleranceTarget::Feature(thread.feature))
+                }) {
+                    if remove.contains(&("threads".to_string(), i)) {
+                        removed = true;
+                    } else {
+                        kept = true;
+                    }
+                }
+                removed && !kept
+            });
+        if owned(&set.on) || thread_removed {
             give_way.insert(("attributes".to_string(), i));
         }
     }
@@ -1198,7 +1212,14 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
                         .any(|d| d.get("question") == Some(&Json::from(id.as_str())))
                     || id
                         .strip_prefix("part.")
-                        .is_some_and(|key| intent.part.contains_key(key));
+                        .is_some_and(|key| intent.part.contains_key(key))
+                    || id.strip_prefix("hole.full_thread:").is_some_and(|feature| {
+                        let function = format!("hole.function:{feature}");
+                        intent.requirements.iter().any(|r| {
+                            r.get("question").and_then(Json::as_str) == Some(function.as_str())
+                                && r.get("kind").and_then(Json::as_str) == Some("thread")
+                        })
+                    });
                 let deferred_diameter = has_general_tolerance
                     && id.starts_with("diameter.fit:")
                     && given[*id] == "general";

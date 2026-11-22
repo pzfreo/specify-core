@@ -164,6 +164,8 @@ Read first:
   P11, D6).
 
 ### Removed
+- The command-line whole-intent `write STEP ANALYSIS ANSWERS` form. Use
+  `write STEP EDITS.json` and name any suggestions to accept in `accept_suggestions`.
 
 - **Answers export** ([ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md):
   no export of answers as a record; the file is the only copy): CLI `questions

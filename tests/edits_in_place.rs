@@ -571,6 +571,83 @@ fn cli(args: &[&str]) -> (i32, String, String) {
 }
 
 #[test]
+fn cli_rejects_whole_intent_write_with_migration_instructions() {
+    let step = common::fixtures().join("parts/plate.step");
+    let tmp = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli-retired-write");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let analysis = tmp.join("analysis.json");
+    let answers = tmp.join("answers.json");
+    let out = tmp.join("out.step");
+    let _ = std::fs::remove_file(&out);
+    std::fs::write(
+        &analysis,
+        api::analyse_file(&step, None).unwrap().to_string(),
+    )
+    .unwrap();
+    std::fs::write(&answers, r#"{"part.material":"steel"}"#).unwrap();
+    for flags in [vec![], vec!["--accept-defaults"]] {
+        let mut args = vec![
+            "write",
+            step.to_str().unwrap(),
+            analysis.to_str().unwrap(),
+            answers.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ];
+        args.extend(flags);
+        let (code, stdout, stderr) = cli(&args);
+        assert_eq!(code, 2, "{stdout} {stderr}");
+        assert!(stdout.is_empty(), "{stdout}");
+        for text in [
+            "whole-intent write was removed",
+            "write STEP EDITS.json",
+            "accept_suggestions",
+            "docs/answers.md",
+        ] {
+            assert!(stderr.contains(text), "missing {text}: {stderr}");
+        }
+        assert!(!out.exists());
+    }
+    std::fs::remove_dir_all(tmp).unwrap();
+}
+
+#[test]
+fn issue_228_cli_edit_list_writes_answered_rows_and_lists_open_gaps() {
+    let step = common::fixtures().join("parts/plate.step");
+    let tmp = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli-issue-228");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let edits = tmp.join("edits.json");
+    let out = tmp.join("out.step");
+    std::fs::write(
+        &edits,
+        r#"{"fill":{"part.material":"steel","part.general_tolerance":"ISO 2768-m"}}"#,
+    )
+    .unwrap();
+    let (code, stdout, stderr) = cli(&[
+        "write",
+        step.to_str().unwrap(),
+        edits.to_str().unwrap(),
+        "-o",
+        out.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "{stderr}");
+    let report: Value = serde_json::from_str(&stdout).unwrap();
+    let after = api::analyse_file(&out, None).unwrap();
+    let rows = after["table"]["rows"].as_array().unwrap();
+    let open: Vec<_> = rows
+        .iter()
+        .filter(|r| r["open"] == true)
+        .map(|r| &r["id"])
+        .collect();
+    assert_eq!(report["missing"], json!(open));
+    assert!(open.contains(&&json!("part.surface_finish")), "{open:?}");
+    assert_eq!(after["part"]["material"], "steel");
+    assert_eq!(after["part"]["general_tolerance"], "ISO 2768-m");
+    assert_eq!(row(&after["table"], "part.surface_finish")["state"], "gap");
+    std::fs::remove_dir_all(tmp).unwrap();
+}
+
+#[test]
 fn write_applies_an_edit_list_all_or_nothing() {
     let dir = std::env::temp_dir().join(format!("specify-in-place-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

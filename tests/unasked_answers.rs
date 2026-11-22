@@ -208,11 +208,9 @@ fn the_command_line_refuses_an_unknown_id() {
         vec![
             "write".as_ref(),
             plate().into_os_string().leak(),
-            analysis.as_os_str(),
             answers.as_os_str(),
             "-o".as_ref(),
             out.as_os_str(),
-            "--accept-defaults".as_ref(),
         ],
     ];
     for args in runs {
@@ -222,7 +220,11 @@ fn the_command_line_refuses_an_unknown_id() {
             .unwrap();
         assert_eq!(run.status.code(), Some(2), "{args:?}");
         let stderr = String::from_utf8_lossy(&run.stderr);
-        assert!(stderr.contains(UNKNOWN), "{stderr}");
+        assert!(
+            stderr.contains("bogus.question")
+                && (stderr.contains("unknown answer ID") || stderr.contains("no feature-and-kind")),
+            "{stderr}"
+        );
     }
     assert!(!out.exists());
 }
@@ -610,26 +612,22 @@ fn an_answer_naming_nothing_the_part_has_refuses_the_whole_list_126() {
         assert!(error.to_string().contains(&expected), "{error}");
         // The command line refuses it the same way, writing nothing.
         let dir = temp("names-nothing");
-        let (analysed, given, out) = (
-            dir.join("plate.json"),
-            dir.join("answers.json"),
-            dir.join("out.step"),
-        );
-        std::fs::write(&analysed, analysis.to_string()).unwrap();
-        std::fs::write(&given, Value::Object(answers).to_string()).unwrap();
+        let (given, out) = (dir.join("edits.json"), dir.join("out.step"));
+        std::fs::write(&given, json!({"fill": answers}).to_string()).unwrap();
         let run = Command::new(env!("CARGO_BIN_EXE_specify-core"))
             .arg("write")
             .arg(plate())
-            .arg(&analysed)
             .arg(&given)
             .arg("-o")
             .arg(&out)
-            .arg("--accept-defaults")
             .output()
             .unwrap();
         assert_eq!(run.status.code(), Some(2));
         let stderr = String::from_utf8_lossy(&run.stderr);
-        assert!(stderr.contains(&expected), "{stderr}");
+        assert!(
+            stderr.contains("no feature-and-kind") && stderr.contains("fill["),
+            "{stderr}"
+        );
         assert!(!out.exists());
     }
     // A real question not asked now (#126) is reported, not refused.

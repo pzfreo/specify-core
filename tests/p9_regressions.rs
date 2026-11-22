@@ -142,21 +142,10 @@ fn cli_rewrite(bytes: &[u8], name: &str) -> LoadedPart {
     let dir = dir(name);
     let input = dir.join("in.step");
     std::fs::write(&input, bytes).unwrap();
-    let analysis = dir.join("analysis.json");
-    cli(&[Path::new("analyse"), Path::new("-o"), &analysis, &input]);
-    let analysed: Value = serde_json::from_slice(&std::fs::read(&analysis).unwrap()).unwrap();
-    let answers = dir.join("answers.json");
-    std::fs::write(&answers, analysed["resume"]["answers"].to_string()).unwrap();
+    let edits = dir.join("edits.json");
+    std::fs::write(&edits, "{}").unwrap();
     let output = dir.join("out.step");
-    cli(&[
-        Path::new("write"),
-        Path::new("-o"),
-        &output,
-        Path::new("--accept-defaults"),
-        &input,
-        &analysis,
-        &answers,
-    ]);
+    cli(&[Path::new("write"), &input, &edits, Path::new("-o"), &output]);
     load(std::fs::read(output).unwrap())
 }
 
@@ -354,24 +343,28 @@ fn an_unmarked_replace_written_part_is_rewritten_with_nothing_stated_twice() {
 #[test]
 fn defaults_written_without_their_answers_are_kept() {
     let dir = dir("defaults");
-    let given = dir.join("given.json");
-    std::fs::write(&given, Value::Object(answers("0.05")).to_string()).unwrap();
-    let analysis = dir.join("analysis.json");
-    cli(&[Path::new("analyse"), Path::new("-o"), &analysis, &plate()]);
+    let given = dir.join("edits.json");
+    let analysis = api::analyse_file(&plate(), None).unwrap();
+    let mut explicit = answers("0.05");
+    explicit.remove("part.locating");
+    std::fs::write(
+        &given,
+        common::approve_edits(&analysis, &explicit).to_string(),
+    )
+    .unwrap();
     let output = dir.join("out.step");
     cli(&[
         Path::new("write"),
+        &plate(),
+        &given,
         Path::new("-o"),
         &output,
-        Path::new("--accept-defaults"),
-        &plate(),
-        &analysis,
-        &given,
     ]);
     let loaded = load(std::fs::read(&output).unwrap());
     // The given answers are stored, and of the defaults taken only those that write no PMI
     // (2026-11-19: "accept all" keeps answers the file cannot state).
-    let mut stored = answers("0.05");
+    // The P11 list never stored the implicit locating method.
+    let mut stored = explicit;
     for (id, value) in [
         ("part.coating", json!("None (as machined)")),
         ("part.heat_treatment", json!("None")),
@@ -531,25 +524,25 @@ fn a_default_another_tool_changed_is_the_files_answer() {
 }
 
 /// The CLI's write of `answers` on a file: `analyse`, then `write --accept-defaults`.
-fn cli_write(bytes: &[u8], answers: &Map<String, Value>, name: &str) -> LoadedPart {
+fn cli_refuses_fill(bytes: &[u8], answers: &Map<String, Value>, name: &str) -> LoadedPart {
     let dir = dir(name);
     let input = dir.join("in.step");
     std::fs::write(&input, bytes).unwrap();
-    let analysis = dir.join("analysis.json");
-    cli(&[Path::new("analyse"), Path::new("-o"), &analysis, &input]);
-    let given = dir.join("answers.json");
-    std::fs::write(&given, Value::Object(answers.clone()).to_string()).unwrap();
+    let given = dir.join("edits.json");
+    std::fs::write(&given, json!({"fill": answers}).to_string()).unwrap();
     let output = dir.join("out.step");
-    cli(&[
-        Path::new("write"),
-        Path::new("-o"),
-        &output,
-        Path::new("--accept-defaults"),
-        &input,
-        &analysis,
-        &given,
-    ]);
-    load(std::fs::read(output).unwrap())
+    let ran = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        .args([Path::new("write"), &input, &given, Path::new("-o"), &output])
+        .output()
+        .unwrap();
+    assert_eq!(ran.status.code(), Some(2), "{ran:?}");
+    let error = String::from_utf8(ran.stderr).unwrap();
+    assert!(
+        error.contains("datum.A.flatness") && error.contains("0.05"),
+        "{error}"
+    );
+    assert!(!output.exists());
+    load(std::fs::read(input).unwrap())
 }
 
 /// A file Specify wrote (flatness 0.03 on face 2, stored as answered) whose flatness another
@@ -595,7 +588,7 @@ fn another_tools_requirement_stands_against_saved_answers_on_the_cli() {
     assert_eq!(row["value"], "⏥ 0.05", "{row}");
     // Answers saved before the edit: they say 0.03.
     let saved = answers("0.03");
-    let written = cli_write(&loaded.bytes, &saved, "saved-answers");
+    let written = cli_refuses_fill(&loaded.bytes, &saved, "saved-answers");
     assert_eq!(
         flatness(&written),
         [json!({"faces": [2], "value": 0.05, "marked": false})]
@@ -644,7 +637,7 @@ fn another_tools_requirement_stands_against_an_mcp_answers_file() {
 #[test]
 fn a_save_does_not_store_an_answer_another_tools_requirement_holds() {
     let loaded = re_authored_flatness();
-    let saved = cli_write(&loaded.bytes, &answers("0.03"), "saved-over");
+    let saved = cli_refuses_fill(&loaded.bytes, &answers("0.03"), "saved-over");
     let again = api::analyse(&saved).unwrap();
     assert!(
         again["resume"].get("conflicts").is_none(),

@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 398 | 0 | 52 | 0 | 2 | 1 | 453 |
+| [cli](#cli) | 301 | 0 | 8 | 0 | 234 | 1 | 544 |
 | [cross_engine](#cross_engine) | 142 | 2 | 0 | 1 | 1 | 20 | 166 |
 | [cross_engine_written](#cross_engine_written) | 23 | 0 | 0 | 0 | 0 | 0 | 23 |
 | [existing](#existing) | 96 | 0 | 0 | 0 | 7 | 0 | 103 |
@@ -23,7 +23,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 1764 | 0 | 0 | 0 | 15 | 1 | 1780 |
-| **all** | 6006 | 1433 | 1249 | 2497 | 1101 | 1908 | 14194 |
+| **all** | 5909 | 1433 | 1205 | 2497 | 1333 | 1908 | 14285 |
 
 ## analysis
 
@@ -77,13 +77,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (398 entries)
+### cli: rust-correct (301 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
   The evidence is stated per entry (12 distinct; all in `cli.json`). The first, for `cli/*/questions` at `stdout.[1].options[4]`: Option 4 is now ISO 2768-fH, one of the requested twelve f/m/c/v × H/K/L combinations after the existing four plain classes. Default stays ISO 2768-m. In open-only CLI output the answered material question is removed, moving the general question from index 1 to 0. The served full question retains index 1. cli_datum_origins.json.gz pins every exact case/path/old/new value; tests/limits_and_classes.rs verifies the complete choices and mK PMI. Frozen Python captures remain unchanged.
 
-- **Absolute slash bounds are accepted by CLI answers** (3 entries, 1 case glob)
+- **Absolute slash bounds are accepted by CLI answers** (2 entries, 1 case glob)
 
   The frozen scenario gives extra.1 size limits 6.58/6.62 on the plate’s Ø6.6 face 6. This requested unsigned slash grammar is now valid: questions exits 0 without the former invalid-answer stderr. Apply accepts the dimension and instead reports the still-unanswered required part.material question. cli_datum_origins.json.gz pins these exact three command envelope changes; rule_defaults_oracle.json.gz pins the corresponding accepted intent and tests/limits_and_classes.rs verifies Limits STEP write/read/resume. The original refused scenario and Python result are retained.
 
@@ -91,7 +91,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (21 distinct; all in `cli.json`). The first, for `parts/assembly@serve` at `write.written[plate: location 15 basic to holes:6 from faces [1]]`: Shared planner, #75: fresh frozen-intent writer-oracle evidence. The exact human-readable report line changes with answered:dim:pattern[hole:10,hole:12,hole:6,hole:7,hole:8,hole:9]/pitch/0 = 30 mm, basic, [6] to [7]: pattern pitch (2 interval(s)), with aligned physical member witnesses; answered:dim:pattern[hole:10,hole:12,hole:6,hole:7,hole:8,hole:9]/pitch/1 = 30 mm, basic, [6] to [9]: pattern pitch (1 interval(s)), with aligned physical member witnesses; answered:dim:plane:0/to/pattern[hole:10,hole:12,hole:6,hole:7,hole:8,hole:9]/0 = 50 mm, basic, [0] to [6, 7, 8, 9, 10, 12]: pattern centre located once with its internal grammar. The report names the shared survivor rather than repeating each generated member. Its measured quantity, tolerance class and semantic face supports are checked by STEP readback. The oracle checks EXPRESS validity; the corpus check rejects duplicate face pairs, faceless location supports and independent plane chains. Only this exact item/report line is covered, with no location-family wildcard. The serve reply carries this same exact report item and occurrence count as writer-area case parts/assembly. The CLI composition check compares library and executable outputs exactly; cli_datum_origins.json.gz independently pins this item’s Python and Rust values in the serve envelope.
 
-- **measurement datum defaults in CLI and serve envelopes** (99 entries, 93 case globs)
+- **measurement datum defaults in CLI and serve envelopes** (89 entries, 83 case globs)
 
   The evidence is stated per entry (6 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb217` at `questions.defaults.questions.[37]`: For #21, this exact CLI question field exposes the optional hole.full_thread text edit with refine attention. It is excluded from open and changes neither the accepted tap's inline/computed depth nor review obligations. tests/thread_depth_help.rs verifies exact alpha.7 STEP equivalence; cli_datum_origins.json.gz pins this question value.
 
@@ -114,10 +114,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **a STEP file that cannot be read: the reason is given** (`cli/serve` at `lines[13].error.message`)
 
   analyse of /no/such/file.step is 'invalid' in both, with 'cannot read STEP file /no/such/file.step'; part::load's message adds why ('No such file or directory (os error 2)'), where OpenCascade's reader gives none.
-
-- **a write that cannot be made is reported as a failed write, not a traceback** (`cli/errors/write-into-a-missing-directory` at `stderr`)
-
-  Writing into a directory that does not exist: Python's OpenCascade writer raises RuntimeError('OCCT could not write the STEP (no reason given)'), which cli.py does not catch (exit 1, traceback). The Rust writer fails to create its temporary file beside the destination and the command line says 'write failed, OUT left as it was: \<the temporary file>: No such file or directory' with exit 1, the message cli.py gives a failed write; nothing is created. Exit codes are equal.
 
 - **a non-finite number is written null, not Python's Infinity token** (`cli/json-text` at `json_text.*infinity`)
 
@@ -151,7 +147,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Issue #150: beside same_as, a copy lists faces_of_first, for each of its faces in its own order the face of the first part it lands on (the pairing quiddity::correspondence::congruent proves), so an answer given for faces carries over to a copy that lists its faces in another order; null where same_as is null. Python's parts listing has no such key; every other key is still compared and equal. Every value here is null except in a_file_with_two_parts_must_say_which, whose second part, the same unit box moved (tools/make_parts.py), maps each face to the same index. tests/part_copies.rs checks moved copies (the identity) and a copy turned a quarter turn whose shell lists its faces in reverse.
 
-- **CLI and serve expose the corrected turned datums and blind-thread summaries** (20 entries, 11 case globs)
+- **CLI and serve expose the corrected turned datums and blind-thread summaries** (18 entries, 9 case globs)
 
   The CLI composition check independently requires byte-identical library and executable outputs. Corrected axis-first defaults change datum faces, axial position/runout frames, question ordering and dependent intent text on the pin/stack; blind tap summaries include computed full-thread depth. The full library before/after changes are exactly pinned in rule_defaults_oracle.json.gz; tests/turned_defaults.rs and tests/thread_depth_help.rs verify the intended geometry and displays. CLI Python-input checks inherit only exact matching reviewed rule changes via without_reviewed_rule_departures; these entries cover command/transcript envelopes and intent text. No composition differences are filtered.
 
@@ -159,13 +155,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `parts/assembly*` at `write.warnings[pin: datum B is in the file but no tolerance references it; OCCT-based readers (including Draftwright) will not see it]`: The turned pin now uses axis A for its coaxial hole position; shoulder B remains available for axial location but no default control cites it. The existing writer warning correctly reports that OCCT readers omit unreferenced datums. The intent still stores and verifies B. See docs/turned-defaults.md and the live thumbwheel write verification.
 
-- **Dominant round bosses use their main axis in CLI and serve** (6 entries, 3 case globs)
+- **Dominant round bosses use their main axis in CLI and serve** (5 entries, 2 case globs)
 
   The dominant cylindrical boss on a_hole_along_x_is_labelled_from_its_rim now supplies A on cylinder 0 and B on end plane 1. The axial hole keeps its rim anchor and position about A; B is available as an axial stop and is reported unused. The question transcript replaces A flatness with B perpendicularity, and the datum anchor groups change from face 1 to faces 0/1. tests/fixtures/rule_defaults_oracle.json.gz pins the complete library changes exactly, tests/turned_defaults.rs verifies dominant-boss axis selection, and the CLI composition sweep still compares library/executable bytes and every serve reply without filtering. These entries cover only this fixture's Python transcript/envelope differences.
-
-- **axis-first turned defaults change string-post datum and basic-location report lines** (4 entries, 1 case glob)
-
-  The existing axis-first turned defaults (cx/turned-part-defaults) select string_post axis A on face 0 and shoulder B on face 8, replacing Python's A plane 11 and B axis 0. Consequently B is now a written datum; the old 1.2 mm basic offsets from plane 11 disappear, and the transverse hole holes:5 has a 3.85 mm basic location from shoulder 8. This is the report envelope of the already pinned library intent in rule_defaults_oracle.json.gz; tests/turned_defaults.rs verifies the actual axis, shoulder, coaxial hole and cross-hole defaults, and tests/writer.rs verifies readback. The full corpus CLI sweep compares executable/library composition independently.
 
 - **BOM opt-in flag in exact CLI usage and help captures** (3 entries, 3 case globs)
 
@@ -187,19 +179,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Proposal specify-0.3.0 use case 7 (Paul, 2026-11-20): write STEP EDITS.json -o OUT applies an edit list in place, so one JSON after STEP is no longer a usage error (exit 2) but an edit list; here the list file does not exist, which is a file error (exit 1, `a.json: No such file`). tests/cli.rs::usage_or_help checks that message for this capture; cli_datum_origins.json.gz records the exit departure. Three or more positionals still give the usage error.
 
-- **ADR P11 rule 2: an approval the planner wrote nothing for is reported in not_written and stored as decided** (7 entries, 7 case globs)
+- **general dimensions are rows (Paul, 2026-11-21)** (52 entries, 40 case globs)
 
-  The pin's (or a turned part's) diameter answered 'general' is on a datum's own faces, where the writer writes no size (src/writer.rs: a size there would make the datum a datum feature of size); before, the answer was neither written, reported nor stored, so the gap reopened and write --accept-defaults on the saved file refused 'incomplete' (review of eba27eb, blocker 1). It is now named in not_written and stored under no_pmi; Python, which stores every answer, reports nothing. tests/answers_without_pmi.rs an_approval_that_writes_nothing_stays_decided checks the round trip.
+  The evidence is stated per entry (3 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `questions.defaults.questions.measurement_count`: Item 8 adds this exact number of separately approved measurement questions to the list.
 
-- **General sizes omitted on a datum feature** (`scenarios/turned_a_straight_knurl_resumes` at `write.not_written[general size 6 on turned_steps:4 faces [4]: the faces establish a datum and the writer cannot mark a datum feature of size]`)
-
-  The writer cannot mark the resulting datum feature of size for future preservation. P11 requires it to report this omitted general size.
-
-- **general dimensions are rows (Paul, 2026-11-21)** (122 entries, 40 case globs)
-
-  The evidence is stated per entry (73 distinct; all in `cli.json`). The first, for `nist/nist_ctc_03_asme1_ap242` at `write.not_written[dimension Location_LinearDistance [16, 17] [118]: the file already states it; not written again]`: nist/nist_ctc_03_asme1_ap242 already states dimension Location_LinearDistance [16, 17] [118]. P11 preserves the existing PMI when replaying approved measurements.
-
-### cli: equivalent (52 entries)
+### cli: equivalent (8 entries)
 
 - **mesh's triangle count is the triangulation stand-in's** (`cli/*` at `stdout.triangles`)
 
@@ -209,11 +193,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `cli/errors/questions-answers-not-json` at `stderr`: Both refuse '{' as 'invalid answer: ...' with exit 2 (Python's JSONDecodeError is a ValueError, caught as an invalid answer; Rust maps a parse error the same way); only the parser's wording differs: 'Expecting property name enclosed in double quotes: line 1 column 2 (char 1)' against 'EOF while parsing an object at line 1 column 1'.
 
-- **measurement datum defaults in CLI and serve envelopes** (49 entries, 5 case globs)
+- **measurement datum defaults in CLI and serve envelopes** (5 entries, 5 case globs)
 
-  The evidence is stated per entry (49 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb245` at `questions.defaults.questions.[21].faces[0]`: corpus/cadgenbench_inputs/cgb245 faces 80/79 have captured areas 3079.999999998903/3079.9999999988927 mm2; difference 1.04591890704e-11 \<= max(1e-6, 1e-6\*larger) = 0.00308 mm2. Their order is arbitrary within the requested tolerance; keep source-face order. This is a Specify datum-comparator change exposed by quiddity #61, not a claim that Python chose incorrect geometry. Dependent CLI question/measurement: questions.defaults.questions.[21].faces[0]. Exact observed departure: captured 147; current 80. The CLI/library composition check and cli_datum_origins.json.gz preserve these exact values.
+  The evidence is stated per entry (5 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb245` at `questions.defaults.questions.[21].faces[0]`: corpus/cadgenbench_inputs/cgb245 faces 80/79 have captured areas 3079.999999998903/3079.9999999988927 mm2; difference 1.04591890704e-11 \<= max(1e-6, 1e-6\*larger) = 0.00308 mm2. Their order is arbitrary within the requested tolerance; keep source-face order. This is a Specify datum-comparator change exposed by quiddity #61, not a claim that Python chose incorrect geometry. Dependent CLI question/measurement: questions.defaults.questions.[21].faces[0]. Exact observed departure: captured 147; current 80. The CLI/library composition check and cli_datum_origins.json.gz preserve these exact values.
 
-### cli: not-applicable (2 entries)
+### cli: not-applicable (234 entries)
 
 - **feature-id cascade (rule): the engines recognise features differently by design, so analyses are never compared feature by feature with Python's** (`cli/*` at `stdout.features*`)
 
@@ -222,6 +206,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **no pmi-assist executable** (`cli/programs` at `programs.pmi-assist`)
 
   specify-core's pyproject installs the same entry point twice, as specify-core and as pmi-assist ('the name it was first released under, kept for hosts that still run it'). The alias is an artifact of the Python package's history; a host running the Rust engine names its binary, specify-core (Cargo.toml's one [[bin]]), with the same arguments.
+
+- **whole-intent write removed (Paul, 2026-11-22)** (232 entries, 232 case globs)
+
+  whole-intent write removed (Paul, 2026-11-22)
 
 ### cli: resolved (1 entry)
 
