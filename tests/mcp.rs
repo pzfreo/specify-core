@@ -911,6 +911,27 @@ fn an_equal_answer_clears_only_its_earlier_refusal() {
 }
 
 #[test]
+fn save_advertises_the_returned_table_and_excludes_refusals() {
+    let tools = specify_core::mcp::tools();
+    let save = tools.iter().find(|tool| tool["name"] == "save").unwrap();
+    assert_eq!(
+        save["outputSchema"]["properties"]["table"]["type"],
+        "object"
+    );
+    assert!(
+        save["description"]
+            .as_str()
+            .unwrap()
+            .contains("Refused answers are left out")
+    );
+    let save_row = include_str!("../docs/mcp.md")
+        .lines()
+        .find(|line| line.starts_with("| `save` |"))
+        .unwrap();
+    assert!(save_row.contains("`table`"), "{save_row}");
+}
+
+#[test]
 fn unknown_and_stale_handles_are_refused_and_overwriting_needs_consent() {
     let dir = scratch("handles");
     let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();

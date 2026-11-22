@@ -2194,7 +2194,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "save",
             "title": "Save an edit list into the STEP",
-            "description": format!("Apply an edit list to the opened file and write it as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; later saves update the copy this session wrote, and no other file is overwritten), or over it if it was opened in_place (the original kept once as .bak). edits: fill gaps {{id: value}}, change what the file states {{id: {{to, expect}}}} (expect: the value you saw), items.remove [\"#N\"] to remove a requirement by its characteristic number, none [id] to record that nothing is needed, accept_suggestions [id] to fill a gap with Specify's suggestion. Ids are the feature table's (the analysis resource's table). Anything not named is left as it is, byte for byte. A list is all or nothing: if any entry cannot be applied nothing is written, and the error (failures) names every failing entry and why. Fill or accept only what the person approved: never a suggestion as intent unasked. rev (optional): the session revision you last saw; a session that moved on is refused (stale). A session holding answers changed with answer and not saved is refused. check tests a list without writing. {MEMORY_RULE}"),
+            "description": format!("Apply an edit list to the opened file and write it as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; later saves update the copy this session wrote, and no other file is overwritten), or over it if it was opened in_place (the original kept once as .bak). edits: fill gaps {{id: value}}, change what the file states {{id: {{to, expect}}}} (expect: the value you saw), items.remove [\"#N\"] to remove a requirement by its characteristic number, none [id] to record that nothing is needed, accept_suggestions [id] to fill a gap with Specify's suggestion. Ids are the feature table's (the analysis resource's table). Anything not named is left as it is, byte for byte. A list is all or nothing: if any entry cannot be applied nothing is written, and the error (failures) names every failing entry and why. Fill or accept only what the person approved: never a suggestion as intent unasked. rev (optional): the session revision you last saw; a session that moved on is refused (stale). A session holding answers changed with answer and not saved is refused. Refused answers are left out. Returns the current feature table. check tests a list without writing. {MEMORY_RULE}"),
             "inputSchema": input(json!({
                 "doc": doc(),
                 "edits": crate::edits::json_schema(),
@@ -2207,8 +2207,9 @@ pub fn tools() -> Vec<Value> {
                 "rev": rev(),
                 "report": {"type": "object", "description": "What was written, the characteristic numbers retired, and whether anything changed."},
                 "complete": {"type": "boolean"},
-                "missing": strings()
-            }), &["doc", "path", "bytes", "rev", "report", "complete", "missing"]),
+                "missing": strings(),
+                "table": {"type": "object", "description": "The opened part's feature table after saving."}
+            }), &["doc", "path", "bytes", "rev", "report", "complete", "missing", "table"]),
             "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false},
         }),
         json!({
