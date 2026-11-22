@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 1353 | 0 | 52 | 0 | 2 | 1 | 1408 |
+| [cli](#cli) | 1350 | 0 | 52 | 0 | 2 | 1 | 1405 |
 | [cross_engine](#cross_engine) | 142 | 2 | 0 | 1 | 1 | 20 | 166 |
 | [cross_engine_written](#cross_engine_written) | 23 | 0 | 0 | 0 | 0 | 0 | 23 |
 | [existing](#existing) | 96 | 0 | 0 | 0 | 7 | 0 | 103 |
@@ -23,7 +23,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 3092 | 0 | 0 | 0 | 15 | 1 | 3108 |
-| **all** | 8289 | 1433 | 1249 | 2497 | 1101 | 1908 | 16477 |
+| **all** | 8286 | 1433 | 1249 | 2497 | 1101 | 1908 | 16474 |
 
 ## analysis
 
@@ -77,15 +77,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (1353 entries)
+### cli: rust-correct (1350 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
   The evidence is stated per entry (12 distinct; all in `cli.json`). The first, for `cli/*/questions` at `stdout.[1].options[4]`: Option 4 is now ISO 2768-fH, one of the requested twelve f/m/c/v × H/K/L combinations after the existing four plain classes. Default stays ISO 2768-m. In open-only CLI output the answered material question is removed, moving the general question from index 1 to 0. The served full question retains index 1. cli_datum_origins.json.gz pins every exact case/path/old/new value; tests/limits_and_classes.rs verifies the complete choices and mK PMI. Frozen Python captures remain unchanged.
 
-- **Absolute slash bounds are accepted by CLI answers** (6 entries, 1 case glob)
+- **Absolute slash bounds are accepted by CLI answers** (3 entries, 1 case glob)
 
-  The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `scenarios/callout_refused_8` at `scenario.questions.stderr`: The frozen scenario gives extra.1 size limits 6.58/6.62 on the plate’s Ø6.6 face 6. This requested unsigned slash grammar is now valid: questions exits 0 without the former invalid-answer stderr. Apply accepts the dimension and instead reports the still-unanswered required part.material question. cli_datum_origins.json.gz pins these exact three command envelope changes; rule_defaults_oracle.json.gz pins the corresponding accepted intent and tests/limits_and_classes.rs verifies Limits STEP write/read/resume. The original refused scenario and Python result are retained.
+  The frozen scenario gives extra.1 size limits 6.58/6.62 on the plate’s Ø6.6 face 6. This requested unsigned slash grammar is now valid: questions exits 0 without the former invalid-answer stderr. Apply accepts the dimension; write then writes it and lists the still-unanswered part.material in the report's missing (#228: gaps are not a refusal). cli_datum_origins.json.gz pins this case's exact command envelope changes (questions exit and stderr, apply refusal; its apply exit is pinned under #228); rule_defaults_oracle.json.gz pins the corresponding accepted intent and tests/limits_and_classes.rs verifies Limits STEP write/read/resume. The original refused scenario and Python result are retained.
 
 - **Shared planner report item in serve (#75)** (62 entries, 4 case globs)
 
