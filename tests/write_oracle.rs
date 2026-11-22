@@ -364,6 +364,24 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
                 json!({"error": kind, "message": e.to_string()})
             })
     })();
+    if c.name == "corpus/cadgenbench_inputs/cgb202" {
+        // The captured accept-all plan in int/7 and quiddity 0.5.5 both write 839
+        // dimensions under the general tolerance (the stock-side removals are separate).
+        let report = result
+            .as_ref()
+            .expect("CGB202 captured write should succeed");
+        let general_dimensions: Vec<_> = report["written"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .filter(|line| line.ends_with(" under the general tolerance"))
+            .collect();
+        assert_eq!(
+            general_dimensions,
+            ["839 dimensions under the general tolerance"]
+        );
+    }
     match (&c.report, &result) {
         (p, Ok(r)) if !is_error(p) => {
             for key in ["written", "not_written", "warnings"] {
