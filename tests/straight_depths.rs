@@ -1,4 +1,6 @@
 //! Straight axial depths use two physical endpoint aspects (CAx-IF PMI RP 4.1).
+mod common;
+
 use haecceity::{geom::Surface, p21::Document, pmi};
 use serde_json::{Value, json};
 use specify_core::{api, part, rules, writer};
@@ -95,7 +97,13 @@ fn write_depths_with_legacy_ids(
         }
     }
     let (bytes, report) = writer::write_bytes(&source, &intent, Some(&answers)).unwrap();
-    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
+    // The pin's datum diameter is omitted independently of the blind depth.
+    let expected: &[&str] = if name == "pin.step" {
+        &[common::PIN_DATUM_A_SIZE_OMISSION]
+    } else {
+        &[]
+    };
+    assert_eq!(report.not_written, expected);
     let doc = Document::parse(bytes).unwrap();
     let read = pmi::read(&doc, std::slice::from_ref(&source.definition)).unwrap();
     let p = read.parts.into_iter().next().unwrap();

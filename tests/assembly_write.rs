@@ -113,7 +113,11 @@ fn datum_count(path: &Path) -> usize {
 fn both_parts_are_written_and_verified() {
     let dir = temp("both");
     let (_, report, _) = written(&dir);
-    assert_eq!(report.not_written, Vec::<String>::new());
+    // Part attribution also applies to a skipped general diameter on datum A.
+    assert_eq!(
+        report.not_written,
+        [format!("pin: {}", common::PIN_DATUM_A_SIZE_OMISSION)]
+    );
     assert!(
         report
             .written

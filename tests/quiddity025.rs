@@ -110,7 +110,20 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
             bare.as_object_mut().unwrap().shift_remove(key);
         }
         let annotated = std::mem::replace(&mut a, bare);
-        let intent = rules::apply(&a, answers).unwrap();
+        // general dimensions are rows (Paul, 2026-11-21). Explicitly approve the
+        // standalone measurements to keep comparing all the historical spans.
+        let standalone =
+            |id: &str| id.starts_with("length:planes:") || id.starts_with("location:holes:");
+        let approved = |analysis: &Value| {
+            let mut approved = answers.clone();
+            for q in rules::questions(analysis, answers).unwrap() {
+                if standalone(&q.id) {
+                    approved.insert(q.id, q.default.unwrap());
+                }
+            }
+            approved
+        };
+        let intent = rules::apply(&a, &approved(&a)).unwrap();
         // Preserve the complete historical comparison on the legacy path. #75's
         // live path adds planner metadata and removes generated drill-floor rows;
         // it must still preserve every answered requirement and physical span.
@@ -123,7 +136,21 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
             .as_object_mut()
             .unwrap()
             .shift_remove("dimensioning_stated");
-        let mut legacy = rules::apply(&legacy_analysis, answers).unwrap().to_dict();
+        let mut legacy = rules::apply(&legacy_analysis, &approved(&legacy_analysis))
+            .unwrap()
+            .to_dict();
+        let remove_standalone_id = |row: &mut Map<String, Value>| {
+            if row
+                .get("question")
+                .and_then(Value::as_str)
+                .is_some_and(standalone)
+            {
+                row.shift_remove("question");
+            }
+        };
+        for row in legacy["general"].as_array_mut().unwrap() {
+            remove_standalone_id(row.as_object_mut().unwrap());
+        }
         let mut prior = base["intent"].clone();
         // Only identity fields change; literal notes and every other value stay exact.
         for list in ["requirements", "general"] {
@@ -172,6 +199,7 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
                     let map = r.as_object_mut().unwrap();
                     map.shift_remove("planner");
                     if general {
+                        remove_standalone_id(map);
                         // Anonymous plane rows can acquire the shared support's name;
                         // physical endpoints, nominal and tolerance remain authoritative.
                         map.shift_remove("feature");

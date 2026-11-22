@@ -146,8 +146,32 @@ fn golden_oriented_slots_end_planes_questions_defaults_and_written_pmi_move_rigi
         let read = part::load(&written, None).unwrap();
         let pmi = serde_json::to_value(existing::read_existing(&read).unwrap()).unwrap();
         if let Some((base, base_qs, base_answers, base_pmi)) = &reference {
-            assert_eq!(&qs, base_qs, "{name}: questions/defaults");
-            assert_eq!(&answers, base_answers, "{name}: accepted defaults");
+            let (mut expected_questions, mut expected_answers) =
+                (base_qs.clone(), base_answers.clone());
+            if name == "mixed" {
+                // general dimensions are rows (Paul, 2026-11-21). The mixed pose reverses
+                // two unsigned lengths, keeping their IDs, supports, nominals and tolerances.
+                let rows = expected_questions.as_array_mut().unwrap();
+                for (id, face, text) in [
+                    ("length:planes:0-5", 0, "120 ±0.3 from face 5"),
+                    ("length:planes:1-3", 1, "90 ±0.3 from face 3"),
+                ] {
+                    let row = rows.iter_mut().find(|q| q["id"] == id).unwrap();
+                    row["faces"] = json!([face]);
+                    row["prompt"] = json!(format!("Length {text}?"));
+                    row["default"] = json!(text);
+                    row["options"][0] = json!(text);
+                    expected_answers.insert(id.into(), json!(text));
+                }
+                let first = rows
+                    .iter()
+                    .position(|q| q["id"] == "length:planes:0-5")
+                    .unwrap();
+                let first_length = rows.remove(first);
+                rows.push(first_length);
+            }
+            assert_eq!(qs, expected_questions, "{name}: questions/defaults");
+            assert_eq!(answers, expected_answers, "{name}: accepted defaults");
             compare_numbers(&pmi, base_pmi);
             for f in slots {
                 let old = base["features"]

@@ -787,6 +787,119 @@ impl Reading {
     }
 }
 
+/// What `pmi` states, as `existing` items read back would list it (kind, type, faces, the
+/// located side and a location's value), without a document: a plan's PMI before it is
+/// written, for the feature table's matching. Datums, notes on faces (threads, knurls, hole
+/// notes, finishes) and tolerances are included.
+pub(crate) fn items_of(pmi: &PartPmi) -> Vec<Value> {
+    let item = |kind: &str, r#type: &str, faces: Vec<usize>| {
+        let mut m = Map::new();
+        m.insert("kind".into(), Value::from(kind));
+        m.insert("type".into(), Value::from(r#type));
+        m.insert("faces".into(), Value::from(faces));
+        m
+    };
+    let mut out = Vec::new();
+    for d in &pmi.dimensions {
+        let mut m = match &d.kind {
+            DimensionKind::Size {
+                feature,
+                kind,
+                path,
+                angle,
+            } => item(
+                "dimension",
+                size_type(kind, path.is_some(), angle.is_some()),
+                faces_of(pmi, &[*feature]),
+            ),
+            DimensionKind::Location {
+                from,
+                to,
+                kind,
+                path,
+                angle,
+                ..
+            } => {
+                let mut m = item(
+                    "dimension",
+                    location_type(kind, path.is_some(), angle.is_some()),
+                    faces_of(pmi, &[*from]),
+                );
+                m.insert("faces2".into(), Value::from(faces_of(pmi, &[*to])));
+                m
+            }
+        };
+        if let Some(n) = &d.nominal {
+            m.insert("value".into(), Value::from(value(n)));
+        }
+        out.push(Value::Object(m));
+    }
+    for t in &pmi.tolerances {
+        let faces = match &t.target {
+            ToleranceTarget::Feature(f) => faces_of(pmi, &[*f]),
+            ToleranceTarget::Dimension(d) => match pmi.dimensions.get(d.0).map(|d| &d.kind) {
+                Some(DimensionKind::Size { feature, .. }) => faces_of(pmi, &[*feature]),
+                Some(DimensionKind::Location { from, to, .. }) => faces_of(pmi, &[*from, *to]),
+                None => Vec::new(),
+            },
+            ToleranceTarget::Relation {
+                relating, related, ..
+            } => faces_of(pmi, &[*relating, *related]),
+            ToleranceTarget::WholePart => Vec::new(),
+        };
+        out.push(Value::Object(item(
+            "geometric_tolerance",
+            tolerance_type(t.kind),
+            faces,
+        )));
+    }
+    for d in &pmi.datums {
+        let faces = faces_of(pmi, &d.feature().into_iter().collect::<Vec<_>>());
+        out.push(Value::Object(item("datum", d.label().as_str(), faces)));
+    }
+    for t in &pmi.threads {
+        let kind = match t.side {
+            pmi::ThreadSide::Internal => "internal thread",
+            pmi::ThreadSide::External => "external thread",
+        };
+        out.push(Value::Object(item(
+            "note",
+            kind,
+            faces_of(pmi, &[t.feature]),
+        )));
+    }
+    for k in &pmi.knurls {
+        out.push(Value::Object(item(
+            "note",
+            "knurl",
+            faces_of(pmi, &[k.feature]),
+        )));
+    }
+    for set in &pmi.attributes {
+        if let Some(pmi::NoteOwner::Feature(f)) = set.on
+            && set.name == crate::writer::SEMANTIC_TEXT
+        {
+            for (name, v) in &set.items {
+                if let pmi::AttributeValue::Text(words) = v
+                    && name == crate::writer::HOLE_NOTE
+                {
+                    out.push(Value::Object(item("note", words, faces_of(pmi, &[f]))));
+                }
+            }
+        }
+    }
+    for t in &pmi.surface_textures {
+        if let Some(f) = t.on {
+            out.push(Value::Object(item(
+                "note",
+                "surface finish",
+                faces_of(pmi, &[f]),
+            )));
+        }
+    }
+    out
+}
+
 /// Whether `set` is a ± general tolerance written as a note on the part (`docs/process.md`).
 fn is_general_tolerance_note(set: &pmi::AttributeSet) -> bool {
     general_tolerance_text(set).is_some()

@@ -95,11 +95,11 @@ Read first:
   location, nominal only) as a side effect. Each is written when its own question is approved
   (`hole.function`/`diameter.fit` for a size, `hole.position`/`hole.location` for a hole's
   location); until then the feature table keeps those rows as gaps with their suggestions.
-  Dimensions no question asks about (plane levels) are written once no question is open.
-  "Accept suggestions" and `write --accept-defaults` approve every suggestion, so they write the
-  whole set as before. The writer's upgrade of an old intent without planner rows follows the
-  same rule. Replaces the narrower rule that only held back a hole's general location or size
-  while its position or function was open.
+- **General dimensions have rows** (Paul, 2026-11-21). Plane lengths and hole locations
+  without an owning question appear as optional gaps with suggestions such as `14 ±0.2 from B`.
+  Approve a row individually, accept the suggestions together, or use `write --accept-defaults`.
+  Answer `none` to record that the dimension is unnecessary. Measurements already in the file
+  show as stated.
 - **`diff` reads only the PMI in the two files** ([ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md),
   0.3.0 use case 6): reviewing a requirement change is `specify-core diff OLD NEW` between two
   annotated files. It lists requirements added, removed and changed per feature, with their
@@ -233,9 +233,11 @@ Read first:
   list's change), not an answer"); one equal to what the file states is a no-op, as on the
   command line. Before, it accepted the answer and the save left it out.
 - An approval the planner writes nothing for (a ⌀ left to the general tolerance on a datum's own
-  faces) is no longer dropped silently: `not_written` says so, it is stored (`no_pmi`), and on
-  reopening its row is decided, so `write --accept-defaults` on the saved file no longer
-  refuses "incomplete".
+  faces) is no longer dropped silently: `not_written` says what was approved and that nothing
+  of its kind was written, it is stored (`no_pmi`), and on reopening its row is decided on every
+  route (the command line's `questions` and `write` and `serve` now take the file's stored
+  decisions as answered, as the sessions do), so `questions --open` no longer lists it and a
+  plain `write` of the saved file no longer refuses "incomplete".
 - A location the planner shares across several holes is written unless the file already
   locates every one of them: on NIST CTC-05, 263.525 from face 9 to holes 37, 51/53 and 54/56
   was left out because hole 37 (datum B) is located, and the other holes lost their only x

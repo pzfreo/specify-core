@@ -144,7 +144,11 @@ for (const [part, path] of parts) {
       const listed = resumed._specify ? { ...accepted, _specify: resumed._specify } : accepted;
       assert.deepEqual(resumed, storable(listed));
     } finally { acceptedReopened.free(); }
-    const edited = { ...accepted, 'part.general_tolerance': 'ISO 2768-f' };
+    // general dimensions are rows (Paul, 2026-11-21). The new class changes their
+    // suggestions, so remove the approvals that were for the other class.
+    const edited = Object.fromEntries(Object.entries(accepted)
+      .filter(([id]) => !id.startsWith('length:planes:') && !id.startsWith('location:holes:')));
+    edited['part.general_tolerance'] = 'ISO 2768-f';
     assert.equal(JSON.parse(engine.acceptDefaults(JSON.stringify(edited)))['part.general_tolerance'], 'ISO 2768-f');
     // ADR P11 (D5b): a general tolerance the file states stands; a different answer is not
     // written over it (changing it is an explicit edit), so the intent carries none.
