@@ -798,6 +798,182 @@ fn an_answers_file_replaces_only_an_answer_map_without_overwrite() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Open a plate whose material actually reads back from the STEP.
+fn plate_with_brass(server: &mut Server, dir: &Path) -> PathBuf {
+    let path = dir.join("plate.step");
+    std::fs::copy(part("plate"), &path).unwrap();
+    let opened = call(server, "open", json!({"path": path, "in_place": true}));
+    let doc = &opened["structuredContent"]["doc"];
+    let saved = call(
+        server,
+        "save",
+        json!({"doc": doc, "edits": {"fill": {"part.material": "Brass"}}}),
+    );
+    assert_eq!(saved["isError"], false, "{saved}");
+    path
+}
+
+#[test]
+fn opening_legacy_answers_refuses_a_stated_row_in_the_page_and_preview() {
+    let dir = scratch("import-stated");
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let path = plate_with_brass(&mut server, &dir);
+    let baseline = call(&mut server, "open", json!({"path": path}));
+    let old_doc = &baseline["structuredContent"]["doc"];
+    let from_answer = error_of(
+        &mut server,
+        "answer",
+        json!({"doc": old_doc, "set": {"part.material": "Bronze"}}),
+    );
+    let preview = call(&mut server, "characteristics", json!({"doc": old_doc}));
+    let answers = dir.join("answers.json");
+    let imported = json!({"part.material": "Bronze"});
+    std::fs::write(&answers, imported.to_string()).unwrap();
+    // A fresh session must report the refusal even when no page has subscribed yet.
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let opened = call(
+        &mut server,
+        "open",
+        json!({"path": path, "answers_file": answers}),
+    );
+    assert_eq!(opened["isError"], false, "{opened}");
+    let opened = &opened["structuredContent"];
+    let doc = &opened["doc"];
+    assert_eq!(opened["answered"], 0, "a refused entry is not an answer");
+    assert_eq!(opened["refused"]["part.material"], from_answer["message"]);
+    let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
+    let url = shown["structuredContent"]["url"].as_str().unwrap();
+    let (status, snapshot) = page(url, "GET", "answers", None);
+    assert_eq!(status, 200, "{snapshot}");
+    assert!(
+        snapshot["parts"]["0"].get("part.material").is_none(),
+        "{snapshot}"
+    );
+    assert_eq!(
+        snapshot["drafts"]["0"]["refused"]["part.material"],
+        from_answer["message"]
+    );
+    let next = call(&mut server, "characteristics", json!({"doc": doc}));
+    assert_eq!(
+        next["structuredContent"]["intent"],
+        preview["structuredContent"]["intent"]
+    );
+    let saved = call(&mut server, "save", json!({"doc": doc, "edits": {}}));
+    assert_eq!(saved["isError"], false, "{saved}");
+    let saved = &saved["structuredContent"];
+    assert_eq!(saved["report"]["written"], json!([]), "{saved}");
+    let table = &saved["table"]["rows"].as_array().unwrap();
+    let material = table
+        .iter()
+        .find(|row| row["id"] == "part.material")
+        .unwrap();
+    assert_eq!(material["value"], "Brass");
+    let on_disk: Value = serde_json::from_slice(&std::fs::read(answers).unwrap()).unwrap();
+    assert_eq!(
+        on_disk, imported,
+        "open preserves rejected entries in the source file"
+    );
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_equal_answer_clears_only_its_earlier_refusal() {
+    let dir = scratch("equal-clears-refusal");
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let path = plate_with_brass(&mut server, &dir);
+    let answers = dir.join("answers.json");
+    std::fs::write(&answers, json!({"datum.A": [9999]}).to_string()).unwrap();
+    let opened = call(
+        &mut server,
+        "open",
+        json!({"path": path, "answers_file": answers}),
+    );
+    let datum_refusal = &opened["structuredContent"]["refused"]["datum.A"];
+    assert!(
+        datum_refusal
+            .as_str()
+            .is_some_and(|reason| reason.contains("9999")),
+        "{opened}"
+    );
+    let doc = &opened["structuredContent"]["doc"];
+    let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
+    let url = shown["structuredContent"]["url"].as_str().unwrap();
+    let refusal = error_of(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "Bronze"}}),
+    );
+    let (_, snapshot) = page(url, "GET", "answers", None);
+    assert_eq!(
+        snapshot["drafts"]["0"]["refused"]["part.material"],
+        refusal["message"]
+    );
+    let equal = call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "Brass"}}),
+    );
+    assert_eq!(
+        equal["structuredContent"]["set"][0]["state"], "stated",
+        "{equal}"
+    );
+    assert_eq!(
+        equal["structuredContent"]["rev"],
+        snapshot["rev"].as_u64().unwrap() + 1
+    );
+    let (_, snapshot) = page(url, "GET", "answers", None);
+    assert!(
+        snapshot["drafts"]["0"]["refused"]
+            .get("part.material")
+            .is_none(),
+        "{snapshot}"
+    );
+    assert!(
+        snapshot["parts"]["0"].get("part.material").is_none(),
+        "{snapshot}"
+    );
+    assert_eq!(
+        snapshot["drafts"]["0"]["refused"]["datum.A"],
+        *datum_refusal
+    );
+    let accepted = call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"datum.A": [2]}}),
+    );
+    assert_eq!(accepted["isError"], false, "{accepted}");
+    let (_, snapshot) = page(url, "GET", "answers", None);
+    assert!(
+        snapshot["drafts"]["0"]["refused"].get("datum.A").is_none(),
+        "{snapshot}"
+    );
+    assert_eq!(snapshot["parts"]["0"]["datum.A"], json!([2]));
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn save_advertises_the_returned_table_and_excludes_refusals() {
+    let tools = specify_core::mcp::tools();
+    let save = tools.iter().find(|tool| tool["name"] == "save").unwrap();
+    assert_eq!(
+        save["outputSchema"]["properties"]["table"]["type"],
+        "object"
+    );
+    assert!(
+        save["description"]
+            .as_str()
+            .unwrap()
+            .contains("Refused answers are left out")
+    );
+    let save_row = include_str!("../docs/mcp.md")
+        .lines()
+        .find(|line| line.starts_with("| `save` |"))
+        .unwrap();
+    assert!(save_row.contains("`table`"), "{save_row}");
+}
+
 #[test]
 fn unknown_and_stale_handles_are_refused_and_overwriting_needs_consent() {
     let dir = scratch("handles");
