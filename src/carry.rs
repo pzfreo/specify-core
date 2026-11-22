@@ -691,6 +691,12 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
         if is_datum_letter(&row.kind) {
             // Checked above: its faces are matched in NEW.
             value = json!(mapped(&datum_faces(row), &map).unwrap_or_default());
+        } else if crate::rules::general_rows::is_id(&row.id) {
+            use crate::rules::general_rows::measure_text;
+            let offered = target.suggestion.as_ref();
+            if let Some(suggestion) = offered.filter(|s| measure_text(s) == measure_text(&value)) {
+                value = suggestion.clone();
+            }
         }
         list.fill.insert(target.id.clone(), value.clone());
         let check = moved(&row.faces, &revised, &old_features).or(datum_check);
@@ -763,7 +769,7 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
     let mut applied = crate::writer::apply::apply_numbered(new, &list, numbers);
     for _ in 0..list.len() {
         let Err(failures) = &applied else { break };
-        let Some(pruned) = prunable(failures, &report) else {
+        let Some(pruned) = prunable(failures, &report, &list) else {
             break;
         };
         for (id, why) in pruned {
@@ -825,9 +831,26 @@ fn refused(mut report: Report, failures: Vec<Failure>) -> Outcome {
 /// nothing on the new part as it is (its feature changed so that the answer has nothing to
 /// apply to, or it wants a datum or the general tolerance the new revision does not have). `None` when any failure
 /// is of another kind: then the whole carry is refused.
-fn prunable(failures: &[Failure], report: &Report) -> Option<Vec<(String, String)>> {
+fn prunable(
+    failures: &[Failure],
+    report: &Report,
+    list: &EditList,
+) -> Option<Vec<(String, String)>> {
     let mut out = Vec::new();
     for f in failures {
+        // The rule planner refuses a changed measurement before it can plan the list.
+        // A standalone row still has its own id in that diagnostic.
+        if f.entry == "(the whole list)"
+            && let Some((id, _)) = f.reason.split_once(": choose ")
+            && crate::rules::general_rows::is_id(id)
+            && list.fill.contains_key(id)
+        {
+            out.push((
+                id.to_owned(),
+                format!("the new revision cannot take it: {}", f.reason),
+            ));
+            continue;
+        }
         let id = f
             .entry
             .strip_prefix("fill[")
@@ -1299,7 +1322,7 @@ mod tests {
                 reason: "[19] is not an answer to datum.B".into(),
             }],
         ] {
-            assert_eq!(prunable(&failures, &report), None);
+            assert_eq!(prunable(&failures, &report, &EditList::default()), None);
             let outcome = refused(report.clone(), failures.clone());
             assert!(outcome.bytes.is_none() && !outcome.report.written);
             assert_eq!(outcome.report.refused, failures);
@@ -1311,6 +1334,9 @@ mod tests {
             entry: "fill[\"datum.B\"]".into(),
             reason: "[19] is not an answer to datum.B".into(),
         }];
-        assert_eq!(prunable(&failures, &report).unwrap()[0].0, "datum.B");
+        assert_eq!(
+            prunable(&failures, &report, &EditList::default()).unwrap()[0].0,
+            "datum.B"
+        );
     }
 }

@@ -734,6 +734,25 @@ pub(crate) fn planned_intent(
     }
     let mut answers = choices.clone();
     answers.extend(given.iter().map(|(id, v)| (id.clone(), v.clone())));
+    // Approval names the supports by id. A datum in the same list can relabel the
+    // reference without changing the value the table offered.
+    if given.iter().any(|(id, value)| {
+        crate::rules::general_rows::is_id(id)
+            && table.row(id).and_then(|r| r.suggestion.as_ref()) == Some(value)
+    }) {
+        let ctx = crate::rules::Ctx::new(&analysis_clean).map_err(|e| e.to_string())?;
+        for offered in crate::rules::dimension_suggestions(&ctx, &answers) {
+            let id = &offered.question.id;
+            let Some(value) = given.get(id) else { continue };
+            if table.row(id).and_then(|r| r.suggestion.as_ref()) == Some(value)
+                && let Some(default) = offered.question.default
+                && crate::rules::general_rows::measure_text(value)
+                    == crate::rules::general_rows::measure_text(&default)
+            {
+                answers.insert(id.clone(), default);
+            }
+        }
+    }
     let mut intent = crate::rules::preview(&analysis_clean, &answers).map_err(|e| e.to_string())?;
     let addressed = |item: &Map<String, Json>| {
         item.get("question")

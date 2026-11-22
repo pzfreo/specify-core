@@ -177,6 +177,28 @@ fn a_bare_new_revision_with_changed_geometry_gets_everything_it_can() {
     for r in before["rows"].as_array().unwrap() {
         if r["state"] == "stated" {
             let id = r["id"].as_str().unwrap();
+            // The chamfer changes the reference supports of these general rows. Locating
+            // their other side is insufficient to carry a measurement onto the new file.
+            if [
+                "length:planes:1-9",
+                "length:planes:1-5",
+                "length:planes:1-3",
+                "length:planes:2.6-10",
+                "location:holes:2.6-13",
+            ]
+            .contains(&id)
+            {
+                let omitted = report
+                    .not_carried
+                    .iter()
+                    .find(|n| n.id.as_deref() == Some(id))
+                    .unwrap();
+                assert!(
+                    omitted.reason.contains("does not offer")
+                        || omitted.reason.contains("measurement support")
+                );
+                continue;
+            }
             let entry = report
                 .carried
                 .iter()
