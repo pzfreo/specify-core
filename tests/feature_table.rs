@@ -33,6 +33,100 @@ fn row<'a>(table: &'a Value, id: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no row {id} in {table}"))
 }
 
+#[test]
+fn ctc05_pattern_answers_are_stated_after_reopening() {
+    // CTC-05 AP242 has the same holes as the corpus AP203 input, with faces 78–89.
+    for (index, mut part) in [fixture("nist/nist_ctc_05_asme1_ap242.stp.gz")]
+        .into_iter()
+        .chain(
+            common::corpus_dir()
+                .map(|root| load(&root.join("nist/nist_ctc_05_asme1_rd.stp"), None).unwrap()),
+        )
+        .enumerate()
+    {
+        let (before, _) = table(&part);
+        let feature = before["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|r| {
+                (r["kind"] == "hole.position"
+                    && r["suggestion"] == "0.72"
+                    && r["feature"].as_str()?.starts_with("hole_patterns.linear:"))
+                .then(|| r["feature"].as_str().unwrap())
+            })
+            .expect("CTC-05 clearance pattern");
+        let function = format!("hole.function:{feature}");
+        let position = format!("hole.position:{feature}");
+        let mut answers = map(json!({function.clone(): "clearance:M10", position.clone(): "0.72"}));
+        let analysis = api::analyse(&part).unwrap();
+        for q in api::questions(&analysis, &answers).unwrap() {
+            if matches!(q.id.as_str(), "datum.A" | "datum.B") {
+                answers.insert(q.id, q.default.unwrap());
+            }
+        }
+        let (intent, _) = specify_core::session::intent_for(&part, &analysis, &answers).unwrap();
+        let (saved, _) = specify_core::writer::write_bytes(&part, &intent, Some(&answers)).unwrap();
+        part = load_bytes("ctc05.step", saved).unwrap();
+        let analysis = api::analyse(&part).unwrap();
+        let after = &analysis["table"];
+        for (id, requirement) in [(&function, "⌀10.7163 H11"), (&position, "⌖ ⌀0.72Ⓜ A B")]
+        {
+            let r = row(after, id);
+            assert_eq!(r["state"], "stated", "{id}: {r}");
+            assert!(!r["faces"].as_array().unwrap().is_empty(), "{r}");
+            if index == 0 {
+                assert_eq!(r["faces"], json!([79, 81, 83, 85, 87, 89]), "{r}");
+            }
+            assert!(r["value"].as_str().unwrap().contains(requirement), "{r}");
+            assert!(
+                !after["file_pmi"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|r| r["text"] == requirement),
+                "{id}"
+            );
+        }
+        let (intent, _) = specify_core::session::intent_for(&part, &analysis, &answers).unwrap();
+        let (saved_again, report) =
+            specify_core::writer::write_bytes(&part, &intent, Some(&answers)).unwrap();
+        assert!(report.written.is_empty(), "{report:?}");
+        assert_eq!(
+            table(&load_bytes("ctc05.step", saved_again).unwrap()).0,
+            *after,
+            "{report:?}"
+        );
+    }
+}
+
+#[test]
+fn corpus_feature_rows_that_can_write_pmi_have_faces() {
+    for case in common::cases() {
+        let Some(input) = case.input() else { continue };
+        let Ok(part) = load(&input, case.part()) else {
+            continue;
+        };
+        let (table, _) = table(&part);
+        for row in table["rows"].as_array().unwrap() {
+            // A datum selector with no suggested faces acquires its support from the
+            // answer. Its empty suggestion, by itself, writes no PMI.
+            let unselected_datum = row["kind"].as_str().is_some_and(|kind| {
+                kind.strip_prefix("datum.")
+                    .is_some_and(|letter| letter.len() == 1)
+            }) && row["suggestion"] == json!([]);
+            if !unselected_datum {
+                assert!(
+                    !row["faces"].as_array().unwrap().is_empty(),
+                    "{}: {}",
+                    case.name,
+                    row["id"]
+                );
+            }
+        }
+    }
+}
+
 /// The rows as (id, state, value), and the file PMI's notation: what the table says,
 /// without characteristic numbers.
 fn shape(table: &Value) -> (Vec<(String, String, Value)>, Vec<String>) {
