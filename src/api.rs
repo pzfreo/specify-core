@@ -646,6 +646,19 @@ pub fn stored_with_defaults(
     Ok(out)
 }
 
+/// The accepted defaults for a write. The writer decides what leaves no PMI
+/// after reconciling the intent with the file, including skipped measurements.
+pub(crate) fn defaults_for_write(
+    analysis: &Value,
+    answers: &Map<String, Value>,
+) -> Result<Map<String, Value>> {
+    let mut approved = rules::with_all_defaults(analysis, answers)?;
+    if !answers.contains_key(crate::process::QUESTION) {
+        approved.shift_remove(crate::process::QUESTION);
+    }
+    Ok(approved)
+}
+
 /// Approved defaults by part (ADR P9): each question id with the default value the person saw.
 pub type Approved = std::collections::BTreeMap<usize, Map<String, Value>>;
 

@@ -545,14 +545,9 @@ fn write(
             crate::bom::accept_suggestions(&analysis, &answers, &mut intent)
                 .map_err(Exit::error)?;
         }
-        // Every default taken: those that write no PMI are stored with the answers (ADR P9).
-        // A part that cannot be loaded or planned stores what was given; the write refuses it.
+        // The writer stores the approvals that leave no PMI after reconciliation (ADR P11).
         let answers = if accept_defaults {
-            let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
-            part::load(step, Some(index))
-                .ok()
-                .and_then(|loaded| api::stored_with_defaults(&loaded, &analysis, &answers).ok())
-                .unwrap_or(answers)
+            api::defaults_for_write(&analysis, &answers).map_err(refused)?
         } else {
             answers
         };

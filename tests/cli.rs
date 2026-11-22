@@ -1170,7 +1170,14 @@ fn composition(dir: &Path) -> Vec<Difference> {
                         )),
                         "{file} part {part}"
                     );
-                    intents.push((intent, Some(stored)));
+                    // Pass every approved value to the writer, which can tell
+                    // which approvals survive reconciliation against the file.
+                    let given = object(&base);
+                    let mut approved = rules::with_all_defaults(analysis, &given).unwrap();
+                    if !given.contains_key(specify_core::process::QUESTION) {
+                        approved.shift_remove(specify_core::process::QUESTION);
+                    }
+                    intents.push((intent, Some(approved)));
                 }
                 Err(e) => {
                     // An assembly's refusal names the part (as main.rs words it).

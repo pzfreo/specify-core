@@ -164,11 +164,17 @@ fn ctc05_pattern_answers_are_stated_after_reopening() {
 #[test]
 fn accepting_corpus_defaults_leaves_no_open_rows() {
     let scratch = scratch("corpus");
-    for (index, case) in common::cases().into_iter().enumerate() {
+    let mut cases = common::cases();
+    cases.sort_by_key(|case| case.kind() == "corpus");
+    let mut seen = BTreeSet::new();
+    for (index, case) in cases.into_iter().enumerate() {
         let Some(input) = case.input() else { continue };
         let Ok(part) = load(&input, case.part()) else {
             continue;
         };
+        if !seen.insert((input, part.binding.part)) {
+            continue;
+        }
         let analysis = api::analyse(&part).unwrap();
         let mut answers = Map::new();
         if analysis["table"]["rows"]

@@ -942,8 +942,13 @@ fn part_pmi_added(
             "{line}: the file already states it; not written again"
         ));
     }
-    // The intent's requirements the plan made PMI from (those the file states included).
-    let made = sources.into_iter().map(|(_, req)| req).collect();
+    // An approval that made no new PMI is decided only after checking whether
+    // the file actually states the same question on its original support.
+    let made = sources
+        .into_iter()
+        .filter(|(at, _)| !by_kind.contains(at))
+        .map(|(_, req)| req)
+        .collect();
     Ok((pmi, lines, made))
 }
 

@@ -901,6 +901,7 @@ fn stated_setting<'a>(settings: &'a Map<String, Value>, id: &str) -> Option<&'a 
 fn feature_support(
     ctx: &crate::rules::Ctx<'_>,
     feature: &str,
+    bores_only: bool,
 ) -> Result<Vec<i64>, crate::rules::Error> {
     let Ok(target) = ctx.feature(feature) else {
         return Ok(Vec::new());
@@ -916,7 +917,7 @@ fn feature_support(
             support
                 .iter()
                 .copied()
-                .filter(|&f| ctx.faces.at(f).is_ok_and(|face| face.is_cylinder())),
+                .filter(|&f| !bores_only || ctx.faces.at(f).is_ok_and(|face| face.is_cylinder())),
         );
         if faces.len() == start {
             faces.extend_from_slice(support);
@@ -1015,7 +1016,7 @@ pub(crate) fn build_with_depths(
                 .chain((q.parts.is_empty() && q.faces.is_empty()).then_some(feature.as_str()));
             for id in missing {
                 faces.extend(
-                    feature_support(&bare_ctx, id)?
+                    feature_support(&bare_ctx, id, true)?
                         .into_iter()
                         .filter_map(|f| usize::try_from(f).ok()),
                 );
@@ -1086,13 +1087,25 @@ pub(crate) fn build_with_depths(
                 }
             }
         } else {
+            let mut support = faces.clone();
+            if kind == "hole.function" {
+                for id in
+                    std::iter::once(feature.as_str()).chain(q.parts.iter().map(|p| p.0.as_str()))
+                {
+                    support.extend(
+                        feature_support(&bare_ctx, id, false)?
+                            .into_iter()
+                            .filter_map(|f| usize::try_from(f).ok()),
+                    );
+                }
+            }
             let mut has_requirement = false;
             for (i, item) in existing.iter().enumerate() {
-                let states_kind = states(&kind, &faces, item);
+                let states_kind = states(&kind, &support, item);
                 let hole_depth = kind == "hole.function"
                     && depths
                         .get(&i)
-                        .is_some_and(|support| !faces.is_disjoint(support));
+                        .is_some_and(|measured| !support.is_disjoint(measured));
                 if states_kind || hole_depth {
                     claimed[i] = true;
                     requirements.push(requirement(item));
