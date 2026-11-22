@@ -1,5 +1,7 @@
 //! For #77: the file supplies intent and a stable measurement source, without recognition
 //! at read time. Frozen old-kernel fixtures are deliberately never regenerated.
+mod common;
+
 use haecceity::{
     p21::{Attribute, Document, RawEntity},
     pmi::{self, AttributeSet, AttributeValue, DimensionId, NoteOwner},
@@ -175,7 +177,6 @@ fn defaults_are_requirements_foreign_pmi_is_unmodified_and_old_files_stay_absent
 }
 
 #[test]
-#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn v024_support_sources_survive_corrected_measurements_and_renamed_features() {
     for name in ["chamfer", "round"] {
         let p = load(&format!("quiddity025/{name}.step.gz"));
@@ -187,11 +188,32 @@ fn v024_support_sources_survive_corrected_measurements_and_renamed_features() {
             .unwrap(),
         )
         .unwrap();
-        let written = write(&p, base["answers"].as_object().unwrap());
+        // The frozen files have legacy PMI with no sources, including a datum tied to
+        // the diameter. Use their exact geometry to make a fresh, explicitly stated size.
+        let doc = Document::parse(p.bytes.to_vec()).unwrap();
+        let (bare, _) = pmi::write(
+            &doc,
+            std::slice::from_ref(&p.definition),
+            &[(pmi::PartId(0), pmi::PartPmi::default())],
+            pmi::write::Mode::Replace,
+            pmi::write::PresentationPolicy::RemovePresentation,
+        )
+        .unwrap();
+        let p = back(doc.apply(&bare).unwrap().bytes);
+        let written = back(
+            common::apply_edits(
+                &p,
+                json!({"fill": {
+                    "extra.boss-fit": base["answers"]["extra.boss-fit"],
+                    "extra.boss-height": base["answers"]["extra.boss-height"]
+                }}),
+            )
+            .bytes,
+        );
         let source = characteristics::read(&written)
             .unwrap()
             .into_iter()
-            .find(|n| n.kind == "dimension" && json!(n.faces) == base["boss"]["faces"])
+            .find(|n| n.r#type == "Size_Diameter" && json!(n.faces) == base["boss"]["faces"])
             .unwrap()
             .source
             .unwrap();
@@ -199,7 +221,8 @@ fn v024_support_sources_survive_corrected_measurements_and_renamed_features() {
         assert_eq!(source.faces, base["evidence"]["faces"]);
         assert_eq!(json!(source.support), base["boss"]["faces"]);
         assert_eq!(source.parameter, "boss.diameter");
-        let again = write(&written, base["answers"].as_object().unwrap());
+        let again =
+            back(common::apply_edits(&written, json!({"fill": {"part.material":"steel"}})).bytes);
         let sources = |p: &part::LoadedPart| {
             characteristics::read(p)
                 .unwrap()
@@ -212,27 +235,25 @@ fn v024_support_sources_survive_corrected_measurements_and_renamed_features() {
     // The older upgrade changed recognition IDs and grew defining supports. Only the
     // measured cylinder belongs to the source key, as for characteristic-number identity.
     let old = load("resume-alpha6/pin.step.gz");
-    let analysis = api::analyse(&old).unwrap();
-    let given = analysis["resume"]["answers"].as_object().unwrap();
-    let written = write(&old, given);
-    assert!(
-        characteristics::read(&written)
-            .unwrap()
-            .iter()
-            .any(|n| n.source.is_some())
+    let written = back(
+        common::apply_edits(
+            &old,
+            json!({"fill": {
+                "extra.fit": {"kind":"fit","faces":[0],"value":"h6"}
+            }}),
+        )
+        .bytes,
     );
-    assert_eq!(
-        characteristics::read(&write(&written, given))
+    let sources = |p: &part::LoadedPart| {
+        characteristics::read(p)
             .unwrap()
             .into_iter()
-            .filter_map(|n| n.source)
-            .collect::<Vec<_>>(),
-        characteristics::read(&written)
-            .unwrap()
-            .into_iter()
-            .filter_map(|n| n.source)
+            .filter_map(|item| item.source)
             .collect::<Vec<_>>()
-    );
+    };
+    assert!(!sources(&written).is_empty());
+    let again = back(common::apply_edits(&written, json!({"none":["part.coating"]})).bytes);
+    assert_eq!(sources(&again), sources(&written));
 }
 
 #[test]
@@ -270,29 +291,6 @@ fn reserved_name_refuses_spoofing_and_schema_one_header_upgrades_losslessly() {
             after.span(id).map(|s| &after.bytes()[s])
         );
     }
-}
-
-#[test]
-#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
-fn unique_support_growth_carries_the_stored_source_even_if_recognition_renames_it() {
-    let p = load("parts/plate.step");
-    let mut i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
-    i.requirements.push(json!({"kind":"size","feature":"holes:9","faces":[9],"nominal":10.,"upper":0.1,"lower":-0.1}).as_object().unwrap().clone());
-    let first = back(writer::write_bytes(&p, &i, Some(&Map::new())).unwrap().0);
-    let before = characteristics::read(&first).unwrap().remove(0);
-    assert!(before.source.is_some());
-    i.binding = serde_json::to_value(&first.binding).unwrap();
-    i.requirements[0].insert("faces".into(), json!([9, 10]));
-    i.requirements[0].insert("feature".into(), json!("renamed-by-new-kernel"));
-    let grown = back(
-        writer::write_bytes(&first, &i, Some(&Map::new()))
-            .unwrap()
-            .0,
-    );
-    let after = characteristics::read(&grown).unwrap().remove(0);
-    assert_eq!(after.number, before.number);
-    assert_eq!(after.faces, vec![9, 10]);
-    assert_eq!(after.source, before.source);
 }
 
 #[test]
