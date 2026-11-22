@@ -1,4 +1,6 @@
 //! Limits and combined ISO 2768 classes preserve their meaning across all public views.
+mod common;
+
 use haecceity::{p21::Document, pmi};
 use serde_json::{Map, Value, json};
 use specify_core::{
@@ -62,7 +64,6 @@ fn notation(scene: &Value) -> String {
         .join("; ")
 }
 #[test]
-#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn answered_size_and_plate_thickness_round_trip_as_limits() {
     let p = plate();
     let answers = given("7.8/8.2", "9.8/10.2");
@@ -86,7 +87,17 @@ fn answered_size_and_plate_thickness_round_trip_as_limits() {
             );
         }
     }
-    let written = write(&p, &answers);
+    let applied = common::apply_edits(&p, json!({"fill": answers}));
+    assert!(
+        applied
+            .report
+            .written
+            .iter()
+            .any(|line| line.contains("7.8/8.2")),
+        "{:?}",
+        applied.report
+    );
+    let written = part::load_bytes("limits.step", applied.bytes).unwrap();
     assert_eq!(
         model(&written)
             .dimensions
@@ -98,8 +109,13 @@ fn answered_size_and_plate_thickness_round_trip_as_limits() {
     let found = existing::read_existing(&written).unwrap();
     assert_eq!(found.iter().filter(|e| e.limits.is_some()).count(), 2);
     let resumed = api::analyse(&written).unwrap();
-    assert_eq!(resumed["resume"]["answers"], json!(answers));
-    let rewritten = write(&written, resumed["resume"]["answers"].as_object().unwrap());
+    for id in answers.keys() {
+        assert!(resumed["resume"]["answers"][id].is_null(), "{id}");
+    }
+    let reapply = common::apply_edits(&written, json!({}));
+    assert!(reapply.unchanged);
+    assert_eq!(reapply.bytes, written.bytes.as_slice());
+    let rewritten = part::load_bytes("unchanged.step", reapply.bytes).unwrap();
     assert_eq!(model(&rewritten).dimensions, model(&written).dimensions);
     for p in [&written, &rewritten] {
         let scene = pmi_scene::pmi_scene(&p.bytes, None).unwrap();
@@ -111,7 +127,40 @@ fn answered_size_and_plate_thickness_round_trip_as_limits() {
         assert!(!labels.contains('±'), "{labels}");
     }
     // Changing the representation alone is a real drawing change.
-    let pm = write(&written, &given("±0.2", "±0.2"));
+    let items: Vec<_> = found
+        .iter()
+        .map(|item| format!("#{}", item.number.unwrap()))
+        .collect();
+    let changed = common::apply_edits(
+        &written,
+        json!({
+            "items": {"remove": items},
+            "fill": given("±0.2", "±0.2")
+        }),
+    );
+    assert!(changed.retired.is_empty());
+    assert!(
+        changed
+            .report
+            .written
+            .iter()
+            .any(|line| line.contains("Ø8 ±0.2")),
+        "{:?}",
+        changed.report
+    );
+    let pm = part::load_bytes("deviations.step", changed.bytes).unwrap();
+    let after = existing::read_existing(&pm).unwrap();
+    for before in found {
+        let item = after
+            .iter()
+            .find(|item| item.number == before.number)
+            .unwrap();
+        assert_eq!(item.faces, before.faces);
+        assert_eq!(item.faces2, before.faces2);
+        assert_eq!(item.upper, Some(0.2));
+        assert_eq!(item.lower, Some(-0.2));
+        assert!(item.limits.is_none());
+    }
     let report = revision::diff(&written, &pm).unwrap();
     let changes: Vec<_> = report
         .pmi

@@ -1,4 +1,6 @@
 //! Requirement-level regression pairs; every public identity comes from pmiScene.
+mod common;
+
 use serde_json::{Map, Value, json};
 use specify_core::{api, part, pmi_scene, revision, writer};
 use std::path::Path;
@@ -114,13 +116,20 @@ fn a_moved_holes_general_location_changes_without_a_stored_location_answer() {
 }
 
 #[test]
-#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn added_and_removed_requirements_keep_inspection_history() {
     let bare = load("parts/plate.step");
-    let before = answers(json!({"extra.1":{"kind":"flatness", "faces":[4], "value":"0.05"}}));
-    let old = write(&bare, &before);
-    let after = answers(json!({"extra.2":{"kind":"flatness", "faces":[5], "value":"0.02"}}));
-    let new = write(&old, &after);
+    let first = json!({"fill": {"extra.1":{"kind":"flatness", "faces":[4], "value":"0.05"}}});
+    let old = part::load_bytes("before.step", common::apply_edits(&bare, first).bytes).unwrap();
+    let number = specify_core::characteristics::read(&old).unwrap()[0].number;
+    let applied = common::apply_edits(
+        &old,
+        json!({
+            "items":{"remove":[format!("#{number}")]},
+            "fill":{"extra.2":{"kind":"flatness", "faces":[5], "value":"0.02"}}
+        }),
+    );
+    assert_eq!(applied.retired, [number]);
+    let new = part::load_bytes("after.step", applied.bytes).unwrap();
     let report = revision::diff(&old, &new).unwrap();
     assert_scene_ids(&report, &new);
     assert!(
@@ -1189,25 +1198,48 @@ fn without_stored_answers(part: &part::LoadedPart) -> part::LoadedPart {
 /// measurement is one removed (its number retired) and another added (a new number); a removed
 /// requirement retires its number; an added one takes a new number.
 #[test]
-#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn a_requirement_change_is_added_removed_changed_or_a_different_measurement() {
     let bare = load("parts/plate.step");
-    let old = write(
-        &bare,
-        &answers(json!({
-            "hole.function:holes:9": "fit:H7",
-            "extra.flat": {"kind": "flatness", "faces": [4], "value": "0.05"},
-            "extra.place": {"kind": "distance", "faces": [9], "reference": [0], "value": "±0.1"},
-        })),
-    );
-    let new = write(
+    let old = part::load_bytes(
+        "before.step",
+        common::apply_edits(
+            &bare,
+            json!({"fill": {
+                "hole.function:holes:9": "fit:H7",
+                "extra.flat": {"kind": "flatness", "faces": [4], "value": "0.05"},
+                "extra.place": {"kind": "distance", "faces": [9], "reference": [0], "value": "±0.1"}
+            }}),
+        )
+        .bytes,
+    )
+    .unwrap();
+    let items = specify_core::characteristics::read(&old).unwrap();
+    let flat = items
+        .iter()
+        .find(|c| c.kind == "geometric_tolerance" && c.faces == [4])
+        .unwrap()
+        .number;
+    let place = items.iter().find(|c| c.reference == [0]).unwrap().number;
+    let applied = common::apply_edits(
         &old,
-        &answers(json!({
-            "hole.function:holes:9": "fit:H8",
-            "extra.top": {"kind": "flatness", "faces": [5], "value": "0.02"},
-            "extra.place": {"kind": "distance", "faces": [9], "reference": [1], "value": "±0.1"},
-        })),
+        json!({
+            "change": {"hole.function:holes:9": {"to":"fit:H8", "expect":"⌀8 H7"}},
+            "items":{"remove":[format!("#{flat}"), format!("#{place}")]},
+            "fill": {
+                "extra.top": {"kind": "flatness", "faces": [5], "value": "0.02"},
+                "extra.place": {"kind": "distance", "faces": [9], "reference": [1], "value": "±0.1"}
+            }
+        }),
     );
+    assert_eq!(
+        applied
+            .retired
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from([flat, place])
+    );
+    let new = part::load_bytes("after.step", applied.bytes).unwrap();
     let numbers = |p: &part::LoadedPart| -> Vec<u64> {
         specify_core::characteristics::read(p)
             .unwrap()

@@ -890,3 +890,12 @@ pub fn without_threads_beyond_python(rust: &Value) -> Value {
 }
 
 pub mod upgrade;
+
+/// Apply the public edit-list representation and report every refusal on failure.
+pub fn apply_edits(
+    part: &specify_core::part::LoadedPart,
+    list: Value,
+) -> specify_core::writer::apply::Applied {
+    let list = specify_core::edits::parse_value(list).unwrap();
+    specify_core::writer::apply::apply(part, &list).unwrap_or_else(|errors| panic!("{errors:#?}"))
+}

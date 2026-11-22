@@ -1051,7 +1051,6 @@ fn notes_blocks(scene: &Value) -> std::collections::BTreeMap<String, Value> {
 }
 
 #[test]
-#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirement() {
     let loaded = part::load(
         &common::fixtures().join("revisions/xcaf_pmi_plate.step.gz"),
@@ -1166,8 +1165,13 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
     );
     assert_eq!(file, pmi_scene::pmi_scene(&loaded.bytes, None).unwrap());
     // Scene projection must not mutate the source bytes or change a subsequent write.
-    let intent = api::preview(&analysis, &answers).unwrap();
-    let (first, report) = writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
+    let list = json!({"fill": {
+        "part.general_tolerance": answers["part.general_tolerance"],
+        "part.surface_finish": answers["part.surface_finish"],
+        "part.notes": answers["part.notes"]
+    }});
+    let applied = common::apply_edits(&loaded, list.clone());
+    let (first, report) = (applied.bytes, applied.report);
     let retained: Vec<_> = report
         .preserved_normalizations
         .iter()
@@ -1186,12 +1190,7 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
     cache
         .scene(&loaded, Some(&analysis), Some(&answers))
         .unwrap();
-    assert_eq!(
-        first,
-        writer::write_bytes(&loaded, &intent, Some(&answers))
-            .unwrap()
-            .0
-    );
+    assert_eq!(first, common::apply_edits(&loaded, list).bytes);
     let before = haecceity::p21::Document::parse(loaded.bytes.to_vec()).unwrap();
     let after = haecceity::p21::Document::parse(first).unwrap();
     for id in before.ids() {
@@ -1218,19 +1217,22 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
 
     // Retain the real file's legacy DIMENSION wrappers through a resumed edit too.
     let saved = part::load_bytes("xcaf-added.step", after.bytes().to_vec()).unwrap();
-    // ADR P11: the file keeps only the answers that leave no PMI; the rest it states.
-    assert_eq!(
-        specify_core::resume::answers_for(&saved).unwrap(),
-        Some(specify_core::feature_table::storable(&answers))
-    );
-    let mut edited_answers = answers.clone();
-    edited_answers.insert(
-        "part.notes".into(),
-        json!(["Inspect machined surfaces after coating"]),
-    );
-    let analysis = api::analyse(&saved).unwrap();
-    let intent = api::preview(&analysis, &edited_answers).unwrap();
-    let (second, _) = writer::write_bytes(&saved, &intent, Some(&edited_answers)).unwrap();
+    let state = api::analyse(&saved).unwrap();
+    for id in [
+        "part.general_tolerance",
+        "part.surface_finish",
+        "part.notes",
+    ] {
+        assert!(state["resume"]["answers"][id].is_null(), "{id}");
+    }
+    let second = common::apply_edits(
+        &saved,
+        json!({
+            "change": {"part.notes": {"to":["Inspect machined surfaces after coating"],
+                                      "expect":"Inspect machined surfaces"}}
+        }),
+    )
+    .bytes;
     let second = haecceity::p21::Document::parse(second).unwrap();
     for id in before.ids() {
         assert_eq!(
@@ -1248,10 +1250,7 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
         specify_core::existing::part_settings(&edited).unwrap()["notes"],
         json!(["Inspect machined surfaces after coating"])
     );
-    assert_eq!(
-        specify_core::resume::answers_for(&edited).unwrap(),
-        Some(specify_core::feature_table::storable(&edited_answers))
-    );
+    assert!(api::analyse(&edited).unwrap()["resume"]["answers"]["part.notes"].is_null());
 }
 
 #[test]
