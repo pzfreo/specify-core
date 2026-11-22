@@ -125,6 +125,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0 # API acknowledgement is compared with the PR base / previous push.
+      - name: Python and Cargo versions are lockstep
+        run: python3 tools/release_version.py --check-lockstep
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
