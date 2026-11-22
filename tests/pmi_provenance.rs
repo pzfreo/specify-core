@@ -20,12 +20,16 @@ fn has(doc: &Document, ids: &[u64], entity: &str, slot: usize) -> bool {
 }
 
 fn described(doc: &Document, ids: &[u64], entity: &str) -> bool {
+    described_with(doc, ids, entity, MARKER)
+}
+
+fn described_with(doc: &Document, ids: &[u64], entity: &str, marker: &str) -> bool {
     ids.iter().any(|&id| {
         matches!(doc.get(id), Some(RawEntity::Simple { name, .. }) if name == entity)
             && doc.referrers(id).iter().any(|&r| {
                 matches!(doc.get(r),
             Some(RawEntity::Simple { name, attributes, .. }) if name == "DESCRIPTION_ATTRIBUTE"
-                && attributes == &[Attribute::String(MARKER.into()), Attribute::EntityRef(id)])
+                && attributes == &[Attribute::String(marker.into()), Attribute::EntityRef(id)])
             })
     })
 }
@@ -62,13 +66,25 @@ fn all_owned(bytes: &[u8]) -> pmi::PartPmi {
             );
         }
     }
-    for items in [&prov.general, &prov.surface_textures, &prov.attributes] {
+    for items in [&prov.general, &prov.surface_textures] {
         for ids in items {
             assert!(
                 described(&doc, ids, "PROPERTY_DEFINITION_REPRESENTATION"),
                 "{ids:?}"
             );
         }
+    }
+    assert_eq!(p.attributes.len(), prov.attributes.len());
+    for (attribute, ids) in p.attributes.iter().zip(&prov.attributes) {
+        let marker = if attribute.name == "editor metadata" {
+            "specify-core:caller-attribute:v1"
+        } else {
+            MARKER
+        };
+        assert!(
+            described_with(&doc, ids, "PROPERTY_DEFINITION_REPRESENTATION", marker),
+            "{attribute:?}: {ids:?}"
+        );
     }
     if p.material.is_some() {
         assert!(described(

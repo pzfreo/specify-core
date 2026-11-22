@@ -138,7 +138,10 @@ fn answered_size_and_plate_thickness_round_trip_as_limits() {
             "fill": given("±0.2", "±0.2")
         }),
     );
-    assert!(changed.retired.is_empty());
+    let previous: Vec<_> = found.iter().map(|item| item.number.unwrap()).collect();
+    let mut retired = previous.clone();
+    retired.sort_unstable();
+    assert_eq!(changed.retired, retired);
     assert!(
         changed
             .report
@@ -150,10 +153,14 @@ fn answered_size_and_plate_thickness_round_trip_as_limits() {
     );
     let pm = part::load_bytes("deviations.step", changed.bytes).unwrap();
     let after = existing::read_existing(&pm).unwrap();
+    let mut issued: Vec<_> = after.iter().map(|item| item.number.unwrap()).collect();
+    issued.sort_unstable();
+    let max = *previous.iter().max().unwrap();
+    assert_eq!(issued, [max + 1, max + 2]);
     for before in found {
         let item = after
             .iter()
-            .find(|item| item.number == before.number)
+            .find(|item| item.r#type == before.r#type)
             .unwrap();
         assert_eq!(item.faces, before.faces);
         assert_eq!(item.faces2, before.faces2);

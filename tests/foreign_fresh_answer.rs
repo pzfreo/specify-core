@@ -168,11 +168,10 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_on_the_cli() {
     assert!(error.contains(HOLE) && error.contains("1.5"), "{error}");
 }
 
-/// The same over MCP: `open`, `save`, then reopen; `answer` 0.5 is refused, and so is `save`
-/// with a fill of 0.5 (Specify 0.3.0: a fill differing from what the file states refuses the whole list, naming it, and writes
-/// nothing; the other tool's 1.5 stands).
+/// MCP stages a change to stated PMI, anchored to the file value. An explicit
+/// fill still cannot replace that requirement and a refused save leaves it intact.
 #[test]
-fn a_fresh_answer_does_not_replace_another_tools_requirement_over_mcp() {
+fn mcp_stages_a_change_without_replacing_another_tools_requirement() {
     let dir = dir("mcp");
     let input = dir.join("plate.step");
     std::fs::write(&input, re_authored().bytes.as_slice()).unwrap();
@@ -200,23 +199,22 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_over_mcp() {
     assert_eq!(positions(&back), [(1.5, false)]);
     assert_no_conflict(&api::analyse(&back).unwrap());
     let reopened = ok("open", json!({"path": path}));
-    // ADR P11: the file states the hole's position, so an answer is refused up front with the
-    // edit list's reason.
-    let refused = call(
+    // An answer on a stated row makes a draft change with the file value as its guard.
+    let before = std::fs::read(&path).unwrap();
+    let staged = ok(
         "answer",
         json!({"doc": reopened["doc"], "set": {(HOLE): "0.5"}}),
     );
-    assert_eq!(refused["isError"], json!(true), "{refused}");
-    let message = refused["structuredContent"]["error"]["message"]
-        .as_str()
-        .unwrap();
-    assert!(
-        message.starts_with("the file states")
-            && message.contains("⌖ ⌀1.5 A B C")
-            && message.contains(&format!("for {HOLE}, so there is no gap to fill")),
-        "{message}"
+    assert_eq!(
+        staged["draft"]["change"][HOLE],
+        json!({"to": "0.5", "expect": "⌖ ⌀1.5 A B C"}),
+        "{staged}"
     );
-    let before = std::fs::read(&path).unwrap();
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        before,
+        "the draft writes nothing"
+    );
     let refused = call(
         "save",
         json!({"doc": reopened["doc"], "edits": {"fill": {(HOLE): "0.5"}}}),
