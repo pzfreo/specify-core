@@ -536,6 +536,26 @@ fn error_of(server: &mut Server, name: &str, arguments: Value) -> Value {
 }
 
 #[test]
+fn tool_inputs_have_no_root_combinators() {
+    let mut server = Server::new(&[scratch("schema")]).unwrap();
+    let reply = server
+        .handle(&modern(1, "tools/list", json!({})), None)
+        .body
+        .unwrap();
+    let tools = reply["result"]["tools"].as_array().unwrap();
+    assert!(!tools.is_empty());
+    for tool in tools {
+        for key in ["oneOf", "anyOf", "allOf"] {
+            assert!(
+                tool["inputSchema"].get(key).is_none(),
+                "{} has root {key}",
+                tool["name"]
+            );
+        }
+    }
+}
+
+#[test]
 fn an_unsupported_version_is_refused_with_the_supported_list() {
     let mut server = Server::new(&[scratch("version")]).unwrap();
     let request = json!({"jsonrpc": "2.0", "id": 7, "method": "tools/list", "params": {

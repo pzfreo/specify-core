@@ -1903,7 +1903,7 @@ fn edit_input(save: bool) -> Value {
             "doc": doc_arg(),
             "edits": crate::edits::json_schema(),
             "partEdits": {
-                "description": "Edit lists for distinct part indices of this document's file.",
+                "description": "Edit lists for distinct part indices of this document's file. Send this or edits, exactly one.",
                 "type": "array", "minItems": 1,
                 "items": input(json!({
                     "part": {"type": "integer", "minimum": 0},
@@ -1913,7 +1913,9 @@ fn edit_input(save: bool) -> Value {
         }),
         &["doc"],
     );
-    schema["oneOf"] = json!([{"required": ["edits"]}, {"required": ["partEdits"]}]);
+    schema["properties"]["edits"]["description"] = json!(
+        "The opened part's edit list. Send this or partEdits, exactly one. Use {} for the session's drafts alone."
+    );
     if save {
         schema["properties"]["rev"] = rev_schema();
     }
