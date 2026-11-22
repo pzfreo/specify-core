@@ -21,9 +21,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
-| [rules](#rules) | 1021 | 0 | 615 | 0 | 0 | 0 | 1636 |
+| [rules](#rules) | 194 | 0 | 615 | 0 | 0 | 0 | 809 |
 | [writer](#writer) | 3096 | 0 | 0 | 0 | 15 | 1 | 3112 |
-| **all** | 10268 | 1433 | 1245 | 2468 | 1095 | 1905 | 18414 |
+| **all** | 9441 | 1433 | 1245 | 2468 | 1095 | 1905 | 17587 |
 
 ## analysis
 
@@ -1265,7 +1265,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## rules
 
-### rules: rust-correct (1021 entries)
+### rules: rust-correct (194 entries)
 
 - **Combined ISO 2768-1 and ISO 2768-2 class choices** (24 entries, 1 case glob)
 
@@ -1327,7 +1327,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   Maintainer decision (draftwright-rust #122): choose measurement origins before dimensions. Rust proposes the same geometric A/B/C frame in ± mode and when no feature needs a geometric tolerance; turned parts retain their plain axis A and perpendicular shoulder B. Empty datum answers still remove them. ± hole locations use selected datum planes, never recomputed edge defaults; accepting ± defaults adds no position or geometric-control requirements. General baseline dimensions consequently use the proposed planes too. tests/tolerancing.rs, tests/locations.rs, tests/turned_defaults.rs and tests/writer.rs verify the default path, changed/removed origins, both modes and AP242 DATUM_FEATURE entities with no FCFs. The complete Python and Rust values, including both named no-datum scenarios, are pinned exactly in tests/fixtures/rule_defaults_oracle.json.gz before these verdict entries apply; original Python captures remain unchanged. Rules version 2 identifies this output change.
 
-- **0.5.5 / Optional fillet questions on captured inventory** (907 entries, 46 case globs)
+- **0.5.5 / Optional fillet questions on captured inventory** (80 entries, 46 case globs)
 
   Quiddity 0.5.5 #297 removes the fillet size floor. Specify offers the same optional radius question for every recognised fillet, including those in the frozen analysis. The none default adds no open question.
 

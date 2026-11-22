@@ -451,7 +451,15 @@ impl Difference {
                 [self.python.as_ref(), self.rust.as_ref()],
             ),
         };
-        (if path.is_empty() { "$".into() } else { path }, values)
+        let path = path.trim_end_matches('.');
+        (
+            if path.is_empty() {
+                "$".into()
+            } else {
+                path.into()
+            },
+            values,
+        )
     }
 }
 
