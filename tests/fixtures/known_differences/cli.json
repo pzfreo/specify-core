@@ -333,7 +333,8 @@
   "path": "write.not_written[general size 6 on turned_steps:4 faces [4]: the faces establish a datum and the writer cannot mark a datum feature of size]",
   "pattern": "General sizes omitted on a datum feature",
   "verdict": "rust-correct",
-  "evidence": "The writer cannot mark the resulting datum feature of size for future preservation. P11 requires it to report this omitted general size."
+  "evidence": "The datum is on the Ø6 knurl carrier. The writer cannot mark the resulting datum feature of size for future preservation, so P11 requires exactly one omission line; the archived Python report has none.",
+  "values": {"rust": 1}
  },
 {"case": "nist/nist_ctc_03_asme1_ap242", "path": "write.not_written[general location 117.821 to faces [28, 29] from faces [92]: the file already states it; not written again]", "pattern": "general dimensions are rows (Paul, 2026-11-21)", "verdict": "rust-correct", "evidence": "nist/nist_ctc_03_asme1_ap242 already states general location 117.821 to faces [28, 29] from faces [92]. P11 preserves the existing PMI when replaying approved measurements.", "values": {"rust": 1}},
 {"case": "nist/nist_ctc_03_asme1_ap242", "path": "write.not_written[general location 128.524 to faces [38, 39] from faces [83, 86]: the file already states it; not written again]", "pattern": "general dimensions are rows (Paul, 2026-11-21)", "verdict": "rust-correct", "evidence": "nist/nist_ctc_03_asme1_ap242 already states general location 128.524 to faces [38, 39] from faces [83, 86]. P11 preserves the existing PMI when replaying approved measurements.", "values": {"rust": 1}},

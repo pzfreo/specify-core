@@ -189,7 +189,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **General sizes omitted on a datum feature** (`scenarios/turned_a_straight_knurl_resumes` at `write.not_written[general size 6 on turned_steps:4 faces [4]: the faces establish a datum and the writer cannot mark a datum feature of size]`)
 
-  The writer cannot mark the resulting datum feature of size for future preservation. P11 requires it to report this omitted general size.
+  The datum is on the Ø6 knurl carrier. The writer cannot mark the resulting datum feature of size for future preservation, so P11 requires exactly one omission line; the archived Python report has none.
 
 - **general dimensions are rows (Paul, 2026-11-21)** (87 entries, 40 case globs)
 
