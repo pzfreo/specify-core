@@ -205,7 +205,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **General dimensions are rows in CLI defaults** (10 entries, 10 case globs)
 
-  The general-dimension rows decision (Paul, 2026-11-21) exposes the measured locations in this question list. Fillet rows wait for quiddity 0.5.6 radius groups (Paul, 2026-11-22).
+  The evidence is stated per entry (7 distinct; all in `cli.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `questions.defaults.questions`: The general-dimension rows decision (Paul, 2026-11-21) exposes measured plane lengths and hole locations as questions on this captured analysis.
 
 - **0.5.5 / CLI plane locations under 0.5.5** (2 entries, 1 case glob)
 
