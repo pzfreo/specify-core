@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { balloonText, bareAnalysis, changedText, displayText, isNoneValue, panelModel, tableOf } from '../app/table.ts';
-import { describe, editList, PendingEdits, removalTargets, suggestionEdits } from '../app/edits.ts';
+import { describe, editList, PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, suggestionEdits } from '../app/edits.ts';
 import { compose, emptyBlock, parse } from '../app/general-tolerance.ts';
 // The review panel's pieces that are not drawn (specify-panel.md): its reading of the engine's feature
 // table, the pending edits as an edit list, and the general tolerance's text (#228).
@@ -194,4 +194,55 @@ test('plane lengths appear under The part and hole locations under their feature
   const all = suggestionEdits(rows, pending, isNoneValue);
   assert.equal(all.find(p => p.id === location)?.value, '15 ±0.2 from B');
   assert.ok(!all.some(p => p.id === length));
+});
+
+test('the panel omits BOM rows even when input includes a parts-list field', () => {
+  const bom = { id: 'bom.make_buy', feature: 'part', kind: 'bom.make_buy', state: 'stated', value: 'Buy', faces: [] };
+  const model = panelModel({ ...table, rows: [...table.rows, bom] }, questions);
+  assert.equal(model.part.rows.some(r => r.id.startsWith('bom.')), false);
+  assert.equal('bom' in model, false);
+});
+
+test('save matches a None needed refusal only to the affected part and queued row', () => {
+  const coating = new PendingEdits([{ kind: 'none', id: 'part.coating', name: 'Coating' }]);
+  const pending = new Map([[0, coating], [1, coating]]);
+  const refusal = 'A coating is required';
+  const failure = entry => [{ entry, reason: refusal }];
+  const scoped = { entry: 'displayed diagnostic may use any layout', part: 1, editEntry: 'none["part.coating"]', reason: refusal };
+  assert.deepEqual([...rejectedNoneByPart(pending, [scoped], true)],
+    [[1, new Map([['part.coating', refusal]])]]);
+  assert.deepEqual([...rejectedNoneByPart(new Map([[0, coating]]), failure('none["part.coating"]'), false)],
+    [[0, new Map([['part.coating', refusal]])]]);
+  assert.equal(rejectedNoneByPart(pending, [{ ...scoped, editEntry: 'fill["part.coating"]' }], true).size, 0);
+});
+
+test('the model keeps individual drawing notes in order', () => {
+  const notes = { id: 'part.notes', feature: 'part', kind: 'part.notes', state: 'stated', value: ['Deburr; check edges', 'Mark lot'], faces: [] };
+  const model = panelModel({ ...table, rows: [...table.rows, notes] }, questions);
+  assert.deepEqual(model.part.rows.find(r => r.id === notes.id).notes, notes.value);
+});
+
+test('working answers share the pending bar and edit lists across parts, with local edits taking precedence', () => {
+  const drafts = {
+    '0': { fill: { 'part.material': 'Steel' }, none: ['part.coating'] },
+    '1': { fill: { 'part.material': 'Brass' }, clear: ['part.heat_treatment'] },
+  };
+  const local = new Map([[1, new PendingEdits([{ kind: 'fill', id: 'part.material', name: 'Material', value: 'Bronze', text: 'Bronze' }])]]);
+  const pending = withDrafts(local, drafts, (_part, id, value) => ({ name: id.slice(5), text: String(value) }));
+  assert.equal(describe(pending.get(0).get('part.material')), 'Add material: Steel');
+  assert.equal(pending.get(0).get('part.material').draft, true);
+  assert.deepEqual(pending.get(0).list(), { fill: { 'part.material': 'Steel' }, none: ['part.coating'] });
+  assert.deepEqual(pending.get(1).list(), { fill: { 'part.material': 'Bronze' }, clear: ['part.heat_treatment'] });
+  assert.equal(pending.get(1).get('part.material').draft, undefined);
+  assert.match(describe(pending.get(1).get('part.material'), drafts[1]), /replaces the agent’s answer/);
+  assert.equal(withDrafts(local, {}, () => assert.fail('no draft')).size, 1);
+});
+
+test('a working answer to a stated row carries the file value in the pending change', () => {
+  const change = { to: 'Bronze', expect: 'Brass' };
+  const pending = withDrafts(new Map(), { '1': { change: { 'part.material': change } } },
+    (_part, _id, value) => ({ name: 'Material', text: String(value) })).get(1);
+  assert.deepEqual(pending.list(), { change: { 'part.material': change } });
+  assert.equal(describe(pending.get('part.material')), 'Change Material: Brass → Bronze');
+  assert.equal(pending.get('part.material').draft, true);
 });

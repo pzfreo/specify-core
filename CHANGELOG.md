@@ -33,8 +33,9 @@ Read first:
     `resume.foreign` and `resume.present`. What the file states stands; changing it is an
     explicit edit.
   - **Storage:** only answers that leave no PMI behind are stored in the file: decided none,
-    choices that are not requirements, and approvals the planner wrote nothing for (the
-    payload's `no_pmi`, `_specify.no_pmi` among resumed answers). An answer that wrote PMI is
+    choices that are not requirements, and general sizes deliberately omitted on datum faces
+    (the payload's `no_pmi`, `_specify.no_pmi` among resumed answers). Unfulfilled approvals
+    are reported and their rows stay open. An answer that wrote PMI is
     not stored; the file states it. A file saved by 0.2.x reopens with its other stored answers
     ignored (the file states them) and is stored the new way on the next save.
 - **Lockstep versions.** Every package is released together at one version: 0.3.0 is the next for
@@ -189,11 +190,14 @@ Read first:
   the file (with those already listed) before it joins the bar. Only unsaved edits are highlighted;
   nothing says who wrote a requirement. The general tolerance's line is a row editor (#228): a class,
   or a block of decimal places and their tolerances, an angles line and a note line, written as one
-  line of text (`.XX ±.01, .XXX ±.005, angles ±1°`). A part of an assembly is shown read only, with a
-  note, until edits on parts of an assembly land. **Save with defaults** becomes the bar's **Add all
-  suggestions** (Paul, 2026-11-21): every gap's suggestion queued as a pending edit (a suggestion of
-  none as None needed; a gap with no suggestion left alone), through the same check, written only by
-  Save. Removed from the app: the questions list and the Answers (JSON) export; the 3D view now
+  line of text (`.XX ±.01, .XXX ±.005, angles ±1°`). The part picker opens assembly parts for
+  editing and keeps pending edits in one bar, with each entry named for its part. A refused
+  None needed explains why on its row. A queued removal can be undone on its row. Notes have
+  separate lines. Agent answers enter the bar as edits, including changes to stated values.
+  The bar marks when a local edit replaces an agent's answer. **Add all suggestions** queues
+  suggestions for the selected part. Save applies the pending edits together, and Undo or
+  Discard drops working edits without writing.
+  Removed from the app: the questions list and the Answers (JSON) export; the 3D view now
   draws the file's PMI only. Values read as drawn ("⌖ 0.2 A"). Every stated row has the bin; a removal
   sends the numbers, or `{"id": …}` in `items.remove` for a requirement without one. Save with nothing listed says "Nothing to
   save." and writes nothing. `SpecifyReview` no longer says "from the file" (datum chips, stated part
@@ -203,16 +207,16 @@ Read first:
 - **Saving is an edit list everywhere** (proposal specify-0.3.0 piece 6, ADR P11): the page, MCP,
   WASM and Python apply an edit list to the file, all or nothing, as `write STEP EDITS.json` does.
   Writing a whole intent from answers is gone from them.
-  - **Page contract, session `api` 2** (docs/open.md; breaking): `POST save` takes `{rev, edits}`
-    and applies the list with `session::save_edits` (422 `{error, failures}` naming every entry
-    that cannot be applied; 400 for a malformed list; 409 for a stale `rev`). `acceptDefaults` and
-    `PUT answers` are gone: the page keeps its changes until Save. A save is refused while the
-    session holds answers an agent gave with `answer` and did not save. `complete` and `missing`
-    are now those of the saved file. The app checks the `api` (a command without one, 0.2.0's
-    contract 1, is refused), and its manifest says 2.
-  - **MCP:** `save {doc, edits, rev?}` applies an edit list (its refusal lists `failures`), and
-    `check {doc, edits}` checks one without writing. `write_pmi` and `save`'s `accept_defaults`
-    are gone.
+  - **Page contract, session `api` 2** (docs/open.md): `POST save` accepts `{rev, edits}`
+    or `{rev, partEdits: [{part, edits}, …]}`. Batch save stages each part and commits the
+    file once. A refusal names the part and entry (422), a malformed list returns 400,
+    and a stale revision returns 409. Save includes working edits. `POST discard` clears
+    one or all working edits. The session holds its lock from the final revision check
+    through commit.
+  - **MCP:** `check` and `save` accept an edit list for the opened part or a batch in
+    `partEdits`. Both combine working answers with explicit edits. `discard` drops working
+    answers without writing. `open` and a successful save return the current file's table.
+    `write_pmi` and `save`'s `accept_defaults` are removed.
   - **Python:** `api.write(step, edits, output)` applies an edit list (`EditsRefused`, a
     `ValueError` with `failures`, when any entry cannot be applied), and `api.check_edits(step,
     edits)` checks one; the report adds `retired` and `unchanged`. `write(step, intent, output,
@@ -351,10 +355,8 @@ Read first:
   "N dimensions under ISO 2768-m" row again (they are the file's own now, not planned).
 - A stated ⌀3.3 H11, ⌖ ⌀0.3 Ⓜ and M2×0.4-6H no longer read back as `⌀3.3`, `⌖ 0.3` and
   `internal thread` (a 0.3.0 regression from reading stated PMI from the file, ADR P11).
-- MCP `answer` refuses an answer to a feature-and-kind the file states ("the file states … for
-  …, so there is no gap to fill; changing what the file states is an explicit edit (the edit
-  list's change), not an answer"); one equal to what the file states is a no-op, as on the
-  command line. Before, it accepted the answer and the save left it out.
+- MCP `answer` stages an edit against the current STEP value when a row is already
+  stated. Accepting the same value is a no-op. Save checks the stated value before committing.
 - An approval the planner writes nothing for (a ⌀ left to the general tolerance on a datum's own
   faces) is no longer dropped silently: `not_written` says what was approved and that nothing
   of its kind was written, it is stored (`no_pmi`), and on reopening its row is decided on every

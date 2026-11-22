@@ -1,5 +1,5 @@
 import type { PmiAnswers } from '../src/types/pmi';
-import type { AnswersEvent, SessionAnswers, Source } from './local.ts';
+import type { AnswerDraft, AnswersEvent, SessionAnswers, Source } from './local.ts';
 
 export type AnswersSource = Source;
 
@@ -42,6 +42,8 @@ export interface AnswersSession {
   commit(): void;
   /** Every part's answers at ``rev()``, by part index: the parts a save writes (with a file's only part). */
   parts(): Record<string, PmiAnswers>;
+  /** Working answers as edit lists at the rendered revision. */
+  draftSnapshot(): { rev: number; drafts: Record<string, AnswerDraft> };
   /** An `answers` event (or a `GET answers` resync, as a "start" event). One rev can carry several
    * events (one per part): an event for a (rev, part) already received is ignored, and false is returned. */
   receive(event: AnswersEvent): boolean;
@@ -87,9 +89,10 @@ const NONE = asGiven({});
 /** How many revisions' answers are remembered, to know what a save of a past revision wrote. */
 const HISTORY = 500;
 
-export function createSession(rev: number, parts: Record<string, PmiAnswers>): AnswersSession {
+export function createSession(rev: number, parts: Record<string, PmiAnswers>, initialDrafts: Record<string, AnswerDraft> = {}): AnswersSession {
   const requests = new AbortController();
   let state = { rev, parts: { ...parts } };
+  let drafts = { ...initialDrafts };
   // Each revision's answers (as given) by part: what a save of it put on disk.
   const history = new Map<number, Record<string, string>>();
   const remember = () => {
@@ -130,6 +133,7 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>): A
   const markSaved = (at: number, parts?: SessionAnswers['parts']) => {
     if (savedRev !== null && at < savedRev) return;
     savedRev = at;
+    if (at >= state.rev) drafts = {};
     awaited = null;
     const then = parts
       ? Object.fromEntries(Object.entries(parts).map(([k, a]) => [k, asGiven(a)]))
@@ -153,8 +157,11 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>): A
       changed();
     },
     parts: () => ({ ...state.parts }),
+    draftSnapshot: () => ({ rev: state.rev, drafts }),
     receive(event) {
+      if (requests.signal.aborted || event.rev < state.rev) return false;
       if ('parts' in event) {
+        drafts = { ...event.drafts };
         known(event.rev, event.parts, true, event.source);
         return true;
       }
@@ -163,6 +170,9 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>): A
       if (event.rev < state.rev || heard.has(key)) return false;
       heard.add(key);
       for (const old of heard) { if (heard.size <= HISTORY) break; heard.delete(old); }
+      drafts = { ...(event.drafts ?? drafts) };
+      if (event.draft) drafts[String(event.part)] = event.draft;
+      else delete drafts[String(event.part)];
       known(event.rev, { [String(event.part)]: event.answers }, false, event.source);
       return true;
     },
@@ -204,6 +214,7 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>): A
     },
     markSaved,
     receiveSave(saved) {
+      if (saved.rev >= state.rev) drafts = { ...saved.drafts };
       known(saved.rev, saved.parts, true, 'start');
       markSaved(saved.rev, saved.parts);
     },

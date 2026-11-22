@@ -5,7 +5,7 @@
 // them) until Save writes them together. Who wrote a requirement is never shown: only the page's
 // unsaved edits are highlighted.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { EditFailure, EditList } from './local.ts';
+import type { AnswerDraft, EditFailure, EditList } from './local.ts';
 import { describe, removalTargets, type Pending, type PendingEdits } from './edits.ts';
 import { answerText, balloonText, changedText, isNoneValue, type OtherRow, type PanelGroup, type PanelModel, type PanelRow } from './table.ts';
 import { compose, emptyBlock, parse, placesText, type GeneralTolerance, type Units } from './general-tolerance.ts';
@@ -58,10 +58,9 @@ export interface PanelProps {
   onPending(next: PendingEdits): void;
   /** Checks an edit list against the file (all or nothing, as Save would): the entries that cannot be applied. */
   check(edits: EditList): Promise<EditFailure[]>;
-  /** Values the session holds that the file does not yet (an agent's answers, not saved): shown as unsaved. */
-  unsaved: Readonly<Record<string, unknown>>;
-  /** Rows can't be changed here (a part of an assembly, on this base): why, shown once. */
-  readOnly: string | null;
+  /** Refusals from Save for queued None needed decisions on the shown part. */
+  rejectedNone?: ReadonlyMap<string, string> | undefined;
+  onUndoDraft(id: string): void;
   disabled: boolean;
   /** The file's length unit, for a new general tolerance block. */
   units: Units;
@@ -74,7 +73,7 @@ export interface PanelProps {
 }
 
 export function Panel(props: PanelProps) {
-  const { model, pending, onPending, readOnly, disabled } = props;
+  const { model, pending, onPending, disabled } = props;
   const [tab, setTab] = useState<'review' | 'table'>('review');
   const [editing, setEditing] = useState<Editing | null>(null);
   const [problem, setProblem] = useState<{ id: string; text: string } | null>(null);
@@ -98,8 +97,8 @@ export function Panel(props: PanelProps) {
 
   const close = () => { setEditing(null); setProblem(null); };
   /** ``p`` joins the bar once the file takes the whole list with it (every edit already listed, as
-   * Save would send them), so the bar always holds a list Save can write. Any failure, on this edit or
-   * on one listed earlier that it breaks, is said on its line, and it does not join. */
+   * Save would send for this part). Any failure, on this edit or on one listed earlier that it
+   * breaks, is said on its line, and it does not join. */
   const apply = async (p: Pending) => {
     setChecking(true);
     try {
@@ -113,43 +112,57 @@ export function Panel(props: PanelProps) {
 
   const open = (id: string, mode: Editing['mode']) => { setProblem(null); setEditing({ id, mode }); };
 
+  const undoRemoval = (id: string) => (
+    <span className="acts"><button type="button" aria-label="Undo removal" disabled={disabled || checking}
+      onClick={() => { onPending(pending.without(id)); close(); }}>Undo</button></span>
+  );
+
   const row = (r: PanelRow) => {
     const p = pending.get(r.id);
-    const agent = r.id in props.unsaved ? props.unsaved[r.id] : undefined;
     const shown = p?.kind === 'fill' || p?.kind === 'change' ? p.text
-      : p?.kind === 'none' ? 'none needed' : p?.kind === 'clear' ? 'not stated'
-        : agent !== undefined ? (isNoneValue(agent) ? 'none needed' : answerText(agent, r.question)) : r.value;
-    // What the row is now, with the page's edit laid over the file.
+      : p?.kind === 'none' ? 'none needed' : p?.kind === 'clear' ? 'not stated' : r.value;
+    // The row is the file's requirement with the person's queued edit laid over it.
     const state = p?.kind === 'fill' || p?.kind === 'change' ? 'stated' : p?.kind === 'none' ? 'decided_none'
-      : p?.kind === 'clear' ? 'gap' : agent !== undefined ? (isNoneValue(agent) ? 'decided_none' : 'stated') : r.state;
+      : p?.kind === 'clear' ? 'gap' : r.state;
+    const notes = r.id === 'part.notes' && (p?.kind === 'fill' || p?.kind === 'change') && Array.isArray(p.value)
+      ? p.value : r.notes;
     const cls = ['spec-row', state === 'stated' ? 'stated' : state === 'gap' ? 'gap' : 'nonerow',
-      p || agent !== undefined ? 'changed' : '', p?.kind === 'remove' ? 'removed' : ''].filter(Boolean).join(' ');
+      p ? 'changed' : '', p?.kind === 'remove' ? 'removed' : ''].filter(Boolean).join(' ');
+    const refusal = problem?.id === r.id ? problem.text : props.rejectedNone?.get(r.id);
     const here = editing?.id === r.id ? editing : null;
-    const locked = Boolean(readOnly) || disabled;
+    const locked = disabled || checking;
     let acts: ReactNode = null;
-    if (!readOnly && p?.kind !== 'remove') {
+    if (p?.kind === 'remove') {
+      acts = undoRemoval(r.id);
+    } else {
       if (state === 'stated') {
         acts = (
           <span className="acts">
             <IconButton label={`Change ${r.name}`} icon="edit" disabled={locked} onClick={() => open(r.id, p?.kind === 'fill' ? 'add' : 'change')} />
             {/* Every stated row has both (decisions 1 and 2); on an Add not yet saved the bin takes it back. */}
-            <IconButton label={`Remove ${r.name}`} icon="bin" disabled={locked}
-              onClick={() => (p?.kind === 'fill' ? onPending(pending.without(r.id)) : open(r.id, 'remove'))} />
+            {p?.draft
+              ? <button type="button" disabled={locked} onClick={() => props.onUndoDraft(r.id)}>Undo</button>
+              : <IconButton label={`Remove ${r.name}`} icon="bin" disabled={locked}
+                onClick={() => (p?.kind === 'fill' ? onPending(pending.without(r.id)) : open(r.id, 'remove'))} />}
           </span>
         );
       } else if (state === 'gap') {
         acts = (
           <span className="acts">
             <button type="button" disabled={locked} onClick={() => open(r.id, 'add')}>Add</button>
-            <button type="button" disabled={locked} onClick={() => (p?.kind === 'clear' ? onPending(pending.without(r.id))
+            <button type="button" disabled={locked} onClick={() => (p?.kind === 'clear' && !p.draft ? onPending(pending.without(r.id))
               : void apply({ kind: 'none', id: r.id, name: r.name }))}>None needed</button>
+            {p?.draft && <button type="button" disabled={locked} onClick={() => props.onUndoDraft(r.id)}>Undo</button>}
           </span>
         );
       } else {
         acts = (
           <span className="acts">
-            <button type="button" disabled={locked} onClick={() => (p?.kind === 'none' ? onPending(pending.without(r.id))
-              : void apply({ kind: 'clear', id: r.id, name: r.name }))}>Undo</button>
+            <button type="button" disabled={locked} onClick={() => {
+              if (p?.draft) props.onUndoDraft(r.id);
+              else if (p?.kind === 'none') onPending(pending.without(r.id));
+              else void apply({ kind: 'clear', id: r.id, name: r.name });
+            }}>Undo</button>
           </span>
         );
       }
@@ -158,12 +171,15 @@ export function Panel(props: PanelProps) {
       <div key={r.id} className={cls} data-row={r.id} data-question={r.id} data-state={state}>
         <button type="button" className="k" title="Show it on the part" onClick={() => props.onFaces(r.faces)}>{r.label}</button>
         <span className="v">
-          <span className="t">{shown}</span>
+          <span className="t">{state === 'stated' && notes?.length
+            ? notes.map((note, i) => <span key={i} className="spec-note">{note}</span>)
+            : shown}</span>
           {state === 'gap' && r.suggestionText !== undefined && <span className="sugg">suggested: {r.suggestionText}</span>}
         </span>
         {acts}
+        {!here && refusal && <div className="spec-problem spec-row-problem" role="alert">{refusal}</div>}
         {here && here.mode !== 'remove' && (
-          <EditLine row={r} mode={here.mode} pending={p} units={props.units} checking={checking} problem={problem?.id === r.id ? problem.text : null}
+          <EditLine row={r} mode={here.mode} pending={p} units={props.units} checking={checking || disabled} problem={refusal ?? null}
             onCancel={close} onApply={(value, text) => {
               if (here.mode === 'change') {
                 const was = r.value;
@@ -173,7 +189,7 @@ export function Panel(props: PanelProps) {
             }} />
         )}
         {here?.mode === 'remove' && (
-          <RemoveLine what={shown} numbers={r.numbers} problem={problem?.id === r.id ? problem.text : null} checking={checking} onCancel={close}
+          <RemoveLine what={shown} numbers={r.numbers} problem={refusal ?? null} checking={checking || disabled} onCancel={close}
             onRemove={() => void apply({ kind: 'remove', id: r.id, name: r.name, targets: removalTargets(r.numbers, r.id), was: r.value })} />
         )}
       </div>
@@ -187,11 +203,12 @@ export function Panel(props: PanelProps) {
       <div key={o.key} className={`spec-row stated${p ? ' changed removed' : ''}`} data-row={o.key}>
         <button type="button" className="k" title="Show it on the part" onClick={() => props.onFaces(o.faces)}>{o.label}</button>
         <span className="v">{o.value}{o.number && <span className="num">{o.number}</span>}</span>
-        {!readOnly && !p && (o.number || o.id) && (
-          <span className="acts"><IconButton label={`Remove ${o.value}`} icon="bin" disabled={disabled} onClick={() => open(o.key, 'remove')} /></span>
+        {p?.kind === 'remove' && undoRemoval(o.key)}
+        {!p && (o.number || o.id) && (
+          <span className="acts"><IconButton label={`Remove ${o.value}`} icon="bin" disabled={disabled || checking} onClick={() => open(o.key, 'remove')} /></span>
         )}
         {here && (
-          <RemoveLine what={o.value} numbers={o.number ? [o.number] : []} problem={problem?.id === o.key ? problem.text : null} checking={checking} onCancel={close}
+          <RemoveLine what={o.value} numbers={o.number ? [o.number] : []} problem={problem?.id === o.key ? problem.text : null} checking={checking || disabled} onCancel={close}
             onRemove={() => void apply({ kind: 'remove', id: o.key, name: o.label, targets: removalTargets(o.number ? [o.number] : [], o.id), was: o.value })} />
         )}
       </div>
@@ -214,10 +231,9 @@ export function Panel(props: PanelProps) {
       <aside className="pmi-lab-panel spec-panel">
         <header>
           <div className="title"><strong>{props.filename}</strong></div>
-          {readOnly && <p className="pmi-lab-note spec-readonly" role="status">{readOnly}</p>}
           <div className="pmi-lab-views" role="tablist">
             <button type="button" role="tab" aria-selected={tab === 'review'} className={tab === 'review' ? 'on' : ''} onClick={() => setTab('review')}>
-              {readOnly ? 'Review' : 'Review / Edit'}
+              Review / Edit
             </button>
             <button type="button" role="tab" aria-selected={tab === 'table'} className={tab === 'table' ? 'on' : ''} onClick={() => setTab('table')}>
               Characteristics ({props.characteristics?.count ?? 0})
@@ -230,7 +246,6 @@ export function Panel(props: PanelProps) {
             <div className="spec-group">The part</div>
             {group(model.part)}
           </>)}
-          {model.bom && (<><div className="spec-group">Parts list</div>{group(model.bom)}</>)}
           {model.features.length > 0 && <div className="spec-group">On the part</div>}
           {model.features.map((g) => group(g, g.title))}
           {model.datums && (<><div className="spec-group">Datums</div>{group(model.datums)}</>)}
@@ -256,6 +271,7 @@ function EditLine({ row, mode, pending, units, checking, problem, onApply, onCan
   const list = (row.question?.kind as string | undefined) === 'text_list';
   const number = row.numbers.length === 1 ? row.numbers[0] : row.numbers.length ? row.numbers.join(', ') : '';
   const submit = () => {
+    if (checking) return;
     const value = valueOf(row, text);
     if (isNoneValue(value) && !(value === 'none' || (Array.isArray(value) && mode === 'add'))) return;
     onApply(value, gt ? text.trim() : answerText(value, row.question));
@@ -312,6 +328,7 @@ export function GeneralToleranceEditor({ text, units, classes, onChange }: {
   const set = (next: GeneralTolerance) => { setGt(next); onChange(compose(next, units)); };
   useEffect(() => { onChange(compose(gt, units)); }, []);
   const block = gt.form === 'block' ? gt : null;
+  const notes = block?.notes.length ? block.notes : [''];
   return (
     <div className="spec-gt" role="group" aria-label="General tolerance">
       <div className="spec-gt-form">
@@ -346,32 +363,46 @@ export function GeneralToleranceEditor({ text, units, classes, onChange }: {
           set({ ...block, rows: [...block.rows, { places: Math.min(4, last + 1), tolerance: '' }] });
         }}>Add row</button>
         <label className="spec-gt-line">Angles <input aria-label="Angles" placeholder="±1°" value={block.angles} onChange={(e) => set({ ...block, angles: e.target.value })} /></label>
-        <label className="spec-gt-line">Note <input aria-label="Note" placeholder="fractions ±1/64" value={block.notes.join(', ')}
-          onChange={(e) => set({ ...block, notes: e.target.value ? [e.target.value] : [] })} /></label>
+        {notes.map((note, i) => (
+          <div key={i} className="spec-gt-line">
+            <label htmlFor={`spec-gt-note-${i}`}>Note {i + 1}</label>
+            <input id={`spec-gt-note-${i}`} aria-label={`Note ${i + 1}`} placeholder="fractions ±1/64" value={note}
+              onChange={(e) => set({ ...block, notes: notes.map((n, j) => j === i ? e.target.value : n) })} />
+            <button type="button" aria-label={`Remove note ${i + 1}`}
+              onClick={() => set({ ...block, notes: notes.filter((_, j) => j !== i) })}>✕</button>
+          </div>
+        ))}
+        <button type="button" className="spec-gt-add" onClick={() => set({ ...block, notes: [...notes, ''] })}>Add note</button>
         <div className="muted spec-gt-text">Written as: <code>{compose(block, units) || '…'}</code></div>
       </>)}
     </div>
   );
 }
 
-/** The bar at the bottom (decision 3): the pending edits, Save and Discard. */
-export function EditBar({ pending, saving, blocked, savedNote, onSave, onDiscard, onAddAll, adding, readOnly }: {
-  pending: PendingEdits; saving: boolean; blocked: string | undefined; savedNote: string | null;
-  onSave(): void; onDiscard(): void; onAddAll(): void; adding: boolean; readOnly: string | null;
+/** The bar at the bottom (decision 3): every part's pending edits, Save and Discard. */
+export function EditBar({ items, drafts, saving, busy, blocked, savedNote, onSave, onDiscard, onAddAll, onUndoDraft }: {
+  items: { part: number; name?: string; edit: Pending }[];
+  drafts: Readonly<Record<string, AnswerDraft>>;
+  saving: boolean; busy: boolean; blocked: string | undefined; savedNote: string | null;
+  onSave(): void; onDiscard(): void; onAddAll(): void; onUndoDraft(part: number, id: string): void;
 }) {
-  const items = pending.values();
   return (
     <div className="spec-bar" role="region" aria-label="Changes to save">
       <ul>
-        {items.length ? items.map((p) => <li key={p.id} data-pending={p.id}>{describe(p)}</li>)
-          : <li className="muted">{savedNote ?? (readOnly ? readOnly : 'No changes yet. Nothing is written until Save.')}</li>}
+        {items.length ? items.map(({ part, name, edit }) => (
+          <li key={`${part}:${edit.id}`} data-part={part} data-pending={edit.id}>
+            {name ? `${name} · ` : ''}{describe(edit, drafts[part])}
+            {edit.draft && <>{' '}<button type="button" disabled={busy || Boolean(blocked)}
+              aria-label={`Undo ${name ?? ''} ${edit.name}`.replace(/ +/g, ' ')} onClick={() => onUndoDraft(part, edit.id)}>Undo</button></>}
+          </li>
+        )) : <li className="muted">{savedNote ?? 'No changes yet. Nothing is written until Save.'}</li>}
       </ul>
-      <button type="button" className="app-add-all" onClick={onAddAll} disabled={saving || adding || Boolean(readOnly) || Boolean(blocked)}
-        title="Queue every gap's suggestion as an edit (a suggestion of none as None needed); nothing is written until Save">
+      <button type="button" className="app-add-all" onClick={onAddAll} disabled={busy || Boolean(blocked)}
+        title="Queue this part's gap suggestions as edits (a suggestion of none as None needed); nothing is written until Save">
         Add all suggestions
       </button>
-      <button type="button" className="app-discard" onClick={onDiscard} disabled={!items.length || saving}>Discard</button>
-      <button type="button" className="app-save" onClick={onSave} disabled={saving || Boolean(blocked)} title={blocked}>
+      <button type="button" className="app-discard" onClick={onDiscard} disabled={!items.length || busy}>Discard</button>
+      <button type="button" className="app-save" onClick={onSave} disabled={busy || Boolean(blocked)} title={blocked}>
         {saving ? 'Saving…' : 'Save'}
       </button>
     </div>

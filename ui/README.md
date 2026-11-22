@@ -190,28 +190,36 @@ beside its name), a **gap** ("not stated", with Specify's suggestion as a dashed
   `items.remove: ["#4", {"id": "part.material"}]` (`removalTargets` in `app/edits.ts`). Until the engine takes an
   id there, its check refuses that removal, and the line says so.
 - A gap offers **Add** (its line pre-filled with the suggestion) and **None needed**. A decided none reads "none
-  needed", greyed, with **Undo**, which takes the stored decision back (the edit list's `clear`; it never touches PMI).
+  needed", greyed, with **Undo**, which takes back the stored decision using the edit list's
+  `clear`. A refused None needed shows the reason on that row.
 - The general tolerance's line is its own editor (#228): a class (ISO 2768-m and so on), or a block row by row
-  (decimal places and their tolerance, Add row), an angles line and a note line. It writes one line of text, the form
+  (decimal places and their tolerance, Add row), an angles line and separate note fields.
+  The part's drawing notes also display one per line. It writes one line of text, the form
   the CLI and edit lists take: `.XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°` (inch places written `.XX`,
   millimetre places `X.XX`, no places `X` with its unit, `X ±.5 in`, as the engine spells them; a new block starts
   in the file's length unit; `app/general-tolerance.ts`).
 - "Other PMI in the file" rows have the bin only: removed by number, or, without one, by the engine's id for the
-  item (`{"id": "file_pmi:#<STEP entity>"}`, the table's `file_pmi[].id`); an item the engine cannot name has no bin.
-- Every edit is checked against the file, with the edits already listed, before it joins the bar (the engine's
-  `checkEdits`); one the file cannot take says why on its line. The bar at the bottom lists the edits; **Save**
-  sends them as one edit list (`POST save {rev, edits}`), applied all or nothing ("Nothing to save." when none are
-  listed: nothing is written), and **Discard** drops them. **Add all suggestions** queues every gap's suggestion
-  as a pending edit (a suggestion of none as None needed; a gap with no suggestion is left alone); an entry the
-  file refuses is left out, with its reason.
-  Nothing touches the file before Save. Only edits not yet saved are highlighted; nothing says who wrote a
-  requirement. After a save the part opens again from the saved file, and its rows read as the file has them.
-- A part of an assembly shows its rows read only, with a note: an edit list applies to a file of one part until
-  edits on parts of an assembly land.
+  item (`{"id": "file_pmi:#<STEP entity>"}`, the table's `file_pmi[].id`). On any queued removal,
+  **Undo** restores the row and takes the removal out of the bar.
+- Every edit is checked against the selected part and that part's queued edits before it joins the
+  bar (the engine's `checkEdits`). A refusal says why on the row. **Add all suggestions** queues the
+  selected part's suggestions, including None needed. It skips gaps without suggestions and names
+  any refused entries.
+- Use the part picker to review and edit each part of an assembly. Switching keeps all pending
+  edits, and the one bar names the part on every entry. **Save** sends them all in one request
+  (`{rev, edits}` for a single part file, `{rev, partEdits: [{part, edits}, …]}` for an assembly).
+  The page session saves all of them together or reports the part and entry that prevented the
+  save. Parts outside the edit lists keep their entity bytes. **Discard** drops every pending edit.
+  With an empty bar Save says “Nothing to save.” Only unsaved edits are highlighted. After a save
+  the selected part opens from the saved file.
 
-The session's answers live in the command: the page hears everyone else's (`GET events`); an agent's answer lands
-in the open page with "Updated by your agent", on its row, highlighted as unsaved. Save writes the specified STEP
-(beside it as `part.specified.step`), the same file the agent's `save` writes. Save never refuses for questions
+The page receives the agent's working edits through the session. They appear in the same
+pending bar with part names and are highlighted on their rows. **Save** writes the combined
+lists. **Discard** drops the page edits and the agent's working edits. A working edit also
+has **Undo** on its row and in the bar. A new answer to a stated row is shown as a change.
+If you edit the same row, the bar says your edit replaces the agent's answer.
+The Characteristics tab and 3D view show the saved STEP. Save writes the specified STEP
+(beside it as `part.specified.step` by default, or over the input with `--in-place`). Save never refuses for questions
 still open (many AP242 files have no complete answer to everything): it writes the edits listed and says which
 questions are still open. Specify's suggestions are written only when the person adds them (ADR P9).
 
@@ -229,16 +237,16 @@ were released from pzfreo/specify-ui, which 0.2.1 downloads.) To try a local bui
 --wasm public/wasm/intent part.step`, or rebuild specify-core, which then has it built in.
 
 The build also writes `specify-ui-app.json` at the root of `dist-app/`:
-`{"name":"specify-ui-app","version":"<package.json version>","api":1}`. specify-core builds in only an app of its own
+`{"name":"specify-ui-app","version":"<package.json version>","api":2}`. specify-core builds in only an app of its own
 version, and checks `api` for the app it serves (built in or `--app`). `api` is the session API, defined once as `SESSION_API` in
 `app/session-api.ts`, shared by the manifest and the page's compatibility check. The page refuses
 to load a review when `config.api` differs, naming both versions and asking for an update.
-An absent `config.api` remains compatible with specify-core 0.2.0.
+An absent `config.api` is treated as API 1.
 
 `npm run test:app` builds it and drives it in Chromium under the real command (`SPECIFY_CORE`, default
 `specify-core` on `PATH`; it needs the session contract): `test/app-browser.mjs` by hand (the panel's Add, None
 needed, Undo, Change, Remove and Discard, Save, the saved file read back with `specify-core analyse`, reopening,
-read only, an assembly read only, "Other PMI" removed by number, another tool's file left byte for byte, diff on the
+read only, single- and multi-part assembly saves and atomic refusal, "Other PMI" removed by number, another tool's file left byte for byte, diff on the
 enclosure fixtures, an `--in-place` save over a file changed on disk, the event stream refused and regained) and
 `test/app-agent.mjs` as an agent (`specify-core mcp` over stdio: open, answer, `show`, both saves, an assembly, a
 symbolic link, a diff). `test/app-panel.test.mjs` (in `npm test`) covers the panel's reading of the table, its edit

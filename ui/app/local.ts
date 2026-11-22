@@ -27,13 +27,14 @@ export interface LocalConfig {
 }
 
 /** The session's answers: one answer map per part, by part index ("0" for a single part). */
-export interface SessionAnswers { rev: number; parts: Record<string, PmiAnswers> }
+export type AnswerDraft = Pick<EditList, 'fill' | 'change' | 'none' | 'clear'>;
+export interface SessionAnswers { rev: number; parts: Record<string, PmiAnswers>; drafts?: Record<string, AnswerDraft> }
 export type Source = 'page' | 'mcp' | 'start';
 /** An `answers` event: the start state (``parts``) or one part's change. */
 export type AnswersEvent =
-  | { rev: number; parts: Record<string, PmiAnswers>; source: 'start' }
+  | { source: 'start' } & SessionAnswers
   | {
-    rev: number; part: number; answers: PmiAnswers; source: 'page' | 'mcp';
+    rev: number; part: number; answers: PmiAnswers; source: 'page' | 'mcp'; draft?: AnswerDraft; drafts?: Record<string, AnswerDraft>;
     /** The part joined the session (the agent opened it, or the page first changed it); its answers may be `{}`. */
     joined?: boolean;
   };
@@ -98,16 +99,26 @@ export interface EditList {
  * stated row's id or the existing-PMI item's id (`{"id": …}`; the engine route for these is being added). */
 export type RemoveTarget = string | { id: string };
 
-/** One entry of an edit list that cannot be applied, and why. */
-export interface EditFailure { entry: string; reason: string }
+/** An edit list scoped to a distinct part index from the file's part picker. */
+export interface PartEdits { part: number; edits: EditList }
+export type SaveEdits = EditList | PartEdits[];
 
-/** The command applies the edit list ``edits`` to the file and writes it, if the session is still at
+/** One entry of an edit list that cannot be applied, and why. */
+export interface EditFailure { entry: string; reason: string; part?: number; editEntry?: string }
+
+/** The command applies the edit list or part lists ``edits`` to the file and writes it, if the session is still at
  * ``rev``: all or nothing. 409 when the session moved on, or (--in-place) the file changed on disk;
- * 422 `{error, failures}` when an entry cannot be applied (nothing written), or while the session
- * holds answers changed by an agent and not saved; 400 for a malformed list. */
-export const save = (rev: number, edits: EditList, signal?: AbortSignal) => json<Saved>(fetch('save', {
-  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, edits }), signal,
+ * 422 `{error, failures}` when an entry cannot be applied or a working answer was omitted.
+ * 400 for a malformed list. */
+export const save = (rev: number, edits: SaveEdits, signal?: AbortSignal) => json<Saved>(fetch('save', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Array.isArray(edits) ? { rev, partEdits: edits } : { rev, edits }), signal,
 }));
+
+/** Drop all working answers, or one draft identified by its part and row. */
+export const discardAnswers = (rev: number, target?: { part: number; id: string }, signal?: AbortSignal) =>
+  json<SessionAnswers>(fetch('discard', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, ...target }), signal,
+  }));
 
 /** Diff mode: the command's comparison, exactly what WASM `diff()` returns with the PMI scenes
  * (specify-core docs/open.md): a part's `{report, markdown, view}`, an assembly's `{report, markdown, parts}`;

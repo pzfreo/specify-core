@@ -96,6 +96,8 @@ body { background: #fff; color: #1a1d21; font: 13px/1.45 ui-sans-serif, -apple-s
 .app .spec-edit button.primary { background: var(--spec-accent); border-color: var(--spec-accent); color: #fff; font-weight: 600; }
 .app .spec-edit button.danger { color: var(--spec-danger); border-color: var(--spec-danger); }
 .spec-edit .muted, .spec-bar .muted { color: #707880; font-size: 12px; }
+.spec-note { display: block; }
+.spec-row-problem { flex-basis: 100%; }
 .spec-problem { color: #b3261e; font-size: 12px; white-space: pre-wrap; }
 .spec-gt { display: grid; gap: 5px; }
 .spec-gt-form { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12.5px; }

@@ -40,6 +40,7 @@ export function bareAnalysis(analysis: PmiAnalysis): PmiAnalysis {
 
 /** A row as the panel shows it. */
 export interface PanelRow {
+  notes?: readonly string[];
   id: string;
   /** Its short name under its feature ("Position", "Material"). */
   label: string;
@@ -68,7 +69,7 @@ export interface PanelGroup { key: string; title: string; rows: PanelRow[] }
  * number; absent for an item the engine cannot name, which has no removal without a number. */
 export interface OtherRow { key: string; id?: string; number?: string; label: string; value: string; faces: number[] }
 
-export interface PanelModel { part: PanelGroup | null; features: PanelGroup[]; datums: PanelGroup | null; bom: PanelGroup | null; other: OtherRow[] }
+export interface PanelModel { part: PanelGroup | null; features: PanelGroup[]; datums: PanelGroup | null; other: OtherRow[] }
 
 /** Whether ``value`` states nothing: absent, no faces, no notes, or a "None …" choice. */
 export const isNoneValue = (value: unknown): boolean => value === null || value === undefined || value === ''
@@ -159,6 +160,7 @@ export function panelModel(table: FeatureTable, questions: readonly PmiQuestion[
     return g;
   };
   for (const row of table.rows) {
+    if (row.id.startsWith('bom.')) continue;
     const q = byId.get(row.id);
     const title = q?.title ?? '';
     // A row's full name names its feature and its kind ("Ø1.6 hole function"), never the feature alone.
@@ -181,11 +183,12 @@ export function panelModel(table: FeatureTable, questions: readonly PmiQuestion[
     const panelRow: PanelRow = {
       id: row.id, label: length ? 'Length' : holeLocation ? 'Location' : short ? capital(short) : kindWord(row.kind), name, state: row.state, value, expect: row.value,
       open: row.open, numbers, faces: row.faces, ...(q ? { question: q } : {}),
+      ...(row.id === 'part.notes' && Array.isArray(row.value) && row.value.every((note) => typeof note === 'string')
+        ? { notes: row.value } : {}),
       ...(suggestion !== undefined ? { suggestion, suggestionText: isNoneValue(suggestion) ? 'none' : answerText(suggestion, q) } : {}),
     };
     if (length || row.feature === 'part') group('part', 'The part').rows.push(panelRow);
     else if (holeLocation) group(`feature:${owner?.id ?? row.feature}`, locationTitle).rows.push(panelRow);
-    else if (row.id.startsWith('bom.')) group('bom', 'Parts list').rows.push(panelRow);
     else if (row.id.startsWith('datum.')) group('datums', 'Datums').rows.push(panelRow);
     else group(`feature:${row.feature}`, title || row.feature).rows.push(panelRow);
   }
@@ -196,7 +199,6 @@ export function panelModel(table: FeatureTable, questions: readonly PmiQuestion[
     part: groups.get('part') ?? null,
     features: [...groups.values()].filter((g) => g.key.startsWith('feature:')),
     datums: groups.get('datums') ?? null,
-    bom: groups.get('bom') ?? null,
     other,
   };
 }

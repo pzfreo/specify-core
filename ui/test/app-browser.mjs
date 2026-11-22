@@ -13,7 +13,7 @@ import { characteristicHistory, validateOpening, wasmDirectory } from './engine-
 // listed in the bar and written together by Save (session API 2, `POST save {rev, edits}`), or dropped
 // by Discard; `specify-core analyse` reads back what the saved file states. Save writes
 // part.specified.step beside it even with questions open, saying which; the file reopens with what was
-// saved stated; read-only has no Save; an assembly's rows are read only on this version. With
+// saved stated; read-only has no Save; an assembly's part edits save together. With
 // `open --diff OLD NEW` it shows what changed, lists what needs a decision, opens NEW's
 // requirements in Graphical, and Save writes NEW with the carried answers. With `--in-place`, a
 // save over a file another program changed is refused as that, not as answers that moved on. With
@@ -58,8 +58,10 @@ const edited = join(saves, 'part.specified-2.step');
 const second = join(saves, 'part.specified-3.step');
 
 /** `specify-core open` on ``files`` (one, or `--diff` and two): its address once it prints it, and a way to stop it. */
+const servers = [];
 async function open(file, ...flags) {
   const child = spawn(cli, ['open', ...assetArgs, '--no-browser', ...flags, ...[file].flat()], { env: assetEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+  servers.push(child);
   let out = '';
   child.stdout.on('data', chunk => { out += chunk; });
   child.stderr.on('data', chunk => { out += chunk; });
@@ -160,7 +162,8 @@ async function save(page, server, n) {
   await check(page.locator('.app-saved code')).toHaveText(saved.path);
   await check.poll(() => (server.output().match(/Saved /g) ?? []).length).toBe(n);
   await check(page.locator('.spec-bar')).toContainText('written, all together');
-  return { rev: saved.rev, requestedRev: response.request().postDataJSON().rev };
+  const body = response.request().postDataJSON();
+  return { rev: saved.rev, requestedRev: body.rev, body };
 }
 let first = null;
 /** The feature-and-kinds the first two saves list: each is in the file after it, stated or decided none. */
@@ -168,9 +171,9 @@ const listed = ['part.heat_treatment', 'part.material', 'hole.position:holes:14.
 /** `specify-core analyse` of ``file``: what Specify reads from it (its PMI as characteristics, the answers stored). */
 /** The answers a person gave: Specify's own `_` records left out. */
 const given = answers => Object.fromEntries(Object.entries(answers ?? {}).filter(([id]) => !id.startsWith('_')));
-const analyse = file => JSON.parse(execFileSync(cli, ['analyse', '--output', '-', file], { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] }));
+const analyse = (file, part) => JSON.parse(execFileSync(cli, ['analyse', '--output', '-', ...(part === undefined ? [] : ['--part', String(part)]), file], { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] }));
 /** ADR P11: what the file states, by feature-and-kind (the analysis's table): each row's state and value. */
-const table = file => Object.fromEntries((analyse(file).table?.rows ?? []).map(r => [r.id, r]));
+const table = (file, part) => Object.fromEntries((analyse(file, part).table?.rows ?? []).map(r => [r.id, r]));
 /** The feature-and-kinds the file holds, stated or decided none, and the choices with no row it
  * stores (how holes are located, `part.locating`: it writes no PMI, so the file stores it). */
 const held = file => {
@@ -241,6 +244,144 @@ const assertExportsFromSaved = async (page, file, before) => {
 const savedLine = page => page.locator('.app-saved').textContent({ timeout: 1000 }).catch(() => null);
 
 try {
+  // A real assembly: edit the plate in place and compare the original assembly records and the
+  // pin's PMI entity text. Seed the pin first so those records can be identified without pins
+  // on entity numbers. The plate is seeded separately with the two requirements to edit.
+  {
+    const fixture = '../tests/fixtures/parts/assembly.step';
+    const asm = join(dir, 'plate-and-pin.step');
+    const pinOnly = join(dir, 'pin-pmi.step');
+    const list = join(dir, 'assembly-seed.json');
+    const seed = (input, part, fill, output) => {
+      writeFileSync(list, JSON.stringify({ fill }));
+      execFileSync(cli, ['write', input, list, '--part', String(part), '-o', output]);
+    };
+    seed(fixture, 1, { 'part.material': 'Bronze', 'part.general_tolerance': 'ISO 2768-f' }, pinOnly);
+    seed(pinOnly, 0, { 'part.material': 'Steel', 'part.general_tolerance': 'ISO 2768-m' }, asm);
+    const entities = file => new Map(Array.from(readFileSync(file, 'utf8')
+      .matchAll(/^#(\d+)\s*=\s*(?:'(?:[^']|'')*'|[^';])*;/gm), m => [m[1], m[0]]));
+    const original = entities(asm);
+    const pinRecords = entities(pinOnly);
+    assert.ok(pinRecords.size > entities(fixture).size, 'the unedited pin carries PMI');
+    const pinTable = table(asm, 1);
+    const choose = async (page, part, value) => {
+      await page.locator('.app-part select').selectOption(String(part));
+      await check(material(page).locator('.v')).toHaveText(value);
+    };
+    const change = async (page, value) => {
+      const r = material(page);
+      await r.getByRole('button', { name: 'Change Material', exact: true }).click();
+      await r.getByRole('textbox', { name: 'New value' }).fill(value);
+      await r.getByRole('button', { name: 'Apply', exact: true }).click();
+      await check(r.locator('.spec-edit')).toHaveCount(0);
+      await check(r.locator('.v')).toHaveText(value);
+    };
+    const pending = (page, part) => page.locator(`.spec-bar [data-part="${part}"][data-pending]`);
+    const allPending = page => page.locator('.spec-bar [data-pending]');
+    const discard = page => page.getByRole('button', { name: 'Discard', exact: true }).click();
+
+    const server = await open(asm, '--in-place');
+    const { context, page, requests } = await load(server);
+    await choose(page, 1, 'Bronze');
+    await choose(page, 0, 'Steel');
+    await check(material(page).getByRole('button', { name: 'Change Material', exact: true })).toBeEnabled({ timeout: 5000 });
+    await change(page, 'Aluminium 6082-T6');
+    const gt = row(page, 'part.general_tolerance');
+    await gt.getByRole('button', { name: 'Remove General tolerance', exact: true }).click();
+    await gt.locator('.spec-edit.rm').getByRole('button', { name: 'Remove', exact: true }).click();
+    await check(gt).toHaveClass(/removed/);
+    await gt.getByRole('button', { name: 'Undo removal', exact: true }).click();
+    await check(gt).not.toHaveClass(/removed/);
+    await check(listedEdit(page, 'part.general_tolerance')).toHaveCount(0);
+    await gt.getByRole('button', { name: 'Remove General tolerance', exact: true }).click();
+    await gt.locator('.spec-edit.rm').getByRole('button', { name: 'Remove', exact: true }).click();
+    await check(gt).toHaveClass(/removed/);
+    await add(page, 'part.coating', 'Anodised');
+    await check(pending(page, 0)).toHaveCount(3);
+    const single = await save(page, server, 1);
+    assert.deepEqual(single.body.partEdits.map(p => p.part), [0]);
+    const saved = entities(asm);
+    for (const [id, record] of pinRecords) {
+      assert.equal(original.get(id), record, `the plate seed preserved #${id}`);
+      assert.equal(saved.get(id), record, `the panel save preserved the original assembly and pin entity #${id}`);
+    }
+    assert.deepEqual(table(asm, 1), pinTable, 'the pin reads the same after the plate save');
+    const plate = table(asm, 0);
+    assert.equal(plate['part.material'].value, 'Aluminium 6082-T6');
+    assert.equal(plate['part.general_tolerance'].state, 'gap');
+    assert.equal(plate['part.coating'].value, 'Anodised');
+    onlyLocal(requests, server.origin);
+    await context.close();
+    server.stop();
+
+    const reopened = await open(asm, '--in-place');
+    const review = await load(reopened);
+    const main = review.page;
+    await check(material(main).locator('.v')).toHaveText('Aluminium 6082-T6');
+    await check(row(main, 'part.general_tolerance')).toHaveAttribute('data-state', 'gap');
+    await check(row(main, 'part.coating').locator('.v')).toHaveText('Anodised');
+    await check(main.locator('.spec-row.changed')).toHaveCount(0);
+    await noneNeeded(main, 'part.heat_treatment');
+    await check(pending(main, 0)).toHaveText('plate · None needed: Heat treatment');
+    await row(main, 'part.heat_treatment').getByRole('button', { name: 'Undo', exact: true }).click();
+    await check(allPending(main)).toHaveCount(0);
+    await main.getByRole('button', { name: 'Add all suggestions', exact: true }).click();
+    await check(pending(main, 0).filter({ hasText: 'plate · Add General tolerance' })).toBeVisible();
+    await check(pending(main, 1)).toHaveCount(0);
+    await discard(main);
+
+    // The same row id in two parts must have independent values and validation. Switch back and
+    // forth with both edits present, then send one POST with both part lists.
+    await change(main, 'Steel 1.4301');
+    await choose(main, 1, 'Bronze');
+    await change(main, 'Brass CW614N');
+    await choose(main, 0, 'Steel 1.4301');
+    await check(material(main)).toHaveClass(/changed/);
+    await check(pending(main, 0)).toHaveText('plate · Change Material: Aluminium 6082-T6 → Steel 1.4301');
+    await check(pending(main, 1)).toHaveText('pin · Change Material: Bronze → Brass CW614N');
+    await choose(main, 1, 'Brass CW614N');
+    const both = await save(main, reopened, 1);
+    assert.deepEqual(both.body.partEdits.map(p => p.part).sort(), [0, 1]);
+    assert.equal(table(asm, 0)['part.material'].value, 'Steel 1.4301');
+    assert.equal(table(asm, 1)['part.material'].value, 'Brass CW614N');
+    await check(material(main)).not.toHaveClass(/changed/);
+
+    // A save-time refusal can still happen after WASM checks. Change the second part's outgoing
+    // entry so the real server refuses it after staging the first, and check disk and session.
+    await choose(main, 0, 'Steel 1.4301');
+    await change(main, 'Steel');
+    await choose(main, 1, 'Brass CW614N');
+    await change(main, 'Bronze');
+    const beforeRefusal = readFileSync(asm);
+    const failed = main.waitForResponse(response => response.url() === `${reopened.url}save`);
+    await main.route('**/save', route => {
+      const body = route.request().postDataJSON();
+      const second = body.partEdits.find(p => p.part === 1);
+      second.edits = { fill: { 'unknown.pin': 'invalid' } };
+      return route.continue({ postData: JSON.stringify(body) });
+    });
+    const beforeErrors = problems.length;
+    await main.getByRole('button', { name: 'Save', exact: true }).click();
+    const refusal = await failed;
+    assert.equal(refusal.status(), 422);
+    const refused = await refusal.json();
+    assert.deepEqual(refused.failures.map(f => f.entry), ['Part "pin" (1): fill["unknown.pin"]']);
+    await check(main.getByRole('alert').first()).toContainText('nothing was written');
+    await check(main.getByRole('alert').first()).toContainText(refused.failures[0].entry);
+    assert.deepEqual(readFileSync(asm), beforeRefusal, 'one refused entry prevents both writes');
+    assert.equal((await (await fetch(`${reopened.url}answers`)).json()).rev, both.rev);
+    assert.equal((reopened.output().match(/Saved /g) ?? []).length, 1);
+    await check(allPending(main)).toHaveCount(2);
+    await discard(main);
+    await check(allPending(main)).toHaveCount(0);
+    await check(material(main).locator('.v')).toHaveText('Brass CW614N');
+    await choose(main, 0, 'Steel 1.4301');
+    problems.splice(beforeErrors, problems.length - beforeErrors,
+      ...problems.slice(beforeErrors).filter(p => !/^console: .*422/.test(p)));
+    onlyLocal(review.requests, reopened.origin);
+    await review.context.close();
+    reopened.stop();
+  }
   // Specify: the panel's edits, listed in the bar, written together by Save, read back.
   {
     const server = await open(part);
@@ -307,7 +448,11 @@ try {
     await gt.getByRole('textbox', { name: 'Row 2 tolerance' }).fill('±.005');
     await gt.getByRole('button', { name: 'Add row' }).click();
     await gt.getByRole('button', { name: 'Remove row 3' }).click();
-    await gt.getByRole('textbox', { name: 'Note' }).fill('fractions ±1/64');
+    await gt.getByRole('textbox', { name: 'Note 1', exact: true }).fill('fractions ±1/64');
+    await gt.getByRole('button', { name: 'Add note', exact: true }).click();
+    await gt.getByRole('textbox', { name: 'Note 2', exact: true }).fill('break all edges');
+    await check(gt.locator('.spec-gt-text code')).toContainText('fractions ±1/64, break all edges');
+    await gt.getByRole('button', { name: 'Remove note 2', exact: true }).click();
     await gt.getByRole('textbox', { name: 'Angles' }).fill('±1°');
     const block = '.XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°';
     await check(gt.locator('.spec-gt-text code')).toHaveText(block);
@@ -315,6 +460,12 @@ try {
     // The engine takes the block (#228): its check passes and the bar shows it as entered.
     await check(gt.locator('.spec-problem')).toHaveCount(0);
     await check(listedEdit(page, 'part.general_tolerance')).toHaveText(`Add General tolerance: ${block}`);
+    await page.getByRole('button', { name: 'Discard', exact: true }).click();
+    const notes = row(page, 'part.notes');
+    await notes.locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
+    await notes.locator('.spec-edit textarea').fill('Deburr all edges\nMark lot');
+    await notes.locator('.spec-edit').getByRole('button', { name: 'Add', exact: true }).click();
+    await check(notes.locator('.spec-note')).toHaveText(['Deburr all edges', 'Mark lot']);
     await page.getByRole('button', { name: 'Discard', exact: true }).click();
     await add(page, 'part.material', 'Aluminium 6082-T6');
     // Each edit joins the bar only if the file takes it with those listed (the bar is always a list
@@ -326,6 +477,12 @@ try {
     await add(page, 'datum.A');
     await add(page, 'hole.position:holes:14.15');
     await add(page, 'hole.position:holes:13');
+    // A choice with no none option stays a gap and explains the refusal on its own row.
+    const processRow = row(page, 'part.process');
+    await processRow.getByRole('button', { name: 'None needed', exact: true }).click();
+    await check(processRow.getByRole('alert')).toContainText("'none' is not an answer");
+    await check(processRow).toHaveAttribute('data-state', 'gap');
+    await check(listedEdit(page, 'part.process')).toHaveCount(0);
     // None needed records the decision; Undo of one made in this session drops it; None needed again.
     await noneNeeded(page, 'part.coating');
     await check(row(page, 'part.coating')).toContainText('none needed');
@@ -334,6 +491,16 @@ try {
     await check(listedEdit(page, 'part.coating')).toHaveCount(0);
     await noneNeeded(page, 'part.coating');
     await check(listedEdit(page, 'part.coating')).toHaveText('None needed: Coating');
+    // If a checked None needed is later refused at Save, the row and the bar both stay visible.
+    const beforeSave = problems.length;
+    await page.route('**/save', route => route.fulfill({ status: 422, contentType: 'application/json',
+      body: JSON.stringify({ error: 'nothing was written', failures: [{ entry: 'none["part.coating"]', reason: 'Coating is required here' }] }) }));
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await check(row(page, 'part.coating').getByRole('alert')).toHaveText('Coating is required here');
+    await check(listedEdit(page, 'part.coating')).toBeVisible();
+    await page.unroute('**/save');
+    problems.splice(beforeSave, problems.length - beforeSave,
+      ...problems.slice(beforeSave).filter(p => !/^console: .*422/.test(p)));
     // A value the file cannot take is refused on its line, by the engine, and never joins the bar.
     await row(page, 'part.surface_finish').locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
     await row(page, 'part.surface_finish').locator('.spec-edit input').fill('shiny');
@@ -466,26 +633,6 @@ try {
     await save(page, server, 1);
     const withoutMaterial = (await page.locator('.app-saved code').textContent()).trim();
     assert.equal(table(withoutMaterial)['part.material'].state, 'gap', 'the material removed by its id');
-    onlyLocal(requests, server.origin);
-    await context.close();
-    server.stop();
-  }
-  // An assembly: an edit list applies to a file of one part on this version (the assembly-edits update
-  // brings parts of an assembly), so its rows are shown read only, with a note, and Save is off.
-  {
-    const asmDir = join(dir, 'drawn');
-    mkdirSync(asmDir);
-    const asm = join(asmDir, 'asm.step');
-    writeFileSync(asm, gunzipSync(readFileSync('test/fixtures/gramil_assembly_before.step.gz')));
-    const server = await open(asm);
-    const { context, page, requests } = await load(server);
-    await check(page.locator('.app-part select')).toBeVisible();
-    await check(page.locator('.spec-readonly')).toContainText('This part is in an assembly');
-    assert.ok(await page.locator('.spec-panel .spec-row').count() > 3, 'the rows are shown, not hidden');
-    await check(page.locator('.spec-panel .acts')).toHaveCount(0);
-    await check(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
-    if (shots) await page.screenshot({ path: join(shots, 'assembly-read-only.png') });
-    assert.ok(!existsSync(join(asmDir, 'asm.specified.step')), 'nothing written');
     onlyLocal(requests, server.origin);
     await context.close();
     server.stop();
@@ -779,6 +926,12 @@ try {
     await gone.getByRole('button', { name: /^Remove / }).click();
     await gone.locator('.spec-edit.rm').getByRole('button', { name: 'Remove', exact: true }).click();
     await check(listedEdit(page, target.id)).toBeVisible();
+    await gone.getByRole('button', { name: 'Undo removal', exact: true }).click();
+    await check(gone).not.toHaveClass(/removed/);
+    await check(listedEdit(page, target.id)).toHaveCount(0);
+    await gone.getByRole('button', { name: /^Remove / }).click();
+    await gone.locator('.spec-edit.rm').getByRole('button', { name: 'Remove', exact: true }).click();
+    await check(listedEdit(page, target.id)).toBeVisible();
     const secondSave = await save(page, server, 2);
     assert.equal(secondSave.requestedRev, firstSave.rev);
     assert.equal(secondSave.rev, firstSave.rev + 1);
@@ -902,6 +1055,6 @@ try {
   assert.deepEqual(problems, [], 'no page errors');
   console.log('app-browser passed');
 } finally {
-  first?.stop();
+  for (const child of servers) child.kill();
   await browser.close();
 }
