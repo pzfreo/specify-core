@@ -790,14 +790,16 @@ fn a_finish_on_faces_is_not_a_second_default() {
 /// `enriched`: the plate with datums A, B, C and a fitted, positioned Ø8 bore, written without
 /// answers (so its PMI is, to a later write, the file's own).
 fn enriched(dir: &Path) -> PathBuf {
-    let analysis = analysis("parts/plate");
+    let plate = load(&fixture("plate"), None).unwrap();
+    // general dimensions are rows (Paul, 2026-11-21). Approve the current pattern's
+    // shared measurements as offered by the planner, then test the add on stated PMI.
+    let analysis = specify_core::api::analyse(&plate).unwrap();
     let given = json!({
         "part.material": "steel",
         question(&analysis, "hole.function", "Ø8"): "fit:H7",
         question(&analysis, "hole.function", "6×"): "general",
     });
     let out = dir.join("first.step");
-    let plate = load(&fixture("plate"), None).unwrap();
     write(&plate, &apply(&analysis, given), &out, None).unwrap();
     out
 }
