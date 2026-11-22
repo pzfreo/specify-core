@@ -83,7 +83,7 @@ JSON-RPC errors.
 | Tool | Arguments | Result |
 | --- | --- | --- |
 | `list_parts` | `path` | `parts`: `[{part, name, product_id, faces, instances, ...}]`, as `serve`'s `parts` |
-| `open` | `path`, `part?`, `old?`, `in_place?`, `answers_file?`, `overwrite?` | `doc`, `rev`, `open_questions`, `features` (counts by family), `faces`, `table` (the current feature table), `existing_pmi`, `resumed`, `warnings?`; with `old`, the comparison's `verdict`, `summary` and `report`. For an assembly opened without `part`, the result is `needs_part: true` with its `parts` |
+| `open` | `path`, `part?`, `old?`, `in_place?`, `answers_file?`, `overwrite?` | `doc`, `rev`, `open_questions`, `features` (counts by family), `faces`, `table` (the current feature table), `existing_pmi`, `resumed`, `warnings?`, `refused?` (answer IDs and reasons); with `old`, the comparison's `verdict`, `summary` and `report`. For an assembly opened without `part`, the result is `needs_part: true` with its `parts` |
 | `questions` | `doc`, `state?` (`open` by default, `answered`, `all`), `compact?` (only the open questions, `{id, prompt, choices or hint, suggested?, rule?}`) | each question as review presents it, with its `state` (`open`, `answered`, `optional`) and its `answer`; a default's `source` names the rule behind it ([rule-sources.md](rule-sources.md#rule-ids)); `rev` |
 | `answer` | `doc`, `set?: {id: value or text}`, `clear?: [id]`, `partial?`, `answers_file?`, `overwrite?` | each answer as stored, with `interpreted_from` when it was typed, and its `state`; the `open` ids; the new `rev`; with `partial`, `outcomes`: `{id: {stored, interpreted_from?, state}}` or `{id: {refused: reason}}`. An answer to a feature-and-kind the file states (its feature-table row is `stated`) that says the same as the file is a no-op (`state: "stated"`, nothing stored), as on the command line; one that differs is refused with the row ID, what the file states, and the explicit `change` to send. For example, changing a position tolerance from 1.5 to 0.5 requires `{"to":"0.5","expect":"1.5"}` |
 | `review` | `doc` | `open`, `problems`, `writable`/`missing` as answered, `writable_with_defaults`/`missing_with_defaults`; `rev` |
@@ -101,6 +101,11 @@ The edit list is `{"fill": {id: value}, "change": {id: {"to", "expect"}}, "items
 EDITS.json` takes it; ids are the feature table's (`table` in the analysis resource), a choice
 with no row (`part.locating`), or an added requirement (`extra.<name>`). `clear` takes back a stored decision that leaves no PMI (a decided none, or a choice such as `part.locating`), so the feature-and-kind is a gap, or the choice unanswered, again; it never touches PMI (that is `change` and `items.remove`). A fill of `extra.<name>` with a requirement's spec (`{kind, faces, value, …}`, as an answer gave it) adds that requirement. `write_pmi`, which
 wrote the whole intent of the answers to a path of the agent's choosing, is gone (ADR P11).
+
+An existing `answers_file` at `open` uses the same checks as `answer`. Refused entries
+stay in the source JSON on open, and their reasons appear in the open result and on the
+page. The preview keeps the file's stated values. An accepted or equal answer clears
+any earlier refusal for that row.
 
 `answer` reads free text for a choice question as `serve`'s `interpret` does. `"M6"` on a hole
 becomes the matching `clearance:` or `tapped:` value, `"H7"` on a bore becomes a fit, and an

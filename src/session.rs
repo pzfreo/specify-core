@@ -186,6 +186,7 @@ pub struct Session {
     allowed: Option<Vec<PathBuf>>,
     analyses: BTreeMap<usize, Arc<Value>>,
     answers: BTreeMap<usize, Map<String, Value>>,
+    refused_answers: BTreeMap<usize, BTreeMap<String, String>>,
     rev: u64,
     changes: VecDeque<Change>,
     /// The newest `rev` whose change is no longer kept (0: none dropped).
@@ -237,6 +238,7 @@ impl Session {
             allowed: None,
             analyses: BTreeMap::new(),
             answers: BTreeMap::new(),
+            refused_answers: BTreeMap::new(),
             rev: 0,
             changes: VecDeque::new(),
             dropped: 0,
@@ -404,6 +406,49 @@ impl Session {
         self.answers.insert(part, answers);
     }
 
+    pub(crate) fn refused_answers(&self, part: usize) -> Option<&BTreeMap<String, String>> {
+        self.refused_answers
+            .get(&part)
+            .filter(|refused| !refused.is_empty())
+    }
+
+    pub(crate) fn answer_snapshot(&self) -> Value {
+        let mut snapshot = json!({"rev": self.rev, "parts": self.parts()});
+        let drafts: BTreeMap<_, _> = self
+            .refused_answers
+            .iter()
+            .filter(|(_, refused)| !refused.is_empty())
+            .map(|(part, refused)| (part, json!({"refused": refused})))
+            .collect();
+        if !drafts.is_empty() {
+            snapshot["drafts"] = json!(drafts);
+        }
+        snapshot
+    }
+
+    /// Record the refused entries for the page without including them in the answers.
+    pub(crate) fn set_agent_answers<'a>(
+        &mut self,
+        part: usize,
+        answers: Map<String, Value>,
+        cleared: &'a [String],
+        accepted: impl IntoIterator<Item = &'a str>,
+        refused: BTreeMap<String, String>,
+    ) {
+        let mut changed = false;
+        let current = self.refused_answers.entry(part).or_default();
+        for id in cleared.iter().map(String::as_str).chain(accepted) {
+            changed |= current.remove(id).is_some();
+        }
+        for (id, reason) in refused {
+            if current.get(&id) != Some(&reason) {
+                current.insert(id, reason);
+                changed = true;
+            }
+        }
+        self.change(part, answers, "mcp", None, changed);
+    }
+
     /// Replaces part `part`'s answers: the new `rev` and the change, or None when nothing
     /// changed. Every subscriber gets an `answers` event.
     pub fn set(
@@ -412,7 +457,7 @@ impl Session {
         answers: Map<String, Value>,
         source: &'static str,
     ) -> Option<u64> {
-        self.change(part, answers, source, None)
+        self.change(part, answers, source, None, false)
     }
 
     /// [`Session::set`], at `rev` when several parts change together (else the next rev).
@@ -422,12 +467,13 @@ impl Session {
         answers: Map<String, Value>,
         source: &'static str,
         at: Option<u64>,
+        draft_changed: bool,
     ) -> Option<u64> {
         let before = self.answers.get(&part);
         // A part joining the session is a change even with no answers: a page holding an older
         // rev then re-reads, and sees it.
         let joined = before.is_none();
-        if before == Some(&answers) {
+        if before == Some(&answers) && !draft_changed {
             return None;
         }
         let empty = Map::new();
@@ -461,6 +507,11 @@ impl Session {
             data["joined"] = json!(true);
         }
         self.answers.insert(part, answers);
+        if at.is_some() {
+            data["drafts"] = json!({});
+        } else if let Some(refused) = self.refused_answers(part) {
+            data["draft"] = json!({"refused": refused});
+        }
         self.publish(&event("answers", Some(rev), &data));
         Some(rev)
     }
@@ -477,7 +528,8 @@ impl Session {
     /// per change and save.
     pub fn subscribe(&mut self) -> mpsc::Receiver<String> {
         let (tell, events) = mpsc::sync_channel(MAX_BEHIND + 1);
-        let data = json!({"rev": self.rev, "parts": self.parts(), "source": "start"});
+        let mut data = self.answer_snapshot();
+        data["source"] = json!("start");
         let _ = tell.send(event("answers", Some(self.rev), &data));
         self.subscribers.push(tell);
         events
@@ -725,7 +777,9 @@ pub fn save_part_edits(
         s.answers.keys().chain(answers.keys()).copied().collect();
     for k in &parts {
         let now = answers.remove(k).unwrap_or_default();
-        s.change(*k, now, source, Some(at));
+        let cleared =
+            !applied.unchanged && s.refused_answers.remove(k).is_some_and(|r| !r.is_empty());
+        s.change(*k, now, source, Some(at), cleared);
     }
     // A save that changed the file is a new rev even when the stored answers are the same (a
     // fill writes PMI, not an answer): a page or agent holding the old rev must read again
