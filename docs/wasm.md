@@ -86,15 +86,16 @@ try {
 
 ### Publishing to npm
 
-A published, non-pre-release GitHub release runs `release.yml`: the `wasm` job attaches the
+A published GitHub release runs `release.yml`: the `wasm` job attaches the
 archive, then the `npm` job downloads it, checks its `.sha256`, prepares `package.json` with
 `tools/npm_package.py` (scoped name, `publishConfig: {access: public, provenance: true}`,
 `NOTICE` in `files`; refusing a version other than the tag's, or a tarball without LICENSE
 and NOTICE), and publishes it with npm trusted publishing in the
-`npm` environment, where the maintainer approves. A version already on npm is skipped; a
-version older than npm's `latest` is published under the dist-tag `release-<version>`. A manual run
-of `release.yml` with a `tag` publishes that existing release's archive the same way; a
-pre-release is refused.
+`npm` environment, where the maintainer approves. A version already on npm is skipped.
+A pre-release such as `0.3.0-rc.1` requires a GitHub release marked pre-release and goes
+under `next`. A final version older than npm's `latest` goes under `release-<version>`.
+A manual run of `release.yml` with a `tag` applies the same rules to the existing release's
+archive. See [Cutting a pre-release](../CONTRIBUTING.md#cutting-a-pre-release).
 
 npm adds a trusted publisher from the package's settings, so the package's first version
 (0.1.17) was published with a short-lived token. From 0.1.18 the job passes no token: it
