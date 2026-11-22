@@ -36,7 +36,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use haecceity::pmi::{DimensionKind, Mode, PartPmi, ToleranceTarget};
 use serde_json::{Map, Value as Json};
 
-use super::{Source, WriteReport, drop_stated, part_pmi, requirements, verify, write_by_modes};
+use super::{Source, WriteReport, drop_stated, requirements, verify, write_by_modes};
 use crate::edits::{self, EditList, Failure, Outcome};
 use crate::feature_table::{FeatureTable, State};
 use crate::part::{self, LoadedPart};
