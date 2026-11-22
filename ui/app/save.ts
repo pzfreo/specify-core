@@ -90,7 +90,7 @@ export function sameDefaults(a: readonly Default[], b: readonly Default[]): bool
  * the part shown, so a save never writes answers the person has not seen. ``defaultsOf(parts)``: the
  * defaults a save with defaults would write for the answers ``parts`` (every part's, by index). The
  * edit list covers every part the page changed (the command applies a list to a file of one part). */
-export function sessionSaver(store: AnswersStore, session: Pick<AnswersSession, 'parts' | 'signal' | 'answers' | 'shown' | 'changedParts' | 'commit'>, shown: () => PmiAnswers, defaultsOf: (parts: Record<string, PmiAnswers>) => Promise<Default[]>, write = post): Saver {
+export function sessionSaver(store: AnswersStore, session: Pick<AnswersSession, 'parts' | 'signal' | 'receiveSave' | 'answers' | 'shown' | 'changedParts' | 'commit'>, shown: () => PmiAnswers, defaultsOf: (parts: Record<string, PmiAnswers>) => Promise<Default[]>, write = post): Saver {
   return {
     async save({ defaults }) {
       session.signal.throwIfAborted();
