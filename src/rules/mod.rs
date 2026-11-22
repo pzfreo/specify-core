@@ -34,7 +34,7 @@ pub use datums::{Control, datum_control, datum_kind, default_datums};
 pub use records::{Datum, DatumKind, Datums, Face, Faces};
 pub use turned::RUNOUTS;
 
-pub(crate) use holes::{bores, bores_of};
+pub(crate) use holes::{bores_of, table_bores};
 pub(crate) use py::{float_of, int_of, iter_of, object, repr, round, str_of, truthy};
 pub(crate) use records::{Ctx, Feature};
 
@@ -843,7 +843,10 @@ fn every_question(
                 } else {
                     members.extend_from_slice(&t.members);
                 }
-                parts.push((t.id.to_string(), bores(&t.faces, diameter, &ctx.faces)?));
+                parts.push((
+                    t.id.to_string(),
+                    holes::table_bores(&t.faces, diameter, ctx)?,
+                ));
             }
             target = holes::Target {
                 faces,
@@ -1707,17 +1710,22 @@ fn raw_intent(
                     .map_err(|e| Error::Invalid(format!("stored dimensions: {e}")))?,
             );
         }
-        // During suggestion planning the note already in the file also governs dimensions
-        // still missing. It supplies the tolerance without becoming a new setting to write.
+        // The file's general-tolerance note governs both suggested and approved
+        // dimensions. Supply it to the planner without writing the note again.
         let seed_tolerance = tolerance.filter(|_| {
-            mode == IntentMode::Suggestions && !intent.part.contains_key("general_tolerance")
+            (mode == IntentMode::Suggestions
+                || (ctx.has_table()
+                    && ctx
+                        .stated
+                        .is_some_and(|p| p.contains_key("general_tolerance"))))
+                && !intent.part.contains_key("general_tolerance")
         });
         if let Some(tolerance) = seed_tolerance {
             intent
                 .part
                 .insert("general_tolerance".into(), tolerance.clone());
         }
-        crate::dimensioning::apply(input, &mut intent).map_err(Error::Invalid)?;
+        crate::dimensioning::apply(input, &mut intent, ctx.has_table()).map_err(Error::Invalid)?;
         if seed_tolerance.is_some() {
             intent.part.shift_remove("general_tolerance");
         }

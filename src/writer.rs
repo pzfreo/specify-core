@@ -1100,7 +1100,8 @@ fn general_size_question(row: &Map<String, Json>) -> Option<String> {
     let feature = row.get("feature")?.as_str()?;
     let kind = match feature.split_once(':')?.0 {
         "turned_steps" => "diameter.fit",
-        "holes" | "hole_patterns" => "hole.function",
+        "holes" => "hole.function",
+        family if family.starts_with("hole_patterns.") => "hole.function",
         _ => return None,
     };
     Some(format!("{kind}:{feature}"))
@@ -3503,6 +3504,7 @@ fn part_pmi_observed(
             continue;
         }
         if let Some(reason) = reported_reason {
+            skip(reason);
             lines.not_written.push(reason.into());
             continue;
         }
@@ -3513,9 +3515,11 @@ fn part_pmi_observed(
             if general_row {
                 skip(&format!("{what} names no faces (question Q17)"));
             } else if !under_general {
-                lines.not_written.push(format!(
+                let reason = format!(
                     "{what} names no faces, so nothing in the file can carry it (question Q17)"
-                ));
+                );
+                skip(&reason);
+                lines.not_written.push(reason);
             }
             continue;
         }

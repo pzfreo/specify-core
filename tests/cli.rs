@@ -416,30 +416,42 @@ fn spindle_write_accepts_every_listed_default() {
 }
 
 #[test]
-fn spindle_writes_approved_locations_and_reports_deferred_sizes() {
+fn spindle_writes_approved_locations_and_sizes() {
     let input = common::fixtures().join("spindle.step");
     let (output, intent, report) = write_listed_defaults(&input, "spindle-general");
-    // general dimensions are rows (Paul, 2026-11-21). The stated ⌀24 has no gap;
-    // four standalone locations were offered, approved and written.
-    assert_eq!(intent["general"].as_array().unwrap().len(), 6);
-    for label in [
-        "general size 15 on turned_steps:6 faces [6]",
-        "general size 10 on turned_steps:2 faces [2]",
-    ] {
+    // Four standalone locations and three size approvals. The imported
+    // general tolerance governs the approved sizes, including the cross-hole.
+    assert_eq!(intent["general"].as_array().unwrap().len(), 7);
+    assert_eq!(
+        report["not_written"],
+        json!([
+            "general size 15 on turned_steps:6 faces [6]: the faces establish a datum and the writer cannot mark a datum feature of size",
+            "answer diameter.fit:turned_steps:6 ('general'): approved, but nothing of its kind was written on its feature (general size on a datum's own faces); stored as decided"
+        ])
+    );
+    let reopened = api::analyse_file(&output, None).unwrap();
+    for (face, nominal) in [(2, 10.0), (7, 4.0)] {
         assert!(
-            report["not_written"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|line| line.as_str().unwrap()
-                    == format!(
-                        "{label}: adding PMI skips dimensions deferred by the shared planner"
-                    )),
-            "missing omission for {label}: {}",
-            report["not_written"]
+            reopened["existing"].as_array().unwrap().iter().any(|item| {
+                item["type"] == "Size_Diameter"
+                    && item["faces"] == json!([face])
+                    && item["value"] == nominal
+                    && item["origin"] == "general_tolerance"
+            }),
+            "missing diameter {nominal} on face {face}"
         );
     }
-    let reopened = api::analyse_file(&output, None).unwrap();
+    assert_eq!(
+        reopened["resume"]["answers"]["_specify"]["no_pmi"],
+        json!(["diameter.fit:turned_steps:6"])
+    );
+    assert!(
+        reopened["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["open"] == false)
+    );
     for (id, face, value) in [
         ("length:planes:8-10", 8, 12.0),
         ("length:planes:4-10", 4, 34.0),

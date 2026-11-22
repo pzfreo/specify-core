@@ -155,6 +155,9 @@ A hole located by position PMI has its location on the position row of the hole 
 pattern. A shared general location includes only the holes that still need it. Basic dimensions
 can coexist with the position tolerance that controls them. Bore sizes and planned depths
 belong to the hole function row, including depths measured between endpoint planes or points.
+When a rounded hole diameter leaves its bore unmatched, the feature table checks the measured
+cylinder at the same reported precision. An existing general-tolerance note governs newly
+approved sizes and locations.
 
 ### What the file states, read back whole
 

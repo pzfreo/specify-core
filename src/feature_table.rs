@@ -1119,11 +1119,18 @@ pub(crate) fn build_with_depths(
                 requirements.push(requirement(existing[i]));
             }
             if positions.is_empty() && !location.missing.is_empty() {
-                if location
-                    .items
-                    .iter()
-                    .any(|&i| kind.ends_with(".location") || existing[i]["basic"] != true)
-                {
+                if location.items.iter().any(|&i| {
+                    let item = existing[i];
+                    kind.ends_with(".location")
+                        || (item["basic"] != true
+                            && (item["kind"] != "datum"
+                                || q.frame
+                                    .as_deref()
+                                    .or_else(|| q.default.as_ref().and_then(Value::as_str))
+                                    .is_some_and(|frame| {
+                                        frame.split('|').any(|letter| item["type"] == letter)
+                                    })))
+                }) {
                     missing = location
                         .missing
                         .iter()

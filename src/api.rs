@@ -646,8 +646,8 @@ pub fn stored_with_defaults(
     Ok(out)
 }
 
-/// The accepted defaults for a write. The writer decides what leaves no PMI
-/// after reconciling the intent with the file, including skipped measurements.
+/// The accepted defaults for a write. Pass every approval through so the
+/// writer can distinguish deliberate omissions from unfulfilled measurements.
 pub(crate) fn defaults_for_write(
     analysis: &Value,
     answers: &Map<String, Value>,

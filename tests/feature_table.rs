@@ -53,6 +53,23 @@ fn cli_write(
     output: &Path,
     defaults: bool,
 ) -> Value {
+    let result = cli_write_result(part, analysis, answers, output, defaults);
+    assert!(
+        result.status.success(),
+        "{}: {}",
+        part.path.display(),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    serde_json::from_slice(&result.stdout).unwrap()
+}
+
+fn cli_write_result(
+    part: &LoadedPart,
+    analysis: &Value,
+    answers: &Map<String, Value>,
+    output: &Path,
+    defaults: bool,
+) -> std::process::Output {
     let analysis_file = output.with_extension("analysis.json");
     let answers_file = output.with_extension("answers.json");
     std::fs::write(&analysis_file, analysis.to_string()).unwrap();
@@ -67,14 +84,7 @@ fn cli_write(
     if defaults {
         cli.arg("--accept-defaults");
     }
-    let result = cli.output().unwrap();
-    assert!(
-        result.status.success(),
-        "{}: {}",
-        part.path.display(),
-        String::from_utf8_lossy(&result.stderr)
-    );
-    serde_json::from_slice(&result.stdout).unwrap()
+    cli.output().unwrap()
 }
 
 fn assert_no_open(table: &Value, case: &str) {
@@ -178,6 +188,7 @@ fn ctc04_writes_the_position_and_shared_locations_for_unpositioned_holes() {
     let reopened = load(&output, None).unwrap();
     let after = api::analyse(&reopened).unwrap();
     assert_only_intentional_no_pmi(&reopened, &after, "CTC-04");
+    assert_no_open(&after["table"], "CTC-04");
     for kind in ["hole.frame", "hole.position"] {
         let r = row(&after["table"], &format!("{kind}:{pattern}"));
         assert_eq!(r["state"], "stated", "{r}");
@@ -191,6 +202,7 @@ fn ctc04_writes_the_position_and_shared_locations_for_unpositioned_holes() {
         );
     }
     for (value, faces) in [
+        (5.0, json!([5, 6])),
         (115.0, json!([25, 26, 29, 30])),
         (
             66.25,
@@ -324,6 +336,23 @@ fn accepting_corpus_defaults_leaves_no_open_rows() {
             }
             let part_index = part.binding.part;
             let output = scratch.join(format!("{index}-{part_index}.step"));
+            // FTC-09 e1's second native product consists of surface geometry.
+            // It has no material volume for the kernel's dimensioning frame.
+            if case.name == "nist/nist_ftc_09_asme1_ap242-e1" && part_index == 1 {
+                assert_eq!(
+                    analysis["dimensioning"]["reason"],
+                    "dimensioning frame: no-material"
+                );
+                let result = cli_write_result(&part, &analysis, &answers, &output, true);
+                assert_eq!(result.status.code(), Some(1), "{result:?}");
+                assert!(
+                    String::from_utf8_lossy(&result.stderr)
+                        .ends_with("dimensioning frame: no-material\n"),
+                    "{result:?}"
+                );
+                assert!(!output.exists());
+                continue;
+            }
             let report = cli_write(&part, &analysis, &answers, &output, true);
             let reopened = load(&output, Some(part_index)).unwrap();
             let after = api::analyse(&reopened).unwrap();
