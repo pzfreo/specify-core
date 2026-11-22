@@ -131,6 +131,11 @@ fn string_post_tiny_fillet_is_optional_and_writes_only_on_request() {
     assert_eq!(row["state"], "gap");
     assert_eq!(row["suggestion"], "none");
     assert_eq!(row["open"], false);
+    assert!(
+        !rules::with_all_defaults(&analysis, &Map::new())
+            .unwrap()
+            .contains_key(id)
+    );
     let questions = api::questions(&analysis, &Map::new()).unwrap();
     assert!(
         !rules::open_questions(&questions, &Map::new())

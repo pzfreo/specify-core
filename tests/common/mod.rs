@@ -706,6 +706,9 @@ fn by_key<'a>(items: &'a [Value], key: &str) -> Option<BTreeMap<String, &'a Valu
 /// Whether `text` matches `glob`, where `*` matches any run of characters (including none,
 /// dots and brackets) and every other character only itself.
 pub fn glob_match(glob: &str, text: &str) -> bool {
+    if !glob.contains('*') {
+        return glob == text;
+    }
     let (g, t): (Vec<char>, Vec<char>) = (glob.chars().collect(), text.chars().collect());
     let (mut gi, mut ti) = (0, 0);
     let mut star: Option<(usize, usize)> = None;

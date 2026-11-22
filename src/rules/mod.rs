@@ -1195,7 +1195,9 @@ pub fn with_defaults(qs: &[Question], answers: &Map<String, Value>) -> Map<Strin
         return merged;
     }
     for q in qs {
-        if q.id == crate::process::QUESTION {
+        if q.id == crate::process::QUESTION || q.id.starts_with("fillet.radius:") {
+            // A fillet needs no answer by default. In particular, a legacy analysis's
+            // inventory must not add decisions on fillet IDs the live kernel no longer sees.
             continue;
         }
         if let Some(default) = &q.default
