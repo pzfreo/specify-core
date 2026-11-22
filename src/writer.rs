@@ -3085,10 +3085,15 @@ fn part_pmi_observed(
                         .iter()
                         .any(|r| row == r || same_general_measurement(row, r))
                     {
-                        lines.not_written.push(format!(
-                            "{}: the shared planner did not retain this dimension when upgrading the intent",
-                            general_dimension_label(row)
-                        ));
+                        if intent.accept_defaults {
+                            // This exact measurement was accepted under the old rules.
+                            upgraded.general.push(row.clone());
+                        } else {
+                            lines.not_written.push(format!(
+                                "{}: the shared planner did not retain this dimension when upgrading the intent",
+                                general_dimension_label(row)
+                            ));
+                        }
                     }
                 }
                 &upgraded
@@ -3336,6 +3341,7 @@ fn part_pmi_observed(
         }
         if general_row
             && mode == Mode::Add
+            && !intent.accept_defaults
             && !req.contains_key("planner")
             && !req
                 .get("question")

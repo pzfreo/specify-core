@@ -109,13 +109,17 @@ fn corpus_feature_rows_that_can_write_pmi_have_faces() {
         };
         let (table, _) = table(&part);
         for row in table["rows"].as_array().unwrap() {
-            // A datum selector with no suggested faces acquires its support from the
-            // answer. Its empty suggestion, by itself, writes no PMI.
-            let unselected_datum = row["kind"].as_str().is_some_and(|kind| {
+            // A datum selector acquires its support from the answer. An empty
+            // selection or unresolvable imported support cannot write PMI.
+            let datum_without_support = row["kind"].as_str().is_some_and(|kind| {
                 kind.strip_prefix("datum.")
                     .is_some_and(|letter| letter.len() == 1)
-            }) && row["suggestion"] == json!([]);
-            if !unselected_datum {
+            }) && (row["suggestion"] == json!([])
+                || row["value"] == json!([])
+                || row["requirements"].as_array().is_some_and(|requirements| {
+                    requirements.iter().all(|r| r["faces"] == json!([]))
+                }));
+            if !datum_without_support {
                 assert!(
                     !row["faces"].as_array().unwrap().is_empty(),
                     "{}: {}",

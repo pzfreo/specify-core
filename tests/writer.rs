@@ -75,6 +75,42 @@ fn every_general_row_is_written_or_named_in_the_report() {
     }
 }
 
+#[test]
+fn legacy_accept_all_writes_a_recorded_measurement_the_new_planner_omits() {
+    let case = common::case("parts/wrapped");
+    let input = case.input().unwrap();
+    let part = load(&input, None).unwrap();
+    let mut captured = case.artifact("apply").unwrap();
+    let omitted = "general location 30 to faces [6] from faces [3]: the shared planner did not retain this dimension when upgrading the intent";
+    for approved in [false, true] {
+        if approved {
+            captured["accept_defaults"] = json!(true);
+        }
+        let intent = Intent::from_dict(&captured).unwrap();
+        let (bytes, report) = specify_core::writer::write_bytes(&part, &intent, None).unwrap();
+        let read = specify_core::part::load_bytes("legacy.step", bytes).unwrap();
+        let analysis = specify_core::api::analyse(&read).unwrap();
+        let read = analysis["existing"].as_array().unwrap();
+        let measured = read
+            .iter()
+            .filter(|pmi| {
+                pmi["type"] == "Location_LinearDistance"
+                    && pmi["value"]
+                        .as_f64()
+                        .is_some_and(|v| (v - 30.).abs() < 1e-6)
+                    && pmi["faces"] == json!([3])
+                    && pmi["faces2"] == json!([6])
+            })
+            .count();
+        assert_eq!(measured, usize::from(approved), "{report:?}\n{read:?}");
+        assert_eq!(
+            report.not_written.iter().any(|line| line == omitted),
+            !approved,
+            "{report:?}"
+        );
+    }
+}
+
 fn check_general_rows<'a>(
     intent: &Intent,
     read: &Value,

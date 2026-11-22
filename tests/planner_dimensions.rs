@@ -428,14 +428,18 @@ fn old_plan_upgrades_cannot_approve_other_lengths_sharing_a_holes_reference() {
     let given = json!({"part.material": "steel"});
     let mut answers = rules::with_all_defaults(&old, given.as_object().unwrap()).unwrap();
     answers.retain(|id, _| !id.starts_with("length:planes:") && !id.starts_with("location:holes:"));
-    let intent = rules::apply(&old, &answers).unwrap();
-    let (bytes, _) = writer::write_bytes(&p, &intent, Some(&answers)).unwrap();
-    let analysed = api::analyse(&part::load_bytes("old-plate.step", bytes).unwrap()).unwrap();
-    for id in [
+    // The three standalone measurements need approval before CLI write.
+    // A partial save exercises the upgrade with those approvals absent.
+    let (intent, missing) = specify_core::session::intent_for(&p, &old, &answers).unwrap();
+    let lengths = [
         "length:planes:0-5",
         "length:planes:1-3",
         "length:planes:2-4",
-    ] {
+    ];
+    assert_eq!(missing, lengths);
+    let (bytes, _) = writer::write_bytes(&p, &intent, Some(&answers)).unwrap();
+    let analysed = api::analyse(&part::load_bytes("old-plate.step", bytes).unwrap()).unwrap();
+    for id in lengths {
         let row = analysed["table"]["rows"]
             .as_array()
             .unwrap()

@@ -498,16 +498,8 @@ fn analyse_with(
         .cloned()
         .unwrap_or_default();
     let analysis_for_questions = Value::Object(analysis.clone());
-    if let Ok(questions) = rules::Ctx::new(&analysis_for_questions)
-        .and_then(|ctx| rules::ordinary_questions_in(&ctx, &answers))
-    {
-        let open: std::collections::BTreeSet<&str> = rules::open_questions(&questions, &answers)
-            .iter()
-            .map(|q| q.id.as_str())
-            .collect();
-        for row in &mut table.rows {
-            row.open = open.contains(row.id.as_str());
-        }
+    if let Ok(questions) = rules::questions(&analysis_for_questions, &answers) {
+        table.align_questions(&questions, &answers);
         analysis.insert(
             "table".into(),
             serde_json::to_value(&table).map_err(|e| refused(&e))?,
@@ -681,10 +673,9 @@ pub fn with_approved(
     let mut open = rules::open_questions(&qs, answers);
     open.extend(qs.iter().filter(|q| {
         !answers.contains_key(&q.id)
-            && (rules::general_rows::is_id(&q.id)
-                || q.default
-                    .as_ref()
-                    .is_some_and(crate::feature_table::is_none_value))
+            && q.default
+                .as_ref()
+                .is_some_and(crate::feature_table::is_none_value)
     }));
     for (id, value) in approved {
         let current = open

@@ -220,21 +220,26 @@ when the question they belong to is approved: a hole's or turned diameter's size
 `hole.function` or `diameter.fit` answer, a hole's location with its `hole.position` or
 `hole.location` answer. Until then those rows stay gaps with their suggestions.
 
-A general dimension with no owning question is an optional row in its own right. For
+A general dimension with no owning question is an open gap in its own right. For
 example, the GRM-05 depth-lock bolt offers `14 ±0.2 from B` as `length:planes:2-3`.
 Approve the displayed value by its ID, approve the suggestions together, or use
 `write --accept-defaults`. Answering `none` records `decided_none` in the file. A file
 that already states the measurement shows a `stated` row. If the general-tolerance note
 is still a gap, approving the dimension writes its displayed tolerance on the dimension.
+Unanswered lengths and locations appear in `questions --open`, MCP, and the save's
+list of requirements still open. CLI `write` requires a complete set of answers.
 
 Plane lengths use `length:planes:<side>-<side>` with their two face groups in canonical
 order. Unowned hole locations use `location:holes:<reference>-<located>`, with a planner
 axis suffix for offsets between hole axes. Each face group lists its sorted face numbers
 separated by dots. These IDs identify measurements within one geometry revision.
 
-An older intent upgraded by the writer also needs an approved length between both supports.
-The write report names any general dimension from the intent that the writer omits, with
-its nominal, faces and reason in `not_written`.
+An older schema-1 intent can carry explicit `"accept_defaults": true` provenance alongside
+its `general` array. This approves the recorded measurements, including any the current
+planner leaves out. Specify 0.2 did not serialize this flag in its raw intent export.
+When the approval is known from the original call, carry it with the intent during replay.
+The write report names any omitted dimension with its nominal, faces and reason in
+`not_written`.
 
 Only answers that leave no PMI behind are stored in the file: "none" answers and choices that
 are not requirements (`part.locating`). `resume.answers` holds those. Stored answers that

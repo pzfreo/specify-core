@@ -2161,6 +2161,48 @@ fn a_part_joining_the_session_moves_the_rev_and_is_not_written_empty() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn mcp_lists_general_lengths_and_locations_as_open_on_save() {
+    let dir = scratch("general-gaps");
+    let path = dir.join("spindle.step");
+    std::fs::copy(common::fixtures().join("spindle.step"), &path).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let opened = call(&mut server, "open", json!({"path": path}));
+    let opened = &opened["structuredContent"];
+    let doc = &opened["doc"];
+    let questions = call(&mut server, "questions", json!({"doc": doc}));
+    let saved = call(
+        &mut server,
+        "save",
+        json!({"doc": doc, "accept_defaults": {}}),
+    );
+    assert_eq!(saved["structuredContent"]["complete"], false, "{saved}");
+    for id in ["length:planes:8-10", "location:holes:10-7"] {
+        assert!(
+            opened["open_questions"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(id)),
+            "{id} is missing from MCP open"
+        );
+        assert!(
+            questions["structuredContent"]["questions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|q| q["id"] == id && q["state"] == "open"),
+            "{id} is missing from MCP questions"
+        );
+        assert!(
+            saved["structuredContent"]["missing"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(id)),
+            "{id} is missing from MCP save"
+        );
+    }
+}
+
 /// ADR P9 for write_pmi: without approvals only answers are written (incomplete allowed);
 /// approvals carry the value seen, checked against the default.
 #[test]
