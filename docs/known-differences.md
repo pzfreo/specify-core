@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 1310 | 0 | 52 | 0 | 2 | 1 | 1365 |
+| [cli](#cli) | 397 | 0 | 52 | 0 | 2 | 1 | 452 |
 | [cross_engine](#cross_engine) | 142 | 2 | 0 | 1 | 1 | 20 | 166 |
 | [cross_engine_written](#cross_engine_written) | 23 | 0 | 0 | 0 | 0 | 0 | 23 |
 | [existing](#existing) | 96 | 0 | 0 | 0 | 7 | 0 | 103 |
@@ -22,8 +22,8 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
-| [writer](#writer) | 3092 | 0 | 0 | 0 | 15 | 1 | 3108 |
-| **all** | 8246 | 1433 | 1249 | 2497 | 1101 | 1908 | 16434 |
+| [writer](#writer) | 1764 | 0 | 0 | 0 | 15 | 1 | 1780 |
+| **all** | 6005 | 1433 | 1249 | 2497 | 1101 | 1908 | 14193 |
 
 ## analysis
 
@@ -77,7 +77,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (1310 entries)
+### cli: rust-correct (397 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -191,9 +191,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The writer cannot mark the resulting datum feature of size for future preservation. P11 requires it to report this omitted general size.
 
-- **general dimensions are rows (Paul, 2026-11-21)** (1035 entries, 8 case globs)
+- **general dimensions are rows (Paul, 2026-11-21)** (122 entries, 40 case globs)
 
-  The evidence is stated per entry (3 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `questions.defaults.questions.[26]`: The CLI lists the newly addressable optional general dimension. The exact ID, faces, suggestion and options are pinned in cli_datum_origins.json.gz.
+  The evidence is stated per entry (73 distinct; all in `cli.json`). The first, for `nist/nist_ctc_03_asme1_ap242` at `write.not_written[dimension Location_LinearDistance [16, 17] [118]: the file already states it; not written again]`: nist/nist_ctc_03_asme1_ap242 already states dimension Location_LinearDistance [16, 17] [118]. P11 preserves the existing PMI when replaying approved measurements.
 
 ### cli: equivalent (52 entries)
 
@@ -1291,7 +1291,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (3092 entries)
+### writer: rust-correct (1764 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1363,7 +1363,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 - **Exact unsupported planner proposal is reported, not written (shared planner, #75)** (62 entries, 11 case globs)
 
-  The evidence is stated per entry (13 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `write.not_written[shared planner dim:envelope:0:min/to/hole:1261.1262/0: General contract conflicts with an answered requirement; retained answered intent instead]`: Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. The shared General proposal cannot replace the answered/stored tolerance contract. It is omitted and explicitly reported; the existing intent path remains authoritative. This entry covers the exact not_written diagnostic, never an extra dimension. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance.
+  The evidence is stated per entry (62 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `write.not_written[shared planner dim:envelope:0:min/to/hole:1261.1262/0: General contract conflicts with an answered requirement; retained answered intent instead]`: On corpus/cadgenbench_inputs/cgb202, shared planner dim:envelope:0:min/to/hole:1261.1262/0 is reported because the answered tolerance contract takes precedence over this General proposal.
 
 - **Exact shared location conveyance or physical-support change (#75)** (903 entries, 31 case globs)
 
@@ -1393,9 +1393,9 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   The evidence is stated per entry (74 distinct; all in `writer.json`). The first, for `corpus/mfcadpp/1000` at `resume.part.material`: ADR P11 rule 2 (src/feature_table.rs storable): a file stores only the answers that leave no PMI, and the file's PMI is the only copy of the rest. Python stores part.material = "steel" in its payload; that answer is a requirement whose value is not none, so the Rust writer writes it as PMI and does not store it: answers_for leaves it out. Its PMI is written: no other new writer-oracle difference for corpus/mfcadpp/1000 (its existing readback is Python's, apart from the entries already here). Only this exact case and path are covered.
 
-- **D8: the datum hole the part is measured from gets no general location in its origin directions** (`nist/nist_ctc_03_asme1_ap242` at `write.not_written[dimension Location_LinearDistance [11, 12] [16, 17]: the file already states it; not written again]`)
+- **General dimensions already stated by imported PMI** (60 entries, 2 case globs)
 
-  Maintainer decision D8 (draftwright-project proposals/specify-0.3.0.md, 'One dimension locates a whole line', Paul 2026-11-21): the datum or origin feature the part's dimensions are measured from is not asked its location in the directions it is the origin of, and a feature already located in a direction never gets a second location in it. CTC-03's datum B is the hole 11/12; no other datum plane measures x or y (A is the bottom face, C the hole 9/10), so B is the origin in both. The planner's general location of B from the hole 16/17 (447.3448 in y) is therefore stated by the file and left out, reported in not_written; tests/feature_table.rs the_origin_hole_is_not_asked_its_origin_directions covers the rule.
+  The evidence is stated per entry (60 distinct; all in `writer.json`). The first, for `nist/nist_ctc_03_asme1_ap242` at `write.not_written[dimension Location_LinearDistance [11, 12] [16, 17]: the file already states it; not written again]`: On nist/nist_ctc_03_asme1_ap242, dimension Location_LinearDistance [11, 12] [16, 17] is reported because the existing PMI already states this measurement, so P11 preserves it.
 
 - **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (46 entries, 46 case globs)
 
@@ -1489,25 +1489,13 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   The existing item's `length` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
 
-- **Legacy general dimensions omitted during shared planning** (1328 entries, 24 case globs)
+- **General sizes omitted on a datum feature** (8 entries, 8 case globs)
 
-  The old intent contains this measurement, and the shared planner did not retain it when upgrading the intent. P11 requires this named omission in the report.
-
-- **General sizes omitted on a datum feature** (7 entries, 7 case globs)
-
-  The writer cannot mark the resulting datum feature of size for future preservation. P11 requires it to report this omitted general size.
+  The evidence is stated per entry (8 distinct; all in `writer.json`). The first, for `corpus/gramel/GRM-03_thumbwheel_drive_screw` at `write.not_written[general size 3 on turned_steps:6 faces [6]: the faces establish a datum and the writer cannot mark a datum feature of size]`: On corpus/gramel/GRM-03_thumbwheel_drive_screw, general size 3 on turned_steps:6 faces [6] is reported because the writer cannot mark this datum feature of size for preservation.
 
 - **General dimensions with missing supports** (45 entries, 4 case globs)
 
-  This general dimension has no valid face support. Q17 and P11 require the writer to say which dimension could not be written.
-
-- **General dimensions deferred when adding to existing PMI** (59 entries, 2 case globs)
-
-  Add mode still omits general rows outside shared planner coverage. P11 requires it to name each affected measurement in the report.
-
-- **General dimensions already stated by imported PMI** (`nist/nist_ctc_03_asme1_ap242` at `write.not_written[general location 447.345 to faces [11, 12] from faces [16, 17]: the file already states it; not written again]`)
-
-  Add mode preserves existing PMI and skips the repeated measurement. P11 requires it to report the omitted general dimension.
+  The evidence is stated per entry (45 distinct; all in `writer.json`). The first, for `corpus/mfcadpp/1007` at `write.not_written[general location 0.778084 to faces [] from faces [1]: the location of holes:4.7.20.21 names no faces (question Q17)]`: On corpus/mfcadpp/1007, general location 0.778084 to faces [] from faces [1] is reported because the location of holes:4.7.20.21 names no faces and AP242 needs both supports.
 
 ### writer: not-applicable (15 entries)
 

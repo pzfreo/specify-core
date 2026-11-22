@@ -671,11 +671,19 @@ pub struct KnownDifference {
     pub pattern: String,
     pub verdict: String,
     pub evidence: String,
+    pub values: Option<(Option<Value>, Option<Value>)>,
 }
 
 impl KnownDifference {
     pub fn matches(&self, difference: &Difference) -> bool {
-        glob_match(&self.case, &difference.case) && glob_match(&self.path, &difference.path)
+        if let Some((python, rust)) = &self.values {
+            self.case == difference.case
+                && self.path == difference.path
+                && *python == difference.python
+                && *rust == difference.rust
+        } else {
+            glob_match(&self.case, &difference.case) && glob_match(&self.path, &difference.path)
+        }
     }
 }
 
@@ -721,12 +729,26 @@ fn entry(item: &Value) -> Result<KnownDifference, String> {
         Some(Value::String(s)) if !s.trim().is_empty() => Ok(s.clone()),
         _ => Err(format!("'{key}' must be a non-empty string")),
     };
+    let values = fields
+        .get("values")
+        .map(|v| {
+            let v = v.as_object().ok_or("'values' must be an object")?;
+            if v.is_empty()
+                || v.keys()
+                    .any(|key| !matches!(key.as_str(), "python" | "rust"))
+            {
+                return Err("'values' must contain python, rust, or both");
+            }
+            Ok((v.get("python").cloned(), v.get("rust").cloned()))
+        })
+        .transpose()?;
     let known = KnownDifference {
         case: field("case")?,
         path: field("path")?,
         pattern: field("pattern")?,
         verdict: field("verdict")?,
         evidence: field("evidence")?,
+        values,
     };
     if !VERDICTS.contains(&known.verdict.as_str()) {
         return Err(format!(
@@ -735,10 +757,9 @@ fn entry(item: &Value) -> Result<KnownDifference, String> {
             VERDICTS.join(", ")
         ));
     }
-    if let Some(extra) = fields
-        .keys()
-        .find(|k| !["case", "path", "pattern", "verdict", "evidence"].contains(&k.as_str()))
-    {
+    if let Some(extra) = fields.keys().find(|k| {
+        !["case", "path", "pattern", "verdict", "evidence", "values"].contains(&k.as_str())
+    }) {
         return Err(format!("unknown field '{extra}'"));
     }
     Ok(known)
