@@ -588,41 +588,6 @@
   "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. The shared General proposal cannot replace the answered/stored tolerance contract. It is omitted and explicitly reported; the existing intent path remains authoritative. This entry covers the exact not_written diagnostic, never an extra dimension. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance. At quiddity b590592 (#216), re-key this exact diagnostic for planar floor ownership: hole:1287 becomes hole:1287.1288 and hole:1296 becomes hole:1296.1297. The same General conflict is still refused once; its wording, contract and all other writer comparisons remain unchanged."
  },
  {
-  "case": "corpus/cadgenbench_inputs/cgb202",
-  "path": "write.not_written[shared planner dim:envelope:2:min/to/step:1876/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]",
-  "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
-  "verdict": "rust-correct",
-  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. This shared projected step support is not the matching physical principal plane (or its station disagrees with the measured plane). The proposal is explicitly reported and omitted; measured legacy dimensions retain their previous supports. No projected or faceless location is written. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance."
- },
- {
-  "case": "corpus/cadgenbench_inputs/cgb202",
-  "path": "write.not_written[shared planner dim:envelope:2:min/to/step:1956/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]",
-  "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
-  "verdict": "rust-correct",
-  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. This shared projected step support is not the matching physical principal plane (or its station disagrees with the measured plane). The proposal is explicitly reported and omitted; measured legacy dimensions retain their previous supports. No projected or faceless location is written. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance."
- },
- {
-  "case": "corpus/cadgenbench_inputs/cgb202",
-  "path": "write.not_written[shared planner dim:envelope:2:min/to/step:1958/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]",
-  "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
-  "verdict": "rust-correct",
-  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. This shared projected step support is not the matching physical principal plane (or its station disagrees with the measured plane). The proposal is explicitly reported and omitted; measured legacy dimensions retain their previous supports. No projected or faceless location is written. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance."
- },
- {
-  "case": "corpus/cadgenbench_inputs/cgb202",
-  "path": "write.not_written[shared planner dim:envelope:2:min/to/step:2052.2055/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]",
-  "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
-  "verdict": "rust-correct",
-  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. This shared projected step support is not the matching physical principal plane (or its station disagrees with the measured plane). The proposal is explicitly reported and omitted; measured legacy dimensions retain their previous supports. No projected or faceless location is written. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance."
- },
- {
-  "case": "corpus/cadgenbench_inputs/cgb202",
-  "path": "write.not_written[shared planner dim:envelope:2:min/to/step:2079.2084/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]",
-  "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
-  "verdict": "rust-correct",
-  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. This shared projected step support is not the matching physical principal plane (or its station disagrees with the measured plane). The proposal is explicitly reported and omitted; measured legacy dimensions retain their previous supports. No projected or faceless location is written. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance."
- },
- {
   "case": "corpus/cadgenbench_inputs/cgb241",
   "path": "write.not_written[shared planner dim:hole:5.31/bore.depth: bottom is unknown; bore extent is not an established blind drilling depth]",
   "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
@@ -701,20 +666,6 @@
  },
  {
   "case": "corpus/nist/nist_ftc_07_asme1_rd",
-  "path": "write.not_written[shared planner dim:envelope:2:min/to/step:173/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]",
-  "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
-  "verdict": "rust-correct",
-  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. This shared projected step support is not the matching physical principal plane (or its station disagrees with the measured plane). The proposal is explicitly reported and omitted; measured legacy dimensions retain their previous supports. No projected or faceless location is written. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance."
- },
- {
-  "case": "corpus/nist/nist_ftc_07_asme1_rd",
-  "path": "write.not_written[shared planner dim:envelope:2:min/to/step:184/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]",
-  "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
-  "verdict": "rust-correct",
-  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. This shared projected step support is not the matching physical principal plane (or its station disagrees with the measured plane). The proposal is explicitly reported and omitted; measured legacy dimensions retain their previous supports. No projected or faceless location is written. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance."
- },
- {
-  "case": "corpus/nist/nist_ftc_07_asme1_rd",
   "path": "write.not_written[shared planner dim:envelope:2:min/to/step:197/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]",
   "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
   "verdict": "rust-correct",
@@ -744,20 +695,6 @@
  {
   "case": "corpus/nist/nist_ftc_07_asme1_rd",
   "path": "write.not_written[shared planner dim:envelope:2:min/to/step:46/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]",
-  "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
-  "verdict": "rust-correct",
-  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. This shared projected step support is not the matching physical principal plane (or its station disagrees with the measured plane). The proposal is explicitly reported and omitted; measured legacy dimensions retain their previous supports. No projected or faceless location is written. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance."
- },
- {
-  "case": "corpus/nist/nist_ftc_07_asme1_rd",
-  "path": "write.not_written[shared planner dim:envelope:2:min/to/step:84/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]",
-  "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
-  "verdict": "rust-correct",
-  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. This shared projected step support is not the matching physical principal plane (or its station disagrees with the measured plane). The proposal is explicitly reported and omitted; measured legacy dimensions retain their previous supports. No projected or faceless location is written. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance."
- },
- {
-  "case": "corpus/nist/nist_ftc_07_asme1_rd",
-  "path": "write.not_written[shared planner dim:envelope:2:min/to/step:87/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]",
   "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
   "verdict": "rust-correct",
   "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. This shared projected step support is not the matching physical principal plane (or its station disagrees with the measured plane). The proposal is explicitly reported and omitted; measured legacy dimensions retain their previous supports. No projected or faceless location is written. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance."
@@ -18316,5 +18253,224 @@
   "pattern": "General sizes omitted on a datum feature",
   "verdict": "rust-correct",
   "evidence": "The writer cannot mark the resulting datum feature of size for future preservation. P11 requires it to report this omitted general size."
+ },
+ {
+  "case": "corpus/cadgenbench_inputs/cgb202",
+  "path": "write.written[50 dimensions under the general tolerance]",
+  "exact": [
+   [],
+   [
+    1
+   ]
+  ],
+  "pattern": "0.5.5 / Writer CGB202 stock flat correction",
+  "verdict": "rust-correct",
+  "evidence": "Quiddity 0.5.5 #307 excludes protrusion sides from stock flats. Removing flats 1734 and 1735 retires those deferred general dimensions."
+ },
+ {
+  "case": "corpus/cadgenbench_inputs/cgb202",
+  "path": "write.not_written[general location 105.228 to faces [1734] from faces [1697]: the shared planner did not retain this dimension when upgrading the intent]",
+  "exact": [
+   [],
+   [
+    1
+   ]
+  ],
+  "pattern": "0.5.5 / Writer CGB202 stock flat correction",
+  "verdict": "rust-correct",
+  "evidence": "Quiddity 0.5.5 #307 excludes protrusion sides from stock flats. Removing flats 1734 and 1735 retires those deferred general dimensions."
+ },
+ {
+  "case": "corpus/cadgenbench_inputs/cgb202",
+  "path": "write.not_written[general location 113.228 to faces [1735] from faces [1697]: the shared planner did not retain this dimension when upgrading the intent]",
+  "exact": [
+   [],
+   [
+    1
+   ]
+  ],
+  "pattern": "0.5.5 / Writer CGB202 stock flat correction",
+  "verdict": "rust-correct",
+  "evidence": "Quiddity 0.5.5 #307 excludes protrusion sides from stock flats. Removing flats 1734 and 1735 retires those deferred general dimensions."
+ },
+ {
+  "case": "corpus/cadgenbench_inputs/cgb242",
+  "path": "write.written[48 dimensions under the general tolerance]",
+  "exact": [
+   [],
+   [
+    1
+   ]
+  ],
+  "pattern": "0.5.5 / Writer CGB242 bore support",
+  "verdict": "rust-correct",
+  "evidence": "Quiddity 0.5.5 #307 requires a proved annular floor for overlapping counterbores. The hub bore loses its false outer step and the staged writer uses the corrected faces for locations and size."
+ },
+ {
+  "case": "corpus/cadgenbench_inputs/cgb242",
+  "path": "write.written[location 30 basic to holes:6.36.43.56.66.103.109.156.158 from faces [93, 97, 100, 308]]",
+  "exact": [
+   [],
+   [
+    1
+   ]
+  ],
+  "pattern": "0.5.5 / Writer CGB242 bore support",
+  "verdict": "rust-correct",
+  "evidence": "Quiddity 0.5.5 #307 requires a proved annular floor for overlapping counterbores. The hub bore loses its false outer step and the staged writer uses the corrected faces for locations and size."
+ },
+ {
+  "case": "corpus/cadgenbench_inputs/cgb242",
+  "path": "existing[key=dimension|Location_LinearDistance|[306]|[156,158]#1].basic",
+  "exact": [
+   [],
+   [
+    true
+   ]
+  ],
+  "pattern": "0.5.5 / Writer CGB242 bore support",
+  "verdict": "rust-correct",
+  "evidence": "Quiddity 0.5.5 #307 requires a proved annular floor for overlapping counterbores. The hub bore loses its false outer step and the staged writer uses the corrected faces for locations and size."
+ },
+ {
+  "case": "corpus/cadgenbench_inputs/cgb242",
+  "path": "existing[key=dimension|Location_LinearDistance|[306]|[156,158]#1].provenance",
+  "exact": [
+   [],
+   [
+    "specify-core:written:v1"
+   ]
+  ],
+  "pattern": "0.5.5 / Writer CGB242 bore support",
+  "verdict": "rust-correct",
+  "evidence": "Quiddity 0.5.5 #307 requires a proved annular floor for overlapping counterbores. The hub bore loses its false outer step and the staged writer uses the corrected faces for locations and size."
+ },
+ {
+  "case": "corpus/cadgenbench_inputs/cgb242",
+  "path": "existing[key=dimension|Location_LinearDistance|[306]|[156,158]#1].text",
+  "exact": [
+   [],
+   [
+    "87.116938 (basic)"
+   ]
+  ],
+  "pattern": "0.5.5 / Writer CGB242 bore support",
+  "verdict": "rust-correct",
+  "evidence": "Quiddity 0.5.5 #307 requires a proved annular floor for overlapping counterbores. The hub bore loses its false outer step and the staged writer uses the corrected faces for locations and size."
+ },
+ {
+  "case": "corpus/cadgenbench_inputs/cgb242",
+  "path": "existing[key=dimension|Size_Diameter|[156,158]|#1].provenance",
+  "exact": [
+   [],
+   [
+    "specify-core:written:v1"
+   ]
+  ],
+  "pattern": "0.5.5 / Writer CGB242 bore support",
+  "verdict": "rust-correct",
+  "evidence": "Quiddity 0.5.5 #307 requires a proved annular floor for overlapping counterbores. The hub bore loses its false outer step and the staged writer uses the corrected faces for locations and size."
+ },
+ {
+  "case": "corpus/cadgenbench_inputs/cgb242",
+  "path": "existing[key=dimension|Size_Diameter|[156,158]|#1].text",
+  "exact": [
+   [],
+   [
+    "⌀22 H11"
+   ]
+  ],
+  "pattern": "0.5.5 / Writer CGB242 bore support",
+  "verdict": "rust-correct",
+  "evidence": "Quiddity 0.5.5 #307 requires a proved annular floor for overlapping counterbores. The hub bore loses its false outer step and the staged writer uses the corrected faces for locations and size."
+ },
+ {
+  "case": "corpus/cadgenbench_inputs/cgb242",
+  "path": "existing[key=dimension|Size_Diameter|[156,158]|#1].fit",
+  "exact": [
+   [],
+   [
+    "H11"
+   ]
+  ],
+  "pattern": "0.5.5 / Writer CGB242 bore support",
+  "verdict": "rust-correct",
+  "evidence": "Quiddity 0.5.5 #307 requires a proved annular floor for overlapping counterbores. The hub bore loses its false outer step and the staged writer uses the corrected faces for locations and size."
+ },
+ {
+  "case": "corpus/cadgenbench_inputs/cgb242",
+  "path": "existing[key=dimension|Location_LinearDistance|[93,97,100,308]|[156,158]#1]",
+  "exact": [
+   [],
+   [
+    {
+     "kind": "dimension",
+     "type": "Location_LinearDistance",
+     "faces": [
+      93,
+      97,
+      100,
+      308
+     ],
+     "faces2": [
+      156,
+      158
+     ],
+     "value": 30.0,
+     "basic": true,
+     "provenance": "specify-core:written:v1",
+     "text": "30 (basic)",
+     "key": "dimension|Location_LinearDistance|[93,97,100,308]|[156,158]#1"
+    }
+   ]
+  ],
+  "pattern": "0.5.5 / Writer CGB242 bore support",
+  "verdict": "rust-correct",
+  "evidence": "Quiddity 0.5.5 #307 requires a proved annular floor for overlapping counterbores. The hub bore loses its false outer step and the staged writer uses the corrected faces for locations and size."
+ },
+ {
+  "case": "corpus/mfcadpp/10077",
+  "path": "write",
+  "exact": [
+   [
+    {
+     "error": "RuntimeError",
+     "message": "OCCT could not write the STEP (StepShape_DimensionalLocation: Null Reference)"
+    }
+   ],
+   [
+    {
+     "output": "{output}/written.step",
+     "written": [
+      "datum A",
+      "datum B",
+      "datum C",
+      "position 0.4 MMC on holes:14.15.16",
+      "location 10.2512 basic to holes:14.15.16 from faces [12]",
+      "location 2.16683 basic to holes:14.15.16 from faces [18]",
+      "Ø2 H11 on holes:14.15.16",
+      "9 dimensions under the general tolerance",
+      "material steel",
+      "general tolerance ISO 2768-m",
+      "surface finish Ra 3.2",
+      "edges Break sharp edges 0.2 max"
+     ],
+     "not_written": [
+      "general location 19.2746 to faces [17] from faces [12]: the shared planner did not retain this dimension when upgrading the intent",
+      "the size on holes:20.22 names no faces, so nothing in the file can carry it (question Q17)",
+      "the location of holes:20.22 names no faces, so nothing in the file can carry it (question Q17)",
+      "the location of holes:20.22 names no faces, so nothing in the file can carry it (question Q17)",
+      "the position tolerance on holes:20.22 names no faces, so nothing in the file can carry it (question Q17)",
+      "shared planner dim:hole:20/bore.diameter: General contract conflicts with an answered requirement; retained answered intent instead",
+      "shared planner dim:plane:12/to/hole:20/2: General contract conflicts with an answered requirement; retained answered intent instead",
+      "shared planner dim:plane:5/to/hole:20/1: General contract conflicts with an answered requirement; retained answered intent instead"
+     ],
+     "warnings": []
+    }
+   ]
+  ],
+  "pattern": "0.5.5 / Writer drafted level omission",
+  "verdict": "rust-correct",
+  "evidence": "Quiddity 0.5.5 #307 excludes the drafted support from the height ladder, removing the obsolete unmatched principal-plane diagnostic on 10077 face 11."
  }
 ]

@@ -827,12 +827,7 @@ fn entry(item: &Value) -> Result<KnownDifference, String> {
         exact,
     };
     if known.exact.is_some()
-        && (known.case.contains('*')
-            || known.path.contains('*')
-            || known.path.split('[').skip(1).any(|s| {
-                s.split_once(']')
-                    .is_some_and(|(key, _)| key.parse::<usize>().is_ok())
-            }))
+        && (known.case.contains('*') || known.path.contains('*') || has_index(&known.path))
     {
         return Err("exact entries need a literal case and a path without array indices".into());
     }
@@ -849,6 +844,29 @@ fn entry(item: &Value) -> Result<KnownDifference, String> {
         return Err(format!("unknown field '{extra}'"));
     }
     Ok(known)
+}
+
+fn has_index(path: &str) -> bool {
+    let mut open = 0usize;
+    let mut start = 0;
+    for (i, byte) in path.bytes().enumerate() {
+        match byte {
+            b'[' => {
+                if open == 0 {
+                    start = i + 1;
+                }
+                open += 1;
+            }
+            b']' if open > 0 => {
+                open -= 1;
+                if open == 0 && path[start..i].parse::<usize>().is_ok() {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 /// The asserting check, called once by `area`'s own full oracle sweep: every difference must
