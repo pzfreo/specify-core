@@ -411,12 +411,23 @@ fn conversation(era: &'static str) {
     let mut fill = approved.clone();
     fill.retain(|id, _| rows.iter().any(|r| r["id"] == *id));
     assert!(fill.len() > 2, "{fill:?}");
+    let material = fill.remove("part.material").unwrap();
     let list = json!({"fill": fill});
     let checked = client.call("check", json!({"doc": doc, "edits": list}));
     assert_eq!(checked["applicable"], json!(true), "{checked}");
     assert_eq!(checked["written"], json!(false));
     assert_eq!(checked["doc"], json!(doc));
-    assert!(checked["entries"].as_u64().unwrap() >= fill.len() as u64);
+    let mut combined = fill.clone();
+    combined.insert("part.material".into(), material);
+    let loaded = specify_core::part::load(&plate, None).unwrap();
+    let expected =
+        specify_core::writer::apply::check(&loaded, &json!({"fill": combined}).to_string())
+            .to_json();
+    assert_eq!(expected["entries"], json!(fill.len() + 1));
+    for (field, value) in expected.as_object().unwrap() {
+        assert_eq!(&checked[field], value, "check: {field}");
+    }
+    assert_eq!(checked["entries"], json!(fill.len() + 1));
     assert!(!plate.with_file_name("plate.specified.step").exists());
     let saved = client.call("save", json!({"doc": doc, "edits": list}));
     let written = Path::new(saved["path"].as_str().unwrap());
@@ -2010,7 +2021,36 @@ fn the_page_saves_and_discards_agent_edits_at_the_seen_revision() {
         "answer",
         json!({"doc": pin, "set": {"part.material": "Bronze"}}),
     );
-    assert_eq!(answer["isError"], false, "{answer}");
+    assert_eq!(answer["isError"], true, "{answer}");
+    let reason = &answer["structuredContent"]["error"]["message"];
+    assert_eq!(
+        reason,
+        "the file states \"Brass\" for part.material. To change it, use change with \"to\": \"Bronze\", \"expect\": \"Brass\"."
+    );
+    let (_, seen) = page(url, "GET", "answers", None);
+    assert_eq!(seen["drafts"]["1"]["refused"]["part.material"], *reason);
+    assert!(seen["drafts"]["1"].get("change").is_none());
+    let noop = call(&mut server, "save", json!({"doc": pin, "edits": {}}));
+    assert_eq!(
+        noop["structuredContent"]["report"]["unchanged"], true,
+        "{noop}"
+    );
+    assert_eq!(row(1, "part.material")["value"], "Brass");
+    let (status, discarded) = page(url, "POST", "discard", Some(&json!({"rev": seen["rev"]})));
+    assert_eq!(status, 200, "{discarded}");
+    assert!(discarded.get("drafts").is_none());
+    let staged = call(
+        &mut server,
+        "check",
+        json!({"doc": pin, "stage": true,
+        "edits": {"change": {"part.material": {"to": "Bronze", "expect": "Brass"}}}}),
+    );
+    assert_eq!(staged["structuredContent"]["staged"], true, "{staged}");
+    assert_eq!(
+        row(1, "part.material")["value"],
+        "Brass",
+        "staging writes nothing"
+    );
     let (_, seen) = page(url, "GET", "answers", None);
     assert_eq!(
         seen["drafts"]["1"]["change"]["part.material"],
@@ -2051,9 +2091,9 @@ fn the_page_saves_and_discards_agent_edits_at_the_seen_revision() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// An answer that changes a stated row uses the same guarded change as an explicit edit.
+/// The agent's check is read-only by default. Only an explicit staged guarded change is savable.
 #[test]
-fn mcp_answers_can_change_what_the_file_states() {
+fn mcp_stages_only_explicit_guarded_changes() {
     let dir = scratch("stated");
     let copy = dir.join("spindle.step");
     let gz = std::fs::read(
@@ -2078,7 +2118,19 @@ fn mcp_answers_can_change_what_the_file_states() {
         same["structuredContent"]["set"],
         json!([{"id": "part.material", "value": "steel", "state": "stated"}])
     );
-    // With partial: reported as refused, nothing stored, no new rev.
+    let answer = call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "aluminium"}}),
+    );
+    assert_eq!(answer["isError"], true, "{answer}");
+    let reviewed = call(&mut server, "review", json!({"doc": doc}));
+    let after_refusal = reviewed["structuredContent"]["rev"].as_u64().unwrap();
+    assert_eq!(
+        after_refusal,
+        same["structuredContent"]["rev"].as_u64().unwrap() + 1
+    );
+    // Reporting a refusal on a stated row advances the panel revision without storing an answer.
     let answered = call(
         &mut server,
         "answer",
@@ -2090,20 +2142,38 @@ fn mcp_answers_can_change_what_the_file_states() {
         .unwrap();
     assert!(reason.contains("hole.function:holes:14"), "{reason}");
     assert!(out["set"].as_array().unwrap().is_empty(), "{out}");
-    assert_eq!(out["rev"], same["structuredContent"]["rev"]);
+    assert_eq!(out["rev"], after_refusal + 1);
 
-    let answer = call(
-        &mut server,
-        "answer",
-        json!({"doc": doc, "set": {"part.material": "aluminium"}}),
-    );
-    assert_eq!(answer["isError"], false, "{answer}");
     let edits = json!({"doc": doc, "edits": {}});
     let checked = call(&mut server, "check", edits.clone());
     assert_eq!(
         checked["structuredContent"]["applicable"], true,
         "{checked}"
     );
+    assert_eq!(checked["structuredContent"]["entries"], 0, "{checked}");
+    let change =
+        |expect| json!({"change": {"part.material": {"to": "aluminium", "expect": expect}}});
+    let wrong = call(
+        &mut server,
+        "check",
+        json!({"doc": doc, "stage": true, "edits": change("brass")}),
+    );
+    assert_eq!(wrong["structuredContent"]["applicable"], false, "{wrong}");
+    assert_ne!(wrong["structuredContent"]["staged"], true, "{wrong}");
+    let plain = call(
+        &mut server,
+        "check",
+        json!({"doc": doc, "edits": change("steel")}),
+    );
+    assert_eq!(plain["structuredContent"]["applicable"], true, "{plain}");
+    let checked = call(&mut server, "check", edits.clone());
+    assert_eq!(checked["structuredContent"]["entries"], 0, "{checked}");
+    let staged = call(
+        &mut server,
+        "check",
+        json!({"doc": doc, "stage": true, "edits": change("steel")}),
+    );
+    assert_eq!(staged["structuredContent"]["staged"], true, "{staged}");
     assert!(!dir.join("spindle.specified.step").exists());
     let saved = call(&mut server, "save", edits);
     assert_eq!(saved["isError"], false, "{saved}");
@@ -2484,6 +2554,10 @@ fn use_case_7_saves_twice_with_the_table_returned_by_mcp() {
     let opened = client.call("open", json!({"path": path, "in_place": true}));
     let doc = &opened["doc"];
     let analysis_uri = &opened["resources"][0];
+    assert_eq!(
+        opened["table"],
+        specify_core::api::analyse_file(&path, None).unwrap()["table"]
+    );
     let value = |table: &Value| {
         table["rows"]
             .as_array()
@@ -2545,7 +2619,58 @@ fn use_case_7_saves_twice_with_the_table_returned_by_mcp() {
     let read: Value = serde_json::from_str(read["contents"][0]["text"].as_str().unwrap()).unwrap();
     let external = specify_core::api::analyse_file(&path, None).unwrap();
     assert_eq!(value(&read["table"]), "aluminium");
+    assert_eq!(reopened["table"], external["table"]);
     assert_eq!(read["table"], external["table"]);
     drop(client);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn reopening_an_original_with_a_saved_copy_refuses_an_unchanged_save() {
+    let dir = scratch("reopened-copy");
+    let path = dir.join("plate.step");
+    let answers_file = dir.join("plate.answers.json");
+    std::fs::copy(part("plate"), &path).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let opened = call(&mut server, "open", json!({"path": path}));
+    let doc = &opened["structuredContent"]["doc"];
+    let answered = call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "steel"}, "answers_file": answers_file}),
+    );
+    assert_eq!(answered["isError"], false, "{answered}");
+    let saved = call(&mut server, "save", json!({"doc": doc, "edits": {}}));
+    assert_eq!(saved["isError"], false, "{saved}");
+    let saved_path = dir.join("plate.specified.step");
+    assert_eq!(
+        specify_core::api::analyse_file(&saved_path, None).unwrap()["part"]["material"],
+        "steel"
+    );
+    let reopened = call(&mut server, "open", json!({"path": path}));
+    let doc = &reopened["structuredContent"]["doc"];
+    let refused = error_of(&mut server, "save", json!({"doc": doc, "edits": {}}));
+    assert_eq!(
+        refused["message"], "nothing to save: the reopened input is unchanged",
+        "{refused}"
+    );
+    assert!(!dir.join("plate.specified-2.step").exists());
+    let written_answers: Value =
+        serde_json::from_slice(&std::fs::read(answers_file).unwrap()).unwrap();
+    assert_eq!(written_answers, json!({"part.material": "steel"}));
+    let saved = call(
+        &mut server,
+        "save",
+        json!({"doc": doc, "edits": {"fill": {"part.material": "brass"}}}),
+    );
+    assert_eq!(saved["isError"], false, "{saved}");
+    assert_eq!(
+        specify_core::api::analyse_file(&dir.join("plate.specified-2.step"), None).unwrap()["part"]
+            ["material"],
+        "brass"
+    );
+    assert_eq!(
+        specify_core::api::analyse_file(&saved_path, None).unwrap()["part"]["material"],
+        "steel"
+    );
 }

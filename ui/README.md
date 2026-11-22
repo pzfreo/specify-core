@@ -216,7 +216,10 @@ beside its name), a **gap** ("not stated", with Specify's suggestion as a dashed
 The page receives the agent's working edits through the session. They appear in the same
 pending bar with part names and are highlighted on their rows. **Save** writes the combined
 lists. **Discard** drops the page edits and the agent's working edits. A working edit also
-has **Undo** on its row and in the bar. A new answer to a stated row is shown as a change.
+has **Undo** on its row and in the bar. A different answer to a stated row shows the
+refusal and the change needed. **Save** excludes it and **Discard** clears it. An agent
+can propose a savable change with MCP `check`, `stage: true` and an explicit
+`change` entry with `to` and `expect`.
 If you edit the same row, the bar says your edit replaces the agent's answer.
 The Characteristics tab and 3D view show the saved STEP. Save writes the specified STEP
 (beside it as `part.specified.step` by default, or over the input with `--in-place`). Save never refuses for questions

@@ -200,7 +200,9 @@ Read first:
   line of text (`.XX ±.01, .XXX ±.005, angles ±1°`). The part picker opens assembly parts for
   editing and keeps pending edits in one bar, with each entry named for its part. A refused
   None needed explains why on its row. A queued removal can be undone on its row. Notes have
-  separate lines. Agent answers enter the bar as edits, including changes to stated values.
+  separate lines. Agent answers can fill gaps. A different answer to a stated row shows a
+  discardable refusal with the explicit guarded change to make. Only a staged `change` with
+  `to` and `expect` becomes a savable change draft.
   The bar marks when a local edit replaces an agent's answer. **Add all suggestions** queues
   suggestions for the selected part. Save applies the pending edits together, and Undo or
   Discard drops working edits without writing.
@@ -222,7 +224,9 @@ Read first:
     through commit.
   - **MCP:** `check` and `save` accept an edit list for the opened part or a batch in
     `partEdits`. Both combine working answers with explicit edits. `discard` drops working
-    answers without writing. `open` and a successful save return the current file's table.
+    answers and refusals without writing. `open` and a successful save return the current
+    file's table. Reopening the original after a copy save starts without the saved drafts.
+    Another copy requires an edit. Use `check` with `stage: true` to draft explicit changes.
     `write_pmi` and `save`'s `accept_defaults` are removed.
   - **Python:** `api.write(step, edits, output)` applies an edit list (`EditsRefused`, a
     `ValueError` with `failures`, when any entry cannot be applied), and `api.check_edits(step,

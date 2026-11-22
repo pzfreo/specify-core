@@ -238,10 +238,15 @@ test('working answers share the pending bar and edit lists across parts, with lo
   assert.equal(withDrafts(local, {}, () => assert.fail('no draft')).size, 1);
 });
 
-test('a working answer to a stated row carries the file value in the pending change', () => {
+test('an explicit guarded change preserves its expectation and a refused answer sends no edit', () => {
   const change = { to: 'Bronze', expect: 'Brass' };
-  const pending = withDrafts(new Map(), { '1': { change: { 'part.material': change } } },
-    (_part, _id, value) => ({ name: 'Material', text: String(value) })).get(1);
+  const reason = 'the file states "Brass" for part.material. To change it, use change with "to": "Bronze", "expect": "Brass".';
+  const describeRow = (_part, _id, value) => ({ name: 'Material', text: String(value) });
+  const refused = withDrafts(new Map(), { '1': { refused: { 'part.material': reason } } }, describeRow).get(1);
+  assert.equal(refused.get('part.material')?.kind, 'refused');
+  assert.ok(describe(refused.get('part.material')).includes(reason));
+  assert.deepEqual(refused.list(), {});
+  const pending = withDrafts(new Map(), { '1': { change: { 'part.material': change } } }, describeRow).get(1);
   assert.deepEqual(pending.list(), { change: { 'part.material': change } });
   assert.equal(describe(pending.get('part.material')), 'Change Material: Brass → Bronze');
   assert.equal(pending.get('part.material').draft, true);

@@ -42,13 +42,12 @@ pub fn lock(session: &Shared) -> std::sync::MutexGuard<'_, Session> {
     session.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-/// The value of the feature table's row `id`, when the file states it.
-pub(crate) fn stated_value<'a>(analysis: &'a Value, id: &str) -> Option<&'a Value> {
+/// The feature table's row `id`, when the file states it.
+pub(crate) fn stated_row<'a>(analysis: &'a Value, id: &str) -> Option<&'a Value> {
     analysis["table"]["rows"]
         .as_array()?
         .iter()
         .find(|row| row["id"] == id && row["state"] == "stated")
-        .map(|row| row.get("value").unwrap_or(&Value::Null))
 }
 
 /// A file as opened: its path (absolute, as given or as the caller chose), its name and its
@@ -171,6 +170,21 @@ impl std::fmt::Display for SaveError {
     }
 }
 
+/// Explicit changes are savable. Refused answers only explain the refusal in the panel.
+#[derive(Default)]
+struct AgentDraft {
+    change: BTreeMap<String, edits::Change>,
+    refused: BTreeMap<String, String>,
+}
+
+impl AgentDraft {
+    fn remove(&mut self, id: &str) -> bool {
+        let change = self.change.remove(id);
+        let refused = self.refused.remove(id);
+        change.is_some() || refused.is_some()
+    }
+}
+
 /// One opened file's answers and what listens to them.
 pub struct Session {
     file: Opened,
@@ -195,10 +209,13 @@ pub struct Session {
     /// The file the last successful save wrote (as the save reports its path) and SHA-256 of
     /// the bytes it stored there (`GET file?rev=saved`).
     last_saved: Option<(PathBuf, String)>,
+    /// Reopening the original after a copy save needs a real edit to produce another copy.
+    reopened_original: bool,
     /// The directories saves may write in (MCP's `--allow`); None: anywhere beside the file.
     allowed: Option<Vec<PathBuf>>,
     analyses: BTreeMap<usize, Arc<Value>>,
     answers: BTreeMap<usize, Map<String, Value>>,
+    agent_drafts: BTreeMap<usize, AgentDraft>,
     rev: u64,
     changes: VecDeque<Change>,
     /// The newest `rev` whose change is no longer kept (0: none dropped).
@@ -248,9 +265,11 @@ impl Session {
             backup: None,
             written: Vec::new(),
             last_saved: None,
+            reopened_original: false,
             allowed: None,
             analyses: BTreeMap::new(),
             answers: BTreeMap::new(),
+            agent_drafts: BTreeMap::new(),
             rev: 0,
             changes: VecDeque::new(),
             dropped: 0,
@@ -295,18 +314,19 @@ impl Session {
         let current = self.answers.get(&part).unwrap_or(&empty);
         let saved = self.saved.get(&part).unwrap_or(&empty);
         let mut draft = EditList::default();
+        if let Some(agent) = self.agent_drafts.get(&part) {
+            draft.change.clone_from(&agent.change);
+        }
         for (id, value) in current {
-            if id.starts_with('_') || saved.get(id) == Some(value) {
+            if id.starts_with('_')
+                || saved.get(id) == Some(value)
+                || self
+                    .analyses
+                    .get(&part)
+                    .and_then(|a| stated_row(a, id))
+                    .is_some()
+            {
                 continue;
-            }
-            if let Some(expect) = self.analyses.get(&part).and_then(|a| stated_value(a, id)) {
-                draft.change.insert(
-                    id.clone(),
-                    edits::Change {
-                        to: value.clone(),
-                        expect: expect.clone(),
-                    },
-                );
             } else if edits::is_none_answer(value) {
                 draft.none.insert(id.clone());
             } else {
@@ -332,13 +352,80 @@ impl Session {
             .collect()
     }
 
+    fn shown_draft(&self, part: usize) -> Option<Value> {
+        let draft = self.draft(part);
+        let refused = self
+            .agent_drafts
+            .get(&part)
+            .map(|agent| &agent.refused)
+            .filter(|refused| !refused.is_empty());
+        if draft.is_empty() && refused.is_none() {
+            return None;
+        }
+        let mut shown = json!(draft);
+        if let Some(refused) = refused {
+            shown["refused"] = json!(refused);
+        }
+        Some(shown)
+    }
+
     pub(crate) fn answer_snapshot(&self) -> Value {
         let mut snapshot = json!({"rev": self.rev, "parts": self.parts()});
-        let drafts = self.drafts();
+        let drafts: BTreeMap<_, _> = self
+            .answers
+            .keys()
+            .filter_map(|&part| self.shown_draft(part).map(|draft| (part, draft)))
+            .collect();
         if !drafts.is_empty() {
             snapshot["drafts"] = json!(drafts);
         }
         snapshot
+    }
+
+    /// Keep refused answers visible without adding them to the edits a save can apply.
+    pub(crate) fn set_agent_answers(
+        &mut self,
+        part: usize,
+        answers: Map<String, Value>,
+        cleared: &[String],
+        refused: BTreeMap<String, String>,
+    ) {
+        let draft = self.agent_drafts.entry(part).or_default();
+        let mut changed = false;
+        for id in cleared {
+            changed |= draft.remove(id);
+        }
+        for (id, reason) in refused {
+            if draft.refused.get(&id) != Some(&reason) {
+                draft.refused.insert(id, reason);
+                changed = true;
+            }
+        }
+        self.change(part, answers, "mcp", None, changed);
+    }
+
+    /// Stage only changes checked against this revision, retaining their supplied expectations.
+    pub(crate) fn stage_changes(
+        &mut self,
+        part: usize,
+        rev: u64,
+        changes: BTreeMap<String, edits::Change>,
+    ) -> Result<u64, SaveError> {
+        if self.rev != rev {
+            return Err(SaveError::Stale(self.rev));
+        }
+        let draft = self.agent_drafts.entry(part).or_default();
+        let mut changed = false;
+        for (id, edit) in changes {
+            changed |= draft.refused.remove(&id).is_some();
+            if draft.change.get(&id) != Some(&edit) {
+                draft.change.insert(id, edit);
+                changed = true;
+            }
+        }
+        let answers = self.answers.get(&part).cloned().unwrap_or_default();
+        self.change(part, answers, "mcp", None, changed);
+        Ok(self.rev)
     }
 
     /// `specify-core open --diff OLD NEW` (and MCP's `open` with `old`): `diff OLD NEW` compared
@@ -470,7 +557,7 @@ impl Session {
         answers: Map<String, Value>,
         source: &'static str,
     ) -> Option<u64> {
-        self.change(part, answers, source, None)
+        self.change(part, answers, source, None, false)
     }
 
     /// [`Session::set`], at `rev` when several parts change together (else the next rev).
@@ -480,12 +567,13 @@ impl Session {
         answers: Map<String, Value>,
         source: &'static str,
         at: Option<u64>,
+        draft_changed: bool,
     ) -> Option<u64> {
         let before = self.answers.get(&part);
         // A part joining the session is a change even with no answers: a page holding an older
         // rev then re-reads, and sees it.
         let joined = before.is_none();
-        if before == Some(&answers) {
+        if before == Some(&answers) && !draft_changed {
             return None;
         }
         let empty = Map::new();
@@ -519,13 +607,12 @@ impl Session {
             data["joined"] = json!(true);
         }
         self.answers.insert(part, answers);
-        let draft = self.draft(part);
         if at.is_some() {
             // Saves and whole-file discards publish several part events at one revision.
             // Clear the draft bar on the first event, even before the other parts arrive.
             data["drafts"] = json!({});
-        } else if !draft.is_empty() {
-            data["draft"] = json!(draft);
+        } else if let Some(draft) = self.shown_draft(part) {
+            data["draft"] = draft;
         }
         self.publish(&event("answers", Some(rev), &data));
         Some(rev)
@@ -587,6 +674,10 @@ impl Session {
         self.last_saved
             .as_ref()
             .map(|(path, sha)| (path.as_path(), sha.as_str()))
+    }
+
+    pub(crate) fn mark_reopened_original(&mut self) {
+        self.reopened_original = true;
     }
 
     /// Saves write only inside these directories (canonical), as MCP's `--allow` says.
@@ -679,13 +770,21 @@ pub fn discard_answers(
                     current.remove(id);
                 }
             }
-            s.change(part, current, source, None);
+            let draft_changed = s
+                .agent_drafts
+                .get_mut(&part)
+                .is_some_and(|draft| draft.remove(id));
+            s.change(part, current, source, None, draft_changed);
         }
     } else {
         let parts: Vec<_> = s.answers.keys().copied().collect();
+        let discarded = std::mem::take(&mut s.agent_drafts);
         for part in parts {
             let saved = s.saved.get(&part).cloned().unwrap_or_default();
-            s.change(part, saved, source, Some(at));
+            let draft_changed = discarded
+                .get(&part)
+                .is_some_and(|draft| !draft.change.is_empty() || !draft.refused.is_empty());
+            s.change(part, saved, source, Some(at), draft_changed);
         }
     }
     Ok(s.answer_snapshot())
@@ -1063,6 +1162,11 @@ fn save_with(
     if s.rev != seen {
         return Err(SaveError::Stale(s.rev));
     }
+    if unchanged && !in_place && copy.is_none() && s.reopened_original {
+        return Err(SaveError::Refused(
+            "nothing to save: the reopened input is unchanged".into(),
+        ));
+    }
     if let Some(hook) = s.commit_boundary {
         hook(shared);
     }
@@ -1094,12 +1198,23 @@ fn save_with(
     let at = s.rev + 1;
     // Set the saved baseline before publishing answers, so saved decisions are no longer drafts.
     s.saved = answers.clone();
+    let mut cleared_drafts = BTreeMap::new();
+    if !unchanged
+        || s.agent_drafts
+            .values()
+            .any(|draft| !draft.change.is_empty())
+    {
+        cleared_drafts = std::mem::take(&mut s.agent_drafts);
+    }
     // Each part once: one change (and event) per part, to the answers the saved file stores.
     let parts: std::collections::BTreeSet<usize> =
         s.answers.keys().chain(answers.keys()).copied().collect();
     for k in &parts {
         let now = answers.remove(k).unwrap_or_default();
-        s.change(*k, now, source, Some(at));
+        let draft_changed = cleared_drafts
+            .get(k)
+            .is_some_and(|draft| !draft.change.is_empty() || !draft.refused.is_empty());
+        s.change(*k, now, source, Some(at), draft_changed);
     }
     // A save that changed the file is a new rev even when the stored answers are the same (a
     // fill writes PMI, not an answer): a page or agent holding the old rev must read again
