@@ -248,6 +248,24 @@ try {
     assert.equal(table(saved, b)['part.general_tolerance'].state, 'gap');
     assert.equal(table(saved, b)['part.coating'].state, 'gap');
     assert.equal(table(saved, b)['part.heat_treatment'].state, 'decided_none');
+
+    await agent.call('answer', { doc: docB, set: { 'part.material': 'Bronze' } });
+    await check(pending(b, 'part.material')).toContainText(`${partB.name} · Change Material: Brass CW614N → Bronze`);
+    await pageSave();
+    assert.equal(table(saved, b)['part.material'].value, 'Bronze');
+    await check(pending(b, 'part.material')).toHaveCount(0);
+    await check(question(page, 'part.material')).toContainText('Bronze');
+
+    await agent.call('answer', { doc: docB, set: { 'part.material': 'Copper' } });
+    await check(pending(b, 'part.material')).toContainText('Bronze → Copper');
+    const material = question(page, 'part.material');
+    await material.getByRole('button', { name: 'Change Material' }).click();
+    await material.getByRole('textbox', { name: 'New value' }).fill('Aluminium 6061-T6');
+    await material.getByRole('button', { name: 'Apply', exact: true }).click();
+    await check(pending(b, 'part.material')).toContainText('replaces the agent’s answer');
+    await check(pending(b, 'part.material')).toContainText('Bronze → Aluminium 6061-T6');
+    await pageSave();
+    assert.equal(table(saved, b)['part.material'].value, 'Aluminium 6061-T6');
     if (shots) await page.screenshot({ path: join(shots, 'assembly.png') });
     onlyLocal(requests, shown.url);
     await context.close();

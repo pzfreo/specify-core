@@ -51,7 +51,15 @@ export function suggestionEdits(rows: readonly { id: string; name: string; state
 }
 
 /** How the bar lists ``p``. */
-export function describe(p: Pending): string {
+export function describe(p: Pending, draft?: AnswerDraft): string {
+  const text = describeEdit(p);
+  if (!draft || p.draft) return text;
+  const replaces = Object.hasOwn(draft.fill ?? {}, p.id) || Object.hasOwn(draft.change ?? {}, p.id)
+    || draft.none?.includes(p.id) || draft.clear?.includes(p.id);
+  return replaces ? `${text} (replaces the agent’s answer)` : text;
+}
+
+function describeEdit(p: Pending): string {
   switch (p.kind) {
     case 'fill': return `Add ${p.name}: ${p.text}`;
     case 'change': return `Change ${p.name}: ${p.was} → ${p.text}`;
@@ -95,6 +103,10 @@ export function withDrafts(
     const staged: Pending[] = [
       ...Object.entries(list.fill ?? {}).map(([id, value]): Pending => ({
         kind: 'fill', id, value, ...describeRow(part, id, value), draft: true,
+      })),
+      ...Object.entries(list.change ?? {}).map(([id, { to, expect }]): Pending => ({
+        kind: 'change', id, value: to, expect, was: describeRow(part, id, expect).text,
+        ...describeRow(part, id, to), draft: true,
       })),
       ...(list.none ?? []).map((id): Pending => ({ kind: 'none', id, name: describeRow(part, id).name, draft: true })),
       ...(list.clear ?? []).map((id): Pending => ({ kind: 'clear', id, name: describeRow(part, id).name, draft: true })),

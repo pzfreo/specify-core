@@ -5,7 +5,7 @@
 // them) until Save writes them together. Who wrote a requirement is never shown: only the page's
 // unsaved edits are highlighted.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { EditFailure, EditList } from './local.ts';
+import type { AnswerDraft, EditFailure, EditList } from './local.ts';
 import { describe, removalTargets, type Pending, type PendingEdits } from './edits.ts';
 import { answerText, balloonText, changedText, isNoneValue, type OtherRow, type PanelGroup, type PanelModel, type PanelRow } from './table.ts';
 import { compose, emptyBlock, parse, placesText, type GeneralTolerance, type Units } from './general-tolerance.ts';
@@ -380,8 +380,9 @@ export function GeneralToleranceEditor({ text, units, classes, onChange }: {
 }
 
 /** The bar at the bottom (decision 3): every part's pending edits, Save and Discard. */
-export function EditBar({ items, saving, busy, blocked, savedNote, onSave, onDiscard, onAddAll, onUndoDraft }: {
+export function EditBar({ items, drafts, saving, busy, blocked, savedNote, onSave, onDiscard, onAddAll, onUndoDraft }: {
   items: { part: number; name?: string; edit: Pending }[];
+  drafts: Readonly<Record<string, AnswerDraft>>;
   saving: boolean; busy: boolean; blocked: string | undefined; savedNote: string | null;
   onSave(): void; onDiscard(): void; onAddAll(): void; onUndoDraft(part: number, id: string): void;
 }) {
@@ -390,7 +391,7 @@ export function EditBar({ items, saving, busy, blocked, savedNote, onSave, onDis
       <ul>
         {items.length ? items.map(({ part, name, edit }) => (
           <li key={`${part}:${edit.id}`} data-part={part} data-pending={edit.id}>
-            {name ? `${name} · ` : ''}{describe(edit)}
+            {name ? `${name} · ` : ''}{describe(edit, drafts[part])}
             {edit.draft && <>{' '}<button type="button" disabled={busy || Boolean(blocked)}
               aria-label={`Undo ${name ?? ''} ${edit.name}`.replace(/ +/g, ' ')} onClick={() => onUndoDraft(part, edit.id)}>Undo</button></>}
           </li>

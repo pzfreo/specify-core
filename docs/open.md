@@ -168,9 +168,11 @@ accept the `partEdits` form with an open document for the file.
 the assembly writer and commits once. Requirement edits preserve other parts’ and placements’
 entity bytes.
 If an entry cannot be applied, the response names the part and entry and the save writes
-nothing. The page includes the agent's working edits in its lists. An explicit edit to the
-same question takes precedence. A request that omits a working edit is refused so an older
-page cannot silently discard it. Successful saves clear the working edits. Characteristics
+nothing. The page includes the agent's working edits in its lists. An agent's draft for a
+stated row is a `change` with the current file value as `expect`. An explicit edit to the
+same question takes precedence and the bar shows that it replaces the draft. The command
+refuses a request that omits a working edit so an older page cannot silently discard it.
+Successful saves clear the working edits. Characteristics
 and the 3D view read the saved STEP.
 
 The file is written from the file as the session's last save left it (the input before any), to

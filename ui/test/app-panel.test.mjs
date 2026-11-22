@@ -234,5 +234,15 @@ test('working answers share the pending bar and edit lists across parts, with lo
   assert.deepEqual(pending.get(0).list(), { fill: { 'part.material': 'Steel' }, none: ['part.coating'] });
   assert.deepEqual(pending.get(1).list(), { fill: { 'part.material': 'Bronze' }, clear: ['part.heat_treatment'] });
   assert.equal(pending.get(1).get('part.material').draft, undefined);
+  assert.match(describe(pending.get(1).get('part.material'), drafts[1]), /replaces the agent’s answer/);
   assert.equal(withDrafts(local, {}, () => assert.fail('no draft')).size, 1);
+});
+
+test('a working answer to a stated row carries the file value in the pending change', () => {
+  const change = { to: 'Bronze', expect: 'Brass' };
+  const pending = withDrafts(new Map(), { '1': { change: { 'part.material': change } } },
+    (_part, _id, value) => ({ name: 'Material', text: String(value) })).get(1);
+  assert.deepEqual(pending.list(), { change: { 'part.material': change } });
+  assert.equal(describe(pending.get('part.material')), 'Change Material: Brass → Bronze');
+  assert.equal(pending.get('part.material').draft, true);
 });

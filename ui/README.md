@@ -220,7 +220,8 @@ beside its name), a **gap** ("not stated", with Specify's suggestion as a dashed
 The page receives the agent's working edits through the session. They appear in the same
 pending bar with part names and are highlighted on their rows. **Save** writes the combined
 lists. **Discard** drops the page edits and the agent's working edits. A working edit also
-has **Undo** on its row and in the bar. If you edit the same row, your edit takes precedence.
+has **Undo** on its row and in the bar. A new answer to a stated row is shown as a change.
+If you edit the same row, the bar says your edit replaces the agent's answer.
 The Characteristics tab and 3D view show the saved STEP. Save writes the specified STEP
 (beside it as `part.specified.step` by default, or over the input with `--in-place`). Save never refuses for questions
 still open (many AP242 files have no complete answer to everything): it writes the edits listed and says which

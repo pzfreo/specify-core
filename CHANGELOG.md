@@ -140,8 +140,9 @@ Read first:
   part for editing. Each edit is checked against its part and that part's listed edits, and its
   entry names the part. Switching parts keeps the edits in the one bar.
   A refused None needed explains why on its row. A queued removal can be undone on its row.
-  Notes have separate lines. Agent answers enter the pending bar with part names. Save writes
-  them with the other edits. Undo removes one, and Discard drops them all. Only unsaved edits are highlighted;
+  Notes have separate lines. Agent answers enter the pending bar with part names, including
+  changes to stated values. The bar marks when a local edit replaces an agent's answer. Save writes
+  drafts with the other edits. Undo removes one, and Discard drops them all. Only unsaved edits are highlighted;
   nothing says who wrote a requirement. The general tolerance's line is a row editor (#228): a class,
   or a block of decimal places and their tolerances, an angles line and a note line, written as one
   line of text (`.XX ±.01, .XXX ±.005, angles ±1°`). **Save with defaults** becomes the bar's **Add all

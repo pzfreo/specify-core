@@ -27,7 +27,7 @@ export interface LocalConfig {
 }
 
 /** The session's answers: one answer map per part, by part index ("0" for a single part). */
-export type AnswerDraft = Pick<EditList, 'fill' | 'none' | 'clear'>;
+export type AnswerDraft = Pick<EditList, 'fill' | 'change' | 'none' | 'clear'>;
 export interface SessionAnswers { rev: number; parts: Record<string, PmiAnswers>; drafts?: Record<string, AnswerDraft> }
 export type Source = 'page' | 'mcp' | 'start';
 /** An `answers` event: the start state (``parts``) or one part's change. */

@@ -729,7 +729,7 @@ function App() {
           />, slots.panel)}
       </main>
       {editing && (
-        <EditBar items={items} saving={saving && !stopped} busy={busy} blocked={(!opened ? 'Opening…' : undefined) ?? saveBlocked} savedNote={savedNote}
+        <EditBar items={items} drafts={draftSnapshot.drafts} saving={saving && !stopped} busy={busy} blocked={(!opened ? 'Opening…' : undefined) ?? saveBlocked} savedNote={savedNote}
           onSave={() => void onSave()} onDiscard={() => void onDiscard()} onUndoDraft={(part, id) => void onDiscard({ part, id })}
           onAddAll={() => void addAll()} />
       )}
