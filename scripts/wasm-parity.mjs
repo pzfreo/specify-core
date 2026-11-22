@@ -200,7 +200,14 @@ for (const [part, path] of parts) {
     const settled = JSON.parse(engine.settle(JSON.stringify(state)));
     compare(settled, expected.accepted_settle);
     assert.deepEqual(settled.state.answers, accepted, 'settle preserves accepted answers');
-    const changed = { ...accepted, 'part.general_tolerance': 'ISO 2768-f' };
+    // A changed tolerance class has new suggestions; approvals name their displayed values.
+    const changed = Object.fromEntries(Object.entries(accepted)
+      .filter(([id]) => !id.startsWith('length:planes:') && !id.startsWith('location:holes:')));
+    changed['part.general_tolerance'] = 'ISO 2768-f';
+    if (part === 'spindle') {
+      assert.ok(acceptedReview.intent.general.every(r => r.feature !== 'turned_steps:9'
+        || r.nominal !== 24 || r.faces.length !== 1 || r.faces[0] !== 9));
+    }
     assert.equal(JSON.parse(acceptDefaults(JSON.stringify(snapshot.analysis), JSON.stringify(changed)))['part.general_tolerance'], 'ISO 2768-f');
     // ADR P11 (D5b): a general tolerance the file states stands; a different answer is not
     // written over it (changing it is an explicit edit), so the intent carries none.
@@ -405,3 +412,31 @@ console.log('assembly diff: compared part by part');
   }
 }
 console.log('spindle diff: the files\' PMI and full scene parity passed');
+
+// Explicit edits in the WASM session write only the dimensions named by their rows.
+{
+  const input = readFileSync(new URL('tests/fixtures/spindle.step', root));
+  const spindle = new IntentEngine('spindle.step', input);
+  try {
+    const length = 'length:planes:8-10';
+    const location = 'location:holes:10-7';
+    const gap = 'length:planes:4-10';
+    const initial = JSON.parse(spindle.table());
+    const suggestion = initial.rows.find(r => r.id === length && r.state === 'gap')?.suggestion;
+    assert.equal(typeof suggestion, 'string');
+    const edited = JSON.parse(spindle.edit(JSON.stringify({
+      fill: { [length]: suggestion },
+      accept_suggestions: [location],
+    })));
+    assert.ok(edited.written, edited.message);
+    const reopened = new IntentEngine('edited-spindle.step', Uint8Array.from(edited.bytes));
+    try {
+      const table = JSON.parse(reopened.table());
+      const state = id => table.rows.find(r => r.id === id)?.state;
+      assert.equal(state(length), 'stated');
+      assert.equal(state(location), 'stated');
+      assert.equal(state(gap), 'gap');
+    } finally { reopened.free(); }
+  } finally { spindle.free(); }
+}
+console.log('WASM edit list: a length and a hole location read back as stated, with the unapproved length still a gap');

@@ -269,19 +269,33 @@ fn a_stored_answer_whose_pmi_was_deleted_is_a_gap_again_mentioned_once() {
 fn pmi_on_no_recognised_feature_is_file_pmi() {
     let edited = fixture("resume-p9/edited-plate.step.gz");
     let (t, _) = table(&edited);
-    // #5 is the plate's length, from face 0 to face 5: no feature's requirement.
-    let file: Vec<&Value> = t["file_pmi"].as_array().unwrap().iter().collect();
-    let length = file
-        .iter()
-        .find(|r| r["number"] == "#5")
-        .unwrap_or_else(|| panic!("#5 is not file PMI: {t}"));
-    assert_eq!(length["type"], "Location_LinearDistance");
-    assert_eq!(length["faces"], json!([0, 5]));
-    // No row claims it.
-    for r in t["rows"].as_array().unwrap() {
-        for q in r["requirements"].as_array().into_iter().flatten() {
-            assert_ne!(q["number"], "#5", "{r}");
-        }
+    // general dimensions are rows (Paul, 2026-11-21). The plate's #5 is a stated length.
+    let length = row(&t, "length:planes:0-5");
+    assert_eq!(length["state"], "stated");
+    assert_eq!(length["requirements"][0]["number"], "#5");
+    assert_eq!(length["requirements"][0]["type"], "Location_LinearDistance");
+    assert_eq!(length["requirements"][0]["faces"], json!([0, 5]));
+    assert!(
+        t["file_pmi"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["number"] != "#5")
+    );
+
+    // An imported surface profile with no recognised owning feature still appears as file PMI.
+    let (foreign, _) = table(&fixture("nist/solid-edge-ctc01.step.gz"));
+    let profile = |item: &Value| item["type"] == "ProfileOfSurface" && item["faces"] == json!([6]);
+    assert!(foreign["file_pmi"].as_array().unwrap().iter().any(profile));
+    for r in foreign["rows"].as_array().unwrap() {
+        assert!(
+            !r["requirements"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(profile),
+            "{r}"
+        );
     }
 }
 

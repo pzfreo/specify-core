@@ -23,6 +23,7 @@ use crate::rule_sources::{self as sources, Rule};
 use crate::{extras, general, locations, materials, standards};
 
 pub mod datums;
+pub(crate) mod general_rows;
 mod holes;
 pub mod mates;
 mod py;
@@ -362,7 +363,7 @@ impl Question {
             ("default", self.default.clone().unwrap_or(Value::Null)),
             ("why", Value::from(self.why.as_str())),
         ]);
-        if self.id.starts_with("bom.") {
+        if self.id.starts_with("bom.") || general_rows::is_id(&self.id) {
             out.insert("optional".into(), Value::Bool(true));
         }
         if !self.options.is_empty() {
@@ -543,8 +544,47 @@ fn carry_review(
 }
 
 pub(crate) fn questions_in(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> Result<Vec<Question>> {
+    let mut questions = ordinary_questions_in(ctx, answers)?;
+    questions.extend(
+        dimension_suggestions(ctx, answers)
+            .into_iter()
+            .map(|s| s.question),
+    );
+    Ok(questions)
+}
+
+pub(crate) fn ordinary_questions_in(
+    ctx: &Ctx<'_>,
+    answers: &Map<String, Value>,
+) -> Result<Vec<Question>> {
     let cited: String = extras::cited(answers)?.into_iter().collect();
     all_questions(ctx, answers, &format!("ABC{cited}"))
+}
+
+/// Plan the suggestions with the ordinary questions' defaults, without treating them as
+/// approved. An incomplete ordinary answer can still be reviewed while there is no plan.
+pub(crate) fn dimension_suggestions(
+    ctx: &Ctx<'_>,
+    answers: &Map<String, Value>,
+) -> Vec<general_rows::Suggestion> {
+    let Ok((defaults, qs)) = settled(ctx, answers) else {
+        return Vec::new();
+    };
+    dimensions_with_defaults(ctx, &defaults, &qs)
+}
+
+fn dimensions_with_defaults(
+    ctx: &Ctx<'_>,
+    defaults: &Map<String, Value>,
+    qs: &[Question],
+) -> Vec<general_rows::Suggestion> {
+    let Ok(intent) = raw_intent(ctx, defaults, qs, IntentMode::Suggestions) else {
+        return Vec::new();
+    };
+    let mut suggestions = general_rows::suggestions(&intent, &general_rows::Owners::new(qs));
+    let stated = ctx.table_stated();
+    suggestions.retain(|s| !stated.contains(s.question.id.as_str()));
+    suggestions
 }
 
 /// `_answer`: the answer to `qid`, else the default of the question `qid` among `qs`.
@@ -1109,6 +1149,7 @@ pub fn open_questions<'q>(qs: &'q [Question], answers: &Map<String, Value>) -> V
             !q.id.starts_with("hole.full_thread:")
                 && !q.id.starts_with("bom.")
                 && q.id != crate::process::QUESTION
+                && !general_rows::is_id(&q.id)
                 && !answers.contains_key(&q.id)
                 // ADR P11: a gap whose suggestion writes nothing ("none") is not open: leaving
                 // it and accepting "none" give the same file.
@@ -1157,10 +1198,16 @@ pub fn with_all_defaults(
     answers: &Map<String, Value>,
 ) -> Result<Map<String, Value>> {
     crate::answer_file::validate(answers).map_err(Error::Invalid)?;
-    let (merged, qs) = settled(&Ctx::new(analysis)?, answers)?;
+    let ctx = Ctx::new(analysis)?;
+    let (merged, mut qs) = settled(&ctx, answers)?;
+    qs.extend(
+        dimensions_with_defaults(&ctx, &merged, &qs)
+            .into_iter()
+            .map(|s| s.question),
+    );
     // Defaults never answer a block; it refuses once its question is asked (#126).
     crate::answer_file::require_resolved_where(answers, |id| asks(&qs, id))?;
-    Ok(merged)
+    Ok(with_defaults(&qs, &merged))
 }
 
 /// Whether `id` is among the questions `qs`.
@@ -1170,13 +1217,13 @@ fn asks(qs: &[Question], id: &str) -> bool {
 
 /// `with_all_defaults`, with the questions of the answers it settles on (which `preview` and
 /// `problems` would otherwise ask for again: the same call, the same result).
-fn settled(
+pub(crate) fn settled(
     ctx: &Ctx<'_>,
     answers: &Map<String, Value>,
 ) -> Result<(Map<String, Value>, Vec<Question>)> {
     let mut answers = answers.clone();
     loop {
-        let qs = questions_in(ctx, &answers)?;
+        let qs = ordinary_questions_in(ctx, &answers)?;
         let merged = with_defaults(&qs, &answers);
         // Defaults are only ever added, so nothing added is the fixed point.
         if merged.len() == answers.len() {
@@ -1271,69 +1318,70 @@ pub fn preview(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent>
     Ok(intent)
 }
 
-/// ADR P9 / D1: a save writes only what was seen and approved. The general tolerance's answer
-/// writes its note; the dimensions it governs (every feature's size and location, nominal
-/// under the general tolerance) are each written only when the question they belong to is
-/// approved: a hole's or turned diameter's size with its `hole.function` / `diameter.fit`, a
-/// hole's location with its `hole.position` / `hole.location`. A dimension no question asks
-/// about (a plane level, a hole with no location question) is approved with every suggestion:
-/// when no question with a suggestion is open. With every suggestion approved (`apply`,
-/// "accept suggestions") the whole set is written.
-fn only_approved_general(intent: &mut Intent, answers: &Map<String, Value>, qs: &[Question]) {
-    let open_qs = open_questions(qs, answers);
-    // Every suggestion approved: a question still open has none to approve (a material).
-    let suggestions_open = open_qs.iter().any(|q| q.default.is_some());
-    let open: BTreeSet<&str> = open_qs.iter().map(|q| q.id.as_str()).collect();
-    if open.is_empty() {
-        return;
-    }
-    // (kind, question id, its faces) of every question that owns a size or a location.
-    let owners: Vec<(&str, &str, BTreeSet<i64>)> = qs
-        .iter()
-        .filter_map(|q| {
-            let kind = if q.id.starts_with("hole.function:") || q.id.starts_with("diameter.fit:") {
-                "size"
-            } else if q.id.starts_with("hole.position:") || q.id.starts_with("hole.location:") {
-                "location"
-            } else {
-                return None;
-            };
-            let faces = q
-                .faces
-                .iter()
-                .chain(q.parts.iter().flat_map(|(_, f)| f))
-                .copied()
-                .collect();
-            Some((kind, q.id.as_str(), faces))
-        })
+/// Gate dimensions with a question by its approval. Free-standing dimensions each have
+/// their own optional question, and need a separate approval even after all required answers.
+fn intent(
+    ctx: &Ctx<'_>,
+    answers: &Map<String, Value>,
+    qs: &[Question],
+    mode: IntentMode,
+) -> Result<Intent> {
+    let mut intent = raw_intent(ctx, answers, qs, mode)?;
+    let open: BTreeSet<_> = open_questions(qs, answers)
+        .into_iter()
+        .map(|q| q.id.as_str())
         .collect();
-    let faces = |r: &Map<String, Value>, key: &str| -> Vec<i64> {
-        r.get(key)
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_i64)
-            .collect()
+    let owners = general_rows::Owners::new(qs);
+    let approved = |row: &Map<String, Value>| {
+        let mut owners = owners.of(row).peekable();
+        owners.peek().is_some() && owners.all(|id| !open.contains(id))
     };
-    let approved = |r: &Map<String, Value>| {
-        let kind = r.get("kind").and_then(Value::as_str).unwrap_or("");
-        let mut on = faces(r, "faces");
-        if kind == "location" {
-            on.extend(faces(r, "reference"));
+
+    let mut accepted = BTreeMap::new();
+    let has_general_tolerance = intent.part.contains_key("general_tolerance")
+        || ctx
+            .stated
+            .is_some_and(|part| py::truthy_opt(part.get("general_tolerance")));
+    if answers.keys().any(|id| general_rows::is_id(id)) {
+        for mut s in dimension_suggestions(ctx, answers) {
+            if let Some(value) = answers.get(&s.question.id) {
+                if crate::feature_table::is_none_value(value) {
+                    continue;
+                }
+                if Some(value) != s.question.default.as_ref() {
+                    return invalid(format!(
+                        "{}: choose {} or none",
+                        s.question.id, s.question.options[0]
+                    ));
+                }
+                if !has_general_tolerance {
+                    general_rows::explicit_limits(&mut s.dimension);
+                }
+                accepted.insert(s.question.id, s.dimension);
+            }
         }
-        let mut owned = owners
-            .iter()
-            .filter(|(k, _, f)| *k == kind && on.iter().any(|i| f.contains(i)))
-            .peekable();
-        if owned.peek().is_none() {
-            return !suggestions_open;
+    }
+    // Preserve the planner's ordering for dimensions it still produces. A separately
+    // approved gap also works during a partial save, before the rest of its scheme is given.
+    let mut select = |row: &mut Map<String, Value>| {
+        if approved(row) {
+            return true;
         }
-        owned.all(|(_, id, _)| !open.contains(id))
+        if !accepted.is_empty()
+            && let Some(id) = general_rows::measurement_id(row)
+            && let Some(accepted) = accepted.remove(&id)
+        {
+            *row = accepted;
+            return true;
+        }
+        false
     };
     intent
         .requirements
-        .retain(|r| r.get("general") != Some(&Value::Bool(true)) || approved(r));
-    intent.general.retain(|r| approved(r));
+        .retain_mut(|r| r.get("general") != Some(&Value::Bool(true)) || select(r));
+    intent.general.retain_mut(select);
+    intent.general.extend(accepted.into_values());
+    Ok(intent)
 }
 
 /// Prospective diagnostics still examine the suggested scheme, without accepting it. This is
@@ -1343,7 +1391,7 @@ pub(crate) fn proposed_in(
     answers: &Map<String, Value>,
 ) -> Result<(Intent, Map<String, Value>, Vec<Question>)> {
     let (merged, qs) = settled(ctx, answers)?;
-    let mut intent = intent(ctx, &merged, &qs, IntentMode::Apply)?;
+    let mut intent = raw_intent(ctx, &merged, &qs, IntentMode::Apply)?;
     mark_defaults(&mut intent, answers);
     Ok((intent, merged, qs))
 }
@@ -1366,10 +1414,11 @@ fn mark_defaults(intent: &mut Intent, answers: &Map<String, Value>) {
 enum IntentMode {
     Preview,
     Apply,
+    Suggestions,
 }
 
 /// `_intent`: intent from the answered questions among `qs`; each item names its question.
-fn intent(
+fn raw_intent(
     ctx: &Ctx<'_>,
     answers: &Map<String, Value>,
     qs: &[Question],
@@ -1596,7 +1645,7 @@ fn intent(
             };
             let (Some(letter), Some(control)) = (letter, control) else {
                 // The question can propose a control before its datum frame is accepted.
-                if mode == IntentMode::Preview {
+                if mode != IntentMode::Apply {
                     continue;
                 }
                 return invalid("there is no datum control to give");
@@ -1648,14 +1697,26 @@ fn intent(
                     .map_err(|e| Error::Invalid(format!("stored dimensions: {e}")))?,
             );
         }
+        // During suggestion planning the note already in the file also governs dimensions
+        // still missing. It supplies the tolerance without becoming a new setting to write.
+        let seed_tolerance = tolerance.filter(|_| {
+            mode == IntentMode::Suggestions && !intent.part.contains_key("general_tolerance")
+        });
+        if let Some(tolerance) = seed_tolerance {
+            intent
+                .part
+                .insert("general_tolerance".into(), tolerance.clone());
+        }
         crate::dimensioning::apply(input, &mut intent).map_err(Error::Invalid)?;
+        if seed_tolerance.is_some() {
+            intent.part.shift_remove("general_tolerance");
+        }
         // The file's own dimensions were planner authorities, not requirements: the file's
         // PMI stays the characteristic, so they leave the intent once planning is done.
         intent
             .requirements
             .retain(|r| r.get("stored") != Some(&Value::Bool(true)));
     }
-    only_approved_general(&mut intent, answers, qs);
     Ok(intent)
 }
 
@@ -1724,7 +1785,11 @@ pub fn unasked_answers(
     answers: &Map<String, Value>,
 ) -> Result<Vec<(String, String)>> {
     let ctx = Ctx::new(analysis)?;
-    let qs = questions_in(&ctx, answers)?;
+    let qs = if answers.keys().any(|id| general_rows::is_id(id)) {
+        questions_in(&ctx, answers)?
+    } else {
+        ordinary_questions_in(&ctx, answers)?
+    };
     Ok(unasked_entries(&ctx, answers, &qs)?
         .into_iter()
         .filter(|e| !e.block)

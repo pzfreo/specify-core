@@ -905,7 +905,7 @@ fn the_engines_read_each_others_files() {
 /// locates every one of them: CTC-05's 263.525 from face 9 locates holes 37 (datum B, located
 /// as the origin) and 51/53, 54/56, which nothing else locates in x, so it is written.
 #[test]
-fn a_shared_location_is_written_when_one_of_its_holes_is_already_located() {
+fn ctc05_a_shared_location_is_written_when_one_of_its_holes_is_already_located() {
     let case = write_fixtures::cases()
         .into_iter()
         .find(|c| c.name == "nist/nist_ctc_05_asme1_ap242")

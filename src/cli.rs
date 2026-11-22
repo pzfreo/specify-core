@@ -454,6 +454,7 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
                 Some(path) => answers_of(read_json(&path)?)?,
                 None => Map::new(),
             };
+            let answers = api::with_stored(&analysis, &answers);
             let qs = api::questions(&analysis, &answers).map_err(refused)?;
             let shown: Vec<Value> = if open {
                 rules::open_questions(&qs, &answers)
@@ -609,6 +610,8 @@ fn write(
             crate::answer_file::check(&loaded, &answers)
                 .map_err(|why| Exit::new(2, format!("answers {}: {why}", pair[1])))?;
         }
+        // What the file decided stays decided (ADR P11), as the sessions resume it.
+        let answers = api::with_stored(&analysis, &answers);
         let mut intent = match api::apply(&analysis, &answers, accept_defaults) {
             Ok(intent) => intent,
             // #228, ADR P11: questions still open are gaps, not a refusal. What is answered

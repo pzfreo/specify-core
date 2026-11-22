@@ -254,7 +254,8 @@ fn rules_match_the_oracle() {
     );
     // Turned defaults, datum origins, free-text notes and #20's unaccepted suggestions change
     // the Python rules. #20 changes preview and adds pending-frame problems; applied defaults
-    // are intact. Keep the
+    // are intact. The additional gaps and their approval results are
+    // covered by general dimensions are rows (Paul, 2026-11-21). Keep the
     // complete before/after values, including ordering, under an exact regression guard;
     // the known-difference entries below document the verdict, not a blanket exemption.
     let tie_entries: Vec<_> = common::load_known(&common::known_differences_file("rules"))

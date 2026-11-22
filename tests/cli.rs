@@ -107,6 +107,346 @@ fn object(value: &Value) -> Map<String, Value> {
     value.as_object().cloned().unwrap_or_default()
 }
 
+fn write_listed_defaults(input: &Path, name: &str) -> (PathBuf, Value, Value) {
+    let dir = scratch(name);
+    let analysis = dir.join("analysis.json");
+    let answers = dir.join("answers.json");
+    let output = dir.join("out.step");
+    let intent = dir.join("intent.json");
+    let analysed = run(&["analyse", &s(input), "-o", &s(&analysis)]);
+    assert_eq!(analysed.code, 0, "{}", analysed.stderr);
+    let listed = run(&["questions", &s(&analysis)]);
+    assert_eq!(listed.code, 0, "{}", listed.stderr);
+    let listed: Vec<Value> = serde_json::from_str(&listed.stdout).unwrap();
+    assert!(
+        listed
+            .iter()
+            .any(|q| q["id"].as_str().unwrap().starts_with("diameter.runout:"))
+    );
+    let given = listed
+        .into_iter()
+        .map(|q| {
+            let id = q["id"].as_str().unwrap();
+            let answer = if id == "part.material" {
+                json!("Steel")
+            } else {
+                assert!(!q["default"].is_null(), "{id} has no default");
+                q["default"].clone()
+            };
+            (id.to_string(), answer)
+        })
+        .collect::<Map<String, Value>>();
+    save(&answers, &Value::Object(given));
+    let written = run(&[
+        "write",
+        &s(input),
+        &s(&analysis),
+        &s(&answers),
+        "-o",
+        &s(&output),
+        "--intent",
+        &s(&intent),
+    ]);
+    assert_eq!(written.code, 0, "{}", written.stderr);
+    (
+        output,
+        serde_json::from_slice(&std::fs::read(intent).unwrap()).unwrap(),
+        serde_json::from_str(&written.stdout).unwrap(),
+    )
+}
+
+#[test]
+fn grm05_write_accepts_every_listed_default() {
+    let Some(corpus) = corpus_dir() else { return };
+    write_listed_defaults(
+        &corpus.join("gramel/GRM-05_depth_lock_bolt.step"),
+        "grm05-defaults",
+    );
+}
+
+const GRM05_LENGTHS: [(&str, u64, f64, &str); 3] = [
+    ("length:planes:2-3", 3, 14.0, "14 ±0.2 from B"),
+    ("length:planes:2-5", 5, 5.0, "5 ±0.1 from B"),
+    ("length:planes:2-8", 8, 18.0, "18 ±0.2 from B"),
+];
+
+struct Grm05 {
+    input: PathBuf,
+    dir: PathBuf,
+    analysis: Value,
+}
+
+impl Grm05 {
+    fn load(name: &str) -> Option<Self> {
+        let input = corpus_dir()?.join("gramel/GRM-05_depth_lock_bolt.step");
+        let dir = scratch(name);
+        let analysis = api::analyse_file(&input, None).unwrap();
+        save(&dir.join("analysis.json"), &analysis);
+        Some(Self {
+            input,
+            dir,
+            analysis,
+        })
+    }
+
+    fn other_answers(&self) -> Map<String, Value> {
+        let answers: Map<_, _> = api::questions(&self.analysis, &Map::new())
+            .unwrap()
+            .into_iter()
+            .filter(|q| !GRM05_LENGTHS.iter().any(|(id, _, _, _)| q.id == *id))
+            .map(|q| {
+                let value = if q.id == "part.material" {
+                    json!("Steel")
+                } else {
+                    q.default.unwrap()
+                };
+                (q.id, value)
+            })
+            .collect();
+        assert_eq!(answers.len(), 17);
+        answers
+    }
+
+    fn write(&self, answers: Map<String, Value>, bulk: bool) -> Value {
+        let given = self.dir.join("answers.json");
+        save(&given, &Value::Object(answers));
+        let output = self.dir.join("out.step");
+        let mut args = vec![
+            "write".into(),
+            s(&self.input),
+            s(&self.dir.join("analysis.json")),
+            s(&given),
+            "-o".into(),
+            s(&output),
+        ];
+        if bulk {
+            args.push("--accept-defaults".into());
+        }
+        let result = run(&args);
+        assert_eq!(result.code, 0, "{}", result.stderr);
+        api::analyse_file(&output, None).unwrap()
+    }
+}
+
+fn grm05_row<'a>(analysis: &'a Value, id: &str) -> &'a Value {
+    analysis["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == id)
+        .unwrap_or_else(|| panic!("missing {id}"))
+}
+
+fn grm05_written(analysis: &Value, face: u64, nominal: f64) -> bool {
+    analysis["existing"].as_array().unwrap().iter().any(|item| {
+        item["type"] == "Location_LinearDistance"
+            && item["faces"] == json!([2])
+            && item["faces2"] == json!([face])
+            && item["value"].as_f64() == Some(nominal)
+    })
+}
+
+#[test]
+fn grm05_has_three_suggested_length_gaps_before_save() {
+    let Some(part) = Grm05::load("grm05-length-gaps") else {
+        return;
+    };
+    let lengths: Vec<_> = part.analysis["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["kind"] == "length")
+        .collect();
+    assert_eq!(lengths.len(), 3);
+    for (id, face, _, text) in GRM05_LENGTHS {
+        let row = grm05_row(&part.analysis, id);
+        assert_eq!(row["state"], "gap", "{id}");
+        assert_eq!(row["suggestion"], text, "{id}");
+        assert_eq!(row["faces"], json!([face]), "{id}");
+    }
+}
+
+#[test]
+fn grm05_answering_only_the_other_questions_leaves_all_three_length_gaps() {
+    let Some(part) = Grm05::load("grm05-no-lengths-approved") else {
+        return;
+    };
+    let reopened = part.write(part.other_answers(), false);
+    for (id, face, nominal, _) in GRM05_LENGTHS {
+        assert!(
+            !grm05_written(&reopened, face, nominal),
+            "{id} was written without approval"
+        );
+        assert_eq!(grm05_row(&reopened, id)["state"], "gap", "{id}");
+    }
+}
+
+#[test]
+fn grm05_accepting_suggestions_writes_all_three_lengths() {
+    let Some(part) = Grm05::load("grm05-lengths-approved") else {
+        return;
+    };
+    let reopened = part.write(object(&json!({"part.material": "Steel"})), true);
+    for (id, face, nominal, _) in GRM05_LENGTHS {
+        assert!(grm05_written(&reopened, face, nominal), "{id}");
+        assert_eq!(grm05_row(&reopened, id)["state"], "stated", "{id}");
+    }
+}
+
+#[test]
+fn grm05_none_for_one_length_writes_the_other_two_and_survives_reopening() {
+    let Some(part) = Grm05::load("grm05-length-none") else {
+        return;
+    };
+    let none = GRM05_LENGTHS[0].0;
+    let reopened = part.write(
+        object(&json!({"part.material": "Steel", none: "none"})),
+        true,
+    );
+    for (id, face, nominal, _) in GRM05_LENGTHS {
+        assert_eq!(grm05_written(&reopened, face, nominal), id != none, "{id}");
+        let row = grm05_row(&reopened, id);
+        if id == none {
+            assert_eq!(row["state"], "decided_none");
+            assert_eq!(row["value"], "none");
+            assert_eq!(reopened["resume"]["answers"][id], "none");
+        } else {
+            assert_eq!(row["state"], "stated", "{id}");
+        }
+    }
+}
+
+#[test]
+fn grm05_reopening_a_file_with_one_length_shows_it_as_stated() {
+    let Some(part) = Grm05::load("grm05-one-length") else {
+        return;
+    };
+    let mut answers = part.other_answers();
+    let (approved, _, _, text) = GRM05_LENGTHS[0];
+    answers.insert(approved.into(), json!(text));
+    let reopened = part.write(answers, false);
+    for (id, face, nominal, _) in GRM05_LENGTHS {
+        assert_eq!(
+            grm05_written(&reopened, face, nominal),
+            id == approved,
+            "{id}"
+        );
+        assert_eq!(
+            grm05_row(&reopened, id)["state"],
+            if id == approved { "stated" } else { "gap" },
+            "{id}"
+        );
+    }
+    let stated = grm05_row(&reopened, approved);
+    assert_eq!(stated["requirements"][0]["faces"], json!([2, 3]));
+
+    // The next approval uses the same path the panel uses when it keeps one suggestion.
+    let next = part.dir.join("out.step");
+    let loaded = specify_core::part::load(&next, None).unwrap();
+    let (second, face, nominal, text) = GRM05_LENGTHS[1];
+    let answers = api::with_stored(&reopened, &Map::new());
+    let answers =
+        api::with_approved(&reopened, &answers, 0, &object(&json!({second: text}))).unwrap();
+    let (intent, _) = specify_core::session::intent_for(&loaded, &reopened, &answers).unwrap();
+    let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
+    let updated =
+        api::analyse(&specify_core::part::load_bytes("updated.step", bytes).unwrap()).unwrap();
+    assert!(grm05_written(&updated, face, nominal), "{second}");
+    assert!(
+        grm05_written(&updated, GRM05_LENGTHS[0].1, GRM05_LENGTHS[0].2),
+        "{approved}"
+    );
+    assert!(!grm05_written(
+        &updated,
+        GRM05_LENGTHS[2].1,
+        GRM05_LENGTHS[2].2
+    ));
+
+    // An isolated approval carries its displayed deviation even if the note is still a gap.
+    let original = specify_core::part::load(&part.input, None).unwrap();
+    let only = object(&json!({second: text}));
+    let (intent, _) = specify_core::session::intent_for(&original, &part.analysis, &only).unwrap();
+    let (bytes, _) = specify_core::writer::write_bytes(&original, &intent, Some(&only)).unwrap();
+    let isolated =
+        api::analyse(&specify_core::part::load_bytes("isolated.step", bytes).unwrap()).unwrap();
+    assert!(grm05_written(&isolated, face, nominal), "{second}");
+    assert_eq!(
+        grm05_row(&isolated, second)["requirements"][0]["text"],
+        "5 ±0.1"
+    );
+    assert!(isolated["part"]["general_tolerance"].is_null());
+}
+
+#[test]
+fn spindle_write_accepts_every_listed_default() {
+    write_listed_defaults(&common::fixtures().join("spindle.step"), "spindle-defaults");
+}
+
+#[test]
+fn spindle_writes_approved_locations_and_reports_deferred_sizes() {
+    let input = common::fixtures().join("spindle.step");
+    let (output, intent, report) = write_listed_defaults(&input, "spindle-general");
+    // general dimensions are rows (Paul, 2026-11-21). The stated ⌀24 has no gap;
+    // four standalone locations were offered, approved and written.
+    assert_eq!(intent["general"].as_array().unwrap().len(), 6);
+    for label in [
+        "general size 15 on turned_steps:6 faces [6]",
+        "general size 10 on turned_steps:2 faces [2]",
+    ] {
+        assert!(
+            report["not_written"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|line| line.as_str().unwrap()
+                    == format!(
+                        "{label}: adding PMI skips dimensions deferred by the shared planner"
+                    )),
+            "missing omission for {label}: {}",
+            report["not_written"]
+        );
+    }
+    let reopened = api::analyse_file(&output, None).unwrap();
+    for (id, face, value) in [
+        ("length:planes:8-10", 8, 12.0),
+        ("length:planes:4-10", 4, 34.0),
+        ("length:planes:0-10", 0, 52.0),
+        ("location:holes:10-7", 7, 23.0),
+    ] {
+        assert!(
+            intent["general"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["question"] == id)
+        );
+        assert!(
+            reopened["existing"].as_array().unwrap().iter().any(|item| {
+                item["type"] == "Location_LinearDistance"
+                    && item["faces"] == json!([10])
+                    && item["faces2"] == json!([face])
+                    && item["value"].as_f64() == Some(value)
+            }),
+            "{id}"
+        );
+    }
+    assert!(
+        !intent["general"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["nominal"] == 24.0)
+    );
+    // The imported position tolerance is untouched, down to the original entity bytes.
+    let before = std::fs::read_to_string(input).unwrap();
+    let after = std::fs::read_to_string(output).unwrap();
+    let position = before
+        .lines()
+        .find(|line| line.contains("POSITION_TOLERANCE"))
+        .unwrap();
+    assert!(after.lines().any(|line| line == position), "{position}");
+}
+
 /// `-o -` streams the JSON to stdout, byte for byte the file `-o file` writes, and moves the
 /// summary to stderr, so the output can be piped into another program (a CAM bridge, `jq`).
 #[test]
@@ -1671,8 +2011,10 @@ fn without_reviewed_rule_departures(differences: Vec<Difference>) -> Vec<Differe
         .collect()
 }
 
-/// Keep CLI/serve envelopes of measurement origins, ordered notes, planner reports,
-/// combined classes and limit answers under the library rules' exact before/after guard.
+/// Keep CLI/serve envelopes of measurement origins, ordered notes, planner reports (including
+/// general-dimension omissions under P11), combined classes, and standalone dimension rows
+/// (general dimensions are rows (Paul, 2026-11-21)). Keep these under the
+/// library rules' exact before/after guard.
 /// The snapshot retains its original datum-origin filename. Older reviewed CLI differences
 /// retain their existing verdicts; composition never enters this snapshot.
 fn check_datum_origin_departures(differences: &[Difference]) {
@@ -1686,6 +2028,7 @@ fn check_datum_origin_departures(differences: &[Difference]) {
                 && e.pattern != "Combined ISO 2768 class choices in CLI and serve"
                 && e.pattern != "Absolute slash bounds are accepted by CLI answers"
                 && e.pattern != "Open questions are gaps: write writes what is answered (#228)"
+                && e.pattern != "general dimensions are rows (Paul, 2026-11-21)"
         })
         .collect();
     let ties: Vec<_> = load_known(&common::known_differences_file("cli"))

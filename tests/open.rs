@@ -2442,3 +2442,45 @@ fn a_session_changed_during_a_save_without_a_rev_is_refused() {
     let s = specify_core::session::lock(&shared);
     assert_eq!(s.answers(0).unwrap()["part.heat_treatment"], "None");
 }
+
+#[test]
+fn save_edits_commits_general_measurements_at_the_requested_revision() {
+    let scratch = Scratch::new("general-measurements");
+    let input = scratch.input();
+    std::fs::write(&input, include_bytes!("fixtures/spindle.step")).unwrap();
+    let opened = Opened::start(&input, &scratch, &[]);
+    let length = "length:planes:8-10";
+    let location = "location:holes:10-7";
+    let declined = "length:planes:4-10";
+    let saved = opened.save(
+        0,
+        json!({
+            "accept_suggestions": [length, location],
+            "none": [declined],
+        }),
+    );
+    assert_eq!(
+        saved.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&saved.body)
+    );
+    let saved = saved.json();
+    assert_eq!(saved["rev"], 1);
+    let path = Path::new(saved["path"].as_str().unwrap());
+    let after = specify_core::api::analyse_file(path, None).unwrap();
+    let state = |id| {
+        after["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == id)
+            .unwrap()["state"]
+            .as_str()
+            .unwrap()
+    };
+    assert_eq!(state(length), "stated");
+    assert_eq!(state(location), "stated");
+    assert_eq!(state(declined), "decided_none");
+    assert_eq!(opened.save(0, json!({})).status, 409);
+}
