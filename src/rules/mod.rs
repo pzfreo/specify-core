@@ -1722,8 +1722,8 @@ fn raw_intent(
     {
         let mut input = serde_json::from_value(metadata.clone())
             .map_err(|e| Error::Invalid(format!("dimensioning input: {e}")))?;
-        crate::dimensioning::step_levels(&mut input, &ctx.features)?;
         crate::dimensioning::general_plane_rows(&mut intent.general, metadata);
+        crate::dimensioning::step_levels(&mut input, &ctx.features, &intent.general)?;
         if let Some(stated) = ctx.analysis.get("dimensioning_stated") {
             intent.requirements.extend(
                 serde_json::from_value::<Vec<Map<String, Value>>>(stated.clone())

@@ -33,10 +33,22 @@ pub(crate) fn input(part: &haecceity::Part) -> Result<Input, String> {
 pub(crate) fn step_levels(
     input: &mut Input,
     features: &[crate::rules::records::Feature<'_>],
+    general: &[Map<String, Value>],
 ) -> Result<(), crate::rules::Error> {
     use haecceity::geom::dot;
 
     let axes = [input.frame.x, input.frame.y, input.frame.z];
+    // A retained physical measurement already gives this station its row.
+    // Keep its original reference faces and therefore its existing ID.
+    let measured: BTreeSet<_> = general
+        .iter()
+        .filter(|row| {
+            row.get("kind").and_then(Value::as_str) == Some("location")
+                && row.get("feature").and_then(Value::as_str) == Some("")
+                && deferred(input, row)
+        })
+        .flat_map(|row| ids(row, "faces"))
+        .collect();
     for level in features.iter().filter(|f| f.family == "step_levels") {
         let Some(direction) = level
             .get("height_axis")?
@@ -62,7 +74,8 @@ pub(crate) fn step_levels(
         {
             let at = plane.support.at[axis];
             let same = |s: &Support| s.body == plane.support.body && (s.at[axis] - at).abs() < 1e-4;
-            if (axis == input.steps.axis && input.steps.heights.iter().any(same))
+            if plane.support.faces.iter().any(|f| measured.contains(f))
+                || (axis == input.steps.axis && input.steps.heights.iter().any(same))
                 || input
                     .steps
                     .shoulders
