@@ -942,11 +942,17 @@ fn part_pmi_added(
             "{line}: the file already states it; not written again"
         ));
     }
-    // An approval that made no new PMI is decided only after checking whether
-    // the file actually states the same question on its original support.
+    // A separately approved measurement can be consolidated onto different
+    // support. Check its original question against the file if we dropped it.
     let made = sources
         .into_iter()
-        .filter(|(at, _)| !by_kind.contains(at))
+        .filter(|(at, req)| {
+            !by_kind.contains(at)
+                || !req
+                    .get("question")
+                    .and_then(Json::as_str)
+                    .is_some_and(crate::rules::general_rows::is_id)
+        })
         .map(|(_, req)| req)
         .collect();
     Ok((pmi, lines, made))
