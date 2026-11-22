@@ -12,8 +12,8 @@ To be released as 0.3.0 (every package; see "Lockstep versions").
   Independent plane lengths keep their rows. Stated locations on retired levels appear under
   **Other PMI in the file** when they match no measured row.
   Faces that only support another feature, such as a round boss cap, get no rows of their own.
-  Recognised fillets of any radius get an optional `fillet.radius` row with “none needed”
-  suggested. A radius dimension is written only when its measured radius is chosen.
+  As in 0.2, the general tolerance covers fillets. Grouped fillet rows come with
+  quiddity 0.5.6 radius groups (Paul, 2026-11-22).
 
 Read first:
 

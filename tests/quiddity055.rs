@@ -159,49 +159,49 @@ fn threaded_connector_109_has_no_length_for_the_supporting_cap() {
 }
 
 #[test]
-fn string_post_tiny_fillet_is_optional_and_writes_only_on_request() {
+fn string_post_fillets_are_recognised_without_rows() {
     let Some(part) = corpus_part("gramel/string_post.step") else {
         return;
     };
+    // Fillet rows wait for quiddity 0.5.6 radius groups (Paul, 2026-11-22).
     let analysis = api::analyse(&part).unwrap();
-    let id = "fillet.radius:fillets:7";
-    let row = rows(&analysis)
+    let fillets: Vec<_> = analysis["features"]
+        .as_array()
+        .unwrap()
         .iter()
-        .find(|r| r["id"] == id)
-        .expect("string_post: missing optional R0.25 fillet row");
-    assert_eq!(row["state"], "gap");
-    assert_eq!(row["suggestion"], "none");
-    assert_eq!(row["open"], false);
+        .filter(|feature| feature["family"] == "fillets")
+        .collect();
     assert!(
-        !rules::with_all_defaults(&analysis, &Map::new())
-            .unwrap()
-            .contains_key(id)
+        fillets
+            .iter()
+            .any(|feature| feature["faces"] == json!([7]) && feature["record"]["radius"] == 0.25)
+    );
+    assert!(
+        rows(&analysis)
+            .iter()
+            .all(|row| fillets.iter().all(|fillet| row["feature"] != fillet["id"])),
+        "string_post: recognised fillets must have no rows"
     );
     let questions = api::questions(&analysis, &Map::new()).unwrap();
-    assert!(
-        !rules::open_questions(&questions, &Map::new())
+    assert!(questions.iter().all(|q| {
+        fillets
             .iter()
-            .any(|q| q.id == id)
+            .all(|fillet| q.feature.as_deref() != fillet["id"].as_str())
+    }));
+    let edited = edit(
+        &part,
+        json!({"fill": {"part.general_tolerance": "ISO 2768-f"}}),
     );
-
-    let read = |output: writer::apply::Applied| {
-        api::analyse(&part::load_bytes("string_post.step", output.bytes).unwrap()).unwrap()
-    };
-    let empty = read(edit(&part, json!({})));
-    assert_eq!(empty["existing"], analysis["existing"]);
-    let declined = read(edit(&part, json!({"accept_suggestions": [id]})));
-    assert_eq!(declined["existing"], analysis["existing"]);
+    let saved = part::load_bytes("string_post.step", edited.bytes).unwrap();
+    let analysis = api::analyse(&saved).unwrap();
+    assert_eq!(analysis["part"]["general_tolerance"], "ISO 2768-f");
     assert!(
-        rows(&declined)
+        analysis["existing"]
+            .as_array()
+            .unwrap()
             .iter()
-            .any(|r| r["id"] == id && r["state"] == "decided_none")
+            .all(|item| item["type"] != "Size_Radius")
     );
-
-    let accepted = read(edit(&part, json!({"fill": {id: "R0.25"}})));
-    let row = rows(&accepted).iter().find(|r| r["id"] == id).unwrap();
-    assert_eq!(row["state"], "stated");
-    assert_eq!(row["requirements"][0]["type"], "Size_Radius");
-    assert_eq!(row["value"], "R0.25");
 }
 
 #[test]

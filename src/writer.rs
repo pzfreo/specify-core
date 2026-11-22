@@ -3767,16 +3767,8 @@ fn part_pmi_observed(
                 let feature = f.of(req.get("faces"), &format!("the size on {}", feature_name()))?;
                 let nominal = number(req, "nominal")?;
                 let fit = req.get("fit");
-                let radius = req.get("size_kind").and_then(Json::as_str) == Some("radius");
                 let tolerance = match fit {
-                    _ if under_general
-                        || radius
-                            && !["upper", "lower", "limits"]
-                                .iter()
-                                .any(|key| req.contains_key(*key)) =>
-                    {
-                        DimTolerance::None
-                    }
+                    _ if under_general => DimTolerance::None,
                     Some(Json::String(name)) if !name.is_empty() => {
                         // The class alone is written, so it must mean what the intent's
                         // deviations say: an intent whose limits are not its class's is refused
@@ -3805,11 +3797,7 @@ fn part_pmi_observed(
                 p.dimensions.push(Dimension {
                     kind: DimensionKind::Size {
                         feature,
-                        kind: if radius {
-                            SizeKind::Radius
-                        } else {
-                            SizeKind::Diameter
-                        },
+                        kind: SizeKind::Diameter,
                         path: None,
                         angle: None,
                     },
@@ -3825,11 +3813,7 @@ fn part_pmi_observed(
                 } else {
                     lines.written.push(format!(
                         "{} on {}",
-                        if radius {
-                            format!("R{}", pyfmt::g(nominal))
-                        } else {
-                            size_label(req, nominal)?
-                        },
+                        size_label(req, nominal)?,
                         feature_name()
                     ));
                 }

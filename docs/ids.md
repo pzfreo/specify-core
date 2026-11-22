@@ -52,7 +52,6 @@ A feature's requirement has the id `<kind>:<feature>` (below). These are the kin
 | `hole.full_thread` | the minimum full-thread depth of a tapped blind hole |
 | `diameter.fit` | a turned diameter's fit or tolerance |
 | `diameter.runout` | a turned diameter's runout |
-| `fillet.radius` | an optional radius dimension on a recognised fillet, e.g. `fillet.radius:fillets:7` |
 
 ## Added requirement kinds
 

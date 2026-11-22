@@ -347,17 +347,11 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
             .filter(|q| q.id.starts_with("length:planes:") || q.id.starts_with("location:holes:"))
             .count();
         // 0.5.5 omits the two supporting-cap lengths in CGB243 and the one
-        // in the threaded connector. The fillet radius questions are all optional.
+        // in the threaded connector.
         assert_eq!(standalone, if count == 4 { 34 } else { 8 }, "{file}");
-        let fillets = qs.iter().filter(|q| q.id.starts_with("fillet.radius:"));
-        let mut optional = 0;
-        for q in fillets {
-            assert_eq!(q.default, Some(json!("none")), "{}", q.id);
-            optional += 1;
-        }
-        assert_eq!(optional, if count == 4 { 62 } else { 1 }, "{file}");
+        // Fillet rows wait for quiddity 0.5.6 radius groups (Paul, 2026-11-22).
         assert_eq!(
-            qs.len() - standalone - optional,
+            qs.len() - standalone,
             question_count,
             "{file}: ordinary questions"
         );

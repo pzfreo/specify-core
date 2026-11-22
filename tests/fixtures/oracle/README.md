@@ -122,11 +122,10 @@ verdicts in `../known_differences/cli.json`. Regenerate with
 set `QUIDDITY_CORPUS` to include corpus cases. Regeneration without a corpus retains their
 existing snapshot entries. The independent library/executable comparison must be empty.
 
-Quiddity 0.5.5 removes the fillet radius floor (#297). Specify offers an optional radius row
-for every recognised fillet, so question lists and their ordering change on both captured and
-live analyses. The live CLI also uses the new step-level axes and supporting cap accounting
-(#307). The exact before/after arrays and changed report values have reasons in the features,
-rules and CLI known-difference ledgers. The frozen Python captures are retained.
+Quiddity 0.5.5 removes the fillet radius floor (#297). Fillet rows wait for quiddity 0.5.6
+radius groups (Paul, 2026-11-22). The live CLI uses the new step-level axes and supporting
+cap accounting (#307). The exact arrays and changed report values have reasons in the
+known-difference ledgers. The frozen Python captures are retained.
 
 Corpus-backed scenarios: 15 scenarios answer a corpus case whose input is not committed (11 on
 `corpus/nist/nist_ctc_03_asme1_rc`, from specify-core's CTC-03 tests, and 4 on

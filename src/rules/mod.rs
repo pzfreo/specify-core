@@ -906,25 +906,7 @@ fn every_question(
         }
         out.push(q);
     }
-    for f in ctx.features.iter().filter(|f| f.family == "fillets") {
-        let radius = format!("R{}", crate::pyfmt::g(f.number("radius")?));
-        let label = format!("{radius} fillet");
-        let mut q = Question::new(
-            format!("fillet.radius:{}", f.id),
-            "choice",
-            format!("Call out the {label}?"),
-            f.faces()?.to_vec(),
-        );
-        q.feature = Some(f.id.into());
-        q.title = Some(label);
-        q.default = Some(Value::from(NONE));
-        q.source = Some(&sources::FILLET_RADIUS_NONE);
-        q.options = vec![NONE.into(), radius];
-        if let Some(value) = answers.get(&q.id) {
-            choices::check(&q.id, value, &q.options, None, None)?;
-        }
-        out.push(q);
-    }
+    // Add fillet rows here when quiddity #341 supplies radius groups.
     out.into_iter().map(|q| reviewed(q, &ctx.faces)).collect()
 }
 
@@ -1196,9 +1178,7 @@ pub fn with_defaults(qs: &[Question], answers: &Map<String, Value>) -> Map<Strin
         return merged;
     }
     for q in qs {
-        if q.id == crate::process::QUESTION || q.id.starts_with("fillet.radius:") {
-            // A fillet needs no answer by default. In particular, a legacy analysis's
-            // inventory must not add decisions on fillet IDs the live kernel no longer sees.
+        if q.id == crate::process::QUESTION {
             continue;
         }
         if let Some(default) = &q.default
@@ -1649,19 +1629,6 @@ fn raw_intent(
             for (fid, cylinders) in &parts {
                 reqs.push(turned::turned_requirement(value, d, fid, cylinders, ctx)?);
             }
-        } else if let Some(feature) = q.id.strip_prefix("fillet.radius:")
-            && !crate::feature_table::is_none_value(value)
-        {
-            reqs.push(object([
-                ("kind", Value::from("size")),
-                ("size_kind", Value::from("radius")),
-                ("feature", Value::from(feature)),
-                ("faces", Value::from(q.faces.clone())),
-                (
-                    "nominal",
-                    Value::from(ctx.feature(feature)?.number("radius")?),
-                ),
-            ]));
         } else if q.id == "datum.A.flatness" && !py::is_str(Some(value), NONE) {
             if !datums.contains('A') {
                 continue;

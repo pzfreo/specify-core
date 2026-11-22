@@ -168,9 +168,8 @@ Quiddity's step levels along any part axis use the existing plane-to-plane lengt
 Independently measured plane lengths keep their rows. A stated location between retired
 step levels appears under **Other PMI in the file** when it matches no measured row.
 A face classified as supporting evidence for another feature gets no row of its own.
-Each recognised fillet has a radius row
-with “none needed” suggested, regardless of its size. To write a radius, fill the row with its
-offered measured value, for example `{"fill":{"fillet.radius:fillets:7":"R0.25"}}`.
+As in 0.2, the general tolerance covers fillets. Grouped fillet rows come with
+quiddity 0.5.6 radius groups (Paul, 2026-11-22).
 
 ### What the file states, read back whole
 

@@ -178,7 +178,7 @@ carrier removal and stable characteristic numbers are checked in native tests.
 ## Current pin: v0.5.5 (`079fe70d`)
 
 The cross-engine writer and readback checks pass with the existing fixtures. The 0.5.5
-recognition differences are recorded in the features, rules and CLI oracles.
+recognition differences are recorded in the features, writer and CLI oracles.
 
 ## Previous pin: v0.5.4 (`f7ed5825`)
 
