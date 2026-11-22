@@ -345,7 +345,7 @@ fn planned_states(
         .datums
         .retain(|d| d.get("existing") == Some(&Json::Bool(true)));
     intent.part.clear();
-    let Ok((planned, _)) = part_pmi(loaded, &intent, before, Mode::Add, &[]) else {
+    let Ok((planned, _)) = super::part_pmi(loaded, &intent, before, Mode::Add, &[]) else {
         return Vec::new();
     };
     crate::characteristics::against(&planned, before, prov, &source.doc)
