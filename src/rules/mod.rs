@@ -592,10 +592,11 @@ fn dimensions_with_defaults(
     let Ok(intent) = raw_intent(ctx, defaults, qs, IntentMode::Suggestions) else {
         return Vec::new();
     };
-    let mut suggestions = general_rows::suggestions(&intent, &general_rows::Owners::new(qs));
+    let mut suggestions = general_rows::suggestions(ctx, &intent, &general_rows::Owners::new(qs));
     let stated = ctx.table_stated();
     suggestions.retain(|s| {
-        !stated.contains(s.question.id.as_str()) && !general_rows::positioned_location(ctx, s)
+        !stated.contains(s.question.id.as_str())
+            && !(ctx.has_table() && general_rows::positioned_location(ctx, s))
     });
     suggestions
 }

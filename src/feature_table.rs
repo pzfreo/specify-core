@@ -974,10 +974,14 @@ pub(crate) fn build_with_depths(
     } else {
         crate::rules::dimension_suggestions(&bare_ctx, &all)
     };
-    for s in current.into_iter().chain(bare.into_iter().filter(|s| {
-        !crate::rules::general_rows::positioned_location(&ctx, s)
-            && !general_matches(&s.dimension, &existing, &located).is_empty()
-    })) {
+    for s in current
+        .into_iter()
+        .chain(
+            bare.into_iter()
+                .filter(|s| !general_matches(&s.dimension, &existing, &located).is_empty()),
+        )
+        .filter(|s| !crate::rules::general_rows::positioned_location(&ctx, s))
+    {
         if let std::collections::btree_map::Entry::Vacant(entry) =
             dimensions.entry(s.question.id.clone())
         {

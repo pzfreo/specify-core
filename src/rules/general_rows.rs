@@ -198,13 +198,19 @@ fn notation(row: &Dimension, key: &str) -> Option<String> {
     Some(text)
 }
 
-pub(super) fn suggestions(intent: &Intent, owners: &Owners<'_>) -> Vec<Suggestion> {
-    let positioned: BTreeSet<_> = intent
-        .requirements
-        .iter()
-        .filter(|r| kind(r) == "position")
-        .flat_map(|r| face_ids(r, "faces"))
-        .collect();
+pub(super) fn suggestions(ctx: &Ctx<'_>, intent: &Intent, owners: &Owners<'_>) -> Vec<Suggestion> {
+    // Legacy analyses have their own interview. With the feature table, keep
+    // the planned position scheme's dimensions together with its position.
+    let positioned: BTreeSet<_> = if ctx.has_table() {
+        intent
+            .requirements
+            .iter()
+            .filter(|r| kind(r) == "position")
+            .flat_map(|r| face_ids(r, "faces"))
+            .collect()
+    } else {
+        BTreeSet::new()
+    };
     intent
         .general
         .iter()
