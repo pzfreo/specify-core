@@ -60,6 +60,7 @@ export interface PanelProps {
   check(edits: EditList): Promise<EditFailure[]>;
   /** Refusals from Save for queued None needed decisions on the shown part. */
   rejectedNone?: ReadonlyMap<string, string> | undefined;
+  onUndoDraft(id: string): void;
   disabled: boolean;
   /** The file's length unit, for a new general tolerance block. */
   units: Units;
@@ -139,23 +140,29 @@ export function Panel(props: PanelProps) {
           <span className="acts">
             <IconButton label={`Change ${r.name}`} icon="edit" disabled={locked} onClick={() => open(r.id, p?.kind === 'fill' ? 'add' : 'change')} />
             {/* Every stated row has both (decisions 1 and 2); on an Add not yet saved the bin takes it back. */}
-            <IconButton label={`Remove ${r.name}`} icon="bin" disabled={locked}
-              onClick={() => (p?.kind === 'fill' ? onPending(pending.without(r.id)) : open(r.id, 'remove'))} />
+            {p?.draft
+              ? <button type="button" disabled={locked} onClick={() => props.onUndoDraft(r.id)}>Undo</button>
+              : <IconButton label={`Remove ${r.name}`} icon="bin" disabled={locked}
+                onClick={() => (p?.kind === 'fill' ? onPending(pending.without(r.id)) : open(r.id, 'remove'))} />}
           </span>
         );
       } else if (state === 'gap') {
         acts = (
           <span className="acts">
             <button type="button" disabled={locked} onClick={() => open(r.id, 'add')}>Add</button>
-            <button type="button" disabled={locked} onClick={() => (p?.kind === 'clear' ? onPending(pending.without(r.id))
+            <button type="button" disabled={locked} onClick={() => (p?.kind === 'clear' && !p.draft ? onPending(pending.without(r.id))
               : void apply({ kind: 'none', id: r.id, name: r.name }))}>None needed</button>
+            {p?.draft && <button type="button" disabled={locked} onClick={() => props.onUndoDraft(r.id)}>Undo</button>}
           </span>
         );
       } else {
         acts = (
           <span className="acts">
-            <button type="button" disabled={locked} onClick={() => (p?.kind === 'none' ? onPending(pending.without(r.id))
-              : void apply({ kind: 'clear', id: r.id, name: r.name }))}>Undo</button>
+            <button type="button" disabled={locked} onClick={() => {
+              if (p?.draft) props.onUndoDraft(r.id);
+              else if (p?.kind === 'none') onPending(pending.without(r.id));
+              else void apply({ kind: 'clear', id: r.id, name: r.name });
+            }}>Undo</button>
           </span>
         );
       }
@@ -373,16 +380,20 @@ export function GeneralToleranceEditor({ text, units, classes, onChange }: {
 }
 
 /** The bar at the bottom (decision 3): every part's pending edits, Save and Discard. */
-export function EditBar({ items, saving, busy, blocked, savedNote, onSave, onDiscard, onAddAll }: {
+export function EditBar({ items, saving, busy, blocked, savedNote, onSave, onDiscard, onAddAll, onUndoDraft }: {
   items: { part: number; name?: string; edit: Pending }[];
   saving: boolean; busy: boolean; blocked: string | undefined; savedNote: string | null;
-  onSave(): void; onDiscard(): void; onAddAll(): void;
+  onSave(): void; onDiscard(): void; onAddAll(): void; onUndoDraft(part: number, id: string): void;
 }) {
   return (
     <div className="spec-bar" role="region" aria-label="Changes to save">
       <ul>
         {items.length ? items.map(({ part, name, edit }) => (
-          <li key={`${part}:${edit.id}`} data-part={part} data-pending={edit.id}>{name ? `${name} · ` : ''}{describe(edit)}</li>
+          <li key={`${part}:${edit.id}`} data-part={part} data-pending={edit.id}>
+            {name ? `${name} · ` : ''}{describe(edit)}
+            {edit.draft && <>{' '}<button type="button" disabled={busy || Boolean(blocked)}
+              aria-label={`Undo ${name ?? ''} ${edit.name}`.replace(/ +/g, ' ')} onClick={() => onUndoDraft(part, edit.id)}>Undo</button></>}
+          </li>
         )) : <li className="muted">{savedNote ?? 'No changes yet. Nothing is written until Save.'}</li>}
       </ul>
       <button type="button" className="app-add-all" onClick={onAddAll} disabled={busy || Boolean(blocked)}

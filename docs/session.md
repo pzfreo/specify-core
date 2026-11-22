@@ -48,11 +48,12 @@ The existing tools (docs/mcp.md) work on the session, plus these:
 | --- | --- | --- |
 | `open` | as today, plus `old?` (a revision to compare from), `in_place?` (on a session already open, changes where Save writes only when given) | as today, plus `rev`; with `old`, the diff's `verdict`, `summary` and `report` too; the session is the file's own, nothing carried |
 | `questions`, `review`, `characteristics`, `read_pmi` | as today | as today, plus `rev`: they read the session as it is now |
-| `answer` | as today | as today, plus the new `rev`; the page receives it as an `answers` event with `source: "mcp"`. These answers are the session's working state: `save` does not write them |
+| `answer` | as today | as today, plus the new `rev`; the page receives it as an `answers` event with `source: "mcp"`. These answers become working edits in the page's pending bar |
 | `changes` | `doc`, `since` (a `rev`) | `rev`, and `changes`: `[{rev, part, source, set: {id: answer}, cleared: [id]}]` after `since`, oldest first. If `since` is older than the changes kept, `full: true` and the whole `answers` instead (every part's, by part index, as the page's `GET answers` gives `parts`) |
 | `show` | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`. Starts the page server for this session on 127.0.0.1 (random port and token), or returns the running one's address; opens the browser unless `browser: false`. A session opened with `old` is shown in `diff` mode: the page shows what changed beside the new file, and the person may edit and save the new revision. `read_only: true` makes that page view-only (no Save from the page). Only `read_only: true` is refused for a session opened with `old` or `in_place` (as `open` refuses `--read-only` with `--diff` or `--in-place`). A page already running in the other mode is never replaced: `show` is refused with its `url` and `mode` until the person has closed it |
 | `save` | `doc`, `edits` for that part or `partEdits: [{part, edits}, …]` for the file, `rev?` (the session revision the agent last saw) | `path`, `bytes`, `rev`, `report` (with `retired` and `unchanged`), `complete`, `missing`: the list applied to the file all or nothing and written with the same naming as the page's Save (docs/open.md). One entry that cannot be applied writes nothing, and the `invalid` error's `failures` names every failing entry and why. A `rev` the session has left is `stale`. The page gets the same `saved` event |
-| `check` | `doc`, either edit form above | `applicable`, `entries`, `unchanged`, `failures`, `message`, `rev`: the list checked against the session's file exactly as `save` would apply it; nothing is written |
+| `check` | `doc`, either edit form above | `applicable`, `entries`, `unchanged`, `failures`, `message`, `rev`. Checks the same lists as `save` without writing |
+| `discard` | `doc`, `rev?` | `rev`, `parts`. Drops working answers on all parts of the file and restores the saved answers without writing |
 
 `write_pmi`, which wrote the whole intent of the answers to a path of the agent's choosing, is
 gone (ADR P11: a write applies an edit list). `specify-core write STEP EDITS.json -o OUT` writes
@@ -63,10 +64,13 @@ or in `accept_suggestions` (ADR P9: "we shouldn't create the default, which then
 gospel"): the agent lists only what the person saw and confirmed. Anything the list does not
 name is left as it is, byte for byte, whoever wrote it.
 
-A save is refused while the session holds answers set with `answer` and not saved: the saved
-file replaces the session's answers with the ones it stores, so they would be lost. Answers set
-back to what the file stores are no longer unsaved. (Contract change, 2026-11-21: `save` took
-`accept_defaults` and wrote the session's answers; it now takes `edits`.)
+Working answers are the differences from the last saved file. They become fills, decisions
+of none, or clears of stored decisions. MCP `save` and `check` combine them from every part with
+the explicit lists at one revision. An explicit edit to the same question takes precedence.
+For example, `save {doc, edits: {}}` writes the working edits alone. A refusal keeps every
+draft. A successful save clears the drafts as it resumes the new file. MCP `discard` or the
+page's **Discard** drops the working edits without writing. The page also offers **Undo** for
+each working edit.
 
 An agent that wants to follow the person's saves calls `changes` with the last `rev` it saw
 (for example after the person says they are done, or before each step); MCP over stdio has no

@@ -217,9 +217,11 @@ beside its name), a **gap** ("not stated", with Specify's suggestion as a dashed
   With an empty bar Save says “Nothing to save.” Only unsaved edits are highlighted. After a save
   the selected part opens from the saved file.
 
-The session's answers live in the command. The page reports an agent's working answers via
-`GET events` and highlights the affected row. The row still shows the file's requirement. An
-agent with unsaved answers must clear them before applying an explicit edit list. Save writes the specified STEP
+The page receives the agent's working edits through the session. They appear in the same
+pending bar with part names and are highlighted on their rows. **Save** writes the combined
+lists. **Discard** drops the page edits and the agent's working edits. A working edit also
+has **Undo** on its row and in the bar. If you edit the same row, your edit takes precedence.
+The Characteristics tab and 3D view show the saved STEP. Save writes the specified STEP
 (beside it as `part.specified.step` by default, or over the input with `--in-place`). Save never refuses for questions
 still open (many AP242 files have no complete answer to everything): it writes the edits listed and says which
 questions are still open. Specify's suggestions are written only when the person adds them (ADR P9).

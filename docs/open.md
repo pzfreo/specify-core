@@ -168,9 +168,10 @@ accept the `partEdits` form with an open document for the file.
 the assembly writer and commits once. Requirement edits preserve other parts’ and placements’
 entity bytes.
 If an entry cannot be applied, the response names the part and entry and the save writes
-nothing. Unsaved answers from the agent's `answer` also refuse a save.
-The page reports working answers from the agent as session updates. Requirement values and
-PMI are read from the saved STEP. The pending bar contains edits made in the page.
+nothing. The page includes the agent's working edits in its lists. An explicit edit to the
+same question takes precedence. A request that omits a working edit is refused so an older
+page cannot silently discard it. Successful saves clear the working edits. Characteristics
+and the 3D view read the saved STEP.
 
 The file is written from the file as the session's last save left it (the input before any), to
 a temporary file next to the input and renamed into place:
@@ -213,9 +214,9 @@ Answers:
 - `409 {"error": "…", "rev": <current>}`: the session moved on, or read-only, or (`--in-place`)
   the file was changed on disk by another program since it was opened (nothing written);
 - `422 {"error": "…", "failures": [{"entry", "reason"}, …]}`: entries that cannot be applied,
-  every one named. With `partEdits`, each `entry` starts with the part's name and index
-  (index alone for an unknown part). Nothing written. `422 {"error": "…"}`: the session holds unsaved answers;
-  nothing written;
+  every one named. Part-scoped failures also carry `part` (the numeric index) and `editEntry`
+  (the raw edit path). The qualified `entry` names the part for display. An omitted draft is
+  also reported as a refusal. Nothing is written;
 - `403 {"error": "…"}`: under an agent, the save would write outside the directories the agent's
   server may use (`--allow`); nothing written.
 
@@ -242,8 +243,14 @@ every change. At the start it holds:
 {"rev": 7, "parts": {"0": {"part.material": "6061-T6", "datum.A": [4]}}}
 ```
 
-The page does not change them: it collects its edits and sends them with Save. They change
-when the agent answers (MCP `answer`) and after each save (the saved file's stored answers).
+`drafts`, when present, maps part indices to working edit lists with `fill`, `none` and
+`clear`. The page puts these edits in its pending bar with the part names. It sends them
+alongside its own edits in Save.
+
+`POST <token>/discard` uses the same Origin and body rules as Save. Send `{rev}` to drop
+every working edit or `{rev, part, id}` to undo one working edit. It restores the saved answers
+at one revision without writing a file. The response has the `GET answers` shape. A stale
+revision returns 409 with the current `rev`. A read-only page cannot discard.
 
 `GET <token>/events` is a stream of server-sent events (`text/event-stream`, for
 `EventSource`). On connecting it sends the current state (an `answers` event whose data is
@@ -253,14 +260,18 @@ one event per change:
 ```text
 event: answers
 id: 8
-data: {"rev": 8, "part": 0, "answers": {…}, "source": "mcp"}
+data: {"rev": 8, "part": 0, "answers": {…}, "source": "mcp", "draft": {"fill": {"part.material": "6061-T6"}}}
 ```
 
 (A part joining the session, when the agent opens another part of the file, is a change too: a
 new `rev` and an event with `"joined": true`, its `answers` possibly `{}`; a page holding an
 older `rev` then fails its next check and re-reads.)
 
-`source` is `"page"` (the page's save), `"mcp"` (the agent's tools, docs/session.md) or
+A part event's `draft` is that part's current working list. Its absence clears the part's
+draft. A save or whole-file discard may include `"drafts": {}` to clear the entire bar
+as soon as its first part event arrives.
+
+`source` is `"page"` (the page's save or discard), `"mcp"` (the agent's tools, docs/session.md) or
 `"start"` (the first event).
 Every open page receives every change, its own included. One `rev` can carry several `answers`
 events, one per part (a save's, for every part whose stored answers it changed): a page skips an event it already

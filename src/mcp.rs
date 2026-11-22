@@ -647,6 +647,7 @@ impl Server {
             "show" => self.show(args),
             "save" => self.save(args),
             "check" => self.check(args),
+            "discard" => self.discard(args),
             // Only in this module's unit tests: a call that panics.
             #[cfg(test)]
             "panic for a test" => panic!("a panic for a test"),
@@ -1336,12 +1337,7 @@ impl Server {
     fn save(&self, args: &Map<String, Value>) -> ToolResult {
         let (handle, doc) = self.doc(args)?;
         let edits = doc_edits(args)?;
-        let rev = match args.get("rev") {
-            None | Some(Value::Null) => None,
-            Some(v) => Some(v.as_u64().ok_or_else(|| {
-                ToolError::invalid("rev: the session revision you last saw, an integer")
-            })?),
-        };
+        let rev = save_rev(args)?;
         let saved = match edits {
             DocEdits::Opened(edits) => {
                 let list = crate::edits::read(&edits.to_string()).map_err(invalid_edits)?;
@@ -1372,6 +1368,15 @@ impl Server {
         out["doc"] = json!(handle);
         out["rev"] = json!(rev);
         Ok(out)
+    }
+
+    /// `discard`: restore the working answers to the saved file without writing.
+    fn discard(&self, args: &Map<String, Value>) -> ToolResult {
+        let (handle, doc) = self.doc(args)?;
+        let mut snapshot = session::discard_answers(&doc.session, save_rev(args)?, None, "mcp")
+            .map_err(save_error)?;
+        snapshot["doc"] = json!(handle);
+        Ok(snapshot)
     }
 
     /// An `answers_file` argument, never the STEP file itself or another STEP file, and the
@@ -1579,6 +1584,15 @@ fn sha256(bytes: &[u8]) -> String {
         .collect()
 }
 
+fn save_rev(args: &Map<String, Value>) -> Result<Option<u64>, ToolError> {
+    match args.get("rev") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v.as_u64().map(Some).ok_or_else(|| {
+            ToolError::invalid("rev: the session revision you last saw, an integer")
+        }),
+    }
+}
+
 const EDITS_REQUIRED: &str = "edits is required: an edit list, {\"fill\": {id: value}, \
 \"change\": {id: {to, expect}}, \"items\": {\"remove\": [\"#N\"]}, \"none\": [id], \
 \"accept_suggestions\": [id]} ({} for none)";
@@ -1598,7 +1612,7 @@ fn doc_edits(args: &Map<String, Value>) -> Result<DocEdits<'_>, ToolError> {
             .map(DocEdits::Parts)
             .map_err(|e| match e {
                 session::PartEditsError::Shape(why) => ToolError::invalid(why),
-                session::PartEditsError::List(failures) => invalid_edits(failures),
+                session::PartEditsError::List(failures) => invalid_part_edits(failures),
             }),
         (Some(_), Some(_)) => Err(ToolError::invalid("send either edits or partEdits")),
     }
@@ -1606,6 +1620,10 @@ fn doc_edits(args: &Map<String, Value>) -> Result<DocEdits<'_>, ToolError> {
 
 fn invalid_edits(failures: Vec<crate::edits::Failure>) -> ToolError {
     ToolError::invalid(session::edits_refused(&failures)).with("failures", json!(failures))
+}
+
+fn invalid_part_edits(failures: Vec<session::PartFailure>) -> ToolError {
+    ToolError::invalid(session::part_edits_refused(&failures)).with("failures", json!(failures))
 }
 
 /// A save's refusal as a tool error: an approval named by part and question (with the value
@@ -1629,6 +1647,7 @@ fn save_error(e: session::SaveError) -> ToolError {
         }
         session::SaveError::Refused(m) => ToolError::invalid(m),
         session::SaveError::Edits(failures) => invalid_edits(failures),
+        session::SaveError::PartEdits(failures) => invalid_part_edits(failures),
         session::SaveError::Changed(m) => ToolError::new("stale", m),
         session::SaveError::Stale(rev) => ToolError::new(
             "stale",
@@ -1829,7 +1848,7 @@ fn flag(args: &Map<String, Value>, name: &str) -> Result<bool, ToolError> {
 
 // ----- tool and resource definitions -----
 
-const TOOL_NAMES: [&str; 13] = [
+const TOOL_NAMES: [&str; 14] = [
     "list_parts",
     "open",
     "questions",
@@ -1843,6 +1862,7 @@ const TOOL_NAMES: [&str; 13] = [
     "show",
     "save",
     "check",
+    "discard",
 ];
 
 const MEMORY_RULE: &str = "Documents and their answers are held in this server's memory and \
@@ -2160,7 +2180,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "save",
             "title": "Save an edit list into the STEP",
-            "description": format!("Apply an edit list to the opened file and write it as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; later saves update the copy this session wrote, and no other file is overwritten), or over it if it was opened in_place (the original kept once as .bak). edits: fill gaps {{id: value}}, change what the file states {{id: {{to, expect}}}} (expect: the value you saw), items.remove [\"#N\"] to remove a requirement by its characteristic number, none [id] to record that nothing is needed, accept_suggestions [id] to fill a gap with Specify's suggestion. Ids are the feature table's (the analysis resource's table). Anything not named is left as it is, byte for byte. Use edits for the opened part or partEdits for one or more part indices in the same file. The save is all or nothing: if any entry cannot be applied nothing is written, and the error (failures) names every failing entry and why. Fill or accept only what the person approved: never a suggestion as intent unasked. rev (optional): the session revision you last saw; a session that moved on is refused (stale). A session holding answers changed with answer and not saved is refused. check tests a list without writing. {MEMORY_RULE}"),
+            "description": format!("Apply an edit list to the opened file and write it as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; later saves update the copy this session wrote, and no other file is overwritten), or over it if it was opened in_place (the original kept once as .bak). edits: fill gaps {{id: value}}, change what the file states {{id: {{to, expect}}}} (expect: the value you saw), items.remove [\"#N\"] to remove a requirement by its characteristic number, none [id] to record that nothing is needed, accept_suggestions [id] to fill a gap with Specify's suggestion. Ids are the feature table's (the analysis resource's table). Anything not named is left as it is, byte for byte. Use edits for the opened part or partEdits for one or more part indices in the same file. The save is all or nothing: if any entry cannot be applied nothing is written, and the error (failures) names every failing entry and why. Fill or accept only what the person approved: never a suggestion as intent unasked. rev (optional): the session revision you last saw; a session that moved on is refused (stale). Working answers on all parts are included. An explicit edit for the same question takes precedence. Use discard to drop the working answers without writing. check tests a list without writing. {MEMORY_RULE}"),
             "inputSchema": edit_input(true),
             "outputSchema": output(json!({
                 "doc": {"type": "string"},
@@ -2176,7 +2196,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "check",
             "title": "Check an edit list",
-            "description": format!("Check edits for the opened part or partEdits for several part indices of the opened file exactly as save would apply it, without writing anything: applicable, and for each entry that cannot be applied, why (failures); unchanged lists the entries that would change nothing (a fill equal to what the file states). {MEMORY_RULE}"),
+            "description": format!("Check edits for the opened part or partEdits for several part indices, including the working answers as save does, without writing anything: applicable, and for each entry that cannot be applied, why (failures); unchanged lists the entries that would change nothing (a fill equal to what the file states). {MEMORY_RULE}"),
             "inputSchema": edit_input(false),
             "outputSchema": output(json!({
                 "doc": {"type": "string"},
@@ -2185,12 +2205,21 @@ pub fn tools() -> Vec<Value> {
                 "applicable": {"type": "boolean"},
                 "entries": {"type": "integer"},
                 "unchanged": strings(),
-                "failures": {"type": "array", "items": {"type": "object", "properties": {"entry": {"type": "string"}, "reason": {"type": "string"}}}},
+                "failures": {"type": "array", "items": {"type": "object", "properties": {"entry": {"type": "string"}, "reason": {"type": "string"},
+                    "part": {"type": "integer"}, "editEntry": {"type": "string"}}}},
                 "written": {"type": "boolean"},
                 "message": {"type": "string"},
                 "rev": rev()
             }), &["doc", "applicable", "failures", "message"]),
             "annotations": {"readOnlyHint": true, "openWorldHint": false},
+        }),
+        json!({
+            "name": "discard",
+            "title": "Discard the session's working answers",
+            "description": "Drop working answers on every part of the opened file and restore the session to its saved answers, without writing. rev is the optional revision you last saw.",
+            "inputSchema": input(json!({"doc": doc(), "rev": rev_schema()}), &["doc"]),
+            "outputSchema": output(json!({"doc": {"type": "string"}, "rev": rev(), "parts": {"type": "object"}}), &["doc", "rev", "parts"]),
+            "annotations": {"readOnlyHint": false, "destructiveHint": true, "openWorldHint": false},
         }),
     ]
 }

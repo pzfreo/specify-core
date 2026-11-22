@@ -140,8 +140,8 @@ Read first:
   part for editing. Each edit is checked against its part and that part's listed edits, and its
   entry names the part. Switching parts keeps the edits in the one bar.
   A refused None needed explains why on its row. A queued removal can be undone on its row.
-  Notes have separate lines. The page reports the agent's working answers as session updates
-  while the review values come from the saved file. Only unsaved edits are highlighted;
+  Notes have separate lines. Agent answers enter the pending bar with part names. Save writes
+  them with the other edits. Undo removes one, and Discard drops them all. Only unsaved edits are highlighted;
   nothing says who wrote a requirement. The general tolerance's line is a row editor (#228): a class,
   or a block of decimal places and their tolerances, an angles line and a note line, written as one
   line of text (`.XX ±.01, .XXX ±.005, angles ±1°`). **Save with defaults** becomes the bar's **Add all
@@ -163,14 +163,16 @@ Read first:
     each list through the part writer and commits the file once. A 422 `{error, failures}`
     names the part and entry for assembly refusals. A malformed list returns 400 and a
     stale `rev` returns 409. `acceptDefaults` and
-    `PUT answers` are gone: the page keeps its changes until Save. A save is refused while the
-    session holds answers an agent gave with `answer` and did not save. `complete` and `missing`
+    `PUT answers` are gone: the page keeps its changes until Save. It includes the session's
+    working edits, or drops them through `POST discard` (all or a single row). `complete` and `missing`
     are now those of the saved file. The app checks the `api` (a command without one, 0.2.0's
     contract 1, is refused), and its manifest says 2.
   - **MCP:** `save {doc, edits, rev?}` applies an edit list to the opened part, and
     `check {doc, edits}` checks it without writing. Both accept `partEdits: [{part, edits}, …]`
     in place of `edits` to check or save a batch on the same file. A batch saves all or nothing,
-    and a refusal names the part and entry. `write_pmi` and `save`'s `accept_defaults`
+    and a refusal includes the part index and edit path. Both tools merge working answers
+    with explicit edits. `discard {doc, rev?}` drops the working answers without writing.
+    `write_pmi` and `save`'s `accept_defaults`
     are gone.
   - **Python:** `api.write(step, edits, output)` applies an edit list (`EditsRefused`, a
     `ValueError` with `failures`, when any entry cannot be applied), and `api.check_edits(step,
@@ -185,8 +187,7 @@ Read first:
     none, a stored choice), never PMI. A fill of `extra.<name>` adds that requirement, as a 0.2
     answer did; one the file already states is a no-op with the same spec and refused with
     another (remove it by number in the same list to replace it). A 0.2 answers file whose evidence is from another revision is refused as stale
-    (`_specify.evidence`), as 0.2's write refused it. MCP `check` refuses as `save` does while
-    the session holds unsaved answers.
+    (`_specify.evidence`), as 0.2's write refused it.
   - An edit list may fill a choice that is not a requirement and has no feature-table row (how
     holes are located, `part.locating`), checked against its options, or decide it none where
     none is an option; it is stored beside the PMI, and the planner reads it for the rest of the

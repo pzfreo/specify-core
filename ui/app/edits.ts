@@ -1,10 +1,12 @@
 // The review panel's pending edits (specify-panel.md decision 3): each change the person makes is
 // held in the page, one per row of a part. Save sends the lists together, all or nothing.
 // Discard drops them all (specify-core docs/open.md, `POST save`).
-import type { EditFailure, EditList, RemoveTarget } from './local.ts';
+import type { AnswerDraft, EditFailure, EditList, RemoveTarget } from './local.ts';
 
 /** One pending edit, by the row it is on (a feature-and-kind id, or an item's `#N` in "Other PMI"). */
-export type Pending =
+export type Pending = PendingEdit & { draft?: true };
+
+type PendingEdit =
   /** A gap given a value: Add. */
   | { kind: 'fill'; id: string; name: string; value: unknown; text: string }
   /** A stated row given a new value: Change. ``expect`` is the file's value the person saw. */
@@ -80,6 +82,28 @@ export class PendingEdits {
   list(): EditList { return editList(this.values()); }
 }
 
+/** Working answers from the session, with page edits taking precedence on the same row. */
+export function withDrafts(
+  local: ReadonlyMap<number, PendingEdits>,
+  drafts: Readonly<Record<string, AnswerDraft>>,
+  describeRow: (part: number, id: string, value?: unknown) => { name: string; text: string },
+): ReadonlyMap<number, PendingEdits> {
+  if (!Object.keys(drafts).length) return local;
+  const pending = new Map(local);
+  for (const [key, list] of Object.entries(drafts)) {
+    const part = Number(key);
+    const staged: Pending[] = [
+      ...Object.entries(list.fill ?? {}).map(([id, value]): Pending => ({
+        kind: 'fill', id, value, ...describeRow(part, id, value), draft: true,
+      })),
+      ...(list.none ?? []).map((id): Pending => ({ kind: 'none', id, name: describeRow(part, id).name, draft: true })),
+      ...(list.clear ?? []).map((id): Pending => ({ kind: 'clear', id, name: describeRow(part, id).name, draft: true })),
+    ];
+    pending.set(part, new PendingEdits([...staged, ...(local.get(part)?.values() ?? [])]));
+  }
+  return pending;
+}
+
 /** Matches save refusals to the queued None needed on the part they identify. */
 export function rejectedNoneByPart(pending: ReadonlyMap<number, PendingEdits>, failures: readonly EditFailure[], assembly: boolean) {
   const rejected = new Map<number, Map<string, string>>();
@@ -88,9 +112,9 @@ export function rejectedNoneByPart(pending: ReadonlyMap<number, PendingEdits>, f
     for (const edit of list.values()) {
       if (edit.kind !== 'none') continue;
       const entry = `none[${JSON.stringify(edit.id)}]`;
-      const reasons = failures.filter((failure) => assembly
-        ? failure.entry.startsWith('Part ') && failure.entry.endsWith(` (${part}): ${entry}`)
-        : failure.entry === entry);
+      const reasons = failures.filter((failure) =>
+        (failure.part === part || (!assembly && failure.part === undefined))
+        && (failure.editEntry ?? failure.entry) === entry);
       if (reasons.length) rows.set(edit.id, reasons.map((f) => f.reason).join('; '));
     }
     if (rows.size) rejected.set(part, rows);

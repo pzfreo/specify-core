@@ -10,7 +10,7 @@ import '../src/specify/PmiLab.css';
 import './app.css';
 import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   as9102, createIntentEngine, drawnFromScene, hasGraphics, SpecifyReview, StepDiff, toCsv, withoutNotesBlock, xlsx,
   type DrawnPmi, type IntentReview, type PmiAnswers, type PmiLabSession, type PmiQuestion, type SpecifyEngine, type SpecifySlots, type WorkerClient,
@@ -22,11 +22,11 @@ import { saveFile } from '../src/specify/SpecifyReview';
 import type { StoredInspection } from '../src/specify/saved-inspection';
 import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
-import { getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type EditFailure, type EditList, type LocalConfig } from './local';
+import { discardAnswers, getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type EditFailure, type EditList, type LocalConfig, type AnswerDraft } from './local';
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } from './save';
-import { PendingEdits, rejectedNoneByPart, suggestionEdits } from './edits';
+import { PendingEdits, rejectedNoneByPart, suggestionEdits, withDrafts } from './edits';
 import { EditBar, Panel } from './Panel';
-import { bareAnalysis, fileLengthUnit, isNoneValue, panelModel, tableOf, type PanelModel } from './table';
+import { answerText, bareAnalysis, fileLengthUnit, isNoneValue, panelModel, tableOf, type PanelModel } from './table';
 
 declare const __APP_VERSION__: string;
 const DOCS = 'https://github.com/pzfreo/specify-core#readme';
@@ -152,7 +152,9 @@ function App() {
   // An in-place save refused because another program changed the file: Save cannot succeed again.
   const [fileChanged, setFileChanged] = useState(false);
   // The review panel's edits, held in the page until Save sends them (specify-panel.md decision 3).
-  const [pending, setPending] = useState(() => new Map<number, PendingEdits>());
+  const [localPending, setPending] = useState(() => new Map<number, PendingEdits>());
+  const [draftSnapshot, setDraftSnapshot] = useState<{ rev: number; drafts: Record<string, AnswerDraft> }>({ rev: 0, drafts: {} });
+  const [discarding, setDiscarding] = useState(false);
   const [rejectedNone, setRejectedNone] = useState(() => new Map<number, Map<string, string>>());
   const [checking, setChecking] = useState(false);
   const [reopening, setReopening] = useState(false);
@@ -212,7 +214,7 @@ function App() {
         first.mode === 'diff' ? getFile('old').then(stepBytes) : null,
         first.mode === 'diff' ? getDiff() : null,
       ]);
-      const answersSession = createSession(answers.rev, answers.parts);
+      const answersSession = createSession(answers.rev, answers.parts, answers.drafts);
       if (first.readOnly) setInspectionStep({ path: first.path, name: first.name, bytes });
       captureSaved.current = (event) => {
         if (event.rev < savedRevision.current || ended) return;
@@ -249,7 +251,12 @@ function App() {
       };
       sessionRef.current = answersSession;
       if (ended) answersSession.close();
-      unwatch = answersSession.subscribe(() => setDirty(answersSession.dirty()));
+      const showDrafts = () => {
+        setDirty(answersSession.dirty());
+        setDraftSnapshot(answersSession.draftSnapshot());
+      };
+      unwatch = answersSession.subscribe(showDrafts);
+      showDrafts();
       // An assembly's parts: the page shows one at a time, first the first the session has answers for.
       const listed = (await worker.current.request<PartRow[]>('parts', { name: first.name, bytes })).map(({ part, name, instances, written }) => ({ part, name, instances, written: written === true }));
       const several = listed.length > 1 || listed[0]?.instances > 1;
@@ -258,7 +265,7 @@ function App() {
       // The part the agent's `show` named (config.part), else the first with answers.
       const asked = rows.find((row) => row.part === first.part);
       const at = { part: several ? (asked ?? withAnswers ?? rows[0]!).part : 0, several };
-      setParts(several ? rows : []);
+      setParts(rows);
       const part = await openPart(worker.current, answersSession, first.name, bytes, at, first.readOnly, edited);
       if (old && diff) {
         const r = diff.report as { verdict?: string; summary?: string };
@@ -321,7 +328,7 @@ function App() {
     opened.store.onProblem((error) => setProblem(`Your change did not reach the session: ${error.message}`));
   }, [opened?.store]);
 
-  const busy = switching || saving || checking || addingAll || reopening;
+  const busy = switching || saving || checking || addingAll || reopening || discarding;
 
   /** Shows another part of the file, with the session's answers for it now. */
   const showPart = async (index: number) => {
@@ -437,7 +444,7 @@ function App() {
     try {
       const result = await opened.saver.save(opened.several
         ? [...pending].map(([part, list]) => ({ part, edits: list.list() }))
-        : partPending.list());
+        : partPending.list(), draftSnapshot.rev);
       // The saved events are ordered by the command. A delayed HTTP reply must not replace a
       // later save at the same answer revision (for example an agent saving again meanwhile).
       if (!heardSaves.current.has(`${result.rev}:${result.path}`)) captureSaved.current(result);
@@ -472,6 +479,28 @@ function App() {
     } finally { setSaving(false); }
   };
 
+
+  const onDiscard = async (target?: { part: number; id: string }) => {
+    const session = sessionRef.current;
+    if (busy || stopped || !session) return;
+    setProblem(null);
+    setDiscarding(true);
+    try {
+      if (target || Object.keys(draftSnapshot.drafts).length) {
+        const snapshot = await discardAnswers(draftSnapshot.rev, target, session.signal);
+        session.receive({ ...snapshot, source: 'start' });
+      }
+      if (!target) setPending(new Map());
+      setRejectedNone(new Map());
+      setAgent(null);
+    } catch (error) {
+      if (!session.signal.aborted) {
+        const latest = await getAnswers().catch(() => null);
+        if (latest) session.receive({ ...latest, source: 'start' });
+        setProblem(`Could not discard: ${message(error)}`);
+      }
+    } finally { setDiscarding(false); }
+  };
 
   // A part's exports are derived only from the retained saved/opened STEP. Live answers and
   // subsequent edits cannot refresh this snapshot. A different part reads the same saved bytes.
@@ -508,11 +537,20 @@ function App() {
     : stopped ? 'Specify has stopped' : fileChanged ? 'The file changed on disk since it was opened: open it again to save' : undefined);
   // The panel edits in specify and diff mode; read-only shows the review's PMI viewer instead.
   const editing = Boolean(config && !config.readOnly);
+  const pending = useMemo(() => {
+    const model = opened?.model;
+    const rows = model ? [...(model.part?.rows ?? []), ...model.features.flatMap((group) => group.rows), ...(model.datums?.rows ?? [])] : [];
+    return withDrafts(localPending, draftSnapshot.drafts, (part, id, value) => {
+      const row = part === opened?.part ? rows.find((row) => row.id === id) : undefined;
+      const words = id.startsWith('part.') ? id.slice(5).replace(/_/g, ' ') : id;
+      return { name: row?.name ?? words.charAt(0).toUpperCase() + words.slice(1), text: answerText(value, row?.question) };
+    });
+  }, [localPending, draftSnapshot.drafts, opened?.model, opened?.part]);
   const partPending = pending.get(opened?.part ?? 0) ?? NO_EDITS;
-  const items = [...pending].flatMap(([part, list]) => {
-    const name = opened?.several ? parts.find((row) => row.part === part)?.name || `Part ${part}` : undefined;
-    return list.values().map((edit) => ({ part, ...(name ? { name } : {}), edit }));
-  });
+  const items = [...pending].flatMap(([part, list]) => list.values().map((edit) => {
+    const name = opened?.several || edit.draft ? parts.find((row) => row.part === part)?.name || `Part ${part}` : undefined;
+    return { part, ...(name ? { name } : {}), edit };
+  }));
   // "Add all suggestions" (Paul, 2026-11-21): every gap's suggestion queued as an edit, through the
   // same whole-list check as one edit. An entry the file refuses is left out, with its reason.
   const addAll = async () => {
@@ -541,7 +579,8 @@ function App() {
     if (!opened) return;
     setPending((all) => {
       const updated = new Map(all);
-      if (next.size) updated.set(opened.part, next);
+      const local = new PendingEdits(next.values().filter((edit) => !edit.draft));
+      if (local.size) updated.set(opened.part, local);
       else updated.delete(opened.part);
       return updated;
     });
@@ -582,7 +621,7 @@ function App() {
             </label>
           )}
           {readOnly && config && <span className="app-badge">View only</span>}
-          {(dirty || items.length > 0) && <span className="app-dirty">{items.length ? 'Unsaved changes' : 'Unsaved agent answers'}</span>}
+          {(dirty || items.length > 0) && <span className="app-dirty">Unsaved changes</span>}
         </div>
         <div className="app-actions">
           <div className="app-exports">
@@ -632,13 +671,13 @@ function App() {
       )}
       {agent && (
         <p className="app-agent" role="status">
-          Updated by your agent: {prompts(agent.ids, ...(opened ? [opened.external.review, opened.review] : [])).join('; ')} · session only{' '}
+          Updated by your agent: {prompts(agent.ids, ...(opened ? [opened.external.review, opened.review] : [])).join('; ')} · pending review{' '}
           <button type="button" className="app-dismiss" onClick={() => setAgent(null)}>Dismiss</button>
         </p>
       )}
       {other && (
         <p className="app-agent" role="status">
-          {other.joined ? 'Your agent opened' : 'Updated by your agent:'} {other.name}{other.joined ? '' : ' · session only'}{' '}
+          {other.joined ? 'Your agent opened' : 'Updated by your agent:'} {other.name}{other.joined ? '' : ' · pending review'}{' '}
           <button type="button" disabled={busy} onClick={() => void showPart(other.part)}>Show it</button>
         </p>
       )}
@@ -683,7 +722,7 @@ function App() {
           <Panel
             key={opened.session.sessionId}
             filename={opened.session.filename} model={opened.model} pending={partPending} onPending={editPending} check={check}
-            rejectedNone={rejectedNone.get(opened.part)} disabled={busy || stopped} units={opened.units}
+            rejectedNone={rejectedNone.get(opened.part)} onUndoDraft={(id) => void onDiscard({ part: opened.part, id })} disabled={busy || stopped} units={opened.units}
             characteristics={{ element: charsElement.current, count: (opened.session.analysis as { characteristics?: unknown[] }).characteristics?.length ?? 0 }}
             onFaces={(faces) => setLit({ faces, n: Date.now() })}
             focus={focus ? { id: focus.questionId, n: focus.n ?? 0 } : null}
@@ -691,7 +730,7 @@ function App() {
       </main>
       {editing && (
         <EditBar items={items} saving={saving && !stopped} busy={busy} blocked={(!opened ? 'Opening…' : undefined) ?? saveBlocked} savedNote={savedNote}
-          onSave={() => void onSave()} onDiscard={() => { setPending(new Map()); setRejectedNone(new Map()); setProblem(null); }}
+          onSave={() => void onSave()} onDiscard={() => void onDiscard()} onUndoDraft={(part, id) => void onDiscard({ part, id })}
           onAddAll={() => void addAll()} />
       )}
       <footer className="app-about">

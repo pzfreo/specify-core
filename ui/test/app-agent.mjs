@@ -8,12 +8,11 @@ import { chromium, expect } from '@playwright/test';
 import { mcp } from './mcp-client.mjs';
 // The local app as an agent uses it (specify-core docs/session.md): `specify-core mcp` over stdio,
 // started as an AI client starts it. The agent opens a part and calls `show {browser: false}`; an
-// answer the agent gives while the page is open triggers "Updated by your agent" and keeps the
-// file's value on the review row. Saving is an edit list (session API 2): the agent's `save {doc, edits}`
-// (refused while its own `answer`s are unsaved; `check` first) and the page's Save write the same
+// answer the agent gives while the page is open triggers "Updated by your agent" and enters the
+// pending bar. Saving is an edit list (session API 2): the agent's `save {doc, edits}`
+// (including its pending answers; `check` first) and the page's Save write the same
 // naming, and an incomplete save says what is `missing`. Then an assembly (an agent's answer to a
-// part not shown is said and unsaved; the page can queue assembly edits, and the save is refused
-// while an agent's answers are unsaved), a part opened through a symbolic link
+// part not shown is named; the user can save, undo and discard agent edits), a part opened through a symbolic link
 // (the link's path is kept, Save writes beside the link), and a diff the agent opened, which `show`
 // serves in diff mode.
 // `npm run test:app` runs it after app-browser.mjs.
@@ -107,26 +106,19 @@ try {
     await check(page.locator('.app-agent')).not.toContainText('Which general tolerance applies');
     await check(question(page, 'part.general_tolerance')).toBeVisible();
     await check(question(page, 'part.general_tolerance')).toHaveClass(/app-agent-lit/);
-    await check(question(page, 'part.general_tolerance')).toHaveAttribute('data-state', 'gap');
-    await check(question(page, 'part.general_tolerance')).not.toContainText('2768-f');
+    await check(page.locator('.spec-bar [data-pending="part.general_tolerance"]')).toContainText('ISO 2768-f');
+    await check(question(page, 'part.general_tolerance')).toHaveClass(/changed/);
     await page.getByRole('tab', { name: /^Characteristics/ }).click();
     await check(page.locator('.spec-chars')).toBeVisible();
     await check(page.locator('.spec-chars')).not.toContainText('2768-f');
     await page.getByRole('tab', { name: 'Review / Edit' }).click();
-    await check(page.locator('.app-dirty')).toHaveText('Unsaved agent answers');
+    await check(page.locator('.app-dirty')).toHaveText('Unsaved changes');
     if (shots) await page.screenshot({ path: join(shots, 'agent-update.png') });
     await page.locator('.app-agent').getByRole('button', { name: 'Dismiss' }).click();
     await check(page.locator('.app-agent')).toHaveCount(0);
     await check(page.locator('.app-agent-lit')).toHaveCount(0);
-    // Saving is an edit list: while the agent's own `answer`s are unsaved, a save is refused
-    // (they would be lost) and nothing is written.
-    const edits = { fill: { 'part.material': 'Aluminium 6061-T6', 'part.general_tolerance': 'ISO 2768-f' } };
-    const unsaved = await agent.call('save', { doc, edits }, { allowError: true });
-    assert.match(JSON.stringify(unsaved), /unsaved answers/);
-    assert.ok(!existsSync(join(dir, 'part.specified.step')), 'nothing written while answers are unsaved');
-    await agent.call('answer', { doc, clear: ['part.general_tolerance'] });
-    // `check` first: applicable, nothing written. Then the agent saves: part.specified.step beside the
-    // part, incomplete, saying what is missing.
+    // MCP Check and Save include the draft tolerance alongside this explicit material edit.
+    const edits = { fill: { 'part.material': 'Aluminium 6061-T6' } };
     const checked = await agent.call('check', { doc, edits });
     assert.equal(checked.applicable, true, JSON.stringify(checked));
     assert.ok(!existsSync(join(dir, 'part.specified.step')), 'check writes nothing');
@@ -185,61 +177,78 @@ try {
     await context.close();
   }
 
-  // The agent's working answers remain in the session across parts. The page reports the update
-  // and continues to show the file's requirements. A save that would overwrite the agent's
-  // unsaved answers is refused and nothing is written.
+  // Agent edits on two parts are pending in the same bar. The page can save, undo and discard them.
   {
     const asm = join(dir, 'asm.step');
     writeFileSync(asm, gunzipSync(readFileSync('test/fixtures/gramil_assembly_before.step.gz')));
     const agent = await mcp(cli, { cwd: dir, env }); agents.push(agent);
     const listed = await agent.call('open', { path: asm });
     assert.equal(listed.needs_part, true);
-    const [a, b] = listed.parts.map(p => p.part);
+    const [partA, partB] = listed.parts;
+    const a = partA.part, b = partB.part;
     const docA = (await agent.call('open', { path: asm, part: a })).doc;
     const docB = (await agent.call('open', { path: asm, part: b })).doc;
     await agent.call('answer', { doc: docA, set: { 'part.material': 'Steel 1.4301' } });
     await agent.call('answer', { doc: docB, set: { 'part.material': 'Brass CW614N' } });
     const shown = await agent.call('show', { doc: docB, browser: false });
-    // `show` names the part: the page starts on it (not on the first part with answers).
     assert.equal((await (await fetch(`${shown.url}config`)).json()).part, b);
     const { context, page, requests } = await load(shown.url);
-    await check(page.locator('.app-part select')).toBeVisible();
-    await check(page.locator('.app-part select')).toHaveValue(String(b));
-    await check(question(page, 'part.material')).toHaveAttribute('data-state', 'gap');
-    await check(page.locator('.spec-panel')).not.toContainText('CW614N');
     const picker = page.locator('.app-part select');
-    await picker.selectOption(String(a));
-    await check(picker).toBeEnabled();
-    await check(picker).toHaveValue(String(a));
-    await check(question(page, 'part.material')).toHaveAttribute('data-state', 'gap');
-    await check(page.locator('.spec-panel')).not.toContainText('1.4301');
-    // The agent answers the part not shown now: the page says so, by name, and offers to show it.
+    const pending = (part, id) => page.locator(`.spec-bar [data-part="${part}"][data-pending="${id}"]`);
+    const allPending = page.locator('.spec-bar [data-pending]');
+    const switchTo = async part => {
+      await picker.selectOption(String(part));
+      await check(picker).toBeEnabled();
+      await check(picker).toHaveValue(String(part));
+    };
+    const pageSave = async () => {
+      const response = page.waitForResponse(r => r.url() === `${shown.url}save` && r.request().method() === 'POST');
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      const saved = await response;
+      assert.equal(saved.status(), 200, await saved.text());
+      return saved;
+    };
+
+    await check(picker).toHaveValue(String(b));
+    await check(pending(a, 'part.material')).toContainText(`${partA.name} · Add Material: Steel 1.4301`);
+    await check(pending(b, 'part.material')).toContainText(`${partB.name} · Add Material: Brass CW614N`);
+    await check(question(page, 'part.material')).toHaveClass(/changed/);
+    await switchTo(a);
+    await check(question(page, 'part.material')).toContainText('1.4301');
     await agent.call('answer', { doc: docB, set: { 'part.general_tolerance': 'ISO 2768-f' } });
-    const nameB = listed.parts.find(p => p.part === b).name;
-    await check(page.locator('.app-agent')).toContainText(`Updated by your agent: ${nameB}`);
-    // Unsaved is the file's, not the part shown's: the agent's answer to the other part counts.
-    await check(page.locator('.app-dirty')).toBeVisible();
+    await check(page.locator('.app-agent')).toContainText(`Updated by your agent: ${partB.name}`);
     await page.getByRole('button', { name: 'Show it' }).click();
-    await check(page.locator('.app-part select')).toHaveValue(String(b));
+    await check(picker).toHaveValue(String(b));
+    await check(pending(b, 'part.general_tolerance')).toContainText('ISO 2768-f');
+    await question(page, 'part.general_tolerance').getByRole('button', { name: 'Undo', exact: true }).click();
+    await check(pending(b, 'part.general_tolerance')).toHaveCount(0);
     await check(question(page, 'part.general_tolerance')).toHaveAttribute('data-state', 'gap');
-    await check(question(page, 'part.general_tolerance')).not.toContainText('2768-f');
-    await check(page.locator('.spec-bar [data-pending]')).toHaveCount(0);
-    const coating = question(page, 'part.coating');
-    await coating.locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
-    await coating.locator('.spec-edit input').fill('Zinc');
-    await coating.locator('.spec-edit').getByRole('button', { name: 'Add', exact: true }).click();
-    const queued = page.locator('.spec-bar [data-pending="part.coating"]');
-    await check(queued).toContainText(nameB);
-    const beforeErrors = problems.length;
-    const saving = page.waitForResponse(response => response.url() === `${shown.url}save`);
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
-    assert.equal((await saving).status(), 422);
-    await check(page.locator('.app-problem')).toContainText('the session has unsaved answers');
-    await check(queued).toBeVisible();
-    problems.splice(beforeErrors, problems.length - beforeErrors,
-      ...problems.slice(beforeErrors).filter(p => !/^console: .*422/.test(p)));
+    await check(allPending).toHaveCount(2);
+    const first = await pageSave();
+    const sent = first.request().postDataJSON();
+    assert.deepEqual(sent.partEdits.map(({ part }) => part).sort(), [a, b]);
+    const saved = (await first.json()).path;
+    assert.equal(table(saved, a)['part.material'].value, 'Steel 1.4301');
+    assert.equal(table(saved, b)['part.material'].value, 'Brass CW614N');
+    assert.equal(table(saved, b)['part.general_tolerance'].state, 'gap');
+    await check(allPending).toHaveCount(0);
+
+    // Discard clears the agent's new answers and the person's local edit together, without writing.
+    await agent.call('answer', { doc: docB, set: { 'part.general_tolerance': 'ISO 2768-f' } });
+    await check(pending(b, 'part.general_tolerance')).toBeVisible();
+    await noneNeeded(page, 'part.coating');
+    await check(allPending).toHaveCount(2);
+    const beforeDiscard = readFileSync(saved);
+    await page.getByRole('button', { name: 'Discard', exact: true }).click();
+    await check(allPending).toHaveCount(0);
+    assert.deepEqual(readFileSync(saved), beforeDiscard);
+    await check(question(page, 'part.general_tolerance')).toHaveAttribute('data-state', 'gap');
+    await noneNeeded(page, 'part.heat_treatment');
+    await pageSave();
+    assert.equal(table(saved, b)['part.general_tolerance'].state, 'gap');
+    assert.equal(table(saved, b)['part.coating'].state, 'gap');
+    assert.equal(table(saved, b)['part.heat_treatment'].state, 'decided_none');
     if (shots) await page.screenshot({ path: join(shots, 'assembly.png') });
-    assert.ok(!existsSync(join(dir, 'asm.specified.step')), 'nothing written');
     onlyLocal(requests, shown.url);
     await context.close();
     agent.stop();

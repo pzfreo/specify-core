@@ -1360,7 +1360,7 @@ fn answers_are_read_and_streamed_with_each_save() {
         assert_eq!(name, "answers");
         assert_eq!(
             change,
-            json!({"rev": 1, "part": 0, "answers": stored, "source": "page"})
+            json!({"rev": 1, "part": 0, "answers": stored, "source": "page", "drafts": {}})
         );
         let (name, told) = stream.next();
         assert_eq!(name, "saved");

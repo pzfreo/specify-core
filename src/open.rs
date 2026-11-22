@@ -14,6 +14,7 @@
 //!   server-sent events;
 //! - `POST <token>/save` an edit list applied to the file, all or nothing, and written next to
 //!   the input (never over a file, unless in place, which keeps the original once as `.bak`);
+//! - `POST <token>/discard` drops working answers without writing;
 //! - `POST <token>/closed` the page went away: the server stops [`CLOSE_DELAY`] after the last
 //!   request unless another arrives (a reload, or another open page's heartbeat).
 //!
@@ -728,6 +729,16 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
             }
             save(stream, ctx, &request, body);
         }
+        ("POST", "discard") => {
+            if !same_origin {
+                return refuse(
+                    stream,
+                    "403 Forbidden",
+                    "discard only from the app's own page",
+                );
+            }
+            discard(stream, ctx, &request, body);
+        }
         ("POST", "closed") => {
             if !same_origin {
                 return refuse(stream, "403 Forbidden", "only from the app's own page");
@@ -740,16 +751,14 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
             }
             reply(stream, "204 No Content", None, b"");
         }
-        (_, "save" | "closed") => {
+        (_, "save" | "discard" | "closed") => {
             let _ = respond(stream, "405 Method Not Allowed", &[("Allow", "POST")], b"");
         }
         ("GET", _) if origin.is_some() && !same_origin => {
             let _ = respond(stream, "403 Forbidden", &[], b"");
         }
         ("GET", "answers") => {
-            let s = session::lock(&shared.session);
-            let answers = json!({"rev": s.rev(), "parts": s.parts()});
-            drop(s);
+            let answers = session::lock(&shared.session).answer_snapshot();
             reply_json(stream, "200 OK", &answers);
         }
         (_, "answers") => {
@@ -1059,7 +1068,7 @@ impl PageEdits {
                     .map_err(|e| match e {
                         session::PartEditsError::Shape(why) => bad(&why),
                         session::PartEditsError::List(failures) => json!({
-                            "error": session::edits_refused(&failures), "failures": failures
+                            "error": session::part_edits_refused(&failures), "failures": failures
                         }),
                     })
             }
@@ -1123,10 +1132,67 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
             "422 Unprocessable Content",
             &json!({"error": session::edits_refused(&failures), "failures": failures}),
         ),
+        Err(session::SaveError::PartEdits(failures)) => reply_json(
+            stream,
+            "422 Unprocessable Content",
+            &json!({"error": session::part_edits_refused(&failures), "failures": failures}),
+        ),
         Err(e @ (session::SaveError::Refused(_) | session::SaveError::Question { .. })) => {
             refuse(stream, "422 Unprocessable Content", &e.to_string())
         }
         Err(session::SaveError::Failed(why)) => refuse(stream, "500 Internal Server Error", &why),
+    }
+}
+
+/// A page drops all working answers or one working answer by part and question id.
+fn discard(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
+    let shared = ctx.shared;
+    if shared.read_only {
+        return refuse(
+            stream,
+            "409 Conflict",
+            "opened read-only: nothing is discarded",
+        );
+    }
+    let value = match json_body(stream, request, body, MAX_SAVE_BODY) {
+        Ok(v) => v,
+        Err((status, why)) => return refuse(stream, status, &why),
+    };
+    let Some(rev) = value.get("rev").and_then(Value::as_u64) else {
+        return refuse(stream, "400 Bad Request", "rev is required");
+    };
+    let target = match (value.get("part"), value.get("id")) {
+        (None, None) => None,
+        (Some(part), Some(id)) => {
+            let part = part.as_u64().and_then(|n| usize::try_from(n).ok());
+            let id = id.as_str().filter(|id| !id.is_empty());
+            match part.zip(id) {
+                Some(target) => Some(target),
+                None => {
+                    return refuse(
+                        stream,
+                        "400 Bad Request",
+                        "part and id must identify a working answer",
+                    );
+                }
+            }
+        }
+        _ => {
+            return refuse(
+                stream,
+                "400 Bad Request",
+                "send both part and id to discard one working answer",
+            );
+        }
+    };
+    match session::discard_answers(&shared.session, Some(rev), target, "page") {
+        Ok(snapshot) => reply_json(stream, "200 OK", &snapshot),
+        Err(session::SaveError::Stale(current)) => reply_json(
+            stream,
+            "409 Conflict",
+            &json!({"error": "the session changed: review the latest answers before discarding", "rev": current}),
+        ),
+        Err(err) => refuse(stream, "400 Bad Request", &err.to_string()),
     }
 }
 
