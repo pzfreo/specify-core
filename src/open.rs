@@ -1037,7 +1037,7 @@ fn header_value(text: &str) -> String {
 /// The two API 2 request forms. The original edit list also accepts a 0.2 answers
 /// map read as fills, as `write` reads one.
 enum PageEdits {
-    Single(crate::edits::EditList),
+    Single(Box<crate::edits::EditList>),
     Assembly(BTreeMap<usize, crate::edits::EditList>),
 }
 
@@ -1058,7 +1058,7 @@ impl PageEdits {
             })
         };
         match (value.get("edits"), value.get("partEdits")) {
-            (edits, None) => Ok(Self::Single(read_list(edits, None)?)),
+            (edits, None) => Ok(Self::Single(Box::new(read_list(edits, None)?))),
             (None, Some(parts)) => {
                 let parts = parts
                     .as_array()
