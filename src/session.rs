@@ -199,6 +199,9 @@ pub struct Session {
     /// Tests only: called by a save just before it acquires the final commit lock.
     #[doc(hidden)]
     pub between_locks: Option<fn(&Shared)>,
+    /// Tests only: called after the final revision check, immediately before disk commit.
+    #[doc(hidden)]
+    pub commit_boundary: Option<fn(&Shared)>,
     /// The page server serving this session, if one was started.
     pub page: Option<crate::open::Page>,
 }
@@ -242,6 +245,7 @@ impl Session {
             save_lock: Arc::new(Mutex::new(())),
             saved: BTreeMap::new(),
             between_locks: None,
+            commit_boundary: None,
             page: None,
         }
     }
@@ -825,6 +829,11 @@ fn save_with(
     if s.rev != seen {
         return Err(SaveError::Stale(s.rev));
     }
+    if let Some(hook) = s.commit_boundary {
+        hook(shared);
+    }
+    // Keep the session locked for the disk I/O, including the first .bak copy. An answer
+    // accepted after this revision check would otherwise be overwritten by publication.
     let cannot = |e: io::Error| SaveError::Failed(format!("cannot save: {e}"));
     let (path, bytes, stored, sha) = if in_place {
         let stored = replace_input(&mut s, &file.path, gz, &mut backup, text.as_ref().clone())

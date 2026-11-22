@@ -2443,6 +2443,39 @@ fn a_session_changed_during_a_save_without_a_rev_is_refused() {
     assert_eq!(s.answers(0).unwrap()["part.heat_treatment"], "None");
 }
 
+/// Exercise the old gap after the final check. Try the same lock MCP takes to publish an
+/// answer. On the old commit path the answer can enter here and the save erases it.
+fn answer_at_commit(shared: &specify_core::session::Shared) {
+    match shared.try_lock() {
+        Err(std::sync::TryLockError::WouldBlock) => {}
+        Ok(mut session) => {
+            let mut answers = session.answers(0).cloned().unwrap_or_default();
+            answers.insert("part.heat_treatment".into(), json!("None"));
+            session.set(0, answers, "mcp");
+        }
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn an_answer_cannot_enter_after_the_final_revision_check() {
+    let scratch = Scratch::new("commit-boundary");
+    let file = scratch.input();
+    let shared = Arc::new(Mutex::new(
+        Session::open(OpenedFile::read(&file).unwrap(), true).unwrap(),
+    ));
+    specify_core::session::lock(&shared).commit_boundary = Some(answer_at_commit);
+    let list = specify_core::edits::parse_value(decide_coating()).unwrap();
+    let saved = specify_core::session::save_edits(&shared, Some(0), &list, "page").unwrap();
+    assert_eq!(saved.rev, 1, "an answer slipped in after the final check");
+    assert!(scratch.path("work/part.step.bak").exists());
+    // A real update immediately after publication can take the lock and remains in the session.
+    answer_at_commit(&shared);
+    let s = specify_core::session::lock(&shared);
+    assert_eq!(s.rev(), 2);
+    assert_eq!(s.answers(0).unwrap()["part.heat_treatment"], "None");
+}
+
 #[test]
 fn save_edits_commits_general_measurements_at_the_requested_revision() {
     let scratch = Scratch::new("general-measurements");
