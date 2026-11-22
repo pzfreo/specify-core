@@ -47,36 +47,67 @@ fn mfcad_10127_gets_a_length_on_the_y_level() {
 }
 
 #[test]
-fn mfcad_10127_keeps_stated_tilted_location_as_other_pmi() {
+fn mfcad_10127_keeps_the_length_on_published_shallow_levels() {
     let Some(part) = corpus_part("mfcadpp/10127.step") else {
         return;
     };
-    // A foreign linear dimension on the two tilted planes, without a Specify question marker.
+    let analysis = api::analyse(&part).unwrap();
+    for face in [20, 25] {
+        assert!(
+            analysis["features"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["family"] == "step_levels"
+                    && r["faces"].as_array().unwrap().contains(&json!(face)))
+        );
+    }
+    let row = rows(&analysis)
+        .iter()
+        .find(|r| r["id"] == "length:planes:20-25")
+        .expect("10127: preserve the independent length on faces 20 and 25");
+    assert_eq!(row["faces"], json!([25]));
+    assert_eq!(row["suggestion"], "4.23656 ±0.1 from face 20");
+}
+
+#[test]
+fn ftc07_keeps_stated_location_between_retired_levels_as_other_pmi() {
+    let Some(part) = corpus_part("nist/nist_ftc_07_asme1_rd.stp") else {
+        return;
+    };
+    // Quiddity 0.5.4 treated 84 and 173 as levels. 0.5.5 drops them
+    // from its ladder. An independently stated location still belongs to the file.
     let mut intent = rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
     intent.requirements.push(
         json!({
-            "kind": "location", "faces": [25], "reference": [20],
-            "distance": 4.23656, "upper": 0.1, "lower": -0.1
+            "kind": "location", "faces": [173], "reference": [84],
+            "distance": 9.517274, "upper": 0.1, "lower": -0.1
         })
         .as_object()
         .unwrap()
         .clone(),
     );
     let (bytes, _) = api::write_bytes(part.bytes.to_vec(), &[(intent, None)]).unwrap();
-    let annotated = part::load_bytes("10127.step", bytes).unwrap();
+    let annotated = part::load_bytes("ftc07.step", bytes).unwrap();
     let analysis = api::analyse(&annotated).unwrap();
+    assert!(analysis["features"].as_array().unwrap().iter().all(|r| {
+        r["family"] != "step_levels"
+            || [84, 173]
+                .into_iter()
+                .all(|face| !r["faces"].as_array().unwrap().contains(&json!(face)))
+    }));
     assert!(
         analysis["table"]["file_pmi"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|r| r["type"] == "Location_LinearDistance" && r["faces"] == json!([20, 25])),
-        "10127: tilted location must appear under Other PMI"
+            .any(|r| r["type"] == "Location_LinearDistance" && r["faces"] == json!([84, 173])),
+        "FTC-07: location between the retired levels must appear under Other PMI"
     );
     assert!(
         !rows(&analysis)
             .iter()
-            .any(|r| r["id"] == "length:planes:20-25")
+            .any(|r| r["id"] == "length:planes:84-173")
     );
 
     let output = edit(&annotated, json!({"fill": {"part.coating": "anodised"}}));
@@ -161,6 +192,32 @@ fn string_post_tiny_fillet_is_optional_and_writes_only_on_request() {
     assert_eq!(row["state"], "stated");
     assert_eq!(row["requirements"][0]["type"], "Size_Radius");
     assert_eq!(row["value"], "R0.25");
+}
+
+#[test]
+fn mfcad_10092_keeps_the_datum_reference_of_an_existing_length() {
+    let Some(part) = corpus_part("mfcadpp/10092.step") else {
+        return;
+    };
+    let analysis = api::analyse(&part).unwrap();
+    assert!(
+        analysis["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["id"] == "step_levels:19.35" && f["record"]["height_axis"] == "y")
+    );
+    let row = rows(&analysis)
+        .iter()
+        .find(|r| r["id"] == "length:planes:17-19")
+        .expect("10092: the 2 mm length must keep datum B's face 17");
+    assert_eq!(row["faces"], json!([19]));
+    assert_eq!(row["suggestion"], "2 ±0.1 from B");
+    assert!(
+        !rows(&analysis)
+            .iter()
+            .any(|r| r["id"] == "length:planes:5.17-19")
+    );
 }
 
 #[test]

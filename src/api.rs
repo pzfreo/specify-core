@@ -321,10 +321,6 @@ fn analyse_with(
             if !supporting.is_empty() {
                 value["supporting_faces"] = json!(supporting);
             }
-            let tilted = crate::dimensioning::tilted_step_faces(&loaded.part, &document.frame);
-            if !tilted.is_empty() {
-                value["tilted_step_faces"] = json!(tilted);
-            }
             value
         }
         Err(reason) => {

@@ -1293,6 +1293,65 @@ fn blind_hole_diameters_and_axis_locations_stay_on_bores_but_depth_uses_planes()
 }
 
 #[test]
+fn ctc02_keeps_one_depth_on_the_counterbore_step_span() {
+    let Some(corpus) = common::corpus_dir() else {
+        return;
+    };
+    let loaded = part::load(&corpus.join("nist/nist_ctc_02_asme1_rc.stp"), None).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let given = json!({"part.material":"steel"});
+    let intent = rules::apply_with_defaults(&analysis, given.as_object().unwrap(), true).unwrap();
+    let (bytes, _) = writer::write_bytes(&loaded, &intent, None).unwrap();
+    let read = model(&part::load_bytes("ctc02.step", bytes).unwrap());
+    let pmi = &read.parts[0];
+    let pair = [BTreeSet::from([132]), BTreeSet::from([134])];
+    let spans: Vec<_> = pmi
+        .dimensions
+        .iter()
+        .enumerate()
+        .filter(|(_, dimension)| {
+            let pmi::DimensionKind::Location {
+                from,
+                to,
+                kind: pmi::LocationKind::LinearDistance,
+                ..
+            } = dimension.kind
+            else {
+                return false;
+            };
+            let mut ends = [faces(pmi, from), faces(pmi, to)];
+            ends.sort();
+            ends == pair
+        })
+        .collect();
+    assert_eq!(
+        spans.len(),
+        1,
+        "CTC-02: write one span between faces 132 and 134"
+    );
+    let (index, dimension) = spans[0];
+    assert!(
+        matches!(&dimension.nominal.as_ref().unwrap().quantity,pmi::Quantity::Length(n) if n.mm()==8.)
+    );
+    let plan = pmi
+        .attributes
+        .iter()
+        .find(|a| {
+            a.name == "specify dimension plan"
+                && matches!(&a.on, Some(pmi::NoteOwner::Dimension(id)) if id.0 == index)
+        })
+        .unwrap();
+    let pmi::AttributeValue::Text(text) = &plan.items[0].1 else {
+        panic!("missing counterbore depth plan");
+    };
+    let value: Value = serde_json::from_str(text).unwrap();
+    let required: Required = serde_json::from_value(value["required"].clone()).unwrap();
+    assert!(
+        matches!(required.kind,quiddity::dimensioning::Kind::Size {role,..} if role == "counterbore.depth")
+    );
+}
+
+#[test]
 fn ctc04_depths_have_measurable_endpoints_and_do_not_repeat_a_legacy_span() {
     let Some(corpus) = common::corpus_dir() else {
         return;

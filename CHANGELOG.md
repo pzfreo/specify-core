@@ -8,8 +8,9 @@ All notable changes to specify-core-rust. The format follows
 
 To be released as 0.3.0 (every package; see "Lockstep versions").
 
-- **Quiddity 0.5.5.** Step levels on every part axis get plane-to-plane length rows.
-  A location stated on a tilted former step level appears under **Other PMI in the file**.
+- **Quiddity 0.5.5.** Published step levels on every part axis get plane-to-plane length rows.
+  Independent plane lengths keep their rows. Stated locations on retired levels appear under
+  **Other PMI in the file** when they match no measured row.
   Faces that only support another feature, such as a round boss cap, get no rows of their own.
   Recognised fillets of any radius get an optional `fillet.radius` row with “none needed”
   suggested. A radius dimension is written only when its measured radius is chosen.

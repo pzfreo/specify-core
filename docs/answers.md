@@ -164,9 +164,11 @@ In an edit list, `fill` takes a general dimension row's displayed suggestion, an
 Once stated, the dimension can be removed through `items.remove` by row id or characteristic
 number. An approved dimension the planner cannot write is reported and stays decided.
 
-Step levels along any part axis use the existing plane-to-plane length ids. A location on a
-tilted former step level appears under **Other PMI in the file**. A face classified as supporting
-evidence for another feature gets no row of its own. Each recognised fillet has a radius row
+Quiddity's step levels along any part axis use the existing plane-to-plane length ids.
+Independently measured plane lengths keep their rows. A stated location between retired
+step levels appears under **Other PMI in the file** when it matches no measured row.
+A face classified as supporting evidence for another feature gets no row of its own.
+Each recognised fillet has a radius row
 with “none needed” suggested, regardless of its size. To write a radius, fill the row with its
 offered measured value, for example `{"fill":{"fillet.radius:fillets:7":"R0.25"}}`.
 

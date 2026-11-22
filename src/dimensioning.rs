@@ -90,52 +90,19 @@ pub(crate) fn step_levels(
     Ok(())
 }
 
-/// Drafted step candidates are inside quiddity's level normal cone, but
-/// cannot provide an exact principal plane for a step length.
-pub(crate) fn tilted_step_faces(
-    part: &haecceity::Part,
-    recognition_frame: &quiddity::frames::RecordFrame,
-) -> Vec<usize> {
-    let quiddity::frames::RecordFrame::Inferred(frame) = recognition_frame else {
-        return Vec::new();
-    };
-    let axes = [frame.x, frame.y, frame.z];
-    part.faces
-        .iter()
-        .enumerate()
-        .filter_map(|(index, face)| {
-            let haecceity::geom::Surface::Plane { frame: plane } = &face.surface else {
-                return None;
-            };
-            axes.iter()
-                .any(|&axis| {
-                    let cos = haecceity::geom::dot(plane.z, axis).abs();
-                    cos > 0.99 && cos < 1.0 - 1e-12
-                })
-                .then_some(index)
-        })
-        .collect()
-}
-
-/// A rejected drafted level or a supporting cap is not a step measurement.
+/// A supporting cap has no standalone location. Quiddity's own level
+/// inventory determines step measurements, independently of other plane lengths.
 pub(crate) fn general_plane_rows(general: &mut Vec<Map<String, Value>>, metadata: &Value) {
     let Some(metadata) = metadata.as_object() else {
         return;
     };
     let supporting = ids(metadata, "supporting_faces");
-    let tilted = ids(metadata, "tilted_step_faces");
     general.retain(|row| {
         if row.get("kind").and_then(Value::as_str) != Some("location") {
             return true;
         }
         let faces = ids(row, "faces");
-        faces.is_empty()
-            || (!faces.iter().all(|f| supporting.contains(f))
-                && (row.get("feature").and_then(Value::as_str) != Some("")
-                    || !faces
-                        .iter()
-                        .chain(&ids(row, "reference"))
-                        .any(|f| tilted.contains(f))))
+        faces.is_empty() || !faces.iter().all(|f| supporting.contains(f))
     });
 }
 
