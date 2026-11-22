@@ -203,6 +203,16 @@ fn row_id<T: Ord + std::fmt::Display>(
     id
 }
 
+/// A planar length's identity, independent of which endpoint is the reference.
+pub(crate) fn plane_length_id(from: &[usize], to: &[usize]) -> String {
+    row_id(
+        "length:planes",
+        &from.iter().collect(),
+        &to.iter().collect(),
+        None,
+    )
+}
+
 /// Rebind both supports of a measurement to a new revision, keeping its direction.
 pub(crate) fn remap_id(
     id: &str,

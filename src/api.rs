@@ -504,8 +504,10 @@ fn analyse_with(
         .cloned()
         .unwrap_or_default();
     let analysis_for_questions = Value::Object(analysis.clone());
-    if let Ok(questions) = rules::questions(&analysis_for_questions, &answers) {
-        table.align_questions(&questions, &answers);
+    if let Ok((questions, measurements)) =
+        rules::questions_with_measurements(&analysis_for_questions, &answers)
+    {
+        table.align_questions(&questions, &answers, &analysis_for_questions, &measurements);
         analysis.insert(
             "table".into(),
             serde_json::to_value(&table).map_err(|e| refused(&e))?,

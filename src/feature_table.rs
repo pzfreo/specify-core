@@ -146,6 +146,8 @@ impl FeatureTable {
         &mut self,
         questions: &[crate::rules::Question],
         answers: &Map<String, Value>,
+        analysis: &Value,
+        plans: &[crate::rules::general_rows::Suggestion],
     ) {
         use crate::rules::general_rows::is_id;
 
@@ -195,6 +197,46 @@ impl FeatureTable {
             })
             .collect::<Vec<_>>();
         self.rows.extend(missing);
+
+        // With the table present the planner can regroup measurements. Ground new
+        // interview rows against the file as well, including a hole already located
+        // by its datum or position and a length on the same pair of plane supports.
+        let existing: Vec<_> = analysis["existing"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .collect();
+        let geometry = analysis["faces"].as_array().map_or(&[][..], Vec::as_slice);
+        let located = Located::new(&existing, geometry);
+        let plans: BTreeMap<_, _> = plans
+            .iter()
+            .map(|plan| (plan.question.id.as_str(), &plan.dimension))
+            .collect();
+        let mut claimed = Vec::new();
+        for row in self.rows.iter_mut().filter(|row| row.state == State::Gap) {
+            let Some(plan) = plans.get(row.id.as_str()) else {
+                continue;
+            };
+            let items = general_matches(plan, &existing, &located)
+                .into_iter()
+                .map(|i| requirement(existing[i]))
+                .collect::<Vec<_>>();
+            if !items.is_empty() {
+                row.value = Some(Value::from(
+                    items
+                        .iter()
+                        .map(|item| item.text.as_str())
+                        .collect::<Vec<_>>()
+                        .join("; "),
+                ));
+                claimed.extend(items.iter().cloned());
+                row.requirements = items;
+                row.suggestion = None;
+                row.state = State::Stated;
+                row.open = false;
+            }
+        }
+        self.file_pmi.retain(|item| !claimed.contains(item));
     }
 }
 
@@ -875,6 +917,21 @@ fn general_matches(
             }
             return matches;
         }
+    }
+    if id.starts_with("length:planes:") {
+        return existing
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| {
+                item["type"] == "Location_LinearDistance"
+                    && id
+                        == crate::rules::general_rows::plane_length_id(
+                            &faces_of(item, "faces"),
+                            &faces_of(item, "faces2"),
+                        )
+            })
+            .map(|(i, _)| i)
+            .collect();
     }
     let overlaps = |faces: &[usize], side: &[usize]| faces.iter().any(|f| side.contains(f));
     existing

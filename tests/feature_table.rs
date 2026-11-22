@@ -158,6 +158,11 @@ fn ctc02_location_approval_is_not_stored_as_no_pmi() {
     );
     let reopened = load(&output, None).unwrap();
     let after = api::analyse(&reopened).unwrap();
+    assert_no_open(&after["table"], "CTC-02");
+    assert_eq!(
+        row(&after["table"], "length:planes:1-151")["state"],
+        "stated"
+    );
     assert_only_intentional_no_pmi(&reopened, &after, "CTC-02");
     let existing = after["existing"].as_array().unwrap();
     assert!(
@@ -177,6 +182,34 @@ fn ctc02_location_approval_is_not_stored_as_no_pmi() {
         }),
         "CTC-02: 185 must locate the unpositioned holes from datum D"
     );
+    std::fs::remove_dir_all(scratch).unwrap();
+}
+
+#[test]
+fn ctc03_reopen_does_not_ask_for_positions_the_file_locates() {
+    let part = fixture("nist/nist_ctc_03_asme1_ap242.stp.gz");
+    let analysis = api::analyse(&part).unwrap();
+    let scratch = scratch("ctc03-location");
+    let output = scratch.join("ctc03.step");
+    cli_write(
+        &part,
+        &analysis,
+        &map(json!({"part.material":"6061-T6"})),
+        &output,
+        true,
+    );
+    let reopened = load(&output, None).unwrap();
+    let after = api::analyse(&reopened).unwrap();
+    assert_no_open(&after["table"], "CTC-03");
+    let table = &after["table"];
+    for (id, text) in [
+        ("location:holes:18.19-16.17-0", "⌖ ⌀0.05Ⓜ A BⓂ CⓂ"),
+        ("location:holes:16.17-11.12-1", "datum B"),
+    ] {
+        let row = row(table, id);
+        assert_eq!(row["state"], "stated", "{row}");
+        assert_eq!(row["value"], text, "{row}");
+    }
     std::fs::remove_dir_all(scratch).unwrap();
 }
 

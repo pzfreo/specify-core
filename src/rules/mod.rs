@@ -555,13 +555,26 @@ fn carry_review(
 }
 
 pub(crate) fn questions_in(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> Result<Vec<Question>> {
+    interview(ctx, answers).map(|(questions, _)| questions)
+}
+
+/// The interview and the measurement plans behind its separate dimension questions.
+pub(crate) fn questions_with_measurements(
+    analysis: &Value,
+    answers: &Map<String, Value>,
+) -> Result<(Vec<Question>, Vec<general_rows::Suggestion>)> {
+    let (questions, measurements) = interview(&Ctx::new(analysis)?, answers)?;
+    Ok((carry_review(questions, answers)?, measurements))
+}
+
+fn interview(
+    ctx: &Ctx<'_>,
+    answers: &Map<String, Value>,
+) -> Result<(Vec<Question>, Vec<general_rows::Suggestion>)> {
     let mut questions = ordinary_questions_in(ctx, answers)?;
-    questions.extend(
-        dimension_suggestions(ctx, answers)
-            .into_iter()
-            .map(|s| s.question),
-    );
-    Ok(questions)
+    let measurements = dimension_suggestions(ctx, answers);
+    questions.extend(measurements.iter().map(|s| s.question.clone()));
+    Ok((questions, measurements))
 }
 
 pub(crate) fn ordinary_questions_in(
