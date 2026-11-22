@@ -1769,8 +1769,9 @@ fn without_reviewed_rule_departures(differences: Vec<Difference>) -> Vec<Differe
         .collect()
 }
 
-/// Keep CLI/serve envelopes of measurement origins, ordered notes, planner reports,
-/// combined classes and limit answers under the library rules' exact before/after guard.
+/// Keep CLI/serve envelopes of measurement origins, ordered notes, planner reports (including
+/// general-dimension omissions under P11), combined classes and limit answers under the
+/// library rules' exact before/after guard.
 /// The snapshot retains its original datum-origin filename. Older reviewed CLI differences
 /// retain their existing verdicts; composition never enters this snapshot.
 fn check_datum_origin_departures(differences: &[Difference]) {
