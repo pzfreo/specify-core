@@ -82,10 +82,10 @@ block as one line of text, lines separated by `,`, `;` or `·`, and shows it bac
 | `.XXX ±.005 in, angular ±1°` | `.XXX ±.005 · angles ±1°` |
 | `X ±0.5, X.X ±0.2, X.XX ±0.05, angles ±0°30'` | `X ±0.5 · X.X ±0.2 · X.XX ±0.05 · angles ±0°30′` |
 
-A line that is not decimal places with a tolerance (`.XX ±.01`, `X.X ±0.2`), fractions (`±1/64`)
-or angles (`angles ±1°`) refuses the answer, naming the line and why (two tolerances on one line,
-`XX` without a point, a zero tolerance or fraction, the same number of places stated twice). Text
-that looks like a block is never answered with the list of ISO classes. Units are stored as stated
+A valid block keeps free-text lines, such as `Break all sharp edges`, in its note. If a
+line resembles a tolerance and the table cannot represent it, the write report warns.
+A block with no readable tolerance, duplicate numeric entries, or contradictory units
+is refused with a reason. Units are stored as stated
 and never converted: a unit written on a line (`in`, `"`, `mm`) is the block's; else inch notation
 (`.XX`) or a fraction means inches; else the block is in the file's length unit. The notation
 decides, not how the tolerance is spelled: `X.XX ±.01` in a millimetre file is ±0.01 mm. No
@@ -105,16 +105,15 @@ representation the table relates to carries an empty `tolerance class` item: hae
 as the PMI practice's §4.1 Figure 3 does when only a table applies, and a representation needs at
 least one item. It states no class, and reads as none.)
 
-On reopening the table is the state. The General tolerance row is stated, its value the table's
-lines read back from its cells whoever wrote it (a range cell reads `0.5 to 6 ±0.1`, an asymmetric
-one `X.X +0.3/-0.1`; values in the file's length unit are shown without it), then the note's
-lines. "None needed" (`none`) is an answer for a file that states no general tolerance; on a file
+On reopening, the General tolerance row joins the table cells and note lines with a
+canonical ` · `. STEP stores the cells and note separately and carries no record of
+the separators the author typed. The note retains each free-text line's wording.
+Replaying the typed block leaves the file unchanged. A range cell reads `0.5 to 6 ±0.1`
+and an asymmetric cell reads `X.X +0.3/-0.1`. "None needed" (`none`) is an answer for a file that states no general tolerance; on a file
 that states one it is not written, as for any stated setting. A different general tolerance in
-an intent written to a file that states one (CLI, serve, Python `write`) is refused, as before:
-the file's value stands (ADR P11). Only an explicit change replaces it,
-`writer::write_bytes_changing_general_tolerance` (`Replace::GeneralTolerance`), which the edit
-list's `change` of `part.general_tolerance` uses: the file's classes, tables and Specify's general
-tolerance note give way, whoever wrote them, and every other entity stays byte for byte. The same
+a fill is refused. Use an edit list's `change` of `part.general_tolerance` to replace
+a stated class, table and accompanying note. The writer preserves the other entities
+byte for byte. The same
 one again is not written twice. ISO 2768 classes work as
 before. Left out: inch threads and inch clearance sizes.
 Imported foreign PMI uses Add mode, retaining original limit entities; the answers are stored

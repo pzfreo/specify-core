@@ -1037,6 +1037,9 @@ fn free_text_round_trips_in_the_general_tolerance_note() {
     let pmi = pmi_of(&reopened);
     assert_eq!(cells(&pmi).len(), 1);
     assert_eq!(note(&pmi).as_deref(), Some("Break all sharp edges"));
+    let replayed = specify_core::writer::apply::apply(&reopened, &list).unwrap();
+    assert!(replayed.unchanged);
+    assert!(replayed.report.written.is_empty());
 
     let list = specify_core::edits::parse_value(json!({
         "fill":{"part.general_tolerance":".XX ±.01, three places ±.005"}
