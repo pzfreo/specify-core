@@ -107,6 +107,68 @@ fn object(value: &Value) -> Map<String, Value> {
     value.as_object().cloned().unwrap_or_default()
 }
 
+fn write_listed_defaults(input: &Path, name: &str) -> (PathBuf, Value, Value) {
+    let dir = scratch(name);
+    let analysis = dir.join("analysis.json");
+    let answers = dir.join("answers.json");
+    let output = dir.join("out.step");
+    let intent = dir.join("intent.json");
+    let analysed = run(&["analyse", &s(input), "-o", &s(&analysis)]);
+    assert_eq!(analysed.code, 0, "{}", analysed.stderr);
+    let listed = run(&["questions", &s(&analysis)]);
+    assert_eq!(listed.code, 0, "{}", listed.stderr);
+    let listed: Vec<Value> = serde_json::from_str(&listed.stdout).unwrap();
+    assert!(
+        listed
+            .iter()
+            .any(|q| q["id"].as_str().unwrap().starts_with("diameter.runout:"))
+    );
+    let given = listed
+        .into_iter()
+        .map(|q| {
+            let id = q["id"].as_str().unwrap();
+            let answer = if id == "part.material" {
+                json!("Steel")
+            } else {
+                assert!(!q["default"].is_null(), "{id} has no default");
+                q["default"].clone()
+            };
+            (id.to_string(), answer)
+        })
+        .collect::<Map<String, Value>>();
+    save(&answers, &Value::Object(given));
+    let written = run(&[
+        "write",
+        &s(input),
+        &s(&analysis),
+        &s(&answers),
+        "-o",
+        &s(&output),
+        "--intent",
+        &s(&intent),
+    ]);
+    assert_eq!(written.code, 0, "{}", written.stderr);
+    (
+        output,
+        serde_json::from_slice(&std::fs::read(intent).unwrap()).unwrap(),
+        serde_json::from_str(&written.stdout).unwrap(),
+    )
+}
+
+#[test]
+fn grm05_write_accepts_every_listed_default() {
+    let Some(corpus) = corpus_dir() else { return };
+    write_listed_defaults(
+        &corpus.join("gramel/GRM-05_depth_lock_bolt.step"),
+        "grm05-defaults",
+    );
+}
+
+#[test]
+fn spindle_write_accepts_every_listed_default() {
+    write_listed_defaults(&common::fixtures().join("spindle.step"), "spindle-defaults");
+}
+
 /// `-o -` streams the JSON to stdout, byte for byte the file `-o file` writes, and moves the
 /// summary to stderr, so the output can be piped into another program (a CAM bridge, `jq`).
 #[test]
