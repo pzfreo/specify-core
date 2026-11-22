@@ -14,7 +14,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
 | [cli](#cli) | 362 | 0 | 52 | 0 | 2 | 1 | 417 |
-| [cross_engine](#cross_engine) | 322 | 2 | 0 | 1 | 1 | 20 | 346 |
+| [cross_engine](#cross_engine) | 342 | 2 | 0 | 1 | 1 | 20 | 366 |
 | [cross_engine_written](#cross_engine_written) | 75 | 0 | 0 | 0 | 0 | 0 | 75 |
 | [existing](#existing) | 420 | 0 | 0 | 0 | 7 | 0 | 427 |
 | [features](#features) | 3454 | 1414 | 571 | 2491 | 1066 | 1886 | 10882 |
@@ -23,7 +23,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 2247 | 0 | 0 | 0 | 15 | 1 | 2263 |
-| **all** | 7009 | 1433 | 1249 | 2497 | 1101 | 1908 | 15197 |
+| **all** | 7029 | 1433 | 1249 | 2497 | 1101 | 1908 | 15217 |
 
 ## analysis
 
@@ -227,7 +227,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cross_engine
 
-### cross_engine: rust-correct (322 entries)
+### cross_engine: rust-correct (342 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `python_readback.existing[key=*].provenance`)
 
@@ -277,23 +277,23 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   ADR P11 adds the fit field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (12 entries, 6 case globs)
+- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (14 entries, 7 case globs)
 
   ADR P11 adds the mmc field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (12 entries, 6 case globs)
+- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (14 entries, 7 case globs)
 
   ADR P11 adds the modifiers field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (26 entries, 9 case globs)
+- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (30 entries, 11 case globs)
 
   ADR P11 adds the diametral field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (180 entries, 10 case globs)
+- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (188 entries, 12 case globs)
 
   ADR P11 adds the text field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (26 entries, 9 case globs)
+- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (30 entries, 11 case globs)
 
   ADR P11 adds the zone field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
