@@ -31,6 +31,10 @@ const cli = process.env.SPECIFY_CORE ?? 'specify-core';
 const app = resolve('dist-app');
 const wasm = wasmDirectory;
 const shots = process.env.SHOTS;
+const lengthIds = [
+  'length:planes:1-9', 'length:planes:1-5', 'length:planes:1-3', 'length:planes:8-10',
+  'length:planes:2.6-10', 'length:planes:4-12', 'length:planes:1-7.11',
+];
 if (shots) mkdirSync(shots, { recursive: true });
 const builtIn = process.env.SPECIFY_APP_BUILT_IN === '1';
 if (!builtIn) assert.ok(existsSync(join(app, 'index.html')), 'dist-app is built (npm run build:app)');
@@ -519,6 +523,7 @@ try {
     assert.ok(!existsSync(join(copy, 'shaft.specified.step')), 'nothing written');
     await add(page, 'part.general_tolerance');
     await check(listedEdit(page, 'part.general_tolerance')).toHaveText('Add General tolerance: ISO 2768-m');
+    for (const id of lengthIds) await add(page, id);
     for (const id of lengthIds) await check(listedEdit(page, id)).toContainText('Add Length');
     // The page, meeting a refusal: says which change cannot be applied, and that nothing was written.
     await page.route('**/save', route => route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify(body) }));
@@ -527,6 +532,7 @@ try {
     await check(page.getByRole('alert').first()).toContainText('nope.unknown');
     await page.unroute('**/save');
     await check(listedEdit(page, 'part.general_tolerance')).toBeVisible();
+    for (const id of lengthIds) await check(listedEdit(page, id)).toContainText('Add Length');
     problems.splice(0, problems.length, ...problems.filter(p => !/40\d|422/.test(p)));
     assert.ok(!existsSync(join(copy, 'shaft.specified.step')), 'nothing written');
     // The write fails (the folder is read-only): Not saved, the edits still listed.
@@ -559,10 +565,6 @@ try {
     writeFileSync(file, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
     const original = readFileSync(file);
     const before = table(file);
-    const lengthIds = [
-      'length:planes:1-9', 'length:planes:1-5', 'length:planes:1-3', 'length:planes:8-10',
-      'length:planes:2.6-10', 'length:planes:4-12', 'length:planes:1-7.11',
-    ];
     assert.deepEqual(Object.values(before).filter(r => r.kind === 'length').map(r => r.id), lengthIds);
     const partial = table(plainSave);
     for (const id of lengthIds) {
