@@ -344,11 +344,7 @@ fn grm05_reopening_a_file_with_one_length_shows_it_as_stated() {
     let next = part.dir.join("out.step");
     let loaded = specify_core::part::load(&next, None).unwrap();
     let (second, face, nominal, text) = GRM05_LENGTHS[1];
-    let answers = api::with_stored(&reopened, &Map::new());
-    let answers =
-        api::with_approved(&reopened, &answers, 0, &object(&json!({second: text}))).unwrap();
-    let (intent, _) = specify_core::session::intent_for(&loaded, &reopened, &answers).unwrap();
-    let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
+    let bytes = common::apply_edits(&loaded, json!({"fill": {second: text}})).bytes;
     let updated =
         api::analyse(&specify_core::part::load_bytes("updated.step", bytes).unwrap()).unwrap();
     assert!(grm05_written(&updated, face, nominal), "{second}");
@@ -364,9 +360,7 @@ fn grm05_reopening_a_file_with_one_length_shows_it_as_stated() {
 
     // An isolated approval carries its displayed deviation even if the note is still a gap.
     let original = specify_core::part::load(&part.input, None).unwrap();
-    let only = object(&json!({second: text}));
-    let (intent, _) = specify_core::session::intent_for(&original, &part.analysis, &only).unwrap();
-    let (bytes, _) = specify_core::writer::write_bytes(&original, &intent, Some(&only)).unwrap();
+    let bytes = common::apply_edits(&original, json!({"fill": {second: text}})).bytes;
     let isolated =
         api::analyse(&specify_core::part::load_bytes("isolated.step", bytes).unwrap()).unwrap();
     assert!(grm05_written(&isolated, face, nominal), "{second}");
