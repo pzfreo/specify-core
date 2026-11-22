@@ -311,21 +311,27 @@ fn ctc04_one_pattern_does_not_close_the_position_of_its_identical_neighbour() {
     );
     assert_eq!(r["open"], true, "{r}");
 
-    // This is an intentional partial save. The CLI reports the entire remaining
-    // list, including the row for the first, unpositioned pattern.
+    // Fill one unrelated gap. The CLI must report every gap on the saved file,
+    // including the row for the first, unpositioned pattern.
     let dir = scratch("ctc04-open");
     let input = dir.join("ctc04.step");
     std::fs::write(&input, reopened.bytes.as_slice()).unwrap();
     let part = load(&input, None).unwrap();
     let analysis = api::analyse(&part).unwrap();
+    assert_eq!(row(&analysis["table"], "part.material")["open"], true);
+    let output = dir.join("saved.step");
     let report = cli_write(
         &part,
         &analysis,
-        &Map::new(),
-        &dir.join("saved.step"),
+        &map(json!({"part.material": "6061-T6"})),
+        &output,
         false,
     );
-    let missing: Vec<_> = after["rows"]
+    let saved = load(&output, None).unwrap();
+    let (reopened_table, _) = table(&saved);
+    assert_eq!(row(&reopened_table, "part.material")["value"], "6061-T6");
+    assert_eq!(row(&reopened_table, id)["state"], "gap");
+    let missing: Vec<_> = reopened_table["rows"]
         .as_array()
         .unwrap()
         .iter()
