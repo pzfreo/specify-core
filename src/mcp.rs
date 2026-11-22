@@ -875,7 +875,8 @@ impl Server {
         let held_elsewhere = previous
             .filter(|d| !Arc::ptr_eq(&d.session, &shared))
             .map(Doc::answers);
-        let (answers, rev, report) = {
+        let write_new_answers_file = answers_file.is_some() && from_file.is_none();
+        let (answers, refused, rev, report) = {
             let mut s = session::lock(&shared);
             // Only when the call says so: where a running page's Save writes changes with it.
             if let Some(in_place) = in_place {
@@ -883,8 +884,13 @@ impl Server {
             }
             s.keep_analysis(index, Arc::clone(&analysis));
             let current = s.answers(index).cloned();
-            let start = match (from_file, &current, s.old().is_some()) {
-                (Some(kept), _, _) => kept,
+            let mut refusals = BTreeMap::new();
+            let start = match (&from_file, &current, s.old().is_some()) {
+                (Some(kept), _, _) => {
+                    let (accepted, rejected) = import_answers(&analysis, kept);
+                    refusals = rejected;
+                    accepted
+                }
                 (None, Some(held), _) => held.clone(),
                 (None, None, true) => Map::new(),
                 (None, None, false) => held_elsewhere
@@ -894,10 +900,23 @@ impl Server {
             api::questions(&analysis, &start)?;
             if created {
                 s.start_answers(index, start.clone());
-            } else if current.as_ref() != Some(&start) {
+            }
+            if let Some(kept) = &from_file {
+                let resolved: Vec<_> = kept
+                    .keys()
+                    .filter(|id| !refusals.contains_key(*id))
+                    .map(String::as_str)
+                    .collect();
+                s.set_agent_answers(index, start.clone(), &[], resolved, refusals);
+            } else if !created && current.as_ref() != Some(&start) {
                 s.set(index, start.clone(), "mcp");
             }
-            (start, s.rev(), s.report())
+            (
+                start,
+                s.refused_answers(index).cloned().unwrap_or_default(),
+                s.rev(),
+                s.report(),
+            )
         };
         if created {
             self.sessions.push(Arc::clone(&shared));
@@ -911,7 +930,10 @@ impl Server {
             answers_file: answers_file.or(previous_file),
             mesh: None,
         };
-        if let Some(target) = &doc.answers_file {
+        // Keep a source file with rejected entries available for correction.
+        if let Some(target) = &doc.answers_file
+            && (refused.is_empty() || write_new_answers_file)
+        {
             save_answers(target, &answers)?;
         }
         let qs = api::questions(&analysis, &answers)?;
@@ -934,6 +956,9 @@ impl Server {
         out.insert("answered".into(), json!(answers.len()));
         out.insert("open_questions".into(), json!(open));
         out.insert("table".into(), analysis["table"].clone());
+        if !refused.is_empty() {
+            out.insert("refused".into(), json!(refused));
+        }
         out.insert("rev".into(), json!(rev));
         if let Some(report) = report {
             out.insert("verdict".into(), report["verdict"].clone());
@@ -1060,7 +1085,7 @@ impl Server {
         }
         let mut changed = Vec::new();
         let mut refused = Map::new();
-        let mut refused_drafts = std::collections::BTreeMap::new();
+        let mut refused_drafts = BTreeMap::new();
         for (id, given) in &set {
             match try_answer(&analysis, &mut trial, id, given) {
                 Ok(entry) => changed.push(entry),
@@ -1071,7 +1096,7 @@ impl Server {
                     if !partial {
                         if !refused_drafts.is_empty() {
                             let current = held.answers(part).cloned().unwrap_or_default();
-                            held.set_agent_answers(part, current, &[], refused_drafts);
+                            held.set_agent_answers(part, current, &[], [], refused_drafts);
                         }
                         return Err(e);
                     }
@@ -1101,7 +1126,8 @@ impl Server {
             entry.insert("state".into(), json!(state));
         }
         let open: Vec<String> = open.into_iter().map(str::to_string).collect();
-        held.set_agent_answers(part, trial.clone(), &clear, refused_drafts);
+        let accepted = changed.iter().filter_map(|entry| entry["id"].as_str());
+        held.set_agent_answers(part, trial.clone(), &clear, accepted, refused_drafts);
         let rev = held.rev();
         drop(held);
         let doc = self.doc_mut(&handle);
@@ -1781,6 +1807,25 @@ fn try_answer(
     Ok(entry)
 }
 
+/// Read legacy file entries as individual answers. Preserve the file's bookkeeping keys.
+fn import_answers(
+    analysis: &Value,
+    kept: &Map<String, Value>,
+) -> (Map<String, Value>, BTreeMap<String, String>) {
+    let mut answers = kept
+        .iter()
+        .filter(|(id, _)| id.starts_with('_'))
+        .map(|(id, value)| (id.clone(), value.clone()))
+        .collect();
+    let mut refused = BTreeMap::new();
+    for (id, value) in kept.iter().filter(|(id, _)| !id.starts_with('_')) {
+        if let Err(error) = try_answer(analysis, &mut answers, id, value) {
+            refused.insert(id.clone(), error.message);
+        }
+    }
+    (answers, refused)
+}
+
 /// An open question as an agent asks it in chat: `{id, prompt, choices}` (the values to choose
 /// from) or `{id, prompt, hint}` (what to type), with `suggested` (its default, to offer, never
 /// to take unasked) and `rule` (the rule behind the suggestion) when it has one.
@@ -2019,7 +2064,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "open",
             "title": "Open a part to specify",
-            "description": format!("Analyse one part of a STEP file (recognise its features, read its existing PMI) and return a document handle `doc` for the other tools, with the current feature table, open questions and the session's rev. An assembly opened without `part` returns its parts and needs_part: true; call again with `part`. A file Specify wrote shows its PMI as the file states it, whoever wrote it. With old (the previous revision of the file), the two are compared as the diff tool compares them (from the two files' PMI only); the session is this file's as without old, and the result adds verdict, summary and report. Opening the same file again reads the bytes on disk. Reopening the unchanged original after a copy save starts without its saved working answers. {MEMORY_RULE} With answers_file, answers are read from that JSON file if it exists and every change is saved to it."),
+            "description": format!("Analyse one part of a STEP file (recognise its features, read its existing PMI) and return a document handle `doc` for the other tools, with the current feature table, open questions and the session's rev. An assembly opened without `part` returns its parts and needs_part: true; call again with `part`. A file Specify wrote shows its PMI as the file states it, whoever wrote it. With old (the previous revision of the file), the two are compared as the diff tool compares them (from the two files' PMI only); the session is this file's as without old, and the result adds verdict, summary and report. Opening the same file again reads the bytes on disk. Reopening the unchanged original after a copy save starts without its saved working answers. {MEMORY_RULE} With answers_file, accepted entries from the JSON file become working answers. Refused entries are reported with their reasons and kept in the source JSON on open."),
             "inputSchema": input(json!({
                 "path": {"type": "string", "description": "A .step/.stp file (or gzipped) inside the server's allowed directories."},
                 "part": {"type": "integer", "minimum": 0, "description": "Which part of an assembly (see list_parts)."},
@@ -2040,6 +2085,7 @@ pub fn tools() -> Vec<Value> {
                 "answered": {"type": "integer"},
                 "open_questions": strings(),
                 "table": {"type": "object", "description": "The opened part's current feature table."},
+                "refused": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Question IDs and reasons for refused answers on the opened part."},
                 "rev": rev(),
                 "verdict": {"type": "string"},
                 "summary": {"type": "string"},
@@ -2075,7 +2121,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "answer",
             "title": "Answer questions",
-            "description": format!("Set or clear answers on the open document. set maps question id to answer: a choice question takes one of its options or free text Specify interprets (\"M6\" for a hole, \"H7\" for a bore, \"6061-T6\" for material); a faces question takes a list of face indices; text questions take text. Answers are applied in order and all-or-nothing: a refused answer is an error naming the question and no answer is stored. With partial: true (answer everything you know in one call), every valid answer is applied in one rev and outcomes gives each id {{stored, interpreted_from?, state}} or {{refused: reason}}. Give only what the person or the design intends: never a default as intent. The change goes to the session (rev goes up) and appears in the Specify page if it is shown. An answer equal to a stated value changes nothing. A different answer to a stated row is refused with the row ID and the explicit change to send. The page shows the refusal and it can be discarded. Use check with stage: true to propose an explicit guarded change for the page to save. The page or MCP save writes the working answers with the explicit edits. Use discard to drop drafts without writing. {MEMORY_RULE} answers_file also saves them to that JSON file from now on."),
+            "description": format!("Set or clear answers on the open document. set maps question id to answer: a choice question takes one of its options or free text Specify interprets (\"M6\" for a hole, \"H7\" for a bore, \"6061-T6\" for material); a faces question takes a list of face indices; text questions take text. Answers are applied in order and all-or-nothing: a refused answer is an error naming the question and no answer is stored. With partial: true (answer everything you know in one call), every valid answer is applied in one rev and outcomes gives each id {{stored, interpreted_from?, state}} or {{refused: reason}}. Give only what the person or the design intends: never a default as intent. The change goes to the session (rev goes up) and appears in the Specify page if it is shown. An answer equal to a stated value changes nothing. A different answer to a stated row is refused with the row ID and the explicit change to send. The page shows the refusal and it can be discarded. Use check with stage: true to propose an explicit guarded change for the page to save. The page or MCP save writes the working answers with the explicit edits. Use discard to drop drafts without writing. {MEMORY_RULE} An accepted or equal answer clears its earlier refusal. answers_file also saves them to that JSON file from now on."),
             "inputSchema": input(json!({
                 "doc": doc(),
                 "set": {"type": "object", "description": "Question id to answer.", "additionalProperties": true},
@@ -2224,7 +2270,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "save",
             "title": "Save an edit list into the STEP",
-            "description": format!("Apply an edit list to the opened file and write it as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; later saves update the copy this session wrote, and no other file is overwritten), or over it if it was opened in_place (the original kept once as .bak). edits: fill gaps {{id: value}}, change what the file states {{id: {{to, expect}}}} (expect: the value you saw), items.remove [\"#N\"] to remove a requirement by its characteristic number, none [id] to record that nothing is needed, accept_suggestions [id] to fill a gap with Specify's suggestion. Ids are the feature table's (the analysis resource's table). Anything not named is left as it is, byte for byte. Use edits for the opened part or partEdits for one or more part indices in the same file. The save is all or nothing: if any entry cannot be applied nothing is written, and the error (failures) names every failing entry and why. Fill or accept only what the person approved: never a suggestion as intent unasked. rev (optional): the session revision you last saw; a session that moved on is refused (stale). Save includes the session's agent drafts on all parts unless you discard them first. Saving the drafts counts as approving them. An explicit edit for the same question takes precedence. Use discard to drop the working answers without writing. check tests a list without writing. {MEMORY_RULE}"),
+            "description": format!("Apply an edit list to the opened file and write it as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; later saves update the copy this session wrote, and no other file is overwritten), or over it if it was opened in_place (the original kept once as .bak). edits: fill gaps {{id: value}}, change what the file states {{id: {{to, expect}}}} (expect: the value you saw), items.remove [\"#N\"] to remove a requirement by its characteristic number, none [id] to record that nothing is needed, accept_suggestions [id] to fill a gap with Specify's suggestion. Ids are the feature table's (the analysis resource's table). Anything not named is left as it is, byte for byte. Use edits for the opened part or partEdits for one or more part indices in the same file. The save is all or nothing: if any entry cannot be applied nothing is written, and the error (failures) names every failing entry and why. Fill or accept only what the person approved: never a suggestion as intent unasked. rev (optional): the session revision you last saw; a session that moved on is refused (stale). Save includes the session's agent drafts on all parts unless you discard them first. Saving the drafts counts as approving them. An explicit edit for the same question takes precedence. Use discard to drop the working answers without writing. Refused answers are left out. Returns the current feature table. check tests a list without writing. {MEMORY_RULE}"),
             "inputSchema": edit_input(true),
             "outputSchema": output(json!({
                 "doc": {"type": "string"},
@@ -2233,8 +2279,9 @@ pub fn tools() -> Vec<Value> {
                 "rev": rev(),
                 "report": {"type": "object", "description": "What was written, the characteristic numbers retired, and whether anything changed."},
                 "complete": {"type": "boolean"},
-                "missing": strings()
-            }), &["doc", "path", "bytes", "rev", "report", "complete", "missing"]),
+                "missing": strings(),
+                "table": {"type": "object", "description": "The opened part's feature table after saving."}
+            }), &["doc", "path", "bytes", "rev", "report", "complete", "missing", "table"]),
             "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false},
         }),
         json!({

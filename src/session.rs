@@ -352,13 +352,16 @@ impl Session {
             .collect()
     }
 
-    fn shown_draft(&self, part: usize) -> Option<Value> {
-        let draft = self.draft(part);
-        let refused = self
-            .agent_drafts
+    pub(crate) fn refused_answers(&self, part: usize) -> Option<&BTreeMap<String, String>> {
+        self.agent_drafts
             .get(&part)
             .map(|agent| &agent.refused)
-            .filter(|refused| !refused.is_empty());
+            .filter(|refused| !refused.is_empty())
+    }
+
+    fn shown_draft(&self, part: usize) -> Option<Value> {
+        let draft = self.draft(part);
+        let refused = self.refused_answers(part);
         if draft.is_empty() && refused.is_none() {
             return None;
         }
@@ -383,17 +386,21 @@ impl Session {
     }
 
     /// Keep refused answers visible without adding them to the edits a save can apply.
-    pub(crate) fn set_agent_answers(
+    pub(crate) fn set_agent_answers<'a>(
         &mut self,
         part: usize,
         answers: Map<String, Value>,
         cleared: &[String],
+        accepted: impl IntoIterator<Item = &'a str>,
         refused: BTreeMap<String, String>,
     ) {
         let draft = self.agent_drafts.entry(part).or_default();
         let mut changed = false;
         for id in cleared {
             changed |= draft.remove(id);
+        }
+        for id in accepted {
+            changed |= draft.refused.remove(id).is_some();
         }
         for (id, reason) in refused {
             if draft.refused.get(&id) != Some(&reason) {
