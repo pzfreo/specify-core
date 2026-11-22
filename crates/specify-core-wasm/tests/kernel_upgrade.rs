@@ -78,9 +78,21 @@ fn browser_sessions_resume_all_87_alpha6_answers() {
             json!(migrated)
         );
         count += expected.len();
-        // #21's optional depth override adds no review work to fully answered old files.
+        // #21's optional depth override still adds no review work. Standalone
+        // measurements are now open because their suggestions write PMI.
         let review = session.review(&expected).unwrap();
-        assert!(review["open"].as_array().unwrap().is_empty());
+        let asked = review["questions"].as_array().unwrap();
+        for id in review["open"].as_array().unwrap() {
+            assert!(
+                id.as_str().is_some_and(
+                    |id| id.starts_with("length:planes:") || id.starts_with("location:holes:")
+                ),
+                "{name}: {id}"
+            );
+            let question = asked.iter().find(|question| question["id"] == *id).unwrap();
+            assert!(question["default"].is_string(), "{name}: {question}");
+            assert_ne!(question["optional"], true, "{name}: {question}");
+        }
     }
     assert_eq!(count, 87);
 }

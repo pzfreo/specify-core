@@ -207,7 +207,7 @@ impl Grm05 {
         answers
     }
 
-    fn write(&self, answers: Map<String, Value>, bulk: bool) -> Value {
+    fn run_write(&self, answers: Map<String, Value>, bulk: bool) -> Run {
         let given = self.dir.join("answers.json");
         save(&given, &Value::Object(answers));
         let output = self.dir.join("out.step");
@@ -222,9 +222,13 @@ impl Grm05 {
         if bulk {
             args.push("--accept-defaults".into());
         }
-        let result = run(&args);
+        run(&args)
+    }
+
+    fn write(&self, answers: Map<String, Value>, bulk: bool) -> Value {
+        let result = self.run_write(answers, bulk);
         assert_eq!(result.code, 0, "{}", result.stderr);
-        api::analyse_file(&output, None).unwrap()
+        api::analyse_file(&self.dir.join("out.step"), None).unwrap()
     }
 }
 
@@ -258,21 +262,43 @@ fn grm05_has_three_suggested_length_gaps_before_save() {
         .filter(|row| row["kind"] == "length")
         .collect();
     assert_eq!(lengths.len(), 3);
+    let result = run(&["questions", &s(&part.dir.join("analysis.json")), "--open"]);
+    assert_eq!(result.code, 0, "{}", result.stderr);
+    let open: Vec<Value> = serde_json::from_str(&result.stdout).unwrap();
     for (id, face, _, text) in GRM05_LENGTHS {
         let row = grm05_row(&part.analysis, id);
         assert_eq!(row["state"], "gap", "{id}");
+        assert_eq!(row["open"], true, "{id} writes PMI");
+        assert!(
+            open.iter().any(|q| q["id"] == id),
+            "{id} absent from --open"
+        );
         assert_eq!(row["suggestion"], text, "{id}");
         assert_eq!(row["faces"], json!([face]), "{id}");
     }
 }
 
 #[test]
-fn grm05_answering_only_the_other_questions_leaves_all_three_length_gaps() {
+fn grm05_write_refuses_three_unanswered_length_gaps_but_session_saves() {
     let Some(part) = Grm05::load("grm05-no-lengths-approved") else {
         return;
     };
-    let reopened = part.write(part.other_answers(), false);
+    let answers = part.other_answers();
+    // The model makes any gap whose suggestion writes PMI open. CLI write
+    // refuses incomplete answers on this branch; a partial session save still writes.
+    let refused = part.run_write(answers.clone(), false);
+    assert_eq!(refused.code, 2, "{}", refused.stderr);
+    assert!(refused.stderr.starts_with("incomplete: "));
+    assert!(!part.dir.join("out.step").exists());
+    let original = specify_core::part::load(&part.input, None).unwrap();
+    let (intent, missing) =
+        specify_core::session::intent_for(&original, &part.analysis, &answers).unwrap();
+    let (bytes, _) = specify_core::writer::write_bytes(&original, &intent, Some(&answers)).unwrap();
+    let reopened =
+        api::analyse(&specify_core::part::load_bytes("partial.step", bytes).unwrap()).unwrap();
+    assert_eq!(missing, GRM05_LENGTHS.map(|(id, ..)| id));
     for (id, face, nominal, _) in GRM05_LENGTHS {
+        assert!(refused.stderr.contains(id), "{}", refused.stderr);
         assert!(
             !grm05_written(&reopened, face, nominal),
             "{id} was written without approval"
@@ -324,7 +350,15 @@ fn grm05_reopening_a_file_with_one_length_shows_it_as_stated() {
     let mut answers = part.other_answers();
     let (approved, _, _, text) = GRM05_LENGTHS[0];
     answers.insert(approved.into(), json!(text));
-    let reopened = part.write(answers, false);
+    // The other two length gaps make CLI write incomplete; use the same partial
+    // session save as the panel to approve just this row.
+    let original = specify_core::part::load(&part.input, None).unwrap();
+    let (intent, _) =
+        specify_core::session::intent_for(&original, &part.analysis, &answers).unwrap();
+    let (bytes, _) = specify_core::writer::write_bytes(&original, &intent, Some(&answers)).unwrap();
+    let next = part.dir.join("out.step");
+    std::fs::write(&next, bytes).unwrap();
+    let reopened = api::analyse_file(&next, None).unwrap();
     for (id, face, nominal, _) in GRM05_LENGTHS {
         assert_eq!(
             grm05_written(&reopened, face, nominal),
@@ -341,7 +375,6 @@ fn grm05_reopening_a_file_with_one_length_shows_it_as_stated() {
     assert_eq!(stated["requirements"][0]["faces"], json!([2, 3]));
 
     // The next approval uses the same path the panel uses when it keeps one suggestion.
-    let next = part.dir.join("out.step");
     let loaded = specify_core::part::load(&next, None).unwrap();
     let (second, face, nominal, text) = GRM05_LENGTHS[1];
     let bytes = common::apply_edits(&loaded, json!({"fill": {second: text}})).bytes;
@@ -2105,6 +2138,76 @@ fn check_datum_origin_departures(differences: &[Difference]) {
     );
 }
 
+/// The separate exact snapshot compares the complete question and its order.
+/// The ledger records the addition by question ID, and its open-list membership.
+fn field_departures(differences: Vec<Difference>) -> Vec<Difference> {
+    let mut out = Vec::new();
+    let mut added = std::collections::BTreeMap::<_, Vec<Value>>::new();
+    let mut opened = std::collections::BTreeMap::<_, Map<String, Value>>::new();
+    let measurement =
+        |id: &str| id.starts_with("length:planes:") || id.starts_with("location:holes:");
+    for mut d in differences {
+        if let Some((list, index)) = d.path.rsplit_once('[')
+            && index
+                .strip_suffix(']')
+                .is_some_and(|i| i.bytes().all(|b| b.is_ascii_digit()))
+            && let Some(value) = &d.rust
+        {
+            let list = list.trim_end_matches('.');
+            if list.ends_with(".questions")
+                && d.python.is_none()
+                && let Some(id) = value
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|id| measurement(id))
+            {
+                added
+                    .entry((d.case, list.to_string()))
+                    .or_default()
+                    .push(json!(id));
+                continue;
+            }
+            if list.ends_with(".open")
+                && let Some(id) = value.as_str().filter(|id| measurement(id))
+            {
+                opened
+                    .entry((d.case.clone(), list.to_string()))
+                    .or_default()
+                    .insert(id.into(), json!(true));
+                if d.python.is_none() {
+                    continue;
+                }
+                // The Python question at this index still needs its own verdict.
+                d.rust = None;
+            }
+        }
+        out.push(d);
+    }
+    for ((case, list), ids) in added {
+        out.push(difference(
+            &case,
+            &format!("{list}.measurement_count"),
+            Some(json!(0)),
+            Some(json!(ids.len())),
+        ));
+        out.push(difference(
+            &case,
+            &format!("{list}.measurement_ids"),
+            Some(json!([])),
+            Some(json!(ids)),
+        ));
+    }
+    out.extend(opened.into_iter().map(|((case, list), flags)| {
+        difference(
+            &case,
+            &format!("{list}.measurement_flags"),
+            Some(json!({})),
+            Some(json!(flags)),
+        )
+    }));
+    out
+}
+
 #[test]
 fn the_command_line_matches_the_oracle() {
     let dir = scratch("oracle");
@@ -2119,6 +2222,8 @@ fn the_command_line_matches_the_oracle() {
     );
     differences.extend(command_lines(&dir));
     let _ = std::fs::remove_dir_all(&dir);
+    check_datum_origin_departures(&differences);
+    let differences = field_departures(differences);
     if let Some(dir) = std::env::var_os("SPECIFY_DUMP") {
         let dir = PathBuf::from(dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -2132,7 +2237,6 @@ fn the_command_line_matches_the_oracle() {
         )
         .unwrap();
     }
-    check_datum_origin_departures(&differences);
     check_area(&differences);
 }
 

@@ -30,9 +30,9 @@ One file per area, `<area>.json`, a JSON array of entries:
 - `verdict` is one of `rust-correct`, `rust-wrong`, `equivalent`, `undetermined`,
   `not-applicable`, `resolved`. A `rust-wrong` entry is a bug kept visible, not a pass.
 - `evidence` says what was checked to reach the verdict.
-
-Every field is a non-empty string and no other field is allowed (`tests/common`'s `load_known`
-checks it).
+- Optional `values` records the exact `python` and `rust` values. Omit a side when the field
+  was absent. With `values`, the case and path must match literally, and no other value is
+  covered. The other fields are non-empty strings, checked by `load_known`.
 
 ## The rule
 
