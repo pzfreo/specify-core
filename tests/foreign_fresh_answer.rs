@@ -165,7 +165,10 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_on_the_cli() {
     let (answered, report) = cli_write(&saved.bytes, Some(&given), "answer");
     assert_eq!(positions(&answered), [(1.5, false)], "{report}");
     let error = report.as_str().unwrap();
-    assert!(error.contains(HOLE) && error.contains("1.5"), "{error}");
+    assert!(
+        error.contains(HOLE) && error.contains("change with \"to\": \"0.5\", \"expect\": \"1.5\""),
+        "{error}"
+    );
 }
 
 /// The same over MCP: `open`, `save`, then reopen; `answer` 0.5 is refused, and so is `save`
@@ -187,19 +190,18 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_over_mcp() {
         }});
         server.handle(&request, None).body.unwrap()["result"].clone()
     };
-    let mut ok = |name: &str, arguments: Value| -> Value {
-        let result = call(name, arguments);
-        assert_ne!(result["isError"], json!(true), "{name}: {result}");
+    let ok = |result: Value| {
+        assert_ne!(result["isError"], json!(true), "{result}");
         result["structuredContent"].clone()
     };
-    let opened = ok("open", json!({"path": input}));
+    let opened = ok(call("open", json!({"path": input})));
     assert!(opened.get("conflicts").is_none(), "{opened}");
-    let saved = ok("save", json!({"doc": opened["doc"], "edits": {}}));
+    let saved = ok(call("save", json!({"doc": opened["doc"], "edits": {}})));
     let path = saved["path"].as_str().unwrap().to_string();
     let back = load(std::fs::read(&path).unwrap());
     assert_eq!(positions(&back), [(1.5, false)]);
     assert_no_conflict(&api::analyse(&back).unwrap());
-    let reopened = ok("open", json!({"path": path}));
+    let reopened = ok(call("open", json!({"path": path})));
     // ADR P11: the file states the hole's position, so an answer is refused up front with the
     // edit list's reason.
     let refused = call(
@@ -213,7 +215,8 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_over_mcp() {
     assert!(
         message.starts_with("the file states")
             && message.contains("⌖ ⌀1.5 A B C")
-            && message.contains(&format!("for {HOLE}, so there is no gap to fill")),
+            && message.contains(&format!("for {HOLE}"))
+            && message.contains("change with \"to\": \"0.5\", \"expect\": \"1.5\""),
         "{message}"
     );
     let before = std::fs::read(&path).unwrap();
@@ -232,5 +235,31 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_over_mcp() {
         "{refused}"
     );
     assert_eq!(std::fs::read(&path).unwrap(), before, "nothing written");
-    assert_eq!(positions(&load(before)), [(1.5, false)]);
+    let noop = ok(call("save", json!({"doc": reopened["doc"], "edits": {}})));
+    assert_eq!(noop["report"]["written"], json!([]), "{noop}");
+    assert_eq!(noop["report"]["unchanged"], true, "{noop}");
+    let noop_bytes = std::fs::read(noop["path"].as_str().unwrap()).unwrap();
+    let position_entity = |bytes: &[u8]| {
+        String::from_utf8_lossy(bytes)
+            .lines()
+            .find(|line| line.contains("POSITION_TOLERANCE()") && !line.contains("WITH_MODIFIERS"))
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(position_entity(&noop_bytes), position_entity(&before));
+    assert_eq!(positions(&load(noop_bytes)), [(1.5, false)]);
+
+    let modified = ok(call(
+        "save",
+        json!({"doc": reopened["doc"], "edits": {"change": {(HOLE): {"to": "0.5", "expect": "1.5"}}}}),
+    ));
+    let changed = load(std::fs::read(modified["path"].as_str().unwrap()).unwrap());
+    let positions = positions(&changed);
+    assert_eq!(positions.iter().map(|p| p.0).collect::<Vec<_>>(), [0.5]);
+    assert!(
+        modified["report"]["written"]
+            .as_array()
+            .is_some_and(|lines| !lines.is_empty()),
+        "{modified}"
+    );
 }

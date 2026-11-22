@@ -852,6 +852,15 @@ impl Server {
                     }
                     None => Session::of(opened, file, in_place.unwrap_or(false)),
                 };
+                if self.sessions.iter().any(|shared| {
+                    let held = session::lock(shared);
+                    held.file().path == given
+                        && held.sha() == file_sha
+                        && held.old().map(|old| &old.path) == old_given
+                        && held.last_saved().is_some_and(|(path, _)| path != given)
+                }) {
+                    new.mark_reopened_original();
+                }
                 new.keep_analysis(index, Arc::clone(&analysis));
                 new.set_allowed(self.allow.clone());
                 new.resume()?;
@@ -865,7 +874,12 @@ impl Server {
             .docs
             .get(&handle)
             .filter(|d| !Arc::ptr_eq(&d.session, &shared))
-            .map(Doc::answers);
+            .and_then(|d| {
+                let held = session::lock(&d.session);
+                held.last_saved()
+                    .is_none()
+                    .then(|| held.answers(d.part).cloned().unwrap_or_default())
+            });
         let (answers, rev, report) = {
             let mut s = session::lock(&shared);
             // Only when the call says so: where a running page's Save writes changes with it.
@@ -924,6 +938,7 @@ impl Server {
         out.insert("resumed".into(), json!(analysis.get("resume").is_some()));
         out.insert("answered".into(), json!(answers.len()));
         out.insert("open_questions".into(), json!(open));
+        out.insert("table".into(), analysis["table"].clone());
         out.insert("rev".into(), json!(rev));
         if let Some(report) = report {
             out.insert("verdict".into(), report["verdict"].clone());
@@ -1631,13 +1646,12 @@ fn save_error(e: session::SaveError) -> ToolError {
     }
 }
 
-/// The value of the feature table's row `id`, when the file states it.
-fn stated<'a>(analysis: &'a Value, id: &str) -> Option<&'a Value> {
+/// The feature table's row `id`, when the file states it.
+fn stated_row<'a>(analysis: &'a Value, id: &str) -> Option<&'a Value> {
     analysis["table"]["rows"]
         .as_array()?
         .iter()
         .find(|r| r["id"] == id && r["state"] == "stated")
-        .map(|r| r.get("value").unwrap_or(&Value::Null))
 }
 
 /// Whether an answer `given` says what the file's `value` states (the same text, ignoring
@@ -1660,10 +1674,12 @@ fn try_answer(
     id: &str,
     given: &Value,
 ) -> Result<Map<String, Value>, ToolError> {
-    // ADR P11: what the file states is not a question; an answer to it would be accepted and
-    // then left out of the save. Refused with the edit list's reason for a fill on a stated row.
-    if let Some(value) = stated(analysis, id) {
-        if same_as_stated(value, given) {
+    if let Some(row) = stated_row(analysis, id) {
+        let value = &row["value"];
+        let row: crate::feature_table::Row =
+            serde_json::from_value(row.clone()).expect("analysis contains a feature-table row");
+        let expect = crate::edits::stated_value(&row);
+        if same_as_stated(value, given) || same_as_stated(&expect, given) {
             let mut entry = Map::new();
             entry.insert("id".into(), json!(id));
             entry.insert("value".into(), value.clone());
@@ -1671,10 +1687,7 @@ fn try_answer(
             return Ok(entry);
         }
         return Err(ToolError::invalid(format!(
-            "the file states {value} for {id}, so there is no gap to fill; changing what the \
-             file states is an explicit edit, not an answer: an edit list's change, \
-             {{\"change\": {{\"{id}\": {{\"to\": <the new value>, \"expect\": {value}}}}}}}, \
-             sent with `save` (or checked with `check`) as its `edits`"
+            "the file states {value} for {id}. To change it, use change with \"to\": {given}, \"expect\": {expect}."
         ))
         .with("question", json!(id)));
     }
@@ -1941,6 +1954,7 @@ pub fn tools() -> Vec<Value> {
                 "resumed": {"type": "boolean"},
                 "answered": {"type": "integer"},
                 "open_questions": strings(),
+                "table": {"type": "object", "description": "The opened part's current feature table."},
                 "rev": rev(),
                 "verdict": {"type": "string"},
                 "summary": {"type": "string"},

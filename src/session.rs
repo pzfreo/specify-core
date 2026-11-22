@@ -180,6 +180,8 @@ pub struct Session {
     /// The file the last successful save wrote (as the save reports its path) and SHA-256 of
     /// the bytes it stored there (`GET file?rev=saved`).
     last_saved: Option<(PathBuf, String)>,
+    /// Reopening the original after a copy save needs a real edit to produce another copy.
+    reopened_original: bool,
     /// The directories saves may write in (MCP's `--allow`); None: anywhere beside the file.
     allowed: Option<Vec<PathBuf>>,
     analyses: BTreeMap<usize, Arc<Value>>,
@@ -231,6 +233,7 @@ impl Session {
             backup: None,
             written: Vec::new(),
             last_saved: None,
+            reopened_original: false,
             allowed: None,
             analyses: BTreeMap::new(),
             answers: BTreeMap::new(),
@@ -519,6 +522,10 @@ impl Session {
             .map(|(path, sha)| (path.as_path(), sha.as_str()))
     }
 
+    pub(crate) fn mark_reopened_original(&mut self) {
+        self.reopened_original = true;
+    }
+
     /// Saves write only inside these directories (canonical), as MCP's `--allow` says.
     pub fn set_allowed(&mut self, dirs: Vec<PathBuf>) {
         self.allowed = Some(dirs);
@@ -680,6 +687,11 @@ pub fn save_part_edits(
         let s = lock(shared);
         if s.rev != seen {
             return Err(SaveError::Stale(s.rev));
+        }
+        if applied.unchanged && !in_place && copy.is_none() && s.reopened_original {
+            return Err(SaveError::Refused(
+                "nothing to save: the reopened input is unchanged".into(),
+            ));
         }
     }
     let cannot = |e: io::Error| SaveError::Failed(format!("cannot save: {e}"));

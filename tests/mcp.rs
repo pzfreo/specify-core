@@ -1912,10 +1912,7 @@ fn an_answer_to_what_the_file_states_is_refused() {
     assert_eq!(
         refused["message"],
         json!(
-            "the file states \"steel\" for part.material, so there is no gap to fill; changing \
-             what the file states is an explicit edit, not an answer: an edit list's change, \
-             {\"change\": {\"part.material\": {\"to\": <the new value>, \"expect\": \"steel\"}}}, \
-             sent with `save` (or checked with `check`) as its `edits`"
+            "the file states \"steel\" for part.material. To change it, use change with \"to\": \"aluminium\", \"expect\": \"steel\"."
         ),
         "{refused}"
     );
@@ -2200,6 +2197,10 @@ fn use_case_7_saves_twice_with_the_table_returned_by_mcp() {
     let opened = client.call("open", json!({"path": path, "in_place": true}));
     let doc = &opened["doc"];
     let analysis_uri = &opened["resources"][0];
+    assert_eq!(
+        opened["table"],
+        specify_core::api::analyse_file(&path, None).unwrap()["table"]
+    );
     let value = |table: &Value| {
         table["rows"]
             .as_array()
@@ -2261,7 +2262,52 @@ fn use_case_7_saves_twice_with_the_table_returned_by_mcp() {
     let read: Value = serde_json::from_str(read["contents"][0]["text"].as_str().unwrap()).unwrap();
     let external = specify_core::api::analyse_file(&path, None).unwrap();
     assert_eq!(value(&read["table"]), "aluminium");
+    assert_eq!(reopened["table"], external["table"]);
     assert_eq!(read["table"], external["table"]);
     drop(client);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn reopening_an_original_with_a_saved_copy_refuses_an_unchanged_save() {
+    let dir = scratch("reopened-copy");
+    let path = dir.join("plate.step");
+    std::fs::copy(part("plate"), &path).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let opened = call(&mut server, "open", json!({"path": path}));
+    let doc = &opened["structuredContent"]["doc"];
+    let saved = call(
+        &mut server,
+        "save",
+        json!({"doc": doc, "edits": {"fill": {"part.material": "steel"}}}),
+    );
+    assert_eq!(saved["isError"], false, "{saved}");
+    let saved_path = dir.join("plate.specified.step");
+    assert_eq!(
+        specify_core::api::analyse_file(&saved_path, None).unwrap()["part"]["material"],
+        "steel"
+    );
+    let reopened = call(&mut server, "open", json!({"path": path}));
+    let doc = &reopened["structuredContent"]["doc"];
+    let refused = error_of(&mut server, "save", json!({"doc": doc, "edits": {}}));
+    assert_eq!(
+        refused["message"], "nothing to save: the reopened input is unchanged",
+        "{refused}"
+    );
+    assert!(!dir.join("plate.specified-2.step").exists());
+    let saved = call(
+        &mut server,
+        "save",
+        json!({"doc": doc, "edits": {"fill": {"part.material": "brass"}}}),
+    );
+    assert_eq!(saved["isError"], false, "{saved}");
+    assert_eq!(
+        specify_core::api::analyse_file(&dir.join("plate.specified-2.step"), None).unwrap()["part"]
+            ["material"],
+        "brass"
+    );
+    assert_eq!(
+        specify_core::api::analyse_file(&saved_path, None).unwrap()["part"]["material"],
+        "steel"
+    );
 }
