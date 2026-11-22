@@ -1029,7 +1029,36 @@ fn accepting_any_one_suggestion_changes_that_row_alone() {
                     // The planner lists gaps first and recovers stated dimensions afterwards.
                     // Compare every original row by id so that reordering cannot hide a change.
                     for (rid, s0, v0) in rows(&t) {
-                        let after = row(&now, &rid);
+                        let after = now["rows"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .find(|r| r["id"] == rid);
+                        // One hole measurement can close several gaps in its direction.
+                        // Check that its single new item states each additional stated row.
+                        if id.starts_with("location:holes:")
+                            && rid != id
+                            && rid.starts_with("location:holes:")
+                            && s0 == "gap"
+                            && after.is_none_or(|r| r["state"] == "stated")
+                        {
+                            let new = numbers(&reload(&saved.bytes));
+                            let old = numbers(&part);
+                            let added: Vec<_> =
+                                new.keys().filter(|n| !old.contains_key(n)).collect();
+                            assert_eq!(added.len(), 1, "{name}: {id}");
+                            if let Some(after) = after {
+                                let number = format!("#{}", added[0]);
+                                let items = after["requirements"].as_array().unwrap();
+                                assert!(
+                                    !items.is_empty()
+                                        && items.iter().all(|r| r["number"] == number)
+                                );
+                            }
+                            continue;
+                        }
+                        let after =
+                            after.unwrap_or_else(|| panic!("{name}: {id} removed row {rid}"));
                         let (s1, v1) = (&after["state"], &after["value"]);
                         if rid != id {
                             assert_eq!((&s0, &v0), (s1, v1), "{name}: {id} changed {rid}");
