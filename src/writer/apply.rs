@@ -114,6 +114,70 @@ fn bare(analysis: &Json) -> Json {
     bare
 }
 
+/// A guarded change preserves the original measurement and replaces its tolerance.
+fn plane_length_change(
+    table: &FeatureTable,
+    analysis: &Json,
+    id: &str,
+    value: &Json,
+) -> Result<Map<String, Json>, String> {
+    let tolerance = value
+        .as_str()
+        .and_then(|text| text.trim().strip_prefix('±'))
+        .and_then(|text| text.trim().parse::<f64>().ok())
+        .filter(|mm| mm.is_finite() && *mm > 0.0)
+        .ok_or_else(|| format!("{id}: give a positive ± tolerance in millimetres, such as ±0.2"))?;
+    let row = table
+        .row(id)
+        .ok_or_else(|| format!("{id}: no such plane length"))?;
+    let [req] = row.requirements.as_slice() else {
+        return Err(format!(
+            "{id}: a tolerance change needs one stated plane length"
+        ));
+    };
+    if req.text_only {
+        return Err(format!(
+            "{id}: the stated length cannot be changed without losing its qualifiers"
+        ));
+    }
+    let item = analysis["existing"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|item| {
+            item["type"] == "Location_LinearDistance"
+                && item["value"].as_f64().is_some()
+                && crate::rules::general_rows::plane_length_id(
+                    &crate::feature_table::faces_of(item, "faces"),
+                    &crate::feature_table::faces_of(item, "faces2"),
+                ) == id
+                && match &req.number {
+                    Some(number) => item["number"]
+                        .as_u64()
+                        .is_some_and(|n| format!("#{n}") == *number),
+                    None => item["text"] == req.text,
+                }
+        })
+        .ok_or_else(|| format!("{id}: cannot find its measured plane supports"))?;
+    Ok(Map::from_iter([
+        ("kind".into(), Json::from("location")),
+        ("question".into(), Json::from(id)),
+        ("feature".into(), Json::from(row.feature.as_str())),
+        ("reference".into(), item["faces"].clone()),
+        ("faces".into(), item["faces2"].clone()),
+        ("distance".into(), item["value"].clone()),
+        ("upper".into(), Json::from(tolerance)),
+        ("lower".into(), Json::from(-tolerance)),
+    ]))
+}
+
+fn changes_plane_length(id: &str, value: &Json) -> bool {
+    id.starts_with("length:planes:")
+        && value
+            .as_str()
+            .is_some_and(|text| text.trim_start().starts_with('±'))
+}
+
 fn answers_refused(list: &EditList, table: &FeatureTable, analysis: &Json) -> Vec<Failure> {
     let bare = bare(analysis);
     let choices: Map<String, Json> = analysis["resume"]["answers"]
@@ -170,6 +234,11 @@ fn answers_refused(list: &EditList, table: &FeatureTable, analysis: &Json) -> Ve
     entries
         .into_iter()
         .filter_map(|(entry, id, value)| {
+            if list.change.contains_key(id) && changes_plane_length(id, &value) {
+                return plane_length_change(table, analysis, id, &value)
+                    .err()
+                    .map(|why| entry_failure(entry, why));
+            }
             let mut answers = choices.clone();
             answers.insert(id.to_string(), value.clone());
             let why = crate::rules::questions(&bare, &answers).err()?;
@@ -1753,14 +1822,24 @@ fn applied_pmi(
     } else {
         let analysis_clean =
             crate::api::analyse(&loaded_clean).map_err(|e| whole(e.to_string()))?;
+        let mut planned = given.clone();
+        let mut lengths = Vec::new();
+        for (id, change) in &list.change {
+            if changes_plane_length(id, &change.to) {
+                lengths
+                    .push(plane_length_change(&table, &analysis, id, &change.to).map_err(whole)?);
+                planned.remove(id);
+            }
+        }
         let (mut intent, general_approvals) = planned_intent(
             &analysis_clean,
             &table,
-            &given,
+            &planned,
             &choices,
             !list.change.is_empty(),
         )
         .map_err(whole)?;
+        intent.requirements.extend(lengths);
         let has_general_tolerance = intent.part.contains_key("general_tolerance")
             || table
                 .row("part.general_tolerance")

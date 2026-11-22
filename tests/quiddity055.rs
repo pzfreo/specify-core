@@ -273,3 +273,74 @@ fn grm05_keeps_its_questions_and_three_lengths() {
         assert_eq!(row["faces"], json!([face]));
     }
 }
+
+#[test]
+fn ftc07_tilted_length_is_stated_changeable_and_removable() {
+    let Some(part) = corpus_part("nist/nist_ftc_07_asme1_rd.stp") else {
+        return;
+    };
+    let id = "length:planes:83-255.263";
+    let before = api::analyse(&part).unwrap();
+    let normal = &before["faces"][83]["direction"];
+    assert!(
+        normal
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|v| v.as_f64().unwrap().abs() < 1.0),
+        "face 83 must be tilted"
+    );
+    assert!(!before["features"].as_array().unwrap().iter().any(|f| {
+        f["family"] == "step_levels" && f["faces"].as_array().unwrap().contains(&json!(83))
+    }));
+    let row = |analysis: &Value| {
+        rows(analysis)
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(row(&before)["state"], "gap");
+    let mut intent = rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
+    for (from, to, distance) in [
+        (json!([255, 263]), json!([83]), 258.205),
+        (json!([84]), json!([173]), 9.517274),
+    ] {
+        intent.requirements.push(
+            json!({"kind": "location", "faces": to, "reference": from, "distance": distance,
+                "upper": 0.5, "lower": -0.5})
+            .as_object()
+            .unwrap()
+            .clone(),
+        );
+    }
+    let (bytes, _) = api::write_bytes(part.bytes.to_vec(), &[(intent, None)]).unwrap();
+    let annotated = part::load_bytes("ftc07.step", bytes).unwrap();
+    let before = api::analyse(&annotated).unwrap();
+    let stated = row(&before);
+    assert_eq!(stated["state"], "stated");
+    assert_eq!(stated["value"], "258.205 ±0.5");
+    let other = &before["table"]["file_pmi"];
+    assert_eq!(other.as_array().unwrap().len(), 1);
+    assert_eq!(other[0]["faces"], json!([84, 173]));
+
+    let changed = edit(
+        &annotated,
+        json!({"change": {(id): {"expect": stated["value"], "to": "±0.2"}}}),
+    );
+    let reopened = part::load_bytes("ftc07.step", changed.bytes).unwrap();
+    let after = api::analyse(&reopened).unwrap();
+    let updated = row(&after);
+    assert_eq!(updated["state"], "stated");
+    assert_eq!(updated["value"], "258.205 ±0.2");
+    assert_eq!(
+        updated["requirements"][0]["faces"],
+        stated["requirements"][0]["faces"]
+    );
+    assert_eq!(after["table"]["file_pmi"], *other);
+
+    let removed = edit(&reopened, json!({"items": {"remove": [{"id": id}]}}));
+    let after = api::analyse(&part::load_bytes("ftc07.step", removed.bytes).unwrap()).unwrap();
+    assert_eq!(row(&after)["state"], "gap");
+    assert_eq!(after["table"]["file_pmi"], *other);
+}

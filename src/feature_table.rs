@@ -326,7 +326,7 @@ pub(crate) fn kind_and_feature(id: &str) -> (String, String) {
     (id.to_string(), feature.to_string())
 }
 
-fn faces_of(value: &Value, key: &str) -> Vec<usize> {
+pub(crate) fn faces_of(value: &Value, key: &str) -> Vec<usize> {
     value[key]
         .as_array()
         .into_iter()
