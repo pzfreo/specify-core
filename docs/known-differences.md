@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 1350 | 0 | 52 | 0 | 2 | 1 | 1405 |
+| [cli](#cli) | 1275 | 0 | 52 | 0 | 2 | 1 | 1330 |
 | [cross_engine](#cross_engine) | 142 | 2 | 0 | 1 | 1 | 20 | 166 |
 | [cross_engine_written](#cross_engine_written) | 23 | 0 | 0 | 0 | 0 | 0 | 23 |
 | [existing](#existing) | 96 | 0 | 0 | 0 | 7 | 0 | 103 |
@@ -23,7 +23,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 194 | 0 | 615 | 0 | 0 | 0 | 809 |
 | [writer](#writer) | 3096 | 0 | 0 | 0 | 15 | 1 | 3112 |
-| **all** | 9441 | 1433 | 1245 | 2468 | 1095 | 1905 | 17587 |
+| **all** | 9366 | 1433 | 1245 | 2468 | 1095 | 1905 | 17512 |
 
 ## analysis
 
@@ -77,7 +77,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (1350 entries)
+### cli: rust-correct (1275 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -195,13 +195,25 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The writer cannot mark the resulting datum feature of size for future preservation. P11 requires it to report this omitted general size.
 
-- **general dimensions are rows (Paul, 2026-11-21)** (1035 entries, 8 case globs)
+- **general dimensions are rows (Paul, 2026-11-21)** (947 entries, 7 case globs)
 
   The evidence is stated per entry (3 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `questions.defaults.questions.[26]`: The CLI lists the newly addressable optional general dimension. The exact ID, faces, suggestion and options are pinned in cli_datum_origins.json.gz.
 
 - **Open questions are gaps: write writes what is answered (#228)** (39 entries, 19 case globs)
 
   The evidence is stated per entry (5 distinct; all in `cli.json`). The first, for `cli/errors/write-no-material` at `exit`: #228 and ADR P11 (proposal specify-0.3.0, '#228': write no longer refuses while gaps remain). Python refuses an answers file with no material (IncompleteError: part.material). Rust's CLI write writes what is answered, exits 0 and lists the open question ids in the report's `missing`, as the editor's save and MCP write_pmi already did; a carried answer not applied, an invalid answer, a wrong file and a different stated general tolerance still refuse. tests/cli.rs issue_228_write_writes_what_is_answered_and_lists_the_gaps and exit_codes_say_what_happened check it; cli_datum_origins.json.gz pins this exact envelope change. Frozen Python captures are unchanged.
+
+- **0.5.5 / Optional fillets and adjacent CLI rows** (10 entries, 10 case globs)
+
+  Quiddity 0.5.5 #297 removes the fillet size floor. Each radius question defaults to none, shifting adjacent rows. All-axis levels and supporting caps (#307) can also change the length rows in this artifact.
+
+- **0.5.5 / CLI plane locations under 0.5.5** (2 entries, 1 case glob)
+
+  Quiddity 0.5.5 #307 changes which planes supply levels. The CLI uses the transverse levels, leaves drafted levels in file PMI and omits supporting-only caps. The observed intent or report values are exact.
+
+- **0.5.5 / CLI all-axis step count** (`cli/default_datum_a_takes_every_coplanar_face#0/analyse` at `stdout.features.step_levels`)
+
+  Quiddity 0.5.5 #307 reports X and Y levels alongside Z, increasing the step level count in the CLI summary.
 
 ### cli: equivalent (52 entries)
 
