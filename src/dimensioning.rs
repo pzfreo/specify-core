@@ -915,6 +915,53 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
         !matches!(&r.kind, Kind::Location { from, to, .. }
         if from.faces.is_empty() || to.faces.is_empty())
     });
+    let depth_intervals = |r: &Required| {
+        let mut spans = Vec::new();
+        if is_straight_depth(&r.kind) && !authorities.contains_key(&r.id) {
+            for h in input
+                .holes
+                .iter()
+                .filter(|h| r.covers.contains(&h.support.feature))
+            {
+                for axis in 0..3 {
+                    if h.direction[axis].abs() > 0.999 {
+                        let entry = h.support.at[axis];
+                        let end = entry + h.direction[axis] * r.nominal;
+                        spans.push((h.support.body, axis, entry, end));
+                    }
+                }
+            }
+        }
+        spans
+    };
+    // A new level can sit on the floor of an enlargement, whose faces the
+    // hole consults without claiming. Keep the existing depth callout when it
+    // measures the same two stations, as on CTC-02's 8 mm counterbore.
+    let supplemental: BTreeSet<_> = input
+        .steps
+        .shoulders
+        .iter()
+        .filter(|p| p.support.feature.starts_with("plane:"))
+        .map(|p| p.support.feature.as_str())
+        .collect();
+    if !supplemental.is_empty() {
+        let depths: Vec<_> = required.iter().flat_map(depth_intervals).collect();
+        required.retain(|r| {
+            let Kind::Location { from, to, axis } = &r.kind else {
+                return true;
+            };
+            authorities.contains_key(&r.id)
+                || !supplemental.contains(to.feature.as_str())
+                || !from.plane
+                || !depths.iter().any(|&(body, k, entry, end)| {
+                    from.body == body
+                        && to.body == body
+                        && *axis == k
+                        && (from.at[k] - entry).abs() < DEPTH_NEAR
+                        && (to.at[k] - end).abs() < DEPTH_NEAR
+                })
+        });
+    }
     let same_span = |row: &Map<String, Value>| {
         let from = support(&input, &ids(row, "reference"), &group_supports);
         let to = support(&input, &ids(row, "faces"), &group_supports);
@@ -1020,28 +1067,9 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
         }
     }
     for r in &mut required {
-        let Kind::Size { role, .. } = &r.kind else {
-            continue;
-        };
-        if !role.ends_with(".depth") || authorities.contains_key(&r.id) {
-            continue;
-        }
-        for h in input
-            .holes
-            .iter()
-            .filter(|h| r.covers.contains(&h.support.feature))
-        {
-            for axis in 0..3 {
-                if h.direction[axis].abs() < 0.999 {
-                    continue;
-                }
-                let entry = h.support.at[axis];
-                let end = entry + h.direction[axis] * r.nominal;
-                if let Some(by) =
-                    station_path(&baselines, h.support.body, axis, entry, end, DEPTH_NEAR)
-                {
-                    r.reference = Some(by);
-                }
+        for (body, axis, entry, end) in depth_intervals(r) {
+            if let Some(by) = station_path(&baselines, body, axis, entry, end, DEPTH_NEAR) {
+                r.reference = Some(by);
             }
         }
     }
