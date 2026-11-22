@@ -1031,7 +1031,7 @@ fn applied_pmi(
     let mut still_stated: Vec<String> = Vec::new();
     let mut remove: BTreeSet<(String, usize)> = BTreeSet::new();
     // Each changed row's items taken out, so its new items keep what the change does not touch.
-    let mut replaced: BTreeMap<String, Vec<(String, usize)>> = BTreeMap::new();
+    let mut changed_items: BTreeMap<String, Vec<(String, usize)>> = BTreeMap::new();
     for n in &list.items.remove {
         match located.iter().find(|l| l.number == Some(n.0)) {
             Some(l) => {
@@ -1202,7 +1202,10 @@ fn applied_pmi(
             }
             match locate(req, &located, &remove) {
                 Some(at) => {
-                    replaced.entry(id.clone()).or_default().push(at.clone());
+                    changed_items
+                        .entry(id.clone())
+                        .or_default()
+                        .push(at.clone());
                     remove.insert(at);
                 }
                 None => failures.push(entry_failure(
@@ -1506,7 +1509,8 @@ fn applied_pmi(
         )
         .map_err(|e| whole(e.to_string()))?;
         lines = planned;
-        keep_untouched(&mut pmi, before, &replaced, &nominals).map_err(|e| whole(e.to_string()))?;
+        keep_untouched(&mut pmi, before, &changed_items, &nominals)
+            .map_err(|e| whole(e.to_string()))?;
         // A change replaces its row's own items: it never adds a location dimension beside
         // one the row shares with another feature (another tool's group dimension, say).
         if mode == Mode::Add {
@@ -1671,7 +1675,7 @@ fn applied_pmi(
 
     let items = vec![(haecceity::pmi::PartId(k), pmi)];
     let (back, kernel) =
-        write_by_modes(&source, &items, &[mode], extra).map_err(|e| whole(e.to_string()))?;
+        write_by_modes(&source, &items, &[mode], &[]).map_err(|e| whole(e.to_string()))?;
     verify(&source, &items, &[mode], &back).map_err(|e| whole(e.to_string()))?;
 
     // ADR P11: every item not named keeps its bytes, whoever wrote it: this part's kept items,
