@@ -3408,8 +3408,14 @@ fn part_pmi_observed(
                         .iter()
                         .any(|r| row == r || same_general_measurement(row, r))
                     {
-                        if intent.accept_defaults {
-                            // This exact measurement was accepted under the old rules.
+                        if intent.accept_defaults
+                            || row
+                                .get("question")
+                                .and_then(Json::as_str)
+                                .is_some_and(crate::rules::general_rows::is_id)
+                        {
+                            // A named edit approves this exact measurement. Legacy intents
+                            // that accepted all defaults also retain their approved rows.
                             upgraded.general.push(row.clone());
                         } else {
                             lines.not_written.push(format!(
