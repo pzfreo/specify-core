@@ -136,18 +136,7 @@ fn write_listed_defaults(input: &Path, name: &str) -> (PathBuf, Value, Value) {
         .collect::<Map<String, Value>>();
     let analysis: Value = serde_json::from_slice(&std::fs::read(analysis).unwrap()).unwrap();
     let intent = api::apply(&analysis, &given, false).unwrap().to_dict();
-    let mut edits = json!({"fill": given});
-    if name.starts_with("spindle") {
-        // The imported spindle offers a redundant general hole size today. P11 refuses
-        // an explicit fill that has nothing to write, so approve the other offered rows.
-        assert_eq!(
-            edits["fill"]
-                .as_object_mut()
-                .unwrap()
-                .remove("hole.function:holes:7"),
-            Some(json!("general"))
-        );
-    }
+    let edits = json!({"fill": given});
     save(&answers, &edits);
     let written = run(&["write", &s(input), &s(&answers), "-o", &s(&output)]);
     assert_eq!(written.code, 0, "{}", written.stderr);
@@ -394,30 +383,42 @@ fn spindle_write_accepts_every_listed_default() {
 }
 
 #[test]
-fn spindle_writes_approved_locations_and_reports_deferred_sizes() {
+fn spindle_writes_approved_locations_and_sizes() {
     let input = common::fixtures().join("spindle.step");
     let (output, intent, report) = write_listed_defaults(&input, "spindle-general");
-    // general dimensions are rows (Paul, 2026-11-21). The stated ⌀24 has no gap;
-    // four standalone locations were offered, approved and written.
-    assert_eq!(intent["general"].as_array().unwrap().len(), 6);
-    for label in [
-        "general size 15 on turned_steps:6 faces [6]",
-        "general size 10 on turned_steps:2 faces [2]",
-    ] {
+    // Four standalone locations and three size approvals. The imported
+    // general tolerance governs the approved sizes, including the cross-hole.
+    assert_eq!(intent["general"].as_array().unwrap().len(), 7);
+    assert_eq!(
+        report["not_written"],
+        json!([
+            "general size 15 on turned_steps:6 faces [6]: the faces establish a datum and the writer cannot mark a datum feature of size",
+            "answer diameter.fit:turned_steps:6 ('general'): approved, but nothing of its kind was written on its feature (general size on a datum's own faces); stored as decided"
+        ])
+    );
+    let reopened = api::analyse_file(&output, None).unwrap();
+    for (face, nominal) in [(2, 10.0), (7, 4.0)] {
         assert!(
-            report["not_written"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|line| line.as_str().unwrap()
-                    == format!(
-                        "{label}: adding PMI skips dimensions deferred by the shared planner"
-                    )),
-            "missing omission for {label}: {}",
-            report["not_written"]
+            reopened["existing"].as_array().unwrap().iter().any(|item| {
+                item["type"] == "Size_Diameter"
+                    && item["faces"] == json!([face])
+                    && item["value"] == nominal
+                    && item["origin"] == "general_tolerance"
+            }),
+            "missing diameter {nominal} on face {face}"
         );
     }
-    let reopened = api::analyse_file(&output, None).unwrap();
+    assert_eq!(
+        reopened["resume"]["answers"]["_specify"]["no_pmi"],
+        json!(["diameter.fit:turned_steps:6"])
+    );
+    assert!(
+        reopened["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["open"] == false)
+    );
     for (id, face, value) in [
         ("length:planes:8-10", 8, 12.0),
         ("length:planes:4-10", 4, 34.0),
@@ -1061,6 +1062,23 @@ fn composition(dir: &Path) -> Vec<Difference> {
                     &Value::Array(open),
                     &got,
                 ));
+            }
+            let given = object(&base);
+            if api::apply(&analysis, &given, true).is_ok() {
+                let loaded = specify_core::part::load(&input, k).unwrap();
+                let stored = api::stored_with_defaults(&loaded, &analysis, &given).unwrap();
+                let storable = specify_core::feature_table::storable;
+                assert_eq!(
+                    storable(&stored),
+                    storable(&common::accept_all::stored(
+                        &input,
+                        loaded.binding.part,
+                        &analysis,
+                        &given
+                    )),
+                    "{file} part {}",
+                    loaded.binding.part
+                );
             }
             analysed += 1;
             if single {

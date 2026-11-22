@@ -604,10 +604,26 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
             }
         }
         if name == "corpus/mfcadpp/10224" {
-            // general dimensions are rows (Paul, 2026-11-21). On these first writes,
-            // the separately approved measurements shift the four allocations by one.
-            // The two poses still receive different stored-frame view positions.
-            for (index, before, after) in [(3, 18, 19), (5, 19, 20), (8, 17, 18), (10, 20, 21)] {
+            // Recovering the rounded Ø2.22857 bore also writes its 3.52 mm depth
+            // between the physical endpoint planes, adding one characteristic.
+            for loaded in &written_parts {
+                let analysis = api::analyse(loaded).unwrap();
+                let depth = analysis["existing"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|item| {
+                        item["type"] == "Location_LinearDistance"
+                            && item["origin"] == "general_tolerance"
+                            && item["value"] == 3.52
+                            && item["faces"] == json!([2])
+                            && item["faces2"] == json!([24])
+                    })
+                    .count();
+                assert_eq!(depth, 1, "{name}: 3.52 mm bore depth");
+            }
+            // Its added allocation advances the same four pose-dependent numbers.
+            for (index, before, after) in [(3, 19, 20), (5, 20, 21), (8, 18, 19), (10, 21, 22)] {
                 assert_eq!(expected_readback[index]["number"], before);
                 expected_readback[index]["number"] = json!(after);
             }

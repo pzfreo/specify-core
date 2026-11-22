@@ -2,6 +2,10 @@
 
 mod common;
 
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
 use serde_json::{Map, Value, json};
 use specify_core::api;
 use specify_core::part::{LoadedPart, load, load_bytes};
@@ -33,10 +37,245 @@ fn row<'a>(table: &'a Value, id: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no row {id} in {table}"))
 }
 
+fn scratch(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "specify-feature-table-{}-{name}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn cli_write(
+    part: &LoadedPart,
+    analysis: &Value,
+    answers: &Map<String, Value>,
+    output: &Path,
+    defaults: bool,
+) -> Value {
+    let result = cli_write_result(part, analysis, answers, output, defaults);
+    assert!(
+        result.status.success(),
+        "{}: {}",
+        part.path.display(),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    serde_json::from_slice(&result.stdout).unwrap()
+}
+
+fn cli_write_result(
+    part: &LoadedPart,
+    analysis: &Value,
+    answers: &Map<String, Value>,
+    output: &Path,
+    defaults: bool,
+) -> std::process::Output {
+    let suggestions: Vec<_> = analysis["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| defaults && r["state"] == "gap" && !r["suggestion"].is_null())
+        .filter_map(|r| r["id"].as_str())
+        .filter(|id| !answers.contains_key(*id))
+        .collect();
+    let edits = output.with_extension("edits.json");
+    std::fs::write(
+        &edits,
+        json!({"fill":answers, "accept_suggestions":suggestions}).to_string(),
+    )
+    .unwrap();
+    let mut cli = Command::new(env!("CARGO_BIN_EXE_specify-core"));
+    cli.arg("write")
+        .arg(&part.path)
+        .arg(edits)
+        .arg("-o")
+        .arg(output);
+    if part.part_count > 1 {
+        cli.arg("--part").arg(part.binding.part.to_string());
+    }
+    cli.output().unwrap()
+}
+
+fn assert_no_open(table: &Value, case: &str) {
+    let open: Vec<_> = table["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["open"] == true)
+        .map(|r| r["id"].as_str().unwrap())
+        .collect();
+    assert!(open.is_empty(), "{case} reopened with open rows: {open:?}");
+}
+
+fn assert_only_intentional_no_pmi(part: &LoadedPart, analysis: &Value, case: &str) {
+    let payloads = resume::stored(&part.bytes);
+    if let Some(payload) = payloads.get(&part.binding.part) {
+        for id in payload
+            .get("no_pmi")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let id = id.as_str().unwrap();
+            let answer = &payload["answers"][id];
+            let row = row(&analysis["table"], id);
+            let datum_owns_size =
+                matches!(row["kind"].as_str(), Some("diameter.fit" | "hole.function"))
+                    && answer == "general"
+                    && analysis["existing"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|item| item["kind"] == "datum" && item["faces"] == row["faces"]);
+            assert!(
+                datum_owns_size,
+                "{case} stored PMI-bearing approval {id} = {answer} under no_pmi"
+            );
+        }
+    }
+}
+
+#[test]
+fn ctc02_location_approval_is_not_stored_as_no_pmi() {
+    let part = fixture("nist/nist_ctc_02_asme1_ap242.stp.gz");
+    let analysis = api::analyse(&part).unwrap();
+    let scratch = scratch("ctc02-location");
+    let output = scratch.join("ctc02.step");
+    cli_write(
+        &part,
+        &analysis,
+        &map(json!({"part.material":"6061-T6"})),
+        &output,
+        true,
+    );
+    let reopened = load(&output, None).unwrap();
+    let after = api::analyse(&reopened).unwrap();
+    assert_only_intentional_no_pmi(&reopened, &after, "CTC-02");
+    let existing = after["existing"].as_array().unwrap();
+    assert!(
+        existing.iter().any(|item| {
+            item["type"] == "Location_LinearDistance"
+                && item["value"] == 185.0
+                && item["origin"] == "general_tolerance"
+                && item["faces"] == json!([1])
+                && [165, 166, 185, 186].iter().all(|f| {
+                    item["faces2"]
+                        .as_array()
+                        .is_some_and(|faces| faces.contains(&json!(f)))
+                })
+                && [101, 102, 303, 304]
+                    .iter()
+                    .all(|f| !item["faces2"].as_array().unwrap().contains(&json!(f)))
+        }),
+        "CTC-02: 185 must locate the unpositioned holes from datum D"
+    );
+    std::fs::remove_dir_all(scratch).unwrap();
+}
+
+#[test]
+fn ctc04_writes_the_position_and_shared_locations_for_unpositioned_holes() {
+    let part = fixture("nist/nist_ctc_04_asme1_ap242.stp.gz");
+    let analysis = api::analyse(&part).unwrap();
+    let scratch = scratch("ctc04");
+    let output = scratch.join("ctc04.step");
+    let pattern = "hole_patterns.linear:11.12.13.14.15.16.17.18.19.20";
+    let location = "location:holes:316.330.372-25.26";
+    assert_eq!(row(&analysis["table"], location)["open"], true);
+    for kind in ["hole.frame", "hole.position"] {
+        assert_eq!(
+            row(&analysis["table"], &format!("{kind}:{pattern}"))["open"],
+            true
+        );
+    }
+    cli_write(
+        &part,
+        &analysis,
+        &map(json!({"part.material":"6061-T6"})),
+        &output,
+        true,
+    );
+    let reopened = load(&output, None).unwrap();
+    let after = api::analyse(&reopened).unwrap();
+    assert_only_intentional_no_pmi(&reopened, &after, "CTC-04");
+    assert_no_open(&after["table"], "CTC-04");
+    for kind in ["hole.frame", "hole.position"] {
+        let r = row(&after["table"], &format!("{kind}:{pattern}"));
+        assert_eq!(r["state"], "stated", "{r}");
+        assert!(
+            r["requirements"].as_array().unwrap().iter().any(|item| {
+                item["type"] == "Position"
+                    && item["text"] == "⌖ ⌀0.75 A B C"
+                    && item["faces"] == json!([11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
+            }),
+            "{r}"
+        );
+    }
+    for (value, faces) in [
+        (5.0, json!([5, 6])),
+        (115.0, json!([25, 26, 29, 30])),
+        (
+            66.25,
+            json!([92, 93, 94, 113, 114, 115, 136, 137, 138, 139, 140, 141]),
+        ),
+    ] {
+        assert!(
+            after["existing"].as_array().unwrap().iter().any(|item| {
+                item["type"] == "Location_LinearDistance"
+                    && item["value"] == value
+                    && item["origin"] == "general_tolerance"
+                    && item["faces"] == json!([316, 330, 372])
+                    && item["faces2"] == faces
+            }),
+            "CTC-04: missing {value} from faces 316,330,372 to {faces}"
+        );
+    }
+    std::fs::remove_dir_all(scratch).unwrap();
+}
+
+#[test]
+fn ctc04_one_pattern_does_not_close_the_position_of_its_identical_neighbour() {
+    let part = fixture("nist/nist_ctc_04_asme1_ap242.stp.gz");
+    let id = "hole.position:hole_patterns.linear:11.12.13.14.15.16.17.18.19.20";
+    let (before, _) = table(&part);
+    let first: Vec<_> = (11..=20).collect();
+    let second: Vec<_> = (49..=58).collect();
+    let both: Vec<_> = first.iter().chain(&second).copied().collect();
+    assert_eq!(row(&before, id)["faces"], json!(both));
+    assert_eq!(row(&before, id)["state"], "gap");
+    let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
+    intent.datums = [("A", vec![382]), ("B", vec![247, 248]), ("C", vec![3, 4])]
+        .into_iter()
+        .map(|(letter, faces)| map(json!({"letter":letter, "faces":faces})))
+        .collect();
+    intent.requirements.push(map(json!({
+        "kind":"position", "feature":"hole_patterns.linear:49.50.51.52.53.54.55.56.57.58",
+        "faces":second, "tolerance":0.75, "diametral":true, "datums":["A","B","C"]
+    })));
+    let (written, _) = specify_core::writer::write_bytes(&part, &intent, None).unwrap();
+    let reopened = load_bytes("ctc04-one-position.step", written).unwrap();
+    let (after, _) = table(&reopened);
+    let r = row(&after, id);
+    assert_eq!(r["faces"], json!(both));
+    let positions: Vec<_> = r["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["type"] == "Position")
+        .map(|item| item["faces"].clone())
+        .collect();
+    assert_eq!(positions, vec![json!(second)], "{r}");
+    assert_eq!(
+        r["state"], "gap",
+        "the first pattern is still unpositioned: {r}"
+    );
+    assert_eq!(r["open"], true, "{r}");
+}
+
 #[test]
 fn ctc05_pattern_answers_are_stated_after_reopening() {
     // CTC-05 AP242 has the same holes as the corpus AP203 input, with faces 78–89.
-    for (index, mut part) in [fixture("nist/nist_ctc_05_asme1_ap242.stp.gz")]
+    let scratch = scratch("ctc05");
+    for (index, part) in [fixture("nist/nist_ctc_05_asme1_ap242.stp.gz")]
         .into_iter()
         .chain(
             common::corpus_dir()
@@ -58,16 +297,38 @@ fn ctc05_pattern_answers_are_stated_after_reopening() {
             .expect("CTC-05 clearance pattern");
         let function = format!("hole.function:{feature}");
         let position = format!("hole.position:{feature}");
-        let mut answers = map(json!({function.clone(): "clearance:M10", position.clone(): "0.72"}));
+        let mut partial_answers =
+            map(json!({function.clone(): "clearance:M10", position.clone(): "0.72"}));
         let analysis = api::analyse(&part).unwrap();
-        for q in api::questions(&analysis, &answers).unwrap() {
+        for q in api::questions(&analysis, &partial_answers).unwrap() {
             if matches!(q.id.as_str(), "datum.A" | "datum.B") {
-                answers.insert(q.id, q.default.unwrap());
+                partial_answers.insert(q.id, q.default.unwrap());
             }
         }
-        let saved = common::apply_edits(&part, json!({"fill": answers}));
-        part = load_bytes("ctc05.step", saved.bytes).unwrap();
+        let saved = common::apply_edits(&part, json!({"fill": partial_answers}));
+        let partial = load_bytes("ctc05.step", saved.bytes).unwrap();
+        let (partial_table, _) = table(&partial);
+        assert_eq!(row(&partial_table, &function)["state"], "stated");
+        assert_eq!(row(&partial_table, &position)["state"], "stated");
+        let saved_again = common::apply_edits(&partial, json!({"fill": partial_answers}));
+        assert!(
+            saved_again.report.written.is_empty(),
+            "{:?}",
+            saved_again.report
+        );
+        assert!(saved_again.unchanged);
+        assert_eq!(
+            table(&load_bytes("ctc05.step", saved_again.bytes).unwrap()).0,
+            partial_table
+        );
         let analysis = api::analyse(&part).unwrap();
+        let answers = map(json!({
+            "part.material":"6061-T6", function.clone():"clearance:M10", position.clone():"0.72"
+        }));
+        let output = scratch.join(format!("{index}.step"));
+        cli_write(&part, &analysis, &answers, &output, true);
+        let reopened = load(&output, None).unwrap();
+        let analysis = api::analyse(&reopened).unwrap();
         let after = &analysis["table"];
         for (id, requirement) in [(&function, "⌀10.7163 H11"), (&position, "⌖ ⌀0.72Ⓜ A B")]
         {
@@ -87,18 +348,194 @@ fn ctc05_pattern_answers_are_stated_after_reopening() {
                 "{id}"
             );
         }
-        let saved_again = common::apply_edits(&part, json!({"fill": answers}));
-        assert!(
-            saved_again.report.written.is_empty(),
-            "{:?}",
-            saved_again.report
-        );
-        assert!(saved_again.unchanged);
-        assert_eq!(
-            table(&load_bytes("ctc05.step", saved_again.bytes).unwrap()).0,
-            *after
-        );
+        assert_no_open(after, "CTC-05");
+        let ids = |table: &Value| {
+            table["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["id"].as_str().unwrap().to_owned())
+                .collect::<BTreeSet<_>>()
+        };
+        assert_eq!(ids(&before), ids(after), "CTC-05 row IDs on reopen");
+        let second = scratch.join(format!("{index}-again.step"));
+        let report = cli_write(&reopened, &analysis, &Map::new(), &second, false);
+        assert_eq!(report["written"], json!([]), "{report}");
+        assert_eq!(table(&load(&second, None).unwrap()).0, *after, "{report}");
     }
+    std::fs::remove_dir_all(scratch).unwrap();
+}
+
+#[test]
+fn accepting_corpus_defaults_leaves_no_open_rows() {
+    let scratch = scratch("corpus");
+    let corpus = common::corpus_dir();
+    assert!(
+        corpus.is_some()
+            || ["SPECIFY_CORPUS", "QUIDDITY_CORPUS"]
+                .iter()
+                .all(|key| std::env::var_os(key).is_none()),
+        "configured corpus directory is missing"
+    );
+    let mut inputs = BTreeSet::new();
+    let mut visited = BTreeSet::new();
+    let mut gaps = Vec::new();
+    for (index, case) in common::cases().into_iter().enumerate() {
+        if case.kind() == "corpus" && corpus.is_none() {
+            continue;
+        }
+        let input = case
+            .input()
+            .unwrap_or_else(|| panic!("missing selected case {}", case.name));
+        if !inputs.insert(input.clone()) {
+            continue;
+        }
+        // The native loader has one part per product. Python captures also number
+        // surface representations separately, so enumerate native parts by file.
+        let file =
+            specify_core::part::File::read(&input).unwrap_or_else(|e| panic!("{}: {e}", case.name));
+        let parts = file
+            .load_all()
+            .unwrap_or_else(|e| panic!("{}: {e}", case.name));
+        assert!(!parts.is_empty(), "{}: no native parts", case.name);
+        for part in parts {
+            let analysis = api::analyse(&part).unwrap();
+            let mut answers = Map::new();
+            if row(&analysis["table"], "part.material")["open"] == true {
+                answers.insert("part.material".into(), json!("6061-T6"));
+            }
+            let part_index = part.binding.part;
+            let output = scratch.join(format!("{index}-{part_index}.step"));
+            // FTC-09 e1's second native product consists of surface geometry.
+            // It has no material volume for the kernel's dimensioning frame.
+            if case.name == "nist/nist_ftc_09_asme1_ap242-e1" && part_index == 1 {
+                assert_eq!(
+                    analysis["dimensioning"]["reason"],
+                    "dimensioning frame: no-material"
+                );
+                let result = cli_write_result(&part, &analysis, &answers, &output, true);
+                assert_eq!(result.status.code(), Some(1), "{result:?}");
+                assert!(
+                    String::from_utf8_lossy(&result.stderr)
+                        .ends_with("dimensioning frame: no-material\n"),
+                    "{result:?}"
+                );
+                assert!(!output.exists());
+                continue;
+            }
+            let report = cli_write(&part, &analysis, &answers, &output, true);
+            let reopened = load(&output, Some(part_index)).unwrap();
+            let after = api::analyse(&reopened).unwrap();
+            assert_only_intentional_no_pmi(&reopened, &after, &case.name);
+            for row in after["table"]["rows"].as_array().unwrap() {
+                if row["open"] == true {
+                    gaps.push(format!(
+                        "{}#{part_index} {}: {}",
+                        case.name, row["id"], row["suggestion"]
+                    ));
+                    eprintln!(
+                        "{}#{part_index} {} still open. Report: {report}",
+                        case.name, row["id"]
+                    );
+                }
+            }
+        }
+        visited.insert(case.name);
+    }
+    for name in [
+        "nist/nist_ctc_01_asme1_ap242",
+        "nist/nist_ctc_05_asme1_ap242",
+    ] {
+        assert!(visited.contains(name), "did not visit {name}");
+    }
+    if corpus.is_some() {
+        for name in [
+            "corpus/nist/nist_ctc_01_asme1_rd",
+            "corpus/nist/nist_ctc_02_asme1_rc",
+            "corpus/nist/nist_ctc_04_asme1_rd",
+            "corpus/nist/nist_ctc_05_asme1_rd",
+            "corpus/gramel/GRM-05_depth_lock_bolt",
+        ] {
+            assert!(visited.contains(name), "did not visit {name}");
+        }
+    }
+    assert!(
+        gaps.is_empty(),
+        "corpus rows left open:\n{}",
+        gaps.join("\n")
+    );
+    std::fs::remove_dir_all(scratch).unwrap();
+}
+
+#[test]
+fn enclosure_depth_reads_back_on_the_hole_function_row() {
+    let part = fixture("parts/electronics-enclosure-base.step.gz");
+    let analysis = api::analyse(&part).unwrap();
+    let scratch = scratch("enclosure");
+    let output = scratch.join("enclosure.step");
+    cli_write(
+        &part,
+        &analysis,
+        &map(json!({"part.material":"6061-T6"})),
+        &output,
+        true,
+    );
+    let (table, _) = table(&load(&output, None).unwrap());
+    let depth = |r: &Value| r["number"] == "#12" && r["text"] == "8";
+    let hole = row(
+        &table,
+        "hole.function:hole_patterns.rectangle:3.11.24.25.26.28.29.30",
+    );
+    assert_eq!(hole["state"], "stated", "{hole}");
+    assert!(
+        hole["requirements"].as_array().unwrap().iter().any(depth),
+        "expected enclosure depth #12 on its hole function row: {hole}"
+    );
+    assert!(!table["file_pmi"].as_array().unwrap().iter().any(depth));
+    std::fs::remove_dir_all(scratch).unwrap();
+}
+
+#[test]
+fn ctc05_depths_read_back_on_the_hole_function_rows() {
+    let part = fixture("nist/nist_ctc_05_asme1_ap242.stp.gz");
+    let analysis = api::analyse(&part).unwrap();
+    let scratch = scratch("ctc05-depths");
+    let output = scratch.join("ctc05.step");
+    cli_write(
+        &part,
+        &analysis,
+        &map(json!({"part.material":"6061-T6"})),
+        &output,
+        true,
+    );
+    let (table, _) = table(&load(&output, None).unwrap());
+    for (id, value, faces) in [
+        (
+            "hole.function:hole_patterns.set:29.30.31.32.33.34.35.36",
+            "30.48",
+            json!([23, 27]),
+        ),
+        (
+            "hole.function:hole_patterns.set:39.41.42.44.45.47.48.50.51.53.54.56.57.59.60.62.63.65.66.68",
+            "12.7",
+            json!([4, 5, 40, 43, 46, 49, 52, 55, 58, 61, 64, 67]),
+        ),
+    ] {
+        let depth = |r: &Value| {
+            r["number"].is_string()
+                && r["type"] == "Location_LinearDistance"
+                && r["text"] == value
+                && r["faces"] == faces
+        };
+        let hole = row(&table, id);
+        assert_eq!(hole["state"], "stated", "{hole}");
+        assert!(
+            hole["requirements"].as_array().unwrap().iter().any(&depth),
+            "missing depth {value} on {hole}"
+        );
+        assert!(!table["file_pmi"].as_array().unwrap().iter().any(depth));
+    }
+    std::fs::remove_dir_all(scratch).unwrap();
 }
 
 #[test]
@@ -120,7 +557,10 @@ fn corpus_feature_rows_that_can_write_pmi_have_faces() {
                 || row["requirements"].as_array().is_some_and(|requirements| {
                     requirements.iter().all(|r| r["faces"] == json!([]))
                 }));
-            if !datum_without_support {
+            if row["feature"] == "part" {
+                assert_eq!(row["scope"], "part", "{}: {row}", case.name);
+                assert_eq!(row["faces"], json!([]), "{}: {row}", case.name);
+            } else if !datum_without_support {
                 assert!(
                     !row["faces"].as_array().unwrap().is_empty(),
                     "{}: {}",
@@ -704,6 +1144,26 @@ fn a_depth_dimension_to_a_hole_floor_does_not_locate_the_hole() {
     );
     let (t, _) = table(&written);
     assert_eq!(row(&t, "hole.position:holes:15.16")["state"], "gap");
+}
+
+#[test]
+fn a_size_on_a_hole_floor_is_not_a_bore_size() {
+    let shaft = fixture("parts/GRM-02_shaft.step");
+    let mut intent = specify_core::rules::Intent::new(json!(shaft.binding));
+    intent.requirements.push(map(json!({
+        "kind":"size", "size_kind":"size", "faces":[16], "nominal":3.5, "general":true
+    })));
+    let (bytes, _) = api::write_bytes(shaft.bytes.to_vec(), &[(intent, None)]).unwrap();
+    let saved = load_bytes("shaft.step", bytes).unwrap();
+    let (table, _) = table(&saved);
+    let hole = row(&table, "hole.function:holes:15.16");
+    assert_eq!(hole["state"], "gap", "{hole}");
+    assert!(
+        table["file_pmi"].as_array().unwrap().iter().any(|r| {
+            r["type"].as_str().unwrap().starts_with("Size_") && r["faces"] == json!([16])
+        }),
+        "{table}"
+    );
 }
 
 /// A file whose datums the rules cannot take as answers still analyses (a table problem never

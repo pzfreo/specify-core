@@ -1051,14 +1051,14 @@ fn a_nist_part_keeps_all_its_pmi() {
         |line: &str| line.ends_with("the file already states it; not written again");
     assert_eq!(general.len(), 14);
     assert!(general.iter().all(|line| already_stated(line)));
-    // The Add report names each of the 14 preserved locations by both intent and STEP support.
+    // The Add report names each of the 14 preserved locations once.
     assert_eq!(
         report
             .not_written
             .iter()
             .filter(|line| already_stated(line))
             .count(),
-        28
+        14
     );
     assert_eq!(report.not_written.iter().map(String::as_str).filter(|line| !already_stated(line)).collect::<BTreeSet<_>>(),[
         "shared planner dim:multiple[hole:50.51.56.57,hole:52.53.58.59]/bore.diameter: General contract conflicts with an answered requirement; retained answered intent instead",
