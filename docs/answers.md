@@ -162,7 +162,7 @@ and settings, and `analyse` adds the **feature table**, `table`:
 In an edit list, `fill` takes a general dimension row's displayed suggestion, and
 `accept_suggestions` uses the same value by id. `none` records a decision on that row.
 Once stated, the dimension can be removed through `items.remove` by row id or characteristic
-number.
+number. An approved dimension the planner cannot write is reported and stays decided.
 
 ### What the file states, read back whole
 

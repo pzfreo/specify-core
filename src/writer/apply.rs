@@ -29,7 +29,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use haecceity::pmi::{DimensionKind, Mode, PartPmi, ToleranceTarget};
 use serde_json::{Map, Value as Json};
 
-use super::{Source, WriteReport, drop_stated, part_pmi, requirements, verify, write_by_modes};
+use super::{Source, WriteReport, drop_stated, requirements, verify, write_by_modes};
 use crate::edits::{self, EditList, Failure, Outcome};
 use crate::feature_table::{FeatureTable, State};
 use crate::part::{self, LoadedPart};
@@ -1049,6 +1049,7 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         Mode::Replace
     };
     let mut lines = super::Lines::default();
+    let mut unwritten = Map::new();
     let mut pmi = if given.is_empty() {
         PartPmi::default()
     } else {
@@ -1085,15 +1086,18 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
             .part
             .retain(|key, _| given.contains_key(&format!("part.{key}")));
         // The general tolerance is its class alone: the planner's dimensions under it are for
-        // the other features, which the list does not name. A hole the list leaves to the
-        // general tolerance (`general`) keeps its own size under it.
+        // the other features, which the list does not name. A feature the list leaves to
+        // the general tolerance (`general`) keeps its own size under it.
         // (Matched by faces: the planner's rows name no feature.)
-        let general_holes: Vec<(&String, BTreeSet<usize>)> = given
+        let general_sizes: Vec<(&String, BTreeSet<usize>)> = given
             .iter()
-            .filter(|(id, v)| v.as_str() == Some("general") && id.starts_with("hole.function:"))
+            .filter(|(id, v)| {
+                *v == "general"
+                    && (id.starts_with("hole.function:") || id.starts_with("diameter.fit:"))
+            })
             .filter_map(|(id, _)| Some((id, table.row(id)?.faces.iter().copied().collect())))
             .collect();
-        let hole_of = |r: &Map<String, Json>| -> Option<String> {
+        let size_owner = |r: &Map<String, Json>| -> Option<String> {
             if r.get("kind").and_then(Json::as_str) != Some("size") {
                 return None;
             }
@@ -1104,7 +1108,7 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
                 .filter_map(Json::as_u64)
                 .map(|f| f as usize)
                 .collect();
-            general_holes
+            general_sizes
                 .iter()
                 .find(|(_, on)| !faces.is_empty() && faces.is_subset(on))
                 .map(|(id, _)| (*id).clone())
@@ -1113,7 +1117,9 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
             if addressed(r) {
                 return true;
             }
-            let Some(id) = hole_of(r) else { return false };
+            let Some(id) = size_owner(r) else {
+                return false;
+            };
             r.insert("question".into(), Json::from(id));
             true
         });
@@ -1124,6 +1130,10 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         {
             item.shift_remove("default");
         }
+        let has_general_tolerance = intent.part.contains_key("general_tolerance")
+            || table
+                .row("part.general_tolerance")
+                .is_some_and(|r| r.state == State::Stated);
         let failing: Vec<Failure> = given
             .keys()
             .filter(|id| {
@@ -1139,7 +1149,10 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
                     || id
                         .strip_prefix("part.")
                         .is_some_and(|key| intent.part.contains_key(key));
-                !written
+                let deferred_diameter = has_general_tolerance
+                    && id.starts_with("diameter.fit:")
+                    && given[*id] == "general";
+                !(written || deferred_diameter)
             })
             .map(|id| {
                 let section = if list.change.contains_key(id) {
@@ -1207,8 +1220,16 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
             }
             !covered
         });
-        let (mut pmi, planned) = part_pmi(&loaded_clean, &intent, clean_before, mode, &[])
-            .map_err(|e| whole(e.to_string()))?;
+        let mut made = Vec::new();
+        let (mut pmi, planned) = super::part_pmi_observed(
+            &loaded_clean,
+            &intent,
+            clean_before,
+            mode,
+            &[],
+            &mut |_, _, row| made.push(row.clone()),
+        )
+        .map_err(|e| whole(e.to_string()))?;
         lines = planned;
         keep_untouched(&mut pmi, before, &replaced, &nominals).map_err(|e| whole(e.to_string()))?;
         // A change replaces its row's own items: it never adds a location dimension beside
@@ -1257,6 +1278,23 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
             }
         }
         lines.not_written.extend(held);
+        let approved: Map<_, _> = given
+            .iter()
+            .map(|(id, value)| (id.clone(), value.clone()))
+            .collect();
+        for id in super::wrote_nothing(
+            &loaded_clean,
+            &approved,
+            &made,
+            &pmi,
+            &BTreeSet::new(),
+            &intent.general,
+        ) {
+            lines
+                .not_written
+                .push(super::not_written_approval(&id, &approved[&id]));
+            unwritten.insert(id.clone(), approved[&id].clone());
+        }
         pmi
     };
 
@@ -1289,9 +1327,21 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
     for (id, value) in &none {
         saved.insert(id.clone(), value.clone());
     }
+    saved.extend(unwritten);
     if !saved.is_empty() || unmarked_answers {
         let mut payload =
             crate::resume::payload(loaded, &saved).map_err(|e| whole(e.to_string()))?;
+        let no_pmi: Vec<&str> = saved
+            .iter()
+            .filter(|(id, value)| {
+                crate::feature_table::is_requirement(id)
+                    && !crate::feature_table::leaves_nothing(value)
+            })
+            .map(|(id, _)| id.as_str())
+            .collect();
+        if !no_pmi.is_empty() {
+            payload[crate::feature_table::NO_PMI] = Json::from(no_pmi);
+        }
         payload["pmi_scope"] = Json::String(super::PMI_PROVENANCE.into());
         pmi.attributes.push(crate::resume::attribute_set(&payload));
     }
