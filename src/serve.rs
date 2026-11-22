@@ -260,7 +260,8 @@ impl Server {
         // Every other op works on an analysis passed back in (asked for before the op is
         // known, as Python's `request["analysis"]` is).
         let analysis = field(request, "analysis")?;
-        let answers = answers(request.get("answers"))?;
+        // What the file decided stays decided (ADR P11), as the sessions resume it.
+        let answers = api::with_stored(analysis, &answers(request.get("answers"))?);
         match op.as_str() {
             Some("questions") => {
                 let qs = api::questions(analysis, &answers)?;

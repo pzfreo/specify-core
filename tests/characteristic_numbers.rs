@@ -312,6 +312,8 @@ fn legacy_numberless_files_read_and_take_a_settings_only_write_unnumbered() {
             }
             Value::Object(out)
         };
+        // general dimensions are rows (Paul, 2026-11-21). Counts include the optional
+        // plane lengths and unowned hole locations read from the geometry.
         assert_eq!(kinds(&p), expected["existing"], "{name}: PMI read");
         let a = api::analyse(&p).unwrap();
         assert_eq!(

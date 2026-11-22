@@ -246,8 +246,9 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
     // and Basic bolt circles, and consolidates General rows. Recognition
     // remains unchanged. Exact tap defaults add three depth questions,
     // replace the general bore-size rows, and resolve their conflicting proposal.
-    // Exact unsupported proposals stay visible. Each count includes the appended
-    // part.process question (docs/process.md); nothing else in the interview changed.
+    // Exact unsupported proposals stay visible. Each ordinary question count includes
+    // part.process (docs/process.md). The additional measurements are counted separately
+    // because general dimensions are rows (Paul, 2026-11-21).
     for (
         file,
         count,
@@ -341,7 +342,16 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
         }
         let roundtrip: Value = serde_json::from_str(&analysis.to_string()).unwrap();
         let qs = questions(&roundtrip, &Map::new()).unwrap();
-        assert_eq!(qs.len(), question_count, "{file}: interview changed");
+        let standalone = qs
+            .iter()
+            .filter(|q| q.id.starts_with("length:planes:") || q.id.starts_with("location:holes:"))
+            .count();
+        assert_eq!(standalone, if count == 4 { 36 } else { 9 }, "{file}");
+        assert_eq!(
+            qs.len() - standalone,
+            question_count,
+            "{file}: ordinary questions"
+        );
         let applied = intent(&roundtrip).unwrap();
         assert_eq!(applied.requirements.len(), requirements, "{file}");
         assert_eq!(applied.general.len(), general, "{file}");
