@@ -144,7 +144,9 @@ Read first:
 
 - **Quiddity 0.5.5.** Published step levels on every part axis get plane-to-plane length rows.
   Independent plane lengths keep their rows. Stated locations on retired levels appear under
-  **Other PMI in the file** when they match no measured row.
+  **Other PMI in the file** when they match no measured row. A stated length on tilted planes
+  stays on its matching row. Change its tolerance with `"to": "±0.2"` and the row value as
+  `expect`. The edit preserves the nominal length and both supports.
   Faces that only support another feature, such as a round boss cap, get no rows of their own.
   Fillets are unchanged from 0.2 and use the general tolerance. Grouped fillet rows come with
   quiddity 0.5.6 radius groups (Paul, 2026-11-22).
