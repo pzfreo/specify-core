@@ -112,10 +112,12 @@ try {
     await check(panel(page).getByRole('button', { name: '+ Add a requirement' })).toBeVisible();
     await panel(page).locator('.pmi-lab-row-head', { hasText: 'Datums' }).click();
     await check(panel(page).getByRole('button', { name: '+ Add datum' })).toBeVisible();
-    // ADR P11: the spindle's file states its datums, so they read "from the file" with no Remove (a
+    // ADR P11: the spindle's file states its datums, so they are shown as stated with no Remove (a
     // save never edits what the file states); a suggested datum's Remove is checked on the shaft below,
-    // and so is a hole's open question (the spindle's file states its holes: no hole row).
-    await check(panel(page).locator('.pmi-lab-datums .chip.existing').first()).toContainText('from the file');
+    // and so is a hole's open question (the spindle's file states its holes: no hole row). Origin is
+    // never shown (the panel, decision 6): no "from the file".
+    await check(panel(page).locator('.pmi-lab-datums .chip.existing').first()).toBeVisible();
+    await check(panel(page).locator('.pmi-lab-datums .chip.existing').first()).not.toContainText('from the file');
     await check(panel(page).getByRole('button', { name: /^Remove datum / })).toHaveCount(0);
     await page.close();
   }
