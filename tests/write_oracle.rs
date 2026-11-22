@@ -28,6 +28,7 @@ struct Captured {
     input: PathBuf,
     /// Python's `{"part": k}` of each job: (part, intent, answers stored).
     jobs: Vec<(usize, Value, Option<Value>)>,
+    accept_defaults: bool,
     report: Value,
     readback: Option<Value>,
 }
@@ -82,6 +83,8 @@ fn case_writes() -> Vec<Captured> {
                 .map(|(k, i)| (k, i.unwrap(), Some(answers.clone())))
                 .collect(),
             report,
+            // tools/capture/cases.py passes accept_defaults=True to every base apply.
+            accept_defaults: true,
             readback: c.artifact("readback"),
         });
     }
@@ -110,6 +113,7 @@ fn scenario_writes() -> Vec<Captured> {
                 (how == "with answers").then(|| s.answers.clone()),
             )],
             report: result["write"].clone(),
+            accept_defaults: s.spec.get("accept_defaults") != Some(&Value::Bool(false)),
             readback: result.get("readback").cloned(),
         });
     }
@@ -319,7 +323,12 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
     let intents: Vec<Result<Intent, String>> = c
         .jobs
         .iter()
-        .map(|(_, i, _)| Intent::from_dict(i).map_err(|e| e.to_string()))
+        .map(|(_, i, _)| {
+            // The frozen Python schema-1 intent dropped this provenance at serialization.
+            let mut intent = Intent::from_dict(i).map_err(|e| e.to_string())?;
+            intent.accept_defaults = c.accept_defaults;
+            Ok(intent)
+        })
         .collect();
     let answers: Vec<Option<Map<String, Value>>> = c
         .jobs
