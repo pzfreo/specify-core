@@ -9,6 +9,25 @@ import { CannotSend, defaultParts, DefaultsChanged, editsFor, EditsRefused, File
 
 const none = async () => [];
 
+test('the second page save uses the HTTP response revision before any event arrives', async () => {
+  const session = createSession(4, { 0: {} });
+  const store = session.store(0);
+  let serverRev = 4;
+  const saver = sessionSaver(store, session, () => store.get(), none, async (rev, edits) => {
+    assert.equal(rev, serverRev, 'the next POST uses the committed revision');
+    const parts = { 0: edits.fill['part.coating'] ? { 'part.coating': 'None' } : {} };
+    return { path: 'p', bytes: 1, rev: ++serverRev, parts, report: {}, complete: true, missing: [] };
+  });
+  store.set({ 'part.coating': 'None' }, {});
+  await saver.save({ defaults: [] });
+  const first = { answers: store.get(), dirty: session.dirty() };
+  store.set({ 'part.edges': 'Deburr' }, store.get());
+  await saver.save({ defaults: [] });
+  assert.deepEqual(first, { answers: { 'part.coating': 'None' }, dirty: false });
+  assert.deepEqual(store.get(), {});
+  assert.equal(session.dirty(), false);
+});
+
 // Full answer replay history was removed with reconstruction; retain disk-baseline coverage.
 test('a delayed saved revision still tracks disk answers after further edits', () => {
   const metadata = { schema: 2, high_water: 17, entries: [] };
@@ -67,9 +86,9 @@ test('reapply puts the page\'s change onto answers changed meanwhile', () => {
 });
 
 /** A write that records what Save sent: the rev and the edit list. */
-const recorder = () => {
+const recorder = (parts = {}) => {
   const writes = [];
-  const write = async (rev, edits) => { writes.push([rev, edits]); return { path: 'p', bytes: 1, rev, report: {}, complete: true, missing: [] }; };
+  const write = async (rev, edits) => { writes.push([rev, edits]); return { path: 'p', bytes: 1, rev, parts, report: {}, complete: true, missing: [] }; };
   return { writes, write };
 };
 
@@ -207,7 +226,7 @@ const d = (part, id, value) => ({ part, id, prompt: id, value: String(value), ra
 
 test('a save with defaults writes only the defaults confirmed', async () => {
   const store = createSessionStore(0, 2, { a: 1 }, { a: 1 });
-  const { writes, write } = recorder();
+  const { writes, write } = recorder(store.session.parts());
   const defaultsOf = async () => [d(0, 'b', 1), d(0, 'c', 2)];
   await sessionSaver(store, store.session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [] });
   await assert.rejects(sessionSaver(store, store.session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [d(0, 'b', 1)] }), DefaultsChanged);
