@@ -706,11 +706,15 @@ fn wrote_nothing(
     candidates
         .into_iter()
         .filter(|id| {
-            if let Some(row) = general
-                .iter()
-                .find(|r| r.get("question").and_then(Json::as_str) == Some(id.as_str()))
-            {
-                return !crate::feature_table::requirement_stated(row, &stated, &geometry);
+            if crate::rules::general_rows::is_id(id) {
+                // An answer from a previous save can now be stated or dormant. Only a
+                // row that reached this intent could have been skipped by its writer.
+                return general
+                    .iter()
+                    .find(|r| r.get("question").and_then(Json::as_str) == Some(id.as_str()))
+                    .is_some_and(|row| {
+                        !crate::feature_table::requirement_stated(row, &stated, &geometry)
+                    });
             }
             let (_, feature) = crate::feature_table::kind_and_feature(id);
             let Some(f) = features.iter().find(|f| f.id == feature) else {

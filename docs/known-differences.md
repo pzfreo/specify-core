@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 275 | 0 | 52 | 0 | 2 | 1 | 330 |
+| [cli](#cli) | 1257 | 0 | 52 | 0 | 2 | 1 | 1312 |
 | [cross_engine](#cross_engine) | 142 | 2 | 0 | 1 | 1 | 20 | 166 |
 | [cross_engine_written](#cross_engine_written) | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
 | [existing](#existing) | 96 | 0 | 0 | 0 | 7 | 0 | 103 |
@@ -23,7 +23,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 3092 | 0 | 0 | 0 | 15 | 1 | 3108 |
-| **all** | 7196 | 1433 | 1249 | 2497 | 1101 | 1908 | 15384 |
+| **all** | 8178 | 1433 | 1249 | 2497 | 1101 | 1908 | 16366 |
 
 ## analysis
 
@@ -77,7 +77,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (275 entries)
+### cli: rust-correct (1257 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -190,6 +190,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **General sizes omitted on a datum feature** (`scenarios/turned_a_straight_knurl_resumes` at `write.not_written[general size 6 on turned_steps:4 faces [4]: the faces establish a datum and the writer cannot mark a datum feature of size]`)
 
   The writer cannot mark the resulting datum feature of size for future preservation. P11 requires it to report this omitted general size.
+
+- **general dimensions are rows (Paul, 2026-11-21)** (982 entries, 8 case globs)
+
+  The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `questions.defaults.questions.[26]`: The CLI lists the newly addressable optional general dimension. The exact ID, faces, suggestion and options are pinned in cli_datum_origins.json.gz.
 
 ### cli: equivalent (52 entries)
 

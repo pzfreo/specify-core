@@ -76,9 +76,13 @@ fn an_unanswered_part_is_machined_and_unchanged() {
     let analysis = api::analyse(&loaded).unwrap();
     let given = answers(json!({"part.material": "steel"}));
     let qs = api::questions(&analysis, &given).unwrap();
-    // The process is appended after every other question, so no question moves.
-    assert_eq!(qs.last().unwrap().id, process::QUESTION);
-    let q = qs.last().unwrap();
+    // general dimensions are rows (Paul, 2026-11-21). The process is the last
+    // ordinary question, followed by the separately approved measurements.
+    let q = qs
+        .iter()
+        .rfind(|q| !q.id.starts_with("length:planes:") && !q.id.starts_with("location:holes:"))
+        .unwrap();
+    assert_eq!(q.id, process::QUESTION);
     assert_eq!(q.default, Some(json!(MACHINED)));
     assert_eq!(q.attention, "routine");
     assert_eq!(q.options, process::PROCESSES.map(String::from).to_vec());

@@ -2027,6 +2027,7 @@ fn check_datum_origin_departures(differences: &[Difference]) {
                 && e.pattern != "Exact tap-drill defaults and dependent question order"
                 && e.pattern != "Combined ISO 2768 class choices in CLI and serve"
                 && e.pattern != "Absolute slash bounds are accepted by CLI answers"
+                && e.pattern != "general dimensions are rows (Paul, 2026-11-21)"
         })
         .collect();
     let ties: Vec<_> = load_known(&common::known_differences_file("cli"))
