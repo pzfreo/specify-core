@@ -1029,7 +1029,30 @@ fn accepting_any_one_suggestion_changes_that_row_alone() {
                     // The planner lists gaps first and recovers stated dimensions afterwards.
                     // Compare every original row by id so that reordering cannot hide a change.
                     for (rid, s0, v0) in rows(&t) {
-                        let after = row(&now, &rid);
+                        let after = now["rows"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .find(|r| r["id"] == rid);
+                        // An added hole measurement can retire other suggested measurements
+                        // when the planner uses it as an authority. No other PMI may be added.
+                        if after.is_none()
+                            && id.starts_with("location:holes:")
+                            && rid != id
+                            && rid.starts_with("location:holes:")
+                            && s0 == "gap"
+                        {
+                            let new = numbers(&reload(&saved.bytes));
+                            let old = numbers(&part);
+                            assert_eq!(
+                                new.keys().filter(|n| !old.contains_key(n)).count(),
+                                1,
+                                "{name}: {id}"
+                            );
+                            continue;
+                        }
+                        let after =
+                            after.unwrap_or_else(|| panic!("{name}: {id} removed row {rid}"));
                         let (s1, v1) = (&after["state"], &after["value"]);
                         if rid != id {
                             assert_eq!((&s0, &v0), (s1, v1), "{name}: {id} changed {rid}");
