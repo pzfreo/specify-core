@@ -8,6 +8,18 @@ use specify_core::{
     part, resume, rules, writer,
 };
 mod common;
+
+fn open_measurements(analysis: &Value) -> Vec<String> {
+    analysis["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| {
+            row["open"] == true && matches!(row["kind"].as_str(), Some("length" | "location"))
+        })
+        .map(|row| row["id"].as_str().unwrap().to_owned())
+        .collect()
+}
 use std::{collections::BTreeSet, path::Path};
 
 fn fixture(name: &str) -> std::path::PathBuf {
@@ -170,10 +182,22 @@ fn five_real_alpha6_files_resume_all_87_answers_including_a_rotated_part() {
         }
         let answers = analysis["resume"]["answers"].as_object().unwrap();
         total += expected.len();
-        // ADR P11 (D6): open are exactly the reopened questions.
+        // ADR P11 (D6): the reopened legacy questions stay open. Standalone
+        // measurements also stay open because their suggestions write PMI.
+        let measurements = open_measurements(&analysis);
+        let review = api::review(&analysis, answers).unwrap();
+        let open = review["open"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|id| id.as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        let (new, old): (Vec<_>, Vec<_>) =
+            open.into_iter().partition(|id| measurements.contains(id));
+        assert_eq!(json!(old), json!(reopened), "{name}");
         assert_eq!(
-            api::review(&analysis, answers).unwrap()["open"],
-            json!(reopened),
+            new.into_iter().collect::<BTreeSet<_>>(),
+            measurements.iter().cloned().collect(),
             "{name}"
         );
         // The reopened questions are answered again as saved: their PMI is written, and the
@@ -182,7 +206,22 @@ fn five_real_alpha6_files_resume_all_87_answers_including_a_rotated_part() {
         for id in &reopened {
             given.insert(id.clone(), expected[id].clone());
         }
-        let intent = rules::apply(&analysis, &given).unwrap();
+        let Err(api::Error::Rules(rules::Error::Incomplete(incomplete))) =
+            api::apply(&analysis, &given, false)
+        else {
+            panic!("{name}: expected the measurement gaps to remain open");
+        };
+        assert_eq!(
+            incomplete.missing.into_iter().collect::<BTreeSet<_>>(),
+            measurements.into_iter().collect(),
+            "{name}"
+        );
+        // Replay the legacy answers as a raw intent, including answers whose
+        // value is retained because the writer cannot emit PMI for it.
+        let mut intent = api::preview(&analysis, &given).unwrap();
+        intent
+            .requirements
+            .extend(rules::unasked_rows(&analysis, &given).unwrap());
         let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
         let back = part::File::of_bytes(Path::new(name), bytes)
             .unwrap()
@@ -827,7 +866,8 @@ fn real_alpha6_ftc10_answers_migrate_to_larger_geometric_supports() {
     assert!(resumed["unresolved"].is_null());
     let review = api::review(&analysis, resumed["answers"].as_object().unwrap()).unwrap();
     // ADR P11: the file's PMI on the 194 pattern states its two questions (whoever wrote it),
-    // so they are not open; open are exactly the reopened questions (D6).
+    // so they are not open. The reopened questions (D6) and newly offered
+    // standalone measurements still need a decision.
     for id in [
         "hole.function:hole_patterns.linear:194.195.196.197.198.199",
         "hole.position:hole_patterns.linear:194.195.196.197.198.199",
@@ -849,6 +889,9 @@ fn real_alpha6_ftc10_answers_migrate_to_larger_geometric_supports() {
             .map(|id| id.as_str().unwrap().to_string())
             .collect::<BTreeSet<_>>(),
         reopened
+            .into_iter()
+            .chain(open_measurements(&analysis))
+            .collect()
     );
     for pair in resumed["migrated"].as_array().unwrap() {
         assert!(!review["open"].as_array().unwrap().contains(&pair[1]));

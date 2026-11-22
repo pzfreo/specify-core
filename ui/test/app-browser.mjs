@@ -291,17 +291,17 @@ try {
     const plain = (analyse(plainSave).characteristics ?? []).length;
     assert.ok((analysis.characteristics ?? []).length > plain, 'the defaults save has the defaults\' PMI');
     const kinds = new Set((analysis.characteristics ?? []).map(c => c.kind));
-    // general dimensions are rows (Paul, 2026-11-21): the page's defaults save approves only the rows it lists.
-    assert.deepEqual([...kinds].sort(), ['datum', 'geometric_tolerance', 'surface_texture', 'thread'], 'the approved PMI reads back');
-    const lengths = analysis.table.rows.filter(row => row.id.startsWith('length:planes:'));
-    assert.deepEqual(lengths.map(row => row.id).sort(), [
+    // Each length suggestion writes PMI, so it is open and listed for approval.
+    assert.deepEqual([...kinds].sort(), ['datum', 'dimension', 'geometric_tolerance', 'surface_texture', 'thread'], 'the approved PMI reads back');
+    const lengthIds = [
       'length:planes:1-3', 'length:planes:1-5', 'length:planes:1-7.11', 'length:planes:1-9',
       'length:planes:2.6-10', 'length:planes:4-12', 'length:planes:8-10',
-    ], 'all seven general lengths are in the reopened table');
-    for (const row of lengths) {
-      assert.ok(!listed.includes(row.id), `${row.id} was outside the confirmed defaults`);
-      assert.equal(row.state, 'gap', `${row.id} is still a gap`);
-      assert.ok(row.suggestion, `${row.id} still has a suggestion`);
+    ];
+    assert.deepEqual(listed.filter(id => id.startsWith('length:planes:')), lengthIds, 'all seven lengths were shown before approval');
+    const partial = analyse(plainSave).table.rows;
+    for (const id of lengthIds) {
+      assert.equal(partial.find(row => row.id === id)?.open, true, `${id} stays open after a plain save`);
+      assert.equal(analysis.table.rows.find(row => row.id === id)?.state, 'stated', `${id} is stated after approval`);
     }
   }
   // Resume: the file Specify wrote opens with its answers.

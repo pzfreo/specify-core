@@ -137,11 +137,13 @@ class Intent:
     schema: int = 1
     rules_version: int = RULES_VERSION
     #: The dimensions the general tolerance covers (``general.dimensions``):
-    #: listed for inspection and shown, not written into the STEP.
+    #: approved measurements to write under the general tolerance.
     general: list[dict[str, Any]] = field(default_factory=list)
+    #: Explicit accept-all provenance when replaying a legacy intent.
+    accept_defaults: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "schema": self.schema,
             "rules_version": self.rules_version,
             "binding": self.binding,
@@ -150,6 +152,9 @@ class Intent:
             "requirements": self.requirements,
             "general": self.general,
         }
+        if self.accept_defaults:
+            data["accept_defaults"] = True
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Intent:
@@ -163,6 +168,7 @@ class Intent:
             data["schema"],
             data.get("rules_version", 0),
             data.get("general", []),
+            data.get("accept_defaults") is True,
         )
 
 
