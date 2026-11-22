@@ -1481,7 +1481,7 @@ fn a_complete_save_writes_what_write_writes() {
     let scratch = Scratch::new("as-write");
     let opened = Opened::start(&scratch.input(), &scratch, &[]);
     let page = opened.page();
-    let given = json!({"part.material": "6082-T6"});
+    let given = json!({"part.material": "steel"});
     assert_eq!(page.put(0, 0, given.clone()).status, 200);
     // Every default approved: they become answers, and the file stores them.
     let given = given.as_object().unwrap().clone();
@@ -1494,10 +1494,20 @@ fn a_complete_save_writes_what_write_writes() {
         assert_eq!(&answers[id], value);
     }
 
-    let analysis = scratch.path("analysis.json");
-    let answers_file = scratch.path("answers.json");
+    let answers_file = scratch.path("edits.json");
     let out = scratch.path("written.step");
-    std::fs::write(&answers_file, answers.to_string()).unwrap();
+    let rows = input_analysis["table"]["rows"].as_array().unwrap();
+    let fill: Map<_, _> = answers
+        .as_object()
+        .unwrap()
+        .iter()
+        .filter(|(id, _)| {
+            rows.iter()
+                .any(|r| r["id"] == id.as_str() && r["state"] == "gap")
+        })
+        .map(|(id, value)| (id.clone(), value.clone()))
+        .collect();
+    std::fs::write(&answers_file, json!({"fill": fill}).to_string()).unwrap();
     let cli = |args: &[&std::ffi::OsStr]| {
         let run = Command::new(env!("CARGO_BIN_EXE_specify-core"))
             .args(args)
@@ -1506,16 +1516,9 @@ fn a_complete_save_writes_what_write_writes() {
         assert!(run.status.success(), "{run:?}");
         String::from_utf8(run.stdout).unwrap()
     };
-    cli(&[
-        "analyse".as_ref(),
-        scratch.input().as_os_str(),
-        "-o".as_ref(),
-        analysis.as_os_str(),
-    ]);
     let report: Value = serde_json::from_str(&cli(&[
         "write".as_ref(),
         scratch.input().as_os_str(),
-        analysis.as_os_str(),
         answers_file.as_os_str(),
         "-o".as_ref(),
         out.as_os_str(),

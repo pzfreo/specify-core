@@ -80,22 +80,15 @@ fn every_command_reads_a_gzipped_file_as_the_plain_one() {
             }
             assert_eq!(outputs[0], outputs[1], "{stem} {command}");
         }
-        // write, from the analysis of the plain file, of each input to a plain destination.
-        let analysis = dir.join("analyse-plain.json");
+        // Apply the same list to the plain and compressed forms.
         let answers = dir.join("answers.json");
-        std::fs::write(&answers, r#"{"part.material": "steel"}"#).unwrap();
+        std::fs::write(&answers, r#"{"fill":{"part.material": "steel"}}"#).unwrap();
         let mut written = Vec::new();
         for (input, out) in [(&plain, "from-plain.step"), (&gz, "from-gz.step")] {
             let out = dir.join(out);
-            let ran = run(&[
-                p("write"),
-                input,
-                &analysis,
-                &answers,
-                p("-o"),
-                &out,
-                p("--accept-defaults"),
-            ]);
+            let mut args = vec![p("write"), input, &answers, p("-o"), &out];
+            args.extend_from_slice(part_args);
+            let ran = run(&args);
             assert_eq!(ran.0, 0, "{stem} write: {}", ran.2);
             written.push(std::fs::read(&out).unwrap());
         }
@@ -130,21 +123,10 @@ fn a_gzipped_file_binds_and_fingerprints_as_the_plain_one() {
 #[test]
 fn a_gz_destination_is_written_gzipped_and_reads_back() {
     let (dir, plain, gz) = scratch("write", "plate");
-    let analysis = dir.join("analysis.json");
-    let ran = run(&[p("analyse"), &plain, p("-o"), &analysis]);
-    assert_eq!(ran.0, 0, "{}", ran.2);
     let answers = dir.join("answers.json");
-    std::fs::write(&answers, r#"{"part.material": "steel"}"#).unwrap();
+    std::fs::write(&answers, r#"{"fill":{"part.material": "steel"}}"#).unwrap();
     let write = |input: &Path, out: &Path| {
-        let ran = run(&[
-            p("write"),
-            input,
-            &analysis,
-            &answers,
-            p("-o"),
-            out,
-            p("--accept-defaults"),
-        ]);
+        let ran = run(&[p("write"), input, &answers, p("-o"), out]);
         assert_eq!(ran.0, 0, "{}", ran.2);
     };
     let out_plain = dir.join("out.step");

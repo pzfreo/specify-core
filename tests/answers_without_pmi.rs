@@ -181,7 +181,6 @@ fn approved_defaults_that_write_no_pmi_resume_and_are_not_asked() {
 #[test]
 fn accept_defaults_on_the_command_line_stores_the_defaults_that_write_no_pmi() {
     let dir = scratch("cli");
-    let analysis = dir.join("analysis.json");
     let answers = dir.join("answers.json");
     let out = dir.join("out.step");
     let run = |args: &[&std::ffi::OsStr]| {
@@ -195,28 +194,28 @@ fn accept_defaults_on_the_command_line_stores_the_defaults_that_write_no_pmi() {
             String::from_utf8_lossy(&got.stderr)
         );
     };
-    run(&[
-        "analyse".as_ref(),
-        plate().as_os_str(),
-        "-o".as_ref(),
-        analysis.as_os_str(),
-    ]);
-    std::fs::write(&answers, Value::Object(material()).to_string()).unwrap();
+    let analysed = api::analyse_file(&plate(), None).unwrap();
+    std::fs::write(
+        &answers,
+        common::approve_edits(&analysed, &material()).to_string(),
+    )
+    .unwrap();
     run(&[
         "write".as_ref(),
         plate().as_os_str(),
-        analysis.as_os_str(),
         answers.as_os_str(),
         "-o".as_ref(),
         out.as_os_str(),
-        "--accept-defaults".as_ref(),
     ]);
     let again = api::analyse_file(&out, None).unwrap();
     let resume = &again["resume"];
     assert!(resume.get("conflicts").is_none(), "{resume}");
     let answers = resume["answers"].as_object().unwrap();
     assert!(stated(&again, "part.material"), "{resume}");
-    for id in SILENT {
+    // The file has an implicit locating method and did not offer it for approval. An
+    // explicit edit list has no reason to turn that rule default into a stored choice.
+    assert!(!answers.contains_key("part.locating"));
+    for id in SILENT.into_iter().filter(|id| *id != "part.locating") {
         assert!(answers.contains_key(id), "{id} is not resumed: {resume}");
     }
     for id in WRITING {
@@ -475,7 +474,12 @@ fn the_command_line_keeps_an_approval_that_writes_nothing_decided() {
         dir.join("pin.step"),
     )
     .unwrap();
-    std::fs::write(dir.join("steel.json"), r#"{"part.material": "steel"}"#).unwrap();
+    let analysed = api::analyse_file(&dir.join("pin.step"), None).unwrap();
+    std::fs::write(
+        dir.join("steel.json"),
+        common::approve_edits(&analysed, &material()).to_string(),
+    )
+    .unwrap();
     std::fs::write(dir.join("none.json"), "{}").unwrap();
     let os = |s: &str| std::ffi::OsString::from(s);
     let (ok, _, err) = run(&[
@@ -488,9 +492,7 @@ fn the_command_line_keeps_an_approval_that_writes_nothing_decided() {
     let (ok, out, err) = run(&[
         &os("write"),
         &path("pin.step"),
-        &path("a.json"),
         &path("steel.json"),
-        &os("--accept-defaults"),
         &os("-o"),
         &path("saved.step"),
     ]);
@@ -512,7 +514,6 @@ fn the_command_line_keeps_an_approval_that_writes_nothing_decided() {
     let (ok, _, err) = run(&[
         &os("write"),
         &path("saved.step"),
-        &path("b.json"),
         &path("none.json"),
         &os("-o"),
         &path("again.step"),

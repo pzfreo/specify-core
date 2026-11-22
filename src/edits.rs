@@ -325,7 +325,7 @@ pub fn read(text: &str) -> Result<EditList, Vec<Failure>> {
     parse_value(value)
 }
 
-fn is_answers_file(map: &Map<String, Value>) -> bool {
+pub(crate) fn is_answers_file(map: &Map<String, Value>) -> bool {
     !map.is_empty()
         && map
             .keys()

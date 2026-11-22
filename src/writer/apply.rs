@@ -1162,7 +1162,14 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
                         .any(|d| d.get("question") == Some(&Json::from(id.as_str())))
                     || id
                         .strip_prefix("part.")
-                        .is_some_and(|key| intent.part.contains_key(key));
+                        .is_some_and(|key| intent.part.contains_key(key))
+                    || id.strip_prefix("hole.full_thread:").is_some_and(|feature| {
+                        let function = format!("hole.function:{feature}");
+                        intent.requirements.iter().any(|r| {
+                            r.get("question").and_then(Json::as_str) == Some(function.as_str())
+                                && r.get("kind").and_then(Json::as_str) == Some("thread")
+                        })
+                    });
                 let deferred_diameter = has_general_tolerance
                     && id.starts_with("diameter.fit:")
                     && given[*id] == "general";

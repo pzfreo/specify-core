@@ -59,6 +59,31 @@ pub fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
+/// Turn choices already made by an interview into a list of fills and approvals. The
+/// supplied values win over suggestions. An optional BOM or process needs its own opt-in.
+pub fn approve_edits(analysis: &Value, given: &Map<String, Value>) -> Value {
+    let offered = specify_core::rules::with_all_defaults(analysis, given).unwrap();
+    let mut fill = given.clone();
+    let mut accept = Vec::new();
+    for row in analysis["table"]["rows"].as_array().unwrap() {
+        let id = row["id"].as_str().unwrap();
+        if row["state"] != "gap" || fill.contains_key(id) || id.starts_with("hole.full_thread:") {
+            continue;
+        }
+        if let Some(value) = offered.get(id)
+            && id != "part.process"
+            && !id.starts_with("bom.")
+        {
+            if *value == row["suggestion"] {
+                accept.push(id);
+            } else {
+                fill.insert(id.to_string(), value.clone());
+            }
+        }
+    }
+    serde_json::json!({"fill": fill, "accept_suggestions": accept})
+}
+
 /// `tests/fixtures/oracle`.
 pub fn oracle_dir() -> PathBuf {
     fixtures().join("oracle")

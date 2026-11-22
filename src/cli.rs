@@ -7,9 +7,7 @@
 //! specify-core analyse STEP -o ANALYSIS [--part K]
 //! specify-core mesh STEP -o MESH [--part K] [--max-deviation-mm MM]
 //! specify-core questions ANALYSIS [--answers ANSWERS] [--open]
-//! specify-core write STEP ANALYSIS ANSWERS [ANALYSIS ANSWERS ...] -o OUT
-//!                    [--accept-defaults] [--bom] [--intent INTENT]
-//! specify-core write STEP EDITS.json -o OUT
+//! specify-core write STEP EDITS.json -o OUT [--part K]
 //!                    apply an edit list in place, all or nothing (writer/apply.rs)
 //! specify-core write STEP EDITS.json --check
 //!                    validate an edit list against the file (edits.rs); writes nothing
@@ -51,15 +49,13 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use clap::error::ErrorKind;
 use clap::{ArgAction, CommandFactory, FromArgMatches, Parser, Subcommand};
 
 use crate::api::{self, Error};
 use crate::part;
 use crate::pyjson;
-use crate::rules::{self, Intent};
+use crate::rules;
 use crate::serve;
-use crate::writer::WriteError;
 use serde_json::{Map, Value, json};
 
 const PROG: &str = "specify-core";
@@ -152,27 +148,28 @@ wasm-pack pkg/; a build made without the app needs SPECIFY_APP_DIR. See docs/mcp
         #[arg(long)]
         sources: bool,
     },
-    /// write intent as AP242 PMI
+    /// apply an edit list to a STEP file
     Write {
         step: PathBuf,
-        /// analysis and answers JSON; in an assembly, a pair for each part to write. Or one
-        /// edit list (EDITS.json), or a 0.2 answers file, applied all or nothing
-        #[arg(required = true, num_args = 1.., value_name = "ANALYSIS ANSWERS")]
-        pairs: Vec<String>,
-        #[arg(short, long, required_unless_present = "check")]
+        /// edit list (or a 0.2 answers file) applied all or nothing
+        #[arg(value_name = "EDITS.json")]
+        edits: PathBuf,
+        // Recognise the removed command line to give callers a migration message.
+        #[arg(hide = true, num_args = 0..)]
+        legacy_answers: Vec<String>,
+        #[arg(short, long)]
         output: Option<String>,
-        /// validate an edit list (write STEP EDITS.json --check) and print the result; writes
-        /// nothing
-        #[arg(long, conflicts_with_all = ["output", "accept_defaults", "bom", "intent"])]
+        /// validate an edit list and print the result without writing
+        #[arg(long, conflicts_with = "output")]
         check: bool,
-        /// take PMI defaults for the rest
-        #[arg(long)]
+        /// which part of an assembly (see parts)
+        #[arg(long, value_parser = part_number)]
+        part: Option<i64>,
+        #[arg(long, hide = true)]
         accept_defaults: bool,
-        /// explicitly accept optional BOM suggestions
-        #[arg(long)]
+        #[arg(long, hide = true)]
         bom: bool,
-        /// also write the intent JSON here
-        #[arg(long)]
+        #[arg(long, hide = true)]
         intent: Option<PathBuf>,
     },
     /// what changed between two revisions of a part or an assembly
@@ -285,33 +282,7 @@ fn command() -> clap::Command {
 fn parse(argv: &[String]) -> Result<Cmd, clap::Error> {
     let mut matches = command()
         .try_get_matches_from(std::iter::once(PROG).chain(argv.iter().map(String::as_str)))?;
-    let cli = Cli::from_arg_matches_mut(&mut matches)?;
-    if let Cmd::Write { pairs, check, .. } = &cli.command
-        && *check
-        && pairs.len() != 1
-    {
-        let mut parser = command();
-        parser.build();
-        let write = parser.find_subcommand_mut("write").expect("a command");
-        return Err(write.error(
-            ErrorKind::WrongNumberOfValues,
-            "write --check takes one edit list: write STEP EDITS.json --check",
-        ));
-    }
-    if let Cmd::Write { pairs, check, .. } = &cli.command
-        && !*check
-        && pairs.len() != 1
-        && !pairs.len().is_multiple_of(2)
-    {
-        let mut parser = command();
-        parser.build();
-        let write = parser.find_subcommand_mut("write").expect("a command");
-        return Err(write.error(
-            ErrorKind::WrongNumberOfValues,
-            "write takes an analysis and its answers for each part",
-        ));
-    }
-    Ok(cli.command)
+    Ok(Cli::from_arg_matches_mut(&mut matches)?.command)
 }
 
 /// Runs the command line on `argv` (the arguments after the program's name) and returns the
@@ -442,48 +413,33 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             print(out, &indent1_keeping_non_ascii(&Value::Array(shown)))
         }
         Cmd::Write {
-            step, pairs, check, ..
-        } if check => check_edits(&step, Path::new(&pairs[0]), out),
-        Cmd::Write {
             step,
-            pairs,
+            edits,
+            legacy_answers,
             output,
+            check,
+            part,
             accept_defaults,
             bom,
             intent,
-            ..
-        } if pairs.len() == 1 => {
-            if accept_defaults || bom || intent.is_some() {
+        } => {
+            if !legacy_answers.is_empty() || accept_defaults || bom || intent.is_some() {
                 return Err(Exit::new(
                     2,
-                    "write STEP EDITS.json -o OUT takes no --accept-defaults, --bom or --intent: \
-                     the edit list says everything that is written",
+                    "whole-intent write was removed. Use write STEP EDITS.json -o OUT, \
+                     with accept_suggestions in the edit list in place of --accept-defaults. \
+                     See https://github.com/pzfreo/specify-core/blob/main/docs/answers.md.",
                 ));
             }
-            write_edits(
-                &step,
-                Path::new(&pairs[0]),
-                output.as_deref().expect("clap requires -o without --check"),
-                out,
-            )
+            let part = part_arg(&step, part)?;
+            if check {
+                check_edits(&step, &edits, part, out)
+            } else {
+                let output =
+                    output.ok_or_else(|| Exit::new(2, "write requires -o OUT or --check"))?;
+                write_edits(&step, &edits, part, &output, out)
+            }
         }
-        Cmd::Write {
-            step,
-            pairs,
-            output,
-            accept_defaults,
-            bom,
-            intent,
-            ..
-        } => write(
-            &step,
-            &pairs,
-            output.as_deref().expect("clap requires -o without --check"),
-            accept_defaults,
-            bom,
-            intent.as_deref(),
-            out,
-        ),
         Cmd::Diff {
             old,
             new,
@@ -541,105 +497,16 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
     }
 }
 
-/// `write`: each pair's intent applied (refusals naming the part in an assembly), the intents
-/// saved when asked, then written: one part on its own, several together.
-fn write(
-    step: &Path,
-    pairs: &[String],
-    output_arg: &str,
-    accept_defaults: bool,
-    bom: bool,
-    intent_path: Option<&Path>,
-    out: &mut impl Write,
-) -> Result<(), Exit> {
-    let several = pairs.len() > 2;
-    let mut written: Vec<(Intent, Option<Map<String, Value>>)> = Vec::new();
-    for pair in pairs.chunks(2) {
-        let analysis = read_json(Path::new(&pair[0]))?;
-        let answers = answers_of(read_json(Path::new(&pair[1]))?)?;
-        if answers.contains_key(crate::answer_file::META) {
-            let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
-            let loaded = part::load(step, Some(index)).map_err(Exit::error)?;
-            crate::answer_file::check(&loaded, &answers)
-                .map_err(|why| Exit::new(2, format!("answers {}: {why}", pair[1])))?;
-        }
-        // What the file decided stays decided (ADR P11), as the sessions resume it.
-        let answers = api::with_stored(&analysis, &answers);
-        let mut intent = match api::apply(&analysis, &answers, accept_defaults) {
-            Ok(intent) => intent,
-            Err(e) if !several => return Err(refused(e)),
-            Err(e) => {
-                // Which part of the assembly the answers are for.
-                let part = analysis
-                    .get("binding")
-                    .and_then(|b| b.get("part"))
-                    .cloned()
-                    .unwrap_or(json!(0));
-                return Err(refused(match e {
-                    Error::Rules(rules::Error::Incomplete(mut e)) => {
-                        e.part = Some(part.as_u64().unwrap_or(0) as usize);
-                        Error::from(e)
-                    }
-                    Error::Rules(rules::Error::Invalid(m)) => {
-                        let shown = match &part {
-                            Value::String(s) => s.clone(),
-                            other => other.to_string(),
-                        };
-                        Error::Rules(rules::Error::Invalid(format!("part {shown}: {m}")))
-                    }
-                    other => other,
-                }));
-            }
-        };
-        if bom {
-            crate::bom::accept_suggestions(&analysis, &answers, &mut intent)
-                .map_err(Exit::error)?;
-        }
-        // Every default taken: those that write no PMI are stored with the answers (ADR P9).
-        // A part that cannot be loaded or planned stores what was given; the write refuses it.
-        let answers = if accept_defaults {
-            let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
-            part::load(step, Some(index))
-                .ok()
-                .and_then(|loaded| api::stored_with_defaults(&loaded, &analysis, &answers).ok())
-                .unwrap_or(answers)
-        } else {
-            answers
-        };
-        written.push((intent, Some(answers)));
-    }
-    if let Some(path) = intent_path {
-        let intents: Vec<Value> = written.iter().map(|(i, _)| i.to_dict()).collect();
-        let shown = match intents.as_slice() {
-            [one] => one.clone(),
-            _ => Value::Array(intents),
-        };
-        save(path, &pyjson::dumps_indent1(&shown))?;
-    }
-    let output = Path::new(output_arg);
-    let report = match written.as_slice() {
-        [(intent, answers)] => api::write_file(step, intent, output, answers.as_ref()),
-        _ => api::write_parts(step, &written, output),
-    };
-    let report = report.map_err(|e| match e {
-        // An intent for another file, another loader's face numbering, a file or part that
-        // cannot be loaded: Python's `ValueError`.
-        Error::Load(_) | Error::Write(WriteError::Invalid(_)) | Error::Rules(_) => {
-            Exit::new(2, format!("cannot write: {e}"))
-        }
-        Error::Unapproved(_) => Exit::new(2, format!("cannot write: {e}")),
-        Error::Write(_) | Error::Analysis(_) => {
-            Exit::new(1, format!("write failed, {output_arg} left as it was: {e}"))
-        }
-    })?;
-    print(out, &indent1_keeping_non_ascii(&report.to_dict()))
-}
-
 /// `write STEP EDITS.json --check`: the edit list (or a 0.2 answers file) parsed and validated
 /// against the file's feature table, the outcome printed as JSON; exit 2 with its message when
 /// any entry fails. Nothing is written.
-fn check_edits(step: &Path, edits: &Path, out: &mut impl Write) -> Result<(), Exit> {
-    let loaded = part::load(step, None).map_err(Exit::error)?;
+fn check_edits(
+    step: &Path,
+    edits: &Path,
+    part: Option<usize>,
+    out: &mut impl Write,
+) -> Result<(), Exit> {
+    let loaded = part::load(step, part).map_err(Exit::error)?;
     let text = std::fs::read_to_string(edits)
         .map_err(|e| Exit::error(format!("{}: {e}", edits.display())))?;
     let outcome = crate::writer::apply::check(&loaded, &text);
@@ -653,8 +520,14 @@ fn check_edits(step: &Path, edits: &Path, out: &mut impl Write) -> Result<(), Ex
 /// `write STEP EDITS.json -o OUT`: the edit list (or a 0.2 answers file) applied to the file
 /// in place, all or nothing, and the report printed. A list that cannot be applied writes
 /// nothing: exit 2, every failing entry named.
-fn write_edits(step: &Path, edits: &Path, output: &str, out: &mut impl Write) -> Result<(), Exit> {
-    let loaded = part::load(step, None).map_err(Exit::error)?;
+fn write_edits(
+    step: &Path,
+    edits: &Path,
+    part: Option<usize>,
+    output: &str,
+    out: &mut impl Write,
+) -> Result<(), Exit> {
+    let loaded = part::load(step, part).map_err(Exit::error)?;
     let text = std::fs::read_to_string(edits)
         .map_err(|e| Exit::error(format!("{}: {e}", edits.display())))?;
     let cannot = |failures: Vec<crate::edits::Failure>| {
@@ -667,9 +540,40 @@ fn write_edits(step: &Path, edits: &Path, output: &str, out: &mut impl Write) ->
         Exit::new(2, message)
     };
     let list = crate::edits::read(&text).map_err(cannot)?;
-    let applied =
-        crate::writer::apply::apply_to(&loaded, &list, Path::new(output)).map_err(cannot)?;
-    print(out, &indent1_keeping_non_ascii(&applied.to_dict()))
+    if let Ok(Value::Object(answers)) = serde_json::from_str(&text)
+        && answers.contains_key(crate::answer_file::META)
+        && crate::edits::is_answers_file(&answers)
+    {
+        crate::answer_file::check(&loaded, &answers)
+            .map_err(|why| Exit::new(2, format!("answers {}: {why}", edits.display())))?;
+        let analysis = api::analyse(&loaded).map_err(Exit::error)?;
+        let questions = api::questions(&analysis, &answers).map_err(refused)?;
+        crate::answer_file::require_resolved_where(&answers, |id| {
+            questions.iter().any(|q| q.id == id)
+        })
+        .map_err(|e| refused(e.into()))?;
+    }
+    let mut applied = crate::writer::apply::apply(&loaded, &list).map_err(cannot)?;
+    let output_path = Path::new(output);
+    let reopened = part::File::of_bytes(output_path, applied.bytes.clone())
+        .and_then(|file| file.load(part))
+        .map_err(Exit::error)?;
+    let analysis = api::analyse(&reopened).map_err(Exit::error)?;
+    let missing: Vec<_> = analysis["table"]["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|row| row["open"] == json!(true))
+        .filter_map(|row| row["id"].as_str())
+        .collect();
+    crate::writer::put(output_path, std::mem::take(&mut applied.bytes))
+        .map_err(|e| Exit::new(1, format!("write failed, {output} left as it was: {e}")))?;
+    applied.report.output = output_path.to_path_buf();
+    let mut report = applied.to_dict();
+    if !missing.is_empty() {
+        report["missing"] = json!(missing);
+    }
+    print(out, &indent1_keeping_non_ascii(&report))
 }
 
 /// The rules' refusal as the command line words it: exit 2, `incomplete: ...` or `invalid
