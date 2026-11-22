@@ -205,11 +205,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **0.5.5 / Optional fillets and adjacent CLI rows** (10 entries, 10 case globs)
 
-  Quiddity 0.5.5 #297 removes the fillet size floor. Each radius question defaults to none, shifting adjacent rows. All-axis levels and supporting caps (#307) can also change the length rows in this artifact.
+  The evidence is stated per entry (7 distinct; all in `cli.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `questions.defaults.questions`: Quiddity 0.5.5 #297 removes the fillet size floor. Optional radius questions default to none.
 
 - **0.5.5 / CLI plane locations under 0.5.5** (2 entries, 1 case glob)
 
-  Quiddity 0.5.5 #307 changes which planes supply levels. The CLI uses the transverse levels, leaves drafted levels in file PMI and omits supporting-only caps. The observed intent or report values are exact.
+  The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `write.not_written[answer length:planes:1697-1734 ('105.228 ±0.3 from face 1697'): approved, but nothing of its kind was written on its feature (none is written on a datum's own faces; otherwise the planner skipped it); stored as decided, not asked again]`: Quiddity 0.5.5 #307 tightens the stock-flat proof and removes the false flat on CGB202 face 1734. Replaying its old approval records the exact unwritten length.
 
 - **0.5.5 / CLI all-axis step count** (`cli/default_datum_a_takes_every_coplanar_face#0/analyse` at `stdout.features.step_levels`)
 
