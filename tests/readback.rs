@@ -573,9 +573,9 @@ fn removing_each_writer_kind_preserves_other_requirements_on_its_carrier() {
 }
 
 /// Generated PMI with a second requirement on the same feature and a part setting. The
-/// named rows exercise every kind the question planner can itself replace. Arbitrary
-/// hole notes, face finishes, parallelism, profile and total runout have no such planner
-/// form. The removal sweep covers those through items.remove.
+/// named rows exercise every kind they can address. The datum-control and runout rows
+/// can replace a control with the kind the question plans. Unaddressed hole notes and
+/// face finishes have no change row, so the removal sweep covers those through items.remove.
 #[test]
 fn changing_each_supported_writer_kind_preserves_its_neighbours() {
     let plate = plate();
@@ -618,6 +618,14 @@ fn changing_each_supported_writer_kind_preserves_its_neighbours() {
         ),
         (
             &plate,
+            "parallelism",
+            "datum.B.control",
+            json!("0.02"),
+            vec![0],
+        ),
+        (&plate, "profile", "datum.B.control", json!("0.02"), vec![0]),
+        (
+            &plate,
             "location",
             "length:planes:0-5",
             json!("100 ±0.3 from B"),
@@ -637,8 +645,15 @@ fn changing_each_supported_writer_kind_preserves_its_neighbours() {
             json!("0.02"),
             vec![4],
         ),
+        (
+            &pin,
+            "total_runout",
+            "diameter.runout:turned_steps:4",
+            json!("0.02"),
+            vec![4],
+        ),
     ];
-    let remove_only = ["note", "finish", "parallelism", "profile", "total_runout"];
+    let remove_only = ["note", "finish"];
     let tested: std::collections::BTreeSet<_> = fixtures
         .iter()
         .map(|(_, kind, ..)| *kind)
@@ -651,13 +666,15 @@ fn changing_each_supported_writer_kind_preserves_its_neighbours() {
             "thread" => ("M5×0.8-6H THRU", "internal thread M5x0.8-6H on holes:12"),
             "position" => ("⌖ ⌀0.1 A B C", "position 0.1 on holes:12"),
             "flatness" => ("⏥ 0.02", "flatness 0.02 on [4]"),
-            "perpendicularity" => ("⟂ 0.02 A", "perpendicularity 0.02 on datum B"),
+            "perpendicularity" | "parallelism" | "profile" => {
+                ("⟂ 0.02 A", "perpendicularity 0.02 on datum B")
+            }
             "location" => ("100 ±0.3", "location 100 ±0.3 to  from faces [0]"),
             "knurl" => (
                 "straight knurl, pitch 1 mm, major ⌀6 mm",
                 "straight knurl on turned_steps:4",
             ),
-            "runout" => ("↗ 0.02 A", "runout 0.02 on turned_steps:4"),
+            "runout" | "total_runout" => ("↗ 0.02 A", "runout 0.02 on turned_steps:4"),
             _ => unreachable!("no changed value and report for {kind}"),
         };
         let mut intent = Intent::new(serde_json::to_value(&part.binding).unwrap());
@@ -673,13 +690,14 @@ fn changing_each_supported_writer_kind_preserves_its_neighbours() {
             target["class"] = json!("5H");
         }
         match kind {
-            "perpendicularity" => target["datums"] = json!(["A"]),
+            "perpendicularity" | "parallelism" | "profile" | "runout" | "total_runout" => {
+                target["datums"] = json!(["A"])
+            }
             "position" => {
                 target["datums"] = json!(["A", "B", "C"]);
                 target["diametral"] = json!(true);
                 target["tolerance"] = json!(0.25);
             }
-            "runout" => target["datums"] = json!(["A"]),
             _ => {}
         }
         if kind == "location" {
@@ -737,6 +755,13 @@ fn changing_each_supported_writer_kind_preserves_its_neighbours() {
         assert_eq!(after["part"], before["part"], "{kind}");
         assert_eq!(report["written"], json!([written]), "{kind}: {report}");
         assert_eq!(report["not_written"], json!([]), "{kind}: {report}");
+        let retired = if matches!(kind, "parallelism" | "profile" | "total_runout") {
+            let number = row["requirements"][0]["number"].as_str().unwrap();
+            json!([number[1..].parse::<u64>().unwrap()])
+        } else {
+            json!([])
+        };
+        assert_eq!(report["retired"], retired, "{kind}: {report}");
     }
 }
 
