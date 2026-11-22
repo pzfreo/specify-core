@@ -54,5 +54,110 @@
     "pattern": "characteristic numbers close up over the items no longer written",
     "verdict": "rust-correct",
     "evidence": "A fresh write numbers its characteristics 1..n in order with no history (docs/characteristic-numbers.md); with the two depth locations D1's old-intent heuristic leaves out no longer written, every later number moves down by the items before it. The items themselves (kind, type, faces, reference, origin, source) are unchanged; only the number field of a keyed item is covered, so an item added, lost or changed in any other field still fails. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "characteristics[key=dimension|Location_LinearDistance|[0,1,71,72,73,74,75,76,89,90,91,92,93,94,95,96]|[4]#1].number",
+    "pattern": "general dimensions are rows (Paul, 2026-11-21)",
+    "verdict": "rust-correct",
+    "evidence": "The omitted span formerly received characteristic #1. On this fresh write the allocation for this exact measurement shifts from #11 to #10."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "characteristics[key=dimension|Location_LinearDistance|[0,1,71,72,73,74,75,76,89,90,91,92,93,94,95,96]|[6,22]#1].number",
+    "pattern": "general dimensions are rows (Paul, 2026-11-21)",
+    "verdict": "rust-correct",
+    "evidence": "The omitted span formerly received characteristic #1. On this fresh write the allocation for this exact measurement shifts from #12 to #11."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "characteristics[key=dimension|Location_LinearDistance|[0,1]|[93,94]#1].number",
+    "pattern": "general dimensions are rows (Paul, 2026-11-21)",
+    "verdict": "rust-correct",
+    "evidence": "The omitted span formerly received characteristic #1. On this fresh write the allocation for this exact measurement shifts from #9 to #8."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "characteristics[key=dimension|Location_LinearDistance|[104]|[47,49,54,55]#1]",
+    "pattern": "general dimensions are rows (Paul, 2026-11-21)",
+    "verdict": "rust-correct",
+    "evidence": "The committed STEP contains this general span on faces [104] and [47, 49, 54, 55]. The legacy upgrade no longer infers approval for it from another measure sharing a support. It has no characteristic number in a fresh write."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "characteristics[key=dimension|Location_LinearDistance|[24]|[4]#1].number",
+    "pattern": "general dimensions are rows (Paul, 2026-11-21)",
+    "verdict": "rust-correct",
+    "evidence": "The omitted span formerly received characteristic #1. On this fresh write the allocation for this exact measurement shifts from #6 to #5."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "characteristics[key=dimension|Location_LinearDistance|[26,46]|[6,22]#1].number",
+    "pattern": "general dimensions are rows (Paul, 2026-11-21)",
+    "verdict": "rust-correct",
+    "evidence": "The omitted span formerly received characteristic #1. On this fresh write the allocation for this exact measurement shifts from #14 to #13."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "characteristics[key=dimension|Location_LinearDistance|[2]|[97]#1].number",
+    "pattern": "general dimensions are rows (Paul, 2026-11-21)",
+    "verdict": "rust-correct",
+    "evidence": "The omitted span formerly received characteristic #1. On this fresh write the allocation for this exact measurement shifts from #5 to #4."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "characteristics[key=dimension|Location_LinearDistance|[50,51,52,53,56,57,58,59]|[97]#1].number",
+    "pattern": "general dimensions are rows (Paul, 2026-11-21)",
+    "verdict": "rust-correct",
+    "evidence": "The omitted span formerly received characteristic #1. On this fresh write the allocation for this exact measurement shifts from #3 to #2."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "characteristics[key=dimension|Location_LinearDistance|[50,51,56,57]|[4]#1].number",
+    "pattern": "general dimensions are rows (Paul, 2026-11-21)",
+    "verdict": "rust-correct",
+    "evidence": "The omitted span formerly received characteristic #1. On this fresh write the allocation for this exact measurement shifts from #4 to #3."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "characteristics[key=dimension|Location_LinearDistance|[52,53,58,59]|[4]#1].number",
+    "pattern": "general dimensions are rows (Paul, 2026-11-21)",
+    "verdict": "rust-correct",
+    "evidence": "The omitted span formerly received characteristic #1. On this fresh write the allocation for this exact measurement shifts from #2 to #1."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "characteristics[key=dimension|Location_LinearDistance|[71,72]|[73,74]#1].number",
+    "pattern": "general dimensions are rows (Paul, 2026-11-21)",
+    "verdict": "rust-correct",
+    "evidence": "The omitted span formerly received characteristic #1. On this fresh write the allocation for this exact measurement shifts from #7 to #6."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "characteristics[key=dimension|Location_LinearDistance|[71,72]|[75,76]#1].number",
+    "pattern": "general dimensions are rows (Paul, 2026-11-21)",
+    "verdict": "rust-correct",
+    "evidence": "The omitted span formerly received characteristic #1. On this fresh write the allocation for this exact measurement shifts from #8 to #7."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "characteristics[key=dimension|Location_LinearDistance|[91,92]|[0,1]#1].number",
+    "pattern": "general dimensions are rows (Paul, 2026-11-21)",
+    "verdict": "rust-correct",
+    "evidence": "The omitted span formerly received characteristic #1. On this fresh write the allocation for this exact measurement shifts from #10 to #9."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "characteristics[key=dimension|Location_LinearDistance|[]|[14]#1].number",
+    "pattern": "general dimensions are rows (Paul, 2026-11-21)",
+    "verdict": "rust-correct",
+    "evidence": "The omitted span formerly received characteristic #1. On this fresh write the allocation for this exact measurement shifts from #13 to #12."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "characteristics[key=surface_texture|Ra|[]|#1].number",
+    "pattern": "general dimensions are rows (Paul, 2026-11-21)",
+    "verdict": "rust-correct",
+    "evidence": "The omitted span formerly received characteristic #1. On this fresh write the allocation for this exact measurement shifts from #15 to #14."
   }
 ]

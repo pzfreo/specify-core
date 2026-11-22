@@ -15,7 +15,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
 | [cli](#cli) | 1310 | 0 | 52 | 0 | 2 | 1 | 1365 |
 | [cross_engine](#cross_engine) | 142 | 2 | 0 | 1 | 1 | 20 | 166 |
-| [cross_engine_written](#cross_engine_written) | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
+| [cross_engine_written](#cross_engine_written) | 23 | 0 | 0 | 0 | 0 | 0 | 23 |
 | [existing](#existing) | 96 | 0 | 0 | 0 | 7 | 0 | 103 |
 | [features](#features) | 3454 | 1414 | 571 | 2491 | 1066 | 1886 | 10882 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
@@ -23,7 +23,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 3092 | 0 | 0 | 0 | 15 | 1 | 3108 |
-| **all** | 8231 | 1433 | 1249 | 2497 | 1101 | 1908 | 16419 |
+| **all** | 8246 | 1433 | 1249 | 2497 | 1101 | 1908 | 16434 |
 
 ## analysis
 
@@ -327,7 +327,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cross_engine_written
 
-### cross_engine_written: rust-correct (8 entries)
+### cross_engine_written: rust-correct (23 entries)
 
 - **ADR P11 rule 2: the material answer is written as PMI, so it is no longer stored** (`*` at `resume.part.material`)
 
@@ -344,6 +344,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **characteristic numbers close up over the items no longer written** (4 entries, 2 case globs)
 
   The evidence is stated per entry (2 distinct; all in `cross_engine_written.json`). The first, for `nist/nist_ctc_03_asme1_ap242` at `characteristics[key=*].number`: A fresh write numbers its characteristics 1..n in order with no history (docs/characteristic-numbers.md); with the one location D8 leaves out no longer written, every later number moves down by the items before it (CTC-03 by 1; CTC-05 by 1 to 3). The items themselves (kind, type, faces, reference, origin, source) are unchanged; only the number field of a keyed item is covered, so an item added, lost or changed in any other field still fails. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
+
+- **general dimensions are rows (Paul, 2026-11-21)** (15 entries, 1 case glob)
+
+  The evidence is stated per entry (15 distinct; all in `cross_engine_written.json`). The first, for `nist/nist_ctc_01_asme1_ap242` at `characteristics[key=dimension|Location_LinearDistance|[0,1,71,72,73,74,75,76,89,90,91,92,93,94,95,96]|[4]#1].number`: The omitted span formerly received characteristic #1. On this fresh write the allocation for this exact measurement shifts from #11 to #10.
 
 ## existing
 
