@@ -165,13 +165,17 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_on_the_cli() {
     let (answered, report) = cli_write(&saved.bytes, Some(&given), "answer");
     assert_eq!(positions(&answered), [(1.5, false)], "{report}");
     let error = report.as_str().unwrap();
-    assert!(error.contains(HOLE) && error.contains("1.5"), "{error}");
+    assert!(
+        error.contains(HOLE) && error.contains("change with \"to\": \"0.5\", \"expect\": \"1.5\""),
+        "{error}"
+    );
 }
 
-/// MCP stages a change to stated PMI, anchored to the file value. An explicit
-/// fill still cannot replace that requirement and a refused save leaves it intact.
+/// The same over MCP: `open`, `save`, then reopen; `answer` 0.5 is refused, and so is `save`
+/// with a fill of 0.5 (Specify 0.3.0: a fill differing from what the file states refuses the whole list, naming it, and writes
+/// nothing; the other tool's 1.5 stands).
 #[test]
-fn mcp_stages_a_change_without_replacing_another_tools_requirement() {
+fn a_fresh_answer_does_not_replace_another_tools_requirement_over_mcp() {
     let dir = dir("mcp");
     let input = dir.join("plate.step");
     std::fs::write(&input, re_authored().bytes.as_slice()).unwrap();
@@ -186,38 +190,39 @@ fn mcp_stages_a_change_without_replacing_another_tools_requirement() {
         }});
         server.handle(&request, None).body.unwrap()["result"].clone()
     };
-    let mut ok = |name: &str, arguments: Value| -> Value {
-        let result = call(name, arguments);
-        assert_ne!(result["isError"], json!(true), "{name}: {result}");
+    let ok = |result: Value| {
+        assert_ne!(result["isError"], json!(true), "{result}");
         result["structuredContent"].clone()
     };
-    let opened = ok("open", json!({"path": input}));
+    let opened = ok(call("open", json!({"path": input})));
     assert!(opened.get("conflicts").is_none(), "{opened}");
-    let saved = ok("save", json!({"doc": opened["doc"], "edits": {}}));
+    let saved = ok(call("save", json!({"doc": opened["doc"], "edits": {}})));
     let path = saved["path"].as_str().unwrap().to_string();
     let back = load(std::fs::read(&path).unwrap());
     assert_eq!(positions(&back), [(1.5, false)]);
     assert_no_conflict(&api::analyse(&back).unwrap());
-    let reopened = ok("open", json!({"path": path}));
-    // An answer on a stated row makes a draft change with the file value as its guard.
+    let reopened = ok(call("open", json!({"path": path})));
     let before = std::fs::read(&path).unwrap();
-    let staged = ok(
+    // ADR P11: the file states the hole's position, so an answer is refused up front with the
+    // edit list's reason.
+    let refused = call(
         "answer",
         json!({"doc": reopened["doc"], "set": {(HOLE): "0.5"}}),
     );
-    assert_eq!(
-        staged["set"],
-        json!([{"id": HOLE, "value": "0.5", "state": "answered"}]),
-        "{staged}"
+    assert_eq!(refused["isError"], json!(true), "{refused}");
+    let message = refused["structuredContent"]["error"]["message"]
+        .as_str()
+        .unwrap();
+    assert!(
+        message.starts_with("the file states")
+            && message.contains("⌖ ⌀1.5 A B C")
+            && message.contains(&format!("for {HOLE}"))
+            && message.contains("change with \"to\": \"0.5\", \"expect\": \"1.5\""),
+        "{message}"
     );
-    assert_eq!(
-        std::fs::read(&path).unwrap(),
-        before,
-        "the draft writes nothing"
-    );
-    let checked = ok("check", json!({"doc": reopened["doc"], "edits": {}}));
+    let checked = ok(call("check", json!({"doc": reopened["doc"], "edits": {}})));
     assert_eq!(checked["applicable"], true, "{checked}");
-    assert_eq!(checked["entries"], 1, "{checked}");
+    assert_eq!(checked["entries"], 0, "{checked}");
     assert_eq!(checked["written"], false, "{checked}");
     let refused = call(
         "save",
@@ -234,5 +239,35 @@ fn mcp_stages_a_change_without_replacing_another_tools_requirement() {
         "{refused}"
     );
     assert_eq!(std::fs::read(&path).unwrap(), before, "nothing written");
-    assert_eq!(positions(&load(before)), [(1.5, false)]);
+    let noop = ok(call("save", json!({"doc": reopened["doc"], "edits": {}})));
+    assert_eq!(noop["report"]["written"], json!([]), "{noop}");
+    assert_eq!(noop["report"]["unchanged"], true, "{noop}");
+    let noop_bytes = std::fs::read(noop["path"].as_str().unwrap()).unwrap();
+    let position_entity = |bytes: &[u8]| {
+        String::from_utf8_lossy(bytes)
+            .lines()
+            .find(|line| line.contains("POSITION_TOLERANCE()") && !line.contains("WITH_MODIFIERS"))
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(position_entity(&noop_bytes), position_entity(&before));
+    assert_eq!(positions(&load(noop_bytes)), [(1.5, false)]);
+
+    let guarded = json!({"doc": reopened["doc"], "edits": {
+        "change": {(HOLE): {"to": "0.5", "expect": "1.5"}}
+    }});
+    let checked = ok(call("check", guarded.clone()));
+    assert_eq!(checked["applicable"], true, "{checked}");
+    assert_eq!(checked["entries"], 1, "{checked}");
+    assert_eq!(checked["written"], false, "{checked}");
+    let modified = ok(call("save", guarded));
+    let changed = load(std::fs::read(modified["path"].as_str().unwrap()).unwrap());
+    let positions = positions(&changed);
+    assert_eq!(positions.iter().map(|p| p.0).collect::<Vec<_>>(), [0.5]);
+    assert!(
+        modified["report"]["written"]
+            .as_array()
+            .is_some_and(|lines| !lines.is_empty()),
+        "{modified}"
+    );
 }

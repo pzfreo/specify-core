@@ -438,13 +438,13 @@ function App() {
   const onSave = async () => {
     if (busy || stopped || !opened) return;
     // Nothing listed: nothing is written (the mock-up's "Nothing to save.").
-    if (!pending.size) { setProblem(null); setSavedNote('Nothing to save.'); return; }
+    const lists = [...pending].map(([part, list]) => ({ part, edits: list.list() }))
+      .filter(({ edits }) => Object.keys(edits).length > 0);
+    if (!lists.length) { setProblem(null); setSavedNote('Nothing to save.'); return; }
     setSaving(true); setProblem(null); setRejectedNone(new Map());
-    const count = items.length;
+    const count = items.filter(({ edit }) => edit.kind !== 'refused').length;
     try {
-      const result = await opened.saver.save(opened.several
-        ? [...pending].map(([part, list]) => ({ part, edits: list.list() }))
-        : partPending.list(), draftSnapshot.rev);
+      const result = await opened.saver.save(opened.several ? lists : partPending.list(), draftSnapshot.rev);
       // The saved events are ordered by the command. A delayed HTTP reply must not replace a
       // later save at the same answer revision (for example an agent saving again meanwhile).
       if (!heardSaves.current.has(`${result.rev}:${result.path}`)) captureSaved.current(result);
@@ -722,7 +722,8 @@ function App() {
           <Panel
             key={opened.session.sessionId}
             filename={opened.session.filename} model={opened.model} pending={partPending} onPending={editPending} check={check}
-            rejectedNone={rejectedNone.get(opened.part)} onUndoDraft={(id) => void onDiscard({ part: opened.part, id })} disabled={busy || stopped} units={opened.units}
+            rejectedNone={rejectedNone.get(opened.part)} refusedAnswers={draftSnapshot.drafts[opened.part]?.refused}
+            onUndoDraft={(id) => void onDiscard({ part: opened.part, id })} disabled={busy || stopped} units={opened.units}
             characteristics={{ element: charsElement.current, count: (opened.session.analysis as { characteristics?: unknown[] }).characteristics?.length ?? 0 }}
             onFaces={(faces) => setLit({ faces, n: Date.now() })}
             focus={focus ? { id: focus.questionId, n: focus.n ?? 0 } : null}

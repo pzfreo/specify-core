@@ -133,7 +133,10 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, in
   const markSaved = (at: number, parts?: SessionAnswers['parts']) => {
     if (savedRev !== null && at < savedRev) return;
     savedRev = at;
-    if (at >= state.rev) drafts = {};
+    if (at >= state.rev) {
+      drafts = Object.fromEntries(Object.entries(drafts).flatMap(([part, { refused }]) =>
+        refused ? [[part, { refused }]] : []));
+    }
     awaited = null;
     const then = parts
       ? Object.fromEntries(Object.entries(parts).map(([k, a]) => [k, asGiven(a)]))
@@ -214,7 +217,9 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, in
     },
     markSaved,
     receiveSave(saved) {
-      if (saved.rev >= state.rev) drafts = { ...saved.drafts };
+      if (saved.rev > state.rev || (saved.rev === state.rev && saved.drafts)) {
+        drafts = { ...saved.drafts };
+      }
       known(saved.rev, saved.parts, true, 'start');
       markSaved(saved.rev, saved.parts);
     },

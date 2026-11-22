@@ -249,16 +249,36 @@ try {
     assert.equal(table(saved, b)['part.coating'].state, 'gap');
     assert.equal(table(saved, b)['part.heat_treatment'].state, 'decided_none');
 
-    await agent.call('answer', { doc: docB, set: { 'part.material': 'Bronze' } });
+    const material = question(page, 'part.material');
+    const refusal = await agent.call('answer', { doc: docB, set: { 'part.material': 'Bronze' } }, { allowError: true });
+    const reason = 'the file states "Brass CW614N" for part.material. To change it, use change with "to": "Bronze", "expect": "Brass CW614N".';
+    assert.equal(refusal.error?.message, reason);
+    await check(material.getByRole('alert')).toHaveText(reason);
+    const saves = () => requests.filter(url => url.endsWith('/save')).length;
+    const savesBeforeRefusal = saves();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await check(page.locator('.spec-bar')).toContainText('Nothing to save');
+    await check(material.getByRole('alert')).toHaveText(reason);
+    assert.equal(saves(), savesBeforeRefusal);
+    assert.equal(table(saved, b)['part.material'].value, 'Brass CW614N');
+    await page.getByRole('button', { name: 'Discard', exact: true }).click();
+    await check(material.getByRole('alert')).toHaveCount(0);
+    await check(pending(b, 'part.material')).toHaveCount(0);
+
+    const stageMaterial = async (to, expect) => {
+      const checked = await agent.call('check', { doc: docB, stage: true,
+        edits: { change: { 'part.material': { to, expect } } } });
+      assert.equal(checked.staged, true);
+    };
+    await stageMaterial('Bronze', 'Brass CW614N');
     await check(pending(b, 'part.material')).toContainText(`${partB.name} · Change Material: Brass CW614N → Bronze`);
     await pageSave();
     assert.equal(table(saved, b)['part.material'].value, 'Bronze');
     await check(pending(b, 'part.material')).toHaveCount(0);
     await check(question(page, 'part.material')).toContainText('Bronze');
 
-    await agent.call('answer', { doc: docB, set: { 'part.material': 'Copper' } });
+    await stageMaterial('Copper', 'Bronze');
     await check(pending(b, 'part.material')).toContainText('Bronze → Copper');
-    const material = question(page, 'part.material');
     await material.getByRole('button', { name: 'Change Material' }).click();
     await material.getByRole('textbox', { name: 'New value' }).fill('Aluminium 6061-T6');
     await material.getByRole('button', { name: 'Apply', exact: true }).click();
