@@ -910,40 +910,124 @@ fn numbered(
         .flat_map(|r| &r.requirements)
         .filter_map(|r| r.number.as_deref()?.strip_prefix('#')?.parse().ok())
         .collect();
+    let changed: BTreeSet<u64> = report
+        .to_check
+        .iter()
+        .filter_map(|c| reader.table.row(&c.old))
+        .flat_map(|r| &r.requirements)
+        .filter_map(|r| r.number.as_deref()?.strip_prefix('#')?.parse().ok())
+        .collect();
+    let out_stated = crate::writer::apply::Stated::of(out)?;
     let now = crate::characteristics::read(out)?;
-    for c in crate::characteristics::read(old)?
-        .into_iter()
-        .filter(|c| carried.contains(&c.number))
-    {
-        let (Ok(faces), Ok(reference)) = (mapped(&c.faces, map), mapped(&c.reference, map)) else {
-            continue;
-        };
-        let sorted = |v: &[usize]| {
-            let mut v = v.to_vec();
-            v.sort_unstable();
-            v.dedup();
-            v
-        };
-        let Some(found) = now.iter().find(|n| {
-            n.kind == c.kind
-                && n.r#type == c.r#type
-                && sorted(&n.faces) == faces
-                && sorted(&n.reference) == reference
-        }) else {
-            continue;
-        };
-        if found.number == c.number {
-            report.numbers_carried = true;
-        } else {
-            report.renumbered.push(Renumbered {
-                old: c.number,
-                new: found.number,
-                kind: c.kind.clone(),
-                r#type: c.r#type.clone(),
-                faces: found.faces.clone(),
+    let mut used = BTreeSet::new();
+    let mut missing = BTreeSet::new();
+    let sorted = |v: &[usize]| {
+        let mut v = v.to_vec();
+        v.sort_unstable();
+        v.dedup();
+        v
+    };
+    for c in crate::characteristics::read(old)? {
+        let number = format!("#{}", c.number);
+        let row = reader.table.rows.iter().find(|r| {
+            r.requirements
+                .iter()
+                .any(|item| item.number.as_deref() == Some(&number))
+        });
+        let requirement = row
+            .into_iter()
+            .flat_map(|r| &r.requirements)
+            .chain(&reader.table.file_pmi)
+            .find(|item| item.number.as_deref() == Some(&number));
+        let old_statement = reader.stated.by_number(c.number);
+        let found = mapped(&c.faces, map)
+            .ok()
+            .zip(mapped(&c.reference, map).ok())
+            .and_then(|(faces, reference)| {
+                now.iter()
+                    .filter(|n| {
+                        !used.contains(&n.number)
+                            && n.kind == c.kind
+                            && n.r#type == c.r#type
+                            && sorted(&n.faces) == faces
+                            && sorted(&n.reference) == reference
+                            && (old_statement
+                                .zip(out_stated.by_number(n.number))
+                                .is_some_and(|(a, b)| a.same_value(b))
+                                || (changed.contains(&c.number) && n.number == c.number))
+                    })
+                    .min_by_key(|n| n.number != c.number)
             });
+        if let Some(found) = found {
+            used.insert(found.number);
+            if found.number == c.number {
+                report.numbers_carried |= carried.contains(&c.number);
+            } else {
+                report.renumbered.push(Renumbered {
+                    old: c.number,
+                    new: found.number,
+                    kind: c.kind.clone(),
+                    r#type: c.r#type.clone(),
+                    faces: found.faces.clone(),
+                });
+            }
+            continue;
         }
+        missing.insert(number.clone());
+        if report
+            .not_carried
+            .iter()
+            .any(|n| n.number.as_deref() == Some(&number))
+        {
+            continue;
+        }
+        if let Some(row) = row
+            && row.requirements.len() == 1
+            && let Some(entry) = report
+                .not_carried
+                .iter_mut()
+                .find(|entry| entry.id.as_deref() == Some(&row.id) && entry.number.is_none())
+        {
+            entry.number = Some(number);
+            continue;
+        }
+        let reason = row
+            .and_then(|r| {
+                report
+                    .not_carried
+                    .iter()
+                    .find(|n| n.id.as_deref() == Some(&r.id))
+                    .map(|n| n.reason.clone())
+            })
+            .unwrap_or_else(|| {
+                "the new file does not state this requirement as the old file does".into()
+            });
+        report.not_carried.push(NotCarried {
+            id: None,
+            number: Some(number),
+            kind: c.kind,
+            r#type: c.r#type,
+            faces: requirement.map_or(c.faces, |r| r.faces.clone()),
+            text: requirement.map_or_else(
+                || old_statement.map_or_else(String::new, |s| s.text()),
+                |r| r.text.clone(),
+            ),
+            part: None,
+            reason,
+        });
     }
+    // These rows were inferred to carry with another row. Verify that the latter actually
+    // produced all their requirements before claiming that they were carried.
+    let confirmed = |c: &Carried| {
+        c.with.is_none()
+            || reader.table.row(&c.old).is_some_and(|row| {
+                row.requirements
+                    .iter()
+                    .all(|r| r.number.as_ref().is_none_or(|n| !missing.contains(n)))
+            })
+    };
+    report.carried.retain(confirmed);
+    report.to_check.retain(confirmed);
     Ok(())
 }
 

@@ -166,7 +166,6 @@ fn each_part_of_an_assembly_is_analysed_as_the_command_line_does() {
 /// bytes are the command line writer's, every instance of the file before is kept (the other
 /// part, both of the pin's placements), and each part resumes its own answers.
 #[test]
-#[ignore = "0.3.0: waits on assembly-edits"]
 fn a_part_of_an_assembly_is_written_into_the_original_file() {
     let original = assembly();
     let pin = Session::open_part("assembly.step", &original, PIN).unwrap();
@@ -193,7 +192,8 @@ fn a_part_of_an_assembly_is_written_into_the_original_file() {
 
     let listed = Session::parts("both.step", &after_plate).unwrap();
     for (k, part) in listed.as_array().unwrap().iter().enumerate() {
-        assert_eq!(part["written"], json!(true));
+        // Under P11 these edits wrote only PMI. `written` reports an embedded answers payload.
+        assert_eq!(part["written"], json!(false));
         let before = &Session::parts("assembly.step", &original).unwrap()[k];
         assert_eq!(part["placements"], before["placements"], "part {k}");
         let session = Session::open_part("both.step", &after_plate, k).unwrap();
@@ -214,7 +214,6 @@ fn a_part_of_an_assembly_is_written_into_the_original_file() {
 /// The editor's project written with a part of an assembly is that part's: it reads back from
 /// that part's session, not the other's, and the original given back is the whole file.
 #[test]
-#[ignore = "0.3.0: waits on assembly-edits"]
 fn a_project_is_carried_on_its_part_of_an_assembly() {
     let original = assembly();
     // base64 of `{"revision":1}`, as the editor encodes its project.
@@ -248,7 +247,9 @@ fn a_project_is_carried_on_its_part_of_an_assembly() {
         assert_eq!(session.original().as_deref(), Some(original.as_slice()));
     }
     assert_kept(&after_pin, &after_plate);
-    assert_eq!(resume::stored(&after_plate).len(), 2);
+    // Project payloads belong to their own parts. With only material written, neither
+    // part stores a duplicate answer under P11.
+    assert!(resume::stored(&after_plate).is_empty());
 }
 
 /// A file of one part placed twice: refused without a part chosen, as before; listed with its

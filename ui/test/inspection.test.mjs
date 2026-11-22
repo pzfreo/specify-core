@@ -24,7 +24,10 @@ function readSaved(t, bytes) {
 }
 // A save (specify-core 0.3.0): the answers as an edit list's fills, applied all or nothing.
 function write(engine, answers) {
-  const result = JSON.parse(engine.edit(JSON.stringify({ fill: answers })));
+  return applyEdits(engine, { fill: answers });
+}
+function applyEdits(engine, edits) {
+  const result = JSON.parse(engine.edit(JSON.stringify(edits)));
   assert.ok(result.written, result.message);
   return new Uint8Array(result.bytes);
 }
@@ -97,21 +100,26 @@ test('write → readback → export keeps the M4 ID while later saves append num
   assertNumbers(next);
 });
 
-test('changed limits reach the next saved export and cannot alter the previous snapshot', { skip: '0.3.0: moves to piece 2 (edits in place)' }, (t) => {
-  const a = { 'extra.1': { kind: 'size', faces: [13], value: '+0.2/-0.1' } };
-  const bytes = write(open(t), a);
+test('changed limits reach the next saved export and cannot alter the previous snapshot', (t) => {
+  const id = 'hole.function:holes:13';
+  const bytes = write(open(t), { [id]: 'fit:H7' });
   const first = readSaved(t, bytes);
-  assert.deepEqual(first.chars.map((row) => [row.upper, row.lower]), [[0.2, -0.1]]);
-  const live = { ...a, 'extra.1': { ...a['extra.1'], value: '+0.5/-0.3' } };
-  // No Save: reading the retained file still describes its original limits.
+  const [size] = first.chars;
+  assert.equal(first.chars.length, 1);
+  assert.match(size.text, /H7/);
   assert.deepEqual(readSaved(t, bytes).chars, first.chars);
-  const changed = readSaved(t, write(open(t, bytes), live));
-  assert.deepEqual(changed.chars.map((row) => [row.n, row.upper, row.lower]), [[first.chars[0].n, 0.5, -0.3]]);
+  const expect = first.analysis.table.rows.find((row) => row.id === id).value;
+  const changed = readSaved(t, applyEdits(open(t, bytes), { change: { [id]: { to: 'fit:H8', expect } } }));
+  assert.equal(changed.chars.length, 1);
+  assert.equal(changed.chars[0].n, size.n);
+  assert.match(changed.chars[0].text, /H8/);
+  assert.notEqual(changed.chars[0].upper, size.upper);
+  assert.equal(changed.chars[0].lower, size.lower);
   assert.notEqual(toCsv(changed.chars), toCsv(first.chars));
   assertNumbers(changed);
 });
 
-test('changed datum references are read from the saved PMI, with stable requirement IDs', { skip: '0.3.0: moves to piece 2 (edits in place)' }, (t) => {
+test('a measurement with changed datum references is read from saved PMI with a new number', (t) => {
   const answers = {
     'datum.A': [0], 'datum.B': [1],
     'extra.1': { kind: 'perpendicularity', faces: [13], value: '0.05', datums: ['A'] },
@@ -120,10 +128,13 @@ test('changed datum references are read from the saved PMI, with stable requirem
   const first = readSaved(t, bytes);
   const tolerance = first.chars.find((row) => row.upper === 0.05);
   assert.equal(tolerance.datums, 'A');
-  const live = { ...answers, 'extra.1': { ...answers['extra.1'], datums: ['B'] } };
   assert.equal(readSaved(t, bytes).chars.find((row) => row.n === tolerance.n).datums, 'A');
-  const changed = readSaved(t, write(open(t, bytes), live));
-  assert.equal(changed.chars.find((row) => row.n === tolerance.n).datums, 'B');
+  const fill = { 'extra.1': { ...answers['extra.1'], datums: ['B'] } };
+  const changed = readSaved(t, applyEdits(open(t, bytes), { items: { remove: [`#${tolerance.n}`] }, fill }));
+  const next = changed.chars.find((row) => row.upper === 0.05);
+  assert.equal(next.datums, 'B');
+  assert.ok(next.n > tolerance.n);
+  assert.ok(!changed.chars.some((row) => row.n === tolerance.n));
   assert.match(as9102({ name: 'saved' }, changed.chars, new Set(), changed.notes)[2].rows.flat().join(' '), /datums B/);
   assertNumbers(changed);
 });

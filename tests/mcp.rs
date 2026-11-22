@@ -2191,3 +2191,63 @@ fn mcp_lists_general_lengths_and_locations_as_open_on_save() {
         );
     }
 }
+#[test]
+fn use_case_7_saves_twice_with_the_table_returned_by_mcp() {
+    let dir = scratch("use-case-7");
+    let path = dir.join("plate.step");
+    std::fs::copy(part("plate"), &path).unwrap();
+    let mut client = Stdio::start(std::slice::from_ref(&dir), mcp::MODERN);
+    let opened = client.call("open", json!({"path": path, "in_place": true}));
+    let doc = &opened["doc"];
+    let analysis_uri = &opened["resources"][0];
+    let value = |table: &Value| {
+        table["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == "part.material")
+            .unwrap()["value"]
+            .clone()
+    };
+    let first = client.call(
+        "save",
+        json!({
+            "doc": doc, "rev": opened["rev"], "edits": {"fill":{"part.material":"steel"}}
+        }),
+    );
+    let current = client.result("resources/read", json!({"uri": analysis_uri}));
+    let current: Value =
+        serde_json::from_str(current["contents"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(value(&current["table"]), "steel", "{current}");
+    let on_disk = specify_core::api::analyse_file(&path, None).unwrap();
+    assert_eq!(current["table"], on_disk["table"]);
+    assert_eq!(first["table"], on_disk["table"]);
+    let questions = client.call("questions", json!({"doc": doc, "state": "open"}));
+    assert!(
+        !questions["questions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|q| q["id"] == "part.material")
+    );
+
+    // Reopening the same path sees the actual saved file and keeps its document handle.
+    let reopened = client.call("open", json!({"path": path}));
+    assert_eq!(reopened["doc"], *doc);
+    let second = client.call(
+        "save",
+        json!({
+            "doc": reopened["doc"], "rev": first["rev"],
+            "edits": {"change":{"part.material":{"to":"brass","expect":value(&first["table"])}}}
+        }),
+    );
+    let current = client.result("resources/read", json!({"uri": analysis_uri}));
+    let current: Value =
+        serde_json::from_str(current["contents"][0]["text"].as_str().unwrap()).unwrap();
+    let on_disk = specify_core::api::analyse_file(&path, None).unwrap();
+    assert_eq!(value(&second["table"]), "brass");
+    assert_eq!(second["table"], on_disk["table"]);
+    assert_eq!(current["table"], on_disk["table"]);
+    drop(client);
+    std::fs::remove_dir_all(dir).unwrap();
+}

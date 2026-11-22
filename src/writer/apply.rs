@@ -1158,6 +1158,7 @@ fn bom_edits(
     }
     let mut fields = Map::new();
     let mut answers = Map::new();
+    let mut suggestions = Vec::new();
     for (id, value) in fills {
         let key = &id["bom.".len()..];
         match crate::bom::validate(key, value) {
@@ -1178,6 +1179,7 @@ fn bom_edits(
                     match suggested.and_then(|s| s.get(key)) {
                         Some(value) => {
                             fields.insert(key.to_string(), value.clone());
+                            suggestions.push(key.to_string());
                         }
                         None => failures.push(entry_failure(
                             entry("accept_suggestions", id),
@@ -1194,6 +1196,9 @@ fn bom_edits(
     }
     let mut intent = crate::rules::Intent::new(analysis["binding"].clone());
     intent.part.insert("bom".into(), Json::Object(fields));
+    intent
+        .part
+        .insert("bom_suggestions".into(), Json::from(suggestions));
     (rest, Ok(Some(intent)))
 }
 
@@ -1623,19 +1628,33 @@ fn applied_pmi(
         features.extend(features_of(before, (c, *i)));
     }
     give_way.extend(features.iter().map(|&f| ("features".to_string(), f)));
-    // What belongs to a removed item goes with it: the notes and attribute sets on it (a
-    // dimension's plan, a thread's manufacturing data on its feature, unless kept).
+    // Direct attachments belong to their dimension or tolerance. A feature can carry
+    // several requirements, so sharing its carrier does not establish ownership.
     let owned = |on: &Option<haecceity::pmi::NoteOwner>| {
         use haecceity::pmi::NoteOwner;
         match on {
             Some(NoteOwner::Dimension(d)) => remove.contains(&("dimensions".to_string(), d.0)),
             Some(NoteOwner::Tolerance(t)) => remove.contains(&("tolerances".to_string(), t.0)),
-            Some(NoteOwner::Feature(f)) => features.contains(&f.0),
             _ => false,
         }
     };
     for (i, set) in before.attributes.iter().enumerate() {
-        if owned(&set.on) {
+        let thread_removed = set.name == "thread manufacturing"
+            && matches!(set.on, Some(haecceity::pmi::NoteOwner::Feature(f)) if {
+                let mut removed = false;
+                let mut kept = false;
+                for (i, _) in before.threads.iter().enumerate().filter(|(_, thread)| {
+                    before.same_target(&ToleranceTarget::Feature(f), &ToleranceTarget::Feature(thread.feature))
+                }) {
+                    if remove.contains(&("threads".to_string(), i)) {
+                        removed = true;
+                    } else {
+                        kept = true;
+                    }
+                }
+                removed && !kept
+            });
+        if owned(&set.on) || thread_removed {
             give_way.insert(("attributes".to_string(), i));
         }
     }
@@ -2100,6 +2119,11 @@ impl Stated {
 }
 
 impl Stated {
+    pub(crate) fn by_number(&self, number: u64) -> Option<&crate::characteristics::Statement> {
+        let index = self.located.iter().position(|l| l.number == Some(number))?;
+        self.said.get(index)
+    }
+
     /// What the row `row` of this file's table states: each of its requirements, value
     /// included, or `None` when one cannot be found among the file's requirements (a setting).
     pub(crate) fn of_row(
@@ -2115,7 +2139,7 @@ impl Stated {
                 .iter()
                 .position(|l| (l.at.0.to_string(), l.at.1) == at)?;
             taken.insert(at);
-            out.push(&self.said[i]);
+            out.push(self.said.get(i)?);
         }
         Some(out)
     }

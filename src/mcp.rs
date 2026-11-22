@@ -219,7 +219,6 @@ struct Doc {
     /// SHA-256 of the file's bytes as read (gzipped or not), to tell it changed.
     file_sha: String,
     part: usize,
-    analysis: Arc<Value>,
     answers_file: Option<PathBuf>,
     /// The mesh, made when first read.
     mesh: Option<Value>,
@@ -238,7 +237,12 @@ impl Doc {
         session::lock(&self.session).rev()
     }
 
-    /// The part, loaded from the file as opened (not as an in-place save left it).
+    fn analysis(&self) -> Result<Arc<Value>, ToolError> {
+        session::analysis(&self.session, self.part)
+            .map_err(|e| ToolError::new("failed", e.to_string()))
+    }
+
+    /// The part of the session's current file.
     fn loaded(&self) -> Result<part::LoadedPart, ToolError> {
         let s = session::lock(&self.session);
         Ok(s.step().load(Some(self.part)).map_err(Error::Load)?)
@@ -791,30 +795,23 @@ impl Server {
         let bytes = std::fs::read(&path)
             .map_err(|e| ToolError::invalid(format!("{raw}: {e}", raw = path.display())))?;
         let file_sha = sha256(&bytes);
-        // The session: this file's (compared with the same `old`), as already open (or as its
-        // own in-place save left it), else a new one, which starts from those every part stores
-        // (with `old`, the comparison is shown beside it).
+        let opened = Opened::of(given.clone(), bytes);
+        let file = part::File::of_shared(&path, Arc::clone(&opened.bytes)).map_err(Error::Load)?;
+        // A reopen always uses the bytes on disk, including after an in-place save.
+        // Reuse the shared session only when it holds this same file version.
         let old_given = old.as_ref().map(|(_, g)| g);
         let known = self
             .sessions
             .iter()
-            .find(|s| {
-                let s = session::lock(s);
-                s.file().path == given
-                    && s.is_ours(&file_sha)
-                    && s.old().map(|o| &o.path) == old_given
+            .find(|shared| {
+                let held = session::lock(shared);
+                held.file().path == given
+                    && held.is_ours(&file_sha)
+                    && held.old().map(|old| &old.path) == old_given
+                    && held.step().bytes() == file.bytes()
             })
             .cloned();
         let created = known.is_none();
-        // A known session is read as it was opened: its documents' handles stay.
-        let (opened, file_sha) = match &known {
-            Some(s) => {
-                let s = session::lock(s);
-                (s.file().clone(), s.sha().to_string())
-            }
-            None => (Opened::of(given.clone(), bytes), file_sha),
-        };
-        let file = part::File::of_shared(&path, Arc::clone(&opened.bytes)).map_err(Error::Load)?;
         if part.is_none() && file.definitions().len() > 1 {
             return Ok(json!({
                 "doc": null,
@@ -828,7 +825,15 @@ impl Server {
         let loaded = file.load(part).map_err(Error::Load)?;
         let (analysis, warnings) = api::analyse_reporting_in(&file, &loaded)?;
         let index = loaded.binding.part;
-        let handle = format!("{}-{index}", loaded.binding.source_sha256);
+        let handle = known
+            .as_ref()
+            .and_then(|shared| {
+                self.docs
+                    .iter()
+                    .find(|(_, doc)| Arc::ptr_eq(&doc.session, shared) && doc.part == index)
+                    .map(|(handle, _)| handle.clone())
+            })
+            .unwrap_or_else(|| format!("{}-{index}", loaded.binding.source_sha256));
         let analysis = Arc::new(analysis);
         let shared = match known {
             Some(s) => s,
@@ -894,14 +899,13 @@ impl Server {
             path: given.clone(),
             file_sha,
             part: index,
-            analysis,
             answers_file: answers_file.or(previous_file),
             mesh: None,
         };
         if let Some(target) = &doc.answers_file {
             save_answers(target, &answers)?;
         }
-        let qs = api::questions(&doc.analysis, &answers)?;
+        let qs = api::questions(&analysis, &answers)?;
         let open: Vec<&str> = rules::open_questions(&qs, &answers)
             .iter()
             .map(|q| q.id.as_str())
@@ -912,15 +916,12 @@ impl Server {
         out.insert("part".into(), json!(index));
         out.insert("name".into(), json!(loaded.name));
         out.insert("faces".into(), json!(loaded.binding.face_count));
-        out.insert("features".into(), feature_counts(&doc.analysis));
+        out.insert("features".into(), feature_counts(&analysis));
         out.insert(
             "existing_pmi".into(),
-            json!(doc.analysis["existing"].as_array().map_or(0, Vec::len)),
+            json!(analysis["existing"].as_array().map_or(0, Vec::len)),
         );
-        out.insert(
-            "resumed".into(),
-            json!(doc.analysis.get("resume").is_some()),
-        );
+        out.insert("resumed".into(), json!(analysis.get("resume").is_some()));
         out.insert("answered".into(), json!(answers.len()));
         out.insert("open_questions".into(), json!(open));
         out.insert("rev".into(), json!(rev));
@@ -958,7 +959,8 @@ impl Server {
             let s = session::lock(&doc.session);
             (s.answers(doc.part).cloned().unwrap_or_default(), s.rev())
         };
-        let qs = api::questions(&doc.analysis, &answers)?;
+        let analysis = doc.analysis()?;
+        let qs = api::questions(&analysis, &answers)?;
         if flag(args, "compact")? {
             // The open questions only, each as an agent asks it in chat.
             let compact: Vec<Value> = rules::open_questions(&qs, &answers)
@@ -1041,6 +1043,9 @@ impl Server {
         let shared = Arc::clone(&doc.session);
         let part = doc.part;
         let mut held = session::lock(&shared);
+        let analysis = held
+            .analysis(part)
+            .map_err(|e| ToolError::new("failed", e.to_string()))?;
         let mut trial = held.answers(part).cloned().unwrap_or_default();
         for id in &clear {
             trial.remove(id);
@@ -1048,7 +1053,7 @@ impl Server {
         let mut changed = Vec::new();
         let mut refused = Map::new();
         for (id, given) in &set {
-            match try_answer(&doc.analysis, &mut trial, id, given) {
+            match try_answer(&analysis, &mut trial, id, given) {
                 Ok(entry) => changed.push(entry),
                 // With partial, a refused answer is reported and the others still apply.
                 Err(e) if partial => {
@@ -1058,9 +1063,9 @@ impl Server {
             }
         }
         if !clear.is_empty() {
-            api::review(&doc.analysis, &trial)?;
+            api::review(&analysis, &trial)?;
         }
-        let qs = api::questions(&doc.analysis, &trial)?;
+        let qs = api::questions(&analysis, &trial)?;
         let open: Vec<&str> = rules::open_questions(&qs, &trial)
             .iter()
             .map(|q| q.id.as_str())
@@ -1117,7 +1122,8 @@ impl Server {
     fn review(&self, args: &Map<String, Value>) -> ToolResult {
         let (handle, doc) = self.doc(args)?;
         let (answers, rev) = (doc.answers(), doc.rev());
-        let review = api::review(&doc.analysis, &answers)?;
+        let analysis = doc.analysis()?;
+        let review = api::review(&analysis, &answers)?;
         let mut out = Map::new();
         out.insert("doc".into(), json!(handle));
         out.insert("rev".into(), json!(rev));
@@ -1127,7 +1133,7 @@ impl Server {
             (false, "writable", "missing"),
             (true, "writable_with_defaults", "missing_with_defaults"),
         ] {
-            match api::apply(&doc.analysis, &answers, defaults) {
+            match api::apply(&analysis, &answers, defaults) {
                 Ok(_) => {
                     out.insert(ok.into(), json!(true));
                     out.insert(missing.into(), json!([]));
@@ -1145,14 +1151,15 @@ impl Server {
     fn characteristics(&self, args: &Map<String, Value>) -> ToolResult {
         let (handle, doc) = self.doc(args)?;
         let (answers, rev) = (doc.answers(), doc.rev());
-        let intent = api::preview(&doc.analysis, &answers)?;
-        let sources = api::preview_sources(&doc.analysis, &answers)?;
+        let analysis = doc.analysis()?;
+        let intent = api::preview(&analysis, &answers)?;
+        let sources = api::preview_sources(&analysis, &answers)?;
         Ok(json!({"doc": handle, "intent": intent.to_dict(), "sources": sources, "rev": rev}))
     }
 
     fn read_pmi(&self, args: &Map<String, Value>) -> ToolResult {
         let (handle, doc) = self.doc(args)?;
-        let a = &doc.analysis;
+        let a = doc.analysis()?;
         let mut out = Map::new();
         out.insert("doc".into(), json!(handle));
         out.insert("rev".into(), json!(doc.rev()));
@@ -1346,6 +1353,7 @@ impl Server {
         eprintln!("Saved {} ({} bytes).", saved.path, saved.bytes);
         let mut out = saved.to_json();
         out["doc"] = json!(handle);
+        out["table"] = doc.analysis()?["table"].clone();
         Ok(out)
     }
 
@@ -1448,7 +1456,10 @@ impl Server {
         };
         fresh(doc).map_err(|e| not_found(&e.message))?;
         let text = match kind {
-            "analysis" => doc.analysis.to_string(),
+            "analysis" => doc
+                .analysis()
+                .map_err(|e| not_found(&e.message))?
+                .to_string(),
             "mesh" => {
                 if doc.mesh.is_none() {
                     let loaded = doc
