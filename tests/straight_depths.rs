@@ -97,8 +97,13 @@ fn write_depths_with_legacy_ids(
         }
     }
     let (bytes, report) = writer::write_bytes(&source, &intent, Some(&answers)).unwrap();
-    // The omitted general diameter is unrelated to the blind depth, which still writes.
-    assert_eq!(report.not_written, [common::PIN_DATUM_A_SIZE_OMISSION]);
+    // The pin's datum diameter is omitted independently of the blind depth.
+    let expected: &[&str] = if name == "pin.step" {
+        &[common::PIN_DATUM_A_SIZE_OMISSION]
+    } else {
+        &[]
+    };
+    assert_eq!(report.not_written, expected);
     let doc = Document::parse(bytes).unwrap();
     let read = pmi::read(&doc, std::slice::from_ref(&source.definition)).unwrap();
     let p = read.parts.into_iter().next().unwrap();
