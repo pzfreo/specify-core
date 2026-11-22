@@ -60,6 +60,11 @@ pub(crate) fn is_id(id: &str) -> bool {
     })
 }
 
+/// The value of a suggestion independent of the name of its reference face.
+pub(crate) fn measure_text(value: &Value) -> Option<&str> {
+    Some(value.as_str()?.split_once(" from ")?.0)
+}
+
 pub(crate) struct Suggestion {
     pub(crate) question: Question,
     pub(crate) dimension: Dimension,
