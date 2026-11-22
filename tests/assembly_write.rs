@@ -407,11 +407,13 @@ fn a_mixed_write_edits_one_part_at_a_time_regardless_of_origin() {
         let raw = base64::engine::general_purpose::STANDARD
             .decode(&c[1])
             .unwrap();
-        let p: Value = serde_json::from_slice(&raw).unwrap();
+        let mut p: Value = serde_json::from_slice(&raw).unwrap();
         if p["part"] == json!(PIN) {
             format!("'other','{}'", &c[1])
         } else {
-            c[0].to_string()
+            p["answers"]["part.material"] = json!("steel");
+            let legacy = base64::engine::general_purpose::STANDARD.encode(p.to_string());
+            format!("'pmi-assist answers','{legacy}'")
         }
     });
     let mixed = dir.join("mixed.step");
