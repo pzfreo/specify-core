@@ -26,7 +26,8 @@ use serde_json::{Map, Value};
 use crate::locations;
 use crate::pyfmt;
 use crate::rules::{
-    Ctx, DatumKind, Datums, Error, Face, Faces, Result, bores, bores_of, int_of, invalid, round,
+    Ctx, DatumKind, Datums, Error, Face, Faces, Result, bores_of, int_of, invalid, round,
+    table_bores,
 };
 
 /// ISO 2768-1 permissible deviations (±mm) for linear dimensions, by class, for nominal sizes
@@ -316,7 +317,7 @@ pub fn dimensions(
         let d = holes[0].number("diameter")?;
         let mut on = Vec::new();
         for h in &holes {
-            on.extend(bores(h.faces()?, d, faces)?);
+            on.extend(table_bores(h.faces()?, d, ctx)?);
         }
         if !on.is_empty() && !on.iter().any(|i| sized.contains(i)) {
             toleranced(size(feature.id, on, d), d)?;

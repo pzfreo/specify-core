@@ -297,13 +297,11 @@ impl Server {
                     crate::bom::accept_suggestions(analysis, &answers, &mut intent)
                         .map_err(Failure::Invalid)?;
                 }
-                // The answers as given, and with every default taken those that write no PMI
-                // (ADR P9): a default that writes PMI is not stored, so it stays a default and
-                // follows the rules as they then are; the file states it.
+                // The writer stores approved defaults that leave no PMI (ADR P11).
                 let step = path(request, "step")?;
                 let output = path(request, "output")?;
                 let answers = if defaults {
-                    stored_with_defaults(&step, analysis, answers)
+                    api::defaults_for_write(analysis, &answers)?
                 } else {
                     answers
                 };
@@ -405,20 +403,6 @@ impl Server {
     }
 }
 
-/// `answers` with the defaults taken that write no PMI ([`api::stored_with_defaults`]); a
-/// part that cannot be loaded or planned stores what was given, and the write refuses it.
-fn stored_with_defaults(
-    step: &Path,
-    analysis: &Value,
-    answers: Map<String, Value>,
-) -> Map<String, Value> {
-    let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
-    part::load(step, Some(index))
-        .ok()
-        .and_then(|loaded| api::stored_with_defaults(&loaded, analysis, &answers).ok())
-        .unwrap_or(answers)
-}
-
 /// `write` with `parts`: several parts of an assembly, each applied with its answers (a
 /// refusal naming the part), then written together.
 fn write_parts(request: &Map<String, Value>) -> Handled {
@@ -449,21 +433,14 @@ fn write_parts(request: &Map<String, Value>) -> Handled {
             crate::bom::accept_suggestions(analysis, &answers, &mut intent)
                 .map_err(Failure::Invalid)?;
         }
-        written.push((analysis, intent, answers));
+        let answers = if defaults {
+            api::defaults_for_write(analysis, &answers)?
+        } else {
+            answers
+        };
+        written.push((intent, Some(answers)));
     }
     let step = path(request, "step")?;
-    // With every default taken, those that write no PMI are stored too (ADR P9).
-    let written = written
-        .into_iter()
-        .map(|(analysis, intent, answers)| {
-            let answers = if defaults {
-                stored_with_defaults(&step, analysis, answers)
-            } else {
-                answers
-            };
-            (intent, Some(answers))
-        })
-        .collect::<Vec<_>>();
     let output = path(request, "output")?;
     let report = api::write_parts(&step, &written, &output)?;
     Ok(json!({
