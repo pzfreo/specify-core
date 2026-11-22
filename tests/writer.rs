@@ -977,6 +977,9 @@ fn a_nist_part_keeps_all_its_pmi() {
         "datum.C.control",
         // Appended for every made part (docs/process.md); NIST's PMI states no process.
         "part.process",
+        // general dimensions are rows (Paul, 2026-11-21).
+        "length",
+        "location",
     ];
     assert!(
         asked.iter().all(|a| allowed.contains(&a.as_str())),
@@ -990,10 +993,9 @@ fn a_nist_part_keeps_all_its_pmi() {
     assert_eq!(
         report.written,
         [
-            // #75: three raw counted General bore groups overlap stored fits and
-            // cannot replace their contracts. Report them; append the 14 reconciled
-            // requirements and preserve the 12 original dimensions.
-            "14 dimensions under the general tolerance",
+            // general dimensions are rows (Paul, 2026-11-21). Bulk approval appends
+            // 25 measured dimensions. Three incompatible bore groups are reported.
+            "25 dimensions under the general tolerance",
             "material CZ121",
             "general tolerance ISO 2768-m",
             "surface finish Ra 3.2",
@@ -1003,7 +1005,7 @@ fn a_nist_part_keeps_all_its_pmi() {
     let old = read_existing(&loaded).unwrap();
     let new = read_existing(&load(&out, None).unwrap()).unwrap();
     assert_eq!(old, new);
-    assert_eq!(pmi_of(&out, 0).dimensions.len(), 26); // 12 original + 14 reconciled quantities.
+    assert_eq!(pmi_of(&out, 0).dimensions.len(), 37); // 12 original plus 25 approved quantities.
     // The new per-dimension diagnostics must identify rows of this legacy intent.
     let read = specify_core::api::analyse_file(&out, None).unwrap();
     let general = check_general_rows(&intent, &read, &report, &input);

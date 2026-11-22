@@ -420,6 +420,39 @@ fn an_old_intent_is_upgraded_only_where_it_approves_general_dimensions() {
     }
 }
 
+#[test]
+fn old_plan_upgrades_cannot_approve_other_lengths_sharing_a_holes_reference() {
+    let p = plate();
+    let mut old = api::analyse(&p).unwrap();
+    old.as_object_mut().unwrap().shift_remove("dimensioning");
+    let given = json!({"part.material": "steel"});
+    let mut answers = rules::with_all_defaults(&old, given.as_object().unwrap()).unwrap();
+    answers.retain(|id, _| !id.starts_with("length:planes:") && !id.starts_with("location:holes:"));
+    let intent = rules::apply(&old, &answers).unwrap();
+    let (bytes, _) = writer::write_bytes(&p, &intent, Some(&answers)).unwrap();
+    let analysed = api::analyse(&part::load_bytes("old-plate.step", bytes).unwrap()).unwrap();
+    for id in [
+        "length:planes:0-5",
+        "length:planes:1-3",
+        "length:planes:2-4",
+    ] {
+        let row = analysed["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap_or_else(|| panic!("missing {id}"));
+        assert_eq!(row["state"], "gap", "{id}");
+    }
+    assert!(
+        analysed["existing"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["type"] == "Position")
+    );
+}
+
 mod common;
 
 fn faces(p: &pmi::PartPmi, id: pmi::FeatureId) -> BTreeSet<usize> {

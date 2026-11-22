@@ -3065,7 +3065,8 @@ fn part_pmi_observed(
         }
         match crate::dimensioning::input(&loaded.part) {
             Ok(input) => {
-                crate::dimensioning::upgrade(input, &mut upgraded).map_err(WriteError::Failed)?;
+                crate::dimensioning::upgrade(input, &mut upgraded, same_general_measurement)
+                    .map_err(WriteError::Failed)?;
                 for row in &mut upgraded.general {
                     if !row.contains_key("question")
                         && let Some(question) = original_general.iter().find_map(|original| {

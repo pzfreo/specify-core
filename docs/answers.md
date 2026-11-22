@@ -232,6 +232,7 @@ order. Unowned hole locations use `location:holes:<reference>-<located>`, with a
 axis suffix for offsets between hole axes. Each face group lists its sorted face numbers
 separated by dots. These IDs identify measurements within one geometry revision.
 
+An older intent upgraded by the writer also needs an approved length between both supports.
 The write report names any general dimension from the intent that the writer omits, with
 its nominal, faces and reason in `not_written`.
 
