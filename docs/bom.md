@@ -95,22 +95,22 @@ Questions are `bom.make_buy`, `bom.description`, `bom.part_number`, `bom.revisio
 proposed made. Stock is not asked: it follows make/buy, `--bom`
 proposes it with the rest, and an explicit `bom.stock` answer is written. Existing part numbers and
 revisions are not asked again. BOM questions never block a write and are excluded from
-`--accept-defaults` / `with_all_defaults`. Material remains `part.material`. They are asked
+routine PMI suggestions. Material remains `part.material`. They are asked
 only of a part of a file the BOM can be written into (`bom::assembly_shape`): an assembly
 product definition with a shape, and an assembly occurrence of every part. A file of several
 products with no `NEXT_ASSEMBLY_USAGE_OCCURRENCE` is not asked them (#149).
 
-A write opts in when its intent contains at least one explicit `bom.*` answer, or when
-BOM suggestions are explicitly accepted (using a current assembly analysis):
+An edit list opts in through `fill` for explicit `bom.*` values or through
+`accept_suggestions` for the specific BOM fields the caller approves. For example,
+save `{"fill":{"bom.part_number":"GRM-02"},"accept_suggestions":["bom.description"]}`
+as `edits.json`, then run `specify-core write asm.step edits.json --part 0 -o out.step`.
+Use `specify-core parts asm.step` to find the index. Apply another list to the output to
+edit another part. Opening a part with WASM `IntentEngine.openPart` or selecting a part
+in Python `api.write` accepts the same list. A file without assembly structure refuses
+BOM fields with `bom_no_assembly`.
 
-- CLI: `specify-core write asm.step analysis.json answers.json -o out.step --bom`
-  (one analysis/answers pair per part to include; `--accept-defaults` independently accepts PMI).
-- Rust: apply/preview normally, then `bom::accept_suggestions(&analysis, &answers, &mut intent)`.
-- Python: `api.apply(analysis, answers, accept_defaults=True, bom=True)`.
-- Edit lists (WASM `IntentEngine.openPart(...).edit`, and every surface that applies one): a
-  `fill` of `bom.<field>` with a value, or `accept_suggestions` of `bom.<field>` taking the
-  BOM's suggestion, for the part the list is applied to (`writePmi(..., bom)` is gone since
-  0.3.0). Refused with `bom_no_assembly` on a file with no assembly structure.
+The Rust and Python intent builders can preview BOM suggestions through
+`bom::accept_suggestions` and `api.apply(..., bom=True)` respectively.
 
 Without opt-in, neither single parts nor assemblies receive new BOM records, history,
 numbers or owner changes; the ordinary PMI write bytes remain unchanged. Reading never

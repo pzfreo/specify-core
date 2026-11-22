@@ -2,7 +2,7 @@
 
 What each engine reads of the other's files, checked by `tests/cross_engine.rs` (verdicts in
 `../known_differences/cross_engine.json`). One directory per synthetic or NIST oracle case
-whose every part has Python's accept-defaults intent:
+whose every part has Python's archived default-approved intent:
 
 | File | Written by | What it is |
 |---|---|---|

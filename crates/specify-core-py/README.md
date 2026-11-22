@@ -87,13 +87,12 @@ answers.
 ```bash
 specify-core analyse plate.step -o plate.analysis.json
 specify-core questions plate.analysis.json --open                # unanswered questions, as JSON
-echo '{"part.material": "6082-T6"}' > answers.json
-specify-core write plate.step plate.analysis.json answers.json --accept-defaults -o plate-pmi.step
+echo '{"fill":{"part.material":"6082-T6"},"accept_suggestions":["part.general_tolerance"]}' > edits.json
+specify-core write plate.step edits.json -o plate-pmi.step
 ```
 
-`specify-core parts` lists an assembly's parts and `--part` picks one; `write` takes an
-analysis and answers pair for each part to write together. `specify-core mesh` writes the
-face-indexed triangles.
+`specify-core parts` lists an assembly's parts. Pass `--part INDEX` to write the edit
+list to one of them. `specify-core mesh` writes the face-indexed triangles.
 
 ## For a host program
 

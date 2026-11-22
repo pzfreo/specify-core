@@ -231,12 +231,13 @@ when the question they belong to is approved: a hole's or turned diameter's size
 
 A general dimension with no owning question is an open gap in its own right. For
 example, the GRM-05 depth-lock bolt offers `14 ±0.2 from B` as `length:planes:2-3`.
-Approve the displayed value by its ID, approve the suggestions together, or use
-`write --accept-defaults`. Answering `none` records `decided_none` in the file. A file
+Use `fill` to provide a value or list the approved IDs in `accept_suggestions`. For
+example, save `{"accept_suggestions":["length:planes:2-3"]}` as `edits.json` and run
+`specify-core write STEP edits.json -o OUT`. Answering `none` records `decided_none` in the file. A file
 that already states the measurement shows a `stated` row. If the general-tolerance note
 is still a gap, approving the dimension writes its displayed tolerance on the dimension.
 Unanswered lengths and locations appear in `questions --open`, MCP, and the save's
-list of requirements still open. CLI `write` requires a complete set of answers.
+list of requirements still open. CLI `write` saves the approved edits while leaving other gaps open.
 
 Plane lengths use `length:planes:<side>-<side>` with their two face groups in canonical
 order. Unowned hole locations use `location:holes:<reference>-<located>`, with a planner

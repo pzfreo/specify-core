@@ -48,7 +48,7 @@ building it:
   regardless of authorship. Ordinary #204 rules handle withheld answers and ask questions
   left open. Withholding creates no conflict. If comparison fails, Specify withholds the
   saved answers and protects the readable file PMI. Saves carry withheld answers for
-  reevaluation. `write --accept-defaults` stores the defaults it takes that write no PMI.
+  reevaluation. A CLI edit list stores a decision that leaves no PMI when its ID is explicitly filled or named in `accept_suggestions`.
 
 
 ## Decision (2026-11-02): limit dimensions and combined ISO 2768 classes

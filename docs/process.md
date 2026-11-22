@@ -13,8 +13,9 @@ questions, so no existing question moves. It never blocks a write (it is not amo
 questions).
 
 **No answer and no file value means machined.** Every question, default and write of such a
-part is what it was before the process existed: the machined default is never added by
-`--accept-defaults` / `with_all_defaults`, stored in answers or written.
+part uses the machining rules. An implicit machining process adds no stored answer or
+PMI. To approve a displayed process suggestion explicitly, name `part.process` in the
+edit list's `accept_suggestions`.
 
 **The guess.** A material from one of the material list's printing classes suggests the
 matching process: filament → FDM, resin → resin, powder → powder, metal → metal. Any other
@@ -125,8 +126,8 @@ values are ignored. Precedence is answer > file > guess, with the source reporte
 tool's) as `analysis.part.process`: the question is then not asked, as other `part.*` values the
 file states are not. The answer itself is not stored: the file states it (ADR P11). An
 accepted suggestion stored in the file is the question's default only while the current
-material still suggests it; it is not an answer, so `apply` without accept-defaults on the
-resumed part leaves it machined until the suggestion is accepted again. A `general tolerance`
+material still suggests it. The edit list can approve the current suggestion or fill an
+explicit process. A `general tolerance`
 note is read as the part's general tolerance only when Specify wrote it.
 `specify_core::process::of(analysis, answers)` gives the current value and source (none for a
 bought part); `process::read(&Document, product_definition)` reads a file's.

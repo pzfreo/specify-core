@@ -300,12 +300,12 @@ Read first:
 
 ### Removed
 
-- The command-line whole-intent `write STEP ANALYSIS ANSWERS` form. Use
+- The command-line whole-intent writer. Use
   `write STEP EDITS.json` and name any suggestions to accept in `accept_suggestions`.
 
 - **Answers export** ([ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md):
   no export of answers as a record; the file is the only copy): CLI `questions
-  --resolve-defaults --step STEP [--accept-defaults FILE]`, serve `export_answers`, MCP
+  --resolve-defaults` and its approval-file option, serve `export_answers`, MCP
   `export_answers`, Rust `api::export_answers` (with `api::Exported` and
   `api::APPROVALS_FORM`), Python `api.export_answers` and WASM `exportAnswers`. Answer files
   written earlier are still read (`--answers`, `write`, `answers_file`).
@@ -440,7 +440,7 @@ Read first:
   defaults accepted. Datum questions check both versions of the same datum. Part settings
   compare every file entry, including each note, regardless of authorship. Withheld
   answers follow ordinary file-PMI handling and stay in the file for reevaluation.
-  `write --accept-defaults` stores the defaults it takes that write no PMI.
+  That release’s batch approval stored the defaults it took that wrote no PMI.
 - Saves preserve edited printed general-tolerance notes and marked tolerances hidden by
   imported tolerances. If comparison fails, reopening withholds the saved answers while
   protecting the file's readable PMI (with an analysis warning from the CLI, serve, MCP and
@@ -542,7 +542,7 @@ Read first:
   person approves it). `api::export_answers`, CLI `questions --resolve-defaults`, serve
   `export_answers`, WASM `exportAnswers` and Python `api.export_answers` export the answers given
   plus exactly the defaults approved by part, `{"<part>": {"<id>": value}}` with the value the
-  person saw (CLI `--accept-defaults FILE`, serve and Python `accept_defaults`, WASM's second
+  person saw (the former CLI approval-file option, serve and Python `accept_defaults`, WASM's second
   argument); without approvals, no defaults. An approval that is not an open question's
   default, or whose default has changed, is refused naming the part and question (serve adds
   `expected` and `current`). Another part's approvals do not apply. Open questions and carry
@@ -860,7 +860,7 @@ Read first:
   standard-hardware name on a part recognised with pockets or keyways (proposed made; its reason asks which). Part number and revision
   carry no suggestion. `bom.stock` is no longer asked: it follows make/buy, is still proposed
   by `--bom` and an explicit answer is still written. Suggestions stay out of `default`, so
-  `--accept-defaults` writes no BOM field.
+  The old PMI default-approval option wrote no BOM field.
 
 ### Fixed
 
@@ -907,7 +907,7 @@ Read first:
   usage errors are clap's text rather than argparse's, and `-h` and `--help` both give a
   command's full help. The top-level help now lists `diff`, `open` and `bom`, which were left
   out to match Python's text, and a prefix of `--help` at the top level (`--he`, `--h`) prints
-  the help (exit 0). Positionals after an option are taken: `write S A B -o OUT C D` writes both
+  the help (exit 0). The writer at that release accepted positional arguments after an option and wrote both
   pairs and `write S A -o OUT B` the pair `A B`, where argparse left `C D` and `B`
   unrecognised. The WASM build leaves the command line out (the root crate's default `cli`
   feature, off for `specify-core-wasm`).
@@ -1029,7 +1029,7 @@ Read first:
   Plain maps remain compatible and cannot detect changed in-range face identities.
   **Re-run `diff` to regenerate changes files from released v0.1.8 and earlier**: their
   metadata-free `changes/answers.json` cannot reveal dropped answers, so the literal
-  old-file `write --accept-defaults` repro still exits 0 on updated tools.
+  the archived CLI’s old-file default-approval repro exited 0 on the updated tools.
   Older Specify/editor WASM builds reject new `_specify` maps as `unknown answer ID`;
   older CLI and Python installs may accept and ignore `_specify`, without its evidence and
   carry-block checks. Old plain files remain compatible with new tools.
