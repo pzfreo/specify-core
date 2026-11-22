@@ -1356,6 +1356,7 @@ fn intent(
 
     let mut accepted = BTreeMap::new();
     let has_general_tolerance = intent.part.contains_key("general_tolerance")
+        || ctx.table_stated_value("part.general_tolerance").is_some()
         || ctx
             .stated
             .is_some_and(|part| py::truthy_opt(part.get("general_tolerance")));
@@ -1682,6 +1683,7 @@ fn raw_intent(
             intent.requirements.push(req);
         }
     }
+    let stated_tolerance = ctx.table_stated_value("part.general_tolerance");
     let tolerance = answers
         .get("part.general_tolerance")
         .filter(|v| truthy(v))
@@ -1689,14 +1691,18 @@ fn raw_intent(
             ctx.stated
                 .and_then(|p| p.get("general_tolerance"))
                 .filter(|v| truthy(v))
-        });
+        })
+        .map(|value| {
+            value.as_str().ok_or_else(|| {
+                Error::Invalid(format!(
+                    "part.general_tolerance: {} is not a tolerance class",
+                    repr(value)
+                ))
+            })
+        })
+        .transpose()?
+        .or(stated_tolerance);
     if let Some(tolerance) = tolerance {
-        let Value::String(tolerance) = tolerance else {
-            return invalid(format!(
-                "part.general_tolerance: {} is not a tolerance class",
-                repr(tolerance)
-            ));
-        };
         intent.general = general::dimensions(ctx, &datums, &intent.requirements, tolerance)?;
     }
     if let Some(input) = ctx.analysis.get("dimensioning")
@@ -1714,6 +1720,7 @@ fn raw_intent(
         // dimensions. Supply it to the planner without writing the note again.
         let seed_tolerance = tolerance.filter(|_| {
             (mode == IntentMode::Suggestions
+                || stated_tolerance.is_some()
                 || (ctx.has_table()
                     && ctx
                         .stated
@@ -1723,7 +1730,7 @@ fn raw_intent(
         if let Some(tolerance) = seed_tolerance {
             intent
                 .part
-                .insert("general_tolerance".into(), tolerance.clone());
+                .insert("general_tolerance".into(), Value::from(tolerance));
         }
         crate::dimensioning::apply(input, &mut intent, ctx.has_table()).map_err(Error::Invalid)?;
         if seed_tolerance.is_some() {
