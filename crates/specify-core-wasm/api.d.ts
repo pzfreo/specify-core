@@ -250,10 +250,6 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export type PmiSceneId = string;
 
-/**
- * The feature table's state of the requirement an item belongs to (ADR P11): the file states
- * it, it is planned for an open gap (a preview), or it was decided none.
- */
 export type PmiSceneStatus = "stated" | "gap" | "decided_none";
 
 export type PmiSceneVector = [number, number, number];
