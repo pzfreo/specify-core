@@ -653,6 +653,13 @@ pub(crate) fn requirement_stated(
     };
     let items: Vec<&Value> = existing.iter().collect();
     let located = Located::new(&items, geometry);
+    if req
+        .get("question")
+        .and_then(Value::as_str)
+        .is_some_and(crate::rules::general_rows::is_id)
+    {
+        return !general_matches(req, &items, &located).is_empty();
+    }
     if req.get("kind").and_then(Value::as_str) == Some("location") {
         let on = ids("faces");
         let axis = located.measuring_axis(
@@ -701,6 +708,75 @@ pub(crate) fn requirement_stated(
                 .any(|item| is_position(item) && on_any(item, &faces));
     }
     existing.iter().any(|item| states(&kind, &faces, item))
+}
+
+/// The file items that state a separately offered measurement.
+fn general_matches(
+    req: &Map<String, Value>,
+    existing: &[&Value],
+    located: &Located<'_>,
+) -> BTreeSet<usize> {
+    let row = |key| {
+        req.get(key).map_or_else(Vec::new, |v| {
+            v.as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_u64)
+                .map(|f| f as usize)
+                .collect()
+        })
+    };
+    let to = row("faces");
+    let faces: BTreeSet<_> = to.iter().copied().collect();
+    let id = req
+        .get("question")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if id.starts_with("size:") {
+        return existing
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| states("size", &faces, item))
+            .map(|(i, _)| i)
+            .collect();
+    }
+    let from = row("reference");
+    if id.starts_with("location:holes:") {
+        let axis = located.measuring_axis(&from, &to, req.get("distance").and_then(Value::as_f64));
+        let positions: BTreeSet<_> = existing
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| is_position(item) && on_any(item, &faces))
+            .map(|(i, _)| i)
+            .collect();
+        if !positions.is_empty() {
+            return positions;
+        }
+        if let Some(axis) = axis
+            && located.locates(&faces, Some(axis)) == Some(true)
+        {
+            return to
+                .iter()
+                .filter_map(|&f| located.by.get(&(f, axis)))
+                .flatten()
+                .copied()
+                .collect();
+        }
+    }
+    let overlaps = |faces: &[usize], side: &[usize]| faces.iter().any(|f| side.contains(f));
+    existing
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| {
+            if item["kind"] != "dimension" || item["type"] != "Location_LinearDistance" {
+                return false;
+            }
+            let a = faces_of(item, "faces");
+            let b = faces_of(item, "faces2");
+            (overlaps(&a, &from) && overlaps(&b, &to)) || (overlaps(&a, &to) && overlaps(&b, &from))
+        })
+        .map(|(i, _)| i)
+        .collect()
 }
 
 /// Whether `item` is a position tolerance.
@@ -777,13 +853,34 @@ pub fn build(
         .flatten()
         .collect();
     let no_pmi = wrote_nothing(answers);
-    let (bare, given) = set_aside(analysis, answers);
+    let (bare, mut given) = set_aside(analysis, answers);
+    if let Some(tolerance) = settings.get("general_tolerance").filter(|v| !blank(v)) {
+        given.insert("part.general_tolerance".into(), tolerance.clone());
+    }
     let all = crate::rules::with_all_defaults(&bare, &given).unwrap_or_else(|_| given.clone());
-    let questions =
-        crate::rules::questions(&bare, &all).or_else(|_| crate::rules::questions(&bare, &given))?;
+    let mut questions = crate::rules::ordinary_questions_in(&crate::rules::Ctx::new(&bare)?, &all)
+        .or_else(|_| {
+            crate::rules::ordinary_questions_in(&crate::rules::Ctx::new(&bare)?, &given)
+        })?;
 
     let geometry: Vec<Value> = analysis["faces"].as_array().cloned().unwrap_or_default();
     let located = Located::new(&existing, &geometry);
+    // Re-plan with the file's PMI in place for the remaining gaps. The bare plan also
+    // supplies the measurements that disappeared from planning because the file states them.
+    let mut dimensions = BTreeMap::new();
+    let current = crate::rules::dimension_suggestions(&crate::rules::Ctx::new(analysis)?, answers);
+    let bare = crate::rules::dimension_suggestions(&crate::rules::Ctx::new(&bare)?, &all);
+    for s in current.into_iter().chain(
+        bare.into_iter()
+            .filter(|s| !general_matches(&s.dimension, &existing, &located).is_empty()),
+    ) {
+        if let std::collections::btree_map::Entry::Vacant(entry) =
+            dimensions.entry(s.question.id.clone())
+        {
+            entry.insert(s.dimension);
+            questions.push(s.question);
+        }
+    }
     let mut claimed = vec![false; existing.len()];
     let mut claimed_settings = BTreeSet::new();
     let mut rows = Vec::new();
@@ -805,7 +902,21 @@ pub fn build(
         let location = is_location_kind(&kind)
             .then(|| located.location(&faces))
             .flatten();
-        if let Some(location) = location {
+        if let Some(dimension) = dimensions.get(&q.id) {
+            for i in general_matches(dimension, &existing, &located) {
+                claimed[i] = true;
+                requirements.push(requirement(existing[i]));
+            }
+            if !requirements.is_empty() {
+                value = Some(Value::String(
+                    requirements
+                        .iter()
+                        .map(|r| r.text.as_str())
+                        .collect::<Vec<_>>()
+                        .join("; "),
+                ));
+            }
+        } else if let Some(location) = location {
             // A hole's location, per direction (D8): stated by a position tolerance, or when
             // every direction it needs is located; otherwise a gap for the directions left.
             let positions: BTreeSet<usize> = if kind.ends_with(".location") {
@@ -865,7 +976,7 @@ pub fn build(
                 ));
             }
         }
-        let never_open = NEVER_OPEN.contains(&kind.as_str());
+        let never_open = NEVER_OPEN.contains(&kind.as_str()) || dimensions.contains_key(&q.id);
         let row = if value.is_some() {
             Row {
                 id: q.id.clone(),

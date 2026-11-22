@@ -164,6 +164,183 @@ fn grm05_write_accepts_every_listed_default() {
     );
 }
 
+const GRM05_LENGTHS: [(&str, u64, f64, &str); 3] = [
+    ("length:planes:2-3", 3, 14.0, "14 ±0.2 from B"),
+    ("length:planes:2-5", 5, 5.0, "5 ±0.1 from B"),
+    ("length:planes:2-8", 8, 18.0, "18 ±0.2 from B"),
+];
+
+struct Grm05 {
+    input: PathBuf,
+    dir: PathBuf,
+    analysis: Value,
+}
+
+impl Grm05 {
+    fn load(name: &str) -> Option<Self> {
+        let input = corpus_dir()?.join("gramel/GRM-05_depth_lock_bolt.step");
+        let dir = scratch(name);
+        let analysis = api::analyse_file(&input, None).unwrap();
+        save(&dir.join("analysis.json"), &analysis);
+        Some(Self {
+            input,
+            dir,
+            analysis,
+        })
+    }
+
+    fn other_answers(&self) -> Map<String, Value> {
+        let answers: Map<_, _> = api::questions(&self.analysis, &Map::new())
+            .unwrap()
+            .into_iter()
+            .filter(|q| !GRM05_LENGTHS.iter().any(|(id, _, _, _)| q.id == *id))
+            .map(|q| {
+                let value = if q.id == "part.material" {
+                    json!("Steel")
+                } else {
+                    q.default.unwrap()
+                };
+                (q.id, value)
+            })
+            .collect();
+        assert_eq!(answers.len(), 17);
+        answers
+    }
+
+    fn write(&self, answers: Map<String, Value>, bulk: bool) -> Value {
+        let given = self.dir.join("answers.json");
+        save(&given, &Value::Object(answers));
+        let output = self.dir.join("out.step");
+        let mut args = vec![
+            "write".into(),
+            s(&self.input),
+            s(&self.dir.join("analysis.json")),
+            s(&given),
+            "-o".into(),
+            s(&output),
+        ];
+        if bulk {
+            args.push("--accept-defaults".into());
+        }
+        let result = run(&args);
+        assert_eq!(result.code, 0, "{}", result.stderr);
+        api::analyse_file(&output, None).unwrap()
+    }
+}
+
+fn grm05_row<'a>(analysis: &'a Value, id: &str) -> &'a Value {
+    analysis["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == id)
+        .unwrap_or_else(|| panic!("missing {id}"))
+}
+
+fn grm05_written(analysis: &Value, face: u64, nominal: f64) -> bool {
+    analysis["existing"].as_array().unwrap().iter().any(|item| {
+        item["type"] == "Location_LinearDistance"
+            && item["faces"] == json!([2])
+            && item["faces2"] == json!([face])
+            && item["value"].as_f64() == Some(nominal)
+    })
+}
+
+#[test]
+fn grm05_has_three_suggested_length_gaps_before_save() {
+    let Some(part) = Grm05::load("grm05-length-gaps") else {
+        return;
+    };
+    let lengths: Vec<_> = part.analysis["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["kind"] == "length")
+        .collect();
+    assert_eq!(lengths.len(), 3);
+    for (id, face, _, text) in GRM05_LENGTHS {
+        let row = grm05_row(&part.analysis, id);
+        assert_eq!(row["state"], "gap", "{id}");
+        assert_eq!(row["suggestion"], text, "{id}");
+        assert_eq!(row["faces"], json!([face]), "{id}");
+    }
+}
+
+#[test]
+fn grm05_answering_only_the_other_questions_leaves_all_three_length_gaps() {
+    let Some(part) = Grm05::load("grm05-no-lengths-approved") else {
+        return;
+    };
+    let reopened = part.write(part.other_answers(), false);
+    for (id, face, nominal, _) in GRM05_LENGTHS {
+        assert!(
+            !grm05_written(&reopened, face, nominal),
+            "{id} was written without approval"
+        );
+        assert_eq!(grm05_row(&reopened, id)["state"], "gap", "{id}");
+    }
+}
+
+#[test]
+fn grm05_accepting_suggestions_writes_all_three_lengths() {
+    let Some(part) = Grm05::load("grm05-lengths-approved") else {
+        return;
+    };
+    let reopened = part.write(object(&json!({"part.material": "Steel"})), true);
+    for (id, face, nominal, _) in GRM05_LENGTHS {
+        assert!(grm05_written(&reopened, face, nominal), "{id}");
+        assert_eq!(grm05_row(&reopened, id)["state"], "stated", "{id}");
+    }
+}
+
+#[test]
+fn grm05_none_for_one_length_writes_the_other_two_and_survives_reopening() {
+    let Some(part) = Grm05::load("grm05-length-none") else {
+        return;
+    };
+    let none = GRM05_LENGTHS[0].0;
+    let reopened = part.write(
+        object(&json!({"part.material": "Steel", none: "none"})),
+        true,
+    );
+    for (id, face, nominal, _) in GRM05_LENGTHS {
+        assert_eq!(grm05_written(&reopened, face, nominal), id != none, "{id}");
+        let row = grm05_row(&reopened, id);
+        if id == none {
+            assert_eq!(row["state"], "decided_none");
+            assert_eq!(row["value"], "none");
+            assert_eq!(reopened["resume"]["answers"][id], "none");
+        } else {
+            assert_eq!(row["state"], "stated", "{id}");
+        }
+    }
+}
+
+#[test]
+fn grm05_reopening_a_file_with_one_length_shows_it_as_stated() {
+    let Some(part) = Grm05::load("grm05-one-length") else {
+        return;
+    };
+    let mut answers = part.other_answers();
+    let (approved, _, _, text) = GRM05_LENGTHS[0];
+    answers.insert(approved.into(), json!(text));
+    let reopened = part.write(answers, false);
+    for (id, face, nominal, _) in GRM05_LENGTHS {
+        assert_eq!(
+            grm05_written(&reopened, face, nominal),
+            id == approved,
+            "{id}"
+        );
+        assert_eq!(
+            grm05_row(&reopened, id)["state"],
+            if id == approved { "stated" } else { "gap" },
+            "{id}"
+        );
+    }
+    let stated = grm05_row(&reopened, approved);
+    assert_eq!(stated["requirements"][0]["faces"], json!([2, 3]));
+}
+
 #[test]
 fn spindle_write_accepts_every_listed_default() {
     write_listed_defaults(&common::fixtures().join("spindle.step"), "spindle-defaults");

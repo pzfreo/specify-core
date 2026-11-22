@@ -678,9 +678,10 @@ pub fn with_approved(
     let mut open = rules::open_questions(&qs, answers);
     open.extend(qs.iter().filter(|q| {
         !answers.contains_key(&q.id)
-            && q.default
-                .as_ref()
-                .is_some_and(crate::feature_table::is_none_value)
+            && (rules::general_rows::is_id(&q.id)
+                || q.default
+                    .as_ref()
+                    .is_some_and(crate::feature_table::is_none_value))
     }));
     for (id, value) in approved {
         let current = open

@@ -218,16 +218,22 @@ A general-tolerance answer writes only its note (ADR P9, Paul's decision D1): ap
 tolerance governs, each feature's size and location with its nominal alone, are written only
 when the question they belong to is approved: a hole's or turned diameter's size with its
 `hole.function` or `diameter.fit` answer, a hole's location with its `hole.position` or
-`hole.location` answer. Until then those rows stay gaps with their suggestions. Dimensions no
-question asks about (plane levels, a hole with no location question) are written only when
-no question is open, as with "accept suggestions" or `write --accept-defaults`, which approve
-every suggestion and so write the whole set as before. The writer's upgrade of an old intent
-without planner rows (#75) keeps the same rule: it writes a planner dimension only on a
-feature and kind the intent itself sizes or locates.
+`hole.location` answer. Until then those rows stay gaps with their suggestions.
+
+A general dimension with no owning question is an optional row in its own right. For
+example, the GRM-05 depth-lock bolt offers `14 ±0.2 from B` as `length:planes:2-3`.
+Approve the displayed value by its ID, approve the suggestions together, or use
+`write --accept-defaults`. Answering `none` records `decided_none` in the file. A file
+that already states the measurement shows a `stated` row.
+
+Plane lengths use `length:planes:<side>-<side>` with their two face groups in canonical
+order. Unowned hole locations use `location:holes:<reference>-<located>`, with a planner
+axis suffix when it supplies one. An unowned size uses `size:faces:<side>`. Each face
+group lists its sorted face numbers separated by dots. These IDs identify measurements
+within one geometry revision.
 
 The write report names any general dimension from the intent that the writer omits, with
-its nominal, faces and reason in `not_written`. When adding to a file that already has PMI,
-general dimensions deferred by the shared planner are reported there.
+its nominal, faces and reason in `not_written`.
 
 Only answers that leave no PMI behind are stored in the file: "none" answers and choices that
 are not requirements (`part.locating`). `resume.answers` holds those. Stored answers that

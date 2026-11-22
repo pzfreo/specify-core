@@ -95,11 +95,11 @@ Read first:
   location, nominal only) as a side effect. Each is written when its own question is approved
   (`hole.function`/`diameter.fit` for a size, `hole.position`/`hole.location` for a hole's
   location); until then the feature table keeps those rows as gaps with their suggestions.
-  Dimensions no question asks about (plane levels) are written once no question is open.
-  "Accept suggestions" and `write --accept-defaults` approve every suggestion, so they write the
-  whole set as before. The writer's upgrade of an old intent without planner rows follows the
-  same rule. Replaces the narrower rule that only held back a hole's general location or size
-  while its position or function was open.
+- **General dimensions have rows** (Paul, 2026-11-21). Plane lengths and hole locations
+  without an owning question appear as optional gaps with suggestions such as `14 ±0.2 from B`.
+  Approve a row individually, accept the suggestions together, or use `write --accept-defaults`.
+  Answer `none` to record that the dimension is unnecessary. Measurements already in the file
+  show as stated.
 - **`diff` reads only the PMI in the two files** ([ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md),
   0.3.0 use case 6): reviewing a requirement change is `specify-core diff OLD NEW` between two
   annotated files. It lists requirements added, removed and changed per feature, with their

@@ -1184,7 +1184,7 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
 
 /// [`apply`] for an old intent without planner rows (the writer's upgrade, #75), writing only
 /// the general dimensions the intent approved (ADR P9 / D1). The rules wrote the general
-/// tolerance's provisional rows only for approved features (`rules::only_approved_general`);
+/// tolerance's provisional rows only for approved features;
 /// the planner's general rows are kept where they are on the same features and kind: a hole's
 /// size (a depth, a counterbore) or location when the intent sizes or locates that hole (a
 /// general row, or an answer to its function or location question), and any other row when a

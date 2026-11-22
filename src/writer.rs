@@ -3310,7 +3310,14 @@ fn part_pmi_observed(
             skip(reason);
             continue;
         }
-        if general_row && mode == Mode::Add && !req.contains_key("planner") {
+        if general_row
+            && mode == Mode::Add
+            && !req.contains_key("planner")
+            && !req
+                .get("question")
+                .and_then(Json::as_str)
+                .is_some_and(crate::rules::general_rows::is_id)
+        {
             skip("adding PMI skips dimensions deferred by the shared planner");
             continue;
         }
