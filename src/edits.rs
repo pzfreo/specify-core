@@ -332,7 +332,7 @@ fn key(section: &str, id: &str) -> String {
 
 /// Parses an edit list, or a 0.2 answers file (flat `{id: value}`, [`from_answers`]). A JSON
 /// object is an answers file when it has none of the edit list's fields and every key is a
-/// question id (has a `.`) or answers metadata (starts with `_`); anything else is read as an
+/// question id (including a standalone measurement) or answers metadata (starts with `_`); anything else is read as an
 /// edit list, so a misspelt field is refused rather than taken for an answer.
 pub fn read(text: &str) -> Result<EditList, Vec<Failure>> {
     let value: Value = serde_json::from_str(text)
@@ -347,9 +347,10 @@ pub fn read(text: &str) -> Result<EditList, Vec<Failure>> {
 
 fn is_answers_file(map: &Map<String, Value>) -> bool {
     !map.is_empty()
-        && map
-            .keys()
-            .all(|k| !FIELDS.contains(&k.as_str()) && (k.contains('.') || k.starts_with('_')))
+        && map.keys().all(|k| {
+            !FIELDS.contains(&k.as_str())
+                && (k.contains('.') || k.starts_with('_') || crate::rules::general_rows::is_id(k))
+        })
 }
 
 /// Parses an edit list. Every part that does not parse is reported, each at its path.
