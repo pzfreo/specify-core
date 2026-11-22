@@ -206,8 +206,8 @@ fn mcp_stages_a_change_without_replacing_another_tools_requirement() {
         json!({"doc": reopened["doc"], "set": {(HOLE): "0.5"}}),
     );
     assert_eq!(
-        staged["draft"]["change"][HOLE],
-        json!({"to": "0.5", "expect": "⌖ ⌀1.5 A B C"}),
+        staged["set"],
+        json!([{"id": HOLE, "value": "0.5", "state": "answered"}]),
         "{staged}"
     );
     assert_eq!(
@@ -215,6 +215,10 @@ fn mcp_stages_a_change_without_replacing_another_tools_requirement() {
         before,
         "the draft writes nothing"
     );
+    let checked = ok("check", json!({"doc": reopened["doc"], "edits": {}}));
+    assert_eq!(checked["applicable"], true, "{checked}");
+    assert_eq!(checked["entries"], 1, "{checked}");
+    assert_eq!(checked["written"], false, "{checked}");
     let refused = call(
         "save",
         json!({"doc": reopened["doc"], "edits": {"fill": {(HOLE): "0.5"}}}),

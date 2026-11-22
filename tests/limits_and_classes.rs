@@ -169,20 +169,39 @@ fn answered_size_and_plate_thickness_round_trip_as_limits() {
         assert!(item.limits.is_none());
     }
     let report = revision::diff(&written, &pm).unwrap();
-    let changes: Vec<_> = report
-        .pmi
-        .items
-        .iter()
-        .filter(|c| c.class == "changed" && c.kind == "dimension")
-        .collect();
-    assert_eq!(changes.len(), 2, "{:?}", report.pmi.items);
-    assert!(
-        changes
+    let changes = &report.pmi.items;
+    assert_eq!(changes.len(), 4, "{changes:?}");
+    assert!(changes.iter().all(|change| change.kind == "dimension"));
+    for (old_text, new_text) in [("9.8 - 10.2", "10 ±0.2"), ("⌀7.8 - ⌀8.2", "⌀8 ±0.2")] {
+        let removed = changes
             .iter()
-            .all(|c| c.old.as_ref().unwrap().contains(" - ")
-                && c.new.as_ref().unwrap().contains('±')),
-        "{changes:?}"
-    );
+            .find(|change| change.old.as_deref() == Some(old_text))
+            .unwrap();
+        let added = changes
+            .iter()
+            .find(|change| change.new.as_deref() == Some(new_text))
+            .unwrap();
+        assert_eq!(removed.class, "removed");
+        assert_eq!(removed.reason.as_deref(), Some("retired"));
+        assert!(retired.contains(&removed.number.unwrap()));
+        assert_eq!(added.class, "added");
+        assert!(issued.contains(&added.number.unwrap()));
+        assert_eq!(removed.id, added.id);
+        assert_eq!(
+            removed
+                .faces
+                .old
+                .iter()
+                .map(|support| support.face)
+                .collect::<Vec<_>>(),
+            added
+                .faces
+                .new
+                .iter()
+                .map(|support| support.face)
+                .collect::<Vec<_>>(),
+        );
+    }
     let markdown = report.markdown("Limits", None);
     assert!(
         markdown.contains("9.8 - 10.2") && markdown.contains('±'),
