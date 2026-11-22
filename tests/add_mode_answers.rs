@@ -118,7 +118,6 @@ fn ctc01_foreign_pmi_answers_resume_and_edits_preserve_entity_text() {
 }
 
 #[test]
-#[ignore = "Requires the assembly edit writer on int/2-asm"]
 fn ftc09_foreign_pmi_answers_resume_and_edits_preserve_entity_text() {
     nist("nist/nist_ftc_09_asme1_ap242-e1");
 }

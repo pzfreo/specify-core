@@ -397,7 +397,6 @@ fn a_part_is_written_once_and_parts_are_of_one_file() {
 // plate's stated material, then add coating to the pin, without duplicating their datums
 // or changing the other definition. The renamed pin data belongs to its author.
 #[test]
-#[ignore = "Requires the assembly edit writer on int/2-asm"]
 fn a_mixed_write_edits_one_part_at_a_time_regardless_of_origin() {
     let dir = temp("mixed");
     let (_, _, out) = written(&dir);
