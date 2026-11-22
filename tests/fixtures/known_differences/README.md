@@ -32,7 +32,11 @@ One file per area, `<area>.json`, a JSON array of entries:
 - `evidence` says what was checked to reach the verdict.
 
 Every field is a non-empty string and no other field is allowed (`tests/common`'s `load_known`
-checks it).
+checks it), except for the optional `exact` pair. It holds `[python, rust]`, with each side
+represented by `[value]` or by `[]` for a missing key. Exact entries use literal case names
+and paths. When a list has no stable member key, the entry pins the complete list at its
+property path. Use `$` for the root. `SPECIFY_DUMP` also writes these candidate values to
+`<area>.exact.json` alongside the legacy dumps.
 
 ## The rule
 

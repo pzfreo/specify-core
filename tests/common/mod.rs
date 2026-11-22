@@ -39,7 +39,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -423,6 +423,36 @@ pub struct Difference {
     pub path: String,
     pub python: Option<Value>,
     pub rust: Option<Value>,
+    pub context: Option<ArrayContext>,
+}
+
+/// Pin an unkeyed array as a whole. Its children retain their legacy paths for
+/// the historical ledgers, while exact entries bind to the array's stable path.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArrayContext {
+    suffix_len: usize,
+    selector: String,
+    values: Arc<[Option<Value>; 2]>,
+}
+
+impl Difference {
+    pub fn exact(&self) -> (String, [Option<&Value>; 2]) {
+        let (path, values) = match &self.context {
+            Some(context) => (
+                format!(
+                    "{}{}",
+                    &self.path[..self.path.len() - context.suffix_len],
+                    context.selector
+                ),
+                [context.values[0].as_ref(), context.values[1].as_ref()],
+            ),
+            None => (
+                self.path.clone(),
+                [self.python.as_ref(), self.rust.as_ref()],
+            ),
+        };
+        (if path.is_empty() { "$".into() } else { path }, values)
+    }
 }
 
 impl fmt::Display for Difference {
@@ -539,6 +569,7 @@ fn walk(
             path: path.to_owned(),
             python: Some(python.clone()),
             rust: Some(rust.clone()),
+            context: None,
         })
     };
     match (python, rust) {
@@ -576,12 +607,33 @@ fn walk(
                     }
                 }
                 None => {
+                    let all_start = out.len();
+                    let face_ids = path == "faces"
+                        && [p, r].into_iter().all(|items| {
+                            items
+                                .iter()
+                                .enumerate()
+                                .all(|(i, face)| face["id"].as_u64() == Some(i as u64))
+                        });
                     for i in 0..p.len().max(r.len()) {
+                        let start = out.len();
                         let at = format!("{path}[{i}]");
                         match (p.get(i), r.get(i)) {
                             (Some(pv), Some(rv)) => walk(case, &at, pv, rv, tol, out),
                             (pv, rv) => out.push(missing(case, at, pv, rv)),
                         }
+                        if face_ids && out.len() > start {
+                            array_context(
+                                &mut out[start..],
+                                path,
+                                &format!("[id={i}]"),
+                                p.get(i),
+                                r.get(i),
+                            );
+                        }
+                    }
+                    if !face_ids && out.len() > all_start {
+                        array_context(&mut out[all_start..], path, "", Some(python), Some(rust));
                     }
                 }
             }
@@ -608,12 +660,30 @@ fn walk(
     }
 }
 
+pub fn array_context(
+    differences: &mut [Difference],
+    path: &str,
+    selector: &str,
+    python: Option<&Value>,
+    rust: Option<&Value>,
+) {
+    let values = Arc::new([python.cloned(), rust.cloned()]);
+    for d in differences {
+        d.context = Some(ArrayContext {
+            suffix_len: d.path.len() - path.len(),
+            selector: selector.into(),
+            values: Arc::clone(&values),
+        });
+    }
+}
+
 fn missing(case: &str, path: String, python: Option<&Value>, rust: Option<&Value>) -> Difference {
     Difference {
         case: case.to_owned(),
         path,
         python: python.cloned(),
         rust: rust.cloned(),
+        context: None,
     }
 }
 
@@ -671,11 +741,20 @@ pub struct KnownDifference {
     pub pattern: String,
     pub verdict: String,
     pub evidence: String,
+    pub exact: Option<[Option<Value>; 2]>,
 }
 
 impl KnownDifference {
     pub fn matches(&self, difference: &Difference) -> bool {
-        glob_match(&self.case, &difference.case) && glob_match(&self.path, &difference.path)
+        if let Some(values) = &self.exact {
+            if self.case != difference.case {
+                return false;
+            }
+            let (path, actual) = difference.exact();
+            self.path == path && [values[0].as_ref(), values[1].as_ref()] == actual
+        } else {
+            glob_match(&self.case, &difference.case) && glob_match(&self.path, &difference.path)
+        }
     }
 }
 
@@ -721,13 +800,39 @@ fn entry(item: &Value) -> Result<KnownDifference, String> {
         Some(Value::String(s)) if !s.trim().is_empty() => Ok(s.clone()),
         _ => Err(format!("'{key}' must be a non-empty string")),
     };
+    let exact = fields
+        .get("exact")
+        .map(|value| {
+            let pair = value
+                .as_array()
+                .filter(|a| a.len() == 2)
+                .ok_or("exact must hold the Python and Rust values")?;
+            let read = |value: &Value| match value.as_array().map(Vec::as_slice) {
+                Some([]) => Ok(None),
+                Some([value]) => Ok(Some(value.clone())),
+                _ => Err("each exact side must be [] for missing or [value]"),
+            };
+            Ok::<_, &str>([read(&pair[0])?, read(&pair[1])?])
+        })
+        .transpose()?;
     let known = KnownDifference {
         case: field("case")?,
         path: field("path")?,
         pattern: field("pattern")?,
         verdict: field("verdict")?,
         evidence: field("evidence")?,
+        exact,
     };
+    if known.exact.is_some()
+        && (known.case.contains('*')
+            || known.path.contains('*')
+            || known.path.split('[').skip(1).any(|s| {
+                s.split_once(']')
+                    .is_some_and(|(key, _)| key.parse::<usize>().is_ok())
+            }))
+    {
+        return Err("exact entries need a literal case and a path without array indices".into());
+    }
     if !VERDICTS.contains(&known.verdict.as_str()) {
         return Err(format!(
             "verdict '{}' is not one of {}",
@@ -735,10 +840,9 @@ fn entry(item: &Value) -> Result<KnownDifference, String> {
             VERDICTS.join(", ")
         ));
     }
-    if let Some(extra) = fields
-        .keys()
-        .find(|k| !["case", "path", "pattern", "verdict", "evidence"].contains(&k.as_str()))
-    {
+    if let Some(extra) = fields.keys().find(|k| {
+        !["case", "path", "pattern", "verdict", "evidence", "exact"].contains(&k.as_str())
+    }) {
         return Err(format!("unknown field '{extra}'"));
     }
     Ok(known)
@@ -758,6 +862,12 @@ pub fn check_known(area: &str, differences: &[Difference]) {
 
 /// `check_known` against `entries` (named `source` in messages), for testing the harness.
 pub fn check_known_with(source: &str, entries: &[KnownDifference], differences: &[Difference]) {
+    if let Some(dir) = std::env::var_os("SPECIFY_DUMP")
+        && let Some(name) = Path::new(source).file_stem().and_then(|s| s.to_str())
+        && source.ends_with(".json")
+    {
+        dump_exact(name, &PathBuf::from(dir), differences);
+    }
     let mut used = vec![0usize; entries.len()];
     let mut tally: BTreeMap<&str, usize> = BTreeMap::new();
     let mut unmatched = Vec::new();
@@ -771,6 +881,17 @@ pub fn check_known_with(source: &str, entries: &[KnownDifference], differences: 
                 *tally.entry(entries[i].verdict.as_str()).or_default() += 1;
             }
             None => unmatched.push(format!("  {difference}")),
+        }
+    }
+    // An exact assertion is checked even where an older verdict already matches
+    // the path. Stale checks on the historical entries retain their ordering.
+    for (i, entry) in entries
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.exact.is_some())
+    {
+        if used[i] == 0 && differences.iter().any(|d| entry.matches(d)) {
+            used[i] = 1;
         }
     }
     let stale: Vec<String> = entries
@@ -816,6 +937,30 @@ pub fn check_known_with(source: &str, entries: &[KnownDifference], differences: 
             counts.join(", ")
         }
     );
+}
+
+fn dump_exact(name: &str, dir: &Path, differences: &[Difference]) {
+    let mut observed = BTreeMap::new();
+    let mut rows = Vec::new();
+    for difference in differences {
+        let (path, values) = difference.exact();
+        let json = serde_json::json!(values.map(|side| side.into_iter().collect::<Vec<_>>()));
+        let key = (difference.case.as_str(), path);
+        let group = (key.clone(), json.to_string());
+        let next = observed.len();
+        let i = *observed.entry(group).or_insert(next);
+        if i == rows.len() {
+            rows.push(serde_json::json!({
+                "case": key.0, "path": key.1, "exact": json, "paths": []
+            }));
+        }
+        rows[i]["paths"]
+            .as_array_mut()
+            .unwrap()
+            .push(Value::String(difference.path.clone()));
+    }
+    let path = dir.join(format!("{name}.exact.json"));
+    std::fs::write(path, serde_json::to_vec(&rows).unwrap()).unwrap();
 }
 
 /// The non-asserting filter, for sweeps that cross areas: the differences no entry of the

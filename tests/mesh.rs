@@ -485,6 +485,7 @@ fn face_checks(
     let mut out = Vec::new();
     let mut differ = |path: String, reference: Value, got: Value| {
         out.push(Difference {
+            context: None,
             case: case.to_owned(),
             path,
             python: Some(reference),
@@ -601,6 +602,7 @@ fn mesh_matches_the_oracle() {
             Ok(loaded) => loaded,
             Err(e) => {
                 differences.push(Difference {
+                    context: None,
                     case: case.name.clone(),
                     path: String::new(),
                     python: Some(python),
@@ -630,6 +632,7 @@ fn mesh_matches_the_oracle() {
         let renumbered_ids: Vec<usize> = renumbered.iter().map(|r| r.0).collect();
         for (face, python, rust) in renumbered {
             differences.push(Difference {
+                context: None,
                 case: case.name.clone(),
                 path: format!("check.numbering[{face}]"),
                 python: Some(python),

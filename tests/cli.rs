@@ -737,6 +737,7 @@ impl Session {
 
 fn difference(case: &str, path: &str, python: Option<Value>, rust: Option<Value>) -> Difference {
     Difference {
+        context: None,
         case: case.to_string(),
         path: path.to_string(),
         python,
@@ -2016,7 +2017,8 @@ fn check_datum_origin_departures(differences: &[Difference]) {
     let prior: Vec<_> = load_known(&common::known_differences_file("cli"))
         .into_iter()
         .filter(|e| {
-            e.pattern != PATTERN
+            e.exact.is_none()
+                && e.pattern != PATTERN
                 && e.pattern != "Shared planner report item in serve (#75)"
                 && e.pattern != "Exact tap-drill defaults and dependent question order"
                 && e.pattern != "Combined ISO 2768 class choices in CLI and serve"

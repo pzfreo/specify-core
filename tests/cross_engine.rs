@@ -390,6 +390,7 @@ fn prefixed(diffs: Vec<Difference>, at: &str) -> Vec<Difference> {
 
 fn difference(case: &str, path: String, python: Value, rust: Value) -> Difference {
     Difference {
+        context: None,
         case: case.to_owned(),
         path,
         python: Some(python),

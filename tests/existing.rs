@@ -242,6 +242,7 @@ fn differences(
     }
     for (kind, (count, first)) in kinds {
         out.push(Difference {
+            context: None,
             case: name.to_string(),
             path: format!("findings.{kind}"),
             python: None,
@@ -291,6 +292,7 @@ fn existing_pmi_matches_the_oracle() {
                     ));
                 }
                 Err(why) => all.push(Difference {
+                    context: None,
                     case: case.name.clone(),
                     path: "part".into(),
                     python: Some(json!("read")),
@@ -310,6 +312,7 @@ fn existing_pmi_matches_the_oracle() {
                 };
                 if is_error(&entry["existing"]) || is_error(&entry["part"]) {
                     all.push(Difference {
+                        context: None,
                         case: name,
                         path: "readback".into(),
                         python: Some(entry.clone()),
