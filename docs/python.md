@@ -132,6 +132,9 @@ It is a PyO3 extension built with maturin (abi3, one wheel per platform for CPyt
 later): `maturin build --release -m crates/specify-core-py/Cargo.toml`. `tests/python` is a
 smoke suite of the package; `.github/workflows/python.yml` builds, tests and publishes the
 wheels. The engine itself is tested in Rust.
+Before PyPI publication, the release workflow checks that `pyproject.toml` matches the tag
+in PEP 440 form, such as `0.3.0rc1` for `v0.3.0-rc.1`. See
+[Cutting a pre-release](../CONTRIBUTING.md#cutting-a-pre-release).
 
 To build and test it locally:
 

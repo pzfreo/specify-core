@@ -170,11 +170,18 @@ jobs:
           "$bin/python" tools/open_smoke.py "$bin/specify-core${{ runner.os == 'Windows' && '.exe' || '' }}" part.step
       - run: .venv/${{ runner.os == 'Windows' && 'Scripts' || 'bin' }}/python -m pytest tests/python -q
 
-  publish:
-    needs: [wheels, sdist, test]
+  release-check:
     if: >-
       (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')) ||
       (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main')
+    uses: ./.github/workflows/release-check.yml
+    with:
+      tag: ${{ github.event.release.tag_name || '' }}
+      channel: pypi
+
+  publish:
+    needs: [wheels, sdist, test, release-check]
+    if: needs.release-check.outputs.publish == 'true'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
