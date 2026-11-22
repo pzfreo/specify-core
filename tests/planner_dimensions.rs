@@ -248,16 +248,22 @@ fn an_existing_written_plate_retires_member_numbers_and_never_reuses_them() {
 fn reference_flag_is_written_as_a_standard_auxiliary_dimension() {
     let p = plate();
     let a = api::analyse(&p).unwrap();
-    // P9 / D1: the general tolerance writes only its note; with every suggestion approved
-    // ("accept suggestions") the general dimensions are written.
+    // Approve the offered rows along with the general tolerance. The auxiliary flag
+    // must survive the write on a location whose approval came from the table.
     let given = json!({"part.general_tolerance":"ISO 2768-m"});
     let given = rules::with_all_defaults(&a, given.as_object().unwrap()).unwrap();
     let mut i = api::preview(&a, &given).unwrap();
+    let offered = a["table"]["rows"].as_array().unwrap();
     let r = i
         .general
         .iter_mut()
-        .find(|r| r["kind"] == "location")
-        .unwrap();
+        .find(|r| {
+            r["kind"] == "location"
+                && offered
+                    .iter()
+                    .any(|row| row["id"] == r["question"] && row["state"] == "gap")
+        })
+        .expect("an approved location offered by its own row");
     r["planner"]["required"]["reference"] = json!(["determining-plane-path"]);
     r["planner"]["required"]["tolerance"] = json!("untoleranced");
     let (bytes, _) = writer::write_bytes(&p, &i, Some(&given)).unwrap();
