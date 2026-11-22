@@ -620,7 +620,7 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
     };
 
     // Stated rows no answer restates, with their row in NEW.
-    let mut unanswered: Vec<(&Row, &Row)> = Vec::new();
+    let mut unanswered = Vec::new();
     for row in &reader.table.rows {
         if row.state == State::Gap {
             continue;
@@ -691,7 +691,7 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
             }
         };
         let Some(mut value) = reader.answer(row) else {
-            unanswered.push((row, target));
+            unanswered.push((row, target, datum_check));
             continue;
         };
         if is_datum_letter(&row.kind) {
@@ -722,7 +722,7 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
     }
     // A row whose requirements a carried row states too (a hole's thread callout, which
     // states its thread depth) carries with it; any other is not carried.
-    for (row, target) in unanswered {
+    for (row, target, datum_check) in unanswered {
         let carrier = reader.table.rows.iter().find(|other| {
             other.id != row.id
                 && list.fill.contains_key(&new_id(&report, &other.id))
@@ -739,7 +739,7 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
                     new: target.id.clone(),
                     value: Value::Null,
                     stated: Some(reader.text(row)),
-                    check: moved(&row.faces, &revised, &old_features),
+                    check: moved(&row.faces, &revised, &old_features).or(datum_check),
                     with: Some(new_id(&report, &other.id)),
                 };
                 if entry.check.is_some() {
@@ -749,11 +749,11 @@ fn carry_part(old: &LoadedPart, new: &LoadedPart) -> Result<Outcome, Error> {
                 }
             }
             None => {
-                let mut n = not_carried_row(
-                    row,
-                    "no answer restates it exactly: Specify does not write this requirement \
-                     as the file states it",
-                );
+                let reason = "no answer restates it exactly: Specify does not write this \
+                              requirement as the file states it";
+                let reason = datum_check
+                    .map_or_else(|| reason.to_owned(), |datum| format!("{datum}; {reason}"));
+                let mut n = not_carried_row(row, reason);
                 n.text = text(&reader.text(row));
                 report.not_carried.push(n);
             }
