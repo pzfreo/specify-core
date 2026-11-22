@@ -101,20 +101,17 @@ test('write → readback → export keeps the M4 ID while later saves append num
 });
 
 test('changed limits reach the next saved export and cannot alter the previous snapshot', (t) => {
-  const id = 'hole.function:holes:13';
-  const bytes = write(open(t), { [id]: 'fit:H7' });
+  const fill = { 'extra.1': { kind: 'size', faces: [13], value: '+0.2/-0.1' } };
+  const bytes = write(open(t), fill);
   const first = readSaved(t, bytes);
   const [size] = first.chars;
-  assert.equal(first.chars.length, 1);
-  assert.match(size.text, /H7/);
+  assert.deepEqual(first.chars.map((row) => [row.upper, row.lower]), [[0.2, -0.1]]);
   assert.deepEqual(readSaved(t, bytes).chars, first.chars);
-  const expect = first.analysis.table.rows.find((row) => row.id === id).value;
-  const changed = readSaved(t, applyEdits(open(t, bytes), { change: { [id]: { to: 'fit:H8', expect } } }));
-  assert.equal(changed.chars.length, 1);
-  assert.equal(changed.chars[0].n, size.n);
-  assert.match(changed.chars[0].text, /H8/);
-  assert.notEqual(changed.chars[0].upper, size.upper);
-  assert.equal(changed.chars[0].lower, size.lower);
+  const replacement = { 'extra.1': { ...fill['extra.1'], value: '+0.5/-0.3' } };
+  const changed = readSaved(t, applyEdits(open(t, bytes), {
+    items: { remove: [`#${size.n}`] }, fill: replacement,
+  }));
+  assert.deepEqual(changed.chars.map((row) => [row.n, row.upper, row.lower]), [[size.n, 0.5, -0.3]]);
   assert.notEqual(toCsv(changed.chars), toCsv(first.chars));
   assertNumbers(changed);
 });
@@ -130,7 +127,8 @@ test('a measurement with changed datum references is read from saved PMI with a 
   assert.equal(tolerance.datums, 'A');
   assert.equal(readSaved(t, bytes).chars.find((row) => row.n === tolerance.n).datums, 'A');
   const fill = { 'extra.1': { ...answers['extra.1'], datums: ['B'] } };
-  const changed = readSaved(t, applyEdits(open(t, bytes), { items: { remove: [`#${tolerance.n}`] }, fill }));
+  const removed = applyEdits(open(t, bytes), { items: { remove: [`#${tolerance.n}`] } });
+  const changed = readSaved(t, write(open(t, removed), fill));
   const next = changed.chars.find((row) => row.upper === 0.05);
   assert.equal(next.datums, 'B');
   assert.ok(next.n > tolerance.n);

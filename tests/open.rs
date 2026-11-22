@@ -1421,7 +1421,20 @@ fn a_save_writes_what_write_writes_for_the_same_list() {
         .unwrap()
         .remove("missing")
         .unwrap_or(json!([]));
-    assert_eq!(missing, saved["missing"]);
+    // The page also lists the locating choice, which has no feature-table row.
+    let page_gaps: Vec<_> = saved["missing"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|id| *id != "part.locating")
+        .collect();
+    assert!(
+        saved["missing"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("part.locating"))
+    );
+    assert_eq!(missing, json!(page_gaps));
     assert_eq!(
         report_without_output(&saved["report"]),
         report_without_output(&report)
