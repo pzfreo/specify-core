@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 import npm_package
+from release_version import decide_publish
 
 
 def write_pkg(root: pathlib.Path, **meta) -> pathlib.Path:
@@ -27,6 +28,24 @@ def write_pkg(root: pathlib.Path, **meta) -> pathlib.Path:
 
 
 class NpmPackageTests(unittest.TestCase):
+    def test_publish_dist_tags(self):
+        for version, latest, expected in [
+            ("0.2.3", "0.2.3", "latest"),
+            ("0.2.3", "0.3.0", "release-0.2.3"),
+            ("0.3.0", "0.2.3", "latest"),
+            ("0.3.0-rc.1", "0.2.3", "next"),
+            ("0.3.0-rc.1", "0.3.0", "next"),
+            ("0.3.0-rc.1", "", "next"),
+        ]:
+            with self.subTest(version=version, latest=latest):
+                decision = decide_publish("npm", f"v{version}", "-" in version, latest=latest)
+                self.assertTrue(decision.publish)
+                self.assertEqual(decision.dist_tag, expected)
+
+    def test_final_publish_needs_npm_latest(self):
+        with self.assertRaisesRegex(ValueError, "npm latest is missing for v0.3.0"):
+            decide_publish("npm", "v0.3.0", False)
+
     def test_scopes_the_name_and_keeps_the_module(self):
         with tempfile.TemporaryDirectory() as tmp:
             pkg = write_pkg(pathlib.Path(tmp))
