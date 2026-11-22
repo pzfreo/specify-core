@@ -737,6 +737,15 @@ fn wrote_nothing(
         .collect()
 }
 
+fn not_written_approval(id: &str, value: &Json) -> String {
+    format!(
+        "answer {id} ({}): approved, but nothing of its kind was written on its \
+         feature (none is written on a datum's own faces; otherwise the planner \
+         skipped it); stored as decided, not asked again",
+        crate::choices::short_repr(value, 6)
+    )
+}
+
 /// The intent's requirements a plan made PMI from.
 type Made = Vec<Map<String, Json>>;
 
@@ -1273,12 +1282,7 @@ fn write_verified(
                 // would be dropped silently and its gap reopen.
                 let nothing = wrote_nothing(loaded, &saved, &made, &pmi, &unasked, &intent.general);
                 for id in &nothing {
-                    lines.not_written.push(format!(
-                        "answer {id} ({}): approved, but nothing of its kind was written on its \
-                         feature (none is written on a datum's own faces; otherwise the planner \
-                         skipped it); stored as decided, not asked again",
-                        crate::choices::short_repr(&saved[id.as_str()], 6)
-                    ));
+                    lines.not_written.push(not_written_approval(id, &saved[id]));
                 }
                 if !nothing.is_empty() {
                     let meta = saved

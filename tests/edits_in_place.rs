@@ -1025,10 +1025,43 @@ fn accepting_any_one_suggestion_changes_that_row_alone() {
                 Err(failures) => assert_eq!(checked.failures, failures, "{name}: {id}"),
                 Ok(saved) => {
                     assert!(checked.applicable, "{name}: {id}: {checked:?}");
-                    let now = rows(&table(&reload(&saved.bytes)));
-                    for ((rid, s0, v0), (_, s1, v1)) in rows(&t).iter().zip(&now) {
-                        if *rid != id {
-                            assert_eq!((s0, v0), (s1, v1), "{name}: {id} changed {rid}");
+                    let now = table(&reload(&saved.bytes));
+                    // The planner lists gaps first and recovers stated dimensions afterwards.
+                    // Compare every original row by id so that reordering cannot hide a change.
+                    for (rid, s0, v0) in rows(&t) {
+                        let after = now["rows"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .find(|r| r["id"] == rid);
+                        // One hole measurement can close several gaps in its direction.
+                        // Check that its single new item states each additional stated row.
+                        if id.starts_with("location:holes:")
+                            && rid != id
+                            && rid.starts_with("location:holes:")
+                            && s0 == "gap"
+                            && after.is_none_or(|r| r["state"] == "stated")
+                        {
+                            let new = numbers(&reload(&saved.bytes));
+                            let old = numbers(&part);
+                            let added: Vec<_> =
+                                new.keys().filter(|n| !old.contains_key(n)).collect();
+                            assert_eq!(added.len(), 1, "{name}: {id}");
+                            if let Some(after) = after {
+                                let number = format!("#{}", added[0]);
+                                let items = after["requirements"].as_array().unwrap();
+                                assert!(
+                                    !items.is_empty()
+                                        && items.iter().all(|r| r["number"] == number)
+                                );
+                            }
+                            continue;
+                        }
+                        let after =
+                            after.unwrap_or_else(|| panic!("{name}: {id} removed row {rid}"));
+                        let (s1, v1) = (&after["state"], &after["value"]);
+                        if rid != id {
+                            assert_eq!((&s0, &v0), (s1, v1), "{name}: {id} changed {rid}");
                         } else {
                             assert_ne!(s1, "gap", "{name}: {id} still a gap");
                         }
@@ -1827,6 +1860,26 @@ fn general_length_suggestions_can_be_accepted_declined_and_removed() {
     let part = load(&corpus.join("gramel/GRM-05_depth_lock_bolt.step"), None).unwrap();
     let declined = "length:planes:2-3";
     let accepted = ["length:planes:2-5", "length:planes:2-8"];
+    let offered: Vec<Value> = table(&part)["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["state"] == "gap" && !r["suggestion"].is_null())
+        .map(|r| r["id"].clone())
+        .collect();
+    let bulk = applied(&part, json!({"accept_suggestions": offered}));
+    let filled = table(&reload(&bulk.bytes));
+    for id in [declined, accepted[0], accepted[1]] {
+        assert_eq!(row(&filled, id)["state"], "stated");
+    }
+    let datum_size = "diameter.fit:turned_steps:0";
+    assert_eq!(row(&filled, datum_size)["state"], "decided_none");
+    assert!(
+        bulk.report
+            .not_written
+            .iter()
+            .any(|line| line.starts_with(&format!("answer {datum_size} ")))
+    );
     let decision = applied(&part, json!({"none": [declined]}));
     let decided = reload(&decision.bytes);
     assert_eq!(row(&table(&decided), declined)["state"], "decided_none");
