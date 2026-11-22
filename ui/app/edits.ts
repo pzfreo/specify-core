@@ -16,7 +16,9 @@ type PendingEdit =
   /** A gap decided "none needed". */
   | { kind: 'none'; id: string; name: string }
   /** A stored "none needed" taken back (Undo): the row is a gap again. Never touches PMI. */
-  | { kind: 'clear'; id: string; name: string };
+  | { kind: 'clear'; id: string; name: string }
+  /** An agent's refused answer, shown on its row until it is discarded. */
+  | { kind: 'refused'; id: string; name: string; reason: string };
 
 /** The edit list for ``pending``. */
 export function editList(pending: Iterable<Pending>): EditList {
@@ -29,7 +31,7 @@ export function editList(pending: Iterable<Pending>): EditList {
       for (const t of p.targets) if (!list.some((x) => JSON.stringify(x) === JSON.stringify(t))) list.push(t);
     }
     else if (p.kind === 'none') (out.none ??= []).push(p.id);
-    else (out.clear ??= []).push(p.id);
+    else if (p.kind === 'clear') (out.clear ??= []).push(p.id);
   }
   return out;
 }
@@ -69,6 +71,7 @@ function describeEdit(p: Pending): string {
     }
     case 'none': return `None needed: ${p.name}`;
     case 'clear': return `Undo none needed: ${p.name}`;
+    case 'refused': return `Refused ${p.name}: ${p.reason}`;
   }
 }
 
@@ -101,6 +104,9 @@ export function withDrafts(
   for (const [key, list] of Object.entries(drafts)) {
     const part = Number(key);
     const staged: Pending[] = [
+      ...Object.entries(list.refused ?? {}).map(([id, reason]): Pending => ({
+        kind: 'refused', id, name: describeRow(part, id).name, reason, draft: true,
+      })),
       ...Object.entries(list.fill ?? {}).map(([id, value]): Pending => ({
         kind: 'fill', id, value, ...describeRow(part, id, value), draft: true,
       })),

@@ -853,18 +853,26 @@ impl Server {
                     }
                     None => Session::of(opened, file, in_place.unwrap_or(false)),
                 };
+                if self.sessions.iter().any(|shared| {
+                    let held = session::lock(shared);
+                    held.file().path == given
+                        && held.sha() == file_sha
+                        && held.old().map(|old| &old.path) == old_given
+                        && held.last_saved().is_some_and(|(path, _)| path != given)
+                }) {
+                    new.mark_reopened_original();
+                }
                 new.keep_analysis(index, Arc::clone(&analysis));
                 new.set_allowed(self.allow.clone());
                 new.resume()?;
                 Arc::new(Mutex::new(new))
             }
         };
-        // Answers: the file named, else those the session holds for the part, else (not
-        // comparing) those held for this handle in another session,
-        // else those a file Specify wrote stores (resumed by the analysis).
-        let held_elsewhere = self
-            .docs
-            .get(&handle)
+        // Only a live document can hand over its answers or the file that records them.
+        let previous = self.docs.get(&handle).filter(|d| {
+            Arc::ptr_eq(&d.session, &shared) || session::lock(&d.session).last_saved().is_none()
+        });
+        let held_elsewhere = previous
             .filter(|d| !Arc::ptr_eq(&d.session, &shared))
             .map(Doc::answers);
         let (answers, rev, report) = {
@@ -894,7 +902,7 @@ impl Server {
         if created {
             self.sessions.push(Arc::clone(&shared));
         }
-        let previous_file = self.docs.get(&handle).and_then(|d| d.answers_file.clone());
+        let previous_file = previous.and_then(|d| d.answers_file.clone());
         let doc = Doc {
             session: shared,
             path: given.clone(),
@@ -925,6 +933,7 @@ impl Server {
         out.insert("resumed".into(), json!(analysis.get("resume").is_some()));
         out.insert("answered".into(), json!(answers.len()));
         out.insert("open_questions".into(), json!(open));
+        out.insert("table".into(), analysis["table"].clone());
         out.insert("rev".into(), json!(rev));
         if let Some(report) = report {
             out.insert("verdict".into(), report["verdict"].clone());
@@ -1051,14 +1060,23 @@ impl Server {
         }
         let mut changed = Vec::new();
         let mut refused = Map::new();
+        let mut refused_drafts = std::collections::BTreeMap::new();
         for (id, given) in &set {
-            match try_answer(&analysis, held.step(), part, &mut trial, id, given) {
+            match try_answer(&analysis, &mut trial, id, given) {
                 Ok(entry) => changed.push(entry),
-                // With partial, a refused answer is reported and the others still apply.
-                Err(e) if partial => {
+                Err(e) => {
+                    if session::stated_row(&analysis, id).is_some() {
+                        refused_drafts.insert(id.clone(), e.message.clone());
+                    }
+                    if !partial {
+                        if !refused_drafts.is_empty() {
+                            let current = held.answers(part).cloned().unwrap_or_default();
+                            held.set_agent_answers(part, current, &[], refused_drafts);
+                        }
+                        return Err(e);
+                    }
                     refused.insert(id.clone(), json!({"refused": e.message}));
                 }
-                Err(e) => return Err(e),
             }
         }
         if !clear.is_empty() {
@@ -1083,7 +1101,7 @@ impl Server {
             entry.insert("state".into(), json!(state));
         }
         let open: Vec<String> = open.into_iter().map(str::to_string).collect();
-        held.set(part, trial.clone(), "mcp");
+        held.set_agent_answers(part, trial.clone(), &clear, refused_drafts);
         let rev = held.rev();
         drop(held);
         let doc = self.doc_mut(&handle);
@@ -1364,13 +1382,36 @@ impl Server {
     /// nothing is written.
     fn check(&self, args: &Map<String, Value>) -> ToolResult {
         let (handle, doc) = self.doc(args)?;
-        let (rev, outcome) = match doc_edits(args)? {
+        let stage = flag(args, "stage")?;
+        let mut changes = None;
+        let (mut rev, outcome) = match doc_edits(args)? {
             DocEdits::Opened(edits) => {
-                session::check_part_edits(&doc.session, Some(doc.part), &edits.to_string())
+                let text = edits.to_string();
+                if stage {
+                    let list = crate::edits::read(&text).map_err(invalid_edits)?;
+                    if list.change.is_empty() || list.len() != list.change.len() {
+                        return Err(ToolError::invalid(
+                            "stage requires an edit list of explicit change entries",
+                        ));
+                    }
+                    changes = Some(list.change);
+                }
+                session::check_part_edits(&doc.session, Some(doc.part), &text)
             }
-            DocEdits::Parts(lists) => session::check_assembly_edits(&doc.session, &lists),
+            DocEdits::Parts(lists) if !stage => session::check_assembly_edits(&doc.session, &lists),
+            DocEdits::Parts(_) => {
+                return Err(ToolError::invalid(
+                    "stage uses edits for the part opened by doc",
+                ));
+            }
         };
         let mut out = outcome.to_json();
+        if let Some(changes) = changes.filter(|_| out["applicable"] == true) {
+            rev = session::lock(&doc.session)
+                .stage_changes(doc.part, rev, changes)
+                .map_err(save_error)?;
+            out["staged"] = json!(true);
+        }
         out["doc"] = json!(handle);
         out["rev"] = json!(rev);
         Ok(out)
@@ -1682,43 +1723,34 @@ fn same_as_stated(value: &Value, given: &Value) -> bool {
 /// ask a new question) and checked with them: its entry `{id, value, interpreted_from?}`, the
 /// answer kept in `trial`; refused, naming the question, with `trial` as it was. An answer
 /// equal to what the file states is an entry `{id, value, state: "stated"}` and changes
-/// nothing. A different answer to a stated row is checked and kept as a draft change.
+/// nothing; one that differs is refused.
 fn try_answer(
     analysis: &Value,
-    step: &part::File,
-    part: usize,
     trial: &mut Map<String, Value>,
     id: &str,
     given: &Value,
 ) -> Result<Map<String, Value>, ToolError> {
-    let mut entry = Map::new();
-    entry.insert("id".into(), json!(id));
-    if let Some(expect) = session::stated_value(analysis, id) {
-        if same_as_stated(expect, given) {
-            entry.insert("value".into(), expect.clone());
+    if let Some(row) = session::stated_row(analysis, id) {
+        let value = &row["value"];
+        let row: crate::feature_table::Row =
+            serde_json::from_value(row.clone()).expect("analysis contains a feature-table row");
+        let expect = crate::edits::stated_value(&row);
+        if same_as_stated(value, given) || same_as_stated(&expect, given) {
+            let mut entry = Map::new();
+            entry.insert("id".into(), json!(id));
+            entry.insert("value".into(), value.clone());
             entry.insert("state".into(), json!("stated"));
-        } else {
-            let list = crate::edits::EditList {
-                change: std::collections::BTreeMap::from([(
-                    id.to_owned(),
-                    crate::edits::Change {
-                        to: given.clone(),
-                        expect: expect.clone(),
-                    },
-                )]),
-                ..Default::default()
-            };
-            let loaded = step.load(Some(part)).map_err(Error::Load)?;
-            crate::writer::apply::apply(&loaded, &list)
-                .map_err(|failures| invalid_edits(failures).with("question", json!(id)))?;
-            trial.insert(id.to_owned(), given.clone());
-            entry.insert("value".into(), given.clone());
-            entry.insert("state".into(), json!("answered"));
+            return Ok(entry);
         }
-        return Ok(entry);
+        return Err(ToolError::invalid(format!(
+            "the file states {value} for {id}. To change it, use change with \"to\": {given}, \"expect\": {expect}."
+        ))
+        .with("question", json!(id)));
     }
     let qs = api::questions(analysis, trial)?;
     let q = qs.iter().find(|q| q.id == id);
+    let mut entry = Map::new();
+    entry.insert("id".into(), json!(id));
     let value = match (q, given) {
         (Some(q), Value::String(text))
             if q.kind == "choice" && !q.options.iter().any(|o| o == text) =>
@@ -1946,6 +1978,9 @@ fn edit_input(save: bool) -> Value {
     );
     if save {
         schema["properties"]["rev"] = rev_schema();
+    } else {
+        schema["properties"]["stage"] = json!({"type": "boolean",
+            "description": "Put checked explicit change entries for the opened part in the panel as drafts."});
     }
     schema
 }
@@ -1984,7 +2019,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "open",
             "title": "Open a part to specify",
-            "description": format!("Analyse one part of a STEP file (recognise its features, read its existing PMI) and return a document handle `doc` for the other tools, with the open questions and the session's rev. An assembly opened without `part` returns its parts and needs_part: true; call again with `part`. A file Specify wrote shows its PMI as the file states it, whoever wrote it. With old (the previous revision of the file), the two are compared as the diff tool compares them (from the two files' PMI only); the session is this file's as without old, and the result adds verdict, summary and report. Opening the same file again returns the same session with its answers. {MEMORY_RULE} With answers_file, answers are read from that JSON file if it exists and every change is saved to it."),
+            "description": format!("Analyse one part of a STEP file (recognise its features, read its existing PMI) and return a document handle `doc` for the other tools, with the current feature table, open questions and the session's rev. An assembly opened without `part` returns its parts and needs_part: true; call again with `part`. A file Specify wrote shows its PMI as the file states it, whoever wrote it. With old (the previous revision of the file), the two are compared as the diff tool compares them (from the two files' PMI only); the session is this file's as without old, and the result adds verdict, summary and report. Opening the same file again reads the bytes on disk. Reopening the unchanged original after a copy save starts without its saved working answers. {MEMORY_RULE} With answers_file, answers are read from that JSON file if it exists and every change is saved to it."),
             "inputSchema": input(json!({
                 "path": {"type": "string", "description": "A .step/.stp file (or gzipped) inside the server's allowed directories."},
                 "part": {"type": "integer", "minimum": 0, "description": "Which part of an assembly (see list_parts)."},
@@ -2004,6 +2039,7 @@ pub fn tools() -> Vec<Value> {
                 "resumed": {"type": "boolean"},
                 "answered": {"type": "integer"},
                 "open_questions": strings(),
+                "table": {"type": "object", "description": "The opened part's current feature table."},
                 "rev": rev(),
                 "verdict": {"type": "string"},
                 "summary": {"type": "string"},
@@ -2039,7 +2075,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "answer",
             "title": "Answer questions",
-            "description": format!("Set or clear answers on the open document. set maps question id to answer: a choice question takes one of its options or free text Specify interprets (\"M6\" for a hole, \"H7\" for a bore, \"6061-T6\" for material); a faces question takes a list of face indices; text questions take text. Answers are applied in order and all-or-nothing: a refused answer is an error naming the question and nothing changes. With partial: true (answer everything you know in one call), every valid answer is applied in one rev and outcomes gives each id {{stored, interpreted_from?, state}} or {{refused: reason}}. Give only what the person or the design intends: never a default as intent. The change goes to the session (rev goes up) and appears in the Specify page if it is shown. An answer equal to a stated value changes nothing. A different answer to a stated row stages a change with the current file value as its expectation. The page or MCP save writes the working answers with the explicit edits. Use discard to drop drafts without writing. {MEMORY_RULE} answers_file also saves them to that JSON file from now on."),
+            "description": format!("Set or clear answers on the open document. set maps question id to answer: a choice question takes one of its options or free text Specify interprets (\"M6\" for a hole, \"H7\" for a bore, \"6061-T6\" for material); a faces question takes a list of face indices; text questions take text. Answers are applied in order and all-or-nothing: a refused answer is an error naming the question and no answer is stored. With partial: true (answer everything you know in one call), every valid answer is applied in one rev and outcomes gives each id {{stored, interpreted_from?, state}} or {{refused: reason}}. Give only what the person or the design intends: never a default as intent. The change goes to the session (rev goes up) and appears in the Specify page if it is shown. An answer equal to a stated value changes nothing. A different answer to a stated row is refused with the row ID and the explicit change to send. The page shows the refusal and it can be discarded. Use check with stage: true to propose an explicit guarded change for the page to save. The page or MCP save writes the working answers with the explicit edits. Use discard to drop drafts without writing. {MEMORY_RULE} answers_file also saves them to that JSON file from now on."),
             "inputSchema": input(json!({
                 "doc": doc(),
                 "set": {"type": "object", "description": "Question id to answer.", "additionalProperties": true},
@@ -2204,7 +2240,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "check",
             "title": "Check an edit list",
-            "description": format!("Check edits for the opened part or partEdits for several part indices, including the working answers as save does, without writing anything: applicable, and for each entry that cannot be applied, why (failures); unchanged lists the entries that would change nothing (a fill equal to what the file states). {MEMORY_RULE}"),
+            "description": format!("Check edits for the opened part or partEdits for several part indices, including the working answers as save does, without writing anything: applicable, and for each entry that cannot be applied, why (failures); unchanged lists the entries that would change nothing (a fill equal to what the file states). Optional stage: true keeps valid explicit change entries sent in edits as drafts for the opened part. {MEMORY_RULE}"),
             "inputSchema": edit_input(false),
             "outputSchema": output(json!({
                 "doc": {"type": "string"},
@@ -2216,10 +2252,11 @@ pub fn tools() -> Vec<Value> {
                 "failures": {"type": "array", "items": {"type": "object", "properties": {"entry": {"type": "string"}, "reason": {"type": "string"},
                     "part": {"type": "integer"}, "editEntry": {"type": "string"}}}},
                 "written": {"type": "boolean"},
+                "staged": {"type": "boolean"},
                 "message": {"type": "string"},
                 "rev": rev()
             }), &["doc", "applicable", "failures", "message"]),
-            "annotations": {"readOnlyHint": true, "openWorldHint": false},
+            "annotations": {"readOnlyHint": false, "openWorldHint": false},
         }),
         json!({
             "name": "discard",

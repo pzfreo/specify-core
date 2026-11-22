@@ -64,15 +64,16 @@ or in `accept_suggestions` (ADR P9: "we shouldn't create the default, which then
 gospel"): the agent lists only what the person saw and confirmed. Anything the list does not
 name is left as it is, byte for byte, whoever wrote it.
 
-Working answers are the differences from the last saved file. An answer for a stated row
-becomes a change with the current file value as its expectation. Other drafts become fills,
-decisions of none, or clears of stored decisions. MCP `save` and `check` combine them from
-every part with the explicit lists at one revision. An explicit edit to the same question
-takes precedence. The panel's bar marks when a local edit replaces a draft.
-For example, `save {doc, edits: {}}` writes the working edits alone. A refusal keeps every
-draft. A successful save clears the drafts as it resumes the new file. MCP `discard` or the
-page's **Discard** drops the working edits without writing. The page also offers **Undo** for
-each working edit.
+Working answers become fills, decisions of none, or clears of stored decisions. A different
+answer for a stated row is refused with the value the file states and the guarded change to
+make. To stage the change explicitly for the panel, use MCP `check` with `stage: true` and a
+`change` entry with `to` and `expect`.
+MCP `save` and `check` combine savable drafts from every part with the explicit lists at
+one revision. An explicit edit to the same question takes precedence. The panel's bar marks
+when a local edit replaces a draft. For example, `save {doc, edits: {}}` applies the working
+edits alone. The page shows refused answers on their rows, and its Save skips them. MCP
+`discard` and the page's **Discard** drop drafts and refusals without writing. The page also
+offers **Undo** for a single draft or refusal.
 
 An agent that wants to follow the person's saves calls `changes` with the last `rev` it saw
 (for example after the person says they are done, or before each step); MCP over stdio has no

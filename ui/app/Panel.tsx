@@ -60,6 +60,7 @@ export interface PanelProps {
   check(edits: EditList): Promise<EditFailure[]>;
   /** Refusals from Save for queued None needed decisions on the shown part. */
   rejectedNone?: ReadonlyMap<string, string> | undefined;
+  refusedAnswers?: Readonly<Record<string, string>> | undefined;
   onUndoDraft(id: string): void;
   disabled: boolean;
   /** The file's length unit, for a new general tolerance block. */
@@ -128,7 +129,8 @@ export function Panel(props: PanelProps) {
       ? p.value : r.notes;
     const cls = ['spec-row', state === 'stated' ? 'stated' : state === 'gap' ? 'gap' : 'nonerow',
       p ? 'changed' : '', p?.kind === 'remove' ? 'removed' : ''].filter(Boolean).join(' ');
-    const refusal = problem?.id === r.id ? problem.text : props.rejectedNone?.get(r.id);
+    const refusal = problem?.id === r.id ? problem.text
+      : props.rejectedNone?.get(r.id) ?? props.refusedAnswers?.[r.id];
     const here = editing?.id === r.id ? editing : null;
     const locked = disabled || checking;
     let acts: ReactNode = null;
@@ -396,6 +398,8 @@ export function EditBar({ items, drafts, saving, busy, blocked, savedNote, onSav
               aria-label={`Undo ${name ?? ''} ${edit.name}`.replace(/ +/g, ' ')} onClick={() => onUndoDraft(part, edit.id)}>Undo</button></>}
           </li>
         )) : <li className="muted">{savedNote ?? 'No changes yet. Nothing is written until Save.'}</li>}
+        {items.length > 0 && items.every(({ edit }) => edit.kind === 'refused') && savedNote
+          && <li className="muted">{savedNote}</li>}
       </ul>
       <button type="button" className="app-add-all" onClick={onAddAll} disabled={busy || Boolean(blocked)}
         title="Queue this part's gap suggestions as edits (a suggestion of none as None needed); nothing is written until Save">

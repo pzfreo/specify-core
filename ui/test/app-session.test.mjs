@@ -282,6 +282,17 @@ test('a batched commit clears all shown drafts on its first part event', () => {
   assert.deepEqual(session.draftSnapshot(), { rev: 3, drafts: { '1': { fill: { m: 'Bronze' } } } });
 });
 
+test('an unchanged save acknowledgment keeps a refused answer until discard', () => {
+  const drafts = { '0': { refused: { material: 'use an explicit change' } } };
+  const session = createSession(3, { '0': {} }, drafts);
+  session.markSaved(3);
+  assert.deepEqual(session.draftSnapshot(), { rev: 3, drafts });
+  session.receiveSave({ rev: 3, parts: { '0': {} } });
+  assert.deepEqual(session.draftSnapshot(), { rev: 3, drafts });
+  session.receive({ source: 'start', rev: 4, parts: { '0': {} } });
+  assert.deepEqual(session.draftSnapshot(), { rev: 4, drafts: {} });
+});
+
 test('Save at the displayed draft revision refuses a newer answer on another part', async () => {
   const session = createSession(1, { '0': {}, '1': {} });
   const store = session.store(0);
