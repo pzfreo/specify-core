@@ -42,6 +42,28 @@ fn assembly() -> PathBuf {
     common::fixtures().join("parts").join("assembly.step")
 }
 
+#[test]
+fn an_accepted_bom_field_is_default_and_an_explicit_field_is_answered() {
+    let plate = load(&assembly(), Some(PLATE)).unwrap();
+    let original = specify_core::api::analyse(&plate).unwrap();
+    let list = specify_core::edits::parse_value(json!({
+        "accept_suggestions": ["bom.description"],
+        "fill": {"bom.stock": "from stock"},
+    }))
+    .unwrap();
+    let applied = specify_core::writer::apply::apply(&plate, &list).unwrap();
+    let rows = specify_core::bom::read_bytes(applied.bytes.clone()).unwrap();
+    assert_eq!(rows[PLATE].description.source, "default");
+    assert_eq!(
+        rows[PLATE].description.value,
+        original["bom"]["description"]["value"]
+    );
+    assert_eq!(rows[PLATE].stock.source, "answered");
+    assert_eq!(rows[PLATE].stock.value, "from stock");
+    assert_eq!(rows[PIN].description.source, "default");
+    assert!(resume::stored(&applied.bytes).is_empty());
+}
+
 fn analysis(k: usize) -> Value {
     common::case(&format!("parts/assembly#{k}"))
         .artifact("analysis")

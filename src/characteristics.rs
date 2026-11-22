@@ -495,7 +495,8 @@ pub(crate) struct Located {
 /// Every requirement of [`measures`]'s kinds in `p`, located, with its number in `doc`.
 pub(crate) fn located(p: &PartPmi, prov: &PartProvenance, doc: &Document) -> Vec<Located> {
     let at = measures(p).into_iter().map(|(at, _)| at);
-    at.zip(items(p, Some(prov), Some(doc)))
+    let mut located: Vec<_> = at
+        .zip(items(p, Some(prov), Some(doc)))
         .map(|(at, item)| Located {
             at,
             number: number(doc, item.entity),
@@ -505,7 +506,30 @@ pub(crate) fn located(p: &PartPmi, prov: &PartProvenance, doc: &Document) -> Vec
             faces: item.key.faces,
             reference: item.key.reference,
         })
-        .collect()
+        .collect();
+    // A standalone hole note can be removed by its property entity. It has no
+    // characteristic number, and a compound attribute set must stay whole.
+    for (i, set) in p.attributes.iter().enumerate() {
+        if let (Some(pmi::NoteOwner::Feature(feature)), [(key, AttributeValue::Text(text))]) =
+            (set.on, set.items.as_slice())
+            && set.name == crate::writer::SEMANTIC_TEXT
+            && key == crate::writer::HOLE_NOTE
+        {
+            let entity = root(Some(doc), &prov.attributes[i], "property_definition");
+            if entity != 0 {
+                located.push(Located {
+                    at: ("attributes", i),
+                    kind: "note".into(),
+                    r#type: text.clone(),
+                    faces: faces_of(p, &[feature]),
+                    reference: vec![],
+                    number: None,
+                    entity,
+                });
+            }
+        }
+    }
+    located
 }
 
 /// The pinned reader does not consume ids on thread/knurl definition shapes. Strip just

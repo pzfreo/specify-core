@@ -228,7 +228,13 @@ pub fn check(loaded: &LoadedPart, text: &str) -> Outcome {
         Ok(found) => found,
         Err(why) => return Outcome::malformed(whole(why)),
     };
-    let mut outcome = validated(&list, &table, &analysis).1;
+    let (pmi_list, bom) = bom_edits(&list, &analysis);
+    let mut outcome = validated(&pmi_list, &table, &analysis).1;
+    if let Err(failures) = bom {
+        outcome.failures.extend(failures);
+    }
+    outcome.entries = list.len();
+    outcome.applicable = outcome.failures.is_empty();
     if outcome.failures.is_empty()
         && let Err(failures) = apply(loaded, &list)
     {
@@ -828,6 +834,125 @@ pub(crate) fn apply_numbered(
     list: &EditList,
     numbers: Option<&Map<String, Json>>,
 ) -> Result<Applied, Vec<Failure>> {
+    if !list
+        .fill
+        .keys()
+        .chain(&list.accept_suggestions)
+        .any(|id| id.starts_with("bom."))
+    {
+        return applied_pmi(loaded, list, numbers);
+    }
+    let analysis = crate::api::analyse(loaded).map_err(|e| whole(e.to_string()))?;
+    let (list, bom) = bom_edits(list, &analysis);
+    let intent = bom?.expect("the list has BOM entries");
+    let mut applied = applied_pmi(loaded, &list, numbers)?;
+    applied.bytes = crate::bom::append(applied.bytes, &[(loaded, &intent, None)])
+        .map_err(|why| whole(format!("the BOM cannot be written: {why}")))?;
+    if let Some(fields) = intent.part.get("bom").and_then(Json::as_object) {
+        for (key, value) in fields {
+            applied.report.written.push(format!("BOM {key} {value}"));
+        }
+    }
+    applied.unchanged = false;
+    Ok(applied)
+}
+
+/// The `bom.*` entries of `list` (a part of an assembly's BOM fields: `fill` with a value, or
+/// `accept_suggestions` taking the BOM's own suggestion) as the intent that appends them, and the
+/// list without them. Every part of the file is numbered when the BOM is written, as `write`'s
+/// BOM acceptance does. Refused for a file with no assembly structure (`bom_no_assembly`), for a
+/// value the BOM does not take, and for a suggestion the BOM does not have.
+fn bom_edits(
+    list: &EditList,
+    analysis: &Json,
+) -> (EditList, Result<Option<crate::rules::Intent>, Vec<Failure>>) {
+    let is_bom = |id: &str| id.starts_with("bom.");
+    let mut rest = list.clone();
+    rest.fill.retain(|id, _| !is_bom(id));
+    rest.accept_suggestions.retain(|id| !is_bom(id));
+    let fills: Vec<(&String, &Json)> = list.fill.iter().filter(|(id, _)| is_bom(id)).collect();
+    let accepted: Vec<&String> = list
+        .accept_suggestions
+        .iter()
+        .filter(|id| is_bom(id))
+        .collect();
+    if fills.is_empty() && accepted.is_empty() {
+        return (rest, Ok(None));
+    }
+    let entry = |section: &str, id: &str| format!("{section}[{}]", Json::from(id));
+    let mut failures = Vec::new();
+    if !analysis.get("bom").is_some_and(Json::is_object) {
+        for (id, _) in &fills {
+            failures.push(entry_failure(
+                entry("fill", id),
+                format!(
+                    "{}: the file has no assembly structure, so there is no BOM to write",
+                    crate::bom::NO_ASSEMBLY
+                ),
+            ));
+        }
+        for id in &accepted {
+            failures.push(entry_failure(
+                entry("accept_suggestions", id),
+                format!(
+                    "{}: the file has no assembly structure, so there is no BOM to write",
+                    crate::bom::NO_ASSEMBLY
+                ),
+            ));
+        }
+        return (rest, Err(failures));
+    }
+    let mut fields = Map::new();
+    let mut answers = Map::new();
+    let mut suggestions = Vec::new();
+    for (id, value) in fills {
+        let key = &id["bom.".len()..];
+        match crate::bom::validate(key, value) {
+            Ok(()) => {
+                fields.insert(key.to_string(), value.clone());
+                answers.insert(id.clone(), value.clone());
+            }
+            Err(why) => failures.push(entry_failure(entry("fill", id), why)),
+        }
+    }
+    if !accepted.is_empty() {
+        let mut proposed = crate::rules::Intent::new(analysis["binding"].clone());
+        match crate::bom::accept_suggestions(analysis, &answers, &mut proposed) {
+            Ok(()) => {
+                let suggested = proposed.part.get("bom").and_then(Json::as_object);
+                for id in accepted {
+                    let key = &id["bom.".len()..];
+                    match suggested.and_then(|s| s.get(key)) {
+                        Some(value) => {
+                            fields.insert(key.to_string(), value.clone());
+                            suggestions.push(key.to_string());
+                        }
+                        None => failures.push(entry_failure(
+                            entry("accept_suggestions", id),
+                            format!("the BOM has no suggestion for {id}; give a value with fill"),
+                        )),
+                    }
+                }
+            }
+            Err(why) => failures.push(entry_failure("(the whole list)".into(), why)),
+        }
+    }
+    if !failures.is_empty() {
+        return (rest, Err(failures));
+    }
+    let mut intent = crate::rules::Intent::new(analysis["binding"].clone());
+    intent.part.insert("bom".into(), Json::Object(fields));
+    intent
+        .part
+        .insert("bom_suggestions".into(), Json::from(suggestions));
+    (rest, Ok(Some(intent)))
+}
+
+fn applied_pmi(
+    loaded: &LoadedPart,
+    list: &EditList,
+    numbers: Option<&Map<String, Json>>,
+) -> Result<Applied, Vec<Failure>> {
     let (analysis, table) = table_of(loaded).map_err(whole)?;
     let (list, nominals) = field_changes(list, &table, &analysis)?;
     let (list, outcome) = validated(&list, &table, &analysis);
@@ -1122,19 +1247,33 @@ pub(crate) fn apply_numbered(
         features.extend(features_of(before, (c, *i)));
     }
     give_way.extend(features.iter().map(|&f| ("features".to_string(), f)));
-    // What belongs to a removed item goes with it: the notes and attribute sets on it (a
-    // dimension's plan, a thread's manufacturing data on its feature, unless kept).
+    // Direct attachments belong to their dimension or tolerance. A feature can carry
+    // several requirements, so sharing its carrier does not establish ownership.
     let owned = |on: &Option<haecceity::pmi::NoteOwner>| {
         use haecceity::pmi::NoteOwner;
         match on {
             Some(NoteOwner::Dimension(d)) => remove.contains(&("dimensions".to_string(), d.0)),
             Some(NoteOwner::Tolerance(t)) => remove.contains(&("tolerances".to_string(), t.0)),
-            Some(NoteOwner::Feature(f)) => features.contains(&f.0),
             _ => false,
         }
     };
     for (i, set) in before.attributes.iter().enumerate() {
-        if owned(&set.on) {
+        let thread_removed = set.name == "thread manufacturing"
+            && matches!(set.on, Some(haecceity::pmi::NoteOwner::Feature(f)) if {
+                let mut removed = false;
+                let mut kept = false;
+                for (i, _) in before.threads.iter().enumerate().filter(|(_, thread)| {
+                    before.same_target(&ToleranceTarget::Feature(f), &ToleranceTarget::Feature(thread.feature))
+                }) {
+                    if remove.contains(&("threads".to_string(), i)) {
+                        removed = true;
+                    } else {
+                        kept = true;
+                    }
+                }
+                removed && !kept
+            });
+        if owned(&set.on) || thread_removed {
             give_way.insert(("attributes".to_string(), i));
         }
     }
@@ -1242,7 +1381,14 @@ pub(crate) fn apply_numbered(
                         .any(|d| d.get("question") == Some(&Json::from(id.as_str())))
                     || id
                         .strip_prefix("part.")
-                        .is_some_and(|key| intent.part.contains_key(key));
+                        .is_some_and(|key| intent.part.contains_key(key))
+                    || id.strip_prefix("hole.full_thread:").is_some_and(|feature| {
+                        let function = format!("hole.function:{feature}");
+                        intent.requirements.iter().any(|r| {
+                            r.get("question").and_then(Json::as_str) == Some(function.as_str())
+                                && r.get("kind").and_then(Json::as_str) == Some("thread")
+                        })
+                    });
                 let deferred_diameter = has_general_tolerance
                     && id.starts_with("diameter.fit:")
                     && given[*id] == "general";

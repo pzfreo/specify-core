@@ -479,6 +479,176 @@ fn every_kind_the_writer_writes_reads_back_whole() {
     );
 }
 
+fn edit_and_read(loaded: &LoadedPart, edits: Value) -> (Value, Value) {
+    let edits = specify_core::edits::parse_value(edits).unwrap();
+    let result = specify_core::writer::apply::apply(loaded, &edits)
+        .unwrap_or_else(|failures| panic!("refused {edits:?}: {failures:?}"));
+    let report = result.to_dict();
+    let reopened = specify_core::part::load_bytes("edited.step", result.bytes).unwrap();
+    (specify_core::api::analyse(&reopened).unwrap(), report)
+}
+
+fn existing_except(analysis: &Value, text: &Value) -> Vec<Value> {
+    let mut items: Vec<_> = analysis["existing"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["text"] != *text)
+        .cloned()
+        .collect();
+    items.sort_by_cached_key(Value::to_string);
+    items
+}
+
+#[test]
+fn removing_each_writer_kind_preserves_other_requirements_on_its_carrier() {
+    let plate = plate();
+    let mut intent = Intent::new(serde_json::to_value(&plate.binding).unwrap());
+    intent.datums = datums();
+    intent.part.insert("material".into(), json!("steel"));
+    intent.part.insert("surface_finish".into(), json!("Ra 3.2"));
+    let cases: Vec<_> = requirement_kinds()
+        .into_iter()
+        .map(|kind| {
+            let mut case = cases(kind).remove(usize::from(kind == "thread"));
+            case.req["faces"] = json!([12]);
+            case
+        })
+        .collect();
+    intent.requirements = cases.iter().map(|case| object(case.req.clone())).collect();
+    let dir = temp("coexisting-kinds");
+    let path = dir.join("all.step");
+    write(&plate, &intent, &path, None).unwrap();
+    let loaded = load(&path, None).unwrap();
+    let before = specify_core::api::analyse(&loaded).unwrap();
+    let table = &before["table"];
+    let all = table["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|row| row["requirements"].as_array().into_iter().flatten())
+        .chain(table["file_pmi"].as_array().unwrap());
+    for case in &cases {
+        let text = json!(case.text);
+        let item = all
+            .clone()
+            .find(|item| item["text"] == text)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} missing from the shared feature: {}",
+                    case.name, before["existing"]
+                )
+            });
+        let removal = match item["number"].as_str() {
+            Some(n) => json!(n),
+            None => json!({"id": item["id"]}),
+        };
+        let (after, report) = edit_and_read(&loaded, json!({"items":{"remove":[removal]}}));
+        assert_eq!(
+            existing_except(&after, &Value::Null),
+            existing_except(&before, &text),
+            "{}",
+            case.name
+        );
+        assert_eq!(after["part"], before["part"], "{}", case.name);
+        let identifier = removal.as_str().or_else(|| removal["id"].as_str()).unwrap();
+        assert_eq!(
+            report["written"],
+            json!([format!("removed {identifier}")]),
+            "{}",
+            case.name
+        );
+        assert_eq!(
+            report["retired"],
+            json!(
+                item["number"]
+                    .as_str()
+                    .map(|n| n[1..].parse::<u64>().unwrap())
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            )
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn changing_or_removing_the_spindles_tapped_hole_position_preserves_its_thread() {
+    let path =
+        common::fixtures().join("../../ui/test/fixtures/19-spindle-semantic-links-only.step.gz");
+    let spindle = load(&path, None).unwrap();
+    let before = specify_core::api::analyse(&spindle).unwrap();
+    let previous = json!("⌖ ⌀0.2 A");
+    let current = json!("⌖ ⌀0.1 A");
+    let (changed, report) = edit_and_read(
+        &spindle,
+        json!({"change": {
+            "hole.position:holes:15.16": {"to": "0.1", "expect": "0.2"}
+        }}),
+    );
+    assert_eq!(
+        existing_except(&changed, &current),
+        existing_except(&before, &previous)
+    );
+    assert_eq!(changed["part"], before["part"]);
+    assert_eq!(report["written"].as_array().unwrap().len(), 1, "{report}");
+    assert!(
+        report["written"][0].as_str().unwrap().contains("position"),
+        "{report}"
+    );
+    assert_eq!(report["retired"], json!([]));
+
+    let (removed, report) = edit_and_read(&spindle, json!({"items":{"remove":["#12"]}}));
+    assert_eq!(
+        existing_except(&removed, &Value::Null),
+        existing_except(&before, &previous)
+    );
+    assert_eq!(removed["part"], before["part"]);
+    assert_eq!(report["written"], json!(["removed #12"]));
+    assert_eq!(report["retired"], json!([12]));
+}
+
+#[test]
+fn removing_a_position_preserves_the_nist_ctc04_thread() {
+    let Some(corpus) = common::corpus_dir() else {
+        return;
+    };
+    // The corpus STEP has bare geometry. Add the semantic M16 thread and a position on
+    // one of its tapped bores, deliberately making them use the same STEP carrier.
+    let loaded = load(&corpus.join("nist/nist_ctc_04_asme1_rd.stp"), None).unwrap();
+    let mut intent = Intent::new(serde_json::to_value(&loaded.binding).unwrap());
+    intent.requirements = vec![
+        object(with(
+            base("thread", &[11]),
+            json!({
+                "side":"internal", "designation":"M16", "pitch":2.0, "spec":"M16x2",
+                "class":"6H", "hand":"RH", "drill_diameter":14.0, "through":true,
+            }),
+        )),
+        object(with(
+            base("position", &[11]),
+            json!({"tolerance":0.25, "diametral":true}),
+        )),
+    ];
+    let dir = temp("nist-tapped-hole");
+    let path = dir.join("ctc04.step");
+    write(&loaded, &intent, &path, None).unwrap();
+    let loaded = load(&path, None).unwrap();
+    let before = specify_core::api::analyse(&loaded).unwrap();
+    let thread = find(&before, "note", "internal thread", json!([11]));
+    assert_eq!(thread["text"], "M16×2-6H THRU");
+    let position = find(&before, "geometric_tolerance", "Position", json!([11]));
+    let number = format!("#{}", position["number"].as_u64().unwrap());
+    let (after, report) = edit_and_read(&loaded, json!({"items":{"remove":[number]}}));
+    assert_eq!(
+        existing_except(&after, &Value::Null),
+        existing_except(&before, &position["text"])
+    );
+    assert_eq!(after["part"], before["part"]);
+    assert_eq!(report["written"], json!([format!("removed {number}")]));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 /// The datums and every part setting the writer writes: the stated rows read their values.
 /// The general tolerance's class is here; its block form (a table of ranges) is on another
 /// branch: HOOK, add its case to `settings` when it lands.
