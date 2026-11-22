@@ -308,6 +308,9 @@ impl Question {
             "hole.frame" => named("datum frame"),
             "hole.full_thread" => named("full thread depth"),
             "diameter.runout" => named("runout"),
+            "length" | "location" if general_rows::is_id(&self.id) => {
+                self.prompt.trim_end_matches('?').to_string()
+            }
             _ => {
                 if let Some(rest) = kind.strip_prefix("datum.") {
                     let (letter, control) = rest.split_once('.').unwrap_or((rest, ""));
@@ -363,7 +366,7 @@ impl Question {
             ("default", self.default.clone().unwrap_or(Value::Null)),
             ("why", Value::from(self.why.as_str())),
         ]);
-        if self.id.starts_with("bom.") || general_rows::is_id(&self.id) {
+        if self.id.starts_with("bom.") {
             out.insert("optional".into(), Value::Bool(true));
         }
         if !self.options.is_empty() {
@@ -412,6 +415,8 @@ pub struct Intent {
     pub datums: Vec<Map<String, Value>>,
     pub requirements: Vec<Map<String, Value>>,
     pub general: Vec<Map<String, Value>>,
+    /// Explicit accept-all provenance accompanying a legacy general-dimension block.
+    pub accept_defaults: bool,
 }
 
 impl Intent {
@@ -425,6 +430,7 @@ impl Intent {
             datums: Vec::new(),
             requirements: Vec::new(),
             general: Vec::new(),
+            accept_defaults: false,
         }
     }
 
@@ -432,7 +438,7 @@ impl Intent {
         let maps = |items: &[Map<String, Value>]| {
             Value::Array(items.iter().cloned().map(Value::Object).collect())
         };
-        Value::Object(object([
+        let mut data = object([
             ("schema", Value::from(self.schema)),
             ("rules_version", Value::from(self.rules_version)),
             ("binding", self.binding.clone()),
@@ -440,7 +446,11 @@ impl Intent {
             ("datums", maps(&self.datums)),
             ("requirements", maps(&self.requirements)),
             ("general", maps(&self.general)),
-        ]))
+        ]);
+        if self.accept_defaults {
+            data.insert("accept_defaults".into(), Value::Bool(true));
+        }
+        Value::Object(data)
     }
 
     /// An intent from its JSON, refusing any schema but 1 with Python's message. Absent parts
@@ -494,6 +504,7 @@ impl Intent {
             datums: list("datums")?,
             requirements: list("requirements")?,
             general: list("general")?,
+            accept_defaults: data.get("accept_defaults") == Some(&Value::Bool(true)),
         })
     }
 }
@@ -1149,7 +1160,6 @@ pub fn open_questions<'q>(qs: &'q [Question], answers: &Map<String, Value>) -> V
             !q.id.starts_with("hole.full_thread:")
                 && !q.id.starts_with("bom.")
                 && q.id != crate::process::QUESTION
-                && !general_rows::is_id(&q.id)
                 && !answers.contains_key(&q.id)
                 // ADR P11: a gap whose suggestion writes nothing ("none") is not open: leaving
                 // it and accepting "none" give the same file.
@@ -1274,6 +1284,10 @@ pub fn apply_with_defaults(
     if accept_defaults {
         let merged = with_all_defaults(analysis, answers)?;
         let mut intent = apply(analysis, &merged)?;
+        // A legacy analysis can still supply a general-dimension block at apply time.
+        // Preserve the caller's explicit approval across its write-time planner upgrade.
+        intent.accept_defaults =
+            analysis.get("dimensioning").is_none() && !intent.general.is_empty();
         // An accepted suggestion is written marked as one, as the BOM's are.
         if !answers.contains_key(crate::process::QUESTION)
             && intent.part.contains_key(crate::process::INTENT_KEY)
@@ -1319,7 +1333,7 @@ pub fn preview(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent>
 }
 
 /// Gate dimensions with a question by its approval. Free-standing dimensions each have
-/// their own optional question, and need a separate approval even after all required answers.
+/// their own question and need a separate answer or approval.
 fn intent(
     ctx: &Ctx<'_>,
     answers: &Map<String, Value>,

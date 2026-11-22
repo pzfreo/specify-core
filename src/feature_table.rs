@@ -129,6 +129,63 @@ impl FeatureTable {
     pub fn row(&self, id: &str) -> Option<&Row> {
         self.rows.iter().find(|r| r.id == id)
     }
+
+    /// Set the open flags from the same interview used by CLI and sessions.
+    /// With the table available, the planner can see partially stated locations,
+    /// so it may offer a different set of remaining measurements.
+    pub(crate) fn align_questions(
+        &mut self,
+        questions: &[crate::rules::Question],
+        answers: &Map<String, Value>,
+    ) {
+        use crate::rules::general_rows::is_id;
+
+        let open: BTreeSet<_> = crate::rules::open_questions(questions, answers)
+            .into_iter()
+            .map(|q| q.id.as_str())
+            .collect();
+        let measurements: BTreeMap<_, _> = questions
+            .iter()
+            .filter(|q| is_id(&q.id))
+            .map(|q| (q.id.as_str(), q))
+            .collect();
+        self.rows.retain_mut(|row| {
+            row.open = open.contains(row.id.as_str());
+            if is_id(&row.id) && row.state == State::Gap {
+                let Some(q) = measurements.get(row.id.as_str()) else {
+                    return false;
+                };
+                row.suggestion = q.default.clone();
+            }
+            true
+        });
+        let represented: BTreeSet<_> = self.rows.iter().map(|r| r.id.as_str()).collect();
+        let missing = questions
+            .iter()
+            .filter(|q| is_id(&q.id) && !represented.contains(q.id.as_str()))
+            .map(|q| {
+                let (kind, feature) = kind_and_feature(&q.id);
+                Row {
+                    id: q.id.clone(),
+                    kind,
+                    feature,
+                    faces: q
+                        .faces
+                        .iter()
+                        .filter_map(|&f| usize::try_from(f).ok())
+                        .collect(),
+                    state: State::Gap,
+                    value: None,
+                    requirements: Vec::new(),
+                    suggestion: q.default.clone(),
+                    missing: Vec::new(),
+                    located: Vec::new(),
+                    open: open.contains(q.id.as_str()),
+                }
+            })
+            .collect::<Vec<_>>();
+        self.rows.extend(missing);
+    }
 }
 
 /// Whether an answer or suggestion means "nothing is needed": absent, empty, or a choice
@@ -836,6 +893,35 @@ fn stated_setting<'a>(settings: &'a Map<String, Value>, id: &str) -> Option<&'a 
     settings.get(setting(id)?).filter(|v| !blank(v))
 }
 
+/// The question's bore filter can miss rounded feature diameters. The recognised
+/// members still identify the support, including for each of several merged targets.
+fn feature_support(
+    ctx: &crate::rules::Ctx<'_>,
+    feature: &str,
+) -> Result<Vec<i64>, crate::rules::Error> {
+    let Ok(target) = ctx.feature(feature) else {
+        return Ok(Vec::new());
+    };
+    let mut faces = Vec::new();
+    for member in std::iter::once(target)
+        .filter(|_| target.members.is_empty())
+        .chain(target.members.iter().filter_map(|id| ctx.feature(id).ok()))
+    {
+        let support = member.faces()?;
+        let start = faces.len();
+        faces.extend(
+            support
+                .iter()
+                .copied()
+                .filter(|&f| ctx.faces.at(f).is_ok_and(|face| face.is_cylinder())),
+        );
+        if faces.len() == start {
+            faces.extend_from_slice(support);
+        }
+    }
+    Ok(faces)
+}
+
 /// The feature table of `analysis` (its `existing` the file's whole PMI, whoever wrote it),
 /// with `settings` the part's settings as the file states them (the material and general
 /// tolerance too, for a part of an assembly), and `answers` the answers stored in the file
@@ -892,11 +978,34 @@ pub fn build(
             continue;
         }
         let (kind, feature) = kind_and_feature(&q.id);
-        let faces: BTreeSet<usize> = q
+        let mut faces: BTreeSet<usize> = q
             .faces
             .iter()
+            .chain(q.parts.iter().flat_map(|(_, faces)| faces))
             .filter_map(|&f| usize::try_from(f).ok())
             .collect();
+        if feature == "part" {
+            faces.extend(
+                geometry
+                    .iter()
+                    .filter_map(|f| f["id"].as_u64())
+                    .map(|f| f as usize),
+            );
+        } else {
+            let missing = q
+                .parts
+                .iter()
+                .filter(|(_, faces)| faces.is_empty())
+                .map(|(id, _)| id.as_str())
+                .chain((q.parts.is_empty() && q.faces.is_empty()).then_some(feature.as_str()));
+            for id in missing {
+                faces.extend(
+                    feature_support(&bare_ctx, id)?
+                        .into_iter()
+                        .filter_map(|f| usize::try_from(f).ok()),
+                );
+            }
+        }
         let mut requirements = Vec::new();
         let mut value = None;
         let mut missing = Vec::new();
@@ -978,8 +1087,14 @@ pub fn build(
                 ));
             }
         }
-        let never_open = NEVER_OPEN.contains(&kind.as_str()) || dimensions.contains_key(&q.id);
+        let never_open = NEVER_OPEN.contains(&kind.as_str());
         let row = if value.is_some() {
+            if kind == feature && kind.starts_with("datum.") {
+                faces = requirements
+                    .iter()
+                    .flat_map(|r| r.faces.iter().copied())
+                    .collect();
+            }
             Row {
                 id: q.id.clone(),
                 kind,

@@ -47,7 +47,7 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
             // The frozen fixtures are saved plain answer files, with no face evidence.
             // Import them through the public ID matcher before the strict current-ID
             // question/apply APIs. Keep their old keys to exercise floor-ID migration.
-            let answers = if all_answered {
+            let mut answers = if all_answered {
                 let imported = specify_core::resume::rematch_answers(
                     &part,
                     &specify_core::features::recognise(&part).unwrap(),
@@ -68,6 +68,18 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
                 answers
             };
             if all_answered {
+                // The legacy fixture predates separately approved measurements. Take
+                // exactly the new gaps so this case still exercises a complete CLI write
+                // without opt-in to general defaults or BOM.
+                let questions = api::questions(&analysis, &answers).unwrap();
+                for q in rules::open_questions(&questions, &answers) {
+                    assert!(
+                        q.id.starts_with("length:planes:") || q.id.starts_with("location:holes:"),
+                        "{}",
+                        q.id
+                    );
+                    answers.insert(q.id.clone(), q.default.clone().unwrap());
+                }
                 assert!(
                     rules::open_questions(&api::questions(&analysis, &answers).unwrap(), &answers)
                         .is_empty()
