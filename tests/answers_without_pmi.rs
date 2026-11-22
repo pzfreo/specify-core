@@ -698,6 +698,9 @@ fn flatness_on_the_files_moved_datum_survives_two_saves() {
     assert_eq!(stored["datum.A"], json!([2]));
     assert_eq!(stored["datum.A.flatness"], "none");
     let mut answers = stored.clone();
+    // general dimensions are rows (Paul, 2026-11-21). Accept their suggestions with
+    // datum A in its final position, as the measured spans can change when it moves.
+    answers.retain(|id, _| !id.starts_with("length:planes:") && !id.starts_with("location:holes:"));
     answers.insert("datum.A".into(), json!([4]));
     answers.insert("datum.A.flatness".into(), json!("0.05"));
     let mut part = load(written(&answers, &stored));

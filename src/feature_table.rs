@@ -732,14 +732,6 @@ fn general_matches(
         .get("question")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    if id.starts_with("size:") {
-        return existing
-            .iter()
-            .enumerate()
-            .filter(|(_, item)| states("size", &faces, item))
-            .map(|(i, _)| i)
-            .collect();
-    }
     let from = row("reference");
     if id.starts_with("location:holes:") {
         let axis = located.measuring_axis(&from, &to, req.get("distance").and_then(Value::as_f64));
@@ -857,11 +849,10 @@ pub fn build(
     if let Some(tolerance) = settings.get("general_tolerance").filter(|v| !blank(v)) {
         given.insert("part.general_tolerance".into(), tolerance.clone());
     }
-    let all = crate::rules::with_all_defaults(&bare, &given).unwrap_or_else(|_| given.clone());
-    let mut questions = crate::rules::ordinary_questions_in(&crate::rules::Ctx::new(&bare)?, &all)
-        .or_else(|_| {
-            crate::rules::ordinary_questions_in(&crate::rules::Ctx::new(&bare)?, &given)
-        })?;
+    let bare_ctx = crate::rules::Ctx::new(&bare)?;
+    let (all, mut questions) = crate::rules::settled(&bare_ctx, &given).or_else(|_| {
+        crate::rules::ordinary_questions_in(&bare_ctx, &given).map(|qs| (given.clone(), qs))
+    })?;
 
     let geometry: Vec<Value> = analysis["faces"].as_array().cloned().unwrap_or_default();
     let located = Located::new(&existing, &geometry);
@@ -869,7 +860,11 @@ pub fn build(
     // supplies the measurements that disappeared from planning because the file states them.
     let mut dimensions = BTreeMap::new();
     let current = crate::rules::dimension_suggestions(&crate::rules::Ctx::new(analysis)?, answers);
-    let bare = crate::rules::dimension_suggestions(&crate::rules::Ctx::new(&bare)?, &all);
+    let bare = if existing.is_empty() {
+        Vec::new()
+    } else {
+        crate::rules::dimension_suggestions(&bare_ctx, &all)
+    };
     for s in current.into_iter().chain(
         bare.into_iter()
             .filter(|s| !general_matches(&s.dimension, &existing, &located).is_empty()),
@@ -1084,7 +1079,10 @@ fn set_aside(analysis: &Value, answers: &Map<String, Value>) -> (Value, Map<Stri
                 // faces fall back to the suggestion's.
                 let mut trial = given.clone();
                 trial.insert(id, Value::from(faces));
-                if crate::rules::questions(&bare, &trial).is_ok() {
+                if crate::rules::Ctx::new(&bare)
+                    .and_then(|ctx| crate::rules::ordinary_questions_in(&ctx, &trial))
+                    .is_ok()
+                {
                     given = trial;
                 }
             }

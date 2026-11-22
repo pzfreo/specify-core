@@ -339,6 +339,42 @@ fn grm05_reopening_a_file_with_one_length_shows_it_as_stated() {
     }
     let stated = grm05_row(&reopened, approved);
     assert_eq!(stated["requirements"][0]["faces"], json!([2, 3]));
+
+    // The next approval uses the same path the panel uses when it keeps one suggestion.
+    let next = part.dir.join("out.step");
+    let loaded = specify_core::part::load(&next, None).unwrap();
+    let (second, face, nominal, text) = GRM05_LENGTHS[1];
+    let answers = api::with_stored(&reopened, &Map::new());
+    let answers =
+        api::with_approved(&reopened, &answers, 0, &object(&json!({second: text}))).unwrap();
+    let (intent, _) = specify_core::session::intent_for(&loaded, &reopened, &answers).unwrap();
+    let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
+    let updated =
+        api::analyse(&specify_core::part::load_bytes("updated.step", bytes).unwrap()).unwrap();
+    assert!(grm05_written(&updated, face, nominal), "{second}");
+    assert!(
+        grm05_written(&updated, GRM05_LENGTHS[0].1, GRM05_LENGTHS[0].2),
+        "{approved}"
+    );
+    assert!(!grm05_written(
+        &updated,
+        GRM05_LENGTHS[2].1,
+        GRM05_LENGTHS[2].2
+    ));
+
+    // An isolated approval carries its displayed deviation even if the note is still a gap.
+    let original = specify_core::part::load(&part.input, None).unwrap();
+    let only = object(&json!({second: text}));
+    let (intent, _) = specify_core::session::intent_for(&original, &part.analysis, &only).unwrap();
+    let (bytes, _) = specify_core::writer::write_bytes(&original, &intent, Some(&only)).unwrap();
+    let isolated =
+        api::analyse(&specify_core::part::load_bytes("isolated.step", bytes).unwrap()).unwrap();
+    assert!(grm05_written(&isolated, face, nominal), "{second}");
+    assert_eq!(
+        grm05_row(&isolated, second)["requirements"][0]["text"],
+        "5 ±0.1"
+    );
+    assert!(isolated["part"]["general_tolerance"].is_null());
 }
 
 #[test]
@@ -347,17 +383,15 @@ fn spindle_write_accepts_every_listed_default() {
 }
 
 #[test]
-fn spindle_reports_all_six_deferred_general_dimensions() {
+fn spindle_writes_approved_locations_and_reports_deferred_sizes() {
     let input = common::fixtures().join("spindle.step");
     let (output, intent, report) = write_listed_defaults(&input, "spindle-general");
+    // general dimensions are rows (Paul, 2026-11-21). The stated ⌀24 has no gap;
+    // four standalone locations were offered, approved and written.
     assert_eq!(intent["general"].as_array().unwrap().len(), 6);
     for label in [
-        "general size 24 on turned_steps:9 faces [9]",
         "general size 15 on turned_steps:6 faces [6]",
         "general size 10 on turned_steps:2 faces [2]",
-        "general location 12 to faces [8] from faces [10]",
-        "general location 34 to faces [4] from faces [10]",
-        "general location 52 to faces [0] from faces [10]",
     ] {
         assert!(
             report["not_written"]
@@ -372,6 +406,37 @@ fn spindle_reports_all_six_deferred_general_dimensions() {
             report["not_written"]
         );
     }
+    let reopened = api::analyse_file(&output, None).unwrap();
+    for (id, face, value) in [
+        ("length:planes:8-10", 8, 12.0),
+        ("length:planes:4-10", 4, 34.0),
+        ("length:planes:0-10", 0, 52.0),
+        ("location:holes:10-7", 7, 23.0),
+    ] {
+        assert!(
+            intent["general"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["question"] == id)
+        );
+        assert!(
+            reopened["existing"].as_array().unwrap().iter().any(|item| {
+                item["type"] == "Location_LinearDistance"
+                    && item["faces"] == json!([10])
+                    && item["faces2"] == json!([face])
+                    && item["value"].as_f64() == Some(value)
+            }),
+            "{id}"
+        );
+    }
+    assert!(
+        !intent["general"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["nominal"] == 24.0)
+    );
     // The imported position tolerance is untouched, down to the original entity bytes.
     let before = std::fs::read_to_string(input).unwrap();
     let after = std::fs::read_to_string(output).unwrap();
@@ -1947,7 +2012,8 @@ fn without_reviewed_rule_departures(differences: Vec<Difference>) -> Vec<Differe
 }
 
 /// Keep CLI/serve envelopes of measurement origins, ordered notes, planner reports (including
-/// general-dimension omissions under P11), combined classes and limit answers under the
+/// general-dimension omissions under P11), combined classes, and standalone dimension rows
+/// (general dimensions are rows (Paul, 2026-11-21)). Keep these under the
 /// library rules' exact before/after guard.
 /// The snapshot retains its original datum-origin filename. Older reviewed CLI differences
 /// retain their existing verdicts; composition never enters this snapshot.

@@ -53,13 +53,11 @@ impl<'a> Owners<'a> {
 }
 
 pub(crate) fn is_id(id: &str) -> bool {
-    ["length:planes:", "location:holes:", "size:faces:"]
-        .iter()
-        .any(|prefix| {
-            id.strip_prefix(prefix).is_some_and(|faces| {
-                !faces.is_empty() && faces.split(['.', '-']).all(|n| n.parse::<usize>().is_ok())
-            })
+    ["length:planes:", "location:holes:"].iter().any(|prefix| {
+        id.strip_prefix(prefix).is_some_and(|faces| {
+            !faces.is_empty() && faces.split(['.', '-']).all(|n| n.parse::<usize>().is_ok())
         })
+    })
 }
 
 pub(crate) struct Suggestion {
@@ -75,67 +73,80 @@ fn support(faces: &BTreeSet<i64>) -> String {
         .join(".")
 }
 
-pub(super) fn suggestion(row: &Dimension, datums: &[Dimension]) -> Option<Suggestion> {
-    let to: BTreeSet<_> = face_ids(row, "faces").collect();
-    if to.is_empty() {
+pub(super) fn measurement_id(row: &Dimension) -> Option<String> {
+    identity(
+        row,
+        &face_ids(row, "reference").collect(),
+        &face_ids(row, "faces").collect(),
+    )
+}
+
+fn identity(row: &Dimension, from: &BTreeSet<i64>, to: &BTreeSet<i64>) -> Option<String> {
+    if kind(row) != "location" || from.is_empty() || to.is_empty() {
         return None;
     }
-    let (id, label, text) = if kind(row) == "location" {
-        let from: BTreeSet<_> = face_ids(row, "reference").collect();
-        if from.is_empty() {
-            return None;
-        }
-        let hole = row
-            .get("feature")
-            .and_then(Value::as_str)
-            .is_some_and(|f| f.starts_with("holes:"));
-        let (kind, label) = if hole {
-            ("location:holes", "Hole location")
-        } else {
-            ("length:planes", "Length")
-        };
-        let (a, b) = if !hole && to < from {
-            (&to, &from)
-        } else {
-            (&from, &to)
-        };
-        let mut id = format!("{kind}:{}-{}", support(a), support(b));
-        // Two planner offsets can use the same pair of hole axes.
-        if hole
-            && let Some(axis) = row
-                .get("planner")
-                .and_then(|p| p["required"]["kind"]["location"]["axis"].as_u64())
-        {
-            id.push_str(&format!("-{axis}"));
-        }
-        let datum = datums.iter().find_map(|datum| {
-            let faces: BTreeSet<_> = face_ids(datum, "faces").collect();
-            (faces == from)
-                .then(|| datum.get("letter")?.as_str())
-                .flatten()
+    let hole = row
+        .get("feature")
+        .and_then(Value::as_str)
+        .is_some_and(|f| f.starts_with("holes:") || f.starts_with("hole_patterns"))
+        || row.get("planner").is_some_and(|p| {
+            let support = &p["required"]["kind"]["location"]["to"];
+            support["plane"] == false
+                && support["feature"]
+                    .as_str()
+                    .is_some_and(|s| s.starts_with("hole:") || s.starts_with("pattern["))
         });
-        let reference = datum.map(str::to_owned).unwrap_or_else(|| {
-            let noun = if from.len() == 1 { "face" } else { "faces" };
-            format!(
-                "{noun} {}",
-                from.iter()
-                    .map(i64::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        });
-        (
-            id,
-            label,
-            format!("{} from {reference}", notation(row, "distance")?),
-        )
+    let kind = if hole {
+        "location:holes"
     } else {
-        (
-            format!("size:faces:{}", support(&to)),
-            "Size",
-            format!("⌀{}", notation(row, "nominal")?),
-        )
+        "length:planes"
     };
+    let (a, b) = if !hole && to < from {
+        (to, from)
+    } else {
+        (from, to)
+    };
+    let mut id = format!("{kind}:{}-{}", support(a), support(b));
+    // Distinct offsets can share the same pair of hole axes, but a plane fixes the axis.
+    if hole
+        && let Some(axis) = row.get("planner").and_then(|p| {
+            let location = &p["required"]["kind"]["location"];
+            (location["from"]["plane"] == false)
+                .then(|| location["axis"].as_u64())
+                .flatten()
+        })
+    {
+        id.push_str(&format!("-{axis}"));
+    }
+    Some(id)
+}
+
+fn suggestion(row: &Dimension, datums: &[Dimension]) -> Option<Suggestion> {
+    let to: BTreeSet<_> = face_ids(row, "faces").collect();
+    let from: BTreeSet<_> = face_ids(row, "reference").collect();
+    let id = identity(row, &from, &to)?;
+    let label = if id.starts_with("location:holes:") {
+        "Hole location"
+    } else {
+        "Length"
+    };
+    let datum = datums.iter().find_map(|datum| {
+        let faces: BTreeSet<_> = face_ids(datum, "faces").collect();
+        (faces == from)
+            .then(|| datum.get("letter")?.as_str())
+            .flatten()
+    });
+    let reference = datum.map(str::to_owned).unwrap_or_else(|| {
+        let noun = if from.len() == 1 { "face" } else { "faces" };
+        format!(
+            "{noun} {}",
+            from.iter()
+                .map(i64::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    });
+    let text = format!("{} from {reference}", notation(row, "distance")?);
     let mut question = Question::new(
         id,
         "choice",
@@ -155,6 +166,17 @@ pub(super) fn suggestion(row: &Dimension, datums: &[Dimension]) -> Option<Sugges
     })
 }
 
+/// If the note itself was left as a gap, preserve the approved deviation on the dimension.
+pub(super) fn explicit_limits(row: &mut Dimension) {
+    if row.get("upper").is_none() {
+        return;
+    }
+    row.shift_remove("general");
+    if let Some(planner) = row.get_mut("planner") {
+        planner["required"]["tolerance"] = serde_json::json!({"explicit": "approved limits"});
+    }
+}
+
 fn notation(row: &Dimension, key: &str) -> Option<String> {
     let nominal = row.get(key)?.as_f64()?;
     let mut text = crate::pyfmt::g(nominal);
@@ -168,12 +190,6 @@ pub(super) fn suggestions(intent: &Intent, owners: &Owners<'_>) -> Vec<Suggestio
     intent
         .general
         .iter()
-        .chain(
-            intent
-                .requirements
-                .iter()
-                .filter(|r| r.get("general") == Some(&Value::Bool(true))),
-        )
         .filter(|r| owners.of(r).next().is_none())
         .filter_map(|r| suggestion(r, &intent.datums))
         .collect()

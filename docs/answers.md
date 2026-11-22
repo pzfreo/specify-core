@@ -224,13 +224,13 @@ A general dimension with no owning question is an optional row in its own right.
 example, the GRM-05 depth-lock bolt offers `14 ±0.2 from B` as `length:planes:2-3`.
 Approve the displayed value by its ID, approve the suggestions together, or use
 `write --accept-defaults`. Answering `none` records `decided_none` in the file. A file
-that already states the measurement shows a `stated` row.
+that already states the measurement shows a `stated` row. If the general-tolerance note
+is still a gap, approving the dimension writes its displayed tolerance on the dimension.
 
 Plane lengths use `length:planes:<side>-<side>` with their two face groups in canonical
 order. Unowned hole locations use `location:holes:<reference>-<located>`, with a planner
-axis suffix when it supplies one. An unowned size uses `size:faces:<side>`. Each face
-group lists its sorted face numbers separated by dots. These IDs identify measurements
-within one geometry revision.
+axis suffix for offsets between hole axes. Each face group lists its sorted face numbers
+separated by dots. These IDs identify measurements within one geometry revision.
 
 The write report names any general dimension from the intent that the writer omits, with
 its nominal, faces and reason in `not_written`.

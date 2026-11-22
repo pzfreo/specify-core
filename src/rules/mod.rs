@@ -570,10 +570,18 @@ pub(crate) fn dimension_suggestions(
     let Ok((defaults, qs)) = settled(ctx, answers) else {
         return Vec::new();
     };
-    let Ok(intent) = raw_intent(ctx, &defaults, &qs, IntentMode::Preview) else {
+    dimensions_with_defaults(ctx, &defaults, &qs)
+}
+
+fn dimensions_with_defaults(
+    ctx: &Ctx<'_>,
+    defaults: &Map<String, Value>,
+    qs: &[Question],
+) -> Vec<general_rows::Suggestion> {
+    let Ok(intent) = raw_intent(ctx, defaults, qs, IntentMode::Suggestions) else {
         return Vec::new();
     };
-    let mut suggestions = general_rows::suggestions(&intent, &general_rows::Owners::new(&qs));
+    let mut suggestions = general_rows::suggestions(&intent, &general_rows::Owners::new(qs));
     let stated = ctx.table_stated();
     suggestions.retain(|s| !stated.contains(s.question.id.as_str()));
     suggestions
@@ -1193,7 +1201,7 @@ pub fn with_all_defaults(
     let ctx = Ctx::new(analysis)?;
     let (merged, mut qs) = settled(&ctx, answers)?;
     qs.extend(
-        dimension_suggestions(&ctx, &merged)
+        dimensions_with_defaults(&ctx, &merged, &qs)
             .into_iter()
             .map(|s| s.question),
     );
@@ -1209,7 +1217,7 @@ fn asks(qs: &[Question], id: &str) -> bool {
 
 /// `with_all_defaults`, with the questions of the answers it settles on (which `preview` and
 /// `problems` would otherwise ask for again: the same call, the same result).
-fn settled(
+pub(crate) fn settled(
     ctx: &Ctx<'_>,
     answers: &Map<String, Value>,
 ) -> Result<(Map<String, Value>, Vec<Question>)> {
@@ -1330,8 +1338,12 @@ fn intent(
     };
 
     let mut accepted = BTreeMap::new();
+    let has_general_tolerance = intent.part.contains_key("general_tolerance")
+        || ctx
+            .stated
+            .is_some_and(|part| py::truthy_opt(part.get("general_tolerance")));
     if answers.keys().any(|id| general_rows::is_id(id)) {
-        for s in dimension_suggestions(ctx, answers) {
+        for mut s in dimension_suggestions(ctx, answers) {
             if let Some(value) = answers.get(&s.question.id) {
                 if crate::feature_table::is_none_value(value) {
                     continue;
@@ -1341,6 +1353,9 @@ fn intent(
                         "{}: choose {} or none",
                         s.question.id, s.question.options[0]
                     ));
+                }
+                if !has_general_tolerance {
+                    general_rows::explicit_limits(&mut s.dimension);
                 }
                 accepted.insert(s.question.id, s.dimension);
             }
@@ -1352,8 +1367,9 @@ fn intent(
         if approved(row) {
             return true;
         }
-        if let Some(s) = general_rows::suggestion(row, &intent.datums)
-            && let Some(accepted) = accepted.remove(&s.question.id)
+        if !accepted.is_empty()
+            && let Some(id) = general_rows::measurement_id(row)
+            && let Some(accepted) = accepted.remove(&id)
         {
             *row = accepted;
             return true;
@@ -1398,6 +1414,7 @@ fn mark_defaults(intent: &mut Intent, answers: &Map<String, Value>) {
 enum IntentMode {
     Preview,
     Apply,
+    Suggestions,
 }
 
 /// `_intent`: intent from the answered questions among `qs`; each item names its question.
@@ -1624,7 +1641,7 @@ fn raw_intent(
             };
             let (Some(letter), Some(control)) = (letter, control) else {
                 // The question can propose a control before its datum frame is accepted.
-                if mode == IntentMode::Preview {
+                if mode != IntentMode::Apply {
                     continue;
                 }
                 return invalid("there is no datum control to give");
@@ -1676,7 +1693,20 @@ fn raw_intent(
                     .map_err(|e| Error::Invalid(format!("stored dimensions: {e}")))?,
             );
         }
+        // During suggestion planning the note already in the file also governs dimensions
+        // still missing. It supplies the tolerance without becoming a new setting to write.
+        let seed_tolerance = tolerance.filter(|_| {
+            mode == IntentMode::Suggestions && !intent.part.contains_key("general_tolerance")
+        });
+        if let Some(tolerance) = seed_tolerance {
+            intent
+                .part
+                .insert("general_tolerance".into(), tolerance.clone());
+        }
         crate::dimensioning::apply(input, &mut intent).map_err(Error::Invalid)?;
+        if seed_tolerance.is_some() {
+            intent.part.shift_remove("general_tolerance");
+        }
         // The file's own dimensions were planner authorities, not requirements: the file's
         // PMI stays the characteristic, so they leave the intent once planning is done.
         intent
@@ -1751,7 +1781,11 @@ pub fn unasked_answers(
     answers: &Map<String, Value>,
 ) -> Result<Vec<(String, String)>> {
     let ctx = Ctx::new(analysis)?;
-    let qs = questions_in(&ctx, answers)?;
+    let qs = if answers.keys().any(|id| general_rows::is_id(id)) {
+        questions_in(&ctx, answers)?
+    } else {
+        ordinary_questions_in(&ctx, answers)?
+    };
     Ok(unasked_entries(&ctx, answers, &qs)?
         .into_iter()
         .filter(|e| !e.block)

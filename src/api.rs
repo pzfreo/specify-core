@@ -497,7 +497,10 @@ fn analyse_with(
         .and_then(|r| r["answers"].as_object())
         .cloned()
         .unwrap_or_default();
-    if let Ok(questions) = rules::questions(&Value::Object(analysis.clone()), &answers) {
+    let analysis_for_questions = Value::Object(analysis.clone());
+    if let Ok(questions) = rules::Ctx::new(&analysis_for_questions)
+        .and_then(|ctx| rules::ordinary_questions_in(&ctx, &answers))
+    {
         let open: std::collections::BTreeSet<&str> = rules::open_questions(&questions, &answers)
             .iter()
             .map(|q| q.id.as_str())

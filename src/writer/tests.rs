@@ -1092,6 +1092,7 @@ fn an_approval_whose_own_kind_was_not_written_is_reported_beside_another_kind() 
         std::slice::from_ref(&runout),
         &planned(&runout),
         &BTreeSet::new(),
+        &[],
     );
     assert!(
         nothing.contains("diameter.fit:turned_steps:0"),
@@ -1108,7 +1109,8 @@ fn an_approval_whose_own_kind_was_not_written_is_reported_beside_another_kind() 
             &answers,
             std::slice::from_ref(&size),
             &planned(&size),
-            &BTreeSet::new()
+            &BTreeSet::new(),
+            &[],
         )
         .is_empty()
     );

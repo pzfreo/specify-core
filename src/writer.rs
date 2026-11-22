@@ -668,6 +668,7 @@ fn wrote_nothing(
     made: &[Map<String, Json>],
     planned: &PartPmi,
     unasked: &BTreeSet<&str>,
+    general: &[Map<String, Json>],
 ) -> BTreeSet<String> {
     let candidates: Vec<&String> = answers
         .iter()
@@ -705,6 +706,12 @@ fn wrote_nothing(
     candidates
         .into_iter()
         .filter(|id| {
+            if let Some(row) = general
+                .iter()
+                .find(|r| r.get("question").and_then(Json::as_str) == Some(id.as_str()))
+            {
+                return !crate::feature_table::requirement_stated(row, &stated, &geometry);
+            }
             let (_, feature) = crate::feature_table::kind_and_feature(id);
             let Some(f) = features.iter().find(|f| f.id == feature) else {
                 return true;
@@ -1252,7 +1259,7 @@ fn write_verified(
                 // ADR P11 rule 2: an approval the plan made no PMI from (a general size on a
                 // datum's own faces) is stored, listed as such, so it stays decided; else it
                 // would be dropped silently and its gap reopen.
-                let nothing = wrote_nothing(loaded, &saved, &made, &pmi, &unasked);
+                let nothing = wrote_nothing(loaded, &saved, &made, &pmi, &unasked, &intent.general);
                 for id in &nothing {
                     lines.not_written.push(format!(
                         "answer {id} ({}): approved, but nothing of its kind was written on its \
@@ -3055,6 +3062,18 @@ fn part_pmi_observed(
         match crate::dimensioning::input(&loaded.part) {
             Ok(input) => {
                 crate::dimensioning::upgrade(input, &mut upgraded).map_err(WriteError::Failed)?;
+                for row in &mut upgraded.general {
+                    if !row.contains_key("question")
+                        && let Some(question) = original_general.iter().find_map(|original| {
+                            let question = original.get("question")?.as_str()?;
+                            (crate::rules::general_rows::is_id(question)
+                                && same_general_measurement(original, row))
+                            .then_some(question)
+                        })
+                    {
+                        row.insert("question".into(), Json::from(question));
+                    }
+                }
                 for row in &intent.general {
                     if !upgraded
                         .general
