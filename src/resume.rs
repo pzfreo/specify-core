@@ -221,6 +221,21 @@ pub fn is_answers(set: &AttributeSet) -> bool {
         && matches!(set.items.as_slice(), [(name, AttributeValue::Text(_))] if name == NAME)
 }
 
+/// Whether an answer attribute is unreadable or its legacy face evidence rejects the part.
+/// The writer can preserve such an unmarked attribute as input data without resuming it.
+pub(crate) fn unrecognised_attribute(
+    loaded: &LoadedPart,
+    set: &AttributeSet,
+) -> Result<bool, FeatureError> {
+    let [(_, AttributeValue::Text(text))] = set.items.as_slice() else {
+        return Ok(false);
+    };
+    let Some(payload) = decode(text) else {
+        return Ok(true);
+    };
+    Ok(schema_of(&payload) != Some(3) && check(loaded, &payload, true)? == Check::Mismatch)
+}
+
 /// Every part's stored answers in the STEP text `bytes`, by part (Python's `stored`): each
 /// `DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist answers', ...)`, in file order, whose string
 /// is base64 of a JSON object of one of [`SCHEMAS`] with an `answers` object. The first legacy
