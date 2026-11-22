@@ -38,8 +38,8 @@ only read.
 
 The session lives in the process that serves the page (the *session*, below, and
 docs/session.md): the file as last saved, its stored answers and their revision. The page
-collects its edits itself and sends them all at once with Save, as an edit list (ADR P11); the
-agent's answers reach the page as they are made. In what follows, "the
+collects its edits itself and sends them all at once with Save as one edit list per edited part (ADR P11).
+The agent's answers reach the page as they are made. In what follows, "the
 command" is that process: `specify-core open`, or `specify-core mcp` after `show`.
 
 ## Addresses
@@ -142,7 +142,7 @@ page sends no STEP bytes.
 - `rev`: the session revision the page last saw (from `answers` or `events`). If the session
   has moved on since, the save is refused (409, with the current `rev`) so the page never
   saves over changes it has not shown; the page refreshes and the person saves again.
-- `edits` (required, an object; `{}` for none): the edit list, as `specify-core write STEP EDITS.json` takes it:
+- `edits` (an object for a single-part file, `{}` for none): the edit list, as `specify-core write STEP EDITS.json` takes it:
   `fill` gaps, `change` stated feature-and-kinds (with the value the person saw as `expect`),
   `items.remove` requirements by characteristic number, `none` feature-and-kinds decided none,
   `accept_suggestions`, gaps filled with Specify's suggestion, and `clear`. Ids are the feature
@@ -150,12 +150,21 @@ page sends no STEP bytes.
   requirement (`extra.<name>`). `clear` takes back a stored decision that leaves no PMI (a decided none, or a choice such as `part.locating`), so the feature-and-kind is a gap, or the choice unanswered, again; it never touches PMI (that is `change` and `items.remove`). A fill of `extra.<name>` with a requirement's spec (`{kind, faces, value, …}`, as an answer gave it) adds that requirement. Anything the list does not name is left as it is, byte for byte.
   A suggestion is written only when the list names it (ADR P9).
 
-An edit list applies to a file of one part for now: the save of a file of several parts is
-refused (422), nothing written, until edits on a part of an assembly land.
+For an assembly send `partEdits` in place of `edits`. It is a nonempty array with one
+`{part, edits}` object for each edited part. Use the distinct part's zero-based index as listed
+by `parts` or the page's part picker. A definition placed several times is edited once.
+The lists apply in part-index order and each part's characteristic numbers stay local to it.
+The original request form stays supported under session API 2.
 
-**A list is all or nothing** (Paul, 2026-11-20). If any entry cannot be applied, nothing is
-written and the answer names every failing entry and why. A save is also refused while the
-session holds answers changed (by the agent's `answer`) and not saved: they would be lost.
+```json
+{"rev": 7, "partEdits": [{"part": 0, "edits": {"fill": {"part.material": "Steel"}}},
+                        {"part": 2, "edits": {"none": ["part.coating"]}}]}
+```
+
+**Save is all or nothing across the file.** The command stages the lists in memory through
+the assembly writer and commits once. Other parts and placements keep their entity bytes.
+If an entry cannot be applied, the response names the part and entry and the save writes
+nothing. Unsaved answers from the agent's `answer` also refuse a save.
 
 The file is written from the file as the session's last save left it (the input before any), to
 a temporary file next to the input and renamed into place:
@@ -188,15 +197,18 @@ Answers:
 
 - `200 {"path": "<absolute path written>", "bytes": <length written>, "rev": <n>, "report": {…},
   "parts": {"<part>": {…}}, "complete": <bool>, "missing": ["<question id>", …]}`, `report` being `write`'s report for an
-  edit list (with `retired`, the characteristic numbers the save retired, and `unchanged`),
-  `missing` the required questions the saved file still leaves open (a file with gaps is a
-  valid result);
-- `400 {"error": "…"}`: no `rev`, no `edits` object, or a body that is not JSON; `400 {"error":
-  "…", "failures": [{"entry", "reason"}, …]}`: `edits` is not a well-formed edit list;
+  edit list (with `retired`, the characteristic numbers the save retired, and `unchanged`).
+  For `partEdits`, `report` contains `output`, `unchanged` for the whole save, and `parts`,
+  an array of `{part, name, report}` with a writer report for each requested part.
+  `missing` lists required questions the saved file still leaves open (a file with gaps is valid);
+- `400 {"error": "…"}`: missing `rev`, invalid JSON, or invalid request shape, including
+  both edit forms, an empty `partEdits` array or repeated part indices. A malformed edit list
+  also returns `failures` with its entries and reasons;
 - `409 {"error": "…", "rev": <current>}`: the session moved on, or read-only, or (`--in-place`)
   the file was changed on disk by another program since it was opened (nothing written);
 - `422 {"error": "…", "failures": [{"entry", "reason"}, …]}`: entries that cannot be applied,
-  every one named; nothing written. `422 {"error": "…"}`: the session holds unsaved answers;
+  every one named. With `partEdits`, each `entry` starts with the part's name and index
+  (index alone for an unknown part). Nothing written. `422 {"error": "…"}`: the session holds unsaved answers;
   nothing written;
 - `403 {"error": "…"}`: under an agent, the save would write outside the directories the agent's
   server may use (`--allow`); nothing written.

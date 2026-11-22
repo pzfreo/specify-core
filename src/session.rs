@@ -607,6 +607,87 @@ pub fn save_part_edits(
     list: &crate::edits::EditList,
     source: &'static str,
 ) -> Result<Saved, SaveError> {
+    save_with(shared, rev, source, |step, _| {
+        let loaded = step
+            .load(part)
+            .map_err(|e| SaveError::Refused(e.to_string()))?;
+        let applied = crate::writer::apply::apply(&loaded, list).map_err(SaveError::Edits)?;
+        let report = applied.to_dict();
+        Ok((Arc::new(applied.bytes), report, applied.unchanged))
+    })
+}
+
+/// Applies a list per part through the assembly writer, then commits the file once. Each
+/// writer call takes the staged bytes of the preceding successful call, so part-local entity
+/// and number allocations stay consistent. The session and disk are untouched on refusal.
+pub fn save_assembly_edits(
+    shared: &Shared,
+    rev: Option<u64>,
+    lists: &BTreeMap<usize, crate::edits::EditList>,
+    source: &'static str,
+) -> Result<Saved, SaveError> {
+    save_with(shared, rev, source, |mut step, path| {
+        let parts = step.parts();
+        let mut failures = Vec::new();
+        let mut reports = Vec::new();
+        let mut bytes = None;
+        let mut unchanged = true;
+        for (&part, list) in lists {
+            let name = parts.get(part).map(|p| p.name.as_str());
+            let label = name.map_or_else(
+                || format!("Part {part}"),
+                |name| format!("Part {name:?} ({part})"),
+            );
+            let result = step
+                .load(Some(part))
+                .map_err(|e| {
+                    vec![crate::edits::Failure {
+                        entry: "(the whole list)".into(),
+                        reason: e.to_string(),
+                    }]
+                })
+                .and_then(|loaded| crate::writer::apply::apply(&loaded, list));
+            match result {
+                Ok(applied) => {
+                    reports.push(json!({"part": part, "name": name, "report": applied.to_dict()}));
+                    // Each next list must see the bytes already staged, even if a different
+                    // part failed. Keep checking so the response names every refused entry.
+                    unchanged &= applied.unchanged;
+                    let written = Arc::new(applied.bytes);
+                    if !applied.unchanged {
+                        step = Arc::new(
+                            part::File::of_shared(path, Arc::clone(&written))
+                                .map_err(|e| SaveError::Failed(e.to_string()))?,
+                        );
+                    }
+                    bytes = Some(written);
+                }
+                Err(refused) => failures.extend(refused.into_iter().map(|mut failure| {
+                    failure.entry = format!("{label}: {}", failure.entry);
+                    failure
+                })),
+            }
+        }
+        if !failures.is_empty() {
+            return Err(SaveError::Edits(failures));
+        }
+        let bytes = bytes.ok_or_else(|| SaveError::Refused("no part lists to apply".into()))?;
+        Ok((
+            bytes,
+            json!({"parts": reports, "unchanged": unchanged}),
+            unchanged,
+        ))
+    })
+}
+
+/// The single save transaction for either request form, including the revision checks and
+/// publication of the saved file and its new session state.
+fn save_with(
+    shared: &Shared,
+    rev: Option<u64>,
+    source: &'static str,
+    apply: impl FnOnce(Arc<part::File>, &Path) -> Result<(Arc<Vec<u8>>, Value, bool), SaveError>,
+) -> Result<Saved, SaveError> {
     let save_lock = Arc::clone(&lock(shared).save_lock);
     let _one_at_a_time = save_lock.lock().unwrap_or_else(|p| p.into_inner());
     let (seen, step, file, in_place, gz, mut backup, copy) = {
@@ -641,12 +722,9 @@ pub fn save_part_edits(
             s.own_copy().map(Path::to_path_buf),
         )
     };
-    let loaded = step
-        .load(part)
-        .map_err(|e| SaveError::Refused(e.to_string()))?;
-    let applied = crate::writer::apply::apply(&loaded, list).map_err(SaveError::Edits)?;
+    let (text, mut report, unchanged) = apply(step, &file.path)?;
     // The file saved, as the session works on it from now on.
-    let saved_step = part::File::of_shared(&file.path, Arc::new(applied.bytes.clone()))
+    let saved_step = part::File::of_shared(&file.path, Arc::clone(&text))
         .map_err(|e| SaveError::Failed(e.to_string()))?;
     let resumed = Session::of(file.clone(), saved_step, in_place);
     let mut analyses = BTreeMap::new();
@@ -683,9 +761,9 @@ pub fn save_part_edits(
         }
     }
     let cannot = |e: io::Error| SaveError::Failed(format!("cannot save: {e}"));
-    let text = applied.bytes.clone();
     let (path, bytes, stored, sha) = if in_place {
-        let stored = replace_input(shared, &file.path, gz, &mut backup, text).map_err(cannot)?;
+        let stored = replace_input(shared, &file.path, gz, &mut backup, text.as_ref().clone())
+            .map_err(cannot)?;
         let sha = sha256(&stored);
         (file.path.clone(), stored.len(), Some(stored), sha)
     } else {
@@ -698,7 +776,6 @@ pub fn save_part_edits(
         (path.map_err(cannot)?, bytes, None, sha)
     };
     let shown = path.display().to_string();
-    let mut report = applied.to_dict();
     report["output"] = json!(shown);
     let mut s = lock(shared);
     if let Some(stored) = stored {
@@ -718,7 +795,7 @@ pub fn save_part_edits(
     // A save that changed the file is a new rev even when the stored answers are the same (a
     // fill writes PMI, not an answer): a page or agent holding the old rev must read again
     // before it saves. Each part's answers are sent again at it.
-    if !applied.unchanged && s.rev < at {
+    if !unchanged && s.rev < at {
         s.rev = at;
         for k in parts {
             let answers = s.answers.get(&k).cloned().unwrap_or_default();

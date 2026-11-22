@@ -2484,3 +2484,74 @@ fn save_edits_commits_general_measurements_at_the_requested_revision() {
     assert_eq!(state(declined), "decided_none");
     assert_eq!(opened.save(0, json!({})).status, 409);
 }
+
+#[test]
+fn page_saves_part_lists_as_one_assembly_revision() {
+    let scratch = Scratch::new("assembly-edits");
+    let input = scratch.input();
+    let before = include_bytes!("fixtures/parts/assembly.step");
+    std::fs::write(&input, before).unwrap();
+    let opened = Opened::start(&input, &scratch, &["--in-place"]);
+    let page = opened.page();
+    let parts = specify_core::part::parts(&input).unwrap();
+    let rev = page.rev();
+    let plate = json!({"part": 0, "edits": {"fill": {"part.material": "Steel"}}});
+    let pin = json!({"part": 1, "edits": {"fill": {"part.material": "Brass"}}});
+
+    let bad = json!({"part": 1, "edits": {"fill": {"unknown.pin": "Brass"}}});
+    let refused = page.send(
+        "POST",
+        "save",
+        &json!({"rev": rev, "partEdits": [plate, bad]}),
+    );
+    assert_eq!(refused.status, 422, "{}", refused.json());
+    let failure = refused.json()["failures"][0]["entry"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(
+        failure.contains(&parts[1].name) && failure.contains("unknown.pin"),
+        "{failure}"
+    );
+    assert_eq!(page.rev(), rev);
+    assert_eq!(std::fs::read(&input).unwrap(), before);
+    assert_eq!(scratch.work(), ["part.step"], "no backup on refusal");
+
+    for malformed in [
+        json!({"rev": rev, "partEdits": []}),
+        json!({"rev": rev, "edits": {}, "partEdits": [plate]}),
+        json!({"rev": rev, "partEdits": [plate, plate]}),
+        json!({"rev": rev, "partEdits": [{"part": -1, "edits": {}}]}),
+        json!({"rev": rev, "partEdits": [{"part": 1, "edits": {"fill": []}}]}),
+    ] {
+        assert_eq!(page.send("POST", "save", &malformed).status, 400);
+    }
+    let saved = page.send(
+        "POST",
+        "save",
+        &json!({"rev": rev, "partEdits": [plate, pin]}),
+    );
+    assert_eq!(saved.status, 200, "{}", saved.json());
+    let saved = saved.json();
+    assert_eq!(saved["rev"], rev + 1);
+    assert_eq!(saved["report"]["unchanged"], false);
+    assert_eq!(saved["report"]["parts"][1]["name"], parts[1].name);
+    for (part, material) in [(0, "Steel"), (1, "Brass")] {
+        let analysis = specify_core::api::analyse_file(&input, Some(part)).unwrap();
+        let rows = analysis["table"]["rows"].as_array().unwrap();
+        let row = rows
+            .iter()
+            .find(|row| row["id"] == "part.material")
+            .unwrap();
+        assert_eq!(row["value"], material);
+    }
+    assert_eq!(
+        std::fs::read(scratch.path("work/part.step.bak")).unwrap(),
+        before
+    );
+    assert_eq!(
+        page.send("POST", "save", &json!({"rev": rev, "partEdits": [pin]}))
+            .status,
+        409
+    );
+}

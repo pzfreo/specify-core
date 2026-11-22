@@ -25,6 +25,7 @@
 //! `closed` must carry `Origin: http://127.0.0.1:<port>`; a `GET` with any other
 //! `Origin` is refused. A forgotten server stops after [`IDLE`] without a request.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream};
@@ -34,7 +35,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::session;
 
@@ -1033,8 +1034,61 @@ fn header_value(text: &str) -> String {
     out
 }
 
-/// `POST <token>/save`, from the app's own origin: `{rev, edits}`, the edit list applied to
-/// the file all or nothing and written by the command (docs/open.md, `save`).
+/// The two API 2 request forms. The original edit list also accepts a 0.2 answers
+/// map read as fills, as `write` reads one.
+enum PageEdits {
+    Single(crate::edits::EditList),
+    Assembly(BTreeMap<usize, crate::edits::EditList>),
+}
+
+impl PageEdits {
+    fn read(value: &Value) -> Result<Self, Value> {
+        let bad = |why: &str| json!({"error": why});
+        let read_list = |edits: Option<&Value>, part: Option<usize>| {
+            let edits = edits
+                .filter(|e| e.is_object())
+                .ok_or_else(|| bad("edits is required: the edit list to apply ({} for none)"))?;
+            crate::edits::read(&edits.to_string()).map_err(|mut failures| {
+                for failure in &mut failures {
+                    if let Some(part) = part {
+                        failure.entry = format!("Part {part}: {}", failure.entry);
+                    }
+                }
+                json!({"error": session::edits_refused(&failures), "failures": failures})
+            })
+        };
+        match (value.get("edits"), value.get("partEdits")) {
+            (edits, None) => Ok(Self::Single(read_list(edits, None)?)),
+            (None, Some(parts)) => {
+                let parts = parts
+                    .as_array()
+                    .filter(|parts| !parts.is_empty())
+                    .ok_or_else(|| bad("partEdits must be a nonempty array of {part, edits}"))?;
+                let mut lists = BTreeMap::new();
+                for entry in parts {
+                    let part = entry
+                        .get("part")
+                        .and_then(Value::as_u64)
+                        .and_then(|n| usize::try_from(n).ok())
+                        .ok_or_else(|| {
+                            bad("each partEdits entry requires a nonnegative part index")
+                        })?;
+                    if lists
+                        .insert(part, read_list(entry.get("edits"), Some(part))?)
+                        .is_some()
+                    {
+                        return Err(bad(&format!("partEdits repeats part {part}")));
+                    }
+                }
+                Ok(Self::Assembly(lists))
+            }
+            (Some(_), Some(_)) => Err(bad("send either edits or partEdits")),
+        }
+    }
+}
+
+/// `POST <token>/save`, from the app's own origin: an edit list or a list per part,
+/// applied all or nothing and written by the command (docs/open.md, `save`).
 fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
     let shared = ctx.shared;
     if shared.read_only {
@@ -1051,26 +1105,16 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
             "rev is required: the session revision the page last saw",
         );
     };
-    let Some(edits) = value.get("edits").filter(|e| e.is_object()) else {
-        return refuse(
-            stream,
-            "400 Bad Request",
-            "edits is required: the edit list to apply ({\"fill\": {…}, \"change\": {…}, \
-             \"items\": {…}, \"none\": […], \"accept_suggestions\": […]}; {} for none)",
-        );
-    };
-    // An edit list, or a 0.2 answers map read as fills (as `write` reads one).
-    let list = match crate::edits::read(&edits.to_string()) {
-        Ok(list) => list,
-        Err(failures) => {
-            return reply_json(
-                stream,
-                "400 Bad Request",
-                &json!({"error": session::edits_refused(&failures), "failures": failures}),
-            );
+    let result = match PageEdits::read(&value) {
+        Ok(PageEdits::Single(list)) => {
+            session::save_edits(&shared.session, Some(rev), &list, "page")
         }
+        Ok(PageEdits::Assembly(lists)) => {
+            session::save_assembly_edits(&shared.session, Some(rev), &lists, "page")
+        }
+        Err(error) => return reply_json(stream, "400 Bad Request", &error),
     };
-    match session::save_edits(&shared.session, Some(rev), &list, "page") {
+    match result {
         Ok(saved) => {
             let _ = ctx
                 .tell
