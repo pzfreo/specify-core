@@ -17,6 +17,10 @@ fn bom_suggestions(session: &Session) -> Vec<String> {
         .iter()
         .filter(|q| q["id"].as_str().is_some_and(|id| id.starts_with("bom.")))
         .filter(|q| q["suggestions"].as_array().is_some_and(|s| !s.is_empty()))
+        .filter(|q| {
+            let field = q["id"].as_str().unwrap().strip_prefix("bom.").unwrap();
+            session.analysis()["bom"][field]["source"] != "answered"
+        })
         .filter_map(|q| q["id"].as_str().map(str::to_string))
         .collect()
 }
