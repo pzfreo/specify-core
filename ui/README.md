@@ -194,14 +194,17 @@ beside its name), a **gap** ("not stated", with Specify's suggestion as a dashed
   `items.remove: ["#4", {"id": "part.material"}]` (`removalTargets` in `app/edits.ts`). Until the engine takes an
   id there, its check refuses that removal, and the line says so.
 - A gap offers **Add** (its line pre-filled with the suggestion) and **None needed**. A decided none reads "none
-  needed", greyed, with **Undo**, which takes the stored decision back (the edit list's `clear`; it never touches PMI).
+  needed", greyed, with **Undo**, which takes back the stored decision using the edit list's
+  `clear`. A refused None needed shows the reason on that row.
 - The general tolerance's line is its own editor (#228): a class (ISO 2768-m and so on), or a block row by row
-  (decimal places and their tolerance, Add row), an angles line and a note line. It writes one line of text, the form
+  (decimal places and their tolerance, Add row), an angles line and separate note fields.
+  The part's drawing notes also display one per line. It writes one line of text, the form
   the CLI and edit lists take: `.XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°` (inch places written `.XX`,
   millimetre places `X.XX`, no places `X` with its unit, `X ±.5 in`, as the engine spells them; a new block starts
   in the file's length unit; `app/general-tolerance.ts`).
 - "Other PMI in the file" rows have the bin only: removed by number, or, without one, by the engine's id for the
-  item (`{"id": "file_pmi:#<STEP entity>"}`, the table's `file_pmi[].id`); an item the engine cannot name has no bin.
+  item (`{"id": "file_pmi:#<STEP entity>"}`, the table's `file_pmi[].id`). On any queued removal,
+  **Undo** restores the row and takes the removal out of the bar.
 - Every edit is checked against the selected part and that part's queued edits before it joins the
   bar (the engine's `checkEdits`). A refusal says why on the row. **Add all suggestions** queues the
   selected part's suggestions, including None needed. It skips gaps without suggestions and names
@@ -214,8 +217,9 @@ beside its name), a **gap** ("not stated", with Specify's suggestion as a dashed
   With an empty bar Save says “Nothing to save.” Only unsaved edits are highlighted. After a save
   the selected part opens from the saved file.
 
-The session's answers live in the command: the page hears everyone else's (`GET events`); an agent's answer lands
-in the open page with "Updated by your agent", on its row, highlighted as unsaved. Save writes the specified STEP
+The session's answers live in the command. The page reports an agent's working answers via
+`GET events` and highlights the affected row. The row still shows the file's requirement. An
+agent with unsaved answers must clear them before applying an explicit edit list. Save writes the specified STEP
 (beside it as `part.specified.step` by default, or over the input with `--in-place`). Save never refuses for questions
 still open (many AP242 files have no complete answer to everything): it writes the edits listed and says which
 questions are still open. Specify's suggestions are written only when the person adds them (ADR P9).

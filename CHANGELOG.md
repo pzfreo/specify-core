@@ -138,7 +138,10 @@ Read first:
   (`clear`). "Other PMI" rows have remove only. Edits are listed in a bar at the bottom and written
   together by Save, all or nothing, or dropped by Discard. The part picker opens each assembly
   part for editing. Each edit is checked against its part and that part's listed edits, and its
-  entry names the part. Switching parts keeps the edits in the one bar. Only unsaved edits are highlighted;
+  entry names the part. Switching parts keeps the edits in the one bar.
+  A refused None needed explains why on its row. A queued removal can be undone on its row.
+  Notes have separate lines. The page reports the agent's working answers as session updates
+  while the review values come from the saved file. Only unsaved edits are highlighted;
   nothing says who wrote a requirement. The general tolerance's line is a row editor (#228): a class,
   or a block of decimal places and their tolerances, an angles line and a note line, written as one
   line of text (`.XX ±.01, .XXX ±.005, angles ±1°`). **Save with defaults** becomes the bar's **Add all

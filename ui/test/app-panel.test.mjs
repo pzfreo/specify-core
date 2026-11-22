@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { balloonText, bareAnalysis, changedText, displayText, isNoneValue, panelModel, tableOf } from '../app/table.ts';
-import { describe, editList, PendingEdits, removalTargets, suggestionEdits } from '../app/edits.ts';
+import { describe, editList, PendingEdits, rejectedNoneByPart, removalTargets, suggestionEdits } from '../app/edits.ts';
 import { compose, emptyBlock, parse } from '../app/general-tolerance.ts';
 // The review panel's pieces that are not drawn (specify-panel.md): its reading of the engine's feature
 // table, the pending edits as an edit list, and the general tolerance's text (#228).
@@ -194,4 +194,29 @@ test('plane lengths appear under The part and hole locations under their feature
   const all = suggestionEdits(rows, pending, isNoneValue);
   assert.equal(all.find(p => p.id === location)?.value, '15 ±0.2 from B');
   assert.ok(!all.some(p => p.id === length));
+});
+
+test('the panel omits BOM rows even when input includes a parts-list field', () => {
+  const bom = { id: 'bom.make_buy', feature: 'part', kind: 'bom.make_buy', state: 'stated', value: 'Buy', faces: [] };
+  const model = panelModel({ ...table, rows: [...table.rows, bom] }, questions);
+  assert.equal(model.part.rows.some(r => r.id.startsWith('bom.')), false);
+  assert.equal('bom' in model, false);
+});
+
+test('save matches a None needed refusal only to the affected part and queued row', () => {
+  const coating = new PendingEdits([{ kind: 'none', id: 'part.coating', name: 'Coating' }]);
+  const pending = new Map([[0, coating], [1, coating]]);
+  const refusal = 'A coating is required';
+  const failure = entry => [{ entry, reason: refusal }];
+  assert.deepEqual([...rejectedNoneByPart(pending, failure('Part "pin" (1): none["part.coating"]'), true)],
+    [[1, new Map([['part.coating', refusal]])]]);
+  assert.deepEqual([...rejectedNoneByPart(new Map([[0, coating]]), failure('none["part.coating"]'), false)],
+    [[0, new Map([['part.coating', refusal]])]]);
+  assert.equal(rejectedNoneByPart(pending, failure('Part "pin" (1): fill["part.coating"]'), true).size, 0);
+});
+
+test('the model keeps individual drawing notes in order', () => {
+  const notes = { id: 'part.notes', feature: 'part', kind: 'part.notes', state: 'stated', value: ['Deburr; check edges', 'Mark lot'], faces: [] };
+  const model = panelModel({ ...table, rows: [...table.rows, notes] }, questions);
+  assert.deepEqual(model.part.rows.find(r => r.id === notes.id).notes, notes.value);
 });

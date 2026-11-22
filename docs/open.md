@@ -169,6 +169,8 @@ the assembly writer and commits once. Requirement edits preserve other parts’ 
 entity bytes.
 If an entry cannot be applied, the response names the part and entry and the save writes
 nothing. Unsaved answers from the agent's `answer` also refuse a save.
+The page reports working answers from the agent as session updates. Requirement values and
+PMI are read from the saved STEP. The pending bar contains edits made in the page.
 
 The file is written from the file as the session's last save left it (the input before any), to
 a temporary file next to the input and renamed into place:

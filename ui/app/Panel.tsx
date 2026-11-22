@@ -58,8 +58,8 @@ export interface PanelProps {
   onPending(next: PendingEdits): void;
   /** Checks an edit list against the file (all or nothing, as Save would): the entries that cannot be applied. */
   check(edits: EditList): Promise<EditFailure[]>;
-  /** Values the session holds that the file does not yet (an agent's answers, not saved): shown as unsaved. */
-  unsaved: Readonly<Record<string, unknown>>;
+  /** Refusals from Save for queued None needed decisions on the shown part. */
+  rejectedNone?: ReadonlyMap<string, string> | undefined;
   disabled: boolean;
   /** The file's length unit, for a new general tolerance block. */
   units: Units;
@@ -111,21 +111,29 @@ export function Panel(props: PanelProps) {
 
   const open = (id: string, mode: Editing['mode']) => { setProblem(null); setEditing({ id, mode }); };
 
+  const undoRemoval = (id: string) => (
+    <span className="acts"><button type="button" aria-label="Undo removal" disabled={disabled || checking}
+      onClick={() => { onPending(pending.without(id)); close(); }}>Undo</button></span>
+  );
+
   const row = (r: PanelRow) => {
     const p = pending.get(r.id);
-    const agent = r.id in props.unsaved ? props.unsaved[r.id] : undefined;
     const shown = p?.kind === 'fill' || p?.kind === 'change' ? p.text
-      : p?.kind === 'none' ? 'none needed' : p?.kind === 'clear' ? 'not stated'
-        : agent !== undefined ? (isNoneValue(agent) ? 'none needed' : answerText(agent, r.question)) : r.value;
-    // What the row is now, with the page's edit laid over the file.
+      : p?.kind === 'none' ? 'none needed' : p?.kind === 'clear' ? 'not stated' : r.value;
+    // The row is the file's requirement with the person's queued edit laid over it.
     const state = p?.kind === 'fill' || p?.kind === 'change' ? 'stated' : p?.kind === 'none' ? 'decided_none'
-      : p?.kind === 'clear' ? 'gap' : agent !== undefined ? (isNoneValue(agent) ? 'decided_none' : 'stated') : r.state;
+      : p?.kind === 'clear' ? 'gap' : r.state;
+    const notes = r.id === 'part.notes' && (p?.kind === 'fill' || p?.kind === 'change') && Array.isArray(p.value)
+      ? p.value : r.notes;
     const cls = ['spec-row', state === 'stated' ? 'stated' : state === 'gap' ? 'gap' : 'nonerow',
-      p || agent !== undefined ? 'changed' : '', p?.kind === 'remove' ? 'removed' : ''].filter(Boolean).join(' ');
+      p ? 'changed' : '', p?.kind === 'remove' ? 'removed' : ''].filter(Boolean).join(' ');
+    const refusal = problem?.id === r.id ? problem.text : props.rejectedNone?.get(r.id);
     const here = editing?.id === r.id ? editing : null;
     const locked = disabled || checking;
     let acts: ReactNode = null;
-    if (p?.kind !== 'remove') {
+    if (p?.kind === 'remove') {
+      acts = undoRemoval(r.id);
+    } else {
       if (state === 'stated') {
         acts = (
           <span className="acts">
@@ -156,12 +164,15 @@ export function Panel(props: PanelProps) {
       <div key={r.id} className={cls} data-row={r.id} data-question={r.id} data-state={state}>
         <button type="button" className="k" title="Show it on the part" onClick={() => props.onFaces(r.faces)}>{r.label}</button>
         <span className="v">
-          <span className="t">{shown}</span>
+          <span className="t">{state === 'stated' && notes?.length
+            ? notes.map((note, i) => <span key={i} className="spec-note">{note}</span>)
+            : shown}</span>
           {state === 'gap' && r.suggestionText !== undefined && <span className="sugg">suggested: {r.suggestionText}</span>}
         </span>
         {acts}
+        {!here && refusal && <div className="spec-problem spec-row-problem" role="alert">{refusal}</div>}
         {here && here.mode !== 'remove' && (
-          <EditLine row={r} mode={here.mode} pending={p} units={props.units} checking={checking || disabled} problem={problem?.id === r.id ? problem.text : null}
+          <EditLine row={r} mode={here.mode} pending={p} units={props.units} checking={checking || disabled} problem={refusal ?? null}
             onCancel={close} onApply={(value, text) => {
               if (here.mode === 'change') {
                 const was = r.value;
@@ -171,7 +182,7 @@ export function Panel(props: PanelProps) {
             }} />
         )}
         {here?.mode === 'remove' && (
-          <RemoveLine what={shown} numbers={r.numbers} problem={problem?.id === r.id ? problem.text : null} checking={checking || disabled} onCancel={close}
+          <RemoveLine what={shown} numbers={r.numbers} problem={refusal ?? null} checking={checking || disabled} onCancel={close}
             onRemove={() => void apply({ kind: 'remove', id: r.id, name: r.name, targets: removalTargets(r.numbers, r.id), was: r.value })} />
         )}
       </div>
@@ -185,6 +196,7 @@ export function Panel(props: PanelProps) {
       <div key={o.key} className={`spec-row stated${p ? ' changed removed' : ''}`} data-row={o.key}>
         <button type="button" className="k" title="Show it on the part" onClick={() => props.onFaces(o.faces)}>{o.label}</button>
         <span className="v">{o.value}{o.number && <span className="num">{o.number}</span>}</span>
+        {p?.kind === 'remove' && undoRemoval(o.key)}
         {!p && (o.number || o.id) && (
           <span className="acts"><IconButton label={`Remove ${o.value}`} icon="bin" disabled={disabled || checking} onClick={() => open(o.key, 'remove')} /></span>
         )}
@@ -227,7 +239,6 @@ export function Panel(props: PanelProps) {
             <div className="spec-group">The part</div>
             {group(model.part)}
           </>)}
-          {model.bom && (<><div className="spec-group">Parts list</div>{group(model.bom)}</>)}
           {model.features.length > 0 && <div className="spec-group">On the part</div>}
           {model.features.map((g) => group(g, g.title))}
           {model.datums && (<><div className="spec-group">Datums</div>{group(model.datums)}</>)}
@@ -310,6 +321,7 @@ export function GeneralToleranceEditor({ text, units, classes, onChange }: {
   const set = (next: GeneralTolerance) => { setGt(next); onChange(compose(next, units)); };
   useEffect(() => { onChange(compose(gt, units)); }, []);
   const block = gt.form === 'block' ? gt : null;
+  const notes = block?.notes.length ? block.notes : [''];
   return (
     <div className="spec-gt" role="group" aria-label="General tolerance">
       <div className="spec-gt-form">
@@ -344,8 +356,16 @@ export function GeneralToleranceEditor({ text, units, classes, onChange }: {
           set({ ...block, rows: [...block.rows, { places: Math.min(4, last + 1), tolerance: '' }] });
         }}>Add row</button>
         <label className="spec-gt-line">Angles <input aria-label="Angles" placeholder="±1°" value={block.angles} onChange={(e) => set({ ...block, angles: e.target.value })} /></label>
-        <label className="spec-gt-line">Note <input aria-label="Note" placeholder="fractions ±1/64" value={block.notes.join(', ')}
-          onChange={(e) => set({ ...block, notes: e.target.value ? [e.target.value] : [] })} /></label>
+        {notes.map((note, i) => (
+          <div key={i} className="spec-gt-line">
+            <label htmlFor={`spec-gt-note-${i}`}>Note {i + 1}</label>
+            <input id={`spec-gt-note-${i}`} aria-label={`Note ${i + 1}`} placeholder="fractions ±1/64" value={note}
+              onChange={(e) => set({ ...block, notes: notes.map((n, j) => j === i ? e.target.value : n) })} />
+            <button type="button" aria-label={`Remove note ${i + 1}`}
+              onClick={() => set({ ...block, notes: notes.filter((_, j) => j !== i) })}>✕</button>
+          </div>
+        ))}
+        <button type="button" className="spec-gt-add" onClick={() => set({ ...block, notes: [...notes, ''] })}>Add note</button>
         <div className="muted spec-gt-text">Written as: <code>{compose(block, units) || '…'}</code></div>
       </>)}
     </div>

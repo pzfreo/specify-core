@@ -1,7 +1,7 @@
 // The review panel's pending edits (specify-panel.md decision 3): each change the person makes is
 // held in the page, one per row of a part. Save sends the lists together, all or nothing.
 // Discard drops them all (specify-core docs/open.md, `POST save`).
-import type { EditList, RemoveTarget } from './local.ts';
+import type { EditFailure, EditList, RemoveTarget } from './local.ts';
 
 /** One pending edit, by the row it is on (a feature-and-kind id, or an item's `#N` in "Other PMI"). */
 export type Pending =
@@ -78,4 +78,22 @@ export class PendingEdits {
   /** A copy without row ``id``'s edit. */
   without(id: string): PendingEdits { return new PendingEdits(this.values().filter((q) => q.id !== id)); }
   list(): EditList { return editList(this.values()); }
+}
+
+/** Matches save refusals to the queued None needed on the part they identify. */
+export function rejectedNoneByPart(pending: ReadonlyMap<number, PendingEdits>, failures: readonly EditFailure[], assembly: boolean) {
+  const rejected = new Map<number, Map<string, string>>();
+  for (const [part, list] of pending) {
+    const rows = new Map<string, string>();
+    for (const edit of list.values()) {
+      if (edit.kind !== 'none') continue;
+      const entry = `none[${JSON.stringify(edit.id)}]`;
+      const reasons = failures.filter((failure) => assembly
+        ? failure.entry.startsWith('Part ') && failure.entry.endsWith(` (${part}): ${entry}`)
+        : failure.entry === entry);
+      if (reasons.length) rows.set(edit.id, reasons.map((f) => f.reason).join('; '));
+    }
+    if (rows.size) rejected.set(part, rows);
+  }
+  return rejected;
 }

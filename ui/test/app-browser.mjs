@@ -286,6 +286,12 @@ try {
     await gt.getByRole('button', { name: 'Remove General tolerance', exact: true }).click();
     await gt.locator('.spec-edit.rm').getByRole('button', { name: 'Remove', exact: true }).click();
     await check(gt).toHaveClass(/removed/);
+    await gt.getByRole('button', { name: 'Undo removal', exact: true }).click();
+    await check(gt).not.toHaveClass(/removed/);
+    await check(listedEdit(page, 'part.general_tolerance')).toHaveCount(0);
+    await gt.getByRole('button', { name: 'Remove General tolerance', exact: true }).click();
+    await gt.locator('.spec-edit.rm').getByRole('button', { name: 'Remove', exact: true }).click();
+    await check(gt).toHaveClass(/removed/);
     await add(page, 'part.coating', 'Anodised');
     await check(pending(page, 0)).toHaveCount(3);
     const single = await save(page, server, 1);
@@ -438,7 +444,11 @@ try {
     await gt.getByRole('textbox', { name: 'Row 2 tolerance' }).fill('±.005');
     await gt.getByRole('button', { name: 'Add row' }).click();
     await gt.getByRole('button', { name: 'Remove row 3' }).click();
-    await gt.getByRole('textbox', { name: 'Note' }).fill('fractions ±1/64');
+    await gt.getByRole('textbox', { name: 'Note 1', exact: true }).fill('fractions ±1/64');
+    await gt.getByRole('button', { name: 'Add note', exact: true }).click();
+    await gt.getByRole('textbox', { name: 'Note 2', exact: true }).fill('break all edges');
+    await check(gt.locator('.spec-gt-text code')).toContainText('fractions ±1/64, break all edges');
+    await gt.getByRole('button', { name: 'Remove note 2', exact: true }).click();
     await gt.getByRole('textbox', { name: 'Angles' }).fill('±1°');
     const block = '.XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°';
     await check(gt.locator('.spec-gt-text code')).toHaveText(block);
@@ -446,6 +456,12 @@ try {
     // The engine takes the block (#228): its check passes and the bar shows it as entered.
     await check(gt.locator('.spec-problem')).toHaveCount(0);
     await check(listedEdit(page, 'part.general_tolerance')).toHaveText(`Add General tolerance: ${block}`);
+    await page.getByRole('button', { name: 'Discard', exact: true }).click();
+    const notes = row(page, 'part.notes');
+    await notes.locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
+    await notes.locator('.spec-edit textarea').fill('Deburr all edges\nMark lot');
+    await notes.locator('.spec-edit').getByRole('button', { name: 'Add', exact: true }).click();
+    await check(notes.locator('.spec-note')).toHaveText(['Deburr all edges', 'Mark lot']);
     await page.getByRole('button', { name: 'Discard', exact: true }).click();
     await add(page, 'part.material', 'Aluminium 6082-T6');
     // Each edit joins the bar only if the file takes it with those listed (the bar is always a list
@@ -457,6 +473,12 @@ try {
     await add(page, 'datum.A');
     await add(page, 'hole.position:holes:14.15');
     await add(page, 'hole.position:holes:13');
+    // A choice with no none option stays a gap and explains the refusal on its own row.
+    const processRow = row(page, 'part.process');
+    await processRow.getByRole('button', { name: 'None needed', exact: true }).click();
+    await check(processRow.getByRole('alert')).toContainText("'none' is not an answer");
+    await check(processRow).toHaveAttribute('data-state', 'gap');
+    await check(listedEdit(page, 'part.process')).toHaveCount(0);
     // None needed records the decision; Undo of one made in this session drops it; None needed again.
     await noneNeeded(page, 'part.coating');
     await check(row(page, 'part.coating')).toContainText('none needed');
@@ -465,6 +487,16 @@ try {
     await check(listedEdit(page, 'part.coating')).toHaveCount(0);
     await noneNeeded(page, 'part.coating');
     await check(listedEdit(page, 'part.coating')).toHaveText('None needed: Coating');
+    // If a checked None needed is later refused at Save, the row and the bar both stay visible.
+    const beforeSave = problems.length;
+    await page.route('**/save', route => route.fulfill({ status: 422, contentType: 'application/json',
+      body: JSON.stringify({ error: 'nothing was written', failures: [{ entry: 'none["part.coating"]', reason: 'Coating is required here' }] }) }));
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await check(row(page, 'part.coating').getByRole('alert')).toHaveText('Coating is required here');
+    await check(listedEdit(page, 'part.coating')).toBeVisible();
+    await page.unroute('**/save');
+    problems.splice(beforeSave, problems.length - beforeSave,
+      ...problems.slice(beforeSave).filter(p => !/^console: .*422/.test(p)));
     // A value the file cannot take is refused on its line, by the engine, and never joins the bar.
     await row(page, 'part.surface_finish').locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
     await row(page, 'part.surface_finish').locator('.spec-edit input').fill('shiny');
@@ -871,6 +903,12 @@ try {
     const target = before.find(r => !r.number && r.id);
     assert.ok(target, 'NIST CTC-01 has unnumbered PMI the engine names');
     const gone = row(page, target.id);
+    await gone.getByRole('button', { name: /^Remove / }).click();
+    await gone.locator('.spec-edit.rm').getByRole('button', { name: 'Remove', exact: true }).click();
+    await check(listedEdit(page, target.id)).toBeVisible();
+    await gone.getByRole('button', { name: 'Undo removal', exact: true }).click();
+    await check(gone).not.toHaveClass(/removed/);
+    await check(listedEdit(page, target.id)).toHaveCount(0);
     await gone.getByRole('button', { name: /^Remove / }).click();
     await gone.locator('.spec-edit.rm').getByRole('button', { name: 'Remove', exact: true }).click();
     await check(listedEdit(page, target.id)).toBeVisible();
