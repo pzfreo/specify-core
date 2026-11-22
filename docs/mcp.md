@@ -85,7 +85,7 @@ JSON-RPC errors.
 | `list_parts` | `path` | `parts`: `[{part, name, product_id, faces, instances, ...}]`, as `serve`'s `parts` |
 | `open` | `path`, `part?`, `old?`, `in_place?`, `answers_file?`, `overwrite?` | `doc`, `rev`, `open_questions`, `features` (counts by family), `faces`, `existing_pmi`, `resumed`, `warnings?`; with `old`, the comparison's `verdict`, `summary` and `report`. For an assembly opened without `part`, the result is `needs_part: true` with its `parts` |
 | `questions` | `doc`, `state?` (`open` by default, `answered`, `all`), `compact?` (only the open questions, `{id, prompt, choices or hint, suggested?, rule?}`) | each question as review presents it, with its `state` (`open`, `answered`, `optional`) and its `answer`; a default's `source` names the rule behind it ([rule-sources.md](rule-sources.md#rule-ids)); `rev` |
-| `answer` | `doc`, `set?: {id: value or text}`, `clear?: [id]`, `partial?`, `answers_file?`, `overwrite?` | each answer as stored, with `interpreted_from` when it was typed, and its `state`; the `open` ids; the new `rev`; with `partial`, `outcomes`: `{id: {stored, interpreted_from?, state}}` or `{id: {refused: reason}}`. An answer to a feature-and-kind the file states (its feature-table row is `stated`) that says the same as the file is a no-op (`state: "stated"`, nothing stored), as on the command line; one that differs is refused: "the file states … for …, so there is no gap to fill; changing what the file states is an explicit edit (the edit list's change), not an answer" (ADR P11: the save would leave it out) |
+| `answer` | `doc`, `set?: {id: value or text}`, `clear?: [id]`, `partial?`, `answers_file?`, `overwrite?` | each stored answer with its `state` and `interpreted_from` when interpreted, the `open` ids and the new `rev`. With `partial`, `outcomes` gives `{id: {stored, interpreted_from?, state}}` or `{id: {refused: reason}}`. An answer equal to a stated value leaves the session as it is (`state: "stated"`). A different answer stages a change with the file's current value as its expectation. |
 | `review` | `doc` | `open`, `problems`, `writable`/`missing` as answered, `writable_with_defaults`/`missing_with_defaults`; `rev` |
 | `characteristics` | `doc` | `intent`: the preview, as `serve`'s `preview`; `sources` (question ID to the rule behind each answer that is its question's default); `rev` |
 | `read_pmi` | `doc` | `existing` (the file's PMI by face), `part_settings`, `resumed`, `saved_answers?`; `rev` |
@@ -107,7 +107,8 @@ raw edit path `editEntry`.
 
 MCP `save` and `check` merge the session's working answers from every part with the explicit
 lists. For example, an explicit material fill replaces a working material fill on the same
-part. Use `edits: {}` for the working edits alone. Successful saves clear the drafts.
+part. Use `edits: {}` for the working edits alone. A save counts as approving the drafts it
+writes. Successful saves clear the drafts.
 Use `discard {doc, rev?}` to restore saved answers without writing the STEP.
 
 The edit list is `{"fill": {id: value}, "change": {id: {"to", "expect"}}, "items": {"remove":

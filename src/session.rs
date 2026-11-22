@@ -42,6 +42,15 @@ pub fn lock(session: &Shared) -> std::sync::MutexGuard<'_, Session> {
     session.lock().unwrap_or_else(|p| p.into_inner())
 }
 
+/// The value of the feature table's row `id`, when the file states it.
+pub(crate) fn stated_value<'a>(analysis: &'a Value, id: &str) -> Option<&'a Value> {
+    analysis["table"]["rows"]
+        .as_array()?
+        .iter()
+        .find(|row| row["id"] == id && row["state"] == "stated")
+        .map(|row| row.get("value").unwrap_or(&Value::Null))
+}
+
 /// A file as opened: its path (absolute, as given or as the caller chose), its name and its
 /// bytes as they were on disk (gzipped if the file is).
 #[derive(Clone)]
@@ -290,7 +299,15 @@ impl Session {
             if id.starts_with('_') || saved.get(id) == Some(value) {
                 continue;
             }
-            if edits::is_none_answer(value) {
+            if let Some(expect) = self.analyses.get(&part).and_then(|a| stated_value(a, id)) {
+                draft.change.insert(
+                    id.clone(),
+                    edits::Change {
+                        to: value.clone(),
+                        expect: expect.clone(),
+                    },
+                );
+            } else if edits::is_none_answer(value) {
                 draft.none.insert(id.clone());
             } else {
                 draft.fill.insert(id.clone(), value.clone());
@@ -786,9 +803,11 @@ fn include_drafts(
             let list = lists.entry(part).or_default();
             let mut draft = draft.clone();
             draft.fill.retain(|id, _| !mentions(list, id));
+            draft.change.retain(|id, _| !mentions(list, id));
             draft.none.retain(|id| !mentions(list, id));
             draft.clear.retain(|id| !mentions(list, id));
             list.fill.extend(draft.fill);
+            list.change.extend(draft.change);
             list.none.extend(draft.none);
             list.clear.extend(draft.clear);
         } else {
@@ -797,6 +816,7 @@ fn include_drafts(
                 .fill
                 .keys()
                 .map(|id| ("fill", id))
+                .chain(draft.change.keys().map(|id| ("change", id)))
                 .chain(draft.none.iter().map(|id| ("none", id)))
                 .chain(draft.clear.iter().map(|id| ("clear", id)))
             {

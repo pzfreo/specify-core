@@ -542,6 +542,32 @@ fn tool_inputs_have_no_root_combinators() {
 }
 
 #[test]
+fn save_tool_tells_clients_that_saving_approves_drafts() {
+    let mut server = Server::new(&[scratch("save-approval")]).unwrap();
+    let reply = server
+        .handle(&modern(1, "tools/list", json!({})), None)
+        .body
+        .unwrap();
+    let save = reply["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "save")
+        .unwrap();
+    let description = save["description"].as_str().unwrap();
+    for phrase in [
+        "includes the session's agent drafts",
+        "counts as approving them",
+        "discard",
+    ] {
+        assert!(
+            description.contains(phrase),
+            "save description omits {phrase:?}"
+        );
+    }
+}
+
+#[test]
 fn an_unsupported_version_is_refused_with_the_supported_list() {
     let mut server = Server::new(&[scratch("version")]).unwrap();
     let request = json!({"jsonrpc": "2.0", "id": 7, "method": "tools/list", "params": {
@@ -1979,6 +2005,28 @@ fn the_page_saves_and_discards_agent_edits_at_the_seen_revision() {
     assert_eq!(row(1, "part.coating")["state"], "gap");
     let (_, seen) = page(url, "GET", "answers", None);
     assert!(seen.get("drafts").is_none() || seen["drafts"] == json!({}));
+    let answer = call(
+        &mut server,
+        "answer",
+        json!({"doc": pin, "set": {"part.material": "Bronze"}}),
+    );
+    assert_eq!(answer["isError"], false, "{answer}");
+    let (_, seen) = page(url, "GET", "answers", None);
+    assert_eq!(
+        seen["drafts"]["1"]["change"]["part.material"],
+        json!({"to": "Bronze", "expect": "Brass"}),
+        "the page gets a change against the saved value"
+    );
+    let (status, saved) = page(
+        url,
+        "POST",
+        "save",
+        Some(&json!({
+            "rev": seen["rev"], "partEdits": [{"part": 1, "edits": seen["drafts"]["1"]}]
+        })),
+    );
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(row(1, "part.material")["value"], "Bronze");
     call(
         &mut server,
         "answer",
@@ -2003,10 +2051,9 @@ fn the_page_saves_and_discards_agent_edits_at_the_seen_revision() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// ADR P11: an answer to what the file states is refused with the edit list's reason for a
-/// fill on a stated row, never accepted and then left out of the save.
+/// An answer that changes a stated row uses the same guarded change as an explicit edit.
 #[test]
-fn an_answer_to_what_the_file_states_is_refused() {
+fn mcp_answers_can_change_what_the_file_states() {
     let dir = scratch("stated");
     let copy = dir.join("spindle.step");
     let gz = std::fs::read(
@@ -2020,22 +2067,6 @@ fn an_answer_to_what_the_file_states_is_refused() {
     let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
     let opened = call(&mut server, "open", json!({"path": copy}));
     let doc = opened["structuredContent"]["doc"].clone();
-    let refused = error_of(
-        &mut server,
-        "answer",
-        json!({"doc": doc, "set": {"part.material": "aluminium"}}),
-    );
-    assert_eq!(refused["question"], json!("part.material"), "{refused}");
-    assert_eq!(
-        refused["message"],
-        json!(
-            "the file states \"steel\" for part.material, so there is no gap to fill; changing \
-             what the file states is an explicit edit, not an answer: an edit list's change, \
-             {\"change\": {\"part.material\": {\"to\": <the new value>, \"expect\": \"steel\"}}}, \
-             sent with `save` (or checked with `check`) as its `edits`"
-        ),
-        "{refused}"
-    );
     // A fill equal to what the file states is a no-op, as on the command line.
     let same = call(
         &mut server,
@@ -2051,14 +2082,39 @@ fn an_answer_to_what_the_file_states_is_refused() {
     let answered = call(
         &mut server,
         "answer",
-        json!({"doc": doc, "set": {"hole.function:holes:14": "fit:H7"}, "partial": true}),
+        json!({"doc": doc, "set": {"hole.function:holes:14": "not a fit"}, "partial": true}),
     );
     let out = &answered["structuredContent"];
     let reason = out["outcomes"]["hole.function:holes:14"]["refused"]
         .as_str()
         .unwrap();
-    assert!(reason.contains("the file states \"⌀3.3 H11\""), "{reason}");
+    assert!(reason.contains("hole.function:holes:14"), "{reason}");
     assert!(out["set"].as_array().unwrap().is_empty(), "{out}");
+    assert_eq!(out["rev"], same["structuredContent"]["rev"]);
+
+    let answer = call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "aluminium"}}),
+    );
+    assert_eq!(answer["isError"], false, "{answer}");
+    let edits = json!({"doc": doc, "edits": {}});
+    let checked = call(&mut server, "check", edits.clone());
+    assert_eq!(
+        checked["structuredContent"]["applicable"], true,
+        "{checked}"
+    );
+    assert!(!dir.join("spindle.specified.step").exists());
+    let saved = call(&mut server, "save", edits);
+    assert_eq!(saved["isError"], false, "{saved}");
+    let saved_path = saved["structuredContent"]["path"].as_str().unwrap();
+    let reopened = call(&mut server, "open", json!({"path": saved_path}));
+    let reopened_doc = reopened["structuredContent"]["doc"].clone();
+    let pmi = call(&mut server, "read_pmi", json!({"doc": reopened_doc}));
+    assert_eq!(
+        pmi["structuredContent"]["part_settings"]["material"], "aluminium",
+        "{pmi}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

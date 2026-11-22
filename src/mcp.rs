@@ -1042,6 +1042,7 @@ impl Server {
         let shared = Arc::clone(&doc.session);
         let part = doc.part;
         let mut held = session::lock(&shared);
+        let analysis = held.analysis(part)?;
         let mut trial = held.answers(part).cloned().unwrap_or_default();
         for id in &clear {
             trial.remove(id);
@@ -1049,7 +1050,7 @@ impl Server {
         let mut changed = Vec::new();
         let mut refused = Map::new();
         for (id, given) in &set {
-            match try_answer(&doc.analysis, &mut trial, id, given) {
+            match try_answer(&analysis, held.step(), part, &mut trial, id, given) {
                 Ok(entry) => changed.push(entry),
                 // With partial, a refused answer is reported and the others still apply.
                 Err(e) if partial => {
@@ -1059,16 +1060,16 @@ impl Server {
             }
         }
         if !clear.is_empty() {
-            api::review(&doc.analysis, &trial)?;
+            api::review(&analysis, &trial)?;
         }
-        let qs = api::questions(&doc.analysis, &trial)?;
+        let qs = api::questions(&analysis, &trial)?;
         let open: Vec<&str> = rules::open_questions(&qs, &trial)
             .iter()
             .map(|q| q.id.as_str())
             .collect();
         for entry in &mut changed {
             if entry.get("state").is_some() {
-                continue; // Equal to what the file states: nothing changed.
+                continue; // A stated row was handled separately.
             }
             let id = entry["id"].as_str().unwrap_or_default().to_string();
             let state = if qs.iter().any(|q| q.id == id) {
@@ -1660,15 +1661,6 @@ fn save_error(e: session::SaveError) -> ToolError {
     }
 }
 
-/// The value of the feature table's row `id`, when the file states it.
-fn stated<'a>(analysis: &'a Value, id: &str) -> Option<&'a Value> {
-    analysis["table"]["rows"]
-        .as_array()?
-        .iter()
-        .find(|r| r["id"] == id && r["state"] == "stated")
-        .map(|r| r.get("value").unwrap_or(&Value::Null))
-}
-
 /// Whether an answer `given` says what the file's `value` states (the same text, ignoring
 /// surrounding space and case): a fill equal to the file is a no-op, as on the command line.
 fn same_as_stated(value: &Value, given: &Value) -> bool {
@@ -1682,35 +1674,43 @@ fn same_as_stated(value: &Value, given: &Value) -> bool {
 /// ask a new question) and checked with them: its entry `{id, value, interpreted_from?}`, the
 /// answer kept in `trial`; refused, naming the question, with `trial` as it was. An answer
 /// equal to what the file states is an entry `{id, value, state: "stated"}` and changes
-/// nothing; one that differs is refused.
+/// nothing. A different answer to a stated row is checked and kept as a draft change.
 fn try_answer(
     analysis: &Value,
+    step: &part::File,
+    part: usize,
     trial: &mut Map<String, Value>,
     id: &str,
     given: &Value,
 ) -> Result<Map<String, Value>, ToolError> {
-    // ADR P11: what the file states is not a question; an answer to it would be accepted and
-    // then left out of the save. Refused with the edit list's reason for a fill on a stated row.
-    if let Some(value) = stated(analysis, id) {
-        if same_as_stated(value, given) {
-            let mut entry = Map::new();
-            entry.insert("id".into(), json!(id));
-            entry.insert("value".into(), value.clone());
+    let mut entry = Map::new();
+    entry.insert("id".into(), json!(id));
+    if let Some(expect) = session::stated_value(analysis, id) {
+        if same_as_stated(expect, given) {
+            entry.insert("value".into(), expect.clone());
             entry.insert("state".into(), json!("stated"));
-            return Ok(entry);
+        } else {
+            let list = crate::edits::EditList {
+                change: std::collections::BTreeMap::from([(
+                    id.to_owned(),
+                    crate::edits::Change {
+                        to: given.clone(),
+                        expect: expect.clone(),
+                    },
+                )]),
+                ..Default::default()
+            };
+            let loaded = step.load(Some(part)).map_err(Error::Load)?;
+            crate::writer::apply::apply(&loaded, &list)
+                .map_err(|failures| invalid_edits(failures).with("question", json!(id)))?;
+            trial.insert(id.to_owned(), given.clone());
+            entry.insert("value".into(), given.clone());
+            entry.insert("state".into(), json!("answered"));
         }
-        return Err(ToolError::invalid(format!(
-            "the file states {value} for {id}, so there is no gap to fill; changing what the \
-             file states is an explicit edit, not an answer: an edit list's change, \
-             {{\"change\": {{\"{id}\": {{\"to\": <the new value>, \"expect\": {value}}}}}}}, \
-             sent with `save` (or checked with `check`) as its `edits`"
-        ))
-        .with("question", json!(id)));
+        return Ok(entry);
     }
     let qs = api::questions(analysis, trial)?;
     let q = qs.iter().find(|q| q.id == id);
-    let mut entry = Map::new();
-    entry.insert("id".into(), json!(id));
     let value = match (q, given) {
         (Some(q), Value::String(text))
             if q.kind == "choice" && !q.options.iter().any(|o| o == text) =>
@@ -2031,7 +2031,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "answer",
             "title": "Answer questions",
-            "description": format!("Set or clear answers on the open document. set maps question id to answer: a choice question takes one of its options or free text Specify interprets (\"M6\" for a hole, \"H7\" for a bore, \"6061-T6\" for material); a faces question takes a list of face indices; text questions take text. Answers are applied in order and all-or-nothing: a refused answer is an error naming the question and nothing changes. With partial: true (answer everything you know in one call), every valid answer is applied in one rev and outcomes gives each id {{stored, interpreted_from?, state}} or {{refused: reason}}. Give only what the person or the design intends: never a default as intent. The change goes to the session (rev goes up) and appears in the Specify page if it is shown. What the file already states is not a question: an answer equal to it changes nothing, and one that differs is refused (changing the file's PMI is an explicit edit). These answers are the session's working state and are not written to the file: save writes an edit list, and refuses while the session holds answers changed here and not saved. {MEMORY_RULE} answers_file also saves them to that JSON file from now on."),
+            "description": format!("Set or clear answers on the open document. set maps question id to answer: a choice question takes one of its options or free text Specify interprets (\"M6\" for a hole, \"H7\" for a bore, \"6061-T6\" for material); a faces question takes a list of face indices; text questions take text. Answers are applied in order and all-or-nothing: a refused answer is an error naming the question and nothing changes. With partial: true (answer everything you know in one call), every valid answer is applied in one rev and outcomes gives each id {{stored, interpreted_from?, state}} or {{refused: reason}}. Give only what the person or the design intends: never a default as intent. The change goes to the session (rev goes up) and appears in the Specify page if it is shown. An answer equal to a stated value changes nothing. A different answer to a stated row stages a change with the current file value as its expectation. The page or MCP save writes the working answers with the explicit edits. Use discard to drop drafts without writing. {MEMORY_RULE} answers_file also saves them to that JSON file from now on."),
             "inputSchema": input(json!({
                 "doc": doc(),
                 "set": {"type": "object", "description": "Question id to answer.", "additionalProperties": true},
@@ -2180,7 +2180,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "save",
             "title": "Save an edit list into the STEP",
-            "description": format!("Apply an edit list to the opened file and write it as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; later saves update the copy this session wrote, and no other file is overwritten), or over it if it was opened in_place (the original kept once as .bak). edits: fill gaps {{id: value}}, change what the file states {{id: {{to, expect}}}} (expect: the value you saw), items.remove [\"#N\"] to remove a requirement by its characteristic number, none [id] to record that nothing is needed, accept_suggestions [id] to fill a gap with Specify's suggestion. Ids are the feature table's (the analysis resource's table). Anything not named is left as it is, byte for byte. Use edits for the opened part or partEdits for one or more part indices in the same file. The save is all or nothing: if any entry cannot be applied nothing is written, and the error (failures) names every failing entry and why. Fill or accept only what the person approved: never a suggestion as intent unasked. rev (optional): the session revision you last saw; a session that moved on is refused (stale). Working answers on all parts are included. An explicit edit for the same question takes precedence. Use discard to drop the working answers without writing. check tests a list without writing. {MEMORY_RULE}"),
+            "description": format!("Apply an edit list to the opened file and write it as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; later saves update the copy this session wrote, and no other file is overwritten), or over it if it was opened in_place (the original kept once as .bak). edits: fill gaps {{id: value}}, change what the file states {{id: {{to, expect}}}} (expect: the value you saw), items.remove [\"#N\"] to remove a requirement by its characteristic number, none [id] to record that nothing is needed, accept_suggestions [id] to fill a gap with Specify's suggestion. Ids are the feature table's (the analysis resource's table). Anything not named is left as it is, byte for byte. Use edits for the opened part or partEdits for one or more part indices in the same file. The save is all or nothing: if any entry cannot be applied nothing is written, and the error (failures) names every failing entry and why. Fill or accept only what the person approved: never a suggestion as intent unasked. rev (optional): the session revision you last saw; a session that moved on is refused (stale). Save includes the session's agent drafts on all parts unless you discard them first. Saving the drafts counts as approving them. An explicit edit for the same question takes precedence. Use discard to drop the working answers without writing. check tests a list without writing. {MEMORY_RULE}"),
             "inputSchema": edit_input(true),
             "outputSchema": output(json!({
                 "doc": {"type": "string"},
