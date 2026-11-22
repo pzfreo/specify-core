@@ -291,6 +291,10 @@ it there, and packs the library. The library is published once its engine is on 
 in the `npm` environment, with npm trusted publishing (OIDC, with provenance). The `npm` environment must have a
 required reviewer and be restricted to `v*` tags.
 
+Mark a release tagged `v0.3.0-rc.1` as pre-release on GitHub. Both npm packages publish
+that version under `next`, and `latest` continues to select the stable release. See
+[Cutting a pre-release](../CONTRIBUTING.md#cutting-a-pre-release) for the lockstep version updates.
+
 The trusted publisher on npmjs.com is organization `pzfreo`, repository `specify-core`, workflow `release.yml`,
 environment `npm` (repository `specify-ui` up to 0.2.0). The workflow passes no npm token. Once a release has
 published through the trusted publisher, set "Require two-factor authentication and disallow tokens" on the package.
