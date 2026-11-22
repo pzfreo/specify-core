@@ -1415,7 +1415,13 @@ fn a_save_writes_what_write_writes_for_the_same_list() {
         .output()
         .unwrap();
     assert!(run.status.success(), "{run:?}");
-    let report: Value = serde_json::from_slice(&run.stdout).unwrap();
+    let mut report: Value = serde_json::from_slice(&run.stdout).unwrap();
+    let missing = report
+        .as_object_mut()
+        .unwrap()
+        .remove("missing")
+        .unwrap_or(json!([]));
+    assert_eq!(missing, saved["missing"]);
     assert_eq!(
         report_without_output(&saved["report"]),
         report_without_output(&report)

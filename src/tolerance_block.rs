@@ -9,7 +9,8 @@
 //! - fractions: `fractions ±1/64` (or `±1/64`);
 //! - angles: `angles ±1°`, `angular ±0°30'`.
 //!
-//! Anything else is refused, naming the line, so a typo never becomes part of the block.
+//! Other lines are kept in the note. A line that resembles unsupported tolerance syntax
+//! is also named in a warning.
 //!
 //! **Units** are stored as stated, never converted (Paul's decision 3): a unit written on any
 //! line is the block's; else inch notation (`.XX`) or a fraction means inches; else the block
@@ -54,6 +55,8 @@ pub enum Line {
     Fraction(String),
     /// An angular tolerance, as stated (`angles ±1°`).
     Angle(String),
+    /// A line kept verbatim in the general tolerance note.
+    Note(String),
 }
 
 /// A block as entered: its lines in order, and the unit it states, if any.
@@ -127,6 +130,7 @@ pub fn parse(text: &str) -> Result<Option<Block>, String> {
     let mut unit: Option<LengthUnit> = None;
     // Each line not read, with why.
     let mut bad: Vec<(String, &str)> = Vec::new();
+    let mut has_tolerance = false;
     let mut state = |u: Option<regex::Match<'_>>, bad: &mut Vec<(String, &str)>, piece: &str| {
         if let Some(u) = u {
             let u = unit_of(u.as_str());
@@ -158,6 +162,7 @@ pub fn parse(text: &str) -> Result<Option<Block>, String> {
             }
             places_seen.push(places);
             state(c.get(5), &mut bad, piece);
+            has_tolerance = true;
             lines.push(Line::Places {
                 places,
                 tolerance,
@@ -174,6 +179,7 @@ pub fn parse(text: &str) -> Result<Option<Block>, String> {
                 continue;
             }
             state(c.get(3), &mut bad, piece);
+            has_tolerance = true;
             lines.push(Line::Fraction(format!("±{n}/{d}")));
         } else if let Some(c) = ANGLE.captures(&squashed) {
             let zero = |m: Option<regex::Match<'_>>| {
@@ -194,15 +200,24 @@ pub fn parse(text: &str) -> Result<Option<Block>, String> {
             if let Some(s) = c.get(3) {
                 text.push_str(&format!("{}″", s.as_str()));
             }
+            has_tolerance = true;
             lines.push(Line::Angle(text));
         } else {
-            bad.push((piece.to_string(), why_not(&squashed)));
+            lines.push(Line::Note((*piece).to_string()));
         }
     }
     // Text that is no block at all (an ISO class, a ± figure, none) is left to the other
     // readings; text that looks like a block but does not read is refused, saying why.
-    if lines.is_empty() && !pieces.iter().any(|p| LOOKS.is_match(p)) {
-        return Ok(None);
+    if !has_tolerance {
+        if bad.is_empty() && !pieces.iter().any(|p| LOOKS.is_match(p)) {
+            return Ok(None);
+        }
+        bad.extend(
+            pieces
+                .iter()
+                .filter(|p| LOOKS.is_match(p) && !lines.is_empty())
+                .map(|piece| (piece.to_string(), why_not(piece))),
+        );
     }
     if !bad.is_empty() {
         let shown: Vec<String> = bad
@@ -296,11 +311,29 @@ impl Block {
                     format!("{t}{suffix}")
                 }),
                 // (A fraction implies inches, so an inch block with one names no unit.)
-                Line::Angle(t) => out.push(t.clone()),
+                Line::Angle(t) | Line::Note(t) => out.push(t.clone()),
                 Line::Places { .. } => {}
             }
         }
         out.join(SEPARATOR)
+    }
+
+    /// Unparsed tolerance-like lines are written verbatim and flagged for review.
+    pub fn warnings(&self) -> impl Iterator<Item = String> + '_ {
+        self.lines.iter().filter_map(|line| match line {
+            Line::Note(text)
+                if LOOKS.is_match(text)
+                    || text.contains('±')
+                    || text.contains("+-")
+                    || text.contains("+/-") =>
+            {
+                Some(format!(
+                    "general tolerance line '{text}' was kept as a note: {}",
+                    why_not(text)
+                ))
+            }
+            _ => None,
+        })
     }
 
     /// What the block writes into a file whose length unit is `file_unit`.
@@ -335,6 +368,7 @@ impl Block {
                 // The note's text is drawn too: minutes and seconds in the characters PMI
                 // fonts have.
                 Line::Angle(t) => note.push(t.replace('′', "'").replace('″', "\"")),
+                Line::Note(t) => note.push(t.clone()),
             }
         }
         Ok(Written {
@@ -534,6 +568,16 @@ pub fn shown(table: Option<&str>, note: Option<&str>) -> Option<String> {
 /// `text` in a block's canonical spelling when it is a block; else unchanged.
 #[must_use]
 pub fn canonical(text: &str) -> String {
+    static ISO_CLASS: LazyLock<Regex> =
+        LazyLock::new(|| regex(r"^iso\s*2768(?:-|\s)\s*([fmcv])([hkl])?$"));
+    if let Some(c) = ISO_CLASS.captures(text.trim()) {
+        return format!(
+            "ISO 2768-{}{}",
+            c[1].to_ascii_lowercase(),
+            c.get(2)
+                .map_or_else(String::new, |v| v.as_str().to_ascii_uppercase())
+        );
+    }
     match parse(text) {
         Ok(Some(block)) => block.text(),
         _ => text.to_string(),
@@ -586,14 +630,15 @@ mod tests {
     }
 
     #[test]
-    fn a_stated_unit_is_kept_and_a_typo_is_refused() {
+    fn stated_units_are_kept_and_unparsed_tolerances_are_flagged() {
         let b = parse(".XXX ±.005 in, angular ±1°").unwrap().unwrap();
         assert_eq!(b.text(), ".XXX ±.005 · angles ±1°");
         let b = parse("X.XX +/- 0.05 mm").unwrap().unwrap();
         assert_eq!(b.text(), "X.XX ±0.05 mm");
         assert_eq!(b.unit_in(&LengthUnit::Inch), LengthUnit::Millimetre);
-        let e = parse(".XX ±.01, .XXX +- .005 inn").unwrap_err();
-        assert!(e.contains(".XXX +- .005 inn"), "{e}");
+        let block = parse(".XX ±.01, .XXX +- .005 inn").unwrap().unwrap();
+        assert_eq!(block.text(), ".XX ±.01 · .XXX +- .005 inn");
+        assert!(block.warnings().any(|w| w.contains(".XXX +- .005 inn")));
         for (text, why) in [
             (".XX ±.01 .XXX ±.005", "two tolerances on one line"),
             ("XX ±.01, XXX ±.005", "written with a point"),

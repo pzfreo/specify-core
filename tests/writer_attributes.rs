@@ -202,7 +202,6 @@ fn stored_answers_set_and_item_names_are_reserved_even_without_answers() {
 }
 
 #[test]
-#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn rewriting_a_resumed_part_replaces_extras_as_it_replaces_answers() {
     let loaded = plate();
     let first_answers = answers("steel");
@@ -234,7 +233,11 @@ fn rewriting_a_resumed_part_replaces_extras_as_it_replaces_answers() {
             1
         );
         let loaded = part::load_bytes("rewritten.step", bytes).unwrap();
-        assert_eq!(resume::answers_for(&loaded).unwrap(), Some(answers.clone()));
+        // ADR P11: this payload retains only answers that leave no PMI behind.
+        assert_eq!(
+            resume::answers_for(&loaded).unwrap(),
+            Some(specify_core::feature_table::storable(&answers))
+        );
     }
 }
 

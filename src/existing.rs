@@ -1183,6 +1183,12 @@ fn mm_value(l: &pmi::Length) -> Value {
     Value::from(l.mm())
 }
 
+/// The notation and planner fields of a thread without its feature carrier.
+pub(crate) fn thread_signature(t: &pmi::Thread, p: &PartPmi) -> (String, Map<String, Value>) {
+    let said = thread_said(t, p);
+    (said.text, said.fields)
+}
+
 /// A thread as the planner states it (`rules/holes.rs`, `rules/turned.rs`): its designation,
 /// pitch, class and hand from the thread, its depths from its `thread manufacturing`
 /// attributes, and haecceity's notation of it. What the planner has no field for (minor or

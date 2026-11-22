@@ -1158,6 +1158,7 @@ fn bom_edits(
     }
     let mut fields = Map::new();
     let mut answers = Map::new();
+    let mut suggestions = Vec::new();
     for (id, value) in fills {
         let key = &id["bom.".len()..];
         match crate::bom::validate(key, value) {
@@ -1178,6 +1179,7 @@ fn bom_edits(
                     match suggested.and_then(|s| s.get(key)) {
                         Some(value) => {
                             fields.insert(key.to_string(), value.clone());
+                            suggestions.push(key.to_string());
                         }
                         None => failures.push(entry_failure(
                             entry("accept_suggestions", id),
@@ -1194,66 +1196,13 @@ fn bom_edits(
     }
     let mut intent = crate::rules::Intent::new(analysis["binding"].clone());
     intent.part.insert("bom".into(), Json::Object(fields));
+    intent
+        .part
+        .insert("bom_suggestions".into(), Json::from(suggestions));
     (rest, Ok(Some(intent)))
 }
 
-/// A change of the part's general tolerance to a value (not none) goes the one route that
-/// replaces a stated general tolerance (#228: `writer::write_bytes_changing_general_tolerance`,
-/// `Replace::GeneralTolerance`): the file's table, classes and general-tolerance note give way
-/// to the new one, every other entity byte for byte. The rest of the list is applied first, as
-/// any list is; the whole list is validated first, so it is still all or nothing.
 fn applied_with(
-    loaded: &LoadedPart,
-    list: &EditList,
-    numbers: Option<&Map<String, Json>>,
-    extra: &[haecceity::pmi::AttributeSet],
-) -> Result<Applied, Vec<Failure>> {
-    const GENERAL: &str = "part.general_tolerance";
-    let Some(change) = list
-        .change
-        .get(GENERAL)
-        .filter(|c| !crate::feature_table::is_none_value(&c.to))
-    else {
-        return applied_parts(loaded, list, numbers, extra);
-    };
-    let (analysis, table) = table_of(loaded).map_err(whole)?;
-    let (pmi_list, bom) = bom_edits(list, &analysis);
-    bom?;
-    let (_, outcome) = validated(loaded, &pmi_list, &table, &analysis);
-    if !outcome.failures.is_empty() {
-        return Err(outcome.failures);
-    }
-    let mut rest = list.clone();
-    rest.change.remove(GENERAL);
-    let first = applied_parts(loaded, &rest, numbers, extra)?;
-    let entry = || format!("change[{}]", Json::from(GENERAL));
-    let part = loaded.binding.part;
-    let now = part::File::of_bytes(&loaded.path, first.bytes.clone())
-        .and_then(|f| f.load((f.parts().len() > 1).then_some(part)))
-        .map_err(|e| whole(e.to_string()))?;
-    let mut intent = crate::rules::Intent::new(
-        serde_json::to_value(&now.binding).map_err(|e| whole(e.to_string()))?,
-    );
-    intent
-        .part
-        .insert("general_tolerance".into(), change.to.clone());
-    // What the file stores beside its PMI (decided none, choices) is stored again as it is.
-    let stored = crate::resume::answers_for(&now)
-        .map_err(|e| whole(e.to_string()))?
-        .filter(|a| !a.is_empty());
-    let (bytes, report) =
-        super::write_bytes_changing_general_tolerance(&now, &intent, stored.as_ref())
-            .map_err(|e| vec![entry_failure(entry(), e.to_string())])?;
-    let mut applied = first;
-    applied.bytes = bytes;
-    applied.report.written.extend(report.written);
-    applied.report.not_written.extend(report.not_written);
-    applied.report.warnings.extend(report.warnings);
-    applied.unchanged = false;
-    Ok(applied)
-}
-
-fn applied_parts(
     loaded: &LoadedPart,
     list: &EditList,
     numbers: Option<&Map<String, Json>>,
@@ -1589,6 +1538,20 @@ fn applied_pmi(
     // Take them out, with Specify's bookkeeping (replaced below) and each removed item's own
     // features unless something kept uses them; every other item is protected.
     let mut all = requirements(before);
+    // A general tolerance has no characteristic number. A change of that setting alone
+    // leaves the complete number history in its original records.
+    let preserve_history = list.len() == 1 && list.change.contains_key("part.general_tolerance");
+    let record = |set: &haecceity::pmi::AttributeSet| set.name == crate::characteristics::PROPERTY;
+    if preserve_history {
+        all.extend(
+            before
+                .attributes
+                .iter()
+                .enumerate()
+                .filter(|(_, set)| record(set))
+                .map(|(i, _)| ("attributes".to_string(), i)),
+        );
+    }
     // Keep unrecognised, unmarked attributes as input data. A scoped payload supersedes
     // them when the file is read. Recognised legacy duplicates are removed on save (P11).
     let mut unmarked_answers = false;
@@ -1623,19 +1586,33 @@ fn applied_pmi(
         features.extend(features_of(before, (c, *i)));
     }
     give_way.extend(features.iter().map(|&f| ("features".to_string(), f)));
-    // What belongs to a removed item goes with it: the notes and attribute sets on it (a
-    // dimension's plan, a thread's manufacturing data on its feature, unless kept).
+    // Direct attachments belong to their dimension or tolerance. A feature can carry
+    // several requirements, so sharing its carrier does not establish ownership.
     let owned = |on: &Option<haecceity::pmi::NoteOwner>| {
         use haecceity::pmi::NoteOwner;
         match on {
             Some(NoteOwner::Dimension(d)) => remove.contains(&("dimensions".to_string(), d.0)),
             Some(NoteOwner::Tolerance(t)) => remove.contains(&("tolerances".to_string(), t.0)),
-            Some(NoteOwner::Feature(f)) => features.contains(&f.0),
             _ => false,
         }
     };
     for (i, set) in before.attributes.iter().enumerate() {
-        if owned(&set.on) {
+        let thread_removed = set.name == "thread manufacturing"
+            && matches!(set.on, Some(haecceity::pmi::NoteOwner::Feature(f)) if {
+                let mut removed = false;
+                let mut kept = false;
+                for (i, _) in before.threads.iter().enumerate().filter(|(_, thread)| {
+                    before.same_target(&ToleranceTarget::Feature(f), &ToleranceTarget::Feature(thread.feature))
+                }) {
+                    if remove.contains(&("threads".to_string(), i)) {
+                        removed = true;
+                    } else {
+                        kept = true;
+                    }
+                }
+                removed && !kept
+            });
+        if owned(&set.on) || thread_removed {
             give_way.insert(("attributes".to_string(), i));
         }
     }
@@ -1957,28 +1934,30 @@ fn applied_pmi(
         pmi.attributes.push(crate::resume::attribute_set(&payload));
     }
     pmi.attributes.extend_from_slice(extra);
-    crate::characteristics::allocate(
-        loaded,
-        &mut pmi,
-        before,
-        prov,
-        &original.doc,
-        numbers,
-        if mode == Mode::Replace {
-            crate::characteristics::Allocation::Replace
-        } else {
-            crate::characteristics::Allocation::Edit(&removed_numbers)
-        },
-    )
-    .map_err(whole)?;
-    // With nothing to number, the file's record is written back as it was.
-    let record = |set: &haecceity::pmi::AttributeSet| set.name == crate::characteristics::PROPERTY;
-    if !pmi.attributes.iter().any(record) {
-        pmi.attributes
-            .extend(before.attributes.iter().filter(|s| record(s)).cloned());
-    }
-    let retired =
-        crate::characteristics::retired(before, prov, &original.doc, &pmi).map_err(whole)?;
+    let retired = if preserve_history {
+        Vec::new()
+    } else {
+        crate::characteristics::allocate(
+            loaded,
+            &mut pmi,
+            before,
+            prov,
+            &original.doc,
+            numbers,
+            if mode == Mode::Replace {
+                crate::characteristics::Allocation::Replace
+            } else {
+                crate::characteristics::Allocation::Edit(&removed_numbers)
+            },
+        )
+        .map_err(whole)?;
+        // With nothing to number, the file's record is written back as it was.
+        if !pmi.attributes.iter().any(record) {
+            pmi.attributes
+                .extend(before.attributes.iter().filter(|s| record(s)).cloned());
+        }
+        crate::characteristics::retired(before, prov, &original.doc, &pmi).map_err(whole)?
+    };
     if !retired.is_empty() {
         lines.warnings.push(format!(
             "retired characteristic numbers: {}",
@@ -2100,6 +2079,11 @@ impl Stated {
 }
 
 impl Stated {
+    pub(crate) fn by_number(&self, number: u64) -> Option<&crate::characteristics::Statement> {
+        let index = self.located.iter().position(|l| l.number == Some(number))?;
+        self.said.get(index)
+    }
+
     /// What the row `row` of this file's table states: each of its requirements, value
     /// included, or `None` when one cannot be found among the file's requirements (a setting).
     pub(crate) fn of_row(
@@ -2115,7 +2099,7 @@ impl Stated {
                 .iter()
                 .position(|l| (l.at.0.to_string(), l.at.1) == at)?;
             taken.insert(at);
-            out.push(&self.said[i]);
+            out.push(self.said.get(i)?);
         }
         Some(out)
     }

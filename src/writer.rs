@@ -1199,7 +1199,7 @@ fn write_verified(
     // characteristic-number record) is replaced, by a scoped Add that keeps every other item.
     let mut scoped = Vec::new();
     let mut keep = std::collections::BTreeMap::new();
-    // Only Specify's marked bookkeeping goes. An unmarked copy of stored answers (an older
+    // Only Specify's marked bookkeeping and legacy caller extras go. An unmarked copy of stored answers (an older
     // engine's, or another tool's) stays untouched; the payload written now carries
     // `pmi_scope`, so it is the one read. What gives way whoever wrote it (`bookkeeping`, by
     // part) is only a general tolerance the intent replaces.
@@ -1211,7 +1211,26 @@ fn write_verified(
         if resumed && original.has_pmi(part) {
             scoped.push(part);
             cleaning.push(part);
-            keep.insert(part, requirements(&original.read.parts[part]));
+            let before = &original.read.parts[part];
+            let mut kept = requirements(before);
+            // The legacy whole-intent API takes the whole caller attribute payload. Its
+            // extras were marked like other writer attributes, so keep the engine's own
+            // PMI sets and let cleanup replace the remaining marked caller sets.
+            for (i, set) in before.attributes.iter().enumerate() {
+                if !matches!(
+                    set.name.as_str(),
+                    SEMANTIC_TEXT
+                        | "thread manufacturing"
+                        | "specify dimension plan"
+                        | crate::pmi_origin::PROPERTY
+                        | crate::process::PROPERTY
+                        | crate::bom::PROPERTY
+                        | crate::bom::HISTORY
+                ) {
+                    kept.remove(&("attributes".to_string(), i));
+                }
+            }
+            keep.insert(part, kept);
         }
         // Only an explicit change replaces the file's general tolerance (#228: "Change
         // replaces the table"), whoever wrote it; every other item stays byte for byte. A raw
@@ -4110,6 +4129,7 @@ fn part_pmi_observed(
             let written = block.written(&file_unit).map_err(WriteError::Invalid)?;
             let new = general_shown(&text, &file_unit)?;
             if stated("general tolerance", old, &new, &mut lines)? {
+                lines.warnings.extend(block.warnings());
                 if let Some(table) = written.table {
                     p.general.push(table);
                     lines.written.push(format!(
