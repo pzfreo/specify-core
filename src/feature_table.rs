@@ -853,10 +853,25 @@ pub fn build(
         .collect();
     let no_pmi = wrote_nothing(answers);
     let (bare, mut given) = set_aside(analysis, answers);
-    if let Some(tolerance) = settings.get("general_tolerance").filter(|v| !blank(v)) {
-        given.insert("part.general_tolerance".into(), tolerance.clone());
-    }
     let bare_ctx = crate::rules::Ctx::new(&bare)?;
+    if let Some(tolerance) = settings.get("general_tolerance").filter(|v| !blank(v)) {
+        // A foreign tolerance table can state ranges or asymmetric deviations we cannot
+        // enter as an answer. Keep its text in settings and omit it from suggestion planning.
+        let id = "part.general_tolerance";
+        let process = crate::process::current(&bare_ctx, &given);
+        if let Some(question) = crate::rules::part_questions_for(process)
+            .into_iter()
+            .find(|q| q.id == id)
+        {
+            let value =
+                if crate::choices::check(id, tolerance, &question.options, None, None).is_ok() {
+                    tolerance.clone()
+                } else {
+                    Value::from("none")
+                };
+            given.insert(id.into(), value);
+        }
+    }
     let (all, mut questions) = crate::rules::settled(&bare_ctx, &given).or_else(|_| {
         crate::rules::ordinary_questions_in(&bare_ctx, &given).map(|qs| (given.clone(), qs))
     })?;
