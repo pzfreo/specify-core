@@ -159,6 +159,11 @@ and settings, and `analyse` adds the **feature table**, `table`:
   thread, knurl or finish, and a setting on no row, have no id.)
 - `decided_none`: the decided-none ids, read back from the file.
 
+In an edit list, `fill` takes a general dimension row's displayed suggestion, and
+`accept_suggestions` uses the same value by id. `none` records a decision on that row.
+Once stated, the dimension can be removed through `items.remove` by row id or characteristic
+number.
+
 ### What the file states, read back whole
 
 The stated row is all anyone sees of what the file says, so nothing the file states is left
