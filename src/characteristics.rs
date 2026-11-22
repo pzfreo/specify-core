@@ -628,10 +628,12 @@ fn legacy_depth_key(p: &PartPmi, index: usize) -> Option<Key> {
 pub(crate) enum Allocation<'a> {
     Add,
     Replace,
-    /// Add after an edit took the requirements with these numbers out (ADR P11): a new
-    /// requirement measuring the same as one of them (a change of limits) takes its number
-    /// back; the others are retired, and the high-water mark keeps them from being reused.
-    Edit(&'a BTreeSet<u64>),
+    /// Add after an edit took requirements out. A changed measurement can keep its number.
+    /// An explicit removal retires its number even if the list also fills the same gap.
+    Edit {
+        removed: &'a BTreeSet<u64>,
+        retired: &'a BTreeSet<u64>,
+    },
 }
 
 /// First allocate in inspection order; later additions use stable model order after matching
@@ -648,9 +650,9 @@ pub(crate) fn allocate(
 ) -> Result<(), String> {
     let replace = matches!(mode, Allocation::Replace);
     let none = BTreeSet::new();
-    let removed = match mode {
-        Allocation::Edit(removed) => removed,
-        _ => &none,
+    let (removed, retired) = match mode {
+        Allocation::Edit { removed, retired } => (removed, retired),
+        _ => (&none, &none),
     };
     let fingerprint = resume::fingerprint(loaded).map_err(|e| e.to_string())?;
     let saved = history(before)?;
@@ -752,8 +754,10 @@ pub(crate) fn allocate(
     }
     let eligible = |item: &Item| replace || item.key.kind == "datum" || !removed.is_empty();
     // In an edit, a new requirement other than a datum may only take a removed one's number.
-    let allowed =
-        |e: &Entry, item: &Item| replace || item.key.kind == "datum" || removed.contains(&e.number);
+    let allowed = |e: &Entry, item: &Item| {
+        !retired.contains(&e.number)
+            && (replace || item.key.kind == "datum" || removed.contains(&e.number))
+    };
     let mut used = BTreeSet::new();
     // A unique structural key (including a planner role) wins even after a value edit.
     // Only indistinguishable coexisting controls need value hints, so an insertion cannot
