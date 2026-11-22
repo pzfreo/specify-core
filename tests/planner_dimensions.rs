@@ -1,4 +1,5 @@
 //! #75: the shared planner is the selection authority; STEP keeps its complete quantities.
+
 use haecceity::{p21::Document, pmi};
 use quiddity::dimensioning::{Input, PatternRole, Required, Tolerance};
 use serde_json::{Value, json};
@@ -146,7 +147,6 @@ fn plate_writes_every_required_quantity_and_basics_use_the_pattern_origin() {
 }
 
 #[test]
-#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn an_existing_written_plate_retires_member_numbers_and_never_reuses_them() {
     let old = part::load(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/planner75/plate-v028.step.gz"),
@@ -156,14 +156,30 @@ fn an_existing_written_plate_retires_member_numbers_and_never_reuses_them() {
     let before = characteristics::read(&old).unwrap();
     assert_eq!(before.len(), 28);
     assert_eq!(before.iter().filter(|c| c.kind == "dimension").count(), 21);
-    let a = api::analyse(&old).unwrap();
-    let given = a["resume"]["answers"].as_object().unwrap();
-    let i = rules::apply_with_defaults(&a, given, true).unwrap();
-    let (bytes, report) = writer::write_bytes(&old, &i, Some(given)).unwrap();
-    assert!(report.warnings.contains(
+    let no_edits = common::apply_edits(&old, json!({}));
+    assert!(no_edits.unchanged);
+    assert_eq!(
+        no_edits.bytes,
+        old.bytes.as_slice(),
+        "new planner rules cannot change the file"
+    );
+    let remove: Vec<_> = (6..=11).chain(21..=26).map(|n| format!("#{n}")).collect();
+    let applied = common::apply_edits(
+        &old,
+        json!({
+            "items": {"remove": remove},
+            "fill": {
+                "extra.x": {"kind":"distance","faces":[6],"reference":[3],"value":"±0.1"},
+                "extra.y": {"kind":"distance","faces":[6],"reference":[5],"value":"±0.1"},
+                "extra.other": {"kind":"distance","faces":[10],"reference":[3],"value":"±0.1"}
+            }
+        }),
+    );
+    assert_eq!(applied.retired, (6..=11).chain(21..=26).collect::<Vec<_>>());
+    assert!(applied.report.warnings.contains(
         &"retired characteristic numbers: 6, 7, 8, 9, 10, 11, 21, 22, 23, 24, 25, 26".into()
     ));
-    let new = part::load_bytes("planned.step", bytes).unwrap();
+    let new = part::load_bytes("planned.step", applied.bytes).unwrap();
     let after = characteristics::read(&new).unwrap();
     assert_eq!(after.len(), 19);
     let max = before.iter().map(|c| c.number).max().unwrap();
@@ -191,7 +207,7 @@ fn an_existing_written_plate_retires_member_numbers_and_never_reuses_them() {
     assert_eq!(
         after
             .iter()
-            .find(|c| c.faces == [2] && c.reference == [4])
+            .find(|c| c.faces == [4] && c.reference == [2])
             .unwrap()
             .number,
         5,
@@ -204,26 +220,20 @@ fn an_existing_written_plate_retires_member_numbers_and_never_reuses_them() {
             .all(|c| c.number > max)
     );
     assert_eq!(new_numbers.len(), after.len());
-    let a = api::analyse(&new).unwrap();
-    let given = a["resume"]["answers"].as_object().unwrap();
-    let i = rules::apply_with_defaults(&a, given, true).unwrap();
-    let (again, _) = writer::write_bytes(&new, &i, Some(given)).unwrap();
-    assert!(again == *new.bytes, "unchanged resume bytes");
-    // A new answered inspection requirement must allocate above the entire old history.
-    let mut given = given.clone();
-    given.insert(
-        "extra.new".into(),
-        json!({"kind":"flatness","faces":[5],"tolerance":0.02}),
-    );
-    let mut i = i;
-    i.requirements.push(
-        json!({"kind":"flatness","faces":[5],"tolerance":0.02})
-            .as_object()
-            .unwrap()
-            .clone(),
-    );
-    let (bytes, _) = writer::write_bytes(&new, &i, Some(&given)).unwrap();
-    let added = part::load_bytes("added.step", bytes).unwrap();
+    let again = common::apply_edits(&new, json!({}));
+    assert!(again.unchanged);
+    assert_eq!(again.bytes, new.bytes.as_slice(), "unchanged resume bytes");
+    let added = part::load_bytes(
+        "added.step",
+        common::apply_edits(
+            &new,
+            json!({
+                "fill": {"extra.new":{"kind":"flatness","faces":[5],"value":"0.02"}}
+            }),
+        )
+        .bytes,
+    )
+    .unwrap();
     let numbers = characteristics::read(&added).unwrap();
     assert!(numbers.iter().all(|c| !retired.contains(&c.number)));
     assert!(

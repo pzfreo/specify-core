@@ -162,10 +162,8 @@ fn notes_round_trip_as_semantic_text_and_answers_with_a_byte_stable_rewrite() {
 // Split from notes_round_trip_…: editing and clearing notes the file states is an edit in
 // place (ADR P11 piece 2); the round trip above stays live.
 #[test]
-#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn edited_and_cleared_notes_replace_the_written_notes() {
     let loaded = plate();
-    let analysis = api::analyse(&loaded).unwrap();
     let notes = json!([
         "Inspect O'Brien's \\ bore ⌀8\nAfter coating",
         "None",
@@ -176,25 +174,43 @@ fn edited_and_cleared_notes_replace_the_written_notes() {
         "(blank)",
         "  \nVisible note\n  "
     ]);
-    let answers = given(notes.clone());
-    let intent = api::apply(&analysis, &answers, true).unwrap();
-    let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
+    let bytes = common::apply_edits(&loaded, json!({"fill": given(notes.clone())})).bytes;
     let reopened = part::load_bytes("notes.step", bytes).unwrap();
-    let analysis = api::analyse(&reopened).unwrap();
+    let original = existing::part_settings(&reopened).unwrap()["notes"].clone();
+    assert_eq!(original, notes);
+    let state = api::analyse(&reopened).unwrap();
+    let current = state["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == "part.notes")
+        .unwrap();
     let edited = given(json!(["New first", "New second"]));
-    let intent = api::apply(&analysis, &edited, true).unwrap();
-    let (bytes, _) = writer::write_bytes(&reopened, &intent, Some(&edited)).unwrap();
+    let bytes = common::apply_edits(
+        &reopened,
+        json!({"change": {
+            "part.notes": {"to": edited["part.notes"], "expect": current["value"]}
+        }}),
+    )
+    .bytes;
     let edited_part = part::load_bytes("edited.step", bytes).unwrap();
     assert_eq!(
         existing::part_settings(&edited_part).unwrap()["notes"],
         edited["part.notes"]
     );
-    // Explicitly clearing the list removes all previously written free-text notes.
-    let analysis = api::analyse(&edited_part).unwrap();
-    let cleared = given(json!([]));
-    let intent = api::apply(&analysis, &cleared, true).unwrap();
-    let (bytes, _) = writer::write_bytes(&edited_part, &intent, Some(&cleared)).unwrap();
+    // An explicit removal takes away the free-text notes and preserves the material.
+    let bytes = common::apply_edits(
+        &edited_part,
+        json!({
+            "items": {"remove": [{"id": "part.notes"}]}
+        }),
+    )
+    .bytes;
     let cleared_part = part::load_bytes("cleared.step", bytes).unwrap();
+    assert_eq!(
+        existing::part_settings(&cleared_part).unwrap()["material"],
+        "steel"
+    );
     assert!(
         !existing::part_settings(&cleared_part)
             .unwrap()
