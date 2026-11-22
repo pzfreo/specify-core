@@ -3,7 +3,11 @@
 # build. It ends with one line: `VERIFY: PASS` or `VERIFY: FAIL (<steps>)` (working-rules.md, rule 1).
 #
 #   tools/verify.sh             run every step
-#   tools/verify.sh --dry-run   list the steps, run nothing
+#   tools/verify.sh --quick     the fast checks only, while working: fmt, clippy, the test build, the WASM
+#                               build and API snapshot, the ui typecheck. Ends `VERIFY: PARTIAL`, never
+#                               PASS; run the touched area's tests beside it. The full run is owed once per
+#                               PR, on its final head, before it is marked ready (working-rules.md, rule 1).
+#   tools/verify.sh --dry-run   list the steps, run nothing (with --quick: the quick steps)
 #
 # It mirrors, step for step, the pull-request jobs of:
 #   ci.yml       test (the Linux "Full suite" form), wasm, ui, app
@@ -27,11 +31,14 @@ cd "$(dirname "$0")/.."
 root=$PWD
 
 dry=0
-case "${1:-}" in
-  --dry-run) dry=1 ;;
-  "") ;;
-  *) echo "usage: tools/verify.sh [--dry-run]" >&2; exit 2 ;;
-esac
+quick=0
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) dry=1 ;;
+    --quick) quick=1 ;;
+    *) echo "usage: tools/verify.sh [--quick] [--dry-run]" >&2; exit 2 ;;
+  esac
+done
 
 corpus=${SPECIFY_CORPUS:-$root/../quiddity/tests/corpus}
 export SPECIFY_CORPUS=$corpus QUIDDITY_CORPUS=$corpus QUIDDITY_CORPUS_REQUIRED=1
@@ -42,8 +49,13 @@ logs=$work/logs
 failed=()
 
 # step NAME COMMAND...: run COMMAND (in a subshell from the repository root), log it, record the result.
+# Quick mode runs only the steps named in `quick_steps`.
+quick_steps='|ci test: fmt|ci test: clippy|ci test: build tests|ci wasm: wasm-pack|ci wasm: API snapshot|ci ui: npm ci|ci ui: fetch:wasm|ci ui: typecheck|'
 step() {
   local name=$1; shift
+  if [ "$quick" = 1 ] && [[ "$quick_steps" != *"|$name|"* ]]; then
+    return 0
+  fi
   if [ "$dry" = 1 ]; then
     printf '  %-34s %s\n' "$name" "$*"
     return 0
@@ -134,9 +146,11 @@ step "crates: publish --dry-run"      "cargo publish --dry-run --locked --allow-
 if [ "$dry" = 1 ]; then
   exit 0
 fi
-if [ ${#failed[@]} = 0 ]; then
+if [ ${#failed[@]} = 0 ] && [ "$quick" = 1 ]; then
+  echo "VERIFY: PARTIAL (quick: the full run is owed on the PR's final head)"
+elif [ ${#failed[@]} = 0 ]; then
   echo "VERIFY: PASS"
 else
-  ( IFS=,; echo "VERIFY: FAIL (${failed[*]})" )
+  ( IFS=,; echo "VERIFY: FAIL$([ "$quick" = 1 ] && echo ' (quick)') (${failed[*]})" )
   exit 1
 fi
