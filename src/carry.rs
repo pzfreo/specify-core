@@ -915,13 +915,6 @@ fn numbered(
         .flat_map(|r| &r.requirements)
         .filter_map(|r| r.number.as_deref()?.strip_prefix('#')?.parse().ok())
         .collect();
-    let changed: BTreeSet<u64> = report
-        .to_check
-        .iter()
-        .filter_map(|c| table.row(&c.old))
-        .flat_map(|r| &r.requirements)
-        .filter_map(|r| r.number.as_deref()?.strip_prefix('#')?.parse().ok())
-        .collect();
     let output = output
         .map(|(part, map)| {
             Ok::<_, Error>((
@@ -962,10 +955,9 @@ fn numbered(
                         && n.r#type == c.r#type
                         && sorted(&n.faces) == faces
                         && sorted(&n.reference) == reference
-                        && (old_statement
+                        && old_statement
                             .zip(out_stated.by_number(n.number))
                             .is_some_and(|(a, b)| a.same_value(b))
-                            || (changed.contains(&c.number) && n.number == c.number))
                 })
                 .min_by_key(|n| n.number != c.number)
         });
@@ -1037,8 +1029,29 @@ fn numbered(
                     .all(|r| r.number.as_ref().is_none_or(|n| !missing.contains(n)))
             })
     };
-    report.carried.retain(confirmed);
-    report.to_check.retain(confirmed);
+    let mut omitted = BTreeSet::new();
+    for rows in [&mut report.carried, &mut report.to_check] {
+        rows.retain(|c| {
+            let kept = confirmed(c);
+            if !kept {
+                omitted.insert(c.old.clone());
+            }
+            kept
+        });
+    }
+    for id in omitted {
+        if !report
+            .not_carried
+            .iter()
+            .any(|n| n.id.as_ref() == Some(&id))
+            && let Some(row) = table.row(&id)
+        {
+            report.not_carried.push(not_carried_row(
+                row,
+                "the related edit did not reproduce every value this row states",
+            ));
+        }
+    }
     Ok(())
 }
 

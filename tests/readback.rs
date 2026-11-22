@@ -572,6 +572,230 @@ fn removing_each_writer_kind_preserves_other_requirements_on_its_carrier() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// Generated PMI with a second requirement on the same feature and a part setting. The
+/// named rows exercise every kind the question planner can itself replace. Arbitrary
+/// hole notes, face finishes, parallelism, profile and total runout have no such planner
+/// form. The removal sweep covers those through items.remove.
+#[test]
+fn changing_each_supported_writer_kind_preserves_its_neighbours() {
+    let plate = plate();
+    let pin = load(&common::fixtures().join("parts/pin.step"), None).unwrap();
+    let fixtures = [
+        (
+            &plate,
+            "size",
+            "hole.function:holes:12",
+            json!({"value": 8.1}),
+            vec![12],
+        ),
+        (
+            &plate,
+            "thread",
+            "hole.function:holes:12",
+            json!("tapped:M5"),
+            vec![12],
+        ),
+        (
+            &plate,
+            "position",
+            "hole.position:holes:12",
+            json!("0.1"),
+            vec![12],
+        ),
+        (
+            &plate,
+            "flatness",
+            "datum.A.flatness",
+            json!("0.02"),
+            vec![4],
+        ),
+        (
+            &plate,
+            "perpendicularity",
+            "datum.B.control",
+            json!("0.02"),
+            vec![0],
+        ),
+        (
+            &plate,
+            "location",
+            "length:planes:0-5",
+            json!("100 ±0.3 from B"),
+            vec![5],
+        ),
+        (
+            &pin,
+            "knurl",
+            "diameter.fit:turned_steps:4",
+            json!("knurl:straight"),
+            vec![4],
+        ),
+        (
+            &pin,
+            "runout",
+            "diameter.runout:turned_steps:4",
+            json!("0.02"),
+            vec![4],
+        ),
+    ];
+    let remove_only = ["note", "finish", "parallelism", "profile", "total_runout"];
+    let tested: std::collections::BTreeSet<_> = fixtures
+        .iter()
+        .map(|(_, kind, ..)| *kind)
+        .chain(remove_only)
+        .collect();
+    assert_eq!(tested, requirement_kinds().into_iter().collect());
+    for (part, kind, row_id, to, faces) in fixtures {
+        let (expected_text, written) = match kind {
+            "size" => ("⌀8.1 H7", "Ø8.1 H7 on holes:12"),
+            "thread" => ("M5×0.8-6H THRU", "internal thread M5x0.8-6H on holes:12"),
+            "position" => ("⌖ ⌀0.1 A B C", "position 0.1 on holes:12"),
+            "flatness" => ("⏥ 0.02", "flatness 0.02 on [4]"),
+            "perpendicularity" => ("⟂ 0.02 A", "perpendicularity 0.02 on datum B"),
+            "location" => ("100 ±0.3", "location 100 ±0.3 to  from faces [0]"),
+            "knurl" => (
+                "straight knurl, pitch 1 mm, major ⌀6 mm",
+                "straight knurl on turned_steps:4",
+            ),
+            "runout" => ("↗ 0.02 A", "runout 0.02 on turned_steps:4"),
+            _ => unreachable!("no changed value and report for {kind}"),
+        };
+        let mut intent = Intent::new(serde_json::to_value(&part.binding).unwrap());
+        intent.datums = if std::ptr::eq(part, &plate) {
+            datums()
+        } else {
+            vec![object(json!({"letter":"A","faces":[0]}))]
+        };
+        intent.part.insert("material".into(), json!("steel"));
+        let mut target = cases(kind).remove(usize::from(kind == "thread")).req;
+        target["faces"] = json!(faces);
+        if kind == "thread" {
+            target["class"] = json!("5H");
+        }
+        match kind {
+            "perpendicularity" => target["datums"] = json!(["A"]),
+            "position" => {
+                target["datums"] = json!(["A", "B", "C"]);
+                target["diametral"] = json!(true);
+                target["tolerance"] = json!(0.25);
+            }
+            "runout" => target["datums"] = json!(["A"]),
+            _ => {}
+        }
+        if kind == "location" {
+            target["distance"] = json!(100);
+            target["reference"] = json!([0]);
+            target.as_object_mut().unwrap().remove("basic");
+            target["upper"] = json!(0.2);
+            target["lower"] = json!(-0.2);
+        }
+        let companion = with(base("finish", &faces), json!({"value":"Ra 1.6"}));
+        let note = with(base("note", &faces), json!({"text":"Keep existing finish"}));
+        intent.requirements = vec![object(target), object(companion), object(note)];
+        if matches!(kind, "size" | "thread") {
+            let frame = with(
+                base("position", &faces),
+                json!({"tolerance":0.25, "diametral":true, "datums":["A","B","C"]}),
+            );
+            intent.requirements.push(object(frame));
+        }
+        if kind == "position" {
+            let mut thread = cases("thread").remove(1).req;
+            thread["faces"] = json!(faces);
+            intent.requirements.push(object(thread));
+        }
+        let (bytes, _) = specify_core::writer::write_bytes(part, &intent, None).unwrap();
+        let loaded = specify_core::part::load_bytes("change.step", bytes).unwrap();
+        let before = specify_core::api::analyse(&loaded).unwrap();
+        let row = before["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == row_id)
+            .unwrap_or_else(|| panic!("{kind}: no {row_id}"));
+        let parsed: specify_core::feature_table::Row = serde_json::from_value(row.clone()).unwrap();
+        let expect = specify_core::edits::stated_value(&parsed);
+        let old = &row["requirements"][0]["text"];
+        let (after, report) = edit_and_read(
+            &loaded,
+            json!({"change":{row_id:{"to":to,"expect":expect}}}),
+        );
+        let new_row = after["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == row_id)
+            .unwrap();
+        let new = &new_row["requirements"][0]["text"];
+        assert_ne!(old, new, "{kind}");
+        assert_eq!(new, expected_text, "{kind}");
+        assert_eq!(
+            existing_except(&after, new),
+            existing_except(&before, old),
+            "{kind}"
+        );
+        assert_eq!(after["part"], before["part"], "{kind}");
+        assert_eq!(report["written"], json!([written]), "{kind}: {report}");
+        assert_eq!(report["not_written"], json!([]), "{kind}: {report}");
+    }
+}
+
+#[test]
+fn a_seeded_thread_shares_the_foreign_ctc04_position_carrier() {
+    let loaded = load(
+        &common::fixtures().join("nist/nist_ctc_04_asme1_ap242.stp.gz"),
+        None,
+    )
+    .unwrap();
+    let foreign = specify_core::api::analyse(&loaded).unwrap();
+    let position = find(&foreign, "geometric_tolerance", "Position", json!([27, 28]));
+    assert_eq!(position["text"], "⌖ ⌀0.35 A B C");
+    assert!(position["provenance"].is_null());
+    let mut intent = Intent::new(serde_json::to_value(&loaded.binding).unwrap());
+    intent.requirements = vec![object(with(
+        base("thread", &[27, 28]),
+        json!({
+            "side":"internal", "designation":"M16", "pitch":2.0, "spec":"M16x2",
+            "class":"6H", "hand":"RH", "drill_diameter":14.0, "through":true
+        }),
+    ))];
+    let (seeded, _) = specify_core::writer::write_bytes(&loaded, &intent, None).unwrap();
+    let seeded = specify_core::part::load_bytes("ctc04.step", seeded).unwrap();
+    let before = specify_core::api::analyse(&seeded).unwrap();
+    let thread = find(&before, "note", "internal thread", json!([27, 28]));
+    assert_eq!(thread["text"], "M16×2-6H THRU");
+    let number = thread["number"].as_u64().unwrap();
+    let removal = format!("#{number}");
+    let list = specify_core::edits::parse_value(json!({"items":{"remove":[removal]}})).unwrap();
+    let saved = specify_core::writer::apply::apply(&seeded, &list).unwrap();
+    let report = saved.to_dict();
+    assert_eq!(report["written"], json!([format!("removed {removal}")]));
+    assert_eq!(report["not_written"], json!([]));
+    assert_eq!(report["retired"], json!([number]));
+    let reopened = specify_core::part::load_bytes("ctc04.saved.step", saved.bytes).unwrap();
+    let after = specify_core::api::analyse(&reopened).unwrap();
+    assert_eq!(
+        existing_except(&after, &Value::Null),
+        existing_except(&before, &thread["text"])
+    );
+    assert_eq!(after["part"], before["part"]);
+
+    // Verify every entity carrying a foreign tolerance is unchanged after both saves.
+    let original = haecceity::p21::Document::parse(loaded.bytes.to_vec()).unwrap();
+    let defs = haecceity::step::read_part_definitions(original.bytes()).unwrap();
+    let pmi = pmi::read(&original, &defs).unwrap();
+    for bytes in [&seeded.bytes, &reopened.bytes] {
+        let now = haecceity::p21::Document::parse(bytes.to_vec()).unwrap();
+        for &id in pmi.provenance.parts[0].tolerances.iter().flatten() {
+            assert_eq!(
+                &original.bytes()[original.span(id).unwrap()],
+                &now.bytes()[now.span(id).unwrap()],
+                "foreign tolerance entity #{id}"
+            );
+        }
+    }
+}
+
 #[test]
 fn changing_or_removing_the_spindles_tapped_hole_position_preserves_its_thread() {
     let path =
@@ -591,10 +815,11 @@ fn changing_or_removing_the_spindles_tapped_hole_position_preserves_its_thread()
         existing_except(&before, &previous)
     );
     assert_eq!(changed["part"], before["part"]);
-    assert_eq!(report["written"].as_array().unwrap().len(), 1, "{report}");
-    assert!(
-        report["written"][0].as_str().unwrap().contains("position"),
-        "{report}"
+    assert_eq!(report["written"], json!(["position 0.1 on holes:15.16"]));
+    assert_eq!(report["not_written"], json!([]));
+    assert_eq!(
+        find(&changed, "geometric_tolerance", "Position", json!([15]))["text"],
+        current
     );
     assert_eq!(report["retired"], json!([]));
 
@@ -605,7 +830,36 @@ fn changing_or_removing_the_spindles_tapped_hole_position_preserves_its_thread()
     );
     assert_eq!(removed["part"], before["part"]);
     assert_eq!(report["written"], json!(["removed #12"]));
+    assert_eq!(report["not_written"], json!([]));
     assert_eq!(report["retired"], json!([12]));
+
+    // Both basics already locate the tapped hole. Changing only its frame must not report
+    // those implicit planner rows, even when one is shared with the clearance pattern.
+    let plate = plate();
+    let given = specify_core::edits::parse_value(json!({
+        "fill": {
+            "hole.function:holes:12": "tapped:M5",
+            "hole.position:holes:12": "0.25",
+            "datum.A": [2], "datum.B": [1], "datum.C": [0]
+        },
+        "accept_suggestions": [
+            "hole.function:hole_patterns.grid:6.7.8.10.11.13",
+            "hole.position:hole_patterns.grid:6.7.8.10.11.13"
+        ]
+    }))
+    .unwrap();
+    let seeded = specify_core::writer::apply::apply(&plate, &given).unwrap();
+    let seeded = specify_core::part::load_bytes("plate.step", seeded.bytes).unwrap();
+    let (after, report) = edit_and_read(
+        &seeded,
+        json!({"change":{"hole.position:holes:12":{"to":"0.1","expect":"0.25"}}}),
+    );
+    assert_eq!(report["written"], json!(["position 0.1 on holes:12"]));
+    assert_eq!(report["not_written"], json!([]));
+    assert_eq!(
+        find(&after, "geometric_tolerance", "Position", json!([12]))["value"],
+        0.1
+    );
 }
 
 #[test]
