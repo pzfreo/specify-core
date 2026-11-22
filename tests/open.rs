@@ -1360,7 +1360,7 @@ fn answers_are_read_and_streamed_with_each_save() {
         assert_eq!(name, "answers");
         assert_eq!(
             change,
-            json!({"rev": 1, "part": 0, "answers": stored, "source": "page"})
+            json!({"rev": 1, "part": 0, "answers": stored, "source": "page", "drafts": {}})
         );
         let (name, told) = stream.next();
         assert_eq!(name, "saved");
@@ -2444,8 +2444,8 @@ fn answered_meanwhile(shared: &specify_core::session::Shared) {
     s.set(0, answers, "mcp");
 }
 
-/// A session changed while a save without a rev applies its list (an agent's answer): refused as
-/// stale, nothing written, rather than the answer lost under the saved file's.
+/// An agent changes the answers just before commit. Even a save without a requested revision
+/// must refuse as stale and keep the newer answers.
 #[test]
 fn a_session_changed_during_a_save_without_a_rev_is_refused() {
     let scratch = Scratch::new("changed-meanwhile");
@@ -2459,6 +2459,39 @@ fn a_session_changed_during_a_save_without_a_rev_is_refused() {
     );
     assert_eq!(scratch.work(), ["part.step"], "nothing written");
     let s = specify_core::session::lock(&shared);
+    assert_eq!(s.answers(0).unwrap()["part.heat_treatment"], "None");
+}
+
+/// Exercise the old gap after the final check. Try the same lock MCP takes to publish an
+/// answer. On the old commit path the answer can enter here and the save erases it.
+fn answer_at_commit(shared: &specify_core::session::Shared) {
+    match shared.try_lock() {
+        Err(std::sync::TryLockError::WouldBlock) => {}
+        Ok(mut session) => {
+            let mut answers = session.answers(0).cloned().unwrap_or_default();
+            answers.insert("part.heat_treatment".into(), json!("None"));
+            session.set(0, answers, "mcp");
+        }
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn an_answer_cannot_enter_after_the_final_revision_check() {
+    let scratch = Scratch::new("commit-boundary");
+    let file = scratch.input();
+    let shared = Arc::new(Mutex::new(
+        Session::open(OpenedFile::read(&file).unwrap(), true).unwrap(),
+    ));
+    specify_core::session::lock(&shared).commit_boundary = Some(answer_at_commit);
+    let list = specify_core::edits::parse_value(decide_coating()).unwrap();
+    let saved = specify_core::session::save_edits(&shared, Some(0), &list, "page").unwrap();
+    assert_eq!(saved.rev, 1, "an answer slipped in after the final check");
+    assert!(scratch.path("work/part.step.bak").exists());
+    // A real update immediately after publication can take the lock and remains in the session.
+    answer_at_commit(&shared);
+    let s = specify_core::session::lock(&shared);
+    assert_eq!(s.rev(), 2);
     assert_eq!(s.answers(0).unwrap()["part.heat_treatment"], "None");
 }
 
@@ -2502,4 +2535,135 @@ fn save_edits_commits_general_measurements_at_the_requested_revision() {
     assert_eq!(state(location), "stated");
     assert_eq!(state(declined), "decided_none");
     assert_eq!(opened.save(0, json!({})).status, 409);
+}
+
+#[test]
+fn page_saves_part_lists_as_one_assembly_revision() {
+    let scratch = Scratch::new("assembly-edits");
+    let input = scratch.input();
+    let before = include_bytes!("fixtures/parts/assembly.step");
+    std::fs::write(&input, before).unwrap();
+    let opened = Opened::start(&input, &scratch, &["--in-place"]);
+    let page = opened.page();
+    let parts = specify_core::part::parts(&input).unwrap();
+    let rev = page.rev();
+    let plate = json!({"part": 0, "edits": {"fill": {"part.material": "Steel"}}});
+    let pin = json!({"part": 1, "edits": {"fill": {"part.material": "Brass"}}});
+
+    let bad = json!({"part": 1, "edits": {"fill": {"unknown.pin": "Brass"}}});
+    let refused = page.send(
+        "POST",
+        "save",
+        &json!({"rev": rev, "partEdits": [plate, bad]}),
+    );
+    assert_eq!(refused.status, 422, "{}", refused.json());
+    let failure = refused.json()["failures"][0]["entry"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(
+        failure.contains(&parts[1].name) && failure.contains("unknown.pin"),
+        "{failure}"
+    );
+    assert_eq!(page.rev(), rev);
+    assert_eq!(std::fs::read(&input).unwrap(), before);
+    assert_eq!(scratch.work(), ["part.step"], "no backup on refusal");
+
+    for malformed in [
+        json!({"rev": rev, "partEdits": []}),
+        json!({"rev": rev, "edits": {}, "partEdits": [plate]}),
+        json!({"rev": rev, "partEdits": [plate, plate]}),
+        json!({"rev": rev, "partEdits": [{"part": -1, "edits": {}}]}),
+        json!({"rev": rev, "partEdits": [{"part": 1, "edits": {"fill": []}}]}),
+    ] {
+        assert_eq!(page.send("POST", "save", &malformed).status, 400);
+    }
+    let saved = page.send(
+        "POST",
+        "save",
+        &json!({"rev": rev, "partEdits": [plate, pin]}),
+    );
+    assert_eq!(saved.status, 200, "{}", saved.json());
+    let saved = saved.json();
+    assert_eq!(saved["rev"], rev + 1);
+    assert_eq!(saved["report"]["unchanged"], false);
+    assert_eq!(saved["report"]["parts"][1]["name"], parts[1].name);
+    for (part, material) in [(0, "Steel"), (1, "Brass")] {
+        let analysis = specify_core::api::analyse_file(&input, Some(part)).unwrap();
+        let rows = analysis["table"]["rows"].as_array().unwrap();
+        let row = rows
+            .iter()
+            .find(|row| row["id"] == "part.material")
+            .unwrap();
+        assert_eq!(row["value"], material);
+    }
+    assert_eq!(
+        std::fs::read(scratch.path("work/part.step.bak")).unwrap(),
+        before
+    );
+    assert_eq!(
+        page.send("POST", "save", &json!({"rev": rev, "partEdits": [pin]}))
+            .status,
+        409
+    );
+}
+
+/// The HTTP outcome of two concurrent writes based on the same revision, through each save form.
+#[test]
+fn simultaneous_page_saves_at_one_revision_have_one_winner() {
+    for format in ["whole", "part", "batch"] {
+        let scratch = Scratch::new(&format!("simultaneous-{format}"));
+        let input = scratch.input();
+        if format != "whole" {
+            std::fs::write(&input, include_bytes!("fixtures/parts/assembly.step")).unwrap();
+        }
+        let opened = Opened::start(&input, &scratch, &["--in-place"]);
+        let page = opened.page();
+        let rev = page.rev();
+        let gate = std::sync::Barrier::new(2);
+        let send = |material| {
+            let edits = json!({"fill": {"part.coating": material}});
+            let body = match format {
+                "whole" => json!({"rev": rev, "edits": edits}),
+                "part" => json!({"rev": rev, "partEdits": [{"part": 0, "edits": edits}]}),
+                _ => json!({"rev": rev, "partEdits": [
+                    {"part": 0, "edits": edits},
+                    {"part": 1, "edits": {"fill": {"part.coating": material}}}
+                ]}),
+            };
+            gate.wait();
+            page.send("POST", "save", &body)
+        };
+        let replies = std::thread::scope(|threads| {
+            let first = threads.spawn(|| send("Zinc"));
+            let second = send("Anodised");
+            [first.join().unwrap(), second]
+        });
+        let mut codes = replies.each_ref().map(|reply| reply.status);
+        codes.sort_unstable();
+        assert_eq!(codes, [200, 409], "{format}");
+        assert_eq!(page.rev(), rev + 1);
+        let winner = if replies[0].status == 200 {
+            "Zinc"
+        } else {
+            "Anodised"
+        };
+        let selection = if format == "whole" {
+            vec![None]
+        } else if format == "part" {
+            vec![Some(0)]
+        } else {
+            vec![Some(0), Some(1)]
+        };
+        for part in selection {
+            let data = specify_core::api::analyse_file(&input, part).unwrap();
+            let coating = data["table"]["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == "part.coating")
+                .unwrap();
+            assert_eq!(coating["value"], winner);
+        }
+    }
 }

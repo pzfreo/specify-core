@@ -1182,7 +1182,7 @@ fn accepting_any_one_suggestion_changes_that_row_alone() {
 }
 
 #[test]
-fn an_edits_save_is_refused_while_answers_are_unsaved() {
+fn a_page_save_does_not_silently_drop_working_answers() {
     use specify_core::session::{self, Opened, Session};
     use std::sync::{Arc, Mutex};
     let dir = std::env::temp_dir().join(format!("specify-unsaved-{}", std::process::id()));
@@ -1200,10 +1200,9 @@ fn an_edits_save_is_refused_while_answers_are_unsaved() {
         s.set(0, answers, "page");
     }
     let remove = edits::parse_value(json!({"items": {"remove": ["#5"]}})).unwrap();
-    let err = session::save_edits(&shared, None, &remove, "mcp").unwrap_err();
+    let err = session::save_edits(&shared, None, &remove, "page").unwrap_err();
     assert!(
-        err.to_string()
-            .contains("save or discard the unsaved answers first"),
+        err.to_string().contains("include the staged answer"),
         "{err}"
     );
     assert_eq!(std::fs::read(&path).unwrap(), before);
@@ -1211,14 +1210,8 @@ fn an_edits_save_is_refused_while_answers_are_unsaved() {
         session::lock(&shared).answers(0).unwrap()["part.coating"],
         "anodise clear"
     );
-    // Discarded (the answers back as the file holds them), the edits save goes ahead.
-    {
-        let mut s = session::lock(&shared);
-        let mut answers = s.answers(0).cloned().unwrap_or_default();
-        answers.remove("part.coating");
-        s.set(0, answers, "page");
-    }
-    session::save_edits(&shared, None, &remove, "mcp").unwrap();
+    session::discard_answers(&shared, None, None, "page").unwrap();
+    session::save_edits(&shared, None, &remove, "page").unwrap();
     let after = load(&path, None).unwrap();
     assert!(!numbers(&after).contains_key(&5));
     let _ = std::fs::remove_dir_all(&dir);

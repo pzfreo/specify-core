@@ -225,7 +225,8 @@ fn conversation(era: &'static str) {
     let allow = [common::fixtures(), dir.clone()];
     let mut client = Stdio::start(&allow, era);
     let mut serve = serve::Server::default();
-    let plate = part("plate");
+    let plate = dir.join("plate.step");
+    std::fs::copy(part("plate"), &plate).unwrap();
 
     if era == mcp::MODERN {
         let discovered = client.result("server/discover", json!({}));
@@ -279,7 +280,8 @@ fn conversation(era: &'static str) {
             "changes",
             "show",
             "save",
-            "check"
+            "check",
+            "discard"
         ]
     );
 
@@ -391,10 +393,8 @@ fn conversation(era: &'static str) {
     assert_eq!(pmi["part_settings"], analysis["part"]);
     assert_eq!(pmi["resumed"], json!(false));
 
-    // check: an edit list filling the answers and the defaults the person approved, checked
-    // against the file as save would apply it (ADR P9: never taken unasked). While the session
-    // holds the answers set with `answer`, check says so and save is refused, writing nothing;
-    // the list itself applies to the file.
+    // Check and save include the approved working answers alongside the explicitly listed
+    // defaults. Check applies the same merge in memory and does not write.
     let offered: Map<String, Value> = client.call("questions", json!({"doc": doc}))["questions"]
         .as_array()
         .unwrap()
@@ -413,29 +413,15 @@ fn conversation(era: &'static str) {
     assert!(fill.len() > 2, "{fill:?}");
     let list = json!({"fill": fill});
     let checked = client.call("check", json!({"doc": doc, "edits": list}));
-    assert_eq!(checked["applicable"], json!(false), "{checked}");
-    assert!(
-        checked["failures"].to_string().contains("unsaved answers"),
-        "{checked}"
-    );
+    assert_eq!(checked["applicable"], json!(true), "{checked}");
     assert_eq!(checked["written"], json!(false));
     assert_eq!(checked["doc"], json!(doc));
-    let expected = specify_core::writer::apply::check(
-        &specify_core::part::load(&plate, None).unwrap(),
-        &list.to_string(),
-    );
-    assert!(expected.applicable, "{expected:?}");
-    assert_eq!(checked["entries"], json!(expected.entries));
-    let refused = client.refusal("save", json!({"doc": doc, "edits": list}));
-    assert_eq!(refused["code"], json!("invalid"), "{refused}");
-    assert!(
-        refused["message"]
-            .as_str()
-            .unwrap()
-            .contains("unsaved answers"),
-        "{refused}"
-    );
+    assert!(checked["entries"].as_u64().unwrap() >= fill.len() as u64);
     assert!(!plate.with_file_name("plate.specified.step").exists());
+    let saved = client.call("save", json!({"doc": doc, "edits": list}));
+    let written = Path::new(saved["path"].as_str().unwrap());
+    let analysis = specify_core::api::analyse_file(written, None).unwrap();
+    assert_eq!(analysis["part"]["material"], "6082-T6");
 
     // diff of two revisions == the revision report the API gives.
     let (old, new) = (
@@ -533,6 +519,52 @@ fn error_of(server: &mut Server, name: &str, arguments: Value) -> Value {
     let result = call(server, name, arguments);
     assert_eq!(result["isError"], json!(true), "{result}");
     result["structuredContent"]["error"].clone()
+}
+
+#[test]
+fn tool_inputs_have_no_root_combinators() {
+    let mut server = Server::new(&[scratch("schema")]).unwrap();
+    let reply = server
+        .handle(&modern(1, "tools/list", json!({})), None)
+        .body
+        .unwrap();
+    let tools = reply["result"]["tools"].as_array().unwrap();
+    assert!(!tools.is_empty());
+    for tool in tools {
+        for key in ["oneOf", "anyOf", "allOf"] {
+            assert!(
+                tool["inputSchema"].get(key).is_none(),
+                "{} has root {key}",
+                tool["name"]
+            );
+        }
+    }
+}
+
+#[test]
+fn save_tool_tells_clients_that_saving_approves_drafts() {
+    let mut server = Server::new(&[scratch("save-approval")]).unwrap();
+    let reply = server
+        .handle(&modern(1, "tools/list", json!({})), None)
+        .body
+        .unwrap();
+    let save = reply["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "save")
+        .unwrap();
+    let description = save["description"].as_str().unwrap();
+    for phrase in [
+        "includes the session's agent drafts",
+        "counts as approving them",
+        "discard",
+    ] {
+        assert!(
+            description.contains(phrase),
+            "save description omits {phrase:?}"
+        );
+    }
 }
 
 #[test]
@@ -994,7 +1026,7 @@ fn http_needs_the_token_the_host_and_no_origin() {
             .as_array()
             .unwrap()
             .len(),
-        13
+        14
     );
     // A legacy-era JSON-RPC error is a 200 body (2025-11-25 Streamable HTTP); an
     // unsupported header version is still 400.
@@ -1834,62 +1866,194 @@ fn save_applies_an_edit_list_all_or_nothing_and_check_says_so_first() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A session holding answers set with `answer` and not saved refuses `save` (the saved file's
-/// stored answers would replace them); set back, the save goes ahead.
 #[test]
-fn save_is_refused_while_answers_set_with_answer_are_unsaved() {
-    let dir = scratch("unsaved-mcp");
-    let copy = dir.join("plate.step");
-    std::fs::copy(part("plate"), &copy).unwrap();
+fn mcp_saves_and_discards_its_working_answers() {
+    let dir = scratch("working-edits");
+    let copy = dir.join("assembly.step");
+    std::fs::copy(part("assembly"), &copy).unwrap();
     let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
-    let opened = call(&mut server, "open", json!({"path": copy}));
-    let doc = opened["structuredContent"]["doc"].clone();
-    let list = json!({"none": ["part.coating"]});
+    let open = |server: &mut Server, k| call(server, "open", json!({"path": copy, "part": k}));
+    let plate = open(&mut server, 0)["structuredContent"]["doc"].clone();
+    let pin = open(&mut server, 1)["structuredContent"]["doc"].clone();
+
     call(
         &mut server,
         "answer",
-        json!({"doc": doc, "set": {"part.material": "6061-T6"}}),
-    );
-    let refused = error_of(&mut server, "save", json!({"doc": doc, "edits": list}));
-    assert_eq!(refused["code"], json!("invalid"), "{refused}");
-    assert!(
-        refused["message"]
-            .as_str()
-            .unwrap()
-            .contains("unsaved answers"),
-        "{refused}"
-    );
-    assert!(!dir.join("plate.specified.step").exists());
-    // `check` says the same as `save` would: refused while the answers are unsaved.
-    let checked = call(&mut server, "check", json!({"doc": doc, "edits": list}));
-    let checked = &checked["structuredContent"];
-    assert_eq!(checked["applicable"], json!(false), "{checked}");
-    assert!(
-        checked["failures"].to_string().contains("unsaved answers"),
-        "{checked}"
+        json!({"doc": plate, "set": {"part.material": "Steel"}}),
     );
     call(
         &mut server,
         "answer",
-        json!({"doc": doc, "clear": ["part.material"]}),
+        json!({"doc": pin, "set": {"part.material": "Brass"}}),
     );
-    let checked = call(&mut server, "check", json!({"doc": doc, "edits": list}));
+    let list = json!({"fill": {"part.coating": "Zinc", "part.material": "Bronze"}});
+    let checked = call(&mut server, "check", json!({"doc": pin, "edits": list}));
     assert_eq!(
-        checked["structuredContent"]["applicable"],
-        json!(true),
+        checked["structuredContent"]["applicable"], true,
         "{checked}"
     );
-    let saved = call(&mut server, "save", json!({"doc": doc, "edits": list}));
-    assert_eq!(saved["isError"], json!(false), "{saved}");
-    assert!(dir.join("plate.specified.step").exists());
+    let written = dir.join("assembly.specified.step");
+    assert!(!written.exists());
+    let saved = call(&mut server, "save", json!({"doc": pin, "edits": list}));
+    assert_eq!(saved["isError"], false, "{saved}");
+    let row = |part, id| {
+        let analysis = specify_core::api::analyse_file(&written, Some(part)).unwrap();
+        analysis["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(row(0, "part.material")["value"], "Steel");
+    assert_eq!(row(1, "part.material")["value"], "Bronze");
+    assert_eq!(row(1, "part.coating")["value"], "Zinc");
+
+    call(
+        &mut server,
+        "answer",
+        json!({"doc": plate, "set": {"part.general_tolerance": "ISO 2768-f"}}),
+    );
+    let before = std::fs::read(&written).unwrap();
+    let discarded = call(&mut server, "discard", json!({"doc": pin}));
+    assert_eq!(discarded["isError"], false, "{discarded}");
+    assert_eq!(std::fs::read(&written).unwrap(), before);
+    let saved = call(
+        &mut server,
+        "save",
+        json!({"doc": plate, "edits": {"none": ["part.heat_treatment"]}}),
+    );
+    assert_eq!(saved["isError"], false, "{saved}");
+    assert_eq!(row(0, "part.general_tolerance")["state"], "gap");
+    assert_eq!(row(0, "part.heat_treatment")["state"], "decided_none");
     drop(server);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// ADR P11: an answer to what the file states is refused with the edit list's reason for a
-/// fill on a stated row, never accepted and then left out of the save.
 #[test]
-fn an_answer_to_what_the_file_states_is_refused() {
+fn the_page_saves_and_discards_agent_edits_at_the_seen_revision() {
+    let dir = scratch("page-working-edits");
+    let copy = dir.join("assembly.step");
+    std::fs::copy(part("assembly"), &copy).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    server.set_app(stub_app(&dir));
+    let plate =
+        call(&mut server, "open", json!({"path": copy, "part": 0}))["structuredContent"]["doc"]
+            .clone();
+    let pin =
+        call(&mut server, "open", json!({"path": copy, "part": 1}))["structuredContent"]["doc"]
+            .clone();
+    let shown = call(&mut server, "show", json!({"doc": plate, "browser": false}));
+    let url = shown["structuredContent"]["url"].as_str().unwrap();
+    let mut events = Events::open(url);
+    events.next();
+    call(
+        &mut server,
+        "answer",
+        json!({"doc": pin, "set": {"part.material": "Brass", "part.coating": "Zinc"}}),
+    );
+    let (_, update) = events.next();
+    assert_eq!(update["draft"]["fill"]["part.material"], "Brass");
+    let (_, seen) = page(url, "GET", "answers", None);
+    assert_eq!(seen["drafts"]["1"]["fill"]["part.coating"], "Zinc");
+    let rev = seen["rev"].as_u64().unwrap();
+    let (status, rejected) = page(
+        url,
+        "POST",
+        "save",
+        Some(&json!({"rev": rev, "partEdits": [{"part": 0, "edits": {}}]})),
+    );
+    assert_eq!(status, 422);
+    assert_eq!(rejected["failures"][0]["part"], 1);
+
+    let (status, _) = page(url, "POST", "discard", Some(&json!({"rev": rev - 1})));
+    assert_eq!(status, 409);
+    let (status, _) = page(
+        url,
+        "POST",
+        "discard",
+        Some(&json!({"rev": rev, "part": 1, "id": "part.coating"})),
+    );
+    assert_eq!(status, 200);
+    let (_, seen) = page(url, "GET", "answers", None);
+    assert_eq!(
+        seen["drafts"]["1"]["fill"],
+        json!({"part.material": "Brass"})
+    );
+    let (status, saved) = page(
+        url,
+        "POST",
+        "save",
+        Some(&json!({
+            "rev": seen["rev"], "partEdits": [{"part": 1, "edits": seen["drafts"]["1"]}]
+        })),
+    );
+    assert_eq!(status, 200, "{saved}");
+    let written = Path::new(saved["path"].as_str().unwrap());
+    let row = |part, id| {
+        let analysis = specify_core::api::analyse_file(written, Some(part)).unwrap();
+        analysis["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(row(1, "part.material")["value"], "Brass");
+    assert_eq!(row(1, "part.coating")["state"], "gap");
+    let (_, seen) = page(url, "GET", "answers", None);
+    assert!(seen.get("drafts").is_none() || seen["drafts"] == json!({}));
+    let answer = call(
+        &mut server,
+        "answer",
+        json!({"doc": pin, "set": {"part.material": "Bronze"}}),
+    );
+    assert_eq!(answer["isError"], false, "{answer}");
+    let (_, seen) = page(url, "GET", "answers", None);
+    assert_eq!(
+        seen["drafts"]["1"]["change"]["part.material"],
+        json!({"to": "Bronze", "expect": "Brass"}),
+        "the page gets a change against the saved value"
+    );
+    let (status, saved) = page(
+        url,
+        "POST",
+        "save",
+        Some(&json!({
+            "rev": seen["rev"], "partEdits": [{"part": 1, "edits": seen["drafts"]["1"]}]
+        })),
+    );
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(row(1, "part.material")["value"], "Bronze");
+    call(
+        &mut server,
+        "answer",
+        json!({"doc": plate, "set": {"part.material": "Steel"}}),
+    );
+    let (_, seen) = page(url, "GET", "answers", None);
+    let (status, discarded) = page(url, "POST", "discard", Some(&json!({"rev": seen["rev"]})));
+    assert_eq!(status, 200, "{discarded}");
+    let (status, saved) = page(
+        url,
+        "POST",
+        "save",
+        Some(&json!({
+            "rev": discarded["rev"], "partEdits": [{"part": 0, "edits": {"none": ["part.coating"]}}]
+        })),
+    );
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(row(0, "part.material")["state"], "gap");
+    assert_eq!(row(0, "part.coating")["state"], "decided_none");
+    drop(events);
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An answer that changes a stated row uses the same guarded change as an explicit edit.
+#[test]
+fn mcp_answers_can_change_what_the_file_states() {
     let dir = scratch("stated");
     let copy = dir.join("spindle.step");
     let gz = std::fs::read(
@@ -1903,22 +2067,6 @@ fn an_answer_to_what_the_file_states_is_refused() {
     let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
     let opened = call(&mut server, "open", json!({"path": copy}));
     let doc = opened["structuredContent"]["doc"].clone();
-    let refused = error_of(
-        &mut server,
-        "answer",
-        json!({"doc": doc, "set": {"part.material": "aluminium"}}),
-    );
-    assert_eq!(refused["question"], json!("part.material"), "{refused}");
-    assert_eq!(
-        refused["message"],
-        json!(
-            "the file states \"steel\" for part.material, so there is no gap to fill; changing \
-             what the file states is an explicit edit, not an answer: an edit list's change, \
-             {\"change\": {\"part.material\": {\"to\": <the new value>, \"expect\": \"steel\"}}}, \
-             sent with `save` (or checked with `check`) as its `edits`"
-        ),
-        "{refused}"
-    );
     // A fill equal to what the file states is a no-op, as on the command line.
     let same = call(
         &mut server,
@@ -1934,14 +2082,39 @@ fn an_answer_to_what_the_file_states_is_refused() {
     let answered = call(
         &mut server,
         "answer",
-        json!({"doc": doc, "set": {"hole.function:holes:14": "fit:H7"}, "partial": true}),
+        json!({"doc": doc, "set": {"hole.function:holes:14": "not a fit"}, "partial": true}),
     );
     let out = &answered["structuredContent"];
     let reason = out["outcomes"]["hole.function:holes:14"]["refused"]
         .as_str()
         .unwrap();
-    assert!(reason.contains("the file states \"⌀3.3 H11\""), "{reason}");
+    assert!(reason.contains("hole.function:holes:14"), "{reason}");
     assert!(out["set"].as_array().unwrap().is_empty(), "{out}");
+    assert_eq!(out["rev"], same["structuredContent"]["rev"]);
+
+    let answer = call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "aluminium"}}),
+    );
+    assert_eq!(answer["isError"], false, "{answer}");
+    let edits = json!({"doc": doc, "edits": {}});
+    let checked = call(&mut server, "check", edits.clone());
+    assert_eq!(
+        checked["structuredContent"]["applicable"], true,
+        "{checked}"
+    );
+    assert!(!dir.join("spindle.specified.step").exists());
+    let saved = call(&mut server, "save", edits);
+    assert_eq!(saved["isError"], false, "{saved}");
+    let saved_path = saved["structuredContent"]["path"].as_str().unwrap();
+    let reopened = call(&mut server, "open", json!({"path": saved_path}));
+    let reopened_doc = reopened["structuredContent"]["doc"].clone();
+    let pmi = call(&mut server, "read_pmi", json!({"doc": reopened_doc}));
+    assert_eq!(
+        pmi["structuredContent"]["part_settings"]["material"], "aluminium",
+        "{pmi}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -2081,31 +2254,137 @@ fn the_instructions_say_the_two_patterns_and_never_to_take_a_default() {
     }
 }
 
-/// An edit list applies to a file of one part for now: a save of a part of a file of several
-/// is refused, and nothing is written.
+/// The opened part is the default target. Explicit lists share a check and one commit.
 #[test]
-fn a_save_of_a_part_of_several_is_refused_and_writes_nothing() {
-    let dir = scratch("approved-by-part");
-    let two = dir.join("two.step");
-    std::fs::copy(part("a_file_with_two_parts_must_say_which"), &two).unwrap();
+fn mcp_checks_and_saves_one_or_more_parts_atomically() {
+    use haecceity::p21::Document;
+
+    let dir = scratch("part-edits");
+    let input = dir.join("assembly.step");
+    let original = std::fs::read(part("assembly")).unwrap();
+    let seed = |bytes, index, material, tolerance| {
+        let file = specify_core::part::File::of_bytes(&input, bytes).unwrap();
+        let loaded = file.load(Some(index)).unwrap();
+        let list = specify_core::edits::parse_value(json!({"fill": {
+            "part.material": material, "part.general_tolerance": tolerance,
+        }}))
+        .unwrap();
+        specify_core::writer::apply::apply(&loaded, &list)
+            .unwrap()
+            .bytes
+    };
+    let pin_only = seed(original, 1, "Bronze", "ISO 2768-f");
+    let prepared = seed(pin_only.clone(), 0, "Steel", "ISO 2768-m");
+    std::fs::write(&input, &prepared).unwrap();
     let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
-    let doc =
-        call(&mut server, "open", json!({"path": two, "part": 0}))["structuredContent"]["doc"]
-            .clone();
-    let refused = error_of(
+    let opened = call(
+        &mut server,
+        "open",
+        json!({"path": input, "part": 0, "in_place": true}),
+    );
+    let doc = opened["structuredContent"]["doc"].clone();
+    let rev = opened["structuredContent"]["rev"].clone();
+    let edits = json!({
+        "change": {"part.material": {"expect": "Steel", "to": "Aluminium"}},
+        "items": {"remove": [{"id": "part.general_tolerance"}]},
+        "fill": {"part.coating": "Anodised"}
+    });
+    let checked = call(&mut server, "check", json!({"doc": doc, "edits": edits}));
+    assert_eq!(
+        checked["structuredContent"]["applicable"], true,
+        "{checked}"
+    );
+    assert_eq!(checked["structuredContent"]["rev"], rev);
+    assert_eq!(std::fs::read(&input).unwrap(), prepared);
+    let saved = call(
         &mut server,
         "save",
-        json!({"doc": doc, "edits": {"none": ["part.coating"]}}),
+        json!({"doc": doc, "rev": rev, "edits": edits}),
     );
-    assert_eq!(refused["code"], json!("invalid"), "{refused}");
-    assert!(!dir.join("two.specified.step").exists());
+    assert_eq!(saved["structuredContent"]["path"], json!(input));
+    let saved_bytes = std::fs::read(&input).unwrap();
+    let pin = Document::parse(pin_only).unwrap();
+    let updated = Document::parse(saved_bytes).unwrap();
+    for id in pin.graph().entities.keys() {
+        assert_eq!(
+            &pin.bytes()[pin.span(*id).unwrap()],
+            &updated.bytes()[updated.span(*id).unwrap()],
+            "pin and assembly entity #{id}"
+        );
+    }
+
+    // Reopen on a fresh server so the test reads the file rather than a cached analysis.
+    drop(server);
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let opened = call(
+        &mut server,
+        "open",
+        json!({"path": input, "part": 0, "in_place": true}),
+    );
+    let doc = opened["structuredContent"]["doc"].clone();
+    let table = |index, id| {
+        let data = specify_core::api::analyse_file(&input, Some(index)).unwrap();
+        data["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == id)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(table(0, "part.material")["value"], "Aluminium");
+    assert_eq!(table(0, "part.general_tolerance")["state"], "gap");
+    assert_eq!(table(0, "part.coating")["value"], "Anodised");
+    assert_eq!(table(1, "part.material")["value"], "Bronze");
+    let rev = opened["structuredContent"]["rev"].as_u64().unwrap();
+    let plate = json!({"part": 0, "edits": {"fill": {"part.general_tolerance": "ISO 2768-f"}}});
+    let pin = json!({"part": 1, "edits": {"fill": {"part.coating": "Zinc"}}});
+    let before = std::fs::read(&input).unwrap();
+    let bad = json!({"part": 1, "edits": {"fill": {"unknown.pin": "Zinc"}}});
+    let args = json!({"doc": doc, "rev": rev, "partEdits": [plate, bad]});
+    let checked = call(
+        &mut server,
+        "check",
+        json!({"doc": doc, "partEdits": [plate, bad]}),
+    );
+    let checked = &checked["structuredContent"];
+    assert_eq!(checked["applicable"], false, "{checked}");
+    assert_eq!(checked["rev"], rev);
+    let refused = error_of(&mut server, "save", args);
+    assert_eq!(refused["failures"], checked["failures"]);
+    assert_eq!(refused["failures"][0]["part"], 1);
+    assert_eq!(
+        refused["failures"][0]["editEntry"],
+        r#"fill["unknown.pin"]"#
+    );
+    assert_eq!(
+        refused["failures"][0]["entry"],
+        r#"Part "pin" (1): fill["unknown.pin"]"#
+    );
+    assert_eq!(std::fs::read(&input).unwrap(), before);
+
+    let args = json!({"doc": doc, "rev": rev, "partEdits": [plate, pin]});
+    let checked = call(
+        &mut server,
+        "check",
+        json!({"doc": doc, "partEdits": [plate, pin]}),
+    );
+    assert_eq!(
+        checked["structuredContent"]["applicable"], true,
+        "{checked}"
+    );
+    assert_eq!(std::fs::read(&input).unwrap(), before);
+    let saved = call(&mut server, "save", args);
+    assert_eq!(saved["structuredContent"]["rev"], rev + 1);
+    assert_eq!(table(0, "part.general_tolerance")["value"], "ISO 2768-f");
+    assert_eq!(table(1, "part.coating")["value"], "Zinc");
     drop(server);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A part joining the session while the page is open is a change: the page's save at its old
-/// rev is refused; re-read, the part is there with no answers. (A save of a file of several
-/// parts is then refused, an edit list applying to a file of one part for now.)
+/// rev is refused. Re-reading shows the part with no answers. A page that omits a working
+/// answer gets a part-scoped refusal and cannot drop it accidentally.
 #[test]
 fn a_part_joining_the_session_moves_the_rev_and_is_not_written_empty() {
     let dir = scratch("joined");
@@ -2140,14 +2419,19 @@ fn a_part_joining_the_session_moves_the_rev_and_is_not_written_empty() {
         change,
         json!({"rev": rev + 1, "part": 1, "answers": {}, "source": "mcp", "joined": true})
     );
-    let body = json!({"rev": rev, "edits": {}});
+    let body = json!({"rev": rev, "partEdits": [{"part": 1, "edits": {}}]});
     let (status, refused) = page(&url, "POST", "save", Some(&body));
     assert_eq!(status, 409, "{refused}");
     let (_, again) = page(&url, "GET", "answers", None);
     assert_eq!(again["parts"]["1"], json!({}));
-    let body = json!({"rev": again["rev"], "edits": {}});
+    let body = json!({"rev": again["rev"], "partEdits": [{"part": 1, "edits": {}}]});
     let (status, refused) = page(&url, "POST", "save", Some(&body));
     assert_eq!(status, 422, "{refused}");
+    assert_eq!(refused["failures"][0]["part"], 0);
+    assert_eq!(
+        refused["failures"][0]["editEntry"],
+        r#"fill["part.material"]"#
+    );
     assert!(!dir.join("two.specified.step").exists());
     drop(events);
     drop(server);

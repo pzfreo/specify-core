@@ -33,8 +33,9 @@ Read first:
     `resume.foreign` and `resume.present`. What the file states stands; changing it is an
     explicit edit.
   - **Storage:** only answers that leave no PMI behind are stored in the file: decided none,
-    choices that are not requirements, and approvals the planner wrote nothing for (the
-    payload's `no_pmi`, `_specify.no_pmi` among resumed answers). An answer that wrote PMI is
+    choices that are not requirements, and general sizes deliberately omitted on datum faces
+    (the payload's `no_pmi`, `_specify.no_pmi` among resumed answers). Unfulfilled approvals
+    are reported and their rows stay open. An answer that wrote PMI is
     not stored; the file states it. A file saved by 0.2.x reopens with its other stored answers
     ignored (the file states them) and is stored the new way on the next save.
 - **Lockstep versions.** Every package is released together at one version: 0.3.0 is the next for
@@ -43,6 +44,16 @@ Read first:
 
 ### Added
 
+- **The ids are a contract** (docs/ids.md): the part-level ids (`part.material`, `datum.<letter>`,
+  `bom.*`, `extra.<name>`, …), the requirement kinds (`hole.position`, `diameter.fit`, …) and the
+  added requirement kinds, and measurement ids `length:planes:*` and `location:holes:*`,
+  are listed and promised stable; a feature id is a kind and the faces
+  it is on, and its face numbers hold for one revision only. `tests/ids_contract.rs` fails when
+  the code's ids and the doc's lists differ. The lists are one source each in the code
+  (`input::PART_NAMES`, `FEATURE_KINDS`, `DATUM_LETTERS`, `DATUM_CONTROLS`, `bom::KEYS`, public
+  but hidden from the docs, for the test). No behaviour change. The file's other PMI items'
+  ids, `file_pmi:#<entity>` (the edit list's `{"id": …}` removal), are documented there too:
+  the prefix is in the contract, the entity number holds while the file is saved in place.
 - What the file states reads back whole (ADR P11): each `existing` item, and each feature-table
   requirement, has its full notation, `text` (`⌀3.3 H11`, `⌖ ⌀0.3Ⓜ A`, `M2×0.4-6H ↧ 2`), so a
   stated row reads `⌀3.3 H11`, not `Size_Diameter 3.3`; optional structured fields by the
@@ -87,13 +98,52 @@ Read first:
   report (and so on the diff page and in MCP's `markdown`), and `new_unstated: [{feature, what}]`
   in `report.json` (left out when empty). It never changes the verdict or `check`.
 
+- The edit list (`src/edits.rs`, proposal specify-0.3.0 use case 7): `{fill, change, items:
+  {change, remove}, none, accept_suggestions}`, parsed with every malformed part named by its
+  path, and validated all or nothing against the file's state (a differing fill, a stale
+  `expect`, an unknown id or number, an unsupported item change, contradictory entries). A 0.2
+  answers file is read as fills plus nones. `write STEP EDITS.json --check` validates and writes
+  nothing; so do MCP `check`, WASM `checkEdits` and Python `api.check_edits`, against the file.
+- Saving edits in place (proposal specify-0.3.0 use cases 3, 4 and 7; ADR P11):
+  `write STEP EDITS.json -o OUT` applies an edit list all or nothing, and `--check` now checks it
+  against the file's feature table. A save touches only what the list names: every other
+  requirement keeps its bytes and its number, whoever wrote it, and a rules change never alters a
+  file. A change keeps the number when only its limits change; a different measurement gets a new
+  number and the old one is retired; a removed requirement's number is retired; retired numbers
+  are never reused. Only decided-none (and how holes are located) and the number history are
+  stored. A fill writes only its own row (filling the general tolerance writes its class, not
+  the planner's dimensions for other features). A change never adds a location beside one its
+  row shares with another feature: such a change is refused, naming it. A change to none takes
+  the frame with the basic dimensions only it used. `--check` applies the list in memory, so it
+  refuses exactly what `write` would. Every numbered requirement is in the feature table (a
+  finish on the whole part on `part.surface_finish`), so any can be removed by number. After
+  `session::save_edits`, the session works on the file saved: a later save keeps the edits. Rust: `writer::apply::{apply, apply_bytes, check}`, `session::save_edits`. Not yet:
+  changing one requirement by its number (`items.change`).
+- Edits in place on a part of an assembly (Paul, 2026-11-21; as 0.2's `write` could):
+  `write STEP EDITS.json --part K -o OUT` (and `--check --part K`), `session::save_part_edits`,
+  and `writer::apply::apply_bytes`'s `part` apply a list to one part of a file of several
+  parts, or of a part placed more than once, with the same rules as a file of one part. A part
+  placed twice is edited once, as its definition. Every other part, placement and instance,
+  their PMI and stored answers, keep their bytes (decision D3), and the save refuses rather
+  than change them; characteristic numbers are each part's own.
+- Removal without a number: `items.remove` also takes `{"id": "<stated row>"}` (every
+  requirement stating it that no other feature's row shares; `part.material`, a requirement
+  with no number) and `{"id": "file_pmi:#<entity>"}`, an item of the file's other PMI. The
+  feature table gives each file-PMI item that id (`file_pmi[].id`), from the STEP entity its
+  number is (or would be) on, so it stays the same while the file is saved in place. A removal
+  retires the removed items' numbers, as one by number does.
+- A change keeps what it does not touch: a changed tolerance keeps the file's zone form and
+  modifiers (`⌖ ⌀0.3Ⓜ A` changed to 0.2 is `⌖ ⌀0.2Ⓜ A`), and `change` also takes a value field
+  by field, `"to": {"value": 3.4}` (a tolerance's value, or a fitted size's nominal: `⌀3.3 H11`
+  becomes `⌀3.4 H11`, the class kept, no deviations in its place). A requirement whose text
+  holds what no field does (`text_only`) is refused a change, with the reason, rather than
+  replanned without those parts. A tolerance row's stated value in the fill form is its
+  magnitude alone (`0.3` for `⌖ ⌀0.3Ⓜ A`).
+
 ### Changed
 
-- **`write` writes what is answered while questions are open** (#228, ADR P11): the CLI's
-  `write ANALYSIS ANSWERS` no longer refuses `incomplete`. It writes the answers given (with
-  `--accept-defaults`, every default too), exits 0, and lists the questions still open in the
-  report's `missing`, as the editor's save and MCP `write_pmi` already did. A carried answer
-  that could not be applied, an invalid answer and a wrong file still refuse (exit 2).
+- **`write` can save with open gaps** (#228, ADR P11). A successful edit list writes
+  the requested requirements and lists the remaining gaps under `missing`.
 - **`pmiScene` item ids changed** (ADR P11, D3): a planned dimension's id no longer says how it
   was stated. `planner:specified:dim:…` and `planner:answered:dim:…` are now `planner:dim:…`, and
   the `planner:stored:dim:…:{nominal}:{tolerance}` form read from a file loses its stored mark and
@@ -126,7 +176,7 @@ Read first:
   location); until then the feature table keeps those rows as gaps with their suggestions.
 - **General dimensions have rows** (Paul, 2026-11-21). Plane lengths and hole locations
   without an owning question appear as optional gaps with suggestions such as `14 ±0.2 from B`.
-  Approve a row individually, accept the suggestions together, or use `write --accept-defaults`.
+  Approve a row individually or name multiple rows in `accept_suggestions`.
   Answer `none` to record that the dimension is unnecessary. Measurements already in the file
   show as stated.
 - **The local app's review panel** (proposal specify-0.3.0 piece 7; draftwright-project
@@ -140,11 +190,14 @@ Read first:
   the file (with those already listed) before it joins the bar. Only unsaved edits are highlighted;
   nothing says who wrote a requirement. The general tolerance's line is a row editor (#228): a class,
   or a block of decimal places and their tolerances, an angles line and a note line, written as one
-  line of text (`.XX ±.01, .XXX ±.005, angles ±1°`). A part of an assembly is shown read only, with a
-  note, until edits on parts of an assembly land. **Save with defaults** becomes the bar's **Add all
-  suggestions** (Paul, 2026-11-21): every gap's suggestion queued as a pending edit (a suggestion of
-  none as None needed; a gap with no suggestion left alone), through the same check, written only by
-  Save. Removed from the app: the questions list and the Answers (JSON) export; the 3D view now
+  line of text (`.XX ±.01, .XXX ±.005, angles ±1°`). The part picker opens assembly parts for
+  editing and keeps pending edits in one bar, with each entry named for its part. A refused
+  None needed explains why on its row. A queued removal can be undone on its row. Notes have
+  separate lines. Agent answers enter the bar as edits, including changes to stated values.
+  The bar marks when a local edit replaces an agent's answer. **Add all suggestions** queues
+  suggestions for the selected part. Save applies the pending edits together, and Undo or
+  Discard drops working edits without writing.
+  Removed from the app: the questions list and the Answers (JSON) export; the 3D view now
   draws the file's PMI only. Values read as drawn ("⌖ 0.2 A"). Every stated row has the bin; a removal
   sends the numbers, or `{"id": …}` in `items.remove` for a requirement without one. Save with nothing listed says "Nothing to
   save." and writes nothing. `SpecifyReview` no longer says "from the file" (datum chips, stated part
@@ -154,25 +207,20 @@ Read first:
 - **Saving is an edit list everywhere** (proposal specify-0.3.0 piece 6, ADR P11): the page, MCP,
   WASM and Python apply an edit list to the file, all or nothing, as `write STEP EDITS.json` does.
   Writing a whole intent from answers is gone from them.
-  - **Page contract, session `api` 2** (docs/open.md; breaking): `POST save` takes `{rev, edits}`
-    and applies the list with `session::save_edits` (422 `{error, failures}` naming every entry
-    that cannot be applied; 400 for a malformed list; 409 for a stale `rev`). `acceptDefaults` and
-    `PUT answers` are gone: the page keeps its changes until Save. A save is refused while the
-    session holds answers an agent gave with `answer` and did not save. `complete` and `missing`
-    are now those of the saved file. The app checks the `api` (a command without one, 0.2.0's
-    contract 1, is refused), and its manifest says 2.
-  - **MCP:** `save {doc, edits, rev?}` applies an edit list (its refusal lists `failures`), and
-    `check {doc, edits}` checks one without writing. `write_pmi` and `save`'s `accept_defaults`
-    are gone.
+  - **Page contract, session `api` 2** (docs/open.md): `POST save` accepts `{rev, edits}`
+    or `{rev, partEdits: [{part, edits}, …]}`. Batch save stages each part and commits the
+    file once. A refusal names the part and entry (422), a malformed list returns 400,
+    and a stale revision returns 409. Save includes working edits. `POST discard` clears
+    one or all working edits. The session holds its lock from the final revision check
+    through commit.
+  - **MCP:** `check` and `save` accept an edit list for the opened part or a batch in
+    `partEdits`. Both combine working answers with explicit edits. `discard` drops working
+    answers without writing. `open` and a successful save return the current file's table.
+    `write_pmi` and `save`'s `accept_defaults` are removed.
   - **Python:** `api.write(step, edits, output)` applies an edit list (`EditsRefused`, a
     `ValueError` with `failures`, when any entry cannot be applied), and `api.check_edits(step,
     edits)` checks one; the report adds `retired` and `unchanged`. `write(step, intent, output,
-    answers=)` and `validate_edits` are gone. The command line's whole-intent `write` stays.
-  - **The app** (ui/app) sends its answers as fills and the defaults the person confirmed as fills
-    of the values seen, and an answer the file stores that the person cleared as a clear. It
-    cannot send changes on two parts of an assembly yet (an edit list applies to one part). After a save the part is opened again
-    from the file saved. `@draftwright/specify-ui`'s worker no longer has the `write` and
-    `rematch` operations.
+    answers=)` was replaced by the edit-list signature.
   - The edit list gains `clear`: it takes back a stored decision that leaves no PMI (a decided
     none, a stored choice), never PMI. A fill of `extra.<name>` adds that requirement, as a 0.2
     answer did; one the file already states is a no-op with the same spec and refused with
@@ -247,85 +295,35 @@ Read first:
   material source and the process attribute's source (`analysis.process`, `process::of`,
   `process::read`) no longer say `answered` for a value Specify wrote. An accepted, marked process
   suggestion still reads as `default`.
-- An answer that differs from a part setting or process the file states is not written, and not
-  refused (ADR P11, D5b): the write report's `not_written` says "`part.process 3D printed: resin`:
-  not written, as the file states 3D printed: FDM (the file's value stands whoever wrote it:
-  changing it is an explicit edit)". Stored answers no longer let a rewrite replace Specify's own
-  process set.
+
 - A saved answer with no requirement for it in the file now warns "saved answer {id} ({value}): no
   requirement for this answer in the file; the question is open again", once per answer (ADR
   P11, D6).
+- The reviewed WASM size ceiling is raised from 16,500,000 to **17,000,000** bytes (approved by Paul,
+  2026-11-22, for the 0.3.0 feature set), after the integrated 0.3.0 stack measured 16,568,361 bytes.
 
 ### Removed
-- The command-line whole-intent `write STEP ANALYSIS ANSWERS` form. Use
+
+- The command-line whole-intent writer. Use
   `write STEP EDITS.json` and name any suggestions to accept in `accept_suggestions`.
 
 - **Answers export** ([ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md):
   no export of answers as a record; the file is the only copy): CLI `questions
-  --resolve-defaults --step STEP [--accept-defaults FILE]`, serve `export_answers`, MCP
+  --resolve-defaults` and its approval-file option, serve `export_answers`, MCP
   `export_answers`, Rust `api::export_answers` (with `api::Exported` and
   `api::APPROVALS_FORM`), Python `api.export_answers` and WASM `exportAnswers`. Answer files
-  written earlier are still read (`--answers`, `write`, `answers_file`). The app's Export →
-  Answers (JSON) stays for now and says "not available in 0.3.0".
-
-### Added
-
-- The edit list (`src/edits.rs`, proposal specify-0.3.0 use case 7): `{fill, change, items:
-  {change, remove}, none, accept_suggestions}`, parsed with every malformed part named by its
-  path, and validated all or nothing against the file's state (a differing fill, a stale
-  `expect`, an unknown id or number, an unsupported item change, contradictory entries). A 0.2
-  answers file is read as fills plus nones. `write STEP EDITS.json --check` validates and writes
-  nothing; so do MCP `check`, WASM `checkEdits` and Python `api.check_edits`, against the file.
-- Saving edits in place (proposal specify-0.3.0 use cases 3, 4 and 7; ADR P11):
-  `write STEP EDITS.json -o OUT` applies an edit list all or nothing, and `--check` now checks it
-  against the file's feature table. A save touches only what the list names: every other
-  requirement keeps its bytes and its number, whoever wrote it, and a rules change never alters a
-  file. A change keeps the number when only its limits change; a different measurement gets a new
-  number and the old one is retired; a removed requirement's number is retired; retired numbers
-  are never reused. Only decided-none (and how holes are located) and the number history are
-  stored. A fill writes only its own row (filling the general tolerance writes its class, not
-  the planner's dimensions for other features). A change never adds a location beside one its
-  row shares with another feature: such a change is refused, naming it. A change to none takes
-  the frame with the basic dimensions only it used. `--check` applies the list in memory, so it
-  refuses exactly what `write` would. Every numbered requirement is in the feature table (a
-  finish on the whole part on `part.surface_finish`), so any can be removed by number. After
-  `session::save_edits`, the session works on the file saved: a later save keeps the edits. Rust: `writer::apply::{apply, apply_bytes, check}`, `session::save_edits`. Not yet:
-  changing one requirement by its number (`items.change`).
-- Edits in place on a part of an assembly (Paul, 2026-11-21; as 0.2's `write` could):
-  `write STEP EDITS.json --part K -o OUT` (and `--check --part K`), `session::save_part_edits`,
-  and `writer::apply::apply_bytes`'s `part` apply a list to one part of a file of several
-  parts, or of a part placed more than once, with the same rules as a file of one part. A part
-  placed twice is edited once, as its definition. Every other part, placement and instance,
-  their PMI and stored answers, keep their bytes (decision D3), and the save refuses rather
-  than change them; characteristic numbers are each part's own. `write STEP ANALYSIS ANSWERS`
-  takes no `--part` (each analysis says its part).
-- Removal without a number: `items.remove` also takes `{"id": "<stated row>"}` (every
-  requirement stating it that no other feature's row shares; `part.material`, a requirement
-  with no number) and `{"id": "file_pmi:#<entity>"}`, an item of the file's other PMI. The
-  feature table gives each file-PMI item that id (`file_pmi[].id`), from the STEP entity its
-  number is (or would be) on, so it stays the same while the file is saved in place. A removal
-  retires the removed items' numbers, as one by number does.
-- A change keeps what it does not touch: a changed tolerance keeps the file's zone form and
-  modifiers (`⌖ ⌀0.3Ⓜ A` changed to 0.2 is `⌖ ⌀0.2Ⓜ A`), and `change` also takes a value field
-  by field, `"to": {"value": 3.4}` (a tolerance's value, or a fitted size's nominal: `⌀3.3 H11`
-  becomes `⌀3.4 H11`, the class kept, no deviations in its place). A requirement whose text
-  holds what no field does (`text_only`) is refused a change, with the reason, rather than
-  replanned without those parts. A tolerance row's stated value in the fill form is its
-  magnitude alone (`0.3` for `⌖ ⌀0.3Ⓜ A`).
+  written earlier are still read (`--answers`, `write`, `answers_file`).
 
 ### WASM API
 
 - `IntentEngine.edit(editsJson, project?, payload?)`: an edit list (or a 0.2 answers file)
   applied to the file in memory, all or nothing: `{written: true, bytes, report, source_sha256}`
   (the report with `retired` and `unchanged`), or `{written: false, failures, message}` naming
-  every entry that cannot be applied. The engine is not changed. A part of an assembly is
-  refused for now. `project` (the editor's base64 project) or `payload` (`{name, value}`), at
-  most one, is carried with the record of the original part, as `writePmi` carried it: it
-  replaces what the file carried under its name, and the file is then always written; a plain
-  edit keeps what the file carries.
+  every entry that cannot be applied. A part opened with `openPart` is edited in the original
+  assembly. Open the returned bytes before the next edit. Optional `project` or `payload`
+  replaces the value stored under that name and retains the original part record.
 - `IntentEngine.checkEdits(editsJson)`: the list checked against the file, as `write --check`
-  checks it; writes nothing. It replaces `validateEdits`, which checked a list only against itself
-  and is removed.
+  checks it without writing.
 - `IntentEngine.table()`: the feature table, `{rows, file_pmi, decided_none}`.
 - Removed (Specify 0.3.0, "What goes away"): `IntentEngine.writePmi` (writing a whole intent; use
   `edit`), `IntentEngine.acceptDefaults` (the free `acceptDefaults(analysis, answers)` stays, for
@@ -334,7 +332,18 @@ Read first:
 - `diff(oldName, oldBytes, newName, newBytes, title, scenes?)`: the unused fifth argument
   (`_answers`) is removed.
 
+- `exportAnswers(answers, approved?)` is removed: there is no export of answers as a record
+  (ADR P11).
+
 ### Fixed
+
+- Changing or removing a requirement on a shared feature preserves its other requirements,
+  including thread manufacturing data. Scoped saves replace the previous caller project.
+- Carry verifies that numbered requirements are present in its output and reports omissions.
+  Kept-thread comparisons include manufacturing data.
+- MCP Save returns the saved feature table and analysis resources follow the session’s saved file.
+- General tolerances can be changed on assembly parts. Typed tolerance blocks and ISO classes
+  can be replayed, and free-text lines are kept in the general tolerance note.
 
 - A reopened file's preview no longer plans the general dimensions the file already states
   (ADR P11), so the app's inspection list showed them twice, once as planned and once as the
@@ -346,10 +355,8 @@ Read first:
   "N dimensions under ISO 2768-m" row again (they are the file's own now, not planned).
 - A stated ⌀3.3 H11, ⌖ ⌀0.3 Ⓜ and M2×0.4-6H no longer read back as `⌀3.3`, `⌖ 0.3` and
   `internal thread` (a 0.3.0 regression from reading stated PMI from the file, ADR P11).
-- MCP `answer` refuses an answer to a feature-and-kind the file states ("the file states … for
-  …, so there is no gap to fill; changing what the file states is an explicit edit (the edit
-  list's change), not an answer"); one equal to what the file states is a no-op, as on the
-  command line. Before, it accepted the answer and the save left it out.
+- MCP `answer` stages an edit against the current STEP value when a row is already
+  stated. Accepting the same value is a no-op. Save checks the stated value before committing.
 - An approval the planner writes nothing for (a ⌀ left to the general tolerance on a datum's own
   faces) is no longer dropped silently: `not_written` says what was approved and that nothing
   of its kind was written, it is stored (`no_pmi`), and on reopening its row is decided on every
@@ -367,37 +374,12 @@ Read first:
   different modes (one with PMI added to, one without replaced); before, only all-Add or
   all-Replace saves did, and the stored-answer blocks were renumbered.
 
-From the first 0.2.1 trial (#217, pzfreo/specify-ui#14):
-
 - Datum C is no longer asked once datum B is answered none, nor B (or C) once A is: a datum
   without the one before it makes no sense. A letter already given stays asked, so its answer can
   still be seen and removed.
 - Later saves of an `open` (or MCP) session update the copy that session's last save wrote,
   instead of writing a new numbered copy each time. A file the session did not write, or its copy
   once changed or removed by anyone else, is never overwritten: the save takes the next free name.
-- Every question has a short `label` ("Other notes", "Coating", "Datum C"), added to the
-  question JSON (WASM `review`, MCP `questions`): fit for a row or a message, with no question mark
-  or input hint. The app uses it in its save and agent messages and as the row label for questions
-  without one ("Other notes").
-- The app, after a save to a copy, enables the inspection exports (CSV and AS9102) from the file as
-  saved (`GET file?rev=saved`), and its 3D view draws the saved file's PMI, also for a part of an
-  assembly shown after the save; before, the exports stayed disabled and the view kept the PMI the
-  file had when it was opened.
-- The app's part panel no longer clips its values ("machined", "ISO 2768-m", the "Finish and
-  notes" summary): a long name or value wraps within the panel.
-- The app shows a question whose suggestion is none as "None (suggested)": in the "Finish and
-  notes" fold and its summary (coating, heat treatment), on "Other notes" (no longer a dash), and
-  for an unanswered datum in the Datums row. "Datums" is not marked answered while the engine
-  lists one of its questions (datum C) as open. Rows and messages name a question by the same
-  label ("Coating", not "Coating or treatment" in one and "Coating" in the other).
-
-### WASM API
-
-- `diff(oldName, oldBytes, newName, newBytes, _answers, title, scenes?)`: the fifth argument is
-  not read (renamed `_answers`; pass `"{}"`), and `report.answers` (with its opaque
-  `_specify_characteristic_numbers`) is gone: `diff` reads only the two files' PMI (ADR P11).
-- `exportAnswers(answers, approved?)` is removed: there is no export of answers as a record
-  (ADR P11).
 
 ## 0.2.1 (2026-11-20)
 
@@ -460,7 +442,7 @@ Read first:
   defaults accepted. Datum questions check both versions of the same datum. Part settings
   compare every file entry, including each note, regardless of authorship. Withheld
   answers follow ordinary file-PMI handling and stay in the file for reevaluation.
-  `write --accept-defaults` stores the defaults it takes that write no PMI.
+  That release’s batch approval stored the defaults it took that wrote no PMI.
 - Saves preserve edited printed general-tolerance notes and marked tolerances hidden by
   imported tolerances. If comparison fails, reopening withholds the saved answers while
   protecting the file's readable PMI (with an analysis warning from the CLI, serve, MCP and
@@ -562,7 +544,7 @@ Read first:
   person approves it). `api::export_answers`, CLI `questions --resolve-defaults`, serve
   `export_answers`, WASM `exportAnswers` and Python `api.export_answers` export the answers given
   plus exactly the defaults approved by part, `{"<part>": {"<id>": value}}` with the value the
-  person saw (CLI `--accept-defaults FILE`, serve and Python `accept_defaults`, WASM's second
+  person saw (the former CLI approval-file option, serve and Python `accept_defaults`, WASM's second
   argument); without approvals, no defaults. An approval that is not an open question's
   default, or whose default has changed, is refused naming the part and question (serve adds
   `expected` and `current`). Another part's approvals do not apply. Open questions and carry
@@ -879,8 +861,8 @@ Read first:
   ("From the file", "Your answer", or "Proposed: made/bought (…)"). The one `check` is a
   standard-hardware name on a part recognised with pockets or keyways (proposed made; its reason asks which). Part number and revision
   carry no suggestion. `bom.stock` is no longer asked: it follows make/buy, is still proposed
-  by `--bom` and an explicit answer is still written. Suggestions stay out of `default`, so
-  `--accept-defaults` writes no BOM field.
+  by that release's BOM opt-in and an explicit answer is still written. Suggestions stay
+  out of `default`. The old PMI default-approval option wrote no BOM field.
 
 ### Fixed
 
@@ -927,7 +909,7 @@ Read first:
   usage errors are clap's text rather than argparse's, and `-h` and `--help` both give a
   command's full help. The top-level help now lists `diff`, `open` and `bom`, which were left
   out to match Python's text, and a prefix of `--help` at the top level (`--he`, `--h`) prints
-  the help (exit 0). Positionals after an option are taken: `write S A B -o OUT C D` writes both
+  the help (exit 0). The writer at that release accepted positional arguments after an option and wrote both
   pairs and `write S A -o OUT B` the pair `A B`, where argparse left `C D` and `B`
   unrecognised. The WASM build leaves the command line out (the root crate's default `cli`
   feature, off for `specify-core-wasm`).
@@ -1049,7 +1031,7 @@ Read first:
   Plain maps remain compatible and cannot detect changed in-range face identities.
   **Re-run `diff` to regenerate changes files from released v0.1.8 and earlier**: their
   metadata-free `changes/answers.json` cannot reveal dropped answers, so the literal
-  old-file `write --accept-defaults` repro still exits 0 on updated tools.
+  the archived CLI’s old-file default-approval repro exited 0 on the updated tools.
   Older Specify/editor WASM builds reject new `_specify` maps as `unknown answer ID`;
   older CLI and Python installs may accept and ignore `_specify`, without its evidence and
   carry-block checks. Old plain files remain compatible with new tools.

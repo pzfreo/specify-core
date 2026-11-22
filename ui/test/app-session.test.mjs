@@ -270,3 +270,27 @@ test('a repeated event does not undo what a later resync holds', () => {
   assert.deepEqual(session.answers(0), { a: 3 });
 });
 
+
+test('a batched commit clears all shown drafts on its first part event', () => {
+  const initial = { '0': { fill: { m: 'Steel' } }, '1': { fill: { m: 'Brass' } } };
+  const session = createSession(1, { '0': { m: 'Steel' }, '1': { m: 'Brass' } }, initial);
+  assert.deepEqual(session.draftSnapshot(), { rev: 1, drafts: initial });
+  session.receive({ rev: 2, part: 0, answers: {}, source: 'page', drafts: {} });
+  assert.deepEqual(session.draftSnapshot(), { rev: 2, drafts: {} });
+  session.receive({ rev: 3, part: 1, answers: { m: 'Bronze' }, source: 'mcp', draft: { fill: { m: 'Bronze' } } });
+  session.receiveSave({ rev: 2, parts: { '0': {}, '1': {} } });
+  assert.deepEqual(session.draftSnapshot(), { rev: 3, drafts: { '1': { fill: { m: 'Bronze' } } } });
+});
+
+test('Save at the displayed draft revision refuses a newer answer on another part', async () => {
+  const session = createSession(1, { '0': {}, '1': {} });
+  const store = session.store(0);
+  session.receive({ rev: 2, part: 1, answers: { m: 'Steel' }, source: 'mcp', draft: { fill: { m: 'Steel' } } });
+  let wrote = false;
+  const saver = editsSaver(store, session, () => store.get(), async (rev) => {
+    wrote = true;
+    return { rev, path: 'part.step', bytes: 1, parts: {}, complete: true, missing: [], report: {} };
+  });
+  await assert.rejects(saver.save({ none: ['part.coating'] }, 1), NotShown);
+  assert.equal(wrote, false);
+});
