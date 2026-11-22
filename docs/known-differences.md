@@ -21,9 +21,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
-| [rules](#rules) | 194 | 0 | 615 | 0 | 0 | 0 | 809 |
+| [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 3096 | 0 | 0 | 0 | 15 | 1 | 3112 |
-| **all** | 9366 | 1433 | 1245 | 2468 | 1095 | 1905 | 17512 |
+| **all** | 9286 | 1433 | 1245 | 2468 | 1095 | 1905 | 17432 |
 
 ## analysis
 
@@ -203,9 +203,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (5 distinct; all in `cli.json`). The first, for `cli/errors/write-no-material` at `exit`: #228 and ADR P11 (proposal specify-0.3.0, '#228': write no longer refuses while gaps remain). Python refuses an answers file with no material (IncompleteError: part.material). Rust's CLI write writes what is answered, exits 0 and lists the open question ids in the report's `missing`, as the editor's save and MCP write_pmi already did; a carried answer not applied, an invalid answer, a wrong file and a different stated general tolerance still refuse. tests/cli.rs issue_228_write_writes_what_is_answered_and_lists_the_gaps and exit_codes_say_what_happened check it; cli_datum_origins.json.gz pins this exact envelope change. Frozen Python captures are unchanged.
 
-- **0.5.5 / Optional fillets and adjacent CLI rows** (10 entries, 10 case globs)
+- **General dimensions are rows in CLI defaults** (10 entries, 10 case globs)
 
-  The evidence is stated per entry (7 distinct; all in `cli.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `questions.defaults.questions`: The 2026-11-21 general-dimension rows decision exposes plane lengths and hole locations as questions. Quiddity 0.5.5 #297 removes the fillet size floor, so optional radius questions enter the list with none suggested.
+  The general-dimension rows decision (Paul, 2026-11-21) exposes the measured locations in this question list. Fillet rows wait for quiddity 0.5.6 radius groups (Paul, 2026-11-22).
 
 - **0.5.5 / CLI plane locations under 0.5.5** (2 entries, 1 case glob)
 
@@ -1277,7 +1277,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## rules
 
-### rules: rust-correct (194 entries)
+### rules: rust-correct (114 entries)
 
 - **Combined ISO 2768-1 and ISO 2768-2 class choices** (24 entries, 1 case glob)
 
@@ -1338,10 +1338,6 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **measurement datums are proposed before dimensions, including in ± mode** (5 entries, 5 case globs)
 
   Maintainer decision (draftwright-rust #122): choose measurement origins before dimensions. Rust proposes the same geometric A/B/C frame in ± mode and when no feature needs a geometric tolerance; turned parts retain their plain axis A and perpendicular shoulder B. Empty datum answers still remove them. ± hole locations use selected datum planes, never recomputed edge defaults; accepting ± defaults adds no position or geometric-control requirements. General baseline dimensions consequently use the proposed planes too. tests/tolerancing.rs, tests/locations.rs, tests/turned_defaults.rs and tests/writer.rs verify the default path, changed/removed origins, both modes and AP242 DATUM_FEATURE entities with no FCFs. The complete Python and Rust values, including both named no-datum scenarios, are pinned exactly in tests/fixtures/rule_defaults_oracle.json.gz before these verdict entries apply; original Python captures remain unchanged. Rules version 2 identifies this output change.
-
-- **0.5.5 / Optional fillet questions on captured inventory** (80 entries, 46 case globs)
-
-  Quiddity 0.5.5 #297 removes the fillet size floor. Specify offers the same optional radius question for every recognised fillet, including those in the frozen analysis. The none default adds no open question.
 
 ### rules: equivalent (615 entries)
 
