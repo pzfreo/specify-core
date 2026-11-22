@@ -1093,6 +1093,34 @@ fn a_part_removed_from_an_old_history_keeps_its_number_retired() {
 }
 
 #[test]
+fn a_removed_assembly_part_reports_every_stated_characteristic() {
+    let source = added(&fixture());
+    let parts = source.load_all().unwrap();
+    let index = parts.iter().position(|p| p.name == "plate").unwrap();
+    let edits = specify_core::edits::parse_value(json!({
+        "accept_suggestions": ["hole.function:holes:11"]
+    }))
+    .unwrap();
+    let old = file(writer::apply::apply(&parts[index], &edits).unwrap().bytes);
+    let old_part = old.load(Some(index)).unwrap();
+    let characteristics = specify_core::characteristics::read(&old_part).unwrap();
+    assert!(!characteristics.is_empty());
+    let report = carry::carry(&old, &removed(&source, index)).unwrap().report;
+    assert!(report.written, "{:?}", report.refused);
+    for characteristic in characteristics {
+        let number = format!("#{}", characteristic.number);
+        assert!(
+            report.not_carried.iter().any(|n| {
+                n.part.as_deref() == Some(old_part.name.as_str())
+                    && n.number.as_deref() == Some(number.as_str())
+            }),
+            "{number} on {} is missing from not_carried",
+            old_part.name
+        );
+    }
+}
+
+#[test]
 fn renamed_parts_of_an_old_history_keep_their_numbers() {
     let source = fixture();
     let old = aged(write(&source, &answers()), 2);
