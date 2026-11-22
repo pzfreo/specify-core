@@ -14,6 +14,7 @@
 
 mod common;
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use haecceity::p21::Document;
@@ -54,6 +55,132 @@ fn fixture(name: &str) -> PathBuf {
         .join(format!("{name}.step"))
 }
 
+#[test]
+fn every_general_row_is_written_or_named_in_the_report() {
+    use specify_core::{api, writer};
+    for path in [
+        fixture("plate"),
+        fixture("pin"),
+        common::fixtures().join("spindle.step"),
+    ] {
+        let loaded = load(&path, None).unwrap();
+        let analysis = api::analyse(&loaded).unwrap();
+        let given = answers(json!({"part.material": "Steel"}));
+        let intent = api::apply(&analysis, &given, true).unwrap();
+        assert!(!intent.general.is_empty(), "{path:?}");
+        let (bytes, report) = writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
+        let output = specify_core::part::load_bytes("out.step", bytes).unwrap();
+        let read = api::analyse(&output).unwrap();
+        check_general_rows(&intent, &read, &report, &path);
+    }
+}
+
+#[test]
+fn legacy_accept_all_writes_a_recorded_measurement_the_new_planner_omits() {
+    let case = common::case("parts/wrapped");
+    let input = case.input().unwrap();
+    let part = load(&input, None).unwrap();
+    let mut captured = case.artifact("apply").unwrap();
+    let omitted = "general location 30 to faces [6] from faces [3]: the shared planner did not retain this dimension when upgrading the intent";
+    for approved in [false, true] {
+        if approved {
+            captured["accept_defaults"] = json!(true);
+        }
+        let intent = Intent::from_dict(&captured).unwrap();
+        let (bytes, report) = specify_core::writer::write_bytes(&part, &intent, None).unwrap();
+        let read = specify_core::part::load_bytes("legacy.step", bytes).unwrap();
+        let analysis = specify_core::api::analyse(&read).unwrap();
+        let read = analysis["existing"].as_array().unwrap();
+        let measured = read
+            .iter()
+            .filter(|pmi| {
+                pmi["type"] == "Location_LinearDistance"
+                    && pmi["value"]
+                        .as_f64()
+                        .is_some_and(|v| (v - 30.).abs() < 1e-6)
+                    && pmi["faces"] == json!([3])
+                    && pmi["faces2"] == json!([6])
+            })
+            .count();
+        assert_eq!(measured, usize::from(approved), "{report:?}\n{read:?}");
+        assert_eq!(
+            report.not_written.iter().any(|line| line == omitted),
+            !approved,
+            "{report:?}"
+        );
+    }
+}
+
+fn check_general_rows<'a>(
+    intent: &Intent,
+    read: &Value,
+    report: &'a WriteReport,
+    path: &Path,
+) -> BTreeSet<&'a str> {
+    use specify_core::{pyfmt, pyjson};
+    let faces = |v: &Value| -> BTreeSet<u64> {
+        v.as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_u64)
+            .collect()
+    };
+    let mut omitted = BTreeSet::new();
+    let dimensions = read["existing"].as_array().unwrap();
+    for row in &intent.general {
+        let location = row["kind"] == "location";
+        let value = row[if location { "distance" } else { "nominal" }]
+            .as_f64()
+            .unwrap();
+        let on = &row["faces"];
+        let to = faces(on);
+        let reference = row.get("reference").unwrap_or(&Value::Null);
+        let from = faces(reference);
+        let written = dimensions.iter().any(|d| {
+            d["kind"] == "dimension"
+                && d["value"]
+                    .as_f64()
+                    .is_some_and(|n| (n - value).abs() < 1e-6)
+                && if location {
+                    let a = faces(&d["faces"]);
+                    let b = faces(&d["faces2"]);
+                    (a == from && b == to) || (a == to && b == from)
+                } else {
+                    d["type"] == "Size_Diameter" && faces(&d["faces"]) == to
+                }
+        });
+        let value = pyfmt::g(value);
+        let on = pyjson::dumps(on);
+        let label = if location {
+            format!(
+                "general location {value} to faces {on} from faces {}: ",
+                pyjson::dumps(reference)
+            )
+        } else {
+            let feature = row["feature"].as_str().unwrap_or("");
+            let feature = if feature.is_empty() {
+                String::new()
+            } else {
+                format!(" on {feature}")
+            };
+            format!("general size {value}{feature} faces {on}: ")
+        };
+        let reason = report
+            .not_written
+            .iter()
+            .find(|line| line.starts_with(&label));
+        assert!(
+            written || reason.is_some(),
+            "{path:?}: unaccounted general dimension {label}{:?}",
+            report.not_written,
+        );
+        if let Some(reason) = reason {
+            omitted.insert(reason.as_str());
+        }
+    }
+    omitted
+}
+
 /// The oracle's analysis of a case (Python's).
 fn analysis(case: &str) -> Value {
     common::case(case)
@@ -70,24 +197,18 @@ fn apply(analysis: &Value, given: Value) -> Intent {
 }
 
 /// The analysis of `loaded` (a file the writer wrote, of the same faces as `base`'s): `base`
-/// with the file's binding and the file's PMI as the Rust reader reads it; a file whose
-/// answers resume is analysed as its geometry alone and carries them (as `api.analyse`).
+/// with the file's binding, and the file's PMI, settings, stored answers and feature table as
+/// `api.analyse` reads them (ADR P11: the same whoever wrote the file).
 fn reanalysed(base: &Value, loaded: &LoadedPart) -> Value {
     let mut out = base.clone();
     out["binding"] = serde_json::to_value(&loaded.binding).unwrap();
-    match answers_for(loaded).unwrap() {
-        Some(_) => {
-            // As `api.analyse` composes it: reopened, the file's PMI is read first (ADR P9);
-            // the answers it agrees with resume, and any other tool's PMI is `existing`.
-            let real = specify_core::api::analyse(loaded).unwrap();
-            for key in ["existing", "part", "resume"] {
-                out[key] = real[key].clone();
+    let real = specify_core::api::analyse(loaded).unwrap();
+    for key in ["existing", "part", "resume", "table"] {
+        match real.get(key) {
+            Some(value) => out[key] = value.clone(),
+            None => {
+                out.as_object_mut().unwrap().remove(key);
             }
-        }
-        None => {
-            out["existing"] = serde_json::to_value(read_existing(loaded).unwrap()).unwrap();
-            out["part"] = Value::Object(part_settings(loaded).unwrap());
-            out.as_object_mut().unwrap().remove("resume");
         }
     }
     out
@@ -677,7 +798,8 @@ fn a_finish_on_faces_is_not_a_second_default() {
     let pin = load(&fixture("pin"), None).unwrap();
     let out = dir.join("finishes.step");
     let report = write(&pin, &apply(&analysis, given), &out, None).unwrap();
-    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
+    // The pin's datum A is the only general dimension the writer omits.
+    assert_eq!(report.not_written, [common::PIN_DATUM_A_SIZE_OMISSION]);
     assert!(
         report
             .written
@@ -704,14 +826,16 @@ fn a_finish_on_faces_is_not_a_second_default() {
 /// `enriched`: the plate with datums A, B, C and a fitted, positioned Ø8 bore, written without
 /// answers (so its PMI is, to a later write, the file's own).
 fn enriched(dir: &Path) -> PathBuf {
-    let analysis = analysis("parts/plate");
+    let plate = load(&fixture("plate"), None).unwrap();
+    // general dimensions are rows (Paul, 2026-11-21). Approve the current pattern's
+    // shared measurements as offered by the planner, then test the add on stated PMI.
+    let analysis = specify_core::api::analyse(&plate).unwrap();
     let given = json!({
         "part.material": "steel",
         question(&analysis, "hole.function", "Ø8"): "fit:H7",
         question(&analysis, "hole.function", "6×"): "general",
     });
     let out = dir.join("first.step");
-    let plate = load(&fixture("plate"), None).unwrap();
     write(&plate, &apply(&analysis, given), &out, None).unwrap();
     out
 }
@@ -780,13 +904,10 @@ fn pmi_is_added_to_a_part_that_has_some() {
         );
     }
     assert!(!qs.iter().any(|q| q.prompt.contains("Ø8")));
-    let six = qs
-        .iter()
-        .find(|q| q.prompt.contains("6×"))
-        .unwrap()
-        .id
-        .clone();
-    let intent = apply(&analysis, json!({ six: "clearance:M6" }));
+    // D8: the first pass's 50 from C and 30 from B to the 6× pattern locate it in x and y, and
+    // its general size states its size, so it is not asked again; datum C's control is.
+    assert!(!qs.iter().any(|q| q.prompt.contains("6×")));
+    let intent = apply(&analysis, json!({ "datum.C.control": "0.05" }));
     let second = dir.join("second.step");
     let report = write(&loaded, &intent, &second, None).unwrap();
     assert!(
@@ -799,10 +920,18 @@ fn pmi_is_added_to_a_part_that_has_some() {
     // The new PMI cites the file's datums: none is written again.
     let joined = report.written.join(" ");
     assert!(
-        Regex::new(r"position [\d.]+ MMC on hole_patterns")
+        Regex::new(r"perpendicularity [\d.]+ on datum C")
             .unwrap()
-            .is_match(&joined)
+            .is_match(&joined),
+        "{joined}"
     );
+    let cited: Vec<Vec<String>> = read_existing(&load(&second, None).unwrap())
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.r#type == "Perpendicularity")
+        .map(|e| e.datums)
+        .collect();
+    assert_eq!(cited, [["A".to_string(), "B".to_string()]], "{cited:?}");
     assert!(!report.written.iter().any(|w| w.starts_with("datum ")));
     let letters: Vec<String> = Regex::new(r"DATUM\('[^']*',[^;]*'(\w)'\);")
         .unwrap()
@@ -886,6 +1015,10 @@ fn a_nist_part_keeps_all_its_pmi() {
         "datum.C.control",
         // Appended for every made part (docs/process.md); NIST's PMI states no process.
         "part.process",
+        // Fillet rows wait for quiddity 0.5.6 radius groups (Paul, 2026-11-22).
+        // general dimensions are rows (Paul, 2026-11-21).
+        "length",
+        "location",
     ];
     assert!(
         asked.iter().all(|a| allowed.contains(&a.as_str())),
@@ -894,20 +1027,14 @@ fn a_nist_part_keeps_all_its_pmi() {
     let given = json!({"part.material": "CZ121"});
     let loaded = load(&input, None).unwrap();
     let out = dir.join("ctc01.step");
-    let report = write(
-        &loaded,
-        &apply(&analysis, given.clone()),
-        &out,
-        given.as_object(),
-    )
-    .unwrap();
+    let intent = apply(&analysis, given.clone());
+    let report = write(&loaded, &intent, &out, given.as_object()).unwrap();
     assert_eq!(
         report.written,
         [
-            // #75: three raw counted General bore groups overlap stored fits and
-            // cannot replace their contracts. Report them; append the 14 reconciled
-            // requirements and preserve the 12 original dimensions.
-            "14 dimensions under the general tolerance",
+            // The legacy accept-all writes the approved measurements still
+            // missing from CTC-01. P11 keeps the 12 imported dimensions.
+            "76 dimensions under the general tolerance",
             "material CZ121",
             "general tolerance ISO 2768-m",
             "surface finish Ra 3.2",
@@ -917,17 +1044,36 @@ fn a_nist_part_keeps_all_its_pmi() {
     let old = read_existing(&loaded).unwrap();
     let new = read_existing(&load(&out, None).unwrap()).unwrap();
     assert_eq!(old, new);
-    assert_eq!(pmi_of(&out, 0).dimensions.len(), 26); // 12 original + 14 reconciled quantities.
-    assert_eq!(report.not_written.iter().cloned().collect::<std::collections::BTreeSet<_>>(),[
+    assert_eq!(pmi_of(&out, 0).dimensions.len(), 88); // 12 original plus 76 accepted.
+    // The new per-dimension diagnostics must identify rows of this legacy intent.
+    let read = specify_core::api::analyse_file(&out, None).unwrap();
+    let general = check_general_rows(&intent, &read, &report, &input);
+    let already_stated =
+        |line: &str| line.ends_with("the file already states it; not written again");
+    assert_eq!(general.len(), 14);
+    assert!(general.iter().all(|line| already_stated(line)));
+    // The Add report names each of the 14 preserved locations once.
+    assert_eq!(
+        report
+            .not_written
+            .iter()
+            .filter(|line| already_stated(line))
+            .count(),
+        14
+    );
+    assert_eq!(report.not_written.iter().map(String::as_str).filter(|line| !already_stated(line)).collect::<BTreeSet<_>>(),[
         "shared planner dim:multiple[hole:50.51.56.57,hole:52.53.58.59]/bore.diameter: General contract conflicts with an answered requirement; retained answered intent instead",
         "shared planner dim:pattern[hole:0.1,hole:91.92,hole:93.94,hole:95.96]/bore.diameter: General contract conflicts with an answered requirement; retained answered intent instead",
         "shared planner dim:pattern[hole:71.72,hole:73.74,hole:75.76,hole:89.90]/bore.diameter: General contract conflicts with an answered requirement; retained answered intent instead",
-    ].into_iter().map(String::from).collect());
+    ].into_iter().collect());
     let text = std::fs::read_to_string(&out).unwrap();
     assert!(!text.contains("DRAUGHTING_CALLOUT('Datum "));
+    // ADR P11: answers that write PMI are not stored; the file states them.
     assert_eq!(
         answers_for(&load(&out, None).unwrap()).unwrap(),
-        given.as_object().cloned()
+        Some(specify_core::feature_table::storable(
+            given.as_object().unwrap()
+        ))
     );
     // #75 adds dimension-owned origin/planner UDAs. As for #77, AP242 ed1 excludes
     // those owners, so the existing writer policy upgrades only FILE_SCHEMA to ed4.
@@ -974,13 +1120,17 @@ fn a_typed_thread_depth_is_written_and_read_back() {
         given.as_object(),
     )
     .unwrap();
-    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
+    // Reporting the general diameter omitted on datum A leaves the thread unchanged.
+    assert_eq!(report.not_written, [common::PIN_DATUM_A_SIZE_OMISSION]);
     let text = flat(&out);
     assert!(Regex::new(r"MEASURE_WITH_UNIT\(LENGTH_MEASURE\(5\.6\),#\d+\)REPRESENTATION_ITEM\('minimum full thread'\)").unwrap().is_match(&text));
     assert!(Regex::new(r"MEASURE_WITH_UNIT\(LENGTH_MEASURE\(8\.\),#\d+\)REPRESENTATION_ITEM\('tapping drill depth'\)").unwrap().is_match(&text));
+    // ADR P11: answers that write PMI are not stored; the file states them.
     assert_eq!(
         answers_for(&load(&out, None).unwrap()).unwrap(),
-        given.as_object().cloned()
+        Some(specify_core::feature_table::storable(
+            given.as_object().unwrap()
+        ))
     );
 }
 
@@ -1028,6 +1178,7 @@ fn mmc_positions_are_written_and_notes_are_read_back() {
             .unwrap()
             .starts_with("Anodise black")
     );
+    // The upgraded planner can keep the same span with the two supports reversed.
     assert!(report.not_written.is_empty(), "{:?}", report.not_written);
     for line in [
         "surface finish Ra 1.6".to_string(),
@@ -1536,7 +1687,8 @@ fn a_straight_knurl_is_written_through_turned_knurl() {
             .iter()
             .any(|e| e.kind == "note" && e.r#type == "knurl")
     );
-    // Written again from its stored answers (a replace of a part with a knurl).
+    // Written again with its stored answers (ADR P11): the file's knurl stays as it is, and
+    // is not written a second time.
     let back = load(&out, None).unwrap();
     let given = answers_for(&back).unwrap().expect("answers stored");
     let again = dir.join("again.step");
@@ -1551,7 +1703,7 @@ fn a_straight_knurl_is_written_through_turned_knurl() {
     )
     .unwrap();
     assert!(
-        report
+        !report
             .written
             .contains(&"straight knurl on turned_steps:0".to_string())
     );

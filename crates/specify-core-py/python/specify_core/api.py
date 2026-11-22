@@ -1,5 +1,6 @@
 """The steps of specify-core's API, on the Rust engine: ``parts``, ``analyse``, ``questions``,
-``apply``, ``preview``, ``write``, ``write_parts`` and ``mesh``.
+``apply``, ``preview``, ``write`` (an edit list applied to the file), ``check_edits``,
+``write_parts`` and ``mesh``.
 
 The names, signatures and return shapes are specify-core's own ``api.py``; the work is done
 by ``specify_core._native``. A file of several parts is specified a part at a time: ``parts``
@@ -17,7 +18,7 @@ from typing import Any
 from . import _native, rules  # noqa: F401  (specify-core's api has rules too)
 from .load import LoadedPart, load
 from .rules import Intent, Question
-from .writer import WriteReport
+from .writer import EditsRefused, WriteReport
 
 __all__ = [
     "LoadedPart",
@@ -27,9 +28,9 @@ __all__ = [
     "analyse",
     "questions",
     "apply",
-    "export_answers",
     "preview",
     "write",
+    "check_edits",
     "write_parts",
     "mesh",
     "pmi_scene",
@@ -83,26 +84,6 @@ def apply(
     return Intent.from_dict(json.loads(text))
 
 
-def export_answers(
-    step: str | Path | LoadedPart,
-    analysis: dict[str, Any],
-    answers: dict[str, Any],
-    accept_defaults: dict[str, dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    """Answer map with ``_specify.evidence`` for this part: the answers given, plus exactly the
-    defaults in ``accept_defaults`` (``{"<part>": {"<id>": value}}``, each with the value the
-    person saw; none when omitted). Never every default (ADR P9); open questions stay open.
-
-    Does not write STEP. Raises ValueError for stale evidence, a mismatched analysis, or an
-    approved default that is not an open question's default as it now stands.
-    Serialize with ``json.dumps(result, indent=2) + "\\n"`` for a stable sidecar.
-    """
-    approved = None if accept_defaults is None else json.dumps(accept_defaults)
-    return json.loads(_native.export_answers(
-        _step(step), json.dumps(analysis), json.dumps(answers), approved
-    ))
-
-
 def preview(analysis: dict[str, Any], answers: dict[str, Any]) -> Intent:
     """What the answers so far amount to; see the engine's ``rules::preview``."""
     return Intent.from_dict(json.loads(_native.preview(json.dumps(analysis), json.dumps(answers))))
@@ -110,21 +91,36 @@ def preview(analysis: dict[str, Any], answers: dict[str, Any]) -> Intent:
 
 def write(
     step: str | Path | LoadedPart,
-    intent: Intent,
+    edits: dict[str, Any] | str,
     output: str | Path,
-    *,
-    answers: dict[str, Any] | None = None,
 ) -> WriteReport:
-    """Write ``intent`` into ``step``, on the part it was made for. Given the
-    ``answers`` it came from, they are stored in the file too, so that opening it
-    again resumes them (``resume``)."""
-    text = _native.write(
-        _step(step),
-        json.dumps(intent.to_dict()),
-        os.fspath(output),
-        None if answers is None else json.dumps(answers),
-    )
-    return WriteReport.from_dict(json.loads(text))
+    """Apply the edit list ``edits`` to ``step`` and write the result to ``output``.
+
+    ``edits`` is an edit list (``{"fill": {id: value}, "change": {id: {"to", "expect"}},
+    "items": {"remove": ["#N"]}, "none": [id], "clear": [id], "accept_suggestions": [id]}``) or a 0.2
+    answers map, as a dict or JSON text; ids are the feature table's (``analyse(step)["table"]``).
+    Anything the list does not name is left as it is, byte for byte. A list is applied all or
+    nothing: if any entry cannot be applied, nothing is written and ``EditsRefused`` (a
+    ``ValueError``) is raised, its ``failures`` naming every failing entry and why. The report
+    adds ``retired`` (characteristic numbers this save retired) and ``unchanged``.
+    """
+    result = json.loads(_native.write(_step(step), _edits(edits), os.fspath(output)))
+    if not result["applied"]:
+        raise EditsRefused(result["message"], result["failures"])
+    return WriteReport.from_dict(result["report"])
+
+
+def check_edits(step: str | Path | LoadedPart, edits: dict[str, Any] | str) -> dict[str, Any]:
+    """Check the edit list ``edits`` against ``step`` exactly as ``write`` would apply it;
+    writes nothing. Returns ``{well_formed, checked_against_file, applicable, entries,
+    unchanged, failures, written, message}``: ``failures`` names every entry that cannot be
+    applied and why; ``unchanged`` the entries that would change nothing.
+    """
+    return json.loads(_native.check_edits(_step(step), _edits(edits)))
+
+
+def _edits(edits: dict[str, Any] | str) -> str:
+    return edits if isinstance(edits, str) else json.dumps(edits)
 
 
 def write_parts(
@@ -214,3 +210,4 @@ def diff(
     if image is not None:
         result["image"] = image
     return result
+

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import init, { IntentEngine, pmiScene } from '@draftwright/specify-core-wasm';
+import init, { acceptDefaults, IntentEngine, pmiScene } from '@draftwright/specify-core-wasm';
 import { characteristics, balloonsBySource, toCsv } from '../src/specify/characteristics.ts';
 import { inspectionAnswers } from '../src/specify/inspection.ts';
 import { inspectionFromStep } from '../src/specify/saved-inspection.ts';
@@ -22,7 +22,15 @@ function readSaved(t, bytes) {
   const scene = JSON.parse(pmiScene(bytes));
   return { analysis, scene, ...inspectionFromStep(analysis, scene) };
 }
-const write = (engine, answers) => new Uint8Array(JSON.parse(engine.writePmi(JSON.stringify(answers))).bytes);
+// A save (specify-core 0.3.0): the answers as an edit list's fills, applied all or nothing.
+function write(engine, answers) {
+  return applyEdits(engine, { fill: answers });
+}
+function applyEdits(engine, edits) {
+  const result = JSON.parse(engine.edit(JSON.stringify(edits)));
+  assert.ok(result.written, result.message);
+  return new Uint8Array(result.bytes);
+}
 function assertNumbers(saved) {
   const numbers = saved.analysis.characteristics?.map((row) => row.number).sort((a, b) => a - b) ?? [];
   assert.deepEqual(saved.chars.filter((row) => row.n).map((row) => row.n), numbers, 'every stored number is exported exactly once');
@@ -32,13 +40,18 @@ function assertNumbers(saved) {
   assert.deepEqual(form3.rows.slice(4).map((row) => row[0]), numbers.map(String));
 }
 
+// Fails until feature-table D1 lands (Paul, 2026-11-21): the general tolerance writes only its
+// note, and each feature's size and location is a gap with a suggestion. Once the table has those
+// rows, this save fills them (or accepts their suggestions) and the eleven dimensions are written.
 test('saved ISO 2768-m exports every dimension in the written STEP', (t) => {
   const saved = readSaved(t, write(open(t), { 'part.general_tolerance': 'ISO 2768-m' }));
-  // Decision 2026-11-19: export stored PMI, so the eleven written dimensions are included.
+  // Decision 2026-11-19: export stored PMI, so every written dimension is included.
   // The old twelfth row was an unnumbered class note rather than an individual characteristic.
-  assert.equal(saved.chars.length, 11);
-  assert.equal(toCsv(saved.chars).trimEnd().split('\n').length, 12);
-  assert.equal(as9102({ name: 'shaft' }, saved.chars, new Set(), saved.notes)[2].rows.length, 15);
+  // P9 / D1: the general tolerance writes only its note; each feature's size and location
+  // waits for its own approval, so this save writes no dimension (formerly 7).
+  assert.equal(saved.chars.length, 0);
+  assert.equal(toCsv(saved.chars).trimEnd().split('\n').length, 1);
+  assert.equal(as9102({ name: 'shaft' }, saved.chars, new Set(), saved.notes)[2].rows.length, 4);
   assertNumbers(saved);
 });
 
@@ -56,7 +69,7 @@ test('Material appears on Form 2 only and Form 3 omits every unnumbered row', (t
 test('given and kept answers still exclude host suggestions awaiting review', (t) => {
   const engine = open(t);
   const answers = { 'part.material': 'Steel' };
-  const defaults = JSON.parse(engine.acceptDefaults(JSON.stringify(answers)));
+  const defaults = JSON.parse(acceptDefaults(JSON.stringify(JSON.parse(engine.snapshot()).analysis), JSON.stringify(answers)));
   const { questions } = JSON.parse(engine.review(JSON.stringify(defaults)));
   const pending = Object.keys(defaults).filter((id) => !(id in answers));
   assert.deepEqual(inspectionAnswers(defaults, questions, ['part.surface_finish', 'hole.function:holes:13'], pending), {
@@ -80,28 +93,36 @@ test('write → readback → export keeps the M4 ID while later saves append num
   assert.match(saved.chars[0].text, /M4/);
   assertNumbers(saved);
   const resumed = open(t, bytes);
-  const answers = { ...saved.analysis.resume.answers, 'datum.A': [0], 'part.surface_finish': 'Ra 3.2' };
+  const answers = { ...(saved.analysis.resume?.answers ?? {}), 'datum.A': [0], 'part.surface_finish': 'Ra 3.2' };
   const next = readSaved(t, write(resumed, answers));
   assert.equal(next.chars.find((row) => /M4/.test(row.text)).n, 1);
   assert.ok(next.chars.filter((row) => !/M4/.test(row.text)).every((row) => row.n > 1));
   assertNumbers(next);
 });
 
-test('changed limits reach the next saved export and cannot alter the previous snapshot', (t) => {
-  const a = { 'extra.1': { kind: 'size', faces: [13], value: '+0.2/-0.1' } };
-  const bytes = write(open(t), a);
+test('an explicit remove retires its number with or without a refill in the same save', (t) => {
+  const fill = { 'extra.1': { kind: 'size', faces: [13], value: '+0.2/-0.1' } };
+  const bytes = write(open(t), fill);
   const first = readSaved(t, bytes);
+  const [size] = first.chars;
   assert.deepEqual(first.chars.map((row) => [row.upper, row.lower]), [[0.2, -0.1]]);
-  const live = { ...a, 'extra.1': { ...a['extra.1'], value: '+0.5/-0.3' } };
-  // No Save: reading the retained file still describes its original limits.
   assert.deepEqual(readSaved(t, bytes).chars, first.chars);
-  const changed = readSaved(t, write(open(t, bytes), live));
-  assert.deepEqual(changed.chars.map((row) => [row.n, row.upper, row.lower]), [[first.chars[0].n, 0.5, -0.3]]);
-  assert.notEqual(toCsv(changed.chars), toCsv(first.chars));
-  assertNumbers(changed);
+  const replacement = { 'extra.1': { ...fill['extra.1'], value: '+0.5/-0.3' } };
+  const items = { remove: [`#${size.n}`] };
+  const removed = applyEdits(open(t, bytes), { items });
+  for (const result of [
+    applyEdits(open(t, bytes), { items, fill: replacement }),
+    write(open(t, removed), replacement),
+  ]) {
+    const changed = readSaved(t, result);
+    assert.deepEqual(changed.chars.map((row) => [row.n, row.upper, row.lower]), [[size.n + 1, 0.5, -0.3]]);
+    assert.notEqual(toCsv(changed.chars), toCsv(first.chars));
+    assertNumbers(changed);
+  }
+  assert.deepEqual(readSaved(t, bytes).chars, first.chars);
 });
 
-test('changed datum references are read from the saved PMI, with stable requirement IDs', (t) => {
+test('a measurement with changed datum references is read from saved PMI with a new number', (t) => {
   const answers = {
     'datum.A': [0], 'datum.B': [1],
     'extra.1': { kind: 'perpendicularity', faces: [13], value: '0.05', datums: ['A'] },
@@ -110,10 +131,14 @@ test('changed datum references are read from the saved PMI, with stable requirem
   const first = readSaved(t, bytes);
   const tolerance = first.chars.find((row) => row.upper === 0.05);
   assert.equal(tolerance.datums, 'A');
-  const live = { ...answers, 'extra.1': { ...answers['extra.1'], datums: ['B'] } };
   assert.equal(readSaved(t, bytes).chars.find((row) => row.n === tolerance.n).datums, 'A');
-  const changed = readSaved(t, write(open(t, bytes), live));
-  assert.equal(changed.chars.find((row) => row.n === tolerance.n).datums, 'B');
+  const fill = { 'extra.1': { ...answers['extra.1'], datums: ['B'] } };
+  const removed = applyEdits(open(t, bytes), { items: { remove: [`#${tolerance.n}`] } });
+  const changed = readSaved(t, write(open(t, removed), fill));
+  const next = changed.chars.find((row) => row.upper === 0.05);
+  assert.equal(next.datums, 'B');
+  assert.ok(next.n > tolerance.n);
+  assert.ok(!changed.chars.some((row) => row.n === tolerance.n));
   assert.match(as9102({ name: 'saved' }, changed.chars, new Set(), changed.notes)[2].rows.flat().join(' '), /datums B/);
   assertNumbers(changed);
 });
@@ -142,18 +167,38 @@ test('preview-to-writer parity includes general dimensions, hole depth, thread a
     const numbered = withCharacteristicNumbers(intent, JSON.parse(engine.pmiScene(JSON.stringify({ answers }))));
     return characteristics(numbered, analysis, new Map()).filter((row) => row.n);
   };
+  // P9 / D1: the general tolerance writes only its note: alone it plans and writes no
+  // dimension. Its dimensions are written once their suggestions are approved ("accept
+  // suggestions").
+  const general = { 'part.general_tolerance': 'ISO 2768-m' };
+  assert.deepEqual(planned(engine, general), []);
+  assert.deepEqual(readSaved(t, write(engine, general)).chars, []);
+  const approved = JSON.parse(acceptDefaults(JSON.stringify(JSON.parse(engine.snapshot()).analysis), JSON.stringify({ ...general, 'part.material': 'Steel' })));
   for (const answers of [
-    { 'part.general_tolerance': 'ISO 2768-m' },
+    approved,
     { 'hole.function:holes:13': 'tapped:M4', 'datum.A': [0], 'part.surface_finish': 'Ra 3.2' },
   ]) {
     const before = planned(engine, answers);
     const bytes = write(engine, answers);
     const stored = readSaved(t, bytes);
-    const after = planned(open(t, bytes), stored.analysis.resume.answers);
+    const after = planned(open(t, bytes), stored.analysis.resume?.answers ?? {});
     const ids = (rows) => rows.map((row) => row.n);
     assert.ok(before.length > 0);
+    assert.ok(answers !== approved || before.some((row) => String(row.source).startsWith('general:')), 'general dimensions are planned');
     assert.deepEqual(ids(before), ids(stored.chars), 'every displayed planned number is written and exported');
-    assert.deepEqual(after.map((row) => [row.n, row.text]), before.map((row) => [row.n, row.text]), 'readback preview preserves numbers and wording');
+    // ADR P11: a reopened file's preview plans nothing the file states, so its rows are the
+    // file's own (analysis.existing), each number once, worded as planned: the engine reads a
+    // thread back with its designation and a tolerance with its zone and Ⓜ.
+    assert.deepEqual(after.map((row) => row.n), before.map((row) => row.n), 'readback preview preserves numbers, each once');
+    assert.deepEqual(after.map((row) => [row.n, row.text]), before.map((row) => [row.n, row.text]),
+      'readback preview preserves wording');
+    // The stored export, read from the scene, keeps the planned wording of a tolerance and a
+    // thread (a thread with its depth after it).
+    for (const row of after.filter((row) => /^(⌖|M\d)/.test(row.text))) {
+      const planned = before.find((item) => item.n === row.n)?.text;
+      const kept = stored.chars.find((item) => item.n === row.n)?.text ?? '';
+      assert.ok(planned && kept.startsWith(planned), `#${row.n}: stored wording ${kept} keeps ${planned}`);
+    }
     // The writer can narrow preview supports (e.g. a depth's end face). Exports must
     // use the exact target faces read back from the stored STEP, rather than preview faces.
     for (const row of stored.analysis.characteristics) {

@@ -1,4 +1,5 @@
 //! #75: the shared planner is the selection authority; STEP keeps its complete quantities.
+
 use haecceity::{p21::Document, pmi};
 use quiddity::dimensioning::{Input, PatternRole, Required, Tolerance};
 use serde_json::{Value, json};
@@ -155,14 +156,30 @@ fn an_existing_written_plate_retires_member_numbers_and_never_reuses_them() {
     let before = characteristics::read(&old).unwrap();
     assert_eq!(before.len(), 28);
     assert_eq!(before.iter().filter(|c| c.kind == "dimension").count(), 21);
-    let a = api::analyse(&old).unwrap();
-    let given = a["resume"]["answers"].as_object().unwrap();
-    let i = rules::apply_with_defaults(&a, given, true).unwrap();
-    let (bytes, report) = writer::write_bytes(&old, &i, Some(given)).unwrap();
-    assert!(report.warnings.contains(
+    let no_edits = common::apply_edits(&old, json!({}));
+    assert!(no_edits.unchanged);
+    assert_eq!(
+        no_edits.bytes,
+        old.bytes.as_slice(),
+        "new planner rules cannot change the file"
+    );
+    let remove: Vec<_> = (6..=11).chain(21..=26).map(|n| format!("#{n}")).collect();
+    let applied = common::apply_edits(
+        &old,
+        json!({
+            "items": {"remove": remove},
+            "fill": {
+                "extra.x": {"kind":"distance","faces":[6],"reference":[3],"value":"±0.1"},
+                "extra.y": {"kind":"distance","faces":[6],"reference":[5],"value":"±0.1"},
+                "extra.other": {"kind":"distance","faces":[10],"reference":[3],"value":"±0.1"}
+            }
+        }),
+    );
+    assert_eq!(applied.retired, (6..=11).chain(21..=26).collect::<Vec<_>>());
+    assert!(applied.report.warnings.contains(
         &"retired characteristic numbers: 6, 7, 8, 9, 10, 11, 21, 22, 23, 24, 25, 26".into()
     ));
-    let new = part::load_bytes("planned.step", bytes).unwrap();
+    let new = part::load_bytes("planned.step", applied.bytes).unwrap();
     let after = characteristics::read(&new).unwrap();
     assert_eq!(after.len(), 19);
     let max = before.iter().map(|c| c.number).max().unwrap();
@@ -190,7 +207,7 @@ fn an_existing_written_plate_retires_member_numbers_and_never_reuses_them() {
     assert_eq!(
         after
             .iter()
-            .find(|c| c.faces == [2] && c.reference == [4])
+            .find(|c| c.faces == [4] && c.reference == [2])
             .unwrap()
             .number,
         5,
@@ -203,26 +220,20 @@ fn an_existing_written_plate_retires_member_numbers_and_never_reuses_them() {
             .all(|c| c.number > max)
     );
     assert_eq!(new_numbers.len(), after.len());
-    let a = api::analyse(&new).unwrap();
-    let given = a["resume"]["answers"].as_object().unwrap();
-    let i = rules::apply_with_defaults(&a, given, true).unwrap();
-    let (again, _) = writer::write_bytes(&new, &i, Some(given)).unwrap();
-    assert!(again == *new.bytes, "unchanged resume bytes");
-    // A new answered inspection requirement must allocate above the entire old history.
-    let mut given = given.clone();
-    given.insert(
-        "extra.new".into(),
-        json!({"kind":"flatness","faces":[5],"tolerance":0.02}),
-    );
-    let mut i = i;
-    i.requirements.push(
-        json!({"kind":"flatness","faces":[5],"tolerance":0.02})
-            .as_object()
-            .unwrap()
-            .clone(),
-    );
-    let (bytes, _) = writer::write_bytes(&new, &i, Some(&given)).unwrap();
-    let added = part::load_bytes("added.step", bytes).unwrap();
+    let again = common::apply_edits(&new, json!({}));
+    assert!(again.unchanged);
+    assert_eq!(again.bytes, new.bytes.as_slice(), "unchanged resume bytes");
+    let added = part::load_bytes(
+        "added.step",
+        common::apply_edits(
+            &new,
+            json!({
+                "fill": {"extra.new":{"kind":"flatness","faces":[5],"value":"0.02"}}
+            }),
+        )
+        .bytes,
+    )
+    .unwrap();
     let numbers = characteristics::read(&added).unwrap();
     assert!(numbers.iter().all(|c| !retired.contains(&c.number)));
     assert!(
@@ -237,16 +248,25 @@ fn an_existing_written_plate_retires_member_numbers_and_never_reuses_them() {
 fn reference_flag_is_written_as_a_standard_auxiliary_dimension() {
     let p = plate();
     let a = api::analyse(&p).unwrap();
+    // Approve the offered rows along with the general tolerance. The auxiliary flag
+    // must survive the write on a location whose approval came from the table.
     let given = json!({"part.general_tolerance":"ISO 2768-m"});
-    let mut i = api::preview(&a, given.as_object().unwrap()).unwrap();
+    let given = rules::with_all_defaults(&a, given.as_object().unwrap()).unwrap();
+    let mut i = api::preview(&a, &given).unwrap();
+    let offered = a["table"]["rows"].as_array().unwrap();
     let r = i
         .general
         .iter_mut()
-        .find(|r| r["kind"] == "location")
-        .unwrap();
+        .find(|r| {
+            r["kind"] == "location"
+                && offered
+                    .iter()
+                    .any(|row| row["id"] == r["question"] && row["state"] == "gap")
+        })
+        .expect("an approved location offered by its own row");
     r["planner"]["required"]["reference"] = json!(["determining-plane-path"]);
     r["planner"]["required"]["tolerance"] = json!("untoleranced");
-    let (bytes, _) = writer::write_bytes(&p, &i, Some(given.as_object().unwrap())).unwrap();
+    let (bytes, _) = writer::write_bytes(&p, &i, Some(&given)).unwrap();
     let p = part::load_bytes("reference.step", bytes).unwrap();
     let read = model(&p);
     assert_eq!(
@@ -348,16 +368,27 @@ fn stored_pattern_origin_is_a_specified_authority_not_a_second_origin() {
 fn an_old_general_only_analysis_is_upgraded_at_the_writer_boundary() {
     let p = plate();
     let a = api::analyse(&p).unwrap();
-    let given = json!({"part.general_tolerance":"ISO 2768-m"});
-    let current = api::preview(&a, given.as_object().unwrap()).unwrap();
-    let expected = required(&current).len();
-    assert!(expected > 0);
     let mut old = a.clone();
     old.as_object_mut().unwrap().shift_remove("dimensioning");
+    let given = json!({"part.general_tolerance":"ISO 2768-m"});
+    // P9 / D1: the general tolerance writes only its note, so a general-only intent from an
+    // old analysis has nothing to upgrade and the writer adds no dimension nobody approved.
     let i = api::preview(&old, given.as_object().unwrap()).unwrap();
     assert!(i.requirements.is_empty());
     assert!(i.datums.is_empty());
+    assert!(i.general.is_empty());
+    let (bytes, _) = writer::write_bytes(&p, &i, None).unwrap();
+    let written = part::load_bytes("old-general.step", bytes).unwrap();
+    assert!(model(&written).parts[0].dimensions.is_empty());
+    // Every suggestion approved: the old intent is upgraded to the current plan.
+    let all = rules::with_all_defaults(&a, given.as_object().unwrap()).unwrap();
+    let current = api::preview(&a, &all).unwrap();
+    let expected = required(&current).len();
+    assert!(expected > 0);
+    let all = rules::with_all_defaults(&old, given.as_object().unwrap()).unwrap();
+    let i = api::preview(&old, &all).unwrap();
     assert!(required(&i).is_empty());
+    assert!(!i.general.is_empty());
     let (bytes, _) = writer::write_bytes(&p, &i, None).unwrap();
     let written = part::load_bytes("old-general.step", bytes).unwrap();
     let read = model(&written);
@@ -369,6 +400,86 @@ fn an_old_general_only_analysis_is_upgraded_at_the_writer_boundary() {
             .filter(|a| a.name == "specify dimension plan")
             .count(),
         expected
+    );
+}
+
+/// P9 / D1 at the writer boundary: an old intent (no planner input) that approves one hole's
+/// size is upgraded to that hole's dimensions only, never the planner's whole general set.
+#[test]
+fn an_old_intent_is_upgraded_only_where_it_approves_general_dimensions() {
+    let p = plate();
+    let mut old = api::analyse(&p).unwrap();
+    old.as_object_mut().unwrap().shift_remove("dimensioning");
+    let given = json!({"part.general_tolerance":"ISO 2768-m", "hole.function:holes:9":"general"});
+    let i = api::preview(&old, given.as_object().unwrap()).unwrap();
+    assert!(!i.general.is_empty());
+    assert!(
+        i.general.iter().all(|r| r["faces"] == json!([9])),
+        "{:?}",
+        i.general
+    );
+    let (bytes, _) = writer::write_bytes(&p, &i, None).unwrap();
+    let written = part::load_bytes("old-hole.step", bytes).unwrap();
+    // The file's whole PMI (ADR P11), the general tolerance's dimensions included.
+    let existing = api::analyse(&written).unwrap()["existing"].clone();
+    let dimensions: Vec<&Value> = existing
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["kind"] == "dimension")
+        .collect();
+    assert_eq!(dimensions.len(), model(&written).parts[0].dimensions.len());
+    assert!(!dimensions.is_empty());
+    for d in dimensions {
+        assert_eq!(d["faces"], json!([9]), "{d}");
+        assert!(d.get("faces2").is_none_or(|f| f == &json!([9])), "{d}");
+    }
+}
+
+#[test]
+fn old_plan_upgrades_cannot_approve_other_lengths_sharing_a_holes_reference() {
+    let p = plate();
+    let mut old = api::analyse(&p).unwrap();
+    old.as_object_mut().unwrap().shift_remove("dimensioning");
+    let given = json!({"part.material": "steel"});
+    let mut answers = rules::with_all_defaults(&old, given.as_object().unwrap()).unwrap();
+    answers.retain(|id, _| !id.starts_with("length:planes:") && !id.starts_with("location:holes:"));
+    // Standalone lengths and hole locations need approval before CLI write.
+    // A partial save exercises the upgrade with those approvals absent.
+    let review = api::review(&old, &answers).unwrap();
+    let intent = api::preview(&old, &answers).unwrap();
+    let lengths = [
+        "length:planes:0-5",
+        "length:planes:1-3",
+        "length:planes:2-4",
+    ];
+    assert_eq!(
+        review["open"],
+        json!([
+            "length:planes:0-5",
+            "length:planes:1-3",
+            "length:planes:2-4",
+            "location:holes:0-9",
+            "location:holes:1-9"
+        ])
+    );
+    let (bytes, _) = writer::write_bytes(&p, &intent, Some(&answers)).unwrap();
+    let analysed = api::analyse(&part::load_bytes("old-plate.step", bytes).unwrap()).unwrap();
+    for id in lengths {
+        let row = analysed["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap_or_else(|| panic!("missing {id}"));
+        assert_eq!(row["state"], "gap", "{id}");
+    }
+    assert!(
+        analysed["existing"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["type"] == "Position")
     );
 }
 
@@ -1182,11 +1293,76 @@ fn blind_hole_diameters_and_axis_locations_stay_on_bores_but_depth_uses_planes()
                     "depth must not be a dimensional size"
                 );
             }
-            pmi::DimensionKind::Location { .. } => location += 1,
+            pmi::DimensionKind::Location { .. } => {
+                assert_eq!(support, [37, 51, 53, 54, 56], "{d:?}");
+                location += 1
+            }
         }
     }
     assert_eq!(depth, 1);
-    assert!(location > 0);
+    // D8: the bore (faces 37/38) is datum B, the origin of x and y (datum A is a bore too), so
+    // the file states its location there; but the planner's one location from face 9 also
+    // locates holes 51/53 and 54/56, which nothing else locates in x, so it is written (once).
+    assert_eq!(location, 1);
+}
+
+#[test]
+fn ctc02_keeps_one_depth_on_the_counterbore_step_span() {
+    let Some(corpus) = common::corpus_dir() else {
+        return;
+    };
+    let loaded = part::load(&corpus.join("nist/nist_ctc_02_asme1_rc.stp"), None).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let given = json!({"part.material":"steel"});
+    let intent = rules::apply_with_defaults(&analysis, given.as_object().unwrap(), true).unwrap();
+    let (bytes, _) = writer::write_bytes(&loaded, &intent, None).unwrap();
+    let read = model(&part::load_bytes("ctc02.step", bytes).unwrap());
+    let pmi = &read.parts[0];
+    let pair = [BTreeSet::from([132]), BTreeSet::from([134])];
+    let spans: Vec<_> = pmi
+        .dimensions
+        .iter()
+        .enumerate()
+        .filter(|(_, dimension)| {
+            let pmi::DimensionKind::Location {
+                from,
+                to,
+                kind: pmi::LocationKind::LinearDistance,
+                ..
+            } = dimension.kind
+            else {
+                return false;
+            };
+            let mut ends = [faces(pmi, from), faces(pmi, to)];
+            ends.sort();
+            ends == pair
+        })
+        .collect();
+    assert_eq!(
+        spans.len(),
+        1,
+        "CTC-02: write one span between faces 132 and 134"
+    );
+    let (index, dimension) = spans[0];
+    assert!(
+        matches!(&dimension.nominal.as_ref().unwrap().quantity,pmi::Quantity::Length(n) if n.mm()==8.)
+    );
+    let plan = pmi
+        .attributes
+        .iter()
+        .find(|a| {
+            a.name == "specify dimension plan"
+                && matches!(&a.on, Some(pmi::NoteOwner::Dimension(id)) if id.0 == index)
+        })
+        .unwrap();
+    let pmi::AttributeValue::Text(text) = &plan.items[0].1 else {
+        panic!("missing counterbore depth plan");
+    };
+    let value: Value = serde_json::from_str(text).unwrap();
+    let required: Required = serde_json::from_value(value["required"].clone()).unwrap();
+    assert!(
+        matches!(required.kind,quiddity::dimensioning::Kind::Size {role,..} if role == "counterbore.depth")
+    );
 }
 
 #[test]

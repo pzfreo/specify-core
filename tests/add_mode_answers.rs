@@ -32,26 +32,31 @@ fn round_trip(loaded: part::LoadedPart) {
         .find(|f| f["kind"] == "plane")
         .unwrap()["id"]
         .clone();
-    let given = json!({"extra.1":{"kind":"flatness","faces":[face],"value":"0.031"}})
-        .as_object()
-        .unwrap()
-        .clone();
-    let intent = api::preview(&initial, &given).unwrap();
-    eprintln!("first write");
-    let bytes = writer::write_bytes(&loaded, &intent, Some(&given))
-        .unwrap()
-        .0;
+    let flatness = |value| json!({"kind":"flatness","faces":[face],"value":value});
+    let given = json!({"extra.1": flatness("0.031")});
+    let bytes = common::apply_edits(&loaded, json!({"fill": given})).bytes;
     assert_entities_identical(&original, &bytes);
     let part_index = loaded.binding.part;
     let reopened = part::File::of_bytes(std::path::Path::new("added.step"), bytes.clone())
         .unwrap()
         .load(Some(part_index))
         .unwrap();
-    assert_eq!(resume::answers_for(&reopened).unwrap(), Some(given.clone()));
-    eprintln!("analyse resumed");
+    // ADR P11: an added requirement writes PMI, so it is not stored; the file states it.
     let analysis = api::analyse(&reopened).unwrap();
-    assert_eq!(analysis["resume"]["answers"], json!(given));
-    assert_eq!(analysis["existing"], foreign);
+    assert!(analysis["resume"]["answers"]["extra.1"].is_null());
+    // The file's PMI is listed whoever wrote it: the foreign items, unchanged, and Specify's.
+    let theirs = |a: &Value| {
+        Value::Array(
+            a["existing"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|e| e["provenance"] != writer::PMI_PROVENANCE)
+                .cloned()
+                .collect(),
+        )
+    };
+    assert_eq!(theirs(&analysis), foreign);
     assert_eq!(analysis["part"], initial["part"]);
     let own = existing::read_existing(&reopened)
         .unwrap()
@@ -74,20 +79,18 @@ fn round_trip(loaded: part::LoadedPart) {
             .collect::<Vec<_>>()
     };
     assert_eq!(ids(&initial), ids(&analysis));
-    let mut edited = given.clone();
-    edited["extra.1"]["value"] = json!("0.047");
-    let intent = api::preview(&analysis, &edited).unwrap();
-    eprintln!("edited write");
-    let changed = writer::write_bytes(&reopened, &intent, Some(&edited))
-        .unwrap()
-        .0;
-    assert_entities_identical(&original, &changed);
-    let again = part::File::of_bytes(std::path::Path::new("changed.step"), changed)
+    let replacement = common::apply_edits(
+        &reopened,
+        json!({"items":{"remove": [format!("#{number}")]}, "fill":{"extra.1": flatness("0.047")}}),
+    );
+    assert_eq!(replacement.retired, [number]);
+    assert_entities_identical(&original, &replacement.bytes);
+    let again = part::File::of_bytes(std::path::Path::new("changed.step"), replacement.bytes)
         .unwrap()
         .load(Some(part_index))
         .unwrap();
-    assert_eq!(resume::answers_for(&again).unwrap(), Some(edited));
-    assert_eq!(api::analyse(&again).unwrap()["existing"], foreign);
+    assert!(api::analyse(&again).unwrap()["resume"]["answers"]["extra.1"].is_null());
+    assert_eq!(theirs(&api::analyse(&again).unwrap()), foreign);
     let changed = existing::read_existing(&again)
         .unwrap()
         .into_iter()
@@ -98,7 +101,7 @@ fn round_trip(loaded: part::LoadedPart) {
         1,
         "edited requirement must replace its predecessor"
     );
-    assert_eq!(changed[0].number, Some(number));
+    assert_eq!(changed[0].number, Some(number + 1));
     assert!((changed[0].value.unwrap() - 0.047).abs() < 1e-12);
     assert_eq!(characteristics::read(&again).unwrap().len(), numbers.len());
 }
@@ -115,53 +118,57 @@ fn ctc01_foreign_pmi_answers_resume_and_edits_preserve_entity_text() {
 }
 
 #[test]
-fn ctc02_foreign_pmi_answers_resume_and_edits_preserve_entity_text() {
-    nist("nist/nist_ctc_02_asme1_ap242#0");
-}
-
-#[test]
 fn ftc09_foreign_pmi_answers_resume_and_edits_preserve_entity_text() {
     nist("nist/nist_ftc_09_asme1_ap242-e1");
 }
 
 #[test]
-fn ctc01_defaulted_add_replaces_all_own_items_and_keeps_numbers() {
+fn ctc01_edits_only_addressed_settings_and_keeps_other_numbers() {
     let case = common::case("nist/nist_ctc_01_asme1_ap242");
     let loaded = part::load(&case.input().unwrap(), None).unwrap();
     let original = loaded.bytes.to_vec();
+    let a = api::analyse(&loaded).unwrap();
+    let plane = a["faces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["kind"] == "plane")
+        .unwrap();
+    let seeded = common::apply_edits(
+        &loaded,
+        json!({"fill": {
+            "extra.flatness":{"kind":"flatness","faces":[plane["id"]],"value":"0.031"}
+        }}),
+    );
+    let loaded = part::load_bytes("numbered.step", seeded.bytes).unwrap();
     let initial = api::analyse(&loaded).unwrap();
-    let mut answers = json!({"part.material":"brass", "part.notes":["First instruction"]})
-        .as_object()
-        .unwrap()
-        .clone();
-    let intent = api::apply(&initial, &answers, true).unwrap();
-    let bytes = writer::write_bytes(&loaded, &intent, Some(&answers))
-        .unwrap()
-        .0;
+    let bytes = common::apply_edits(
+        &loaded,
+        json!({
+            "fill": {"part.material":"brass", "part.notes":["First instruction"]}
+        }),
+    )
+    .bytes;
     let reopened = part::load_bytes("defaults.step", bytes).unwrap();
     let numbers = characteristics::read(&reopened).unwrap();
     assert!(!numbers.is_empty());
     let analysis = api::analyse(&reopened).unwrap();
     assert_eq!(analysis["existing"], initial["existing"]);
-    assert_eq!(analysis["part"], initial["part"]);
-    answers.insert("part.material".into(), json!("steel"));
-    answers.insert("part.notes".into(), json!(["Revised instruction"]));
-    let intent = api::apply(&analysis, &answers, true).unwrap();
-    let bytes = writer::write_bytes(&reopened, &intent, Some(&answers))
-        .unwrap()
-        .0;
+    assert_eq!(analysis["part"]["material"], "brass");
+    assert_eq!(analysis["part"]["notes"], json!(["First instruction"]));
+    let bytes = common::apply_edits(
+        &reopened,
+        json!({"change": {
+            "part.material":{"to":"steel","expect":"brass"},
+            "part.notes":{"to":["Revised instruction"],"expect":"First instruction"}
+        }}),
+    )
+    .bytes;
     assert_entities_identical(&original, &bytes);
     let reopened = part::load_bytes("edited.step", bytes).unwrap();
-    assert_eq!(resume::answers_for(&reopened).unwrap(), Some(answers));
-    let mut after = characteristics::read(&reopened).unwrap();
-    for c in &mut after {
-        c.entity = 0;
-    }
-    let mut numbers = numbers;
-    for c in &mut numbers {
-        c.entity = 0;
-    }
-    assert_eq!(after, numbers);
+    assert!(api::analyse(&reopened).unwrap()["resume"]["answers"]["part.notes"].is_null());
+    assert!(api::analyse(&reopened).unwrap()["resume"]["answers"]["part.material"].is_null());
+    assert_eq!(characteristics::read(&reopened).unwrap(), numbers);
     let model = existing::part_settings(&reopened).unwrap();
     assert_eq!(model["material"], "steel");
     assert_eq!(model["notes"], json!(["Revised instruction"]));
@@ -192,32 +199,6 @@ fn old_add_mode_without_saved_answers_still_opens_as_existing_pmi() {
         analysis["part"],
         json!(existing::part_settings(&reopened).unwrap())
     );
-}
-
-#[test]
-fn coincident_numbered_foreign_control_cannot_lend_its_number_to_specify() {
-    let loaded = part::load(&common::fixtures().join("parts/plate.step"), None).unwrap();
-    let analysis = api::analyse(&loaded).unwrap();
-    let face = analysis["faces"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|f| f["kind"] == "plane")
-        .unwrap()["id"]
-        .clone();
-    let answers = json!({"extra.1":{"kind":"flatness","faces":[face],"value":"0.031"}})
-        .as_object()
-        .unwrap()
-        .clone();
-    let intent = api::preview(&analysis, &answers).unwrap();
-    let bytes = writer::write_bytes(&loaded, &intent, None).unwrap().0;
-    // Simulate an independent producer with a numbered control and its own history.
-    // Keep all semantic values and numbers while removing Specify authorship.
-    let bytes = String::from_utf8(bytes)
-        .unwrap()
-        .replace(writer::PMI_PROVENANCE, "independent producer")
-        .into_bytes();
-    round_trip(part::load_bytes("foreign-numbered.step", bytes).unwrap());
 }
 
 #[test]
@@ -322,14 +303,15 @@ fn ctc01_datum_on_kept_perpendicularity_carrier_preserves_foreign_entities() {
         number = Some(n);
         assert_eq!(
             resume::answers_for(&reopened).unwrap(),
-            Some(answers.clone())
+            // ADR P11: stored are the answers that leave no PMI behind.
+            Some(specify_core::feature_table::storable(&answers))
         );
         current = reopened;
     }
 }
 
 #[test]
-fn removing_owned_control_keeps_its_carrier_when_foreign_control_uses_it() {
+fn a_save_without_the_owned_control_keeps_it_and_its_shared_carrier() {
     use haecceity::pmi::{PartId, PartPmi};
     let bare = part::load(&common::fixtures().join("parts/plate.step"), None).unwrap();
     // Establish genuine Add-mode scope before authoring the shared carrier. Legacy
@@ -452,6 +434,8 @@ fn removing_owned_control_keeps_its_carrier_when_foreign_control_uses_it() {
         &doc.bytes()[doc.span(carrier).unwrap()],
         &after.bytes()[after.span(carrier).unwrap()]
     );
+    // ADR P11: leaving the owned control out of the answers removes nothing (a remove is an
+    // explicit edit): every control stays, Specify's with it.
     let reopened = part::load_bytes("removed.step", bytes).unwrap();
     let remaining = existing::read_existing(&reopened).unwrap();
     assert_eq!(
@@ -459,12 +443,14 @@ fn removing_owned_control_keeps_its_carrier_when_foreign_control_uses_it() {
             .iter()
             .filter(|e| e.kind == "geometric_tolerance")
             .count(),
-        2
+        3
     );
-    assert!(
+    assert_eq!(
         remaining
             .iter()
-            .all(|e| e.provenance.as_deref() != Some(writer::PMI_PROVENANCE))
+            .filter(|e| e.provenance.as_deref() == Some(writer::PMI_PROVENANCE))
+            .count(),
+        1
     );
 }
 

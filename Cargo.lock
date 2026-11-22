@@ -288,8 +288,8 @@ dependencies = [
 
 [[package]]
 name = "haecceity"
-version = "0.5.4"
-source = "git+https://github.com/pzfreo/quiddity?tag=v0.5.4#f7ed5825b260ecc64221ea5cc00bd7fe9e852bc6"
+version = "0.5.5"
+source = "git+https://github.com/pzfreo/quiddity?tag=v0.5.5#079fe70d706b0774930c72f18d14e18968dc0493"
 dependencies = [
  "flate2",
  "i_overlay",
@@ -592,8 +592,8 @@ dependencies = [
 
 [[package]]
 name = "quiddity"
-version = "0.5.4"
-source = "git+https://github.com/pzfreo/quiddity?tag=v0.5.4#f7ed5825b260ecc64221ea5cc00bd7fe9e852bc6"
+version = "0.5.5"
+source = "git+https://github.com/pzfreo/quiddity?tag=v0.5.5#079fe70d706b0774930c72f18d14e18968dc0493"
 dependencies = [
  "flate2",
  "haecceity",
@@ -795,9 +795,9 @@ dependencies = [
 
 [[package]]
 name = "step-io"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c80cd4ee8e13a35d24b48590efc44772f4323d0534d84c3d9fa0621fd82b18c4"
+checksum = "22cc66e033d7f70f04d8d7f962d2d6c001e152d04f16aa7f7ac84cf107eb4dae"
 dependencies = [
  "logos",
  "memchr",

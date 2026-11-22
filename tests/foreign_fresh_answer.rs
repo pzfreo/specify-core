@@ -1,8 +1,7 @@
-//! ADR P9: another tool's (unmarked) requirement is keep-only. A file Specify wrote with a hole
-//! position of 0.5 is re-authored by another tool as 1.5: reopening lists a foreign conflict,
-//! a save keeps 1.5 and drops the contradicted answer, and the next reopening has no
-//! conflict. Answering 0.5 afresh then must not replace the other tool's 1.5, on the CLI's
-//! path, the editor's (WASM session `writePmi`, tested in specify-core-wasm) and MCP's.
+//! ADR P11: the file's PMI is the only copy. A file Specify wrote with a hole position of 0.5
+//! is re-authored by another tool as 1.5: reopening shows 1.5 with no conflict, a save keeps
+//! 1.5 and drops the stale answer, and answering 0.5 afresh then must not replace the file's
+//! 1.5 (changing it is an explicit edit), on the CLI's path and MCP's.
 
 mod common;
 
@@ -87,16 +86,6 @@ pub fn positions(l: &LoadedPart) -> Vec<(f64, bool)> {
         .collect()
 }
 
-fn assert_foreign_conflict(analysis: &Value) {
-    assert!(
-        analysis["resume"]["conflicts"]
-            .as_array()
-            .is_some_and(|c| c.iter().any(|c| c["id"] == HOLE && c["foreign"] == true)),
-        "{}",
-        analysis["resume"]
-    );
-}
-
 fn assert_no_conflict(analysis: &Value) {
     assert!(
         analysis["resume"].get("conflicts").is_none(),
@@ -107,21 +96,6 @@ fn assert_no_conflict(analysis: &Value) {
         analysis["resume"]["answers"].get(HOLE).is_none(),
         "{}",
         analysis["resume"]
-    );
-}
-
-fn assert_held(report: &Value) {
-    let lines: Vec<&str> = report["not_written"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(Value::as_str)
-        .collect();
-    assert!(
-        lines.iter().any(|l| l.starts_with(HOLE)
-            && l.contains("another tool's requirement holds this question")
-            && l.contains("keep it, or change it in that tool")),
-        "{report}"
     );
 }
 
@@ -147,41 +121,41 @@ fn cli(args: &[&Path]) -> Value {
     serde_json::from_slice(&out.stdout).unwrap_or(Value::Null)
 }
 
-/// `analyse`, then `write --accept-defaults` of `answers` (the resumed ones when `None`).
-fn cli_write(
-    bytes: &[u8],
-    answers: Option<&Map<String, Value>>,
-    name: &str,
-) -> (LoadedPart, Value) {
+/// Apply the list and inspect the saved file or the untouched source after refusal.
+fn cli_write(bytes: &[u8], fill: Option<&Map<String, Value>>, name: &str) -> (LoadedPart, Value) {
     let dir = dir(name);
     let input = dir.join("in.step");
     std::fs::write(&input, bytes).unwrap();
-    let analysis = dir.join("analysis.json");
-    cli(&[Path::new("analyse"), Path::new("-o"), &analysis, &input]);
-    let analysed: Value = serde_json::from_slice(&std::fs::read(&analysis).unwrap()).unwrap();
-    let given = answers.map_or(analysed["resume"]["answers"].clone(), |a| {
-        Value::Object(a.clone())
-    });
-    let file = dir.join("answers.json");
-    std::fs::write(&file, given.to_string()).unwrap();
-    let output = dir.join("out.step");
-    let report = cli(&[
-        Path::new("write"),
-        Path::new("-o"),
-        &output,
-        Path::new("--accept-defaults"),
-        &input,
-        &analysis,
+    let file = dir.join("edits.json");
+    std::fs::write(
         &file,
-    ]);
-    (load(std::fs::read(output).unwrap()), report)
+        fill.map_or_else(|| json!({}), |given| json!({"fill": given}))
+            .to_string(),
+    )
+    .unwrap();
+    let output = dir.join("out.step");
+    let args = [Path::new("write"), &input, &file, Path::new("-o"), &output];
+    if fill.is_none() {
+        let report = cli(&args);
+        return (load(std::fs::read(output).unwrap()), report);
+    }
+    let ran = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        .args(args)
+        .output()
+        .unwrap();
+    assert_eq!(ran.status.code(), Some(2), "{ran:?}");
+    assert!(!output.exists());
+    (
+        load(std::fs::read(input).unwrap()),
+        json!(String::from_utf8(ran.stderr).unwrap()),
+    )
 }
 
-/// Conflict, save without deciding, reopen (no conflict), answer 0.5, save: 1.5 stays alone.
+/// Reopen (no conflict), save, reopen, answer 0.5, save: 1.5 stays alone.
 #[test]
 fn a_fresh_answer_does_not_replace_another_tools_requirement_on_the_cli() {
     let edited = re_authored();
-    assert_foreign_conflict(&api::analyse(&edited).unwrap());
+    assert_no_conflict(&api::analyse(&edited).unwrap());
     let (saved, _) = cli_write(&edited.bytes, None, "save");
     assert_eq!(positions(&saved), [(1.5, false)]);
     let reopened = api::analyse(&saved).unwrap();
@@ -190,30 +164,16 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_on_the_cli() {
     given.insert(HOLE.into(), json!("0.5"));
     let (answered, report) = cli_write(&saved.bytes, Some(&given), "answer");
     assert_eq!(positions(&answered), [(1.5, false)], "{report}");
-    assert_held(&report);
+    let error = report.as_str().unwrap();
+    assert!(
+        error.contains(HOLE) && error.contains("change with \"to\": \"0.5\", \"expect\": \"1.5\""),
+        "{error}"
+    );
 }
 
-/// The same after the person kept the file's 1.5 (the editor's only choice for a foreign
-/// conflict): the Keep grants no permission to replace it later.
-#[test]
-fn a_fresh_answer_after_keeping_does_not_replace_another_tools_requirement() {
-    let edited = re_authored();
-    let analysis = api::analyse(&edited).unwrap();
-    assert_foreign_conflict(&analysis);
-    let mut kept = analysis["resume"]["answers"].as_object().unwrap().clone();
-    kept.insert("_specify".into(), json!({"keep": [HOLE]}));
-    let (saved, _) = cli_write(&edited.bytes, Some(&kept), "keep");
-    assert_eq!(positions(&saved), [(1.5, false)]);
-    let reopened = api::analyse(&saved).unwrap();
-    assert_no_conflict(&reopened);
-    let mut given = reopened["resume"]["answers"].as_object().unwrap().clone();
-    given.insert(HOLE.into(), json!("0.5"));
-    let (answered, report) = cli_write(&saved.bytes, Some(&given), "keep-answer");
-    assert_eq!(positions(&answered), [(1.5, false)], "{report}");
-    assert_held(&report);
-}
-
-/// The same over MCP: `open`, `save`, then reopen, `answer` 0.5 and `save`.
+/// The same over MCP: `open`, `save`, then reopen; `answer` 0.5 is refused, and so is `save`
+/// with a fill of 0.5 (Specify 0.3.0: a fill differing from what the file states refuses the whole list, naming it, and writes
+/// nothing; the other tool's 1.5 stands).
 #[test]
 fn a_fresh_answer_does_not_replace_another_tools_requirement_over_mcp() {
     let dir = dir("mcp");
@@ -228,32 +188,86 @@ fn a_fresh_answer_does_not_replace_another_tools_requirement_over_mcp() {
                 "io.modelcontextprotocol/clientCapabilities": {}
             }
         }});
-        let result = server.handle(&request, None).body.unwrap()["result"].clone();
-        assert_ne!(result["isError"], json!(true), "{name}: {result}");
+        server.handle(&request, None).body.unwrap()["result"].clone()
+    };
+    let ok = |result: Value| {
+        assert_ne!(result["isError"], json!(true), "{result}");
         result["structuredContent"].clone()
     };
-    let opened = call("open", json!({"path": input}));
-    assert!(
-        opened["conflicts"]
-            .as_array()
-            .is_some_and(|c| c.iter().any(|c| c["id"] == HOLE)),
-        "{opened}"
-    );
-    let saved = call("save", json!({"doc": opened["doc"], "accept_defaults": {}}));
+    let opened = ok(call("open", json!({"path": input})));
+    assert!(opened.get("conflicts").is_none(), "{opened}");
+    let saved = ok(call("save", json!({"doc": opened["doc"], "edits": {}})));
     let path = saved["path"].as_str().unwrap().to_string();
     let back = load(std::fs::read(&path).unwrap());
     assert_eq!(positions(&back), [(1.5, false)]);
     assert_no_conflict(&api::analyse(&back).unwrap());
-    let reopened = call("open", json!({"path": path}));
-    call(
+    let reopened = ok(call("open", json!({"path": path})));
+    let before = std::fs::read(&path).unwrap();
+    // ADR P11: the file states the hole's position, so an answer is refused up front with the
+    // edit list's reason.
+    let refused = call(
         "answer",
         json!({"doc": reopened["doc"], "set": {(HOLE): "0.5"}}),
     );
-    let saved = call(
-        "save",
-        json!({"doc": reopened["doc"], "accept_defaults": {}}),
+    assert_eq!(refused["isError"], json!(true), "{refused}");
+    let message = refused["structuredContent"]["error"]["message"]
+        .as_str()
+        .unwrap();
+    assert!(
+        message.starts_with("the file states")
+            && message.contains("⌖ ⌀1.5 A B C")
+            && message.contains(&format!("for {HOLE}"))
+            && message.contains("change with \"to\": \"0.5\", \"expect\": \"1.5\""),
+        "{message}"
     );
-    let back = load(std::fs::read(saved["path"].as_str().unwrap()).unwrap());
-    assert_eq!(positions(&back), [(1.5, false)], "{saved}");
-    assert_held(&saved["report"]);
+    let checked = ok(call("check", json!({"doc": reopened["doc"], "edits": {}})));
+    assert_eq!(checked["applicable"], true, "{checked}");
+    assert_eq!(checked["entries"], 0, "{checked}");
+    assert_eq!(checked["written"], false, "{checked}");
+    let refused = call(
+        "save",
+        json!({"doc": reopened["doc"], "edits": {"fill": {(HOLE): "0.5"}}}),
+    );
+    assert_eq!(refused["isError"], json!(true), "{refused}");
+    let failures = &refused["structuredContent"]["error"]["failures"];
+    assert!(
+        failures.as_array().is_some_and(|f| f.len() == 1
+            && f[0]["entry"].as_str().is_some_and(|e| e.contains(HOLE))
+            && f[0]["reason"]
+                .as_str()
+                .is_some_and(|r| r.contains("already states"))),
+        "{refused}"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before, "nothing written");
+    let noop = ok(call("save", json!({"doc": reopened["doc"], "edits": {}})));
+    assert_eq!(noop["report"]["written"], json!([]), "{noop}");
+    assert_eq!(noop["report"]["unchanged"], true, "{noop}");
+    let noop_bytes = std::fs::read(noop["path"].as_str().unwrap()).unwrap();
+    let position_entity = |bytes: &[u8]| {
+        String::from_utf8_lossy(bytes)
+            .lines()
+            .find(|line| line.contains("POSITION_TOLERANCE()") && !line.contains("WITH_MODIFIERS"))
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(position_entity(&noop_bytes), position_entity(&before));
+    assert_eq!(positions(&load(noop_bytes)), [(1.5, false)]);
+
+    let guarded = json!({"doc": reopened["doc"], "edits": {
+        "change": {(HOLE): {"to": "0.5", "expect": "1.5"}}
+    }});
+    let checked = ok(call("check", guarded.clone()));
+    assert_eq!(checked["applicable"], true, "{checked}");
+    assert_eq!(checked["entries"], 1, "{checked}");
+    assert_eq!(checked["written"], false, "{checked}");
+    let modified = ok(call("save", guarded));
+    let changed = load(std::fs::read(modified["path"].as_str().unwrap()).unwrap());
+    let positions = positions(&changed);
+    assert_eq!(positions.iter().map(|p| p.0).collect::<Vec<_>>(), [0.5]);
+    assert!(
+        modified["report"]["written"]
+            .as_array()
+            .is_some_and(|lines| !lines.is_empty()),
+        "{modified}"
+    );
 }

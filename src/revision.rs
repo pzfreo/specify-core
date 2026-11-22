@@ -26,7 +26,7 @@ use haecceity::Part;
 
 pub mod assembly;
 mod pmi;
-pub(crate) use pmi::{Drift, against_plan, exactly_restated, scene_items};
+
 mod pmi_picture;
 mod treatments;
 

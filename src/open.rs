@@ -1,6 +1,7 @@
 //! The Specify page server (`specify-core open`, and MCP's `show`): one session's STEP file
 //! opened in the Specify app, served on 127.0.0.1 to the person's own browser, never uploaded,
-//! and saved back to disk by this process from the session's answers (src/session.rs).
+//! and saved back to disk by this process, applying the edit list the page sends
+//! (src/session.rs, src/edits.rs).
 //!
 //! Everything is under `http://127.0.0.1:<port>/<token>/` (the token 32 lowercase hex from the
 //! operating system's random source), see docs/open.md:
@@ -9,10 +10,11 @@
 //!   engine, `GET <token>/file` the STEP bytes (`?rev=old` OLD's in a diff, `?rev=saved` what
 //!   the last save wrote), `GET <token>/config` the app's settings, `GET <token>/diff` a
 //!   diff's report;
-//! - `GET`/`PUT <token>/answers` the session's answers, `GET <token>/events` their changes as
+//! - `GET <token>/answers` the session's answers, `GET <token>/events` their changes as
 //!   server-sent events;
-//! - `POST <token>/save` the specified STEP written from the session's answers, next to the
-//!   input (never over a file, unless in place, which keeps the original once as `.bak`);
+//! - `POST <token>/save` an edit list applied to the file, all or nothing, and written next to
+//!   the input (never over a file, unless in place, which keeps the original once as `.bak`);
+//! - `POST <token>/discard` drops working answers without writing;
 //! - `POST <token>/closed` the page went away: the server stops [`CLOSE_DELAY`] after the last
 //!   request unless another arrives (a reload, or another open page's heartbeat).
 //!
@@ -20,10 +22,11 @@
 //! time and cancels a pending close, and an open event stream keeps the server running.
 //!
 //! A request whose `Host` is not exactly `127.0.0.1:<port>` is refused (a page that finds the
-//! port through DNS rebinding), as is any other token, without saying why. `save`, `PUT
-//! answers` and `closed` must carry `Origin: http://127.0.0.1:<port>`; a `GET` with any other
+//! port through DNS rebinding), as is any other token, without saying why. `save` and
+//! `closed` must carry `Origin: http://127.0.0.1:<port>`; a `GET` with any other
 //! `Origin` is refused. A forgotten server stops after [`IDLE`] without a request.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream};
@@ -33,7 +36,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::session;
 
@@ -51,11 +54,8 @@ pub const CLOSE_DELAY: Duration = Duration::from_secs(90);
 /// page's heartbeat keeps it).
 pub const IDLE: Duration = Duration::from_secs(30 * 60);
 
-/// The largest `save` body accepted.
-pub const MAX_SAVE_BODY: u64 = 64 * 1024;
-
-/// The largest `PUT answers` body accepted.
-pub const MAX_ANSWERS: u64 = 16 * 1024 * 1024;
+/// The largest `save` body accepted (an edit list, as `input::JSON_LIMIT` takes JSON).
+pub const MAX_SAVE_BODY: u64 = 16 * 1024 * 1024;
 
 /// The most event streams open at once; another is answered 503.
 pub const MAX_STREAMS: usize = 4;
@@ -71,8 +71,8 @@ pub const WASM_URL: &str = "wasm/specify_core_wasm.js";
 
 /// The version of this page contract (docs/open.md), given as `config.api`. It changes only in
 /// a minor release, when the contract changes in a way an app built for the old one cannot
-/// follow; 1 is 0.2.0's contract.
-pub const API_VERSION: u32 = 1;
+/// follow; 1 is 0.2.0's contract, 2 is 0.3.0's (Save sends an edit list; no `PUT answers`).
+pub const API_VERSION: u32 = 2;
 
 /// The page's Content-Security-Policy: everything from this server only, the engine compiled
 /// with `'wasm-unsafe-eval'`, inline styles (which UI libraries set), `data:` fonts and
@@ -729,15 +729,15 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
             }
             save(stream, ctx, &request, body);
         }
-        ("PUT", "answers") => {
+        ("POST", "discard") => {
             if !same_origin {
                 return refuse(
                     stream,
                     "403 Forbidden",
-                    "answers change only from the app's own page",
+                    "discard only from the app's own page",
                 );
             }
-            put_answers(stream, ctx, &request, body);
+            discard(stream, ctx, &request, body);
         }
         ("POST", "closed") => {
             if !same_origin {
@@ -751,25 +751,18 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
             }
             reply(stream, "204 No Content", None, b"");
         }
-        (_, "save" | "closed") => {
+        (_, "save" | "discard" | "closed") => {
             let _ = respond(stream, "405 Method Not Allowed", &[("Allow", "POST")], b"");
         }
         ("GET", _) if origin.is_some() && !same_origin => {
             let _ = respond(stream, "403 Forbidden", &[], b"");
         }
         ("GET", "answers") => {
-            let s = session::lock(&shared.session);
-            let answers = json!({"rev": s.rev(), "parts": s.parts()});
-            drop(s);
+            let answers = session::lock(&shared.session).answer_snapshot();
             reply_json(stream, "200 OK", &answers);
         }
         (_, "answers") => {
-            let _ = respond(
-                stream,
-                "405 Method Not Allowed",
-                &[("Allow", "GET, PUT")],
-                b"",
-            );
+            let _ = respond(stream, "405 Method Not Allowed", &[("Allow", "GET")], b"");
         }
         ("GET", "file") => {
             let bytes = match query(&request.target, "rev") {
@@ -911,72 +904,6 @@ fn body_time(length: u64) -> Duration {
     Duration::from_secs(30 + length / (1024 * 1024))
 }
 
-/// `PUT <token>/answers`, from the app's own origin: part `part`'s answers replaced when `rev`
-/// is current.
-fn put_answers(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
-    let shared = ctx.shared;
-    if shared.read_only {
-        return refuse(
-            stream,
-            "409 Conflict",
-            "opened read-only: no answer changes",
-        );
-    }
-    let value = match json_body(stream, request, body, MAX_ANSWERS) {
-        Ok(v) => v,
-        Err((status, why)) => return refuse(stream, status, &why),
-    };
-    let (Some(rev), Some(part), Some(answers)) = (
-        value["rev"].as_u64(),
-        value["part"].as_u64(),
-        value["answers"].as_object(),
-    ) else {
-        return refuse(
-            stream,
-            "400 Bad Request",
-            "send {\"rev\": n, \"part\": k, \"answers\": {question id: answer}}",
-        );
-    };
-    let part = part as usize;
-    let stale = |s: &session::Session| {
-        json!({"error": "the answers have changed since that rev: apply the change to these and try again",
-               "rev": s.rev(), "parts": s.parts()})
-    };
-    let mut s = session::lock(&shared.session);
-    if rev != s.rev() {
-        let current = stale(&s);
-        drop(s);
-        return reply_json(stream, "409 Conflict", &current);
-    }
-    if part >= s.part_count() {
-        let count = s.part_count();
-        drop(s);
-        return refuse(
-            stream,
-            "400 Bad Request",
-            &format!("the file has {count} part(s): there is no part {part}"),
-        );
-    }
-    // A part the agent has not opened is opened in the session on its first change: analysed
-    // without the session's lock, then the rev checked again.
-    if !s.is_open(part) {
-        drop(s);
-        if let Err(e) = session::analysis(&shared.session, part) {
-            return refuse(stream, "400 Bad Request", &format!("part {part}: {e}"));
-        }
-        s = session::lock(&shared.session);
-        if rev != s.rev() {
-            let current = stale(&s);
-            drop(s);
-            return reply_json(stream, "409 Conflict", &current);
-        }
-    }
-    s.set(part, answers.clone(), "page");
-    let rev = s.rev();
-    drop(s);
-    reply_json(stream, "200 OK", &json!({ "rev": rev }));
-}
-
 /// `GET <token>/events`: the session's changes as server-sent events, the current state first;
 /// a comment every [`KEEP_ALIVE`]. At most [`MAX_STREAMS`] at once.
 fn events(stream: &mut TcpStream, ctx: &Ctx) {
@@ -1116,46 +1043,50 @@ fn header_value(text: &str) -> String {
     out
 }
 
-/// `POST <token>/save`, from the app's own origin: the session's answers written by the
-/// command (docs/open.md, `save`).
+/// The two API 2 request forms. The original edit list also accepts a 0.2 answers
+/// map read as fills, as `write` reads one.
+enum PageEdits {
+    Single(Box<crate::edits::EditList>),
+    Assembly(BTreeMap<usize, crate::edits::EditList>),
+}
+
+impl PageEdits {
+    fn read(value: &Value) -> Result<Self, Value> {
+        let bad = |why: &str| json!({"error": why});
+        match (value.get("edits"), value.get("partEdits")) {
+            (edits, None) => {
+                let object = edits.filter(|e| e.is_object()).ok_or_else(|| {
+                    bad("edits is required: the edit list to apply ({} for none)")
+                })?;
+                crate::edits::read(&object.to_string())
+                    .map(|list| Self::Single(Box::new(list)))
+                    .map_err(|failures| json!({"error": session::edits_refused(&failures), "failures": failures}))
+            }
+            (None, Some(parts)) => {
+                session::read_part_edits(parts)
+                    .map(Self::Assembly)
+                    .map_err(|e| match e {
+                        session::PartEditsError::Shape(why) => bad(&why),
+                        session::PartEditsError::List(failures) => json!({
+                            "error": session::part_edits_refused(&failures), "failures": failures
+                        }),
+                    })
+            }
+            (Some(_), Some(_)) => Err(bad("send either edits or partEdits")),
+        }
+    }
+}
+
+/// `POST <token>/save`, from the app's own origin: an edit list or a list per part,
+/// applied all or nothing and written by the command (docs/open.md, `save`).
 fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
     let shared = ctx.shared;
     if shared.read_only {
         return refuse(stream, "409 Conflict", "opened read-only: nothing is saved");
     }
-    let raw = match json_bytes(stream, request, body, MAX_SAVE_BODY) {
-        Ok(raw) => raw,
+    let value = match json_body(stream, request, body, MAX_SAVE_BODY) {
+        Ok(v) => v,
         Err((status, why)) => return refuse(stream, status, &why),
-    };
-    let value: serde_json::Value = serde_json::from_slice(&raw).unwrap_or_default();
-    /// `acceptDefaults` as sent, duplicate keys kept.
-    #[derive(serde::Deserialize)]
-    struct Body {
-        #[serde(rename = "acceptDefaults")]
-        accept_defaults: Option<session::Entries<session::Entries<serde_json::Value>>>,
-    }
-    let sent = serde_json::from_slice::<Body>(&raw)
-        .ok()
-        .and_then(|b| b.accept_defaults)
-        .map(session::approvals_from);
-    let approved = match sent {
-        Some(Ok(approved)) => approved,
-        Some(Err(Some((part, question)))) => {
-            return reply_json(
-                stream,
-                "400 Bad Request",
-                &json!({"error": format!("part {part}: {question} is approved twice with different values"),
-                        "part": part, "question": question}),
-            );
-        }
-        _ => {
-            return refuse(
-                stream,
-                "400 Bad Request",
-                "acceptDefaults is required: by part index, each approved question id with the \
-                 default the person saw ({\"0\": {\"id\": value}}; {} for none)",
-            );
-        }
     };
     let Some(rev) = value.get("rev").and_then(|v| v.as_u64()) else {
         return refuse(
@@ -1164,17 +1095,28 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
             "rev is required: the session revision the page last saw",
         );
     };
-    match session::save(&shared.session, Some(rev), &approved, "page") {
+    let result = match PageEdits::read(&value) {
+        Ok(PageEdits::Single(list)) => {
+            session::save_edits(&shared.session, Some(rev), &list, "page")
+        }
+        Ok(PageEdits::Assembly(lists)) => {
+            session::save_assembly_edits(&shared.session, Some(rev), &lists, "page")
+        }
+        Err(error) => return reply_json(stream, "400 Bad Request", &error),
+    };
+    match result {
         Ok(saved) => {
             let _ = ctx
                 .tell
                 .send(format!("Saved {} ({} bytes).", saved.path, saved.bytes));
-            reply_json(stream, "200 OK", &saved.to_json());
+            let mut response = saved.to_json();
+            response["parts"] = saved.parts;
+            reply_json(stream, "200 OK", &response);
         }
         Err(session::SaveError::Stale(current)) => reply_json(
             stream,
             "409 Conflict",
-            &json!({"error": "the answers have changed since that rev: show them and save again", "rev": current}),
+            &json!({"error": "the session has changed since that rev: show it and save again", "rev": current}),
         ),
         Err(session::SaveError::Changed(why)) => {
             let current = session::lock(&shared.session).rev();
@@ -1185,22 +1127,72 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
             )
         }
         Err(session::SaveError::Outside(why)) => refuse(stream, "403 Forbidden", &why),
-        Err(session::SaveError::Question {
-            message,
-            part,
-            question,
-            values,
-        }) => {
-            let mut body = json!({"error": message, "part": part, "question": question});
-            if let Some(values) = values {
-                let (expected, current) = *values;
-                body["expected"] = expected;
-                body["current"] = current;
-            }
-            reply_json(stream, "400 Bad Request", &body)
+        Err(session::SaveError::Edits(failures)) => reply_json(
+            stream,
+            "422 Unprocessable Content",
+            &json!({"error": session::edits_refused(&failures), "failures": failures}),
+        ),
+        Err(session::SaveError::PartEdits(failures)) => reply_json(
+            stream,
+            "422 Unprocessable Content",
+            &json!({"error": session::part_edits_refused(&failures), "failures": failures}),
+        ),
+        Err(e @ (session::SaveError::Refused(_) | session::SaveError::Question { .. })) => {
+            refuse(stream, "422 Unprocessable Content", &e.to_string())
         }
-        Err(session::SaveError::Refused(why)) => refuse(stream, "422 Unprocessable Content", &why),
         Err(session::SaveError::Failed(why)) => refuse(stream, "500 Internal Server Error", &why),
+    }
+}
+
+/// A page drops all working answers or one working answer by part and question id.
+fn discard(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
+    let shared = ctx.shared;
+    if shared.read_only {
+        return refuse(
+            stream,
+            "409 Conflict",
+            "opened read-only: nothing is discarded",
+        );
+    }
+    let value = match json_body(stream, request, body, MAX_SAVE_BODY) {
+        Ok(v) => v,
+        Err((status, why)) => return refuse(stream, status, &why),
+    };
+    let Some(rev) = value.get("rev").and_then(Value::as_u64) else {
+        return refuse(stream, "400 Bad Request", "rev is required");
+    };
+    let target = match (value.get("part"), value.get("id")) {
+        (None, None) => None,
+        (Some(part), Some(id)) => {
+            let part = part.as_u64().and_then(|n| usize::try_from(n).ok());
+            let id = id.as_str().filter(|id| !id.is_empty());
+            match part.zip(id) {
+                Some(target) => Some(target),
+                None => {
+                    return refuse(
+                        stream,
+                        "400 Bad Request",
+                        "part and id must identify a working answer",
+                    );
+                }
+            }
+        }
+        _ => {
+            return refuse(
+                stream,
+                "400 Bad Request",
+                "send both part and id to discard one working answer",
+            );
+        }
+    };
+    match session::discard_answers(&shared.session, Some(rev), target, "page") {
+        Ok(snapshot) => reply_json(stream, "200 OK", &snapshot),
+        Err(session::SaveError::Stale(current)) => reply_json(
+            stream,
+            "409 Conflict",
+            &json!({"error": "the session changed: review the latest answers before discarding", "rev": current}),
+        ),
+        Err(err) => refuse(stream, "400 Bad Request", &err.to_string()),
     }
 }
 

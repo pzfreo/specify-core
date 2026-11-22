@@ -89,8 +89,8 @@ the resume correspondence rule below handles feature-ID changes.
 ## Dependency plan
 
 - `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity`,
-  pinned to release tag `v0.5.4` in both manifests and Cargo.lock; the root manifest also
-  names the same crates.io version (`version = "=0.5.4"`), which the published crate uses
+  pinned to release tag `v0.5.5` in both manifests and Cargo.lock; the root manifest also
+  names the same crates.io version (`version = "=0.5.5"`), which the published crate uses
   (crates.yml refuses a release whose version and tag differ); the root crate takes
   quiddity with `default-features = false, features = ["presentation"]`, so clap stays out.
   Update only these packages with `cargo update -p quiddity -p haecceity`, then run
@@ -134,7 +134,7 @@ the resume correspondence rule below handles feature-ID changes.
 |---|---|---|
 | `load.py` | `part.rs` | `LoadedPart { path, bytes, binding, part (haecceity `Part`, the part's own solid in its own frame, faces in specify-core's numbering), definition (`PartDefinition`), part_count, name, placements }`; `load`, `load_all`, `parts`. `File` reads a file once with haecceity's `StepFile::read` (parts, names, product ids) and loads any part from it with `StepFile::part`: haecceity's own `Part` in the part's own frame, faces in the definition's order, sources and unresolved lists kept (U1 and U9, met at quiddity-rust 0d601d2). `LoadedPart` still carries `rebuilt`, `unresolved_faces` and `unresolved_edges` for callers that build one themselves; a part this crate loads is never rebuilt or degraded. `LoadedPart` is not `Clone` (`haecceity::Part` is only `Debug`); APIs take it by reference. `Binding` with `loader_version` 2. |
 | `features.py` | `features.rs` | `Face` records (`describe_faces`) from `Surface` and `face_moments`; `recognise` from quiddity: holes, patterns (members matched to hole records by equality, as quiddity's fingerprints do), every other family, and specify-core's own hole sets. |
-| `existing.py` | `existing.rs` | `read_existing` maps `PartPmi` to specify-core's `existing` records (kind, OCCT type name, faces, faces2, value, upper, lower, datums: the names are a JSON format, kept); `part_settings` from material, general tolerance class and notes; `notes` from threads, knurls, finish. No text scans. |
+| `existing.py` | `existing.rs` | `read_existing` maps `PartPmi` to specify-core's `existing` records (kind, OCCT type name, faces, faces2, value, upper, lower, datums: the names are a JSON format, kept; plus the full `text`, `text_only` and the planner-named fields of answers.md, "What the file states, read back whole"); `part_settings` from material, general tolerance class and notes; `notes` from threads, knurls, finish. No text scans. |
 | `magnitudes.py`, `p21.py`, `merge.py`, `lettering.py` | none | OpenCascade workarounds; haecceity does it right (above). |
 | `standards.py` | `standards.rs` | ISO 286, ISO 273, tap drills, pitches, ISO 2768 classes: tables as `const` arrays in Python's order. |
 | `materials.py` | `materials.rs` | Suggestion tables, Python's order. |
@@ -165,7 +165,7 @@ except where a hash is taken (resume fingerprint, `pyjson.rs`).
 - `Binding { source_sha256, face_count, loader_version: 2, part }`.
 - Analysis (`schema` 1): `{schema, binding, faces: [Face], features: [Feature], dimensioning, mates?,
   existing: [ExistingPmi], part: {material?, general_tolerance?, surface_finish?, coating?,
-  heat_treatment?, edges?}, unmeasured_faces?: [{face, reason, detail}], resume?: {answers, conflicts?}}` (ExistingPmi `question?` on a conflict's items). `Face { id, kind: plane|cylinder|cone|torus|
+  heat_treatment?, edges?}, unmeasured_faces?: [{face, reason, detail}], resume?: {answers, dropped_answers?, unresolved?}, table: {rows, file_pmi, decided_none}}` (ExistingPmi adds `text`, `text_only?` and planner-named fields: answers.md, "What the file states, read back whole"). `Face { id, kind: plane|cylinder|cone|torus|
   other, area, centroid, direction?, origin?, radius?, contact? }`. `Feature { id, family, record
   (JSON object), faces, members?, notes?, description? }`. Analysis snapshots add plain
   `description` text for turned bodies, face grooves, cylindrical profiles and concave
@@ -446,7 +446,7 @@ only marked Specify requirements through the kernel removal planner, then append
 intent and saved answers. Foreign dependencies, including shared features and datums, are
 protected. Specify's numbers survive value edits; foreign numbers reserve their values.
 Legacy resumed payloads without `pmi_scope` still use Replace when the file's PMI is all
-Specify's; reopening compares the PMI with the answers (ADR P9, [answers](answers.md#reopening-a-file-specify-wrote-the-pmi-is-the-truth)),
+Specify's; reopening compares the PMI with the answers (ADR P9, [answers](answers.md#reopening-a-file-the-file-is-the-only-copy); 0.3.0: ADR P11),
 and a part that also holds unmarked PMI, or a conflict kept undecided, is rewritten as a
 scoped Add that replaces only its marked requirements. A file with no marked requirements
 (before #22) is rewritten by Replace as before. Old Add-mode files without

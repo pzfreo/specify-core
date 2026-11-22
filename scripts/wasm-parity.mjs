@@ -6,13 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { join, resolve } from 'node:path';
 import { brotliCompressSync, gzipSync, gunzipSync, constants } from 'node:zlib';
 import init, { IntentEngine, review, acceptDefaults, interpret, start, diff } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
+import { storable } from './storable.mjs';
 
 const root = new URL('../', import.meta.url);
 const wasm = readFileSync(new URL('crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm', root));
 await init({ module_or_path: wasm });
 start();
 const executable = resolve(fileURLToPath(root), process.env.CARGO_TARGET_DIR ?? 'target', 'release/examples/parity_reference');
-const project = Buffer.from(JSON.stringify({ revision: 1, drawing: 'front' })).toString('base64');
 
 // Geometric calculations may differ in their last bits between native and WASM libm.
 // Keep all ids, strings, array order, reports and written STEP bytes exact.
@@ -94,7 +94,7 @@ for (const [part, path] of parts) {
     assert.ok(!JSON.parse(engine.review(answersJson)).open.includes(question.id), 'explicit answer closes question');
     const native = spawnSync(executable, [], {
       cwd: fileURLToPath(root), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-      input: JSON.stringify({ name, path, answers, project, question_id: question.id, text }),
+      input: JSON.stringify({ name, path, answers, question_id: question.id, text }),
     });
     assert.equal(native.status, 0, native.error?.message ?? native.stderr);
     const expected = JSON.parse(native.stdout);
@@ -106,58 +106,54 @@ for (const [part, path] of parts) {
     compare(JSON.parse(engine.review(answersJson)), expected.review);
     compare(JSON.parse(review(JSON.stringify(snapshot.analysis), answersJson)), expected.free_review);
     assert.deepEqual(JSON.parse(interpret(JSON.stringify(snapshot.analysis), answersJson, question.id, text)), expected.interpret);
-    const bare = JSON.parse(engine.writePmi(answersJson));
-    const stored = JSON.parse(engine.writePmi(answersJson, project));
-    assert.deepEqual(bare, expected.bare, 'bare STEP bytes and report');
-    assert.deepEqual(stored, expected.project, 'project STEP bytes and report');
-    const acceptedJson = engine.acceptDefaults(answersJson);
-    const accepted = JSON.parse(acceptedJson);
-    assert.deepEqual(accepted, expected.accepted, 'native/session accepted answers');
-    assert.deepEqual(JSON.parse(acceptDefaults(JSON.stringify(snapshot.analysis), answersJson)), accepted, 'free accepted answers');
-    assert.deepEqual(JSON.parse(engine.acceptDefaults(acceptedJson)), accepted, 'session acceptance is idempotent');
-    assert.deepEqual(JSON.parse(acceptDefaults(JSON.stringify(snapshot.analysis), acceptedJson)), accepted, 'free acceptance is idempotent');
-    for (const [id, value] of Object.entries(answers)) assert.deepEqual(accepted[id], value, `${id}: supplied answer preserved`);
-    const defaults = JSON.parse(engine.acceptDefaults('{}'));
-    assert.deepEqual(defaults, expected.defaults_without_answers);
-    assert.ok(!Object.hasOwn(defaults, 'part.material'), 'no invented default for material');
-    assert.ok(JSON.parse(engine.review(JSON.stringify(defaults))).open.includes('part.material'));
-    const acceptedReview = JSON.parse(engine.review(acceptedJson));
-    compare(acceptedReview, expected.accepted_review);
-    compare(JSON.parse(review(JSON.stringify(snapshot.analysis), acceptedJson)), expected.accepted_free_review);
-    assert.deepEqual(acceptedReview.open, [], 'accepted defaults are answered');
-    assert.equal(acceptedReview.intent.part.general_tolerance, accepted['part.general_tolerance']);
-    assert.ok(acceptedReview.intent.datums.length > 0);
-    assert.ok(!acceptedReview.problems.some(p => p.code === 'awaits_datum_frame'));
-    const state = { answers: accepted, auto: [], gdt: null };
-    const settled = JSON.parse(engine.settle(JSON.stringify(state)));
-    compare(settled, expected.accepted_settle);
-    assert.deepEqual(settled.state.answers, accepted, 'settle preserves accepted answers');
-    const acceptedWrite = JSON.parse(engine.writePmi(acceptedJson));
-    assert.deepEqual(acceptedWrite, expected.accepted_write, 'accepted PMI matches native apply-with-defaults bytes/report');
-    const acceptedReopened = new IntentEngine(name, Uint8Array.from(acceptedWrite.bytes));
-    try { assert.deepEqual(JSON.parse(acceptedReopened.snapshot()).analysis.resume.answers, accepted); }
-    finally { acceptedReopened.free(); }
-    const edited = { ...accepted, 'part.general_tolerance': 'ISO 2768-f' };
-    assert.equal(JSON.parse(engine.acceptDefaults(JSON.stringify(edited)))['part.general_tolerance'], 'ISO 2768-f');
-    assert.equal(JSON.parse(engine.review(JSON.stringify(edited))).intent.part.general_tolerance, 'ISO 2768-f');
-    assert.ok(stored.report.written.length > 0, 'PMI written');
-    assert.ok(Buffer.from(stored.bytes).includes(Buffer.from(`DESCRIPTIVE_REPRESENTATION_ITEM('draftwright editor project','${project}')`)));
-    const reopened = new IntentEngine(name, Uint8Array.from(stored.bytes));
-    try { assert.deepEqual(JSON.parse(reopened.snapshot()).analysis.resume.answers, answers); }
-    finally { reopened.free(); }
-    // #35: a carried payload, the original part, and saved answers matched with face evidence.
+    // The browser applies edit lists (`edit`, `checkEdits`) with the native writer: the same
+    // bytes and report, or the same failures, and the same check.
+    const list = JSON.stringify({ fill: answers });
+    const { message, ...edited } = JSON.parse(engine.edit(list));
+    assert.deepEqual(edited, expected.edit, 'edit: STEP bytes and report, or failures');
+    if (!edited.written) assert.ok(message.startsWith('Nothing was written'), 'a refused list says nothing was written');
+    assert.deepEqual(JSON.parse(engine.checkEdits(list)), expected.check, 'checkEdits');
+    assert.deepEqual(JSON.parse(engine.table()), expected.table, 'table');
+    assert.equal(JSON.parse(engine.checkEdits(list)).applicable, edited.written, 'check agrees with edit');
+    if (edited.written) {
+      const reopened = new IntentEngine(name, Uint8Array.from(edited.bytes));
+      try {
+        const table = JSON.parse(reopened.table());
+        for (const id of Object.keys(answers)) {
+          const row = table.rows.find(r => r.id === id);
+          if (row) assert.notEqual(row.state, 'gap', `${id}: filled, no longer a gap`);
+        }
+      } finally { reopened.free(); }
+    }
+    console.log(`${part}: edit ${edited.written ? 'applied' : `refused (${edited.failures.map(f => f.entry).join(', ')})`}`);
+    // #35: a carried payload (or the editor's project), the original part, and saved answers
+    // matched with face evidence. An edit carrying one always writes it, and a second replaces it.
     const payload = { name: 'an app', value: { revision: 2, note: '‘α’ it\'s' } };
-    const carried = JSON.parse(engine.writePmi(answersJson, null, JSON.stringify(payload)));
+    const carried = JSON.parse(engine.edit('{}', null, JSON.stringify(payload)));
+    assert.ok(carried.written, carried.message);
     const evidence = engine.evidence();
     const carrying = new IntentEngine(name, Uint8Array.from(carried.bytes));
     try {
       assert.deepEqual(JSON.parse(carrying.payload('an app')), payload.value);
       assert.equal(carrying.payload('another app'), undefined);
-      // The spindle came with datums and their presentation, which the writer replaces, so
-      // it has no original to give back; every other part's is its bytes exactly.
-      const original = carrying.original();
-      if (part === 'spindle') assert.equal(original, undefined, 'replaced PMI: no original');
-      else assert.deepEqual(Buffer.from(original), Buffer.from(bytes), 'original part bytes');
+      // The spindle came with Specify's own PMI, which an edit rewrites in place (its stored
+      // answers), so it has no original to give back; every other part's is its bytes exactly.
+      const originalOf = engine => engine.original() === undefined ? undefined : Buffer.from(engine.original());
+      if (part === 'spindle') assert.equal(carrying.original(), undefined, 'a part with PMI: no original');
+      else assert.deepEqual(originalOf(carrying), Buffer.from(bytes), 'original part bytes');
+      const again = JSON.parse(carrying.edit('{}', null, JSON.stringify({ ...payload, value: { revision: 3 } })));
+      const twice = Buffer.from(again.bytes).toString();
+      assert.equal(twice.split("'an app'").length - 1, Buffer.from(carried.bytes).toString().split("'an app'").length - 1, 'the payload replaced, not added');
+      const reread = new IntentEngine(name, Uint8Array.from(again.bytes));
+      try {
+        assert.deepEqual(JSON.parse(reread.payload('an app')), { revision: 3 });
+        assert.deepEqual(originalOf(reread), originalOf(carrying), 'the original carried forward');
+      } finally { reread.free(); }
+      const project = Buffer.from(JSON.stringify({ x: 1 })).toString('base64');
+      const withProject = JSON.parse(engine.edit('{}', project));
+      const projected = new IntentEngine(name, Uint8Array.from(withProject.bytes));
+      try { assert.deepEqual(JSON.parse(projected.payload('draftwright editor project')), { x: 1 }); }
+      finally { projected.free(); }
       assert.deepEqual(JSON.parse(carrying.evidence()), JSON.parse(evidence));
       const rematched = JSON.parse(carrying.rematchAnswers(answersJson, evidence, '[]'));
       assert.deepEqual(rematched.answers, answers);
@@ -178,21 +174,53 @@ for (const [part, path] of parts) {
       assert.deepEqual(Object.keys(mismatched.answers), Object.keys(given).filter(id => !geometric(id)));
       assert.ok(mismatched.unverified);
     } finally { carrying.free(); }
-    assert.equal(engine.original(), undefined, 'a bare part records no original');
-    throwsString(() => engine.writePmi('{}', project, JSON.stringify(payload)), /not both/);
-    throwsString(() => engine.writePmi('{}', null, '{"name":"pmi-assist answers","value":1}'), /must be named/);
-    throwsString(() => engine.writePmi('{}', null, '{"value":1}'), /Invalid payload/);
+    throwsString(() => engine.edit('{}', Buffer.from('{}').toString('base64'), JSON.stringify(payload)), /not both/);
+    throwsString(() => engine.edit('{}', null, '{"name":"pmi-assist answers","value":1}'), /must be named/);
+    throwsString(() => engine.edit('{}', null, '{"value":1}'), /Invalid payload/);
+    throwsString(() => engine.edit('{}', 'not base64!'), /not base64/);
     throwsString(() => engine.rematchAnswers('{}', '{"schema":3}'), /Invalid evidence/);
+    console.log(`${part}: payload, project, original and rematch passed`);
+    const acceptedJson = acceptDefaults(JSON.stringify(snapshot.analysis), answersJson);
+    const accepted = JSON.parse(acceptedJson);
+    assert.deepEqual(accepted, expected.accepted, 'native/free accepted answers');
+    assert.deepEqual(JSON.parse(acceptDefaults(JSON.stringify(snapshot.analysis), acceptedJson)), accepted, 'free acceptance is idempotent');
+    for (const [id, value] of Object.entries(answers)) assert.deepEqual(accepted[id], value, `${id}: supplied answer preserved`);
+    const defaults = JSON.parse(acceptDefaults(JSON.stringify(snapshot.analysis), '{}'));
+    assert.deepEqual(defaults, expected.defaults_without_answers);
+    assert.ok(!Object.hasOwn(defaults, 'part.material'), 'no invented default for material');
+    assert.ok(JSON.parse(engine.review(JSON.stringify(defaults))).open.includes('part.material'));
+    const acceptedReview = JSON.parse(engine.review(acceptedJson));
+    compare(acceptedReview, expected.accepted_review);
+    compare(JSON.parse(review(JSON.stringify(snapshot.analysis), acceptedJson)), expected.accepted_free_review);
+    assert.deepEqual(acceptedReview.open, [], 'accepted defaults are answered');
+    assert.equal(acceptedReview.intent.part.general_tolerance, accepted['part.general_tolerance']);
+    assert.ok(acceptedReview.intent.datums.length > 0);
+    assert.ok(!acceptedReview.problems.some(p => p.code === 'awaits_datum_frame'));
+    const state = { answers: accepted, auto: [], gdt: null };
+    const settled = JSON.parse(engine.settle(JSON.stringify(state)));
+    compare(settled, expected.accepted_settle);
+    assert.deepEqual(settled.state.answers, accepted, 'settle preserves accepted answers');
+    // A changed tolerance class has new suggestions; approvals name their displayed values.
+    const changed = Object.fromEntries(Object.entries(accepted)
+      .filter(([id]) => !id.startsWith('length:planes:') && !id.startsWith('location:holes:')));
+    changed['part.general_tolerance'] = 'ISO 2768-f';
+    if (part === 'spindle') {
+      assert.ok(acceptedReview.intent.general.every(r => r.feature !== 'turned_steps:9'
+        || r.nominal !== 24 || r.faces.length !== 1 || r.faces[0] !== 9));
+    }
+    assert.equal(JSON.parse(acceptDefaults(JSON.stringify(snapshot.analysis), JSON.stringify(changed)))['part.general_tolerance'], 'ISO 2768-f');
+    // ADR P11 (D5b): a general tolerance the file states stands; a different answer is not
+    // written over it (changing it is an explicit edit), so the intent carries none.
+    const statesTolerance = Boolean(snapshot.analysis.part?.general_tolerance);
+    assert.equal(JSON.parse(engine.review(JSON.stringify(changed))).intent.part.general_tolerance, statesTolerance ? undefined : 'ISO 2768-f');
+    assert.equal(engine.original(), undefined, 'a bare part records no original');
     throwsString(() => engine.review('[]'), /Invalid answers/);
-    throwsString(() => engine.acceptDefaults('[]'), /Invalid answers/);
     throwsString(() => acceptDefaults('{', '{}'), /Invalid analysis/);
     throwsString(() => acceptDefaults(JSON.stringify(snapshot.analysis), 'null'), /Invalid answers/);
     throwsString(() => acceptDefaults('{}', '{}'), /faces/);
-    throwsString(() => engine.writePmi('{}', 'not base64!'), /not base64/);
-    throwsString(() => engine.writePmi('{}', ''), /not base64/);
     throwsString(() => review('{', '{}'), /Invalid analysis/);
     throwsString(() => interpret(JSON.stringify(snapshot.analysis), '{}', 'missing', 'H7'), /No choice question/);
-    console.log(`${part}: snapshot, review, interpretation, acceptDefaults, settle, exact PMI bytes/report, project and resume parity passed`);
+    console.log(`${part}: snapshot, review, interpretation, acceptDefaults, settle, edit/checkEdits/table parity passed`);
   } finally { engine.free(); }
   throwsString(() => new IntentEngine(name, gzipSync(bytes)), /Decompress/);
 }
@@ -203,7 +231,9 @@ for (const [part, path] of parts) {
   const engine = new IntentEngine('plate.step', plate);
   let original;
   try {
-    original = Buffer.from(JSON.parse(engine.writePmi('{"part.material":"steel","part.process":"machined"}')).bytes).toString();
+    const made = JSON.parse(engine.edit('{"fill": {"part.material": "steel", "part.process": "machined"}}'));
+    assert.ok(made.written, made.message);
+    original = Buffer.from(made.bytes).toString();
   } finally { engine.free(); }
   const item = "DESCRIPTIVE_REPRESENTATION_ITEM('manufacturing_process','machined')";
   assert.ok(original.includes(item));
@@ -216,22 +246,25 @@ for (const [part, path] of parts) {
     const opened = new IntentEngine('edited.step', Buffer.from(source));
     try {
       const { analysis } = JSON.parse(opened.snapshot());
-      const conflict = analysis.resume.conflicts.find(c => c.id === 'part.process');
-      assert.equal(conflict.stored, 'machined');
-      assert.equal(conflict.file, 'cast');
-      assert.equal(conflict.foreign ?? false, foreign);
-      assert.ok(!Object.hasOwn(analysis.resume.answers, 'part.process'));
-      const output = Buffer.from(JSON.parse(opened.writePmi(JSON.stringify(analysis.resume.answers))).bytes);
+      // ADR P11: the file's process is the truth, whoever edited it: there is no stored
+      // answer to conflict with it (an answer that writes PMI is not stored).
+      assert.equal(analysis.part.process, 'cast', `foreign ${foreign}`);
+      assert.equal(analysis.resume?.conflicts, undefined);
+      assert.ok(!Object.hasOwn(analysis.resume?.answers ?? {}, 'part.process'));
+      // A later edit of something else leaves the external process value as it is.
+      const saved = JSON.parse(opened.edit('{"fill": {"part.general_tolerance": "ISO 2768-m"}}'));
+      assert.ok(saved.written, saved.message);
+      const output = Buffer.from(saved.bytes);
       const reopened = new IntentEngine('rewritten.step', output);
       try {
         const { analysis } = JSON.parse(reopened.snapshot());
         assert.equal(analysis.part.process, 'cast');
-        assert.ok(!analysis.resume.conflicts?.some(c => c.id === 'part.process'));
+        assert.ok(!analysis.resume?.conflicts?.some(c => c.id === 'part.process'));
       } finally { reopened.free(); }
     } finally { opened.free(); }
   }
 }
-console.log('manufacturing process: external edits with and without provenance survive writePmi');
+console.log('manufacturing process: external edits with and without provenance survive an edit');
 
 // #21: the accepted tap's derived depth must survive without a new depth answer,
 // including a save of an alpha.7 file. quiddity-rust#137 adds callouts, General notes and
@@ -241,25 +274,52 @@ console.log('manufacturing process: external edits with and without provenance s
 // v0.4.1 regenerates GENERAL NOTES and plane views; refresh only the numbered output golden.
 const alpha7 = gunzipSync(readFileSync(new URL('tests/fixtures/thread-depth-alpha7.step.gz', root)));
 const numberedTap = gunzipSync(readFileSync(new URL('tests/fixtures/thread-depth-numbered.step.gz', root)));
-const savedTap = new IntentEngine('shaft.step', alpha7);
-let tapAnswers;
-try { tapAnswers = JSON.parse(savedTap.snapshot()).analysis.resume.answers; }
-finally { savedTap.free(); }
+// What the alpha.7 file stored (its payload, the hole renamed holes:15.16 since #216). ADR P11:
+// both answers write PMI, so reopening resumes neither; the file states the thread.
+const tapAnswers = { 'part.material': 'steel', 'hole.function:holes:15.16': 'tapped:M2' };
+// What a file reads back as: its PMI, settings and numbered characteristics (no entity ids).
+const readback = (bytes) => {
+  const engine = new IntentEngine('shaft.step', bytes);
+  try {
+    const { analysis } = JSON.parse(engine.snapshot());
+    const characteristics = (analysis.characteristics ?? []).map(({ entity, ...rest }) => rest);
+    return { analysis, semantic: { existing: analysis.existing, part: analysis.part, characteristics } };
+  } finally { engine.free(); }
+};
+const fullThread = /MEASURE_WITH_UNIT\(LENGTH_MEASURE\(2(?:\.0*)?\),#\d+\)REPRESENTATION_ITEM\('minimum full thread'\)/;
+{
+  const saved = readback(alpha7).analysis;
+  assert.deepEqual(saved.resume.answers, storable(tapAnswers));
+  assert.ok(saved.table.rows.some(r => r.id === 'hole.function:holes:15.16' && r.state === 'stated'), 'alpha.7 thread is stated');
+}
 for (const [index, bytes] of [readFileSync(new URL('tests/fixtures/parts/GRM-02_shaft.step', root)), alpha7].entries()) {
   const engine = new IntentEngine('shaft.step', bytes);
   try {
-    const reviewed = JSON.parse(engine.review(JSON.stringify(tapAnswers)));
-    const depth = reviewed.questions.find(q => q.id.startsWith('hole.full_thread:'));
-    assert.equal(depth.attention, 'refine');
-    assert.ok(!reviewed.open.includes(depth.id));
-    assert.ok(!Object.hasOwn(tapAnswers, depth.id));
-    assert.equal(reviewed.intent.requirements.find(r => r.kind === 'thread').full_thread, 2);
-    const written = Buffer.from(JSON.parse(engine.writePmi(JSON.stringify(tapAnswers))).bytes);
-    if (index === 0) assert.deepEqual(written, numberedTap, 'implicit M2 tap writes exact numbered STEP bytes');
-    assert.match(written.toString(), /MEASURE_WITH_UNIT\(LENGTH_MEASURE\(2(?:\.0*)?\),#\d+\)REPRESENTATION_ITEM\('minimum full thread'\)/);
+    if (index === 0) {
+      const reviewed = JSON.parse(engine.review(JSON.stringify(tapAnswers)));
+      const depth = reviewed.questions.find(q => q.id.startsWith('hole.full_thread:'));
+      assert.equal(depth.attention, 'refine');
+      assert.ok(!reviewed.open.includes(depth.id));
+      assert.ok(!Object.hasOwn(tapAnswers, depth.id));
+      assert.equal(reviewed.intent.requirements.find(r => r.kind === 'thread').full_thread, 2);
+    }
+    // The bare shaft takes the tap as a fill; the alpha.7 file already states it, so the
+    // same fill changes nothing there. Either way the file has the derived 2 mm depth.
+    const edited = JSON.parse(engine.edit(JSON.stringify({ fill: tapAnswers })));
+    assert.ok(edited.written, edited.message);
+    assert.equal(edited.report.unchanged, index === 1, 'the alpha.7 file already states the tap');
+    const written = Buffer.from(edited.bytes);
+    if (index === 0) {
+      // Structural, not a byte pin: the implicit M2 tap reads back as the numbered golden does
+      // (the thread with its depth, every requirement with its characteristic number).
+      assert.deepEqual(readback(written).semantic, readback(numberedTap).semantic, 'implicit M2 tap reads back as the numbered golden');
+    } else {
+      assert.deepEqual(written, alpha7, 'an edit that changes nothing gives the file back');
+    }
+    assert.match(written.toString(), fullThread);
   } finally { engine.free(); }
 }
-console.log('alpha.7 M2 tap: implicit depth, exact numbered STEP bytes and resave passed');
+console.log('alpha.7 M2 tap: implicit depth, numbered read-back and unchanged resave passed');
 for (const [part, pattern] of [['assembly', /one distinct part/]]) {
   throwsString(() => new IntentEngine(`${part}.step`, readFileSync(new URL(`tests/fixtures/parts/${part}.step`, root))), pattern);
 }
@@ -274,21 +334,28 @@ SHAPE_REPRESENTATION_RELATIONSHIP() );
 #504 = NEXT_ASSEMBLY_USAGE_OCCURRENCE('2','plate','',#5,#27,$);
 ENDSEC;\nEND-ISO`);
 throwsString(() => new IntentEngine('twice.step', Buffer.from(twice)), /one instance/);
-// #2: an assembly's parts are listed, one is opened and written into the original file, and
-// the other part does not see its project; a part placed twice opens as part 0.
+// #2: an assembly's parts are listed and one is opened and edited in place; a part placed
+// twice opens as part 0 and is edited.
 {
   const bytes = readFileSync(new URL('tests/fixtures/parts/assembly.step', root));
   const brass = JSON.stringify({ 'part.material': 'brass' });
   const listed = JSON.parse(IntentEngine.parts('assembly.step', bytes));
   assert.deepEqual(listed.map(p => [p.part, p.name, p.instances, p.written]), [[0, 'plate', 1, false], [1, 'pin', 2, false]]);
   throwsString(() => IntentEngine.openPart('assembly.step', bytes, 2), /there is no part 2/);
-  let written;
   const pin = IntentEngine.openPart('assembly.step', bytes, 1);
+  let written;
   try {
     assert.equal(JSON.parse(pin.snapshot()).provenance.part, 1);
-    written = Buffer.from(JSON.parse(pin.writePmi(brass, project)).bytes);
+    // A part of an assembly is edited in place (assembly-edits): that part only, every other
+    // part and placement keeping its bytes.
+    const project = Buffer.from(JSON.stringify({ revision: 1, drawing: 'front' })).toString('base64');
+    const out = JSON.parse(pin.edit(JSON.stringify({ fill: JSON.parse(brass) }), project));
+    assert.ok(out.written, out.message);
+    written = Uint8Array.from(out.bytes);
   } finally { pin.free(); }
-  assert.deepEqual(JSON.parse(IntentEngine.parts('assembly.step', written)).map(p => p.written), [false, true]);
+  // `written` is whether Specify stores answers for the part: an edit stores none here (ADR P11:
+  // the material is stated in the file), so neither is; the pin's material is read below.
+  assert.deepEqual(JSON.parse(IntentEngine.parts('assembly.step', written)).map(p => p.written), [false, false]);
   const plate = IntentEngine.openPart('assembly.step', written, 0);
   try {
     assert.equal(plate.payload('draftwright editor project'), undefined);
@@ -296,39 +363,39 @@ throwsString(() => new IntentEngine('twice.step', Buffer.from(twice)), /one inst
   } finally { plate.free(); }
   const reopened = IntentEngine.openPart('assembly.step', written, 1);
   try {
-    assert.deepEqual(JSON.parse(reopened.snapshot()).analysis.resume.answers, JSON.parse(brass));
+    // ADR P11: the material is written as PMI, so the file states it rather than storing it.
+    const { analysis } = JSON.parse(reopened.snapshot());
+    assert.deepEqual(analysis.resume?.answers ?? {}, storable(JSON.parse(brass)));
+    // An assembly's part has no part settings of its own; its feature table reads the material.
+    const material = analysis.table.rows.find(r => r.id === 'part.material');
+    assert.equal(material.state, 'stated');
+    assert.equal(material.value, JSON.parse(brass)['part.material']);
     assert.deepEqual(JSON.parse(reopened.payload('draftwright editor project')), { revision: 1, drawing: 'front' });
   } finally { reopened.free(); }
   const placedTwice = IntentEngine.openPart('twice.step', Buffer.from(twice), 0);
   try {
     assert.equal(JSON.parse(IntentEngine.parts('twice.step', Buffer.from(twice)))[0].instances, 2);
-    const out = Buffer.from(JSON.parse(placedTwice.writePmi(JSON.stringify({ 'part.material': 'steel' }))).bytes);
-    assert.equal(JSON.parse(IntentEngine.parts('twice.step', out))[0].written, true);
+    const out = JSON.parse(placedTwice.edit(JSON.stringify({ fill: { 'part.material': 'steel' } })));
+    assert.ok(out.written, out.message);
+    assert.equal(JSON.parse(IntentEngine.parts('twice.step', Buffer.from(out.bytes))).length, 1);
   } finally { placedTwice.free(); }
 }
-console.log('assemblies: parts listed, a part opened, written into the original file and reopened');
+console.log('assemblies: parts listed, a part opened and edited in place; a part placed twice edited');
 
-// Diff reads the files' PMI only (ADR P11): the answers argument is not read.
+// Diff reads the files' PMI only (ADR P11): it takes no answers.
 {
   const bytes = readFileSync(new URL('tests/fixtures/parts/assembly.step', root));
-  const answers = {};
-  for (const part of JSON.parse(IntentEngine.parts('assembly.step', bytes))) {
-    const engine = IntentEngine.openPart('assembly.step', bytes, part.part);
-    try { answers[part.name] = JSON.parse(engine.acceptDefaults('{}')); }
-    finally { engine.free(); }
-  }
-  const result = JSON.parse(diff('old.step', bytes, 'new.step', bytes, JSON.stringify(answers), 'Assembly'));
+  const result = JSON.parse(diff('old.step', bytes, 'new.step', bytes, 'Assembly'));
   assert.equal(result.report.parts.length, 2);
-  assert.deepEqual(result, JSON.parse(diff('old.step', bytes, 'new.step', bytes, '{}', 'Assembly')));
 }
-console.log('assembly diff: the same report whatever answers are passed');
+console.log('assembly diff: compared part by part');
 
 // The editor's spindle pair: the files' own PMI, with the full scenes, as native.
 {
   const paths = ['old', 'new'].map(side => fileURLToPath(new URL(`tests/fixtures/revisions/spindle_pmi.${side}.step.gz`, root)));
   const [old, next] = paths.map(path => gunzipSync(readFileSync(path)));
   {
-    const result = JSON.parse(diff('old.step', old, 'new.step', next, '{}', 'Spindle', true));
+    const result = JSON.parse(diff('old.step', old, 'new.step', next, 'Spindle', true));
     const native = spawnSync(executable, [], {
       cwd: fileURLToPath(root), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
       input: JSON.stringify({ diff: paths }),
@@ -345,3 +412,31 @@ console.log('assembly diff: the same report whatever answers are passed');
   }
 }
 console.log('spindle diff: the files\' PMI and full scene parity passed');
+
+// Explicit edits in the WASM session write only the dimensions named by their rows.
+{
+  const input = readFileSync(new URL('tests/fixtures/spindle.step', root));
+  const spindle = new IntentEngine('spindle.step', input);
+  try {
+    const length = 'length:planes:8-10';
+    const location = 'location:holes:10-7';
+    const gap = 'length:planes:4-10';
+    const initial = JSON.parse(spindle.table());
+    const suggestion = initial.rows.find(r => r.id === length && r.state === 'gap')?.suggestion;
+    assert.equal(typeof suggestion, 'string');
+    const edited = JSON.parse(spindle.edit(JSON.stringify({
+      fill: { [length]: suggestion },
+      accept_suggestions: [location],
+    })));
+    assert.ok(edited.written, edited.message);
+    const reopened = new IntentEngine('edited-spindle.step', Uint8Array.from(edited.bytes));
+    try {
+      const table = JSON.parse(reopened.table());
+      const state = id => table.rows.find(r => r.id === id)?.state;
+      assert.equal(state(length), 'stated');
+      assert.equal(state(location), 'stated');
+      assert.equal(state(gap), 'gap');
+    } finally { reopened.free(); }
+  } finally { spindle.free(); }
+}
+console.log('WASM edit list: a length and a hole location read back as stated, with the unapproved length still a gap');

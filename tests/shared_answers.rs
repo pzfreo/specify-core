@@ -60,8 +60,17 @@ fn answers_with_their_evidence_migrate_as_answers_stored_in_the_step_do() {
         None,
     )
     .unwrap();
-    let value = serde_json::to_value(&out).unwrap();
-    // Exactly the report the file's own stored answers give on opening.
+    let mut value = serde_json::to_value(&out).unwrap();
+    // Exactly the report the file's own stored answers give on opening. ADR P11: of those,
+    // only the answers that leave no PMI resume; the file states the rest.
+    value["answers"] = json!(specify_core::feature_table::storable(&out.answers));
+    // D11 (#126): the one stored answer whose requirement the file no longer has is reported
+    // once, beside its warning, rather than dropped silently.
+    value["dropped_answers"] = json!([{
+        "id": "hole.function:hole_patterns.rectangle:115.116.118.119.121.122.124.125",
+        "value": "general",
+        "reason": "no requirement for this answer in the file; the question is open again",
+    }]);
     assert_eq!(value, analysis["resume"]);
     // #100 tip cones add six moves to the two schema-6 pattern moves.
     let base = json!({"answers": answers, "features": serde_json::from_slice::<Value>(
@@ -69,8 +78,52 @@ fn answers_with_their_evidence_migrate_as_answers_stored_in_the_step_do() {
     common::upgrade::check(&loaded, &base, &analysis, common::upgrade::FTC10);
     assert_eq!(out.migrated.len(), 8);
     assert!(out.unresolved.is_empty() && out.unverified.is_none());
+    // The migrated answers still complete the legacy interview. Each standalone
+    // length or location has its own open gap because the suggestion writes PMI.
+    // Quiddity 0.5.5 publishes three further levels on FTC-10's transverse axes,
+    // so the migrated answers still leave their newly measurable spans open too.
     let review = api::review(&analysis, &out.answers).unwrap();
-    assert_eq!(review["open"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        review["open"],
+        json!([
+            "length:planes:110.112-172",
+            "length:planes:164-172",
+            "length:planes:24.31.97-172",
+            "length:planes:172-184.185",
+            "length:planes:20.22.207-172",
+            "length:planes:165-213",
+            "length:planes:163-213",
+            "length:planes:169.171-213",
+            "length:planes:113-212",
+            "length:planes:111-113",
+            "length:planes:113-162",
+            "length:planes:113-166",
+            "length:planes:113-205",
+            "length:planes:113-187",
+            "length:planes:107-113",
+            "length:planes:113-206",
+            "length:planes:113-170",
+            "length:planes:113-186",
+            "length:planes:113-167",
+            "length:planes:113-203",
+            "length:planes:113-168",
+            "length:planes:23-113",
+            "length:planes:113-129",
+            "location:holes:115.116-121.122-0",
+            "location:holes:115.116-124.125-2",
+            "location:holes:113-115.116.118.119.121.122.124.125",
+            "length:planes:114.117.120.123-172",
+            "length:planes:172-210",
+            "length:planes:108.211-213",
+            "length:planes:131.133.135.137-213",
+            "length:planes:139.141.143.145-213",
+            "length:planes:173-213",
+            "length:planes:204-213",
+            "length:planes:209-213",
+            "length:planes:21-213",
+            "length:planes:30-213",
+        ])
+    );
 }
 
 /// Whether `id` is an answer on a feature or a datum (and the datum's settings).
@@ -336,7 +389,13 @@ fn a_pre_alpha_browser_export_resumes_its_answers() {
     );
     let (analysis, warnings) = api::analyse_reporting(&loaded).unwrap();
     let resume = &analysis["resume"];
-    assert_eq!(resume["answers"], expected);
+    // ADR P11: stored are the answers that leave no PMI behind.
+    assert_eq!(
+        resume["answers"],
+        json!(specify_core::feature_table::storable(
+            expected.as_object().unwrap()
+        ))
+    );
     assert!(resume["unresolved"].is_null(), "{resume}");
     assert!(resume["unverified"].as_str().unwrap().contains("schema 1"));
     // ADR P9: the file's PMI is read on reopening; what its answers do not explain (the
@@ -366,7 +425,13 @@ fn a_pre_alpha_browser_export_resumes_its_answers() {
     let back = part::load_bytes("again.step", bytes).unwrap();
     assert_eq!(resume::stored(&back.bytes)[&0]["schema"], json!(2));
     let again = &api::analyse(&back).unwrap()["resume"];
-    assert_eq!(again["answers"], expected);
+    // ADR P11: stored are the answers that leave no PMI behind.
+    assert_eq!(
+        again["answers"],
+        json!(specify_core::feature_table::storable(
+            expected.as_object().unwrap()
+        ))
+    );
     assert!(again["unverified"].is_null() && again["unresolved"].is_null());
 }
 
@@ -485,7 +550,10 @@ fn the_carried_project_is_read_by_the_editors_reader_and_gives_back_the_original
     let back = part::load_bytes("plate.step", written.clone()).unwrap();
     assert_eq!(
         resume::answers_for(&back).unwrap().map(Value::Object),
-        Some(json!({"part.material": "steel"}))
+        // ADR P11: stored are the answers that leave no PMI behind.
+        Some(Value::Object(specify_core::feature_table::storable(
+            json!({"part.material": "steel"}).as_object().unwrap()
+        )))
     );
 
     // A file the editor wrote (its base64, no original recorded) reads the same.

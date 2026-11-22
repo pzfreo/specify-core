@@ -20,12 +20,16 @@ fn has(doc: &Document, ids: &[u64], entity: &str, slot: usize) -> bool {
 }
 
 fn described(doc: &Document, ids: &[u64], entity: &str) -> bool {
+    described_with(doc, ids, entity, MARKER)
+}
+
+fn described_with(doc: &Document, ids: &[u64], entity: &str, marker: &str) -> bool {
     ids.iter().any(|&id| {
         matches!(doc.get(id), Some(RawEntity::Simple { name, .. }) if name == entity)
             && doc.referrers(id).iter().any(|&r| {
                 matches!(doc.get(r),
             Some(RawEntity::Simple { name, attributes, .. }) if name == "DESCRIPTION_ATTRIBUTE"
-                && attributes == &[Attribute::String(MARKER.into()), Attribute::EntityRef(id)])
+                && attributes == &[Attribute::String(marker.into()), Attribute::EntityRef(id)])
             })
     })
 }
@@ -62,13 +66,25 @@ fn all_owned(bytes: &[u8]) -> pmi::PartPmi {
             );
         }
     }
-    for items in [&prov.general, &prov.surface_textures, &prov.attributes] {
+    for items in [&prov.general, &prov.surface_textures] {
         for ids in items {
             assert!(
                 described(&doc, ids, "PROPERTY_DEFINITION_REPRESENTATION"),
                 "{ids:?}"
             );
         }
+    }
+    assert_eq!(p.attributes.len(), prov.attributes.len());
+    for (attribute, ids) in p.attributes.iter().zip(&prov.attributes) {
+        let marker = if attribute.name == "editor metadata" {
+            "specify-core:caller-attribute:v1"
+        } else {
+            MARKER
+        };
+        assert!(
+            described_with(&doc, ids, "PROPERTY_DEFINITION_REPRESENTATION", marker),
+            "{attribute:?}: {ids:?}"
+        );
     }
     if p.material.is_some() {
         assert!(described(
@@ -165,7 +181,9 @@ fn gramel_threads_knurls_and_every_other_written_requirement_have_step_provenanc
         if stem == "GRM-03_thumbwheel_drive_screw" {
             given.extend(
                 json!({
-                    "hole.function:holes:12": "tapped:M2",
+                    // The M2 bore's id since quiddity #216 (with its floor 13): a stale id
+                    // naming nothing the part has refuses the whole list (D11, #126).
+                    "hole.function:holes:12.13": "tapped:M2",
                     "diameter.fit:turned_steps:6": "thread:M3",
                     "diameter.fit:turned_steps:3": "knurl:straight"
                 })
@@ -332,7 +350,7 @@ fn dimensions_tolerances_and_caller_attributes_are_marked() {
 }
 
 #[test]
-fn an_unmarked_legacy_resumed_file_gains_markers_before_the_noop_shortcut() {
+fn an_explicit_edit_marks_a_legacy_note_and_a_noop_keeps_it() {
     let loaded = part::load(&common::fixtures().join("parts/plate.step"), None).unwrap();
     let mut intent = rules::Intent::new(serde_json::to_value(&loaded.binding).unwrap());
     intent.part.insert("notes".into(), json!(["Legacy note"]));
@@ -342,18 +360,26 @@ fn an_unmarked_legacy_resumed_file_gains_markers_before_the_noop_shortcut() {
         .clone();
     let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
     let doc = Document::parse(bytes).unwrap();
+    let read = pmi::read(&doc, &read_part_definitions(doc.bytes()).unwrap()).unwrap();
+    let notes = read.parts[0]
+        .attributes
+        .iter()
+        .position(|set| {
+            set.name == writer::SEMANTIC_TEXT
+                && set
+                    .items
+                    .iter()
+                    .any(|(_, value)| *value == AttributeValue::Text("Legacy note".into()))
+        })
+        .unwrap();
     let mut edit = haecceity::p21::Edit::new();
-    for (&id, entity) in &doc.graph().entities {
-        let RawEntity::Simple {
-            name, attributes, ..
-        } = entity
-        else {
-            continue;
-        };
-        if name == "DESCRIPTION_ATTRIBUTE"
-            && matches!(attributes.first(), Some(Attribute::String(s)) if s == MARKER)
-        {
-            edit.remove(id);
+    for &root in &read.provenance.parts[0].attributes[notes] {
+        for &id in doc.referrers(root) {
+            if matches!(doc.get(id), Some(RawEntity::Simple { name, attributes, .. })
+                if name == "DESCRIPTION_ATTRIBUTE" && attributes.first() == Some(&Attribute::String(MARKER.into())))
+            {
+                edit.remove(id);
+            }
         }
     }
     let legacy_bytes = doc.apply(&edit).unwrap().bytes;
@@ -363,14 +389,36 @@ fn an_unmarked_legacy_resumed_file_gains_markers_before_the_noop_shortcut() {
             .unwrap()
             .is_some()
     );
-    intent.binding = serde_json::to_value(&legacy.binding).unwrap();
-    let (upgraded, _) = writer::write_bytes(&legacy, &intent, Some(&answers)).unwrap();
+    assert_eq!(
+        existing::part_settings(&legacy).unwrap()["notes"],
+        json!(["Legacy note"])
+    );
+    assert!(
+        existing::part_settings_provenance(&legacy)
+            .unwrap()
+            .get("notes")
+            .is_none()
+    );
+    assert_eq!(common::apply_edits(&legacy, json!({})).bytes, legacy_bytes);
+    let upgraded = common::apply_edits(
+        &legacy,
+        json!({"change": {
+            "part.notes": {"to": ["Revised legacy note"], "expect": "Legacy note"}
+        }}),
+    )
+    .bytes;
     assert_ne!(legacy_bytes, upgraded);
     all_owned(&upgraded);
     let reopened = part::load_bytes("upgraded.step", upgraded.clone()).unwrap();
-    intent.binding = serde_json::to_value(&reopened.binding).unwrap();
-    let (again, _) = writer::write_bytes(&reopened, &intent, Some(&answers)).unwrap();
-    assert_eq!(again, upgraded);
+    assert_eq!(
+        existing::part_settings(&reopened).unwrap()["notes"],
+        json!(["Revised legacy note"])
+    );
+    assert_eq!(
+        existing::part_settings_provenance(&reopened).unwrap()["notes"],
+        json!([MARKER])
+    );
+    assert_eq!(common::apply_edits(&reopened, json!({})).bytes, upgraded);
 }
 
 #[test]

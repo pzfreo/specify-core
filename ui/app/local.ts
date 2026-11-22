@@ -27,21 +27,21 @@ export interface LocalConfig {
 }
 
 /** The session's answers: one answer map per part, by part index ("0" for a single part). */
-export interface SessionAnswers { rev: number; parts: Record<string, PmiAnswers> }
+export type AnswerDraft = Pick<EditList, 'fill' | 'change' | 'none' | 'clear'> & { refused?: Record<string, string> };
+export interface SessionAnswers { rev: number; parts: Record<string, PmiAnswers>; drafts?: Record<string, AnswerDraft> }
 export type Source = 'page' | 'mcp' | 'start';
 /** An `answers` event: the start state (``parts``) or one part's change. */
 export type AnswersEvent =
-  | { rev: number; parts: Record<string, PmiAnswers>; source: 'start' }
+  | { source: 'start' } & SessionAnswers
   | {
-    rev: number; part: number; answers: PmiAnswers; source: 'page' | 'mcp';
-    /** A save approved these defaults, by part: question ids now answered with their defaults. */
-    defaults?: Record<string, string[]>;
+    rev: number; part: number; answers: PmiAnswers; source: 'page' | 'mcp'; draft?: AnswerDraft; drafts?: Record<string, AnswerDraft>;
     /** The part joined the session (the agent opened it, or the page first changed it); its answers may be `{}`. */
     joined?: boolean;
   };
 export interface SavedEvent { path: string; bytes: number; rev: number; source: 'page' | 'mcp' }
-/** A save's answer: what was written, and the required questions still open in it. */
-export interface Saved { path: string; bytes: number; rev: number; report: unknown; complete: boolean; missing: string[] }
+/** A save's answer: what was written (``report.retired``: the characteristic numbers retired), and the
+ * required questions the saved file still leaves open. */
+export interface Saved extends SessionAnswers { path: string; bytes: number; report: unknown; complete: boolean; missing: string[] }
 
 /** A refusal: the command's `error`, its status, and the body's other fields (``rev``, ``parts``). */
 export class Refused extends Error {
@@ -80,25 +80,45 @@ export async function getFile(rev: 'old' | 'new' | 'saved' = 'new'): Promise<Blo
 
 export const getAnswers = () => json<SessionAnswers>(fetch('answers', { cache: 'no-store' }));
 
-/** Replaces part ``part``'s answers if the session is still at ``rev``: the new rev. A 409 is
- * thrown as `Refused` with the current ``rev`` and ``parts``. */
-export const putAnswers = (rev: number, part: number, answers: PmiAnswers, signal?: AbortSignal) => json<{ rev: number }>(fetch('answers', {
-  method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, part, answers }), signal,
+/** An edit list (specify-core docs/session.md, the 0.3.0 edit list): ``fill`` gaps with a value (a
+ * value meaning none records "decided: none"), ``change`` what the file states (``expect``: the value
+ * seen), ``items`` by characteristic number, ``none`` decided none, ``accept_suggestions``, ``clear``
+ * a stored decision. */
+export interface EditList {
+  fill?: Record<string, unknown>;
+  change?: Record<string, { to: unknown; expect: unknown }>;
+  items?: { change?: Record<string, { tolerance: string; expect: string }>; remove?: RemoveTarget[] };
+  none?: string[];
+  accept_suggestions?: string[];
+  /** Stored decisions that leave no PMI to take back (a decided none, a choice such as how holes
+   * are located): a gap, or unanswered, again. Never PMI. */
+  clear?: string[];
+}
+
+/** What `items.remove` names: a characteristic number ("#4"), or, for a requirement without one, the
+ * stated row's id or the existing-PMI item's id (`{"id": …}`; the engine route for these is being added). */
+export type RemoveTarget = string | { id: string };
+
+/** An edit list scoped to a distinct part index from the file's part picker. */
+export interface PartEdits { part: number; edits: EditList }
+export type SaveEdits = EditList | PartEdits[];
+
+/** One entry of an edit list that cannot be applied, and why. */
+export interface EditFailure { entry: string; reason: string; part?: number; editEntry?: string }
+
+/** The command applies the edit list or part lists ``edits`` to the file and writes it, if the session is still at
+ * ``rev``: all or nothing. 409 when the session moved on, or (--in-place) the file changed on disk;
+ * 422 `{error, failures}` when an entry cannot be applied or a working answer was omitted.
+ * 400 for a malformed list. */
+export const save = (rev: number, edits: SaveEdits, signal?: AbortSignal) => json<Saved>(fetch('save', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Array.isArray(edits) ? { rev, partEdits: edits } : { rev, edits }), signal,
 }));
 
-/** The defaults the person approved, each with the value they saw, by part index:
- * `{"<part>": {"<question id>": <value>}}`; `{}` for none. */
-export type AcceptDefaults = Record<string, Record<string, unknown>>;
-
-/** The command writes the specified STEP from the session's answers at ``rev``, after setting
- * ``acceptDefaults`` (exactly the defaults the person approved, per part) as answers. Never refused
- * for open questions; 409 when the session moved on (or its set of parts changed during the save),
- * or (--in-place) the file changed on disk; 400 `{error, part, question}` when a default listed is
- * not an open question with a default there, plus `expected` (the value sent) and `current` (the
- * default now) when its value is no longer that default. A failed write rolls its approvals back. */
-export const save = (rev: number, acceptDefaults: AcceptDefaults, signal?: AbortSignal) => json<Saved>(fetch('save', {
-  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, acceptDefaults }), signal,
-}));
+/** Drop all working answers, or one draft identified by its part and row. */
+export const discardAnswers = (rev: number, target?: { part: number; id: string }, signal?: AbortSignal) =>
+  json<SessionAnswers>(fetch('discard', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, ...target }), signal,
+  }));
 
 /** Diff mode: the command's comparison, exactly what WASM `diff()` returns with the PMI scenes
  * (specify-core docs/open.md): a part's `{report, markdown, view}`, an assembly's `{report, markdown, parts}`;

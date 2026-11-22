@@ -9,8 +9,7 @@ use std::path::{Path, PathBuf};
 use regex::Regex;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
-use specify_core::existing::{part_settings, read_existing};
-use specify_core::part::{LoadedPart, load};
+use specify_core::part::load;
 use specify_core::pyjson;
 use specify_core::resume::{
     self, answers_for, fingerprint, fingerprint_of, fingerprint_v1, stored,
@@ -53,9 +52,12 @@ fn long_saved_answers_resume_from_ordered_text_chunks() {
         specify_core::writer::write_bytes(&loaded, &intent, Some(given.as_object().unwrap()))
             .unwrap();
     let back = specify_core::part::load_bytes("chunked.step", bytes.clone()).unwrap();
+    // ADR P11: the long note is the file's PMI, not a stored answer.
     assert_eq!(
         answers_for(&back).unwrap(),
-        Some(given.as_object().unwrap().clone())
+        Some(specify_core::feature_table::storable(
+            given.as_object().unwrap()
+        ))
     );
     assert!(String::from_utf8_lossy(&bytes).contains("haecceity text chunk/1"));
     let resumed = specify_core::api::analyse(&back).unwrap();
@@ -68,6 +70,8 @@ fn long_saved_answers_resume_from_ordered_text_chunks() {
         "unchanged chunked answers must resave without drift"
     );
 }
+
+// --- test_resume.py --------------------------------------------------------------------------
 
 fn feature(analysis: &Value, family: &str, diameter: f64) -> String {
     analysis["features"]
@@ -89,29 +93,6 @@ fn flat(path: &Path) -> String {
         .into_owned()
 }
 
-/// The analysis of a file the writer wrote, as `api.analyse` composes it (see tests/writer.rs).
-fn reanalysed(base: &Value, loaded: &LoadedPart) -> Value {
-    let mut out = base.clone();
-    out["binding"] = serde_json::to_value(&loaded.binding).unwrap();
-    match answers_for(loaded).unwrap() {
-        Some(_) => {
-            // As `api.analyse` composes it: reopened, the file's PMI is read first (ADR P9);
-            // the answers it agrees with resume, and any other tool's PMI is `existing`.
-            let real = specify_core::api::analyse(loaded).unwrap();
-            for key in ["existing", "part", "resume"] {
-                out[key] = real[key].clone();
-            }
-        }
-        None => {
-            out["existing"] = serde_json::to_value(read_existing(loaded).unwrap()).unwrap();
-            out["part"] = Value::Object(part_settings(loaded).unwrap());
-        }
-    }
-    out
-}
-
-// --- test_resume.py --------------------------------------------------------------------------
-
 /// Counts of what a written file holds, as Python's `_counts` (`saved` counts the stored
 /// answers' items).
 fn counts(path: &Path) -> (usize, usize, usize) {
@@ -124,16 +105,21 @@ fn counts(path: &Path) -> (usize, usize, usize) {
     )
 }
 
-// test_resume.py::test_a_written_file_resumes_its_answers_and_is_rewritten_not_added_to
+// test_resume.py::test_a_written_file_resumes_its_answers_and_is_rewritten_not_added_to, to
+// ADR P11: the stored answers are those that leave no PMI behind, and a save with the same
+// answers adds nothing: equal counts, one answers payload, the same bytes.
 #[test]
 fn a_written_file_resumes_its_answers_and_is_rewritten_not_added_to() {
     let dir = temp("resume");
-    let base = analysis("parts/pin");
-    let knurl = feature(&base, "turned_steps", 10.0);
-    let given =
-        json!({"part.material": "brass", format!("diameter.fit:{knurl}"): "knurl:straight"});
-    let first = dir.join("first.step");
     let pin = load(&fixture("pin"), None).unwrap();
+    let base = specify_core::api::analyse(&pin).unwrap();
+    let knurl = feature(&base, "turned_steps", 10.0);
+    let given = json!({
+        "part.material": "brass",
+        format!("diameter.fit:{knurl}"): "knurl:straight",
+        "part.coating": "None (as machined)",
+    });
+    let first = dir.join("first.step");
     write(
         &pin,
         &apply(&base, given.clone()),
@@ -141,85 +127,78 @@ fn a_written_file_resumes_its_answers_and_is_rewritten_not_added_to() {
         given.as_object(),
     )
     .unwrap();
-
-    // Opened again: the answers, and nothing of the file's own PMI to keep.
     let loaded = load(&first, None).unwrap();
-    assert_eq!(answers_for(&loaded).unwrap(), given.as_object().cloned());
-    let again = reanalysed(&base, &loaded);
-    // ADR P9: the defaults the file states are `resume.present`, beside the answers.
-    assert_eq!(again["resume"]["answers"], given);
+    let storable = specify_core::feature_table::storable(given.as_object().unwrap());
+    assert_eq!(answers_for(&loaded).unwrap(), Some(storable.clone()));
+    let again = specify_core::api::analyse(&loaded).unwrap();
     assert!(again["resume"].get("conflicts").is_none());
-    assert_eq!(again["existing"], json!([]));
+    assert_eq!(again["resume"]["answers"], json!(storable));
 
-    // Changed and written again: the PMI is the new answers', once.
-    let mut changed = given.clone();
-    changed["part.material"] = json!("steel");
     let second = dir.join("second.step");
-    let report = write(
+    write(
         &loaded,
-        &apply(&again, changed.clone()),
+        &apply(&again, given.clone()),
         &second,
-        changed.as_object(),
-    )
-    .unwrap();
-    assert!(report.written.contains(&"material steel".to_string()));
-    assert_eq!(counts(&first), counts(&second));
-    assert_eq!(counts(&second).2, 1);
-    let text = flat(&second);
-    assert!(text.contains("'steel'") && !text.contains("'brass'"));
-    assert_eq!(
-        answers_for(&load(&second, None).unwrap()).unwrap(),
-        changed.as_object().cloned()
-    );
-}
-
-/// A resumed file whose thread is answered away: the replace of a thread haecceity wrote, which
-/// its removal plan refused until upstream need U14 was met (quiddity-rust 86b11ba); the
-/// writer now makes it as any replace, and nothing the reader consumed survives.
-#[test]
-fn a_resumed_files_thread_can_be_answered_away() {
-    let dir = temp("unthread");
-    let pin = load(&fixture("pin"), None).unwrap();
-    // This is an edit on the current recogniser, not a Python-to-Rust import.
-    // Python's frozen holes:3.5 includes a floor that v0.4.9 does not claim;
-    // rematching must not silently trust that unsupported saved ID. Use the
-    // actual analysis and retain the complete removal and resumed-answer checks.
-    let base = specify_core::api::analyse(&pin).unwrap();
-    let given = json!({"part.material": "brass"});
-    let first = dir.join("first.step");
-    let report = write(
-        &pin,
-        &apply(&base, given.clone()),
-        &first,
         given.as_object(),
     )
     .unwrap();
-    assert!(
-        report
-            .written
-            .iter()
-            .any(|w| w.starts_with("internal thread"))
+    assert_eq!(counts(&first), counts(&second));
+    assert_eq!(counts(&second).2, 1);
+    assert_eq!(
+        std::fs::read(&first).unwrap(),
+        std::fs::read(&second).unwrap()
     );
+}
 
-    let loaded = load(&first, None).unwrap();
-    let again = reanalysed(&base, &loaded);
-    let hole = format!("hole.function:{}", feature(&base, "holes", 4.2));
-    let mut changed = given.clone();
-    changed[hole] = json!("general");
-    let second = dir.join("second.step");
-    let report = write(
-        &loaded,
-        &apply(&again, changed.clone()),
-        &second,
-        changed.as_object(),
+// A file Python wrote (schema 1, Python's own PROPERTY_DEFINITION form) is written again:
+// its payload is replaced by one schema-2 payload, not kept beside it.
+#[test]
+fn a_python_written_files_schema_one_payload_is_replaced_not_duplicated() {
+    let dir = temp("python-written");
+    let written = common::case("parts/plate").written_step().unwrap();
+    let text = std::fs::read_to_string(&written).unwrap();
+    let ours = fingerprint_v1(&load(&fixture("plate"), None).unwrap()).unwrap();
+    let mut payload = Value::Object(stored(text.as_bytes()).remove(&0).unwrap());
+    assert_eq!(payload["schema"], json!(1));
+    payload["faces"] = json!(ours);
+    let pattern = Regex::new(r"('pmi-assist answers',')[A-Za-z0-9+/=]*'").unwrap();
+    let patched = dir.join("python.step");
+    std::fs::write(
+        &patched,
+        pattern
+            .replace(
+                &text,
+                format!("${{1}}{}'", resume::encode(&payload)).as_str(),
+            )
+            .as_ref(),
     )
     .unwrap();
-    assert!(!report.written.iter().any(|w| w.contains("thread")));
-    let text = flat(&second);
-    assert!(!text.contains("thread manufacturing"));
+    let loaded = load(&patched, None).unwrap();
+    let given = json!({"part.coating": "None (as machined)"});
+    let base = specify_core::api::analyse(&loaded).unwrap();
+    let out = dir.join("out.step");
+    write(
+        &loaded,
+        &apply(&base, given.clone()),
+        &out,
+        given.as_object(),
+    )
+    .unwrap();
+    let after = flat(&out);
+    assert!(!after.contains("PROPERTY_DEFINITION('pmi-assist answers','schema 1'"));
     assert_eq!(
-        answers_for(&load(&second, None).unwrap()).unwrap(),
-        changed.as_object().cloned()
+        after
+            .matches("DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist answers'")
+            .count(),
+        1
+    );
+    let back = load(&out, None).unwrap();
+    assert_eq!(stored(&back.bytes)[&0]["schema"], json!(2));
+    assert_eq!(
+        answers_for(&back).unwrap(),
+        Some(specify_core::feature_table::storable(
+            given.as_object().unwrap()
+        ))
     );
 }
 
@@ -397,63 +376,6 @@ fn a_python_fingerprint_differs_only_in_signs_of_zero() {
     assert!(answers_for(&back).unwrap().is_none());
 }
 
-// A file Python wrote whose stored (schema 1) fingerprint is the Rust engine's resumes, and is
-// rewritten by replace: Python's text route, presentation and stored answers go, and the
-// answers stored are this port's only (schema 2).
-#[test]
-fn a_python_written_file_that_resumes_is_rewritten_by_replace() {
-    let dir = temp("python-written");
-    let written = common::case("parts/plate").written_step().unwrap();
-    let text = std::fs::read_to_string(&written).unwrap();
-    let ours = fingerprint_v1(&load(&fixture("plate"), None).unwrap()).unwrap();
-    let mut payload = Value::Object(stored(text.as_bytes()).remove(&0).unwrap());
-    assert_eq!(payload["schema"], json!(1));
-    payload["faces"] = json!(ours);
-    let pattern = Regex::new(r"('pmi-assist answers',')[A-Za-z0-9+/=]*'").unwrap();
-    let patched = dir.join("python.step");
-    std::fs::write(
-        &patched,
-        pattern
-            .replace(
-                &text,
-                format!("${{1}}{}'", resume::encode(&payload)).as_str(),
-            )
-            .as_ref(),
-    )
-    .unwrap();
-    let loaded = load(&patched, None).unwrap();
-    let given = json!({"part.material": "brass"});
-    assert_eq!(
-        answers_for(&loaded).unwrap(),
-        Some(Map::from_iter([(
-            "part.material".to_string(),
-            json!("steel")
-        )]))
-    );
-    let base = reanalysed(&analysis("parts/plate"), &loaded);
-    let out = dir.join("out.step");
-    write(
-        &loaded,
-        &apply(&base, given.clone()),
-        &out,
-        given.as_object(),
-    )
-    .unwrap();
-    let after = flat(&out);
-    assert!(!after.contains("'manufacturing requirement'"));
-    assert!(!after.contains("PROPERTY_DEFINITION('pmi-assist answers','schema 1'"));
-    assert_eq!(
-        after
-            .matches("DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist answers'")
-            .count(),
-        1
-    );
-    assert!(after.contains("'brass'") && !after.contains("'steel'"));
-    let back = load(&out, None).unwrap();
-    assert_eq!(stored(&back.bytes)[&0]["schema"], json!(2));
-    assert_eq!(answers_for(&back).unwrap(), given.as_object().cloned());
-}
-
 // --- schema 2 (Q14) --------------------------------------------------------------------------
 
 /// A file the writer wrote for the plate with `given` stored, and its text.
@@ -494,7 +416,13 @@ fn the_writer_stores_schema_two() {
     assert_eq!(payload["schema"], json!(2));
     assert_eq!(payload["faces"], json!(fingerprint(&loaded).unwrap()));
     assert_ne!(payload["faces"], json!(fingerprint_v1(&loaded).unwrap()));
-    assert_eq!(answers_for(&loaded).unwrap(), given.as_object().cloned());
+    // ADR P11: the material writes PMI, so it is not stored.
+    assert_eq!(
+        answers_for(&loaded).unwrap(),
+        Some(specify_core::feature_table::storable(
+            given.as_object().unwrap()
+        ))
+    );
 }
 
 // Each schema is checked against its own fingerprint: a schema 1 payload is verified on the
@@ -527,7 +455,8 @@ fn each_schema_is_checked_against_its_own_fingerprint() {
         let path = dir.join(format!("s{schema}-{resumes}.step"));
         std::fs::write(&path, with_payload(&text, &payload)).unwrap();
         let back = load(&path, None).unwrap();
-        let resume = &specify_core::api::analyse(&back).unwrap()["resume"];
+        let analysis = specify_core::api::analyse(&back).unwrap();
+        let resume = &analysis["resume"];
         assert_eq!(
             resume.is_object() && resume["unverified"].is_null(),
             verified,
@@ -535,10 +464,19 @@ fn each_schema_is_checked_against_its_own_fingerprint() {
         );
         assert_eq!(resume.is_object(), resumes, "schema {schema}: {resume}");
         if resumes {
-            // Verified or matched by ID, the datum is applied.
-            assert_eq!(resume["answers"]["datum.A"], json!([2]));
+            // Verified or matched by ID, the stored datum is read; ADR P11: the file states
+            // it (and the material), so the stored copies are not resumed.
             assert!(resume["unresolved"].is_null(), "schema {schema}: {resume}");
-            assert_eq!(resume["answers"]["part.material"], "steel");
+            assert!(resume["answers"].get("datum.A").is_none(), "{resume}");
+            assert!(resume["answers"].get("part.material").is_none(), "{resume}");
+            let stated = |id: &str| {
+                analysis["table"]["rows"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|r| r["id"] == id && r["state"] == "stated")
+            };
+            assert!(stated("datum.A") && stated("part.material"));
         }
         assert_eq!(
             answers_for(&back).unwrap().is_some(),
@@ -644,7 +582,8 @@ fn alpha7_saved_answers_survive_the_schema6_upgrade() {
         let resumed = &analysis["resume"];
         assert!(resumed.is_object(), "{name}: saved answers disappeared");
         let applied = resumed["answers"].as_object().unwrap();
-        assert_eq!(applied.len(), count, "{name}");
+        // ADR P11: stored answers that write PMI are the file's to state, not resumed.
+        let mut repeats = 0;
         let unresolved = resumed["unresolved"]
             .as_array()
             .cloned()
@@ -681,6 +620,14 @@ fn alpha7_saved_answers_survive_the_schema6_upgrade() {
                         );
                     }
                 }
+            } else if !unresolved.iter().any(|u| u["id"] == *old)
+                && specify_core::feature_table::storable(&Map::from_iter([(
+                    old.clone(),
+                    value.clone(),
+                )]))
+                .is_empty()
+            {
+                repeats += 1;
             } else {
                 let report = unresolved
                     .iter()
@@ -696,8 +643,9 @@ fn alpha7_saved_answers_survive_the_schema6_upgrade() {
                 assert!(!applied.contains_key(old));
             }
         }
+        assert_eq!(applied.len() + repeats, count, "{name}");
         assert_eq!(
-            applied.len() + unresolved.len(),
+            applied.len() + repeats + unresolved.len(),
             meta["answers"].as_object().unwrap().len()
         );
         // An unresolved old feature has no accepted answer in the current interview.

@@ -24,8 +24,120 @@ pub(crate) fn is_straight_depth(kind: &Kind) -> bool {
         if role.ends_with(".depth"))
 }
 
+/// A depth's endpoints can be planes or points. Its plan records the holes
+/// being measured, even when neither endpoint is supported by a bore face.
+pub(crate) fn depth_supports(pmi: &haecceity::pmi::PartPmi) -> BTreeMap<usize, BTreeSet<usize>> {
+    use haecceity::pmi::{AttributeValue, NoteOwner};
+
+    let mut depths = BTreeMap::<usize, BTreeSet<usize>>::new();
+    for attribute in &pmi.attributes {
+        let Some(NoteOwner::Dimension(id)) = attribute.on else {
+            continue;
+        };
+        if attribute.name != "specify dimension plan" {
+            continue;
+        }
+        let Some(Planned {
+            required, supports, ..
+        }) = attribute.items.iter().find_map(|(key, value)| match value {
+            AttributeValue::Text(text) if key == "requirement" => serde_json::from_str(text).ok(),
+            _ => None,
+        })
+        else {
+            continue;
+        };
+        if is_straight_depth(&required.kind) {
+            depths.entry(id.0).or_default().extend(
+                supports
+                    .into_iter()
+                    .filter(|s| required.covers.contains(&s.feature))
+                    .flat_map(|s| s.faces),
+            );
+        }
+    }
+    depths
+}
+
 pub(crate) fn input(part: &haecceity::Part) -> Result<Input, String> {
     Input::from_recognition(part, vec![], Policy::default())
+}
+
+/// The shared planner has a single height ladder. Feed any other recognised
+/// levels through its per-axis plane stations, using exact plane coordinates.
+pub(crate) fn step_levels(
+    input: &mut Input,
+    features: &[crate::rules::records::Feature<'_>],
+    general: &[Map<String, Value>],
+) -> Result<(), crate::rules::Error> {
+    use haecceity::geom::dot;
+
+    let axes = [input.frame.x, input.frame.y, input.frame.z];
+    // A retained physical measurement already gives this station its row.
+    // Keep its original reference faces and therefore its existing ID.
+    let measured: BTreeSet<_> = general
+        .iter()
+        .filter(|row| {
+            row.get("kind").and_then(Value::as_str) == Some("location")
+                && row.get("feature").and_then(Value::as_str) == Some("")
+                && deferred(input, row)
+        })
+        .flat_map(|row| ids(row, "faces"))
+        .collect();
+    for level in features.iter().filter(|f| f.family == "step_levels") {
+        let Some(direction) = level
+            .get("height_axis")?
+            .and_then(crate::features::axis_direction)
+        else {
+            continue;
+        };
+        let Some(axis) = axes
+            .iter()
+            .position(|&a| dot(a, direction).abs() > 1.0 - 1e-6)
+        else {
+            continue;
+        };
+        let faces: Vec<_> = level
+            .faces()?
+            .iter()
+            .filter_map(|&f| usize::try_from(f).ok())
+            .collect();
+        for plane in input
+            .planes
+            .iter()
+            .filter(|p| p.axis == axis && overlaps(&faces, &p.support.faces))
+        {
+            let at = plane.support.at[axis];
+            let same = |s: &Support| s.body == plane.support.body && (s.at[axis] - at).abs() < 1e-4;
+            if plane.support.faces.iter().any(|f| measured.contains(f))
+                || (axis == input.steps.axis && input.steps.heights.iter().any(same))
+                || input
+                    .steps
+                    .shoulders
+                    .iter()
+                    .any(|p| p.axis == axis && same(&p.support))
+            {
+                continue;
+            }
+            input.steps.shoulders.push(plane.clone());
+        }
+    }
+    Ok(())
+}
+
+/// A supporting cap has no standalone location. Quiddity's own level
+/// inventory determines step measurements, independently of other plane lengths.
+pub(crate) fn general_plane_rows(general: &mut Vec<Map<String, Value>>, metadata: &Value) {
+    let Some(metadata) = metadata.as_object() else {
+        return;
+    };
+    let supporting = ids(metadata, "supporting_faces");
+    general.retain(|row| {
+        if row.get("kind").and_then(Value::as_str) != Some("location") {
+            return true;
+        }
+        let faces = ids(row, "faces");
+        faces.is_empty() || !faces.iter().all(|f| supporting.contains(f))
+    });
 }
 
 /// quiddity's reason for no planner frame when a face's area cannot be computed (the solid's
@@ -301,11 +413,66 @@ impl Planned {
     }
 }
 
+/// Preserve the unpositioned part of a shared offset when the planner's
+/// representative is covered by a position tolerance in the same write.
+fn retain_unpositioned_targets(
+    required: &mut [Required],
+    input: &Input,
+    answered: &[Map<String, Value>],
+) {
+    let position_faces: BTreeSet<_> = answered
+        .iter()
+        .filter(|r| r.get("kind").and_then(Value::as_str) == Some("position"))
+        .flat_map(|r| ids(r, "faces"))
+        .collect();
+    if position_faces.is_empty() {
+        return;
+    }
+    let positioned: BTreeSet<_> = input
+        .holes
+        .iter()
+        .filter(|h| h.support.faces.iter().any(|f| position_faces.contains(f)))
+        .map(|h| h.support.feature.as_str())
+        .collect();
+    for row in required {
+        if row.tolerance != Tolerance::General
+            || matches!(row.pattern, Some(shared::PatternRole::Pitch { .. }))
+        {
+            continue;
+        }
+        let Kind::Location { to, axis, .. } = &mut row.kind else {
+            continue;
+        };
+        if to.plane || !row.covers.iter().any(|id| positioned.contains(id.as_str())) {
+            continue;
+        }
+        let shares_offset =
+            |s: &Support| s.body == to.body && (s.at[*axis] - to.at[*axis]).abs() < 1e-4;
+        let Some(remaining) = input.holes.iter().map(|h| &h.support).find(|s| {
+            shares_offset(s)
+                && row.covers.contains(&s.feature)
+                && !positioned.contains(s.feature.as_str())
+        }) else {
+            // The conflict pass retains its established diagnostic for a wholly
+            // positioned measurement.
+            continue;
+        };
+        if to.faces.iter().any(|f| position_faces.contains(f)) {
+            *to = remaining.clone();
+        }
+        row.covers.retain(|id| !positioned.contains(id.as_str()));
+    }
+}
+
 /// Lower the shared slice-one requirements, accounting for existing carriers and
 /// reporting quantities that cannot be reconciled. Answered location *contracts*
 /// apply to the pattern's own origin and pitch; old per-member basics are generated witnesses,
 /// not independently authored dimensions. Explicit face-picked dimensions remain authorities.
-pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String> {
+pub(crate) fn apply(
+    mut input: Input,
+    intent: &mut Intent,
+    feature_table: bool,
+) -> Result<(), String> {
     input.datums = intent
         .datums
         .iter()
@@ -744,6 +911,9 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
     });
     // An answered fit/location is never replaced by a General guess when the
     // principal-plane grammar cannot represent its support or complete group.
+    if feature_table {
+        retain_unpositioned_targets(&mut required, &input, &intent.requirements);
+    }
     required.retain(|r| {
         if r.tolerance != Tolerance::General { return true; }
         let requested = match &r.kind {
@@ -804,6 +974,53 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
         !matches!(&r.kind, Kind::Location { from, to, .. }
         if from.faces.is_empty() || to.faces.is_empty())
     });
+    let depth_intervals = |r: &Required| {
+        let mut spans = Vec::new();
+        if is_straight_depth(&r.kind) && !authorities.contains_key(&r.id) {
+            for h in input
+                .holes
+                .iter()
+                .filter(|h| r.covers.contains(&h.support.feature))
+            {
+                for axis in 0..3 {
+                    if h.direction[axis].abs() > 0.999 {
+                        let entry = h.support.at[axis];
+                        let end = entry + h.direction[axis] * r.nominal;
+                        spans.push((h.support.body, axis, entry, end));
+                    }
+                }
+            }
+        }
+        spans
+    };
+    // A new level can sit on the floor of an enlargement, whose faces the
+    // hole consults without claiming. Keep the existing depth callout when it
+    // measures the same two stations, as on CTC-02's 8 mm counterbore.
+    let supplemental: BTreeSet<_> = input
+        .steps
+        .shoulders
+        .iter()
+        .filter(|p| p.support.feature.starts_with("plane:"))
+        .map(|p| p.support.feature.as_str())
+        .collect();
+    if !supplemental.is_empty() {
+        let depths: Vec<_> = required.iter().flat_map(depth_intervals).collect();
+        required.retain(|r| {
+            let Kind::Location { from, to, axis } = &r.kind else {
+                return true;
+            };
+            authorities.contains_key(&r.id)
+                || !supplemental.contains(to.feature.as_str())
+                || !from.plane
+                || !depths.iter().any(|&(body, k, entry, end)| {
+                    from.body == body
+                        && to.body == body
+                        && *axis == k
+                        && (from.at[k] - entry).abs() < DEPTH_NEAR
+                        && (to.at[k] - end).abs() < DEPTH_NEAR
+                })
+        });
+    }
     let same_span = |row: &Map<String, Value>| {
         let from = support(&input, &ids(row, "reference"), &group_supports);
         let to = support(&input, &ids(row, "faces"), &group_supports);
@@ -909,28 +1126,9 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
         }
     }
     for r in &mut required {
-        let Kind::Size { role, .. } = &r.kind else {
-            continue;
-        };
-        if !role.ends_with(".depth") || authorities.contains_key(&r.id) {
-            continue;
-        }
-        for h in input
-            .holes
-            .iter()
-            .filter(|h| r.covers.contains(&h.support.feature))
-        {
-            for axis in 0..3 {
-                if h.direction[axis].abs() < 0.999 {
-                    continue;
-                }
-                let entry = h.support.at[axis];
-                let end = entry + h.direction[axis] * r.nominal;
-                if let Some(by) =
-                    station_path(&baselines, h.support.body, axis, entry, end, DEPTH_NEAR)
-                {
-                    r.reference = Some(by);
-                }
+        for (body, axis, entry, end) in depth_intervals(r) {
+            if let Some(by) = station_path(&baselines, body, axis, entry, end, DEPTH_NEAR) {
+                r.reference = Some(by);
             }
         }
     }
@@ -1012,7 +1210,19 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             || deferred(&input, r)
             || (!generation_covered(r) && !is_authority(r))
     });
-    intent.general.retain(|r| deferred(&input, r));
+    let diameter_faces: BTreeSet<_> = required
+        .iter()
+        .filter(|r| matches!(&r.kind, Kind::Size { role, .. } if role == "bore.diameter"))
+        .flat_map(|r| &r.covers)
+        .filter_map(|id| input.holes.iter().find(|h| h.support.feature == *id))
+        .flat_map(|h| h.support.faces.iter().copied())
+        .collect();
+    intent.general.retain(|r| {
+        deferred(&input, r)
+            || (feature_table
+                && r.get("kind").and_then(Value::as_str) == Some("size")
+                && !ids(r, "faces").iter().any(|f| diameter_faces.contains(f)))
+    });
     for required in required {
         if general.is_none() && !authorities.contains_key(&required.id) {
             continue;
@@ -1179,6 +1389,76 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
         }
     }
     intent.requirements.extend(unresolved);
+    Ok(())
+}
+
+/// [`apply`] for an old intent without planner rows (the writer's upgrade, #75).
+/// A hole's owning question approves a size or location on its feature. A standalone
+/// plane length needs approval of the measurement itself, including both endpoints.
+pub(crate) fn upgrade(
+    input: Input,
+    intent: &mut Intent,
+    same_measurement: impl Fn(&Map<String, Value>, &Map<String, Value>) -> bool,
+) -> Result<(), String> {
+    let holes: Vec<Vec<usize>> = input
+        .holes
+        .iter()
+        .map(|h| h.support.faces.clone())
+        .collect();
+    let before = intent.clone();
+    apply(input, intent, false)?;
+    let on = |r: &Map<String, Value>| {
+        let mut faces = ids(r, "faces");
+        if r.get("kind").and_then(Value::as_str) == Some("location") {
+            faces.extend(ids(r, "reference"));
+        }
+        faces
+    };
+    // (kind, faces) the old intent sizes or locates.
+    let mut given: Vec<(&str, Vec<usize>)> = Vec::new();
+    for r in &before.general {
+        if r.get("question")
+            .and_then(Value::as_str)
+            .is_some_and(crate::rules::general_rows::is_id)
+        {
+            continue;
+        }
+        if let Some(kind @ ("size" | "location")) = r.get("kind").and_then(Value::as_str) {
+            given.push((kind, on(r)));
+        }
+    }
+    for r in &before.requirements {
+        let question = r.get("question").and_then(Value::as_str).unwrap_or("");
+        let kind = if question.starts_with("hole.function:")
+            || question.starts_with("diameter.fit:")
+        {
+            "size"
+        } else if question.starts_with("hole.position:") || question.starts_with("hole.location:") {
+            "location"
+        } else {
+            continue;
+        };
+        given.push((kind, on(r)));
+    }
+    let approved = |r: &Map<String, Value>| {
+        let kind = r.get("kind").and_then(Value::as_str).unwrap_or("");
+        let faces = on(r);
+        let touched: Vec<&Vec<usize>> = holes.iter().filter(|h| overlaps(&faces, h)).collect();
+        if kind == "location" && before.general.iter().any(|old| same_measurement(old, r)) {
+            return true;
+        }
+        if touched.is_empty() {
+            kind != "location" && given.iter().any(|(k, g)| *k == kind && overlaps(g, &faces))
+        } else {
+            touched
+                .iter()
+                .all(|h| given.iter().any(|(k, g)| *k == kind && overlaps(g, h)))
+        }
+    };
+    intent.general.retain(|r| approved(r));
+    intent
+        .requirements
+        .retain(|r| r.get("general") != Some(&json!(true)) || approved(r));
     Ok(())
 }
 

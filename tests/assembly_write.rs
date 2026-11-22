@@ -42,6 +42,28 @@ fn assembly() -> PathBuf {
     common::fixtures().join("parts").join("assembly.step")
 }
 
+#[test]
+fn an_accepted_bom_field_is_default_and_an_explicit_field_is_answered() {
+    let plate = load(&assembly(), Some(PLATE)).unwrap();
+    let original = specify_core::api::analyse(&plate).unwrap();
+    let list = specify_core::edits::parse_value(json!({
+        "accept_suggestions": ["bom.description"],
+        "fill": {"bom.stock": "from stock"},
+    }))
+    .unwrap();
+    let applied = specify_core::writer::apply::apply(&plate, &list).unwrap();
+    let rows = specify_core::bom::read_bytes(applied.bytes.clone()).unwrap();
+    assert_eq!(rows[PLATE].description.source, "default");
+    assert_eq!(
+        rows[PLATE].description.value,
+        original["bom"]["description"]["value"]
+    );
+    assert_eq!(rows[PLATE].stock.source, "answered");
+    assert_eq!(rows[PLATE].stock.value, "from stock");
+    assert_eq!(rows[PIN].description.source, "default");
+    assert!(resume::stored(&applied.bytes).is_empty());
+}
+
 fn analysis(k: usize) -> Value {
     common::case(&format!("parts/assembly#{k}"))
         .artifact("analysis")
@@ -113,7 +135,11 @@ fn datum_count(path: &Path) -> usize {
 fn both_parts_are_written_and_verified() {
     let dir = temp("both");
     let (_, report, _) = written(&dir);
-    assert_eq!(report.not_written, Vec::<String>::new());
+    // Part attribution also applies to a skipped general diameter on datum A.
+    assert_eq!(
+        report.not_written,
+        [format!("pin: {}", common::PIN_DATUM_A_SIZE_OMISSION)]
+    );
     assert!(
         report
             .written
@@ -154,7 +180,12 @@ fn each_part_has_its_own_pmi_and_answers() {
         datums.sort();
         wanted.sort();
         assert_eq!(datums, wanted, "part {k}");
-        assert_eq!(answers_for(&back).unwrap(), Some(answers(k)), "part {k}");
+        // ADR P11: stored are the answers that leave no PMI behind.
+        assert_eq!(
+            answers_for(&back).unwrap(),
+            Some(specify_core::feature_table::storable(&answers(k))),
+            "part {k}"
+        );
     }
     // Two parts, each with its own datum A, under its own letter in the file.
     let mut letters: Vec<String> = Regex::new(&format!(
@@ -204,12 +235,14 @@ fn writing_one_part_again_alone_keeps_the_others() {
     assert_eq!(pmi_of(&x, PLATE), pmi_of(&out, PLATE));
     assert_eq!(
         answers_for(&load(&x, Some(PLATE)).unwrap()).unwrap(),
-        Some(answers(PLATE))
+        // ADR P11: stored are the answers that leave no PMI behind.
+        Some(specify_core::feature_table::storable(&answers(PLATE)))
     );
     // The pin's answers are the new ones, its PMI replaced, not added to.
     assert_eq!(
         answers_for(&load(&x, Some(PIN)).unwrap()).unwrap(),
-        Some(given)
+        // ADR P11: stored are the answers that leave no PMI behind.
+        Some(specify_core::feature_table::storable(&given))
     );
     assert_eq!(datum_count(&x), datum_count(&out));
     assert_eq!(stored(&std::fs::read(&x).unwrap()).len(), 2);
@@ -243,7 +276,8 @@ fn written_again_its_pmi_is_replaced() {
     for k in [PLATE, PIN] {
         assert_eq!(
             answers_for(&load(&again, Some(k)).unwrap()).unwrap(),
-            Some(answers(k))
+            // ADR P11: stored are the answers that leave no PMI behind.
+            Some(specify_core::feature_table::storable(&answers(k)))
         );
     }
 }
@@ -292,7 +326,11 @@ fn an_assembly_with_pmi_of_its_own_is_added_to() {
     let end = before.rfind("ENDSEC;").unwrap();
     assert!(after.starts_with(&before[..end]) && after.ends_with(&before[end..]));
     let reopened = load(&x, Some(PIN)).unwrap();
-    assert_eq!(answers_for(&reopened).unwrap(), Some(given.clone()));
+    // ADR P11: stored are the answers that leave no PMI behind.
+    assert_eq!(
+        answers_for(&reopened).unwrap(),
+        Some(specify_core::feature_table::storable(&given))
+    );
     let analysis = specify_core::api::analyse(&reopened).unwrap();
     assert!(!analysis["existing"].as_array().unwrap().is_empty());
     given.insert("part.coating".into(), json!("Zinc plate revised"));
@@ -311,7 +349,8 @@ fn an_assembly_with_pmi_of_its_own_is_added_to() {
         specify_core::part::File::of_bytes(std::path::Path::new("edited.step"), edited).unwrap();
     assert_eq!(
         answers_for(&file.load(Some(PIN)).unwrap()).unwrap(),
-        Some(given)
+        // ADR P11: stored are the answers that leave no PMI behind.
+        Some(specify_core::feature_table::storable(&given))
     );
 }
 
@@ -380,15 +419,11 @@ fn a_part_is_written_once_and_parts_are_of_one_file() {
     assert!(std::fs::read_dir(&dir).unwrap().next().is_none());
 }
 
-// A mixed write of an assembly: the plate resumes the answers specify-core stored for it, the
-// pin carries PMI from elsewhere (the same PMI, its stored answers renamed so they are no longer
-// specify-core's). Both are written together, each part by its own mode: the plate by replace
-// (its PMI becomes the intent's again, not written twice, and its answers are stored), the pin
-// by add (everything it had is kept and scoped answers are stored). Written by one add for both, as before,
-// the plate's PMI was written a second time beside the first and haecceity refused the edit
-// (item_identified_representation_usage.UR1 on the plate's faces).
+// A plate with legacy Specify answers and a pin with equivalent imported PMI. Edit the
+// plate's stated material, then add coating to the pin, without duplicating their datums
+// or changing the other definition. The renamed pin data belongs to its author.
 #[test]
-fn a_mixed_write_replaces_the_resumed_part_and_adds_to_the_other() {
+fn a_mixed_write_edits_one_part_at_a_time_regardless_of_origin() {
     let dir = temp("mixed");
     let (_, _, out) = written(&dir);
     let text = std::fs::read_to_string(&out).unwrap();
@@ -398,11 +433,13 @@ fn a_mixed_write_replaces_the_resumed_part_and_adds_to_the_other() {
         let raw = base64::engine::general_purpose::STANDARD
             .decode(&c[1])
             .unwrap();
-        let p: Value = serde_json::from_slice(&raw).unwrap();
+        let mut p: Value = serde_json::from_slice(&raw).unwrap();
         if p["part"] == json!(PIN) {
             format!("'other','{}'", &c[1])
         } else {
-            c[0].to_string()
+            p["answers"]["part.material"] = json!("steel");
+            let legacy = base64::engine::general_purpose::STANDARD.encode(p.to_string());
+            format!("'pmi-assist answers','{legacy}'")
         }
     });
     let mixed = dir.join("mixed.step");
@@ -410,63 +447,82 @@ fn a_mixed_write_replaces_the_resumed_part_and_adds_to_the_other() {
     let parts = load_all(&mixed).unwrap();
     assert_eq!(answers_for(&parts[PLATE]).unwrap(), Some(answers(PLATE)));
     assert_eq!(answers_for(&parts[PIN]).unwrap(), None);
-    let analyses: Vec<Value> = parts
-        .iter()
-        .enumerate()
-        .map(|(k, l)| reanalysed(k, l))
-        .collect();
-    let x = dir.join("x.step");
-    let report = write_all(&mixed, &analyses, &x).unwrap();
-    assert_eq!(report.not_written, Vec::<String>::new());
-    // The plate: replaced by the same intent, so its PMI is what it was, once; its answers
-    // stored again.
-    assert!(report.written.contains(&"plate: datum A".to_string()));
-    assert_eq!(pmi_of(&x, PLATE), pmi_of(&mixed, PLATE));
-    assert_eq!(
-        answers_for(&load(&x, Some(PLATE)).unwrap()).unwrap(),
-        Some(answers(PLATE))
+    let plate_save = dir.join("plate-edited.step");
+    let list = specify_core::edits::parse_value(json!({"change": {
+        "part.material":{"to":"brass","expect":"steel"}
+    }}))
+    .unwrap();
+    let plate = specify_core::writer::apply::apply_to(&parts[PLATE], &list, &plate_save).unwrap();
+    assert!(plate.report.not_written.is_empty());
+    assert_eq!(pmi_of(&plate_save, PIN), pmi_of(&mixed, PIN));
+    assert!(
+        stored(&plate.bytes)
+            .get(&PLATE)
+            .is_none_or(|p| p["answers"]["part.material"].is_null())
     );
-    // The pin: added to, nothing lost (its datums, tolerance, material, the renamed set).
-    assert!(!report.written.iter().any(|w| w.starts_with("pin: datum ")));
-    let (before, after) = (pmi_of(&mixed, PIN), pmi_of(&x, PIN));
-    // #75 can insert shared planner features before preserved imported aspects.
-    // Resolve every target and datum to its semantic supports instead of comparing
-    // arena indices; still compare all dimension/tolerance fields and counts.
-    assert_eq!(after.datums.len(), before.datums.len());
-    assert_eq!(
-        after.dimensions.len(),
-        before.dimensions.len(),
-        "{:?}",
-        pmi::write::differences_as_stated(&before, &after)
-    );
-    assert_eq!(after.tolerances.len(), before.tolerances.len());
+    let before = pmi_of(&mixed, PLATE);
+    let after = pmi_of(&plate_save, PLATE);
     let keys = |p: &pmi::PartPmi| {
         pmi::write::differences_as_stated(&pmi::PartPmi::default(), p)
             .into_iter()
+            .filter(|key| !key.contains("material") && !key.contains(resume::NAME))
             .collect::<std::collections::BTreeSet<_>>()
     };
+    assert_eq!(after.datums.len(), before.datums.len());
+    assert_eq!(after.dimensions.len(), before.dimensions.len());
+    assert_eq!(after.tolerances.len(), before.tolerances.len());
+    assert_eq!(keys(&after), keys(&before));
+    assert_eq!(after.material.unwrap().id, "brass");
+
+    let pin = load(&plate_save, Some(PIN)).unwrap();
+    let x = dir.join("x.step");
+    let list =
+        specify_core::edits::parse_value(json!({"fill": {"part.coating": "Black oxide"}})).unwrap();
+    let report = specify_core::writer::apply::apply_to(&pin, &list, &x).unwrap();
+    assert!(report.report.not_written.is_empty());
+    assert_eq!(pmi_of(&x, PLATE), pmi_of(&plate_save, PLATE));
+    let (before, after) = (pmi_of(&mixed, PIN), pmi_of(&x, PIN));
+    assert_eq!(after.datums.len(), before.datums.len());
+    assert_eq!(after.dimensions.len(), before.dimensions.len());
+    assert_eq!(after.tolerances.len(), before.tolerances.len());
+    assert_eq!(after.material, before.material);
     let (old_keys, new_keys) = (keys(&before), keys(&after));
     assert!(
         old_keys.is_subset(&new_keys),
         "lost: {:?}",
         old_keys.difference(&new_keys)
     );
-    // Only bookkeeping attributes may be added to the pin in this mixed write.
-    for added in new_keys.difference(&old_keys) {
-        assert!(
-            added.starts_with("attribute only in the second:"),
-            "unexpected: {added}"
-        );
-    }
+    assert!(
+        new_keys
+            .difference(&old_keys)
+            .all(|key| key.starts_with("attribute only in the second:"))
+    );
     assert_eq!(
-        answers_for(&load(&x, Some(PIN)).unwrap()).unwrap(),
-        Some(answers(PIN))
+        after
+            .attributes
+            .iter()
+            .filter(|set| set.on.is_none()
+                && set.name == specify_core::writer::SEMANTIC_TEXT
+                && set.items
+                    == [(
+                        "surface treatment".into(),
+                        pmi::AttributeValue::Text("Black oxide".into())
+                    )])
+            .count(),
+        1
+    );
+    assert!(
+        answers_for(&load(&x, Some(PIN)).unwrap())
+            .unwrap()
+            .is_none()
     );
     assert_eq!(datum_count(&x), datum_count(&mixed));
     assert_eq!(
         stored(&std::fs::read(&x).unwrap())
             .keys()
             .collect::<Vec<_>>(),
-        [&PLATE, &PIN]
+        stored(&std::fs::read(&plate_save).unwrap())
+            .keys()
+            .collect::<Vec<_>>()
     );
 }

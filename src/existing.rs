@@ -98,6 +98,22 @@ pub struct ExistingPmi {
     /// On reopening a file Specify wrote, the answered question whose stored answer this
     /// item contradicts (ADR P9): answering that question gives it way.
     pub question: Option<String>,
+    /// The item as a drawing states it, in full: `⌀3.3 H11`, `⌖ ⌀0.3Ⓜ A`, `M2×0.4-6H ↧ 2`,
+    /// `datum A` (ADR P11: the stated row is all anyone sees of what the file says, so nothing
+    /// it states is left out of this text).
+    pub text: String,
+    /// The item states something [`Self::fields`] and the common fields do not hold (a datum
+    /// reference's modifier, a common datum, a projected zone, a dimension's qualifier ...):
+    /// `text` is the whole of it, and it cannot be changed field by field.
+    pub text_only: bool,
+    /// What the item states beyond the common fields, by the planner's names where it has them
+    /// (docs/answers.md, "What the file states"): a size's `fit` (its ISO 286 class); a
+    /// tolerance's `diametral`, `mmc`, `zone` (its zone form) and `modifiers` (as stated); a
+    /// thread's `side`, `designation`, `spec`, `pitch`, `class`, `hand`, `through`,
+    /// `drill_diameter`, `drill_depth`, `full_thread`, `length`; a knurl's `pattern`, `pitch`,
+    /// `diameter`, `teeth`, `tooth_depth`, `root_fillet`, `helix_angle`, `hand`; a finish on
+    /// faces' `finish`. Serialised beside the common fields.
+    pub fields: Map<String, Value>,
 }
 
 impl ExistingPmi {
@@ -118,6 +134,9 @@ impl ExistingPmi {
             origin: None,
             source: None,
             question: None,
+            text: String::new(),
+            text_only: false,
+            fields: Map::new(),
         }
     }
 }
@@ -168,6 +187,15 @@ impl Serialize for ExistingPmi {
         }
         if let Some(question) = &self.question {
             map.serialize_entry("question", question)?;
+        }
+        if !self.text.is_empty() {
+            map.serialize_entry("text", &self.text)?;
+        }
+        if self.text_only {
+            map.serialize_entry("text_only", &true)?;
+        }
+        for (key, value) in &self.fields {
+            map.serialize_entry(key, value)?;
         }
         if self.faces.is_empty() {
             map.serialize_entry("faces", &self.faces)?;
@@ -226,6 +254,9 @@ pub struct Reading {
     pmi: PartPmi,
     provenance: pmi::PartProvenance,
     findings: Vec<Finding>,
+    /// The part's declared length unit (millimetres when it declares none): a general
+    /// tolerance table's values in it are shown without their unit.
+    length_unit: LengthUnit,
 }
 
 /// Reads the part's PMI (see [`Reading`]).
@@ -266,7 +297,17 @@ pub fn read_parsed(
         provenance: read.provenance.parts.swap_remove(index),
         findings,
         doc,
+        length_unit: file_length_unit(loaded),
     })
+}
+
+/// The part's declared length unit, millimetres when it declares none.
+pub(crate) fn file_length_unit(loaded: &LoadedPart) -> LengthUnit {
+    loaded
+        .definition
+        .declared_length_unit
+        .clone()
+        .unwrap_or(LengthUnit::Millimetre)
 }
 
 /// The semantic PMI the file states on the part (Python's `read_existing`): dimensions, then
@@ -296,6 +337,12 @@ pub fn part_settings_provenance(loaded: &LoadedPart) -> Result<Map<String, Value
 }
 
 impl Reading {
+    /// The part's requirements, each with where it is in the file
+    /// ([`crate::characteristics::located`]).
+    pub(crate) fn located(&self) -> Vec<crate::characteristics::Located> {
+        crate::characteristics::located(&self.pmi, &self.provenance, &self.doc)
+    }
+
     /// The part's PMI as read.
     pub fn model(&self) -> &PartPmi {
         &self.pmi
@@ -311,6 +358,22 @@ impl Reading {
     /// listed without it.
     pub fn existing(&self, loaded: &LoadedPart) -> Result<Vec<ExistingPmi>, ExistingError> {
         self.existing_except(loaded, &Selection::default())
+    }
+
+    /// Every requirement the file states (ADR P11: whoever wrote it), including the
+    /// dimensions Specify wrote under the general tolerance, which [`Self::existing`] leaves
+    /// out.
+    pub(crate) fn existing_all(
+        &self,
+        loaded: &LoadedPart,
+    ) -> Result<Vec<ExistingPmi>, ExistingError> {
+        let selection = Selection {
+            retained: (0..self.pmi.dimensions.len())
+                .map(|i| ("dimensions".to_string(), i))
+                .collect(),
+            ..Selection::default()
+        };
+        self.existing_except(loaded, &selection)
     }
 
     /// [`Self::existing`] without the items `selection` leaves out, and with the question it
@@ -403,10 +466,24 @@ impl Reading {
                 DimTolerance::Fit {
                     limits: Some(b), ..
                 } => offsets(b.upper(), b.lower()),
-                DimTolerance::None
-                | DimTolerance::Basic
-                | DimTolerance::Fit { limits: None, .. } => (None, None),
+                // A class alone states its deviations through the ISO 286 tables.
+                DimTolerance::Fit {
+                    class,
+                    limits: None,
+                } => match (nominal, &dimension.kind) {
+                    (Some(n), DimensionKind::Size { angle: None, .. }) => {
+                        crate::standards::fit_limits(&class.to_string(), value(n))
+                            .map_or((None, None), |(u, l)| (Some(u), Some(l)))
+                    }
+                    _ => (None, None),
+                },
+                DimTolerance::None | DimTolerance::Basic => (None, None),
             };
+            if let DimTolerance::Fit { class, .. } = &dimension.tolerance {
+                item.fields
+                    .insert("fit".into(), Value::from(class.to_string()));
+            }
+            (item.text, item.text_only) = dimension_notation(dimension);
             out.push(item);
         }
 
@@ -434,6 +511,24 @@ impl Reading {
                 crate::characteristics::on(doc, &prov.tolerances[i], "geometric_tolerance");
             item.value = tolerance.magnitude.as_ref().map(value);
             item.question = selection.question("tolerances", i);
+            if let Some(zone) = &tolerance.zone {
+                if zone.form.is_diametral() {
+                    item.fields.insert("diametral".into(), Value::Bool(true));
+                }
+                item.fields.insert("zone".into(), json_name(&zone.form));
+            }
+            if tolerance
+                .modifiers
+                .contains(&pmi::ToleranceModifier::MaximumMaterialRequirement)
+            {
+                item.fields.insert("mmc".into(), Value::Bool(true));
+            }
+            if !tolerance.modifiers.is_empty() {
+                item.fields.insert(
+                    "modifiers".into(),
+                    Value::Array(tolerance.modifiers.iter().map(json_name).collect()),
+                );
+            }
             item.datums = tolerance
                 .datums
                 .iter()
@@ -452,6 +547,8 @@ impl Reading {
                         })
                 })
                 .collect::<Result<_, _>>()?;
+            // After the datums: every one it cites is held.
+            (item.text, item.text_only) = tolerance_notation(tolerance, pmi);
             out.push(item);
         }
 
@@ -478,6 +575,7 @@ impl Reading {
             );
             if !seen.contains(&key) {
                 let mut item = ExistingPmi::new("datum", &key.0, key.1.clone());
+                item.text = format!("datum {}", key.0);
                 item.provenance = owned.then(|| provenance::MARKER.into());
                 item.number = crate::characteristics::on(doc, &prov.datums[i], "datum");
                 item.question = selection.question("datums", i);
@@ -537,11 +635,12 @@ impl Reading {
         if p.material.is_some() && owned(&prov.material, "material") {
             out.insert("material".into(), Value::from(provenance::MARKER));
         }
-        if let Some(i) = p
-            .general
-            .iter()
-            .position(|g| matches!(g, GeneralTolerance::Class { .. }))
-        {
+        if let Some(i) = p.general.iter().position(|g| {
+            matches!(
+                g,
+                GeneralTolerance::Class { .. } | GeneralTolerance::Table { .. }
+            )
+        }) {
             if owned(&prov.general[i], "general") {
                 out.insert("general_tolerance".into(), Value::from(provenance::MARKER));
             }
@@ -640,14 +739,16 @@ impl Reading {
                 visit("general_tolerance", Value::String(text.clone()));
             }
         }
-        // Only Specify's own ± note supplies the general tolerance in this form.
-        if let Some(text) = pmi
+        // Only Specify's own note supplies the general tolerance in this form: a ± figure,
+        // or the lines of a block (#228) its table cannot express.
+        let note = pmi
             .attributes
             .iter()
             .position(is_general_tolerance_note)
             .filter(|&i| provenance::marked(&self.doc, &self.provenance.attributes[i], "attribute"))
-            .and_then(|_| general_tolerance_note(pmi))
-        {
+            .and_then(|_| general_tolerance_note(pmi));
+        // A default tolerance table, whoever wrote it, read back as stated, then the note.
+        if let Some(text) = general_tolerance_shown(pmi, note.as_deref(), &self.length_unit) {
             visit("general_tolerance", Value::String(text));
         }
         for (key, kind) in PART_NOTES {
@@ -702,6 +803,119 @@ impl Reading {
     }
 }
 
+/// What `pmi` states, as `existing` items read back would list it (kind, type, faces, the
+/// located side and a location's value), without a document: a plan's PMI before it is
+/// written, for the feature table's matching. Datums, notes on faces (threads, knurls, hole
+/// notes, finishes) and tolerances are included.
+pub(crate) fn items_of(pmi: &PartPmi) -> Vec<Value> {
+    let item = |kind: &str, r#type: &str, faces: Vec<usize>| {
+        let mut m = Map::new();
+        m.insert("kind".into(), Value::from(kind));
+        m.insert("type".into(), Value::from(r#type));
+        m.insert("faces".into(), Value::from(faces));
+        m
+    };
+    let mut out = Vec::new();
+    for d in &pmi.dimensions {
+        let mut m = match &d.kind {
+            DimensionKind::Size {
+                feature,
+                kind,
+                path,
+                angle,
+            } => item(
+                "dimension",
+                size_type(kind, path.is_some(), angle.is_some()),
+                faces_of(pmi, &[*feature]),
+            ),
+            DimensionKind::Location {
+                from,
+                to,
+                kind,
+                path,
+                angle,
+                ..
+            } => {
+                let mut m = item(
+                    "dimension",
+                    location_type(kind, path.is_some(), angle.is_some()),
+                    faces_of(pmi, &[*from]),
+                );
+                m.insert("faces2".into(), Value::from(faces_of(pmi, &[*to])));
+                m
+            }
+        };
+        if let Some(n) = &d.nominal {
+            m.insert("value".into(), Value::from(value(n)));
+        }
+        out.push(Value::Object(m));
+    }
+    for t in &pmi.tolerances {
+        let faces = match &t.target {
+            ToleranceTarget::Feature(f) => faces_of(pmi, &[*f]),
+            ToleranceTarget::Dimension(d) => match pmi.dimensions.get(d.0).map(|d| &d.kind) {
+                Some(DimensionKind::Size { feature, .. }) => faces_of(pmi, &[*feature]),
+                Some(DimensionKind::Location { from, to, .. }) => faces_of(pmi, &[*from, *to]),
+                None => Vec::new(),
+            },
+            ToleranceTarget::Relation {
+                relating, related, ..
+            } => faces_of(pmi, &[*relating, *related]),
+            ToleranceTarget::WholePart => Vec::new(),
+        };
+        out.push(Value::Object(item(
+            "geometric_tolerance",
+            tolerance_type(t.kind),
+            faces,
+        )));
+    }
+    for d in &pmi.datums {
+        let faces = faces_of(pmi, &d.feature().into_iter().collect::<Vec<_>>());
+        out.push(Value::Object(item("datum", d.label().as_str(), faces)));
+    }
+    for t in &pmi.threads {
+        let kind = match t.side {
+            pmi::ThreadSide::Internal => "internal thread",
+            pmi::ThreadSide::External => "external thread",
+        };
+        out.push(Value::Object(item(
+            "note",
+            kind,
+            faces_of(pmi, &[t.feature]),
+        )));
+    }
+    for k in &pmi.knurls {
+        out.push(Value::Object(item(
+            "note",
+            "knurl",
+            faces_of(pmi, &[k.feature]),
+        )));
+    }
+    for set in &pmi.attributes {
+        if let Some(pmi::NoteOwner::Feature(f)) = set.on
+            && set.name == crate::writer::SEMANTIC_TEXT
+        {
+            for (name, v) in &set.items {
+                if let pmi::AttributeValue::Text(words) = v
+                    && name == crate::writer::HOLE_NOTE
+                {
+                    out.push(Value::Object(item("note", words, faces_of(pmi, &[f]))));
+                }
+            }
+        }
+    }
+    for t in &pmi.surface_textures {
+        if let Some(f) = t.on {
+            out.push(Value::Object(item(
+                "note",
+                "surface finish",
+                faces_of(pmi, &[f]),
+            )));
+        }
+    }
+    out
+}
+
 /// Whether `set` is a ± general tolerance written as a note on the part (`docs/process.md`).
 fn is_general_tolerance_note(set: &pmi::AttributeSet) -> bool {
     general_tolerance_text(set).is_some()
@@ -718,6 +932,28 @@ pub(crate) fn general_tolerance_text(set: &pmi::AttributeSet) -> Option<&str> {
         }
         _ => None,
     })
+}
+
+/// The general tolerance as its row shows it, other than a class: the lines of the part's
+/// default tolerance tables (any writer's, #228), then `note` (Specify's general tolerance
+/// note). Values in `file_unit` are shown without their unit.
+pub(crate) fn general_tolerance_shown(
+    pmi: &PartPmi,
+    note: Option<&str>,
+    file_unit: &LengthUnit,
+) -> Option<String> {
+    let tables: Vec<String> = pmi
+        .general
+        .iter()
+        .filter_map(|g| match g {
+            GeneralTolerance::Table { cells, .. } => {
+                crate::tolerance_block::table_text(cells, file_unit)
+            }
+            GeneralTolerance::Class { .. } => None,
+        })
+        .collect();
+    let table = (!tables.is_empty()).then(|| tables.join(crate::tolerance_block::SEPARATOR));
+    crate::tolerance_block::shown(table.as_deref(), note)
 }
 
 /// The part's ± general tolerance written as a note, if it has one.
@@ -785,29 +1021,44 @@ fn notes(
     prov: &pmi::PartProvenance,
     selection: &Selection,
 ) -> Vec<ExistingPmi> {
-    type Found = (String, bool, Option<u64>, Option<String>, BTreeSet<usize>);
+    /// One note: its kind, authorship, number, question, what it states, and its faces.
+    struct Found {
+        kind: String,
+        owned: bool,
+        number: Option<u64>,
+        question: Option<String>,
+        said: Said,
+        faces: BTreeSet<usize>,
+    }
     let mut found: Vec<Found> = Vec::new();
     let mut add = |kind: &str,
                    faces: &[usize],
                    owned: bool,
                    number: Option<u64>,
-                   item: Option<(&str, usize)>| {
+                   item: Option<(&str, usize)>,
+                   said: Said| {
         if faces.is_empty() || item.is_some_and(|(c, i)| selection.skips(c, i)) {
             return;
         }
         let question = item.and_then(|(c, i)| selection.question(c, i));
-        match found
-            .iter_mut()
-            .find(|(k, o, n, q, _)| k == kind && *o == owned && *n == number && *q == question)
-        {
-            Some((_, _, _, _, set)) => set.extend(faces),
-            None => found.push((
-                kind.to_string(),
+        // Notes of one kind that state the same are one item on all their faces; two threads
+        // of other sizes stay two.
+        match found.iter_mut().find(|f| {
+            f.kind == kind
+                && f.owned == owned
+                && f.number == number
+                && f.question == question
+                && f.said == said
+        }) {
+            Some(f) => f.faces.extend(faces),
+            None => found.push(Found {
+                kind: kind.to_string(),
                 owned,
                 number,
                 question,
-                faces.iter().copied().collect(),
-            )),
+                said,
+                faces: faces.iter().copied().collect(),
+            }),
         }
     };
     let graph = doc.graph();
@@ -829,7 +1080,8 @@ fn notes(
         if NOTE_KINDS.contains(&kind.as_str())
             && let Some(index) = loaded.definition.face_index(*face)
         {
-            add(kind, &[index], false, None, None);
+            // Python's text route: the note's kind is all the file links to the face.
+            add(kind, &[index], false, None, None, Said::text(kind));
         }
     }
     for (i, thread) in pmi.threads.iter().enumerate() {
@@ -843,6 +1095,7 @@ fn notes(
             provenance::marked(doc, &prov.threads[i], "thread"),
             crate::characteristics::on(doc, &prov.threads[i], "product_definition_shape"),
             Some(("threads", i)),
+            thread_said(thread, pmi),
         );
     }
     for (i, knurl) in pmi.knurls.iter().enumerate() {
@@ -852,6 +1105,7 @@ fn notes(
             provenance::marked(doc, &prov.knurls[i], "knurl"),
             crate::characteristics::on(doc, &prov.knurls[i], "product_definition_shape"),
             Some(("knurls", i)),
+            knurl_said(knurl),
         );
     }
     // A hole note as the Rust writer writes it (a heat-set insert or printed thread,
@@ -873,6 +1127,7 @@ fn notes(
                     provenance::marked(doc, &prov.attributes[i], "attribute"),
                     None,
                     Some(("attributes", i)),
+                    Said::text(words),
                 );
             }
         }
@@ -886,19 +1141,484 @@ fn notes(
                 provenance::marked(doc, &prov.surface_textures[i], "surface texture"),
                 crate::characteristics::texture_number(doc, &prov.surface_textures[i]),
                 Some(("surface_textures", i)),
+                finish_said(t),
             );
         }
     }
     found
         .into_iter()
-        .map(|(kind, owned, number, question, faces)| {
-            let mut item = ExistingPmi::new("note", &kind, faces.into_iter().collect());
-            item.provenance = owned.then(|| provenance::MARKER.into());
-            item.number = number;
-            item.question = question;
+        .map(|f| {
+            let mut item = ExistingPmi::new("note", &f.kind, f.faces.into_iter().collect());
+            item.provenance = f.owned.then(|| provenance::MARKER.into());
+            item.number = f.number;
+            item.question = f.question;
+            item.text = f.said.text;
+            item.text_only = f.said.text_only;
+            item.fields = f.said.fields;
             item
         })
         .collect()
+}
+
+/// What a note states: its text in full, whether only the text holds all of it, and its
+/// structured values (see [`ExistingPmi::fields`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Said {
+    text: String,
+    text_only: bool,
+    fields: Map<String, Value>,
+}
+
+impl Said {
+    fn text(text: &str) -> Said {
+        Said {
+            text: text.to_string(),
+            ..Said::default()
+        }
+    }
+}
+
+/// A length in millimetres as a JSON number.
+fn mm_value(l: &pmi::Length) -> Value {
+    Value::from(l.mm())
+}
+
+/// The notation and planner fields of a thread without its feature carrier.
+pub(crate) fn thread_signature(t: &pmi::Thread, p: &PartPmi) -> (String, Map<String, Value>) {
+    let said = thread_said(t, p);
+    (said.text, said.fields)
+}
+
+/// A thread as the planner states it (`rules/holes.rs`, `rules/turned.rs`): its designation,
+/// pitch, class and hand from the thread, its depths from its `thread manufacturing`
+/// attributes, and haecceity's notation of it. What the planner has no field for (minor or
+/// pitch diameter, crest, runout, a second class, a count of threads other than one) is added
+/// to the text, and marks it text only.
+fn thread_said(t: &pmi::Thread, p: &PartPmi) -> Said {
+    let mut said = Said::text(&clean_numbers(
+        &haecceity::presentation::thread(t, p).notation(),
+    ));
+    let f = &mut said.fields;
+    f.insert(
+        "side".into(),
+        Value::from(match t.side {
+            pmi::ThreadSide::Internal => "internal",
+            pmi::ThreadSide::External => "external",
+        }),
+    );
+    let spec = t.qualifier.clone().filter(|q| !q.is_empty());
+    let designation = spec
+        .as_deref()
+        .and_then(|q| q.split(['x', '×']).next())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            format!(
+                "{}{}",
+                t.form,
+                haecceity::presentation::tolerance::number(&t.major_diameter.value)
+            )
+        });
+    f.insert("designation".into(), Value::from(designation));
+    if let Some(spec) = spec {
+        f.insert("spec".into(), Value::from(spec));
+    }
+    if !t.fit_class.is_empty() {
+        f.insert("class".into(), Value::from(t.fit_class.clone()));
+    }
+    f.insert(
+        "hand".into(),
+        Value::from(if t.hand == pmi::Hand::Left {
+            "LH"
+        } else {
+            "RH"
+        }),
+    );
+    for set in p.attributes.iter().filter(|a| {
+        a.name == "thread manufacturing"
+            && matches!(a.on, Some(pmi::NoteOwner::Feature(on)) if p.same_target(
+                &ToleranceTarget::Feature(on), &ToleranceTarget::Feature(t.feature)))
+    }) {
+        for (name, v) in &set.items {
+            let key = match name.as_str() {
+                "pitch" => "pitch",
+                "tapping drill diameter" => "drill_diameter",
+                "tapping drill depth" => "drill_depth",
+                "minimum full thread" => "full_thread",
+                "thread length" => "length",
+                "through" => {
+                    if matches!(v, pmi::AttributeValue::Text(s) if s == "true")
+                        || matches!(v, pmi::AttributeValue::Boolean(true))
+                    {
+                        f.insert("through".into(), Value::Bool(true));
+                    }
+                    continue;
+                }
+                _ => continue,
+            };
+            if let pmi::AttributeValue::Measure(m) = v {
+                f.insert(key.into(), Value::from(value(m)));
+            }
+        }
+    }
+    let mut extra = Vec::new();
+    if let Some(d) = &t.minor_diameter {
+        extra.push(format!("minor ⌀{}", crate::pyfmt::g(d.mm())));
+    }
+    if let Some(d) = &t.pitch_diameter {
+        extra.push(format!("pitch ⌀{}", crate::pyfmt::g(d.mm())));
+    }
+    if let Some(c) = &t.crest {
+        extra.push(format!("crest {}", crate::pyfmt::g(c.mm())));
+    }
+    if t.runout.is_some() {
+        extra.push("with runout".into());
+    }
+    if t.number_of_threads.0.to_f64() != 1.0 {
+        extra.push(format!(
+            "{} threads",
+            haecceity::presentation::tolerance::number(&t.number_of_threads.0)
+        ));
+    }
+    if !extra.is_empty() {
+        said.text = format!("{} ({})", said.text, extra.join(", "));
+        said.text_only = true;
+    }
+    said
+}
+
+/// A knurl's parameters, by the planner's names, and its text as the PMI scene words it.
+fn knurl_said(k: &pmi::Knurl) -> Said {
+    let pattern = match k.pattern {
+        pmi::KnurlPattern::Straight => "straight",
+        pmi::KnurlPattern::Diamond => "diamond",
+        pmi::KnurlPattern::Diagonal => "diagonal",
+    };
+    let mut said = Said::text(&format!(
+        "{pattern} knurl, pitch {} mm, major ⌀{} mm",
+        crate::pyfmt::g(k.diametral_pitch.mm()),
+        crate::pyfmt::g(k.major_diameter.mm())
+    ));
+    let f = &mut said.fields;
+    f.insert("pattern".into(), Value::from(pattern));
+    f.insert("pitch".into(), mm_value(&k.diametral_pitch));
+    f.insert("diameter".into(), mm_value(&k.nominal_diameter));
+    if let Some(n) = k.number_of_teeth {
+        f.insert("teeth".into(), Value::from(n.0));
+    }
+    if let Some(d) = &k.tooth_depth {
+        f.insert("tooth_depth".into(), mm_value(d));
+    }
+    if let Some(r) = &k.root_fillet {
+        f.insert("root_fillet".into(), mm_value(r));
+    }
+    if let Some(a) = &k.helix_angle {
+        f.insert("helix_angle".into(), Value::from(a.rad().to_degrees()));
+    }
+    if let Some(h) = k.helix_hand {
+        f.insert(
+            "hand".into(),
+            Value::from(if h == pmi::Hand::Left { "LH" } else { "RH" }),
+        );
+    }
+    // A major diameter other than the nominal (the planner states one diameter for both).
+    if k.major_diameter.mm() != k.nominal_diameter.mm() {
+        said.text = format!(
+            "{}, nominal ⌀{} mm",
+            said.text,
+            crate::pyfmt::g(k.nominal_diameter.mm())
+        );
+        said.text_only = true;
+    }
+    said
+}
+
+/// A finish on faces: `√ Ra 1.6` as the planner states it; a texture of other parameters is
+/// its parameters in full, text only.
+fn finish_said(t: &pmi::SurfaceTexture) -> Said {
+    match finish_words(t) {
+        Some(words) => {
+            let mut said = Said::text(&format!("√ {words}"));
+            said.fields.insert("finish".into(), Value::from(words));
+            said
+        }
+        None => Said {
+            text: format!(
+                "√ {}",
+                haecceity::presentation::notes::texture_parameters(t).join(", ")
+            ),
+            text_only: true,
+            fields: Map::new(),
+        },
+    }
+}
+
+/// A value of haecceity's model by its schema name (`maximum_material_requirement`).
+fn json_name<T: Serialize>(v: &T) -> Value {
+    serde_json::to_value(v).unwrap_or(Value::Null)
+}
+
+/// A dimension as a drawing states it, and whether it states something beyond the structured
+/// fields. haecceity's notation (`⌀6.6 ±0.1`, `⌀3.3 H11`, `⌀6.5 - ⌀6.7`, MAX/MIN, the
+/// reference's brackets), with what it leaves out added: a basic dimension's `(basic)`, a
+/// fit's class beside its stated limits, the other modifiers and the envelope requirement.
+pub(crate) fn dimension_notation(d: &pmi::Dimension) -> (String, bool) {
+    let mut text = clean_numbers(&haecceity::presentation::dimension_text(d));
+    if d.nominal.is_none() {
+        // No value stated (NIST CTC-01's presentation-only sizes): its kind in words.
+        let r#type = match &d.kind {
+            DimensionKind::Size {
+                kind, path, angle, ..
+            } => size_type(kind, path.is_some(), angle.is_some()),
+            DimensionKind::Location {
+                kind, path, angle, ..
+            } => location_type(kind, path.is_some(), angle.is_some()),
+        };
+        text = format!("{}, no value stated", readable_type(r#type));
+    }
+    let mut text_only = false;
+    match &d.tolerance {
+        DimTolerance::Basic => text.push_str(" (basic)"),
+        DimTolerance::Fit {
+            class,
+            limits: Some(_),
+        } => text.push_str(&format!(" ({class})")),
+        _ => {}
+    }
+    if let Some(q) = &d.qualifier {
+        text_only = true;
+        if let pmi::Qualifier::Other(words) = q {
+            text.push_str(&format!(" {words}"));
+        }
+    }
+    for m in &d.modifiers {
+        text_only = true;
+        if *m != pmi::DimensionModifier::Reference {
+            let name = json_name(m);
+            text.push_str(&format!(
+                " ({})",
+                name.as_str().unwrap_or("modifier").replace('_', " ")
+            ));
+        }
+    }
+    if d.principle == Some(pmi::Principle::EnvelopeRequirement) {
+        text_only = true;
+        text.push_str(" Ⓔ");
+    }
+    (text, text_only)
+}
+
+/// A tolerance modifier as a drawing shows it: a symbol glued to the value, or its name.
+fn modifier_symbol(m: pmi::ToleranceModifier) -> Option<&'static str> {
+    use pmi::ToleranceModifier as M;
+    Some(match m {
+        M::MaximumMaterialRequirement => "Ⓜ",
+        M::LeastMaterialRequirement => "Ⓛ",
+        M::FreeState => "Ⓕ",
+        M::TangentPlane => "Ⓣ",
+        M::ReciprocityRequirement => "Ⓡ",
+        M::StatisticalTolerance => "⟨ST⟩",
+        _ => return None,
+    })
+}
+
+fn datum_modifier(m: &pmi::DatumModifier) -> String {
+    use pmi::SimpleDatumModifier as S;
+    match m {
+        pmi::DatumModifier::Simple(S::MaximumMaterialRequirement) => "Ⓜ".into(),
+        pmi::DatumModifier::Simple(S::LeastMaterialRequirement) => "Ⓛ".into(),
+        pmi::DatumModifier::Simple(S::FreeState) => "Ⓕ".into(),
+        pmi::DatumModifier::Simple(other) => format!(
+            "[{}]",
+            json_name(other)
+                .as_str()
+                .unwrap_or("modifier")
+                .replace('_', " ")
+        ),
+        pmi::DatumModifier::WithValue { kind, value: v } => format!(
+            "[{} {}]",
+            json_name(kind)
+                .as_str()
+                .unwrap_or("modifier")
+                .replace('_', " "),
+            haecceity::presentation::tolerance::number(v.decimal())
+        ),
+    }
+}
+
+/// A geometric tolerance as its frame states it, cell by cell (`⌖ ⌀0.3Ⓜ A B C`), and whether
+/// it states something beyond the structured fields: every modifier, the zone (⌀, S⌀,
+/// projected, non-uniform), unit basis, maximum, unequal zone, all over, and each datum
+/// reference with its modifiers (a common datum as `A-B`).
+pub(crate) fn tolerance_notation(t: &pmi::GeometricTolerance, p: &PartPmi) -> (String, bool) {
+    // Values as the file states them, in its own unit, as haecceity's notation gives them.
+    let number = |v: &PmiValue| haecceity::presentation::tolerance::number(v.decimal());
+    let frame = haecceity::presentation::tolerance(t, p);
+    let symbol = frame.cells.first().cloned().unwrap_or_default();
+    let mut text_only = false;
+    let mut zone = String::new();
+    let mut after = Vec::new();
+    if let Some(z) = &t.zone {
+        if z.form.is_diametral() {
+            zone.push('⌀');
+        } else if z.form.is_spherical() {
+            zone.push_str("S⌀");
+        }
+        if let Some(projected) = &z.projected {
+            text_only = true;
+            after.push(format!("Ⓟ{}", number(&projected.length)));
+        }
+        if z.non_uniform.is_some() {
+            text_only = true;
+            after.push("UF".into());
+        }
+        if z.affected_plane.is_some() {
+            text_only = true;
+            after.push("(affected plane)".into());
+        }
+        if let Some(angle) = &z.runout_angle {
+            text_only = true;
+            after.push(format!("(runout at {}°)", number(angle)));
+        }
+    }
+    let mut cell = format!(
+        "{zone}{}",
+        t.magnitude
+            .as_ref()
+            .map(|m| haecceity::presentation::tolerance::number(m.decimal()))
+            .unwrap_or_default()
+    );
+    if let Some(basis) = &t.unit_basis {
+        text_only = true;
+        cell.push_str(&format!("/{}", number(&basis.size)));
+        if let Some(second) = basis.area.as_ref().and_then(|a| a.second.as_ref()) {
+            cell.push_str(&format!("×{}", number(second)));
+        }
+    }
+    for m in &t.modifiers {
+        match modifier_symbol(*m) {
+            Some(s) => cell.push_str(s),
+            None => after.push(
+                json_name(m)
+                    .as_str()
+                    .unwrap_or("modifier")
+                    .replace('_', " "),
+            ),
+        }
+    }
+    if let Some(u) = &t.unequal {
+        text_only = true;
+        after.push(format!("UZ{}", number(u)));
+    }
+    if let Some(max) = &t.maximum {
+        text_only = true;
+        after.push(format!("MAX {}", number(max)));
+    }
+    let mut cells = vec![symbol, cell];
+    cells.extend(after);
+    for c in t.datums.iter().flat_map(|s| s.compartments()) {
+        if c.references.len() > 1 || !c.modifiers.is_empty() {
+            text_only = true;
+        }
+        let mut compartment = c
+            .references
+            .iter()
+            .map(|r| {
+                let letter = p
+                    .datums
+                    .get(r.datum.0)
+                    .map(|d| d.label().to_string())
+                    .unwrap_or_default();
+                if !r.modifiers.is_empty() {
+                    text_only = true;
+                }
+                letter + &r.modifiers.iter().map(datum_modifier).collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("-");
+        compartment.extend(c.modifiers.iter().map(datum_modifier));
+        cells.push(compartment);
+    }
+    for a in &t.auxiliary {
+        text_only = true;
+        cells.push(
+            match a {
+                pmi::AuxiliaryClassification::AllOver => "all over",
+                pmi::AuxiliaryClassification::UnlessOtherwiseSpecified => {
+                    "unless otherwise specified"
+                }
+            }
+            .into(),
+        );
+    }
+    (
+        clean_numbers(
+            &cells
+                .into_iter()
+                .filter(|c| !c.is_empty())
+                .collect::<Vec<_>>()
+                .join(" "),
+        ),
+        text_only,
+    )
+}
+
+/// The significant digits a display keeps: more is a file's float noise (`1.06500000000426`,
+/// a value converted and written back), never a stated precision.
+const DISPLAY_DIGITS: usize = 10;
+
+/// Every decimal number in `text` as a drawing reads it: float noise beyond
+/// [`DISPLAY_DIGITS`] significant digits rounded away (`⌀1.06500000000426` → `⌀1.065`,
+/// `0.0500000000002` → `0.05`), then trailing zeros after the point trimmed (`0.016000` →
+/// `0.016`). A value with fewer digits is never rounded. The structured fields keep the
+/// value as read.
+pub fn clean_numbers(text: &str) -> String {
+    static NUMBER: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let number = NUMBER.get_or_init(|| regex::Regex::new(r"\d+\.\d+").expect("a regex"));
+    number
+        .replace_all(text, |c: &regex::Captures| clean_number(&c[0]))
+        .into_owned()
+}
+
+fn clean_number(s: &str) -> String {
+    let digits = s.chars().filter(char::is_ascii_digit).collect::<String>();
+    let significant = digits.trim_start_matches('0').len();
+    let s = if significant > DISPLAY_DIGITS
+        && let Ok(v) = s.parse::<f64>()
+    {
+        let rounded: f64 = format!("{v:.*e}", DISPLAY_DIGITS - 1).parse().unwrap_or(v);
+        let decimals = (DISPLAY_DIGITS as i32 - 1 - rounded.abs().log10().floor() as i32).max(0);
+        format!("{rounded:.*}", decimals as usize)
+    } else {
+        s.to_string()
+    };
+    if s.contains('.') {
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    } else {
+        s
+    }
+}
+
+/// An OpenCascade type name in words: `Size_Diameter` → `Diameter`,
+/// `Location_LinearDistance` → `Linear distance`.
+pub fn readable_type(r#type: &str) -> String {
+    let name = r#type
+        .strip_prefix("Size_")
+        .or_else(|| r#type.strip_prefix("Location_"))
+        .unwrap_or(r#type);
+    let mut out = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c == '_' {
+            out.push(' ');
+        } else if c.is_ascii_uppercase() && i > 0 && !out.ends_with(' ') {
+            out.push(' ');
+            out.push(c.to_ascii_lowercase());
+        } else if i > 0 {
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// A surface texture of one roughness in micrometres as specify-core states a finish
@@ -929,7 +1649,7 @@ fn default_finish(text: &str) -> Option<&str> {
 
 /// The faces of `features`, following groups and derived features to what they are made of
 /// (as Python's `datum_faces` follows shape aspect relationships), ascending.
-pub(crate) fn faces_of(pmi: &PartPmi, features: &[FeatureId]) -> Vec<usize> {
+pub fn faces_of(pmi: &PartPmi, features: &[FeatureId]) -> Vec<usize> {
     faces_in_arena(&pmi.features, features)
 }
 
@@ -1143,6 +1863,31 @@ mod tests {
             serde_json::to_string(&datum).unwrap(),
             r#"{"kind":"datum","type":"A","faces":[3]}"#
         );
+    }
+
+    #[test]
+    fn display_numbers_lose_float_noise_and_trailing_zeros_only() {
+        for (raw, shown) in [
+            ("⌀1.06500000000426", "⌀1.065"),
+            ("⌖ 0.0500000000002 A", "⌖ 0.05 A"),
+            ("(0.750000000002999)", "(0.75)"),
+            ("⌖ ⌀0.016000Ⓜ A", "⌖ ⌀0.016Ⓜ A"),
+            ("0.020000", "0.02"),
+            ("⌀0.250000 +0.003000/0", "⌀0.25 +0.003/0"),
+            ("10.0", "10"),
+            ("0.123456789", "0.123456789"),
+            ("1234.56789012", "1234.56789"),
+            ("25 ±0.1", "25 ±0.1"),
+        ] {
+            assert_eq!(clean_numbers(raw), shown, "{raw}");
+        }
+    }
+
+    #[test]
+    fn type_names_read_as_words() {
+        assert_eq!(readable_type("Size_Diameter"), "Diameter");
+        assert_eq!(readable_type("Location_LinearDistance"), "Linear distance");
+        assert_eq!(readable_type("Location_None"), "None");
     }
 
     #[test]

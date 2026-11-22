@@ -307,6 +307,13 @@ pub fn interpret<S: AsRef<str>>(
         return refuse(format!("Measure from one of: {}.", joined()));
     }
     if qid == "part.general_tolerance" {
+        // A block as a title block states it (#228): `.XX ±.01, .XXX ±.005, angles ±1°`,
+        // read back in its canonical spelling for checking.
+        match crate::tolerance_block::parse(&typed) {
+            Ok(Some(block)) => return Ok(block.text()),
+            Err(why) => return refuse(why),
+            Ok(None) => {}
+        }
         // A ± figure of the person's own where a ± figure is offered (a printed part's),
         // written as the general tolerance note.
         static FIGURE: LazyLock<Regex> = LazyLock::new(|| {
@@ -365,6 +372,23 @@ pub fn check<S: AsRef<str>>(
         ));
     };
     if options.iter().any(|o| o.as_ref() == value) {
+        return Ok(());
+    }
+    // Surface finish and the general tolerance can be decided none (#228: a drawing that states
+    // a coating and no roughness, or no general tolerance): nothing is written, and the
+    // decision is stored.
+    if (qid == "part.surface_finish" || qid == "part.general_tolerance")
+        && value.trim().eq_ignore_ascii_case("none")
+    {
+        return Ok(());
+    }
+    // A general tolerance block is taken in any spelling the parser reads (one line of text,
+    // #228); the intent and the file get its canonical spelling.
+    if qid == "part.general_tolerance"
+        && crate::tolerance_block::parse(value)
+            .map_err(SpecError)?
+            .is_some()
+    {
         return Ok(());
     }
     let meant = interpret(qid, value, options, diameter, depth)?;

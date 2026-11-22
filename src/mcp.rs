@@ -73,15 +73,15 @@ const INSTRUCTIONS: &str = "Specify adds AP242 semantic PMI (datums, tolerances,
 material, general tolerance) to a STEP part by asking questions about its recognised features. \
 open a part (list_parts first for an assembly; with `old`, a previous revision is compared and its \
 answers carried) and work on the `doc` it returns.\n\
-Intent known (you designed the part or were told the intent): answer everything you know in one \
-`answer` call with partial: true, then ask the person only the gaps, in chat, with their choices \
-(questions with compact: true lists them), and save.\n\
+Intent known (you designed the part or were told the intent): ask the person only the gaps, in \
+chat, with their choices (questions with compact: true lists them), then `check` and `save` an \
+edit list: fill gaps, change what the file states, remove requirements by number, decide none. \
+A list is all or nothing: one bad entry writes nothing, and the error names every bad entry.\n\
 No context (an incoming STEP): answer only what you can infer, then offer `show`, which opens the \
 Specify page on the same answers, instead of a long chat Q&A; read the person's answers with \
 `changes` (every result carries `rev`).\n\
-Never take a default as intent: a suggested value is the person's to approve. `save`, \
-`write_pmi` and `export_answers` write what is answered plus exactly the defaults listed in their \
-accept_defaults, each with the value the person saw, so list only those the person approved. Where Specify reports that the file and its stored answers disagree, bring it to the \
+Never take a default as intent: a suggested value is the person's to approve, so fill or \
+accept_suggestions only what the person approved. Where Specify reports that the file and its stored answers disagree, bring it to the \
 person; never decide it yourself.\n\
 The answers are held in this server's memory and lost when it restarts unless saved or kept in \
 an answers_file. Paths must lie inside the directories the server was started with (--allow). \
@@ -219,7 +219,6 @@ struct Doc {
     /// SHA-256 of the file's bytes as read (gzipped or not), to tell it changed.
     file_sha: String,
     part: usize,
-    analysis: Arc<Value>,
     answers_file: Option<PathBuf>,
     /// The mesh, made when first read.
     mesh: Option<Value>,
@@ -238,7 +237,12 @@ impl Doc {
         session::lock(&self.session).rev()
     }
 
-    /// The part, loaded from the file as opened (not as an in-place save left it).
+    fn analysis(&self) -> Result<Arc<Value>, ToolError> {
+        session::analysis(&self.session, self.part)
+            .map_err(|e| ToolError::new("failed", e.to_string()))
+    }
+
+    /// The part of the session's current file.
     fn loaded(&self) -> Result<part::LoadedPart, ToolError> {
         let s = session::lock(&self.session);
         Ok(s.step().load(Some(self.part)).map_err(Error::Load)?)
@@ -641,12 +645,13 @@ impl Server {
             "review" => self.review(args),
             "characteristics" => self.characteristics(args),
             "read_pmi" => self.read_pmi(args),
-            "write_pmi" => self.write_pmi(args),
-            "export_answers" => self.export_answers(args),
             "diff" => self.diff(args),
+            "carry" => self.carry(args),
             "changes" => self.changes(args),
             "show" => self.show(args),
             "save" => self.save(args),
+            "check" => self.check(args),
+            "discard" => self.discard(args),
             // Only in this module's unit tests: a call that panics.
             #[cfg(test)]
             "panic for a test" => panic!("a panic for a test"),
@@ -791,30 +796,23 @@ impl Server {
         let bytes = std::fs::read(&path)
             .map_err(|e| ToolError::invalid(format!("{raw}: {e}", raw = path.display())))?;
         let file_sha = sha256(&bytes);
-        // The session: this file's (compared with the same `old`), as already open (or as its
-        // own in-place save left it), else a new one, which starts from those every part stores
-        // (with `old`, the comparison is shown beside it).
+        let opened = Opened::of(given.clone(), bytes);
+        let file = part::File::of_shared(&path, Arc::clone(&opened.bytes)).map_err(Error::Load)?;
+        // A reopen always uses the bytes on disk, including after an in-place save.
+        // Reuse the shared session only when it holds this same file version.
         let old_given = old.as_ref().map(|(_, g)| g);
         let known = self
             .sessions
             .iter()
-            .find(|s| {
-                let s = session::lock(s);
-                s.file().path == given
-                    && s.is_ours(&file_sha)
-                    && s.old().map(|o| &o.path) == old_given
+            .find(|shared| {
+                let held = session::lock(shared);
+                held.file().path == given
+                    && held.is_ours(&file_sha)
+                    && held.old().map(|old| &old.path) == old_given
+                    && held.step().bytes() == file.bytes()
             })
             .cloned();
         let created = known.is_none();
-        // A known session is read as it was opened: its documents' handles stay.
-        let (opened, file_sha) = match &known {
-            Some(s) => {
-                let s = session::lock(s);
-                (s.file().clone(), s.sha().to_string())
-            }
-            None => (Opened::of(given.clone(), bytes), file_sha),
-        };
-        let file = part::File::of_shared(&path, Arc::clone(&opened.bytes)).map_err(Error::Load)?;
         if part.is_none() && file.definitions().len() > 1 {
             return Ok(json!({
                 "doc": null,
@@ -828,7 +826,15 @@ impl Server {
         let loaded = file.load(part).map_err(Error::Load)?;
         let (analysis, warnings) = api::analyse_reporting_in(&file, &loaded)?;
         let index = loaded.binding.part;
-        let handle = format!("{}-{index}", loaded.binding.source_sha256);
+        let handle = known
+            .as_ref()
+            .and_then(|shared| {
+                self.docs
+                    .iter()
+                    .find(|(_, doc)| Arc::ptr_eq(&doc.session, shared) && doc.part == index)
+                    .map(|(handle, _)| handle.clone())
+            })
+            .unwrap_or_else(|| format!("{}-{index}", loaded.binding.source_sha256));
         let analysis = Arc::new(analysis);
         let shared = match known {
             Some(s) => s,
@@ -847,21 +853,30 @@ impl Server {
                     }
                     None => Session::of(opened, file, in_place.unwrap_or(false)),
                 };
+                if self.sessions.iter().any(|shared| {
+                    let held = session::lock(shared);
+                    held.file().path == given
+                        && held.sha() == file_sha
+                        && held.old().map(|old| &old.path) == old_given
+                        && held.last_saved().is_some_and(|(path, _)| path != given)
+                }) {
+                    new.mark_reopened_original();
+                }
                 new.keep_analysis(index, Arc::clone(&analysis));
                 new.set_allowed(self.allow.clone());
                 new.resume()?;
                 Arc::new(Mutex::new(new))
             }
         };
-        // Answers: the file named, else those the session holds for the part, else (not
-        // comparing) those held for this handle in another session,
-        // else those a file Specify wrote stores (resumed by the analysis).
-        let held_elsewhere = self
-            .docs
-            .get(&handle)
+        // Only a live document can hand over its answers or the file that records them.
+        let previous = self.docs.get(&handle).filter(|d| {
+            Arc::ptr_eq(&d.session, &shared) || session::lock(&d.session).last_saved().is_none()
+        });
+        let held_elsewhere = previous
             .filter(|d| !Arc::ptr_eq(&d.session, &shared))
             .map(Doc::answers);
-        let (answers, rev, report) = {
+        let write_new_answers_file = answers_file.is_some() && from_file.is_none();
+        let (answers, refused, rev, report) = {
             let mut s = session::lock(&shared);
             // Only when the call says so: where a running page's Save writes changes with it.
             if let Some(in_place) = in_place {
@@ -869,44 +884,59 @@ impl Server {
             }
             s.keep_analysis(index, Arc::clone(&analysis));
             let current = s.answers(index).cloned();
-            let start = match (from_file, &current, s.old().is_some()) {
-                (Some(kept), _, _) => kept,
+            let mut refusals = BTreeMap::new();
+            let start = match (&from_file, &current, s.old().is_some()) {
+                (Some(kept), _, _) => {
+                    let (accepted, rejected) = import_answers(&analysis, kept);
+                    refusals = rejected;
+                    accepted
+                }
                 (None, Some(held), _) => held.clone(),
                 (None, None, true) => Map::new(),
                 (None, None, false) => held_elsewhere
-                    .or_else(|| {
-                        // ADR P9: with the defaults the file states (`resume.present`).
-                        analysis["resume"]["answers"].as_object().map(|answers| {
-                            crate::resume::truth::answered(&analysis, answers).into_owned()
-                        })
-                    })
+                    .or_else(|| analysis["resume"]["answers"].as_object().cloned())
                     .unwrap_or_default(),
             };
             api::questions(&analysis, &start)?;
             if created {
                 s.start_answers(index, start.clone());
-            } else if current.as_ref() != Some(&start) {
+            }
+            if let Some(kept) = &from_file {
+                let resolved: Vec<_> = kept
+                    .keys()
+                    .filter(|id| !refusals.contains_key(*id))
+                    .map(String::as_str)
+                    .collect();
+                s.set_agent_answers(index, start.clone(), &[], resolved, refusals);
+            } else if !created && current.as_ref() != Some(&start) {
                 s.set(index, start.clone(), "mcp");
             }
-            (start, s.rev(), s.report())
+            (
+                start,
+                s.refused_answers(index).cloned().unwrap_or_default(),
+                s.rev(),
+                s.report(),
+            )
         };
         if created {
             self.sessions.push(Arc::clone(&shared));
         }
-        let previous_file = self.docs.get(&handle).and_then(|d| d.answers_file.clone());
+        let previous_file = previous.and_then(|d| d.answers_file.clone());
         let doc = Doc {
             session: shared,
             path: given.clone(),
             file_sha,
             part: index,
-            analysis,
             answers_file: answers_file.or(previous_file),
             mesh: None,
         };
-        if let Some(target) = &doc.answers_file {
+        // Keep a source file with rejected entries available for correction.
+        if let Some(target) = &doc.answers_file
+            && (refused.is_empty() || write_new_answers_file)
+        {
             save_answers(target, &answers)?;
         }
-        let qs = api::questions(&doc.analysis, &answers)?;
+        let qs = api::questions(&analysis, &answers)?;
         let open: Vec<&str> = rules::open_questions(&qs, &answers)
             .iter()
             .map(|q| q.id.as_str())
@@ -917,20 +947,17 @@ impl Server {
         out.insert("part".into(), json!(index));
         out.insert("name".into(), json!(loaded.name));
         out.insert("faces".into(), json!(loaded.binding.face_count));
-        out.insert("features".into(), feature_counts(&doc.analysis));
+        out.insert("features".into(), feature_counts(&analysis));
         out.insert(
             "existing_pmi".into(),
-            json!(doc.analysis["existing"].as_array().map_or(0, Vec::len)),
+            json!(analysis["existing"].as_array().map_or(0, Vec::len)),
         );
-        out.insert(
-            "resumed".into(),
-            json!(doc.analysis.get("resume").is_some()),
-        );
+        out.insert("resumed".into(), json!(analysis.get("resume").is_some()));
         out.insert("answered".into(), json!(answers.len()));
         out.insert("open_questions".into(), json!(open));
-        let conflicts = conflict_questions(&doc.analysis, &answers);
-        if !conflicts.is_empty() {
-            out.insert("conflicts".into(), json!(conflicts));
+        out.insert("table".into(), analysis["table"].clone());
+        if !refused.is_empty() {
+            out.insert("refused".into(), json!(refused));
         }
         out.insert("rev".into(), json!(rev));
         if let Some(report) = report {
@@ -967,7 +994,8 @@ impl Server {
             let s = session::lock(&doc.session);
             (s.answers(doc.part).cloned().unwrap_or_default(), s.rev())
         };
-        let qs = api::questions(&doc.analysis, &answers)?;
+        let analysis = doc.analysis()?;
+        let qs = api::questions(&analysis, &answers)?;
         if flag(args, "compact")? {
             // The open questions only, each as an agent asks it in chat.
             let compact: Vec<Value> = rules::open_questions(&qs, &answers)
@@ -1002,7 +1030,7 @@ impl Server {
             }
             shown.push(value);
         }
-        let mut out = json!({
+        let out = json!({
             "doc": handle,
             "state": wanted,
             "questions": shown,
@@ -1010,10 +1038,6 @@ impl Server {
             "counts": counts,
             "rev": rev,
         });
-        let conflicts = conflict_questions(&doc.analysis, &answers);
-        if !conflicts.is_empty() {
-            out["conflicts"] = json!(conflicts);
-        }
         Ok(out)
     }
 
@@ -1048,79 +1072,50 @@ impl Server {
             ),
             None => None,
         };
-        let keep: Vec<String> = match args.get("keep") {
-            None | Some(Value::Null) => Vec::new(),
-            Some(Value::Array(items)) => items
-                .iter()
-                .map(|v| {
-                    v.as_str()
-                        .map(str::to_string)
-                        .ok_or_else(|| ToolError::invalid("keep is a list of conflict ids"))
-                })
-                .collect::<Result<_, _>>()?,
-            Some(_) => return Err(ToolError::invalid("keep is a list of conflict ids")),
-        };
         let partial = flag(args, "partial")?;
         // The session stays locked from reading the answers to replacing them, so a page's edit
         // in between is not lost.
         let shared = Arc::clone(&doc.session);
         let part = doc.part;
         let mut held = session::lock(&shared);
+        let analysis = held.analysis(part)?;
         let mut trial = held.answers(part).cloned().unwrap_or_default();
         for id in &clear {
             trial.remove(id);
         }
-        // ADR P9: keeping the file's PMI over a saved answer is recorded in `_specify.keep`.
-        if !keep.is_empty() {
-            let conflicts = crate::resume::truth::conflict_ids(&doc.analysis);
-            if let Some(id) = keep.iter().find(|id| !conflicts.contains(id.as_str())) {
-                return Err(
-                    ToolError::invalid(format!("{id} is not a conflict of this document"))
-                        .with("question", json!(id)),
-                );
-            }
-            let meta = trial
-                .entry(crate::answer_file::META)
-                .or_insert_with(|| json!({}));
-            if !meta.is_object() {
-                return Err(ToolError::invalid("_specify must be an object"));
-            }
-            let list = meta
-                .as_object_mut()
-                .expect("checked")
-                .entry(crate::resume::truth::KEEP)
-                .or_insert_with(|| json!([]));
-            let Some(list) = list.as_array_mut() else {
-                return Err(ToolError::invalid("_specify.keep must list question IDs"));
-            };
-            for id in &keep {
-                if !list.iter().any(|k| k == id) {
-                    list.push(json!(id));
-                }
-            }
-            api::review(&doc.analysis, &trial)?;
-        }
         let mut changed = Vec::new();
         let mut refused = Map::new();
+        let mut refused_drafts = BTreeMap::new();
         for (id, given) in &set {
-            match try_answer(&doc.analysis, &mut trial, id, given) {
+            match try_answer(&analysis, &mut trial, id, given) {
                 Ok(entry) => changed.push(entry),
-                // With partial, a refused answer is reported and the others still apply.
-                Err(e) if partial => {
+                Err(e) => {
+                    if session::stated_row(&analysis, id).is_some() {
+                        refused_drafts.insert(id.clone(), e.message.clone());
+                    }
+                    if !partial {
+                        if !refused_drafts.is_empty() {
+                            let current = held.answers(part).cloned().unwrap_or_default();
+                            held.set_agent_answers(part, current, &[], [], refused_drafts);
+                        }
+                        return Err(e);
+                    }
                     refused.insert(id.clone(), json!({"refused": e.message}));
                 }
-                Err(e) => return Err(e),
             }
         }
         if !clear.is_empty() {
-            api::review(&doc.analysis, &trial)?;
+            api::review(&analysis, &trial)?;
         }
-        let qs = api::questions(&doc.analysis, &trial)?;
+        let qs = api::questions(&analysis, &trial)?;
         let open: Vec<&str> = rules::open_questions(&qs, &trial)
             .iter()
             .map(|q| q.id.as_str())
             .collect();
         for entry in &mut changed {
+            if entry.get("state").is_some() {
+                continue; // A stated row was handled separately.
+            }
             let id = entry["id"].as_str().unwrap_or_default().to_string();
             let state = if qs.iter().any(|q| q.id == id) {
                 state_of(&id, &open, &trial)
@@ -1131,7 +1126,8 @@ impl Server {
             entry.insert("state".into(), json!(state));
         }
         let open: Vec<String> = open.into_iter().map(str::to_string).collect();
-        held.set(part, trial.clone(), "mcp");
+        let accepted = changed.iter().filter_map(|entry| entry["id"].as_str());
+        held.set_agent_answers(part, trial.clone(), &clear, accepted, refused_drafts);
         let rev = held.rev();
         drop(held);
         let doc = self.doc_mut(&handle);
@@ -1145,9 +1141,6 @@ impl Server {
         out.insert("doc".into(), json!(handle));
         out.insert("set".into(), json!(changed));
         out.insert("cleared".into(), json!(clear));
-        if !keep.is_empty() {
-            out.insert("kept".into(), json!(keep));
-        }
         out.insert("open".into(), json!(open));
         out.insert("rev".into(), json!(rev));
         if partial {
@@ -1172,7 +1165,8 @@ impl Server {
     fn review(&self, args: &Map<String, Value>) -> ToolResult {
         let (handle, doc) = self.doc(args)?;
         let (answers, rev) = (doc.answers(), doc.rev());
-        let review = api::review(&doc.analysis, &answers)?;
+        let analysis = doc.analysis()?;
+        let review = api::review(&analysis, &answers)?;
         let mut out = Map::new();
         out.insert("doc".into(), json!(handle));
         out.insert("rev".into(), json!(rev));
@@ -1182,7 +1176,7 @@ impl Server {
             (false, "writable", "missing"),
             (true, "writable_with_defaults", "missing_with_defaults"),
         ] {
-            match api::apply(&doc.analysis, &answers, defaults) {
+            match api::apply(&analysis, &answers, defaults) {
                 Ok(_) => {
                     out.insert(ok.into(), json!(true));
                     out.insert(missing.into(), json!([]));
@@ -1200,14 +1194,15 @@ impl Server {
     fn characteristics(&self, args: &Map<String, Value>) -> ToolResult {
         let (handle, doc) = self.doc(args)?;
         let (answers, rev) = (doc.answers(), doc.rev());
-        let intent = api::preview(&doc.analysis, &answers)?;
-        let sources = api::preview_sources(&doc.analysis, &answers)?;
+        let analysis = doc.analysis()?;
+        let intent = api::preview(&analysis, &answers)?;
+        let sources = api::preview_sources(&analysis, &answers)?;
         Ok(json!({"doc": handle, "intent": intent.to_dict(), "sources": sources, "rev": rev}))
     }
 
     fn read_pmi(&self, args: &Map<String, Value>) -> ToolResult {
         let (handle, doc) = self.doc(args)?;
-        let a = &doc.analysis;
+        let a = doc.analysis()?;
         let mut out = Map::new();
         out.insert("doc".into(), json!(handle));
         out.insert("rev".into(), json!(doc.rev()));
@@ -1225,73 +1220,6 @@ impl Server {
                 out.insert(key.into(), v.clone());
             }
         }
-        Ok(Value::Object(out))
-    }
-
-    fn write_pmi(&self, args: &Map<String, Value>) -> ToolResult {
-        let (handle, doc) = self.doc(args)?;
-        let overwrite = flag(args, "overwrite")?;
-        let output = self.output_path(string(args, "output")?, overwrite)?;
-        let (answers, rev) = self.approved_answers(doc, args)?;
-        let loaded = doc.loaded()?;
-        // What is answered, and only the defaults approved (ADR P9): incomplete is written.
-        let (intent, missing) = session::intent_for(&loaded, &doc.analysis, &answers)?;
-        let report = api::write(&loaded, &intent, &output, Some(&answers))?;
-        Ok(
-            json!({"doc": handle, "output": output, "report": report.to_dict(),
-                  "complete": missing.is_empty(), "missing": missing, "rev": rev}),
-        )
-    }
-
-    /// The doc's answers with the defaults approved in `accept_defaults` (optional; for this
-    /// doc's part only), checked against the defaults as they stand, and the rev of the answers
-    /// they were taken from (both read under one hold of the session's lock).
-    fn approved_answers(
-        &self,
-        doc: &Doc,
-        args: &Map<String, Value>,
-    ) -> Result<(Map<String, Value>, u64), ToolError> {
-        let approved = approvals_arg(args, doc.part, false)?;
-        if let Some(other) = approved.keys().find(|k| **k != doc.part) {
-            return Err(ToolError::invalid(format!(
-                "accept_defaults names part {other}: this tool writes this doc's part {} only",
-                doc.part
-            )));
-        }
-        let wanted = approved.get(&doc.part).cloned().unwrap_or_default();
-        let (answers, rev) = {
-            let s = session::lock(&doc.session);
-            (s.answers(doc.part).cloned().unwrap_or_default(), s.rev())
-        };
-        let answers = session::with_approved(&doc.analysis, &answers, doc.part, &wanted)
-            .map_err(save_error)?;
-        Ok((answers, rev))
-    }
-
-    fn export_answers(&self, args: &Map<String, Value>) -> ToolResult {
-        let (handle, doc) = self.doc(args)?;
-        let output = match optional_string(args, "output")? {
-            Some(raw) => Some(self.output_path(raw, flag(args, "overwrite")?)?),
-            None => None,
-        };
-        let (answers, rev) = self.approved_answers(doc, args)?;
-        // What is answered and the defaults approved, never every default (ADR P9), with the
-        // face evidence and the rule behind each approved default.
-        let loaded = doc.loaded()?;
-        let api::Exported {
-            answers: complete,
-            missing,
-        } = api::export_answers(&loaded, &doc.analysis, &answers, &session::Approved::new())?;
-        let mut out = Map::new();
-        out.insert("doc".into(), json!(handle));
-        out.insert("rev".into(), json!(rev));
-        out.insert("complete".into(), json!(missing.is_empty()));
-        out.insert("missing".into(), json!(missing));
-        if let Some(target) = output {
-            save_answers(&target, &complete)?;
-            out.insert("output".into(), json!(target));
-        }
-        out.insert("answers".into(), Value::Object(complete));
         Ok(Value::Object(out))
     }
 
@@ -1333,6 +1261,27 @@ impl Server {
             "report": compared.report(),
             "markdown": markdown,
         }))
+    }
+
+    fn carry(&self, args: &Map<String, Value>) -> ToolResult {
+        let old = self.existing_path(string(args, "old")?)?;
+        let new = self.existing_path(string(args, "new")?)?;
+        let output = self.output_path(string(args, "output")?, flag(args, "overwrite")?)?;
+        let read = |p: &Path| part::File::read(p).map_err(Error::Load);
+        let carried = crate::carry::carry(&read(&old)?, &read(&new)?)
+            .map_err(|e| ToolError::from(Error::Analysis(e)))?;
+        let mut report = carried.report;
+        match carried.bytes {
+            Some(bytes) => {
+                crate::writer::put(&output, bytes).map_err(|e| ToolError::from(Error::Write(e)))?
+            }
+            None => report.written = false,
+        }
+        let mut out = report.to_json();
+        if report.written {
+            out["output"] = json!(output);
+        }
+        Ok(out)
     }
 
     fn changes(&self, args: &Map<String, Value>) -> ToolResult {
@@ -1432,14 +1381,75 @@ impl Server {
         Ok(json!({"doc": handle, "url": url, "mode": mode}))
     }
 
+    /// `save`: the edit list applied to the session's file, all or nothing, and written as the
+    /// page's Save writes it.
     fn save(&self, args: &Map<String, Value>) -> ToolResult {
         let (handle, doc) = self.doc(args)?;
-        let approved = approvals_arg(args, doc.part, true)?;
-        let saved = session::save(&doc.session, None, &approved, "mcp").map_err(save_error)?;
+        let edits = doc_edits(args)?;
+        let rev = save_rev(args)?;
+        let saved = match edits {
+            DocEdits::Opened(edits) => {
+                let list = crate::edits::read(&edits.to_string()).map_err(invalid_edits)?;
+                session::save_part_edits(&doc.session, Some(doc.part), rev, &list, "mcp")
+            }
+            DocEdits::Parts(lists) => {
+                session::save_assembly_edits(&doc.session, rev, &lists, "mcp")
+            }
+        }
+        .map_err(save_error)?;
         eprintln!("Saved {} ({} bytes).", saved.path, saved.bytes);
         let mut out = saved.to_json();
         out["doc"] = json!(handle);
+        out["table"] = doc.analysis()?["table"].clone();
         Ok(out)
+    }
+
+    /// `check`: the edit list checked against the session's file as `save` would apply it;
+    /// nothing is written.
+    fn check(&self, args: &Map<String, Value>) -> ToolResult {
+        let (handle, doc) = self.doc(args)?;
+        let stage = flag(args, "stage")?;
+        let mut changes = None;
+        let (mut rev, outcome) = match doc_edits(args)? {
+            DocEdits::Opened(edits) => {
+                let text = edits.to_string();
+                if stage {
+                    let list = crate::edits::read(&text).map_err(invalid_edits)?;
+                    if list.change.is_empty() || list.len() != list.change.len() {
+                        return Err(ToolError::invalid(
+                            "stage requires an edit list of explicit change entries",
+                        ));
+                    }
+                    changes = Some(list.change);
+                }
+                session::check_part_edits(&doc.session, Some(doc.part), &text)
+            }
+            DocEdits::Parts(lists) if !stage => session::check_assembly_edits(&doc.session, &lists),
+            DocEdits::Parts(_) => {
+                return Err(ToolError::invalid(
+                    "stage uses edits for the part opened by doc",
+                ));
+            }
+        };
+        let mut out = outcome.to_json();
+        if let Some(changes) = changes.filter(|_| out["applicable"] == true) {
+            rev = session::lock(&doc.session)
+                .stage_changes(doc.part, rev, changes)
+                .map_err(save_error)?;
+            out["staged"] = json!(true);
+        }
+        out["doc"] = json!(handle);
+        out["rev"] = json!(rev);
+        Ok(out)
+    }
+
+    /// `discard`: restore the working answers to the saved file without writing.
+    fn discard(&self, args: &Map<String, Value>) -> ToolResult {
+        let (handle, doc) = self.doc(args)?;
+        let mut snapshot = session::discard_answers(&doc.session, save_rev(args)?, None, "mcp")
+            .map_err(save_error)?;
+        snapshot["doc"] = json!(handle);
+        Ok(snapshot)
     }
 
     /// An `answers_file` argument, never the STEP file itself or another STEP file, and the
@@ -1526,7 +1536,10 @@ impl Server {
         };
         fresh(doc).map_err(|e| not_found(&e.message))?;
         let text = match kind {
-            "analysis" => doc.analysis.to_string(),
+            "analysis" => doc
+                .analysis()
+                .map_err(|e| not_found(&e.message))?
+                .to_string(),
             "mesh" => {
                 if doc.mesh.is_none() {
                     let loaded = doc
@@ -1647,30 +1660,46 @@ fn sha256(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// `accept_defaults` (`save`, `write_pmi`, `export_answers`): by part, `{"<part>": {"<id>":
-/// <value>}}`, or `{"<id>": <value>}` for the doc's own part; `{}` (or, when not `required`,
-/// absent) for none.
-fn approvals_arg(
-    args: &Map<String, Value>,
-    part: usize,
-    required: bool,
-) -> Result<session::Approved, ToolError> {
-    let approved = match args.get("accept_defaults") {
-        None | Some(Value::Null) if !required => Some(session::Approved::new()),
-        Some(Value::Object(m)) if m.is_empty() => Some(session::Approved::new()),
-        Some(v @ Value::Object(m)) => session::approvals(v).or_else(|| {
-            (!m.keys().any(|k| k.parse::<usize>().is_ok()))
-                .then(|| session::Approved::from([(part, m.clone())]))
+fn save_rev(args: &Map<String, Value>) -> Result<Option<u64>, ToolError> {
+    match args.get("rev") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v.as_u64().map(Some).ok_or_else(|| {
+            ToolError::invalid("rev: the session revision you last saw, an integer")
         }),
-        _ => None,
-    };
-    approved.ok_or_else(|| {
-        ToolError::invalid(
-            "accept_defaults: exactly the defaults the person approved, each id with the default \
-             value the person saw: {\"<id>\": value} for this doc's part, or {\"<part>\": \
-             {\"<id>\": value}} by part ({} for none)",
-        )
-    })
+    }
+}
+
+const EDITS_REQUIRED: &str = "edits is required: an edit list, {\"fill\": {id: value}, \
+\"change\": {id: {to, expect}}, \"items\": {\"remove\": [\"#N\"]}, \"none\": [id], \"clear\": [id], \
+\"accept_suggestions\": [id]} ({} for none)";
+
+enum DocEdits<'a> {
+    Opened(&'a Value),
+    Parts(std::collections::BTreeMap<usize, crate::edits::EditList>),
+}
+
+fn doc_edits(args: &Map<String, Value>) -> Result<DocEdits<'_>, ToolError> {
+    match (args.get("edits"), args.get("partEdits")) {
+        (edits, None) => edits
+            .filter(|e| e.is_object())
+            .map(DocEdits::Opened)
+            .ok_or_else(|| ToolError::invalid(EDITS_REQUIRED)),
+        (None, Some(parts)) => session::read_part_edits(parts)
+            .map(DocEdits::Parts)
+            .map_err(|e| match e {
+                session::PartEditsError::Shape(why) => ToolError::invalid(why),
+                session::PartEditsError::List(failures) => invalid_part_edits(failures),
+            }),
+        (Some(_), Some(_)) => Err(ToolError::invalid("send either edits or partEdits")),
+    }
+}
+
+fn invalid_edits(failures: Vec<crate::edits::Failure>) -> ToolError {
+    ToolError::invalid(session::edits_refused(&failures)).with("failures", json!(failures))
+}
+
+fn invalid_part_edits(failures: Vec<session::PartFailure>) -> ToolError {
+    ToolError::invalid(session::part_edits_refused(&failures)).with("failures", json!(failures))
 }
 
 /// A save's refusal as a tool error: an approval named by part and question (with the value
@@ -1693,6 +1722,8 @@ fn save_error(e: session::SaveError) -> ToolError {
             e
         }
         session::SaveError::Refused(m) => ToolError::invalid(m),
+        session::SaveError::Edits(failures) => invalid_edits(failures),
+        session::SaveError::PartEdits(failures) => invalid_part_edits(failures),
         session::SaveError::Changed(m) => ToolError::new("stale", m),
         session::SaveError::Stale(rev) => ToolError::new(
             "stale",
@@ -1705,15 +1736,43 @@ fn save_error(e: session::SaveError) -> ToolError {
     }
 }
 
+/// Whether an answer `given` says what the file's `value` states (the same text, ignoring
+/// surrounding space and case): a fill equal to the file is a no-op, as on the command line.
+fn same_as_stated(value: &Value, given: &Value) -> bool {
+    match (value, given) {
+        (Value::String(a), Value::String(b)) => a.trim().eq_ignore_ascii_case(b.trim()),
+        (a, b) => a == b,
+    }
+}
+
 /// One answer of `answer`'s `set`, read against the answers before it (an earlier answer can
 /// ask a new question) and checked with them: its entry `{id, value, interpreted_from?}`, the
-/// answer kept in `trial`; refused, naming the question, with `trial` as it was.
+/// answer kept in `trial`; refused, naming the question, with `trial` as it was. An answer
+/// equal to what the file states is an entry `{id, value, state: "stated"}` and changes
+/// nothing; one that differs is refused.
 fn try_answer(
     analysis: &Value,
     trial: &mut Map<String, Value>,
     id: &str,
     given: &Value,
 ) -> Result<Map<String, Value>, ToolError> {
+    if let Some(row) = session::stated_row(analysis, id) {
+        let value = &row["value"];
+        let row: crate::feature_table::Row =
+            serde_json::from_value(row.clone()).expect("analysis contains a feature-table row");
+        let expect = crate::edits::stated_value(&row);
+        if same_as_stated(value, given) || same_as_stated(&expect, given) {
+            let mut entry = Map::new();
+            entry.insert("id".into(), json!(id));
+            entry.insert("value".into(), value.clone());
+            entry.insert("state".into(), json!("stated"));
+            return Ok(entry);
+        }
+        return Err(ToolError::invalid(format!(
+            "the file states {value} for {id}. To change it, use change with \"to\": {given}, \"expect\": {expect}."
+        ))
+        .with("question", json!(id)));
+    }
     let qs = api::questions(analysis, trial)?;
     let q = qs.iter().find(|q| q.id == id);
     let mut entry = Map::new();
@@ -1746,6 +1805,25 @@ fn try_answer(
     }
     entry.insert("value".into(), value);
     Ok(entry)
+}
+
+/// Read legacy file entries as individual answers. Preserve the file's bookkeeping keys.
+fn import_answers(
+    analysis: &Value,
+    kept: &Map<String, Value>,
+) -> (Map<String, Value>, BTreeMap<String, String>) {
+    let mut answers = kept
+        .iter()
+        .filter(|(id, _)| id.starts_with('_'))
+        .map(|(id, value)| (id.clone(), value.clone()))
+        .collect();
+    let mut refused = BTreeMap::new();
+    for (id, value) in kept.iter().filter(|(id, _)| !id.starts_with('_')) {
+        if let Err(error) = try_answer(analysis, &mut answers, id, value) {
+            refused.insert(id.clone(), error.message);
+        }
+    }
+    (answers, refused)
 }
 
 /// An open question as an agent asks it in chat: `{id, prompt, choices}` (the values to choose
@@ -1855,7 +1933,7 @@ fn flag(args: &Map<String, Value>, name: &str) -> Result<bool, ToolError> {
 
 // ----- tool and resource definitions -----
 
-const TOOL_NAMES: [&str; 13] = [
+const TOOL_NAMES: [&str; 14] = [
     "list_parts",
     "open",
     "questions",
@@ -1863,28 +1941,14 @@ const TOOL_NAMES: [&str; 13] = [
     "review",
     "characteristics",
     "read_pmi",
-    "write_pmi",
-    "export_answers",
     "diff",
+    "carry",
     "changes",
     "show",
     "save",
+    "check",
+    "discard",
 ];
-
-/// ADR P9: the reopened file's undecided conflicts with its stored answers, as questions.
-fn conflict_questions(analysis: &Value, answers: &Map<String, Value>) -> Vec<Value> {
-    crate::resume::truth::open_conflicts(analysis, answers)
-        .iter()
-        .map(crate::resume::truth::question)
-        .collect()
-}
-
-/// How an agent treats conflicts, in the tool descriptions.
-const CONFLICT_RULE: &str = "A file Specify wrote may have been edited since: where its PMI \
-     contradicts a saved answer, the PMI stands and the conflict is listed in conflicts (id, \
-     text, stored, file, choices keep/restore). An agent must put each conflict to the person \
-     and never decide it itself: restore = answer the question id with the stored value; \
-     keep = add the id to the answers' _specify.keep list.";
 
 const MEMORY_RULE: &str = "Documents and their answers are held in this server's memory and \
 are lost when the server restarts, unless an answers_file was given or the file was saved; an \
@@ -1938,6 +2002,34 @@ fn source_schema() -> Value {
     })
 }
 
+fn edit_input(save: bool) -> Value {
+    let mut schema = input(
+        json!({
+            "doc": doc_arg(),
+            "edits": crate::edits::json_schema(),
+            "partEdits": {
+                "description": "Edit lists for distinct part indices of this document's file. Send this or edits, exactly one.",
+                "type": "array", "minItems": 1,
+                "items": input(json!({
+                    "part": {"type": "integer", "minimum": 0},
+                    "edits": crate::edits::json_schema()
+                }), &["part", "edits"])
+            }
+        }),
+        &["doc"],
+    );
+    schema["properties"]["edits"]["description"] = json!(
+        "The opened part's edit list. Send this or partEdits, exactly one. Use {} for the session's drafts alone."
+    );
+    if save {
+        schema["properties"]["rev"] = rev_schema();
+    } else {
+        schema["properties"]["stage"] = json!({"type": "boolean",
+            "description": "Put checked explicit change entries for the opened part in the panel as drafts."});
+    }
+    schema
+}
+
 fn input(properties: Value, required: &[&str]) -> Value {
     json!({
         "type": "object",
@@ -1972,7 +2064,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "open",
             "title": "Open a part to specify",
-            "description": format!("Analyse one part of a STEP file (recognise its features, read its existing PMI) and return a document handle `doc` for the other tools, with the open questions and the session's rev. An assembly opened without `part` returns its parts and needs_part: true; call again with `part`. A file Specify wrote resumes its stored answers where its PMI agrees. {CONFLICT_RULE} With old (the previous revision of the file), the two are compared as the diff tool compares them (from the two files' PMI only); the session is this file's as without old, and the result adds verdict, summary and report. Opening the same file again returns the same session with its answers. {MEMORY_RULE} With answers_file, answers are read from that JSON file if it exists and every change is saved to it."),
+            "description": format!("Analyse one part of a STEP file (recognise its features, read its existing PMI) and return a document handle `doc` for the other tools, with the current feature table, open questions and the session's rev. An assembly opened without `part` returns its parts and needs_part: true; call again with `part`. A file Specify wrote shows its PMI as the file states it, whoever wrote it. With old (the previous revision of the file), the two are compared as the diff tool compares them (from the two files' PMI only); the session is this file's as without old, and the result adds verdict, summary and report. Opening the same file again reads the bytes on disk. Reopening the unchanged original after a copy save starts without its saved working answers. {MEMORY_RULE} With answers_file, accepted entries from the JSON file become working answers. Refused entries are reported with their reasons and kept in the source JSON on open."),
             "inputSchema": input(json!({
                 "path": {"type": "string", "description": "A .step/.stp file (or gzipped) inside the server's allowed directories."},
                 "part": {"type": "integer", "minimum": 0, "description": "Which part of an assembly (see list_parts)."},
@@ -1992,7 +2084,8 @@ pub fn tools() -> Vec<Value> {
                 "resumed": {"type": "boolean"},
                 "answered": {"type": "integer"},
                 "open_questions": strings(),
-                "conflicts": {"type": "array", "items": {"type": "object"}, "description": "Saved answers the file's PMI contradicts, undecided: ask the person."},
+                "table": {"type": "object", "description": "The opened part's current feature table."},
+                "refused": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Question IDs and reasons for refused answers on the opened part."},
                 "rev": rev(),
                 "verdict": {"type": "string"},
                 "summary": {"type": "string"},
@@ -2009,7 +2102,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "questions",
             "title": "List the questions",
-            "description": format!("The questions Specify asks about the open document, given the answers so far: id, kind (choice, text, text_list, faces), prompt, label (a short name for messages), default, why, options/choices, faces, attention, reason, basis and source (the rule behind the default: rule id, kind standard/convention/vendor/assumption, and the standards it cites), and state (open, answered, or optional: a suggestion never required). state selects which (default open). compact: true returns only the open questions, each {{id, prompt, choices (the values) or hint (what to type), suggested (the default, if any: offer it, never take it as the answer unasked), rule (the rule behind the suggestion)}}, to ask the gaps in chat. {CONFLICT_RULE} {SESSION_RULE} {MEMORY_RULE}"),
+            "description": format!("The questions Specify asks about the open document, given the answers so far: id, kind (choice, text, text_list, faces), prompt, label (a short name for messages), default, why, options/choices, faces, attention, reason, basis and source (the rule behind the default: rule id, kind standard/convention/vendor/assumption, and the standards it cites), and state (open, answered, or optional: a suggestion never required). state selects which (default open). compact: true returns only the open questions, each {{id, prompt, choices (the values) or hint (what to type), suggested (the default, if any: offer it, never take it as the answer unasked), rule (the rule behind the suggestion)}}, to ask the gaps in chat. {SESSION_RULE} {MEMORY_RULE}"),
             "inputSchema": input(json!({
                 "doc": doc(),
                 "state": {"type": "string", "enum": ["open", "answered", "all"], "description": "Which questions (default open)."},
@@ -2021,20 +2114,18 @@ pub fn tools() -> Vec<Value> {
                 "questions": {"type": "array", "items": {"type": "object", "properties": {"source": source_schema()}}},
                 "open": {"type": "array", "description": "The open ids; with compact, the open questions {id, prompt, choices or hint, suggested?, rule?}."},
                 "counts": {"type": "object"},
-                "rev": rev(),
-                "conflicts": {"type": "array", "items": {"type": "object"}, "description": "Saved answers the file's PMI contradicts, undecided: ask the person."}
+                "rev": rev()
             }), &["doc", "open"]),
             "annotations": {"readOnlyHint": true, "openWorldHint": false},
         }),
         json!({
             "name": "answer",
             "title": "Answer questions",
-            "description": format!("Set or clear answers on the open document. set maps question id to answer: a choice question takes one of its options or free text Specify interprets (\"M6\" for a hole, \"H7\" for a bore, \"6061-T6\" for material); a faces question takes a list of face indices; text questions take text. Answers are applied in order and all-or-nothing: a refused answer is an error naming the question and nothing changes. With partial: true (answer everything you know in one call), every valid answer is applied in one rev and outcomes gives each id {{stored, interpreted_from?, state}} or {{refused: reason}}. Give only what the person or the design intends: never a default as intent. A conflict (see questions) is decided only as the person says: restore by setting its id to its stored value, keep the file's PMI by listing its id in keep. The change goes to the session (rev goes up) and appears in the Specify page if it is shown. {MEMORY_RULE} answers_file also saves them to that JSON file from now on."),
+            "description": format!("Set or clear answers on the open document. set maps question id to answer: a choice question takes one of its options or free text Specify interprets (\"M6\" for a hole, \"H7\" for a bore, \"6061-T6\" for material); a faces question takes a list of face indices; text questions take text. Answers are applied in order and all-or-nothing: a refused answer is an error naming the question and no answer is stored. With partial: true (answer everything you know in one call), every valid answer is applied in one rev and outcomes gives each id {{stored, interpreted_from?, state}} or {{refused: reason}}. Give only what the person or the design intends: never a default as intent. The change goes to the session (rev goes up) and appears in the Specify page if it is shown. An answer equal to a stated value changes nothing. A different answer to a stated row is refused with the row ID and the explicit change to send. The page shows the refusal and it can be discarded. Use check with stage: true to propose an explicit guarded change for the page to save. The page or MCP save writes the working answers with the explicit edits. Use discard to drop drafts without writing. {MEMORY_RULE} An accepted or equal answer clears its earlier refusal. answers_file also saves them to that JSON file from now on."),
             "inputSchema": input(json!({
                 "doc": doc(),
                 "set": {"type": "object", "description": "Question id to answer.", "additionalProperties": true},
                 "clear": {"type": "array", "items": {"type": "string"}, "description": "Question ids whose answers to remove."},
-                "keep": {"type": "array", "items": {"type": "string"}, "description": "Conflict ids the person decided to keep the file's PMI for (recorded in _specify.keep)."},
                 "partial": {"type": "boolean", "description": "Apply every valid answer and report each id's outcome instead of refusing them all."},
                 "answers_file": {"type": "string", "description": "Optional .json file to keep the answers in. An existing file that is not an answers map is refused unless overwrite is true."},
                 "overwrite": {"type": "boolean", "description": "Replace an existing answers_file that is not an answers map."}
@@ -2071,7 +2162,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "characteristics",
             "title": "Preview the specification",
-            "description": format!("The intent the answers so far amount to (part settings, datums, requirements with their tolerances, and the dimensions the general tolerance covers), as write_pmi would write it; unanswered defaults stay suggestions and are not included. sources maps each answer that is its question's default to the rule behind it. {SESSION_RULE} {MEMORY_RULE}"),
+            "description": format!("The intent the answers so far amount to (part settings, datums, requirements with their tolerances, and the dimensions the general tolerance covers), as an edit list filling those gaps would write it; unanswered defaults stay suggestions and are not included. sources maps each answer that is its question's default to the rule behind it. {SESSION_RULE} {MEMORY_RULE}"),
             "inputSchema": input(json!({"doc": doc()}), &["doc"]),
             "outputSchema": output(json!({"doc": {"type": "string"}, "intent": {"type": "object"}, "sources": {"type": "object", "additionalProperties": source_schema()}, "rev": rev()}), &["doc", "intent"]),
             "annotations": {"readOnlyHint": true, "openWorldHint": false},
@@ -2094,46 +2185,6 @@ pub fn tools() -> Vec<Value> {
             "annotations": {"readOnlyHint": true, "openWorldHint": false},
         }),
         json!({
-            "name": "write_pmi",
-            "title": "Write the PMI",
-            "description": format!("Write the open document's part with its PMI as AP242 to output (inside the allowed directories), verified by reading back; the answers are stored in the file so opening it again resumes them. What is answered is written, plus exactly the defaults listed in accept_defaults ({{\"<id>\": value}} with the values the person saw and approved, for this doc's part; never every default unless the person saw the list and confirmed it); open questions never refuse it, and complete/missing say what is still open. An existing output is replaced only with overwrite: true. To write the specified file beside the opened one (or over it, if opened in_place), as the Specify page's Save does, use save instead. {MEMORY_RULE}"),
-            "inputSchema": input(json!({
-                "doc": doc(),
-                "output": {"type": "string", "description": "The STEP file to write."},
-                "accept_defaults": {"type": "object", "description": "Exactly the defaults the person approved, {\"<id>\": value} with the values they saw (default {}: none)."},
-                "overwrite": {"type": "boolean", "description": "Replace output if it exists."}
-            }), &["doc", "output"]),
-            "outputSchema": output(json!({
-                "doc": {"type": "string"},
-                "output": {"type": "string"},
-                "report": {"type": "object", "description": "What was written and what was not, and why."},
-                "complete": {"type": "boolean"},
-                "missing": strings(),
-                "rev": rev()
-            }), &["doc", "output", "report"]),
-            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
-        }),
-        json!({
-            "name": "export_answers",
-            "title": "Export an answers file",
-            "description": format!("An editable answer map for the open document: what is answered, plus exactly the defaults listed in accept_defaults ({{\"<id>\": value}} with the values the person saw and approved; never every default unless the person saw the list and confirmed it), with face evidence (_specify) and the rule behind each approved default (_specify.sources), without writing STEP. Open questions stay open (complete, missing). Optionally saved to output (.json; overwrite: true to replace). {MEMORY_RULE}"),
-            "inputSchema": input(json!({
-                "doc": doc(),
-                "accept_defaults": {"type": "object", "description": "Exactly the defaults the person approved, {\"<id>\": value} with the values they saw (default {}: none)."},
-                "output": {"type": "string", "description": "Optional .json file to save the map to."},
-                "overwrite": {"type": "boolean", "description": "Replace output if it exists."}
-            }), &["doc"]),
-            "outputSchema": output(json!({
-                "doc": {"type": "string"},
-                "answers": {"type": "object"},
-                "output": {"type": "string"},
-                "complete": {"type": "boolean"},
-                "missing": strings(),
-                "rev": rev()
-            }), &["doc", "answers"]),
-            "annotations": {"readOnlyHint": false, "destructiveHint": false, "openWorldHint": false},
-        }),
-        json!({
             "name": "diff",
             "title": "Compare two revisions",
             "description": "What changed between two revisions of a part (or of an assembly, part by part), read from the two files' geometry and PMI only: verdict (ok, decide), summary, and the full report (requirements added, removed and changed, with characteristic numbers, and those on moved or resized features to check) with a Markdown rendering. Writes nothing.",
@@ -2150,6 +2201,32 @@ pub fn tools() -> Vec<Value> {
                 "markdown": {"type": "string"}
             }), &["kind", "verdict", "summary", "report"]),
             "annotations": {"readOnlyHint": true, "openWorldHint": false},
+        }),
+        json!({
+            "name": "carry",
+            "title": "Carry requirements to a new revision",
+            "description": "Carry an older revision's requirements onto a new revision of the geometry, file to file, and write the result to output (inside the allowed directories; an existing output is replaced only with overwrite: true). OLD's features are matched to NEW's as diff matches them. For each feature-and-kind OLD states: a gap in NEW is filled (carried); one NEW states already keeps NEW's value, a difference reported (kept); one on a feature that moved or changed size is carried and listed to_check; one whose feature is not found or is ambiguous is not carried and reported. Decided-none and characteristic numbers carry too (in an assembly, BOM item numbers). What Specify does not understand is reported not_carried with its kind and faces. All or nothing: if any of it cannot be applied, nothing is written (written: false) and refused says why. Returns verdict (ok, or decide when anything is not carried or is to check, as diff's), summary (the counts: carried, not carried, to check), and the report with a Markdown rendering.",
+            "inputSchema": input(json!({
+                "old": {"type": "string", "description": "The annotated STEP file of the earlier revision."},
+                "new": {"type": "string", "description": "The STEP file of the new revision."},
+                "output": {"type": "string", "description": "The STEP file to write."},
+                "overwrite": {"type": "boolean", "description": "Replace output if it exists."}
+            }), &["old", "new", "output"]),
+            "outputSchema": output(json!({
+                "verdict": {"type": "string", "enum": ["ok", "decide"]},
+                "summary": {"type": "string"},
+                "written": {"type": "boolean"},
+                "output": {"type": "string"},
+                "carried": {"type": "array"},
+                "to_check": {"type": "array"},
+                "kept": {"type": "array"},
+                "not_carried": {"type": "array"},
+                "decided_none": {"type": "array"},
+                "new_unstated": {"type": "array"},
+                "refused": {"type": "array"},
+                "markdown": {"type": "string"}
+            }), &["verdict", "summary", "written", "carried", "to_check", "kept", "not_carried", "decided_none", "markdown"]),
+            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
         }),
         json!({
             "name": "changes",
@@ -2192,22 +2269,49 @@ pub fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "save",
-            "title": "Save the specified STEP",
-            "description": format!("Write the session's answers into the file as AP242 PMI, as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; later saves update the copy this session wrote, and no other file is overwritten), or over it if it was opened in_place (the original kept once as .bak). Open questions never refuse it: what is answered is written, the answers are stored in the file so opening it again resumes them, and complete/missing say what is still open. accept_defaults is required: the defaults to write, each question id with the default value the person saw, as {{\"<id>\": value}} for this doc's part or {{\"<part index>\": {{\"<id>\": value}}}} by part (only the part named gets them). Name exactly the defaults the person approved; never pass every default unless the person saw the list and confirmed it. A value that is no longer the default refuses the save (expected, current). {{}} writes no default: questions with a default that are not listed stay open and are not written. Each id must be an open question with a default (questions shows them), else the call is refused naming it. The approved defaults become answers (rev goes up) and are stored in the file. {MEMORY_RULE}"),
-            "inputSchema": input(json!({
-                "doc": doc(),
-                "accept_defaults": {"type": "object", "description": "Exactly the defaults the person approved, each id with the default value they saw: {\"<id>\": value} for this doc's part, or {\"<part index>\": {\"<id>\": value}} ({} for none)."}
-            }), &["doc", "accept_defaults"]),
+            "title": "Save an edit list into the STEP",
+            "description": format!("Apply an edit list to the opened file and write it as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; later saves update the copy this session wrote, and no other file is overwritten), or over it if it was opened in_place (the original kept once as .bak). edits: fill gaps {{id: value}}, change what the file states {{id: {{to, expect}}}} (expect: the value you saw), items.remove [\"#N\"] to remove a requirement by its characteristic number, none [id] to record that nothing is needed, accept_suggestions [id] to fill a gap with Specify's suggestion. Ids are the feature table's (the analysis resource's table). Anything not named is left as it is, byte for byte. Use edits for the opened part or partEdits for one or more part indices in the same file. The save is all or nothing: if any entry cannot be applied nothing is written, and the error (failures) names every failing entry and why. Fill or accept only what the person approved: never a suggestion as intent unasked. rev (optional): the session revision you last saw; a session that moved on is refused (stale). Save includes the session's agent drafts on all parts unless you discard them first. Saving the drafts counts as approving them. An explicit edit for the same question takes precedence. Use discard to drop the working answers without writing. Refused answers are left out. Returns the current feature table. check tests a list without writing. {MEMORY_RULE}"),
+            "inputSchema": edit_input(true),
             "outputSchema": output(json!({
                 "doc": {"type": "string"},
                 "path": {"type": "string"},
                 "bytes": {"type": "integer"},
                 "rev": rev(),
-                "report": {"type": "object", "description": "What was written and what was not, and why."},
+                "report": {"type": "object", "description": "What was written, the characteristic numbers retired, and whether anything changed."},
                 "complete": {"type": "boolean"},
-                "missing": strings()
-            }), &["doc", "path", "bytes", "rev", "report", "complete", "missing"]),
+                "missing": strings(),
+                "table": {"type": "object", "description": "The opened part's feature table after saving."}
+            }), &["doc", "path", "bytes", "rev", "report", "complete", "missing", "table"]),
             "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false},
+        }),
+        json!({
+            "name": "check",
+            "title": "Check an edit list",
+            "description": format!("Check edits for the opened part or partEdits for several part indices, including the working answers as save does, without writing anything: applicable, and for each entry that cannot be applied, why (failures); unchanged lists the entries that would change nothing (a fill equal to what the file states). Optional stage: true keeps valid explicit change entries sent in edits as drafts for the opened part. {MEMORY_RULE}"),
+            "inputSchema": edit_input(false),
+            "outputSchema": output(json!({
+                "doc": {"type": "string"},
+                "well_formed": {"type": "boolean"},
+                "checked_against_file": {"type": "boolean"},
+                "applicable": {"type": "boolean"},
+                "entries": {"type": "integer"},
+                "unchanged": strings(),
+                "failures": {"type": "array", "items": {"type": "object", "properties": {"entry": {"type": "string"}, "reason": {"type": "string"},
+                    "part": {"type": "integer"}, "editEntry": {"type": "string"}}}},
+                "written": {"type": "boolean"},
+                "staged": {"type": "boolean"},
+                "message": {"type": "string"},
+                "rev": rev()
+            }), &["doc", "applicable", "failures", "message"]),
+            "annotations": {"readOnlyHint": false, "openWorldHint": false},
+        }),
+        json!({
+            "name": "discard",
+            "title": "Discard the session's working answers",
+            "description": "Drop working answers on every part of the opened file and restore the session to its saved answers, without writing. rev is the optional revision you last saw.",
+            "inputSchema": input(json!({"doc": doc(), "rev": rev_schema()}), &["doc"]),
+            "outputSchema": output(json!({"doc": {"type": "string"}, "rev": rev(), "parts": {"type": "object"}}), &["doc", "rev", "parts"]),
+            "annotations": {"readOnlyHint": false, "destructiveHint": true, "openWorldHint": false},
         }),
     ]
 }

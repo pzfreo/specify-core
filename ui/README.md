@@ -23,7 +23,7 @@ X.Y.Z depends on `@draftwright/specify-core-wasm` X.Y.Z exactly.
 
 - **Engine:** it needs `@draftwright/specify-core-wasm` **0.2.0** or later, whose API is not compatible with 0.1.x.
 - **Exports follow ADR P9:** the Answers (JSON) export holds only the answers given, kept or confirmed. Inspection
-  exports never include an unapproved default.
+  exports require approval for defaults. From 0.3.0, the app’s inspection exports read the saved STEP (ADR P11).
 
 A host that implements only the original three engine methods keeps its 0.1 display and exports otherwise.
 `SpecifyEngine.inspection` is optional.
@@ -120,12 +120,10 @@ as using STEP numbering, including unnumbered settings.
 In the local app, **Inspection list (CSV)** and **AS9102 FAI (Excel)** describe only the last saved
 STEP, or the opened STEP in read-only mode. Before the first Save they are disabled and say
 “Save first: the inspection files describe the saved STEP”. After an in-place Save the label names
-the source file. Further answer edits do not change either export. Answers (JSON) still exports the answers.
+the source file. Further edits do not change either export. There is no Answers (JSON) export in 0.3.0.
 
-`GET file?rev=new` in specify-core 0.2.0 serves the input, updated after an in-place save. It cannot
-serve Save's separate output. After saving a separate copy, inspection exports stay disabled and
-show a copyable command with the real path: `specify-core open '<saved copy>' --read-only`.
-Only bytes served by the session are analysed; the app never reconstructs a saved file.
+The app reads the bytes from `GET file?rev=saved` for inspection exports after Save. The
+session serves those bytes for both in-place saves and separate copies.
 
 The shared component keeps the original three-method host contract. `SpecifyEngine.inspection`
 is optional and called only when an inspection export runs. Display always uses `engine.preview`;
@@ -136,9 +134,8 @@ export override. The local app owns its saved-file buttons and suppresses shared
 Stored STEP identifiers supply inspection numbers, including PMI absent from the interview review.
 Material belongs on AS9102 Form 2 only. Form 3 contains numbered characteristics only.
 
-The worker's legacy `write` operation **writes every default**, including defaults absent from
-`args.answers`. Hosts must obtain approval for every default before choosing that operation.
-The local Specify app saves through the command's session API with the approved defaults.
+The local app sends the explicit list to the session’s Save API. A host can check its edit
+list with the worker’s `check-edits` operation before saving.
 
 On non-persisted `pagehide`, the local app cancels pending answer requests and saves before sending
 `closed`. Cancellation prevents queued work from starting and avoids waiting for a slow write during
@@ -176,16 +173,62 @@ exported too; see `src/index.ts`.
 `app/` is Specify on your own computer: the page served on 127.0.0.1 under the contract in
 [docs/open.md](../docs/open.md) and [docs/session.md](../docs/session.md). An AI agent with Specify as its MCP server (`specify-core mcp`) opens a part,
 answers what it was told and calls `show`; by hand, `specify-core open part.step` (or `open --diff old.step
-new.step`) serves the same page. The answers live in the command's session: the page sends its changes there
-(`PUT answers`, reapplied on a 409) and hears everyone else's (`GET events`); an agent's answer lands in the open
-page with "Updated by your agent", its question opened and its faces lit. Save asks the command to write the
-specified STEP (beside it as `part.specified.step`), the same file the agent's `save` writes. Save never refuses for
-questions still open (many AP242 files have no complete answer to everything): it writes the answers given and says
-which questions are still open. Specify's defaults are written only when approved (ADR P9): Save with defaults first lists every default it would write, by question and value, and saves only once the person confirms that list; Keep all likewise lists what it will keep first.
+new.step`) serves the same page.
+
+**The review panel** (`app/Panel.tsx`; draftwright-project proposals/specify-panel.md, accepted 2026-11-20) lists
+the part's features from the file's feature table (`analysis.table`; ADR P11), and under each feature each kind of
+requirement it can need, in one of three states: **stated** in the file (its value; the feature's balloon numbers
+beside its name), a **gap** ("not stated", with Specify's suggestion as a dashed chip, "suggested: h7"), or
+**none needed** (decided). Requirements on no recognised feature are listed last, as "Other PMI in the file".
+
+- A stated row has two matching, uncoloured icons: a pencil (change) and a bin (remove). Change opens one line
+  under the row with the current value first ("Now: ⌖ 0.2 A") and a box for the new one; the line says that a change
+  of limits keeps the number and a different measurement gets a new one. The bin asks once, in one line, the only red
+  in the panel: "Remove ⌖ 0.2 A? Number #4 is retired and never reused." Values read as a drawing writes them
+  ("⌖ 0.2 A", "Ø3.3"), in the rows, the line and the bar. A removal names the requirement's characteristic numbers,
+  or, for one without a number (the material, another tool's PMI), the row's or item's id:
+  `items.remove: ["#4", {"id": "part.material"}]` (`removalTargets` in `app/edits.ts`). Until the engine takes an
+  id there, its check refuses that removal, and the line says so.
+- A gap offers **Add** (its line pre-filled with the suggestion) and **None needed**. A decided none reads "none
+  needed", greyed, with **Undo**, which takes back the stored decision using the edit list's
+  `clear`. A refused None needed shows the reason on that row.
+- The general tolerance's line is its own editor (#228): a class (ISO 2768-m and so on), or a block row by row
+  (decimal places and their tolerance, Add row), an angles line and separate note fields.
+  The part's drawing notes also display one per line. It writes one line of text, the form
+  the CLI and edit lists take: `.XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°` (inch places written `.XX`,
+  millimetre places `X.XX`, no places `X` with its unit, `X ±.5 in`, as the engine spells them; a new block starts
+  in the file's length unit; `app/general-tolerance.ts`).
+- "Other PMI in the file" rows have the bin only: removed by number, or, without one, by the engine's id for the
+  item (`{"id": "file_pmi:#<STEP entity>"}`, the table's `file_pmi[].id`). On any queued removal,
+  **Undo** restores the row and takes the removal out of the bar.
+- Every edit is checked against the selected part and that part's queued edits before it joins the
+  bar (the engine's `checkEdits`). A refusal says why on the row. **Add all suggestions** queues the
+  selected part's suggestions, including None needed. It skips gaps without suggestions and names
+  any refused entries.
+- Use the part picker to review and edit each part of an assembly. Switching keeps all pending
+  edits, and the one bar names the part on every entry. **Save** sends them all in one request
+  (`{rev, edits}` for a single part file, `{rev, partEdits: [{part, edits}, …]}` for an assembly).
+  The page session saves all of them together or reports the part and entry that prevented the
+  save. Parts outside the edit lists keep their entity bytes. **Discard** drops every pending edit.
+  With an empty bar Save says “Nothing to save.” Only unsaved edits are highlighted. After a save
+  the selected part opens from the saved file.
+
+The page receives the agent's working edits through the session. They appear in the same
+pending bar with part names and are highlighted on their rows. **Save** writes the combined
+lists. **Discard** drops the page edits and the agent's working edits. A working edit also
+has **Undo** on its row and in the bar. A different answer to a stated row shows the
+refusal and the change needed. **Save** excludes it and **Discard** clears it. An agent
+can propose a savable change with MCP `check`, `stage: true` and an explicit
+`change` entry with `to` and `expect`.
+If you edit the same row, the bar says your edit replaces the agent's answer.
+The Characteristics tab and 3D view show the saved STEP. Save writes the specified STEP
+(beside it as `part.specified.step` by default, or over the input with `--in-place`). Save never refuses for questions
+still open (many AP242 files have no complete answer to everything): it writes the edits listed and says which
+questions are still open. Specify's suggestions are written only when the person adds them (ADR P9).
 
 Read only (`--read-only`) shows the part's PMI. In diff mode the page shows what changed (StepDiff) and lists the new revision's requirements
 on features that moved or changed size, to check; the session is the new revision's own (nothing is carried:
-ADR P11), and Save writes the new revision. An assembly is shown a part at a time. It offers the answers JSON, inspection list (CSV) and AS9102
+ADR P11), and Save writes the new revision. An assembly is shown a part at a time. It offers the inspection list (CSV) and AS9102
 workbook as downloads; it has no account, AI chat or analytics, stores nothing in the browser, and requests nothing
 but its own origin; IBM Plex Mono is bundled.
 
@@ -197,18 +240,20 @@ were released from pzfreo/specify-ui, which 0.2.1 downloads.) To try a local bui
 --wasm public/wasm/intent part.step`, or rebuild specify-core, which then has it built in.
 
 The build also writes `specify-ui-app.json` at the root of `dist-app/`:
-`{"name":"specify-ui-app","version":"<package.json version>","api":1}`. specify-core builds in only an app of its own
+`{"name":"specify-ui-app","version":"<package.json version>","api":2}`. specify-core builds in only an app of its own
 version, and checks `api` for the app it serves (built in or `--app`). `api` is the session API, defined once as `SESSION_API` in
 `app/session-api.ts`, shared by the manifest and the page's compatibility check. The page refuses
 to load a review when `config.api` differs, naming both versions and asking for an update.
-An absent `config.api` remains compatible with specify-core 0.2.0.
+An absent `config.api` is treated as API 1.
 
 `npm run test:app` builds it and drives it in Chromium under the real command (`SPECIFY_CORE`, default
-`specify-core` on `PATH`; it needs the session contract): `test/app-browser.mjs` by hand (answer, save, read the PMI
-back with `specify-core analyse`, resume, read only, diff on the enclosure fixtures, an `--in-place` save over a
-file changed on disk, the event stream refused and regained) and `test/app-agent.mjs` as an agent (`specify-core
-mcp` over stdio: open, answer, `show`, the page's edit seen by `changes`, both saves, an assembly, a symbolic link,
-a diff). Both check that no request leaves 127.0.0.1. CI and the release workflow run it against the command built
+`specify-core` on `PATH`; it needs the session contract): `test/app-browser.mjs` by hand (the panel's Add, None
+needed, Undo, Change, Remove and Discard, Save, the saved file read back with `specify-core analyse`, reopening,
+read only, single- and multi-part assembly saves and atomic refusal, "Other PMI" removed by number, another tool's file left byte for byte, diff on the
+enclosure fixtures, an `--in-place` save over a file changed on disk, the event stream refused and regained) and
+`test/app-agent.mjs` as an agent (`specify-core mcp` over stdio: open, answer, `show`, both saves, an assembly, a
+symbolic link, a diff). `test/app-panel.test.mjs` (in `npm test`) covers the panel's reading of the table, its edit
+list and the general tolerance's text. Both check that no request leaves 127.0.0.1. CI and the release workflow run it against the command built
 from the same commit (`target/release/specify-core`), and a release attaches only an app that passed. It takes about three minutes (it waits for the heartbeat and for the
 command to stop after `closed`).
 

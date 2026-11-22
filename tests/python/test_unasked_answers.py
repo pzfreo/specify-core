@@ -2,6 +2,8 @@
 import pytest
 from specify_core import api
 
+from written import write_answers
+
 UNKNOWN = "Invalid answers: bogus.question: unknown answer ID"
 
 
@@ -17,24 +19,23 @@ def answers(locating):
 
 
 def written(plate, tmp_path, given):
-    analysis = api.analyse(plate)
-    intent = api.apply(analysis, given, accept_defaults=True)
-    return api.write(plate, intent, tmp_path / "out.step", answers=given)
+    return write_answers(plate, given, tmp_path / "out.step", accept_defaults=True)
 
 
 def test_flatness_under_both_ways_of_locating(plate, tmp_path):
-    report = written(plate, tmp_path, answers("position tolerances"))
-    assert "flatness 0.05 on [2]" in report.written
-    assert report.not_written == [
-        "hole.location:holes:12 is not asked when part.locating is 'position tolerances', "
-        "so its answer was not written"
-    ]
-    report = written(plate, tmp_path, answers("± dimensions"))
-    assert not [w for w in report.written if "flatness" in w]
-    assert report.not_written == [
-        f"{qid} is not asked when part.locating is '± dimensions', so its answer was not written"
-        for qid in ("datum.A.flatness", "hole.position:holes:12")
-    ]
+    position = answers("position tolerances")
+    with pytest.raises(ValueError, match="hole.location:holes:12"):
+        written(plate, tmp_path, position)
+    position.pop("hole.location:holes:12")
+    assert "flatness 0.05 on [2]" in written(plate, tmp_path, position).written
+
+    dimensions = answers("± dimensions")
+    with pytest.raises(ValueError, match="datum.A.flatness") as refused:
+        written(plate, tmp_path, dimensions)
+    assert "hole.position:holes:12" in str(refused.value)
+    dimensions.pop("datum.A.flatness")
+    dimensions.pop("hole.position:holes:12")
+    assert not [line for line in written(plate, tmp_path, dimensions).written if "flatness" in line]
 
 
 def test_an_unknown_id_is_refused(plate, tmp_path):
@@ -44,7 +45,6 @@ def test_an_unknown_id_is_refused(plate, tmp_path):
         lambda: api.questions(analysis, given),
         lambda: api.apply(analysis, given, accept_defaults=True),
         lambda: api.preview(analysis, given),
-        lambda: api.export_answers(plate, analysis, given),
     ):
         with pytest.raises(ValueError, match=UNKNOWN):
             call()

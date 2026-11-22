@@ -19,11 +19,63 @@ fn known(case: &str, path: &str, verdict: &str) -> KnownDifference {
         pattern: "a pattern".into(),
         verdict: verdict.into(),
         evidence: "what was checked".into(),
+        values: None,
+        exact: None,
     }
+}
+
+#[test]
+fn exact_differences_allow_platform_float_noise() {
+    let mut entry = known("part", "frame", "rust-correct");
+    entry.exact = Some([Some(Value::Null), Some(json!({"origin": [0.0, "z"]}))]);
+    let mut diff = Difference {
+        case: "part".into(),
+        path: "frame".into(),
+        python: Some(Value::Null),
+        rust: Some(json!({"origin": [1e-14, "z"]})),
+        context: None,
+    };
+    assert!(entry.matches(&diff), "a nested 1e-14 change must match");
+
+    for value in [
+        json!({"origin": [1e-6, "z"]}),
+        json!({"origin": [0.0, "y"]}),
+        json!({"origin": [0.0, "z", 0.0]}),
+        json!({"origin": ["z", 0.0]}),
+        json!({"offset": [0.0, "z"]}),
+    ] {
+        diff.rust = Some(value);
+        assert!(!entry.matches(&diff), "{diff}");
+    }
+
+    diff.rust = Some(json!({"origin": [0.0, "z"]}));
+    diff.python = None;
+    assert!(!entry.matches(&diff), "missing and null must differ");
+}
+
+#[test]
+fn exact_differences_pin_a_complete_array_at_its_stable_path() {
+    let python = json!({"offset": [1, null]});
+    let rust = json!({"offset": [2, 3]});
+    let diffs = compare("part", &python, &rust, &Tolerances::default());
+    let mut entry = known("part", "offset", "rust-correct");
+    entry.exact = Some([Some(python["offset"].clone()), Some(rust["offset"].clone())]);
+    check_known_with("test", &[entry.clone()], &diffs);
+    let wrong = compare(
+        "part",
+        &python,
+        &json!({"offset": [2, 4]}),
+        &Tolerances::default(),
+    );
+    assert!(
+        wrong.iter().all(|d| !entry.matches(d)),
+        "the full array must agree"
+    );
 }
 
 fn difference(case: &str, path: &str) -> Difference {
     Difference {
+        context: None,
         case: case.into(),
         path: path.into(),
         python: Some(json!(1)),
@@ -210,6 +262,14 @@ fn known_differences_explain_by_case_and_path_glob() {
     ];
     // Both matched, both entries used: passes.
     check_known_with("test", &entries, &differences);
+    let mut exact = known("parts/plate", "faces[0].area", "rust-correct");
+    exact.values = Some((Some(json!(1)), Some(json!(2))));
+    assert!(exact.matches(&differences[1]));
+    let mut changed = differences[1].clone();
+    changed.rust = Some(json!(3));
+    assert!(!exact.matches(&changed));
+    exact.path = "faces[*].area".into();
+    assert!(!exact.matches(&differences[1]));
 }
 
 #[test]

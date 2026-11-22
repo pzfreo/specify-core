@@ -28,6 +28,7 @@ struct Captured {
     input: PathBuf,
     /// Python's `{"part": k}` of each job: (part, intent, answers stored).
     jobs: Vec<(usize, Value, Option<Value>)>,
+    accept_defaults: bool,
     report: Value,
     readback: Option<Value>,
 }
@@ -82,6 +83,8 @@ fn case_writes() -> Vec<Captured> {
                 .map(|(k, i)| (k, i.unwrap(), Some(answers.clone())))
                 .collect(),
             report,
+            // tools/capture/cases.py passes accept_defaults=True to every base apply.
+            accept_defaults: true,
             readback: c.artifact("readback"),
         });
     }
@@ -110,6 +113,7 @@ fn scenario_writes() -> Vec<Captured> {
                 (how == "with answers").then(|| s.answers.clone()),
             )],
             report: result["write"].clone(),
+            accept_defaults: s.spec.get("accept_defaults") != Some(&Value::Bool(false)),
             readback: result.get("readback").cloned(),
         });
     }
@@ -165,6 +169,7 @@ fn lines(name: &str, path: &str, python: &Value, rust: &Value) -> Vec<Difference
         );
         if a != b {
             out.push(Difference {
+                context: None,
                 case: name.into(),
                 path: format!("{path}[{line}]"),
                 python: (a > 0).then(|| json!(a)),
@@ -319,7 +324,12 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
     let intents: Vec<Result<Intent, String>> = c
         .jobs
         .iter()
-        .map(|(_, i, _)| Intent::from_dict(i).map_err(|e| e.to_string()))
+        .map(|(_, i, _)| {
+            // The frozen Python schema-1 intent dropped this provenance at serialization.
+            let mut intent = Intent::from_dict(i).map_err(|e| e.to_string())?;
+            intent.accept_defaults = c.accept_defaults;
+            Ok(intent)
+        })
         .collect();
     let answers: Vec<Option<Map<String, Value>>> = c
         .jobs
@@ -354,6 +364,24 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
                 json!({"error": kind, "message": e.to_string()})
             })
     })();
+    if c.name == "corpus/cadgenbench_inputs/cgb202" {
+        // The captured accept-all plan in int/7 and quiddity 0.5.5 both write 839
+        // dimensions under the general tolerance (the stock-side removals are separate).
+        let report = result
+            .as_ref()
+            .expect("CGB202 captured write should succeed");
+        let general_dimensions: Vec<_> = report["written"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .filter(|line| line.ends_with(" under the general tolerance"))
+            .collect();
+        assert_eq!(
+            general_dimensions,
+            ["839 dimensions under the general tolerance"]
+        );
+    }
     match (&c.report, &result) {
         (p, Ok(r)) if !is_error(p) => {
             for key in ["written", "not_written", "warnings"] {
@@ -364,6 +392,7 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
             if p["message"] != r["message"] {
                 // The Rust message in the path, so that an entry names why Rust refused.
                 out.push(Difference {
+                    context: None,
                     case: c.name.clone(),
                     path: format!("write.message[{}]", r["message"].as_str().unwrap_or("")),
                     python: Some(p.clone()),
@@ -372,6 +401,7 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
             }
         }
         (p, r) => out.push(Difference {
+            context: None,
             case: c.name.clone(),
             path: "write".into(),
             python: Some(p.clone()),
@@ -395,6 +425,7 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
             .collect();
         if !problems.is_empty() {
             out.push(Difference {
+                context: None,
                 case: c.name.clone(),
                 path: "conformance".into(),
                 python: None,
@@ -543,6 +574,7 @@ fn dropped() -> Vec<Difference> {
     DROPPED
         .iter()
         .map(|(test, assertion)| Difference {
+            context: None,
             case: format!("tests/{test}"),
             path: "not ported".into(),
             python: Some(json!(assertion)),

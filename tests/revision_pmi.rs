@@ -1,4 +1,6 @@
 //! Requirement-level regression pairs; every public identity comes from pmiScene.
+mod common;
+
 use serde_json::{Map, Value, json};
 use specify_core::{api, part, pmi_scene, revision, writer};
 use std::path::Path;
@@ -56,7 +58,9 @@ fn a_fit_answer_changes_with_its_characteristic_number_and_scene_id() {
     let before = answers(json!({"hole.function:holes:9":"fit:H7"}));
     let old = write(&bare, &before);
     let after = answers(json!({"hole.function:holes:9":"fit:H8"}));
-    let new = write(&old, &after);
+    // ADR P11: a save does not apply a changed answer the file states, so the new revision
+    // is the bare part written with the new answers.
+    let new = write(&bare, &after);
     let report = revision::diff(&old, &new).unwrap();
     assert_scene_ids(&report, &new);
     let change = report
@@ -80,8 +84,17 @@ fn a_moved_holes_general_location_changes_without_a_stored_location_answer() {
         json!({"part.general_tolerance":"ISO 2768-m", "part.locating":"position tolerances"}),
     );
     // Each revision written with the same answers: diff compares the two files' PMI.
-    let (old, new) = (write(&before, &answers), write(&after, &answers));
-    let report = revision::diff(&old, &new).unwrap();
+    // P9 / D1: the general tolerance writes only its note; the holes' general locations are
+    // written with their suggestions approved ("accept suggestions").
+    let accepted = |p: &part::LoadedPart| {
+        specify_core::rules::with_all_defaults(&api::analyse(p).unwrap(), &answers).unwrap()
+    };
+    let (old, new) = (
+        write(&before, &accepted(&before)),
+        write(&after, &accepted(&after)),
+    );
+    let report =
+        revision::diff_with_options(&old, &new, revision::DiffOptions { scenes: true }).unwrap();
     let changes: Vec<_> = report
         .pmi
         .items
@@ -89,17 +102,34 @@ fn a_moved_holes_general_location_changes_without_a_stored_location_answer() {
         .filter(|c| c.class == "changed" && c.kind == "dimension")
         .collect();
     assert!(!changes.is_empty(), "{:?}", report.pmi.items);
-    assert!(changes.iter().any(|c| c.status == "general"), "{changes:?}");
+    // ADR P11 (D3): both files state the location; that the general tolerance governs it is
+    // the scene item's own flag, not a status.
+    assert!(changes.iter().all(|c| c.status == "stated"), "{changes:?}");
+    let scenes = report.pmi.scenes.as_ref().unwrap();
+    assert!(
+        changes
+            .iter()
+            .any(|c| scenes.new["specify"][c.id.as_str()]["general"] == true),
+        "{changes:?}"
+    );
     println!("MOVE SAMPLE\n{}", report.markdown("Moved hole", None));
 }
 
 #[test]
 fn added_and_removed_requirements_keep_inspection_history() {
     let bare = load("parts/plate.step");
-    let before = answers(json!({"extra.1":{"kind":"flatness", "faces":[4], "value":"0.05"}}));
-    let old = write(&bare, &before);
-    let after = answers(json!({"extra.2":{"kind":"flatness", "faces":[5], "value":"0.02"}}));
-    let new = write(&old, &after);
+    let first = json!({"fill": {"extra.1":{"kind":"flatness", "faces":[4], "value":"0.05"}}});
+    let old = part::load_bytes("before.step", common::apply_edits(&bare, first).bytes).unwrap();
+    let number = specify_core::characteristics::read(&old).unwrap()[0].number;
+    let applied = common::apply_edits(
+        &old,
+        json!({
+            "items":{"remove":[format!("#{number}")]},
+            "fill":{"extra.2":{"kind":"flatness", "faces":[5], "value":"0.02"}}
+        }),
+    );
+    assert_eq!(applied.retired, [number]);
+    let new = part::load_bytes("after.step", applied.bytes).unwrap();
     let report = revision::diff(&old, &new).unwrap();
     assert_scene_ids(&report, &new);
     assert!(
@@ -240,14 +270,16 @@ fn foreign_pmi_changes_even_in_a_file_with_saved_specify_answers() {
             .as_object()
             .unwrap()
             .values()
-            .any(|m| m["status"] == "existing")
+            .any(|m| m["status"] == "stated")
     );
     let analysis = api::analyse(&old).unwrap();
     assert!(analysis["resume"].is_object());
+    // ADR P11: the file's PMI is listed whoever wrote it; here the foreign flatness (the
+    // note Specify wrote is a part setting).
     assert_eq!(
         analysis["existing"],
-        json!([]),
-        "legacy analysis stays unchanged"
+        json!([{"kind": "geometric_tolerance", "type": "Flatness", "faces": [4], "value": 0.2,
+                "text": "⏥ 0.2"}])
     );
     let text = String::from_utf8(old.bytes.to_vec()).unwrap();
     let changed = text.replace("LENGTH_MEASURE(0.2)", "LENGTH_MEASURE(0.07)");
@@ -259,7 +291,7 @@ fn foreign_pmi_changes_even_in_a_file_with_saved_specify_answers() {
             .pmi
             .items
             .iter()
-            .any(|c| c.class == "changed" && c.status == "existing"),
+            .any(|c| c.class == "changed" && c.status == "stated"),
         "{:?}",
         report.pmi.items
     );
@@ -361,7 +393,8 @@ fn a_face_split_matches_the_foreign_control_through_correspondence() {
     let report = revision::diff(&old, &new).unwrap();
     assert_eq!(report.pmi.items.len(), 1, "{:?}", report.pmi.items);
     assert_eq!(report.pmi.items[0].class, "changed");
-    assert_eq!(report.pmi.items[0].status, "existing");
+    // ADR P11 (D3): the foreign control is stated, as any item the file has.
+    assert_eq!(report.pmi.items[0].status, "stated");
     assert_scene_ids(&report, &new);
 }
 
@@ -784,8 +817,10 @@ fn picture_draws_changed_added_and_removed_presentation_inside_the_frame() {
             "extra.2":{"kind":"flatness","faces":[5],"value":"0.02"}
         })),
     );
+    // ADR P11: a save does not apply a changed answer the file states, so the new revision
+    // is the bare part written with the new answers.
     let new = write(
-        &old,
+        &bare,
         &answers(json!({
             "extra.1":{"kind":"flatness","faces":[4],"value":"0.1"},
             "extra.3":{"kind":"flatness","faces":[0],"value":"0.03"}
@@ -858,8 +893,10 @@ fn thread_manufacturing_changes_show_drawing_wording_on_both_sides() {
             json!({"hole.function:holes:14.15":"tapped:M2", "hole.full_thread:holes:14.15":"2"}),
         ),
     );
+    // ADR P11: a save does not apply a changed answer the file states, so the new revision
+    // is the bare part written with the new answers.
     let new = write(
-        &old,
+        &bare,
         &answers(
             json!({"hole.function:holes:14.15":"tapped:M2", "hole.full_thread:holes:14.15":"1.8"}),
         ),
@@ -916,9 +953,12 @@ fn fresh_revision_fixture_pairs_never_cross_requirement_types() {
     // files' PMI, paired by faces and kind, never two plans). They keep every addition, removal
     // and real renumbering rather than treating unrelated occupants of a number as edits.
     let cases = [
-        ("complex_counterbore", [5, 6, 2, 0]), // Five surviving pattern requirements grow support; two counterbore sizes are new.
+        ("complex_counterbore", [5, 11, 3, 0]), // 0.5.5 adds a 7 mm step location; five more rows shift number.
         ("complex_fillet_all", [0, 2, 2, 2]), // A pitch and a location now measured between other faces: removed and added.
-        ("complex_many", [4, 2, 4, 4]), // Recess, pocket and pattern size edits; slot locations new, removed holes' pitches go.
+        // 0.5.5 drops the location to supporting cap 17. Fresh numbers shift
+        // six more rows and the old bore diameter and the new bolt-circle
+        // pattern's bore diameter are reported as a removal and an addition.
+        ("complex_many", [3, 8, 5, 4]),
         ("complex_moved", [5, 12, 1, 0]), // The pattern's bore Ø6 → Ø7 H11, its pitches and locations re-supported; its position new.
         ("complex_pattern", [0, 6, 2, 3]), // Changed pattern structure replaces requirements.
         ("complex_remodelled", [0, 0, 4, 4]), // Each file's defaults locate the split halves from other faces: never paired across.
@@ -964,6 +1004,21 @@ fn fresh_revision_fixture_pairs_never_cross_requirement_types() {
         let counts = ["changed", "renumbered", "added", "removed"]
             .map(|class| report.pmi.items.iter().filter(|i| i.class == class).count());
         assert_eq!(counts, expected, "{case}: {:?}", report.pmi.items);
+        if case == "complex_many" {
+            assert!(!report.pmi.items.iter().any(|i| {
+                i.class == "removed" && i.faces.old.iter().map(|f| f.face).eq([3, 17])
+            }));
+            assert!(report.pmi.items.iter().any(|i| {
+                i.class == "removed"
+                    && i.old.as_deref() == Some("⌀6")
+                    && i.faces.old.iter().map(|f| f.face).eq([8, 9, 11, 12])
+            }));
+            assert!(report.pmi.items.iter().any(|i| {
+                i.class == "added"
+                    && i.new.as_deref() == Some("⌀8")
+                    && i.faces.new.iter().map(|f| f.face).eq([6, 7, 8, 9, 14, 19])
+            }));
+        }
         let scenes = report.pmi.scenes.unwrap();
         for item in report
             .pmi
@@ -1009,7 +1064,9 @@ fn a_semantic_only_knurl_change_has_its_own_wording() {
         &bare,
         &answers(json!({question.id.clone():"knurl:straight"})),
     );
-    let new = write(&old, &answers(json!({question.id:"knurl:diamond"})));
+    // ADR P11: a save does not apply a changed answer the file states, so the new revision
+    // is the bare part written with the new answers.
+    let new = write(&bare, &answers(json!({question.id:"knurl:diamond"})));
     let report = revision::diff(&old, &new).unwrap();
     let knurl = report
         .pmi
@@ -1075,7 +1132,19 @@ fn counterbores_grow_the_existing_pattern_requirements_instead_of_replacing_them
         .iter()
         .filter(|item| item.class == "added")
         .collect();
-    assert_eq!(added.len(), 2, "{added:?}");
+    // 0.5.5 also recognises the counterbore floor as a plate-axis step.
+    // Its 7 mm distance from the opposite face is distinct from the 3 mm depth.
+    assert_eq!(added.len(), 3, "{added:?}");
+    assert!(
+        added.iter().any(|item| item.new.as_deref() == Some("7")
+            && item
+                .faces
+                .new
+                .iter()
+                .map(|f| f.face)
+                .eq([3, 21, 22, 24, 25])),
+        "{added:?}"
+    );
     for text in ["⌀12", "3"] {
         assert!(
             added.iter().any(|item| item.new.as_deref() == Some(text)),
@@ -1161,22 +1230,46 @@ fn without_stored_answers(part: &part::LoadedPart) -> part::LoadedPart {
 #[test]
 fn a_requirement_change_is_added_removed_changed_or_a_different_measurement() {
     let bare = load("parts/plate.step");
-    let old = write(
-        &bare,
-        &answers(json!({
-            "hole.function:holes:9": "fit:H7",
-            "extra.flat": {"kind": "flatness", "faces": [4], "value": "0.05"},
-            "extra.place": {"kind": "distance", "faces": [9], "reference": [0], "value": "±0.1"},
-        })),
-    );
-    let new = write(
+    let old = part::load_bytes(
+        "before.step",
+        common::apply_edits(
+            &bare,
+            json!({"fill": {
+                "hole.function:holes:9": "fit:H7",
+                "extra.flat": {"kind": "flatness", "faces": [4], "value": "0.05"},
+                "extra.place": {"kind": "distance", "faces": [9], "reference": [0], "value": "±0.1"}
+            }}),
+        )
+        .bytes,
+    )
+    .unwrap();
+    let items = specify_core::characteristics::read(&old).unwrap();
+    let flat = items
+        .iter()
+        .find(|c| c.kind == "geometric_tolerance" && c.faces == [4])
+        .unwrap()
+        .number;
+    let place = items.iter().find(|c| c.reference == [0]).unwrap().number;
+    let applied = common::apply_edits(
         &old,
-        &answers(json!({
-            "hole.function:holes:9": "fit:H8",
-            "extra.top": {"kind": "flatness", "faces": [5], "value": "0.02"},
-            "extra.place": {"kind": "distance", "faces": [9], "reference": [1], "value": "±0.1"},
-        })),
+        json!({
+            "change": {"hole.function:holes:9": {"to":"fit:H8", "expect":"⌀8 H7"}},
+            "items":{"remove":[format!("#{flat}"), format!("#{place}")]},
+            "fill": {
+                "extra.top": {"kind": "flatness", "faces": [5], "value": "0.02"},
+                "extra.place": {"kind": "distance", "faces": [9], "reference": [1], "value": "±0.1"}
+            }
+        }),
     );
+    assert_eq!(
+        applied
+            .retired
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from([flat, place])
+    );
+    let new = part::load_bytes("after.step", applied.bytes).unwrap();
     let numbers = |p: &part::LoadedPart| -> Vec<u64> {
         specify_core::characteristics::read(p)
             .unwrap()
@@ -1316,8 +1409,10 @@ fn a_datum_letter_changed_on_the_same_faces_is_changed() {
             json!({"part.material": "6061-T6", "datum.A": [4], "datum.B": [1], "datum.C": [0]}),
         ),
     );
+    // ADR P11: a save does not apply a changed answer the file states, so the new revision
+    // is the bare part written with the new answers.
     let new = write(
-        &old,
+        &bare,
         &answers(
             json!({"part.material": "6061-T6", "datum.A": [4], "datum.B": [0], "datum.C": [1]}),
         ),

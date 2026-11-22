@@ -277,6 +277,7 @@ fn iso286_equals_pythons() {
         };
         if rust != python {
             differences.push(common::Difference {
+                context: None,
                 case: format!("{fit}@{}", pyfmt::repr(nominal)),
                 path: path.to_string(),
                 python: Some(python),

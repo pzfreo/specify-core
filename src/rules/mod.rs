@@ -23,6 +23,7 @@ use crate::rule_sources::{self as sources, Rule};
 use crate::{extras, general, locations, materials, standards};
 
 pub mod datums;
+pub(crate) mod general_rows;
 mod holes;
 pub mod mates;
 mod py;
@@ -33,7 +34,7 @@ pub use datums::{Control, datum_control, datum_kind, default_datums};
 pub use records::{Datum, DatumKind, Datums, Face, Faces};
 pub use turned::RUNOUTS;
 
-pub(crate) use holes::{bores, bores_of};
+pub(crate) use holes::{bores_of, table_bores};
 pub(crate) use py::{float_of, int_of, iter_of, object, repr, round, str_of, truthy};
 pub(crate) use records::{Ctx, Feature};
 
@@ -307,6 +308,9 @@ impl Question {
             "hole.frame" => named("datum frame"),
             "hole.full_thread" => named("full thread depth"),
             "diameter.runout" => named("runout"),
+            "length" | "location" if general_rows::is_id(&self.id) => {
+                self.prompt.trim_end_matches('?').to_string()
+            }
             _ => {
                 if let Some(rest) = kind.strip_prefix("datum.") {
                     let (letter, control) = rest.split_once('.').unwrap_or((rest, ""));
@@ -411,6 +415,8 @@ pub struct Intent {
     pub datums: Vec<Map<String, Value>>,
     pub requirements: Vec<Map<String, Value>>,
     pub general: Vec<Map<String, Value>>,
+    /// Explicit accept-all provenance accompanying a legacy general-dimension block.
+    pub accept_defaults: bool,
 }
 
 impl Intent {
@@ -424,6 +430,7 @@ impl Intent {
             datums: Vec::new(),
             requirements: Vec::new(),
             general: Vec::new(),
+            accept_defaults: false,
         }
     }
 
@@ -431,7 +438,7 @@ impl Intent {
         let maps = |items: &[Map<String, Value>]| {
             Value::Array(items.iter().cloned().map(Value::Object).collect())
         };
-        Value::Object(object([
+        let mut data = object([
             ("schema", Value::from(self.schema)),
             ("rules_version", Value::from(self.rules_version)),
             ("binding", self.binding.clone()),
@@ -439,7 +446,11 @@ impl Intent {
             ("datums", maps(&self.datums)),
             ("requirements", maps(&self.requirements)),
             ("general", maps(&self.general)),
-        ]))
+        ]);
+        if self.accept_defaults {
+            data.insert("accept_defaults".into(), Value::Bool(true));
+        }
+        Value::Object(data)
     }
 
     /// An intent from its JSON, refusing any schema but 1 with Python's message. Absent parts
@@ -493,6 +504,7 @@ impl Intent {
             datums: list("datums")?,
             requirements: list("requirements")?,
             general: list("general")?,
+            accept_defaults: data.get("accept_defaults") == Some(&Value::Bool(true)),
         })
     }
 }
@@ -507,8 +519,6 @@ impl Intent {
 /// in ± mode and when every feature uses the general tolerance. Datums the person changes
 /// or removes remain questions; a file's own frame is retained.
 pub fn questions(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Question>> {
-    let answers = &*crate::resume::truth::answered(analysis, answers);
-    let analysis = &*crate::resume::truth::restored(analysis, answers);
     carry_review(questions_in(&Ctx::new(analysis)?, answers)?, answers)
 }
 
@@ -518,8 +528,6 @@ pub fn questions_proposing(
     answers: &Map<String, Value>,
     propose: &str,
 ) -> Result<Vec<Question>> {
-    let answers = &*crate::resume::truth::answered(analysis, answers);
-    let analysis = &*crate::resume::truth::restored(analysis, answers);
     carry_review(
         all_questions(&Ctx::new(analysis)?, answers, propose)?,
         answers,
@@ -547,8 +555,60 @@ fn carry_review(
 }
 
 pub(crate) fn questions_in(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> Result<Vec<Question>> {
+    interview(ctx, answers).map(|(questions, _)| questions)
+}
+
+/// The interview and the measurement plans behind its separate dimension questions.
+pub(crate) fn questions_with_measurements(
+    analysis: &Value,
+    answers: &Map<String, Value>,
+) -> Result<(Vec<Question>, Vec<general_rows::Suggestion>)> {
+    let (questions, measurements) = interview(&Ctx::new(analysis)?, answers)?;
+    Ok((carry_review(questions, answers)?, measurements))
+}
+
+fn interview(
+    ctx: &Ctx<'_>,
+    answers: &Map<String, Value>,
+) -> Result<(Vec<Question>, Vec<general_rows::Suggestion>)> {
+    let mut questions = ordinary_questions_in(ctx, answers)?;
+    let measurements = dimension_suggestions(ctx, answers);
+    questions.extend(measurements.iter().map(|s| s.question.clone()));
+    Ok((questions, measurements))
+}
+
+pub(crate) fn ordinary_questions_in(
+    ctx: &Ctx<'_>,
+    answers: &Map<String, Value>,
+) -> Result<Vec<Question>> {
     let cited: String = extras::cited(answers)?.into_iter().collect();
     all_questions(ctx, answers, &format!("ABC{cited}"))
+}
+
+/// Plan the suggestions with the ordinary questions' defaults, without treating them as
+/// approved. An incomplete ordinary answer can still be reviewed while there is no plan.
+pub(crate) fn dimension_suggestions(
+    ctx: &Ctx<'_>,
+    answers: &Map<String, Value>,
+) -> Vec<general_rows::Suggestion> {
+    let Ok((defaults, qs)) = settled(ctx, answers) else {
+        return Vec::new();
+    };
+    dimensions_with_defaults(ctx, &defaults, &qs)
+}
+
+fn dimensions_with_defaults(
+    ctx: &Ctx<'_>,
+    defaults: &Map<String, Value>,
+    qs: &[Question],
+) -> Vec<general_rows::Suggestion> {
+    let Ok(intent) = raw_intent(ctx, defaults, qs, IntentMode::Suggestions) else {
+        return Vec::new();
+    };
+    let mut suggestions = general_rows::suggestions(ctx, &intent, &general_rows::Owners::new(qs));
+    let stated = ctx.table_stated();
+    suggestions.retain(|s| !stated.contains(s.question.id.as_str()));
+    suggestions
 }
 
 /// `_answer`: the answer to `qid`, else the default of the question `qid` among `qs`.
@@ -572,39 +632,11 @@ fn all_questions(
     propose: &str,
 ) -> Result<Vec<Question>> {
     let mut out = every_question(ctx, answers, propose)?;
-    // ADR P9: where a reopened file's PMI stands for a question (contradicting its stored
-    // answer, or answering it where no answer did), the question is not asked until answered.
-    let conflicts: BTreeSet<&str> = ctx
-        .analysis
-        .get("resume")
-        .into_iter()
-        .flat_map(|r| {
-            r.get("conflicts")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|c| c.get("id").and_then(Value::as_str))
-                .chain(
-                    r.get("file")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(Value::as_str),
-                )
-        })
-        .collect();
-    // A conflict the person kept (`_specify.keep`, stored with the answers when the file
-    // left its requirement removed) stays the file's: its question is not asked either.
-    let kept = crate::resume::truth::kept(answers);
-    // Another tool's requirement in conflict with a stored answer stands, answered or not.
-    let foreign =
-        crate::resume::truth::foreign_in(ctx.analysis.get("resume").unwrap_or(&Value::Null));
-    if !conflicts.is_empty() || !kept.is_empty() {
-        out.retain(|q| {
-            !foreign.contains(q.id.as_str())
-                && ((!conflicts.contains(q.id.as_str()) && !kept.contains(q.id.as_str()))
-                    || answers.contains_key(&q.id))
-        });
+    // ADR P11: with the file's feature table, a question is asked for each feature-and-kind
+    // the file does not state (a gap, or decided none), and only for those.
+    let stated = ctx.table_stated();
+    if !stated.is_empty() {
+        out.retain(|q| !stated.contains(q.id.as_str()));
     }
     Ok(out)
 }
@@ -617,6 +649,10 @@ fn every_question(
     // Every front end reaches the rules here: an ID no question can have is refused, never
     // ignored (#126).
     crate::input::ids(answers).map_err(|e| Error::Invalid(e.to_string()))?;
+    // D11 (#126): an answer on a feature the part does not have names nothing: it refuses the
+    // whole list, named with its reason, rather than being ignored.
+    crate::input::feature_ids(ctx.analysis.get("features"), answers)
+        .map_err(|e| Error::Invalid(e.to_string()))?;
     if let Some(notes) = answers.get("part.notes") {
         note_strings(notes)?;
     }
@@ -702,7 +738,7 @@ fn every_question(
     };
     let located = |hole: &Feature<'_>| -> Result<Vec<String>> {
         let bores = bores_of(hole, &ctx.faces)?;
-        if !by_position || bores.iter().any(|i| ctx.positioned.contains(i)) {
+        if !by_position || (!ctx.has_table() && bores.iter().any(|i| ctx.positioned.contains(i))) {
             return Ok(Vec::new());
         }
         // ISO 1101 diametral position with zero nominal offset controls the hole's
@@ -716,7 +752,9 @@ fn every_question(
         }
         Ok(datums::hole_frames(&bores, &datums, &controls, &frames))
     };
-    let covered = |ids: &[i64]| ids.iter().any(|i| ctx.covered.contains(i));
+    // With the file's feature table, a feature is asked per kind (`all_questions`), never left
+    // out whole because the file states one of its requirements.
+    let covered = |ids: &[i64]| !ctx.has_table() && ids.iter().any(|i| ctx.covered.contains(i));
 
     let pattern_members: BTreeSet<&str> = ctx
         .features
@@ -777,9 +815,10 @@ fn every_question(
                 };
                 let mut positions = false;
                 for m in &rest {
-                    if bores_of(m, &ctx.faces)?
-                        .iter()
-                        .any(|i| ctx.positioned.contains(i))
+                    if !ctx.has_table()
+                        && bores_of(m, &ctx.faces)?
+                            .iter()
+                            .any(|i| ctx.positioned.contains(i))
                     {
                         positions = true;
                         break;
@@ -817,7 +856,10 @@ fn every_question(
                 } else {
                     members.extend_from_slice(&t.members);
                 }
-                parts.push((t.id.to_string(), bores(&t.faces, diameter, &ctx.faces)?));
+                parts.push((
+                    t.id.to_string(),
+                    holes::table_bores(&t.faces, diameter, ctx)?,
+                ));
             }
             target = holes::Target {
                 faces,
@@ -891,6 +933,7 @@ fn every_question(
         }
         out.push(q);
     }
+    // Add fillet rows here when quiddity #341 supplies radius groups.
     out.into_iter().map(|q| reviewed(q, &ctx.faces)).collect()
 }
 
@@ -1135,6 +1178,12 @@ pub fn open_questions<'q>(qs: &'q [Question], answers: &Map<String, Value>) -> V
                 && !q.id.starts_with("bom.")
                 && q.id != crate::process::QUESTION
                 && !answers.contains_key(&q.id)
+                // ADR P11: a gap whose suggestion writes nothing ("none") is not open: leaving
+                // it and accepting "none" give the same file.
+                && !q
+                    .default
+                    .as_ref()
+                    .is_some_and(crate::feature_table::is_none_value)
         })
         .collect()
 }
@@ -1176,12 +1225,16 @@ pub fn with_all_defaults(
     answers: &Map<String, Value>,
 ) -> Result<Map<String, Value>> {
     crate::answer_file::validate(answers).map_err(Error::Invalid)?;
-    let answers = &*crate::resume::truth::answered(analysis, answers);
-    let analysis = &*crate::resume::truth::restored(analysis, answers);
-    let (merged, qs) = settled(&Ctx::new(analysis)?, answers)?;
+    let ctx = Ctx::new(analysis)?;
+    let (merged, mut qs) = settled(&ctx, answers)?;
+    qs.extend(
+        dimensions_with_defaults(&ctx, &merged, &qs)
+            .into_iter()
+            .map(|s| s.question),
+    );
     // Defaults never answer a block; it refuses once its question is asked (#126).
     crate::answer_file::require_resolved_where(answers, |id| asks(&qs, id))?;
-    Ok(merged)
+    Ok(with_defaults(&qs, &merged))
 }
 
 /// Whether `id` is among the questions `qs`.
@@ -1191,13 +1244,13 @@ fn asks(qs: &[Question], id: &str) -> bool {
 
 /// `with_all_defaults`, with the questions of the answers it settles on (which `preview` and
 /// `problems` would otherwise ask for again: the same call, the same result).
-fn settled(
+pub(crate) fn settled(
     ctx: &Ctx<'_>,
     answers: &Map<String, Value>,
 ) -> Result<(Map<String, Value>, Vec<Question>)> {
     let mut answers = answers.clone();
     loop {
-        let qs = questions_in(ctx, &answers)?;
+        let qs = ordinary_questions_in(ctx, &answers)?;
         let merged = with_defaults(&qs, &answers);
         // Defaults are only ever added, so nothing added is the fixed point.
         if merged.len() == answers.len() {
@@ -1210,8 +1263,6 @@ fn settled(
 /// Turn a complete set of answers into intent. Refuses while any question is open.
 pub fn apply(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {
     crate::answer_file::validate(answers).map_err(Error::Invalid)?;
-    let answers = &*crate::resume::truth::answered(analysis, answers);
-    let analysis = &*crate::resume::truth::restored(analysis, answers);
     let ctx = Ctx::new(analysis)?;
     let qs = questions_in(&ctx, answers)?;
     crate::answer_file::require_resolved_where(answers, |id| asks(&qs, id))?;
@@ -1235,8 +1286,6 @@ pub fn unasked_rows(
     analysis: &Value,
     answers: &Map<String, Value>,
 ) -> Result<Vec<Map<String, Value>>> {
-    let answers = &*crate::resume::truth::answered(analysis, answers);
-    let analysis = &*crate::resume::truth::restored(analysis, answers);
     let ctx = Ctx::new(analysis)?;
     let qs = questions_in(&ctx, answers)?;
     unasked(&ctx, answers, &qs)
@@ -1252,6 +1301,10 @@ pub fn apply_with_defaults(
     if accept_defaults {
         let merged = with_all_defaults(analysis, answers)?;
         let mut intent = apply(analysis, &merged)?;
+        // A legacy analysis can still supply a general-dimension block at apply time.
+        // Preserve the caller's explicit approval across its write-time planner upgrade.
+        intent.accept_defaults =
+            analysis.get("dimensioning").is_none() && !intent.general.is_empty();
         // An accepted suggestion is written marked as one, as the BOM's are.
         if !answers.contains_key(crate::process::QUESTION)
             && intent.part.contains_key(crate::process::INTENT_KEY)
@@ -1274,12 +1327,92 @@ pub fn apply_with_defaults(
 /// full-thread question overrides that depth only when answered.
 /// Items keep the `default` field for front ends, always false for an answered question.
 pub fn preview(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {
-    let answers = &*crate::resume::truth::answered(analysis, answers);
-    let analysis = &*crate::resume::truth::restored(analysis, answers);
     let ctx = Ctx::new(analysis)?;
     let qs = questions_in(&ctx, answers)?;
     let mut intent = intent(&ctx, answers, &qs, IntentMode::Preview)?;
     mark_defaults(&mut intent, answers);
+    // ADR P11: a preview never plans what the file states. A general dimension the file already
+    // has (a reopened file's, whoever wrote it) is the file's row, not a second planned one.
+    if let Some(Value::Array(existing)) = ctx.analysis.get("existing")
+        && !existing.is_empty()
+    {
+        let geometry: Vec<Value> = ctx
+            .analysis
+            .get("faces")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        intent
+            .general
+            .retain(|g| !crate::feature_table::requirement_stated(g, existing, &geometry));
+    }
+    Ok(intent)
+}
+
+/// Gate dimensions with a question by its approval. Free-standing dimensions each have
+/// their own question and need a separate answer or approval.
+fn intent(
+    ctx: &Ctx<'_>,
+    answers: &Map<String, Value>,
+    qs: &[Question],
+    mode: IntentMode,
+) -> Result<Intent> {
+    let mut intent = raw_intent(ctx, answers, qs, mode)?;
+    let open: BTreeSet<_> = open_questions(qs, answers)
+        .into_iter()
+        .map(|q| q.id.as_str())
+        .collect();
+    let owners = general_rows::Owners::new(qs);
+    let approved = |row: &Map<String, Value>| {
+        let mut owners = owners.of(row).peekable();
+        owners.peek().is_some() && owners.all(|id| !open.contains(id))
+    };
+
+    let mut accepted = BTreeMap::new();
+    let has_general_tolerance = intent.part.contains_key("general_tolerance")
+        || ctx.table_stated_value("part.general_tolerance").is_some()
+        || ctx
+            .stated
+            .is_some_and(|part| py::truthy_opt(part.get("general_tolerance")));
+    if answers.keys().any(|id| general_rows::is_id(id)) {
+        for mut s in dimension_suggestions(ctx, answers) {
+            if let Some(value) = answers.get(&s.question.id) {
+                if crate::feature_table::is_none_value(value) {
+                    continue;
+                }
+                if Some(value) != s.question.default.as_ref() {
+                    return invalid(format!(
+                        "{}: choose {} or none",
+                        s.question.id, s.question.options[0]
+                    ));
+                }
+                if !has_general_tolerance {
+                    general_rows::explicit_limits(&mut s.dimension);
+                }
+                accepted.insert(s.question.id, s.dimension);
+            }
+        }
+    }
+    // Preserve the planner's ordering for dimensions it still produces. A separately
+    // approved gap also works during a partial save, before the rest of its scheme is given.
+    let mut select = |row: &mut Map<String, Value>| {
+        if approved(row) {
+            return true;
+        }
+        if !accepted.is_empty()
+            && let Some(id) = general_rows::measurement_id(row)
+            && let Some(accepted) = accepted.remove(&id)
+        {
+            *row = accepted;
+            return true;
+        }
+        false
+    };
+    intent
+        .requirements
+        .retain_mut(|r| r.get("general") != Some(&Value::Bool(true)) || select(r));
+    intent.general.retain_mut(select);
+    intent.general.extend(accepted.into_values());
     Ok(intent)
 }
 
@@ -1290,7 +1423,7 @@ pub(crate) fn proposed_in(
     answers: &Map<String, Value>,
 ) -> Result<(Intent, Map<String, Value>, Vec<Question>)> {
     let (merged, qs) = settled(ctx, answers)?;
-    let mut intent = intent(ctx, &merged, &qs, IntentMode::Apply)?;
+    let mut intent = raw_intent(ctx, &merged, &qs, IntentMode::Apply)?;
     mark_defaults(&mut intent, answers);
     Ok((intent, merged, qs))
 }
@@ -1313,10 +1446,11 @@ fn mark_defaults(intent: &mut Intent, answers: &Map<String, Value>) {
 enum IntentMode {
     Preview,
     Apply,
+    Suggestions,
 }
 
 /// `_intent`: intent from the answered questions among `qs`; each item names its question.
-fn intent(
+fn raw_intent(
     ctx: &Ctx<'_>,
     answers: &Map<String, Value>,
     qs: &[Question],
@@ -1340,12 +1474,17 @@ fn intent(
     }
 
     let process = crate::process::current(ctx, answers);
+    // ADR P11: what the file states stays as it is (see `unasked`).
+    let stated = ctx.table_stated();
     for key in ["material", "general_tolerance"].into_iter().chain(NOTES) {
         // What the process does not ask is not written (see `unasked`).
         if !crate::process::asks(process, key) {
             continue;
         }
         let id = format!("part.{key}");
+        if stated.contains(id.as_str()) {
+            continue;
+        }
         if key == "notes" {
             if let Some(value) = answers.get(&id)
                 && !note_strings(value)?.is_empty()
@@ -1358,13 +1497,18 @@ fn intent(
         let text = given.map(str_of).unwrap_or_default();
         let text = crate::pyfmt::strip(&text).to_lowercase();
         if !NOTHING.contains(&text.as_str()) {
-            intent.part.insert(
-                key.to_string(),
-                answers.get(&id).cloned().unwrap_or_default(),
-            );
+            let mut value = answers.get(&id).cloned().unwrap_or_default();
+            // A general tolerance block (#228) in its canonical spelling.
+            if key == "general_tolerance"
+                && let Value::String(text) = &value
+            {
+                value = Value::String(crate::tolerance_block::canonical(text));
+            }
+            intent.part.insert(key.to_string(), value);
         }
     }
     if crate::process::applies(ctx, answers)
+        && !stated.contains(crate::process::QUESTION)
         && let Some(answer) = answers.get(crate::process::QUESTION)
     {
         intent
@@ -1455,6 +1599,13 @@ fn intent(
             {
                 continue;
             }
+            // D8: a hole the file already locates in some directions gets no position
+            // tolerance (a second location in those); answering approves its dimensions in the
+            // directions left, under the general tolerance, and the writer leaves out those in
+            // the directions already located.
+            if ctx.table_partly_located(&q.id) {
+                continue;
+            }
             // Basic dimensions from the frame's planes say where "true position" is.
             let mut planes = Vec::new();
             for x in &letters {
@@ -1526,7 +1677,7 @@ fn intent(
             };
             let (Some(letter), Some(control)) = (letter, control) else {
                 // The question can propose a control before its datum frame is accepted.
-                if mode == IntentMode::Preview {
+                if mode != IntentMode::Apply {
                     continue;
                 }
                 return invalid("there is no datum control to give");
@@ -1550,6 +1701,7 @@ fn intent(
             intent.requirements.push(req);
         }
     }
+    let stated_tolerance = ctx.table_stated_value("part.general_tolerance");
     let tolerance = answers
         .get("part.general_tolerance")
         .filter(|v| truthy(v))
@@ -1557,28 +1709,54 @@ fn intent(
             ctx.stated
                 .and_then(|p| p.get("general_tolerance"))
                 .filter(|v| truthy(v))
-        });
+        })
+        .map(|value| {
+            value.as_str().ok_or_else(|| {
+                Error::Invalid(format!(
+                    "part.general_tolerance: {} is not a tolerance class",
+                    repr(value)
+                ))
+            })
+        })
+        .transpose()?
+        .or(stated_tolerance);
     if let Some(tolerance) = tolerance {
-        let Value::String(tolerance) = tolerance else {
-            return invalid(format!(
-                "part.general_tolerance: {} is not a tolerance class",
-                repr(tolerance)
-            ));
-        };
         intent.general = general::dimensions(ctx, &datums, &intent.requirements, tolerance)?;
     }
-    if let Some(input) = ctx.analysis.get("dimensioning")
-        && input.get("applicable") != Some(&Value::Bool(false))
+    if let Some(metadata) = ctx.analysis.get("dimensioning")
+        && metadata.get("applicable") != Some(&Value::Bool(false))
     {
-        let input = serde_json::from_value(input.clone())
+        let mut input = serde_json::from_value(metadata.clone())
             .map_err(|e| Error::Invalid(format!("dimensioning input: {e}")))?;
+        crate::dimensioning::general_plane_rows(&mut intent.general, metadata);
+        crate::dimensioning::step_levels(&mut input, &ctx.features, &intent.general)?;
         if let Some(stated) = ctx.analysis.get("dimensioning_stated") {
             intent.requirements.extend(
                 serde_json::from_value::<Vec<Map<String, Value>>>(stated.clone())
                     .map_err(|e| Error::Invalid(format!("stored dimensions: {e}")))?,
             );
         }
-        crate::dimensioning::apply(input, &mut intent).map_err(Error::Invalid)?;
+        // The file's general-tolerance note governs both suggested and approved
+        // dimensions. Supply it to the planner without writing the note again.
+        let seed_tolerance = tolerance.filter(|_| {
+            (mode == IntentMode::Suggestions
+                || stated_tolerance.is_some()
+                || (ctx.has_table()
+                    && ctx
+                        .stated
+                        .is_some_and(|p| p.contains_key("general_tolerance"))))
+                && !intent.part.contains_key("general_tolerance")
+        });
+        if let Some(tolerance) = seed_tolerance {
+            intent
+                .part
+                .insert("general_tolerance".into(), Value::from(tolerance));
+        }
+        crate::dimensioning::apply(input, &mut intent, ctx.has_table()).map_err(Error::Invalid)?;
+        crate::dimensioning::general_plane_rows(&mut intent.general, metadata);
+        if seed_tolerance.is_some() {
+            intent.part.shift_remove("general_tolerance");
+        }
         // The file's own dimensions were planner authorities, not requirements: the file's
         // PMI stays the characteristic, so they leave the intent once planning is done.
         intent
@@ -1594,8 +1772,10 @@ pub const UNASKED: &str = "unasked";
 /// Answers valid in form whose question is not asked given the other answers (#126): a
 /// dependent question such as `datum.A.flatness` or `hole.position:*` disappears when
 /// `part.locating` changes, say. They contribute no PMI, so each becomes a faceless row with a
-/// `not_written_reason`, which every writer lists in `not_written`. The answers themselves are
-/// kept (stored, exported, carried), so the question takes them again if it returns.
+/// `not_written_reason`, which every writer lists in `not_written`. The caller's answers keep
+/// them, so the question takes them again if it returns; the writer does not store them
+/// (decision D11). A stored answer the reopening dropped (`resume.dropped_answers`) and not
+/// given again has a row too, so the next save does not store it again.
 ///
 /// Which IDs are asked comes from the rules (`qs`), not a list: only answers the intent reads
 /// directly, whether or not they are asked (`part.*`, `bom.*`, `extra.*` and reserved `_`
@@ -1605,6 +1785,78 @@ fn unasked(
     answers: &Map<String, Value>,
     qs: &[Question],
 ) -> Result<Vec<Map<String, Value>>> {
+    let row = |id: &str, reason: String| {
+        object([
+            ("kind", Value::from(UNASKED)),
+            ("answer", Value::from(id)),
+            ("faces", Value::Array(Vec::new())),
+            ("not_written_reason", Value::from(reason)),
+        ])
+    };
+    let mut rows: Vec<Map<String, Value>> = unasked_entries(ctx, answers, qs)?
+        .into_iter()
+        .map(|e| row(&e.id, e.reason))
+        .collect();
+    // D11 (#126): a stored answer the reopening dropped (`resume.dropped_answers`) and that is
+    // not given again is not stored again either; the row tells the writer so, and says it.
+    let dropped = ctx
+        .analysis
+        .get("resume")
+        .and_then(|r| r.get("dropped_answers"))
+        .and_then(Value::as_array);
+    for entry in dropped.into_iter().flatten() {
+        let (Some(id), Some(reason)) = (entry["id"].as_str(), entry["reason"].as_str()) else {
+            continue;
+        };
+        // Only one the writer would otherwise store again (P11: what leaves no PMI behind).
+        let storable = !crate::feature_table::is_requirement(id)
+            || crate::feature_table::leaves_nothing(&entry["value"]);
+        if answers.contains_key(id) || !storable {
+            continue;
+        }
+        let value = crate::choices::short_repr(&entry["value"], 6);
+        rows.push(row(
+            id,
+            format!("saved answer {id} ({value}): {reason}; it was not stored again"),
+        ));
+    }
+    Ok(rows)
+}
+
+/// The answers among `answers` whose question is not asked given the others (#126), each with
+/// why (`is not asked when part.locating is '± dimensions'`), for reporting stored answers the
+/// reopening drops (D11). Carry blocks are not answers, and are left out.
+pub fn unasked_answers(
+    analysis: &Value,
+    answers: &Map<String, Value>,
+) -> Result<Vec<(String, String)>> {
+    let ctx = Ctx::new(analysis)?;
+    let qs = if answers.keys().any(|id| general_rows::is_id(id)) {
+        questions_in(&ctx, answers)?
+    } else {
+        ordinary_questions_in(&ctx, answers)?
+    };
+    Ok(unasked_entries(&ctx, answers, &qs)?
+        .into_iter()
+        .filter(|e| !e.block)
+        .map(|e| (e.id, e.why))
+        .collect())
+}
+
+/// One answer, or carry block (`block`), whose question is not asked: `why` it is not
+/// (`is not asked when …`) and the `reason` a write reports.
+struct Unasked {
+    id: String,
+    block: bool,
+    why: String,
+    reason: String,
+}
+
+fn unasked_entries(
+    ctx: &Ctx<'_>,
+    answers: &Map<String, Value>,
+    qs: &[Question],
+) -> Result<Vec<Unasked>> {
     // A part answer the process leaves unasked lapses, as a dependent question's does.
     let process = crate::process::current(ctx, answers);
     let lapsed = |id: &str| {
@@ -1613,10 +1865,12 @@ fn unasked(
                 || (id == crate::process::QUESTION && !crate::process::applies(ctx, answers))
         })
     };
+    // ADR P11: an answer to a part setting the file states is not written either.
+    let stated = ctx.table_stated();
     let ids: Vec<&String> = answers
         .keys()
         .filter(|id| {
-            !((id.starts_with("part.") && !lapsed(id))
+            !((id.starts_with("part.") && !lapsed(id) && !stated.contains(id.as_str()))
                 || id.starts_with("bom.")
                 || id.starts_with(extras::PREFIX)
                 || id.starts_with('_'))
@@ -1651,23 +1905,15 @@ fn unasked(
         }
         None => None,
     };
-    // Another tool's requirement holds a question (ADR P9): a foreign conflict or file
-    // answer of a reopened file, or another tool's PMI in `existing` without which the
-    // question would be asked.
-    let foreign =
-        crate::resume::truth::foreign_in(ctx.analysis.get("resume").unwrap_or(&Value::Null));
-    let marked = |e: &Value| e.get("provenance").is_some();
+    // The file's PMI holds a question (ADR P11, whoever wrote it): without it, the question
+    // would be asked.
     let held_by_file: Vec<&String> = match ctx.analysis.get("existing") {
-        Some(Value::Array(existing)) if !existing.iter().all(marked) => {
+        Some(Value::Array(existing)) if !existing.is_empty() => {
             let mut without = ctx.analysis.clone();
-            without.insert(
-                "existing".into(),
-                Value::Array(existing.iter().filter(|e| marked(e)).cloned().collect()),
-            );
+            without.insert("existing".into(), Value::Array(Vec::new()));
             let without = Value::Object(without);
             let mut rest = answers.clone();
             rest.retain(|id, _| !ids.contains(&id));
-            // A Keep of the question would hide it too; only the file's PMI is weighed here.
             rest.remove(crate::answer_file::META);
             Ctx::new(&without)
                 .and_then(|other| questions_in(&other, &rest))
@@ -1682,8 +1928,7 @@ fn unasked(
         }
         _ => Vec::new(),
     };
-    let held = "another tool's requirement holds this question; keep it, or change it in that \
-                tool";
+    let held = "the file already states this requirement";
     let mut rows = Vec::with_capacity(ids.len() + blocks.len());
     let carried = blocks.iter().map(|(id, why)| (id, Some(why)));
     for (id, block) in ids.into_iter().map(|id| (id, None)).chain(carried) {
@@ -1691,8 +1936,20 @@ fn unasked(
             .strip_prefix("datum.")
             .filter(|l| l.len() == 1)
             .and_then(|l| l.chars().next());
-        let mut foreign_held = foreign.contains(id.as_str());
-        let why = if foreign_held {
+        let mut foreign_held = false;
+        // ADR P11 (D5b): an answer that differs from a part setting (or the process) the file
+        // states is not written; the file's value stands, and changing it is an explicit edit.
+        let differs = (id.starts_with("part.") && stated.contains(id.as_str()))
+            .then(|| ctx.table_stated_value(id))
+            .flatten()
+            .zip(answers.get(id.as_str()))
+            .filter(|(old, new)| {
+                // A general tolerance block compares in its canonical spelling (#228).
+                crate::tolerance_block::canonical(old)
+                    != crate::tolerance_block::canonical(&crate::feature_table::setting_text(new))
+            });
+        let why = if stated.contains(id.as_str()) {
+            foreign_held = true;
             format!("is not asked: {held}")
         } else if let Some(letter) = letter.filter(|&l| ctx.file_datum(l).is_some()) {
             format!("is not asked: the file already states datum {letter}")
@@ -1710,28 +1967,40 @@ fn unasked(
         } else {
             "is not asked of this part given the other answers".to_string()
         };
-        let reason = match block {
-            None if foreign_held => format!("{id}: its answer was not written, as {held}"),
-            None => format!("{id} {why}, so its answer was not written"),
-            Some(carry) => format!(
+        let reason = match (block, differs) {
+            (None, Some((old, new))) => format!(
+                "{id} {}: not written, as the file states {old} (the file's value stands \
+                 whoever wrote it: changing it is an explicit edit)",
+                crate::feature_table::setting_text(new)
+            ),
+            (None, None) if foreign_held => {
+                format!("{id}: its answer was not written, as {held}")
+            }
+            (None, None) => format!("{id} {why}, so its answer was not written"),
+            (Some(carry), _) => format!(
                 "{id} was carried (carried answer could not be applied: {carry}) but {why}, \
                  so nothing was written for it"
             ),
         };
-        rows.push(object([
-            ("kind", Value::from(UNASKED)),
-            ("answer", Value::from(id.as_str())),
-            ("faces", Value::Array(Vec::new())),
-            ("not_written_reason", Value::from(reason)),
-        ]));
+        rows.push(Unasked {
+            id: id.to_string(),
+            block: block.is_some(),
+            why,
+            reason,
+        });
     }
     for (id, reason) in offered {
-        rows.push(object([
-            ("kind", Value::from(UNASKED)),
-            ("answer", Value::from(id)),
-            ("faces", Value::Array(Vec::new())),
-            ("not_written_reason", Value::from(reason)),
-        ]));
+        let why = reason
+            .strip_prefix(&format!("{id} "))
+            .and_then(|r| r.strip_suffix(", so its answer was not written"))
+            .unwrap_or(&reason)
+            .to_string();
+        rows.push(Unasked {
+            id: id.to_string(),
+            block: false,
+            why,
+            reason,
+        });
     }
     Ok(rows)
 }

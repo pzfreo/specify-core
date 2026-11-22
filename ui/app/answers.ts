@@ -1,55 +1,49 @@
 import type { PmiAnswers } from '../src/types/pmi';
-import { putAnswers, Refused, type AnswersEvent, type Source } from './local.ts';
-
-// specify-core 0.2.0 docs/answers.md: only these members of the reserved _specify object
-// are part of the sidecar format. Other underscore-prefixed keys are private engine state.
-const SIDECAR_METADATA = new Set(['keep', 'evidence', 'unresolved', 'sources']);
-
-/** Given/kept answers from the validated session, including valid answers not currently asked. */
-export function exportableAnswers(answers: PmiAnswers): PmiAnswers {
-  const exported: Record<string, unknown> = Object.fromEntries(Object.entries(answers).filter(([id]) => !id.startsWith('_')));
-  const metadata = answers['_specify'];
-  if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
-    const publicMetadata = Object.fromEntries(Object.entries(metadata).filter(([key]) => SIDECAR_METADATA.has(key)));
-    if (Object.keys(publicMetadata).length) exported['_specify'] = publicMetadata;
-  }
-  return exported;
-}
+import type { AnswerDraft, AnswersEvent, SessionAnswers, Source } from './local.ts';
 
 export type AnswersSource = Source;
 
-/** One part's answers in the command's session (specify-core docs/open.md, "The session"): the
- * page's own changes go up with `PUT answers`, everyone else's (an agent's, another tab's) come
- * down as `answers` events. What the page shows is always the session's answers, with the page's
- * own changes that are not in the session yet laid over them. */
+/** One part's answers in the command's session (specify-core docs/open.md, "The session"): everyone
+ * else's changes (an agent's) come down as `answers` events. The page's own changes stay in the page
+ * until Save sends them as an edit list (session API 2: there is no `PUT answers`). What the page
+ * shows is always the session's answers, with the page's own unsaved changes laid over them. */
 export interface AnswersStore {
   readonly part: number;
   get(): PmiAnswers;
   /** A change made in this page: from ``base`` (the answers the page showed when it was made) to
-   * ``answers``. Only that change is kept and sent, onto whatever the session holds by then, so an
-   * answer someone else gave meanwhile is never taken away. */
+   * ``answers``. Only that change is kept, laid onto whatever the session holds, so an answer
+   * someone else gave meanwhile is never taken away; Save sends it. */
   set(answers: PmiAnswers, base: PmiAnswers): void;
   /** Each change to what the page should show. ``previous``: the answers before it, to show what
    * someone else (an agent) changed. */
   subscribe(listener: (answers: PmiAnswers, source: AnswersSource, previous: PmiAnswers) => void): () => void;
-  /** The session's revision once the page's own changes are all in it; ``get()`` is then its answers. */
+  /** The session's revision the page's answers are laid over. */
   settled(): Promise<number>;
-  /** A send that failed for good (not a 409, which is retried), for the page to show. The change is
-   * dropped: the page goes back to what the session holds. */
+  /** Kept for the page's wiring: the page's changes are no longer sent, so nothing fails to arrive. */
   onProblem(listener: (error: Error) => void): void;
   /** No more updates (another part is shown). */
   close(): void;
 }
 
-/** The command's session as this page knows it: every part's answers at ``rev()``, and what is on
- * disk, so unsaved answers are judged for the whole file, whichever part is shown. */
+/** The command's session as this page knows it: every part's answers at ``rev()``, the page's own
+ * unsaved changes, and what is on disk, so unsaved answers are judged for the whole file, whichever
+ * part is shown. */
 export interface AnswersSession {
-  /** Cancelled before the close beacon, shared by answer PUTs and Save POSTs. */
+  /** Cancelled before the close beacon, shared by Save POSTs. */
   readonly signal: AbortSignal;
   rev(): number;
+  /** Part ``part``'s answers in the session (without the page's unsaved changes). */
   answers(part: number): PmiAnswers;
+  /** Part ``part``'s answers as the page shows them: the session's, with the page's unsaved changes. */
+  shown(part: number): PmiAnswers;
+  /** The parts the page has unsaved changes on. */
+  changedParts(): number[];
+  /** The page's changes are in the file now (a save of them succeeded): they are no longer kept. */
+  commit(): void;
   /** Every part's answers at ``rev()``, by part index: the parts a save writes (with a file's only part). */
   parts(): Record<string, PmiAnswers>;
+  /** Working answers as edit lists at the rendered revision. */
+  draftSnapshot(): { rev: number; drafts: Record<string, AnswerDraft> };
   /** An `answers` event (or a `GET answers` resync, as a "start" event). One rev can carry several
    * events (one per part): an event for a (rev, part) already received is ignored, and false is returned. */
   receive(event: AnswersEvent): boolean;
@@ -62,11 +56,13 @@ export interface AnswersSession {
   fileAnswers(part: number, answers: PmiAnswers): void;
   /** The answers of session revision ``rev`` are on disk (a save's answer, or a `saved` event). */
   markSaved(rev: number): void;
+  /** A successful page save carries the answers at the revision it committed. */
+  receiveSave(saved: SessionAnswers): void;
   /** Answers given, in any part, that are not on disk: since the last save, or since the file was opened. */
   dirty(): boolean;
   /** Called on every change that can change ``dirty()``. */
   subscribe(listener: () => void): () => void;
-  /** The page is leaving. Abort every in-flight PUT and prevent queued changes or retries. */
+  /** The page is leaving. Abort an in-flight Save and keep no more changes. */
   close(): void;
 }
 
@@ -93,9 +89,10 @@ const NONE = asGiven({});
 /** How many revisions' answers are remembered, to know what a save of a past revision wrote. */
 const HISTORY = 500;
 
-export function createSession(rev: number, parts: Record<string, PmiAnswers>, put = putAnswers): AnswersSession {
+export function createSession(rev: number, parts: Record<string, PmiAnswers>, initialDrafts: Record<string, AnswerDraft> = {}): AnswersSession {
   const requests = new AbortController();
   let state = { rev, parts: { ...parts } };
+  let drafts = { ...initialDrafts };
   // Each revision's answers (as given) by part: what a save of it put on disk.
   const history = new Map<number, Record<string, string>>();
   const remember = () => {
@@ -112,10 +109,14 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
   let savedRev: number | null = null;
   // A save of a revision not heard of yet: taken as on disk when the session reaches it.
   let awaited: number | null = null;
+  // The page's own changes, by part, in order: each from ``before`` to ``after``. Kept in the page
+  // (not sent) until a save of them succeeds, whichever part is shown meanwhile.
+  const pending = new Map<string, { before: PmiAnswers; after: PmiAnswers }[]>();
+  const shownOf = (part: number) => (pending.get(String(part)) ?? [])
+    .reduce((answers, c) => reapply(answers, c.before, c.after), state.parts[String(part)] ?? {});
   const stores = new Set<{ store: AnswersStore; update(source: AnswersSource): void }>();
   const watchers = new Set<() => void>();
   const changed = () => { for (const watcher of watchers) watcher(); };
-  let lastSource: AnswersSource = 'start';
   // The (rev, part) of the part events received.
   const heard = new Set<string>();
 
@@ -129,13 +130,41 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
     changed();
   };
 
+  const markSaved = (at: number, parts?: SessionAnswers['parts']) => {
+    if (savedRev !== null && at < savedRev) return;
+    savedRev = at;
+    if (at >= state.rev) {
+      drafts = Object.fromEntries(Object.entries(drafts).flatMap(([part, { refused }]) =>
+        refused ? [[part, { refused }]] : []));
+    }
+    awaited = null;
+    const then = parts
+      ? Object.fromEntries(Object.entries(parts).map(([k, a]) => [k, asGiven(a)]))
+      : history.get(at);
+    if (then) onDisk = then;
+    // Older than the history: without a snapshot, the latest known is the best guess.
+    else if (at < state.rev) onDisk = history.get(state.rev)!;
+    else awaited = at;
+    changed();
+  };
+
   const session: AnswersSession = {
     signal: requests.signal,
     rev: () => state.rev,
     answers: (part) => state.parts[String(part)] ?? {},
+    shown: shownOf,
+    changedParts: () => [...pending.entries()].filter(([k]) => !sameAnswers(shownOf(Number(k)), session.answers(Number(k)))).map(([k]) => Number(k)),
+    commit() {
+      pending.clear();
+      for (const s of stores) s.update('start');
+      changed();
+    },
     parts: () => ({ ...state.parts }),
+    draftSnapshot: () => ({ rev: state.rev, drafts }),
     receive(event) {
+      if (requests.signal.aborted || event.rev < state.rev) return false;
       if ('parts' in event) {
+        drafts = { ...event.drafts };
         known(event.rev, event.parts, true, event.source);
         return true;
       }
@@ -144,66 +173,37 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
       if (event.rev < state.rev || heard.has(key)) return false;
       heard.add(key);
       for (const old of heard) { if (heard.size <= HISTORY) break; heard.delete(old); }
-      lastSource = event.source;
+      drafts = { ...(event.drafts ?? drafts) };
+      if (event.draft) drafts[String(event.part)] = event.draft;
+      else delete drafts[String(event.part)];
       known(event.rev, { [String(event.part)]: event.answers }, false, event.source);
       return true;
     },
     store(part, fileAnswers) {
       const key = String(part);
       if (fileAnswers) session.fileAnswers(part, fileAnswers);
-      // The page's changes not in the session yet, in order: each from ``before`` to ``after``.
-      const pending: { before: PmiAnswers; after: PmiAnswers }[] = [];
-      const shown = () => pending.reduce((answers, c) => reapply(answers, c.before, c.after), session.answers(part));
-      let current = shown();
+      let current = shownOf(part);
       const listeners = new Set<(answers: PmiAnswers, source: AnswersSource, previous: PmiAnswers) => void>();
-      const problems = new Set<(error: Error) => void>();
-      let chain: Promise<void> = Promise.resolve();
       const update = (source: AnswersSource) => {
         const previous = current;
-        current = shown();
+        current = shownOf(part);
         if (sameAnswers(previous, current)) return;
         for (const listener of listeners) listener(current, source, previous);
       };
-
-      /** Sends the oldest pending change, onto the answers the session holds now (others' kept). */
-      const send = async () => {
-        if (requests.signal.aborted) return;
-        const change = pending[0]!;
-        for (let attempt = 0; attempt < 8; attempt++) {
-          const at = state.rev;
-          const base = session.answers(part);
-          const wanted = reapply(base, change.before, change.after);
-          if (sameAnswers(wanted, base)) return; // The session has it already.
-          try {
-            const { rev: next } = await put(at, part, wanted, requests.signal);
-            // At ``next`` the session holds ``wanted`` for this part, and the others as at ``at``.
-            known(next, { [key]: wanted }, false, 'page');
-            return;
-          } catch (error) {
-            if (requests.signal.aborted) return;
-            if (!(error instanceof Refused) || error.status !== 409 || typeof error.body.rev !== 'number' || !error.body.parts) throw error;
-            // Someone else changed the answers: they are shown, and the change is reapplied over them.
-            known(error.body.rev, error.body.parts as Record<string, PmiAnswers>, true, lastSource);
-          }
-        }
-        throw new Error('The answers kept changing while this page sent its own. Reload the page.');
-      };
-
       const store: AnswersStore = {
         part,
         get: () => current,
         set(answers, base) {
           if (requests.signal.aborted || sameAnswers(answers, base)) return;
-          pending.push({ before: base, after: answers });
+          const list = pending.get(key) ?? [];
+          list.push({ before: base, after: answers });
+          pending.set(key, list);
           update('page');
           changed();
-          chain = chain.then(send).catch((error: unknown) => {
-            for (const listener of problems) listener(error instanceof Error ? error : new Error(String(error)));
-          }).finally(() => { pending.shift(); update('start'); changed(); });
         },
         subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
-        async settled() { await chain; return state.rev; },
-        onProblem(listener) { problems.add(listener); },
+        async settled() { return state.rev; },
+        onProblem() {},
         close() { stores.delete(entry); listeners.clear(); },
       };
       const entry = { store, update };
@@ -215,19 +215,17 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
       onDisk = { ...onDisk, [String(part)]: asGiven(answers) };
       queueMicrotask(changed);
     },
-    markSaved(at) {
-      savedRev = at;
-      awaited = null;
-      const then = history.get(at);
-      if (then) onDisk = then;
-      // Older than the history: the latest known is the best guess.
-      else if (at < state.rev) onDisk = history.get(state.rev)!;
-      else awaited = at;
-      changed();
+    markSaved,
+    receiveSave(saved) {
+      if (saved.rev > state.rev || (saved.rev === state.rev && saved.drafts)) {
+        drafts = { ...saved.drafts };
+      }
+      known(saved.rev, saved.parts, true, 'start');
+      markSaved(saved.rev, saved.parts);
     },
     dirty() {
       const now: Record<string, string> = Object.fromEntries(Object.entries(state.parts).map(([k, a]) => [k, asGiven(a)]));
-      for (const { store } of stores) now[String(store.part)] = asGiven(store.get());
+      for (const k of pending.keys()) now[k] = asGiven(shownOf(Number(k)));
       return [...new Set([...Object.keys(now), ...Object.keys(onDisk)])].some((k) => (now[k] ?? NONE) !== (onDisk[k] ?? NONE));
     },
     subscribe(listener) { watchers.add(listener); return () => { watchers.delete(listener); }; },
@@ -237,8 +235,8 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
 }
 
 /** A session holding part ``part`` only, and that part's store, with the session's calls on it: for tests. */
-export function createSessionStore(part: number, rev: number, initial: PmiAnswers, onDisk: PmiAnswers = initial, put = putAnswers) {
-  const session = createSession(rev, { [String(part)]: initial }, put);
+export function createSessionStore(part: number, rev: number, initial: PmiAnswers, onDisk: PmiAnswers = initial) {
+  const session = createSession(rev, { [String(part)]: initial });
   const store = session.store(part, onDisk);
   return { ...store, get: store.get, session, receive: session.receive, markSaved: session.markSaved, dirty: session.dirty };
 }

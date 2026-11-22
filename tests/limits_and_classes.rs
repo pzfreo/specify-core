@@ -1,4 +1,6 @@
 //! Limits and combined ISO 2768 classes preserve their meaning across all public views.
+mod common;
+
 use haecceity::{p21::Document, pmi};
 use serde_json::{Map, Value, json};
 use specify_core::{
@@ -85,7 +87,17 @@ fn answered_size_and_plate_thickness_round_trip_as_limits() {
             );
         }
     }
-    let written = write(&p, &answers);
+    let applied = common::apply_edits(&p, json!({"fill": answers}));
+    assert!(
+        applied
+            .report
+            .written
+            .iter()
+            .any(|line| line.contains("7.8/8.2")),
+        "{:?}",
+        applied.report
+    );
+    let written = part::load_bytes("limits.step", applied.bytes).unwrap();
     assert_eq!(
         model(&written)
             .dimensions
@@ -97,8 +109,13 @@ fn answered_size_and_plate_thickness_round_trip_as_limits() {
     let found = existing::read_existing(&written).unwrap();
     assert_eq!(found.iter().filter(|e| e.limits.is_some()).count(), 2);
     let resumed = api::analyse(&written).unwrap();
-    assert_eq!(resumed["resume"]["answers"], json!(answers));
-    let rewritten = write(&written, resumed["resume"]["answers"].as_object().unwrap());
+    for id in answers.keys() {
+        assert!(resumed["resume"]["answers"][id].is_null(), "{id}");
+    }
+    let reapply = common::apply_edits(&written, json!({}));
+    assert!(reapply.unchanged);
+    assert_eq!(reapply.bytes, written.bytes.as_slice());
+    let rewritten = part::load_bytes("unchanged.step", reapply.bytes).unwrap();
     assert_eq!(model(&rewritten).dimensions, model(&written).dimensions);
     for p in [&written, &rewritten] {
         let scene = pmi_scene::pmi_scene(&p.bytes, None).unwrap();
@@ -110,22 +127,81 @@ fn answered_size_and_plate_thickness_round_trip_as_limits() {
         assert!(!labels.contains('±'), "{labels}");
     }
     // Changing the representation alone is a real drawing change.
-    let pm = write(&written, &given("±0.2", "±0.2"));
-    let report = revision::diff(&written, &pm).unwrap();
-    let changes: Vec<_> = report
-        .pmi
-        .items
+    let items: Vec<_> = found
         .iter()
-        .filter(|c| c.class == "changed" && c.kind == "dimension")
+        .map(|item| format!("#{}", item.number.unwrap()))
         .collect();
-    assert_eq!(changes.len(), 2, "{:?}", report.pmi.items);
-    assert!(
-        changes
-            .iter()
-            .all(|c| c.old.as_ref().unwrap().contains(" - ")
-                && c.new.as_ref().unwrap().contains('±')),
-        "{changes:?}"
+    let changed = common::apply_edits(
+        &written,
+        json!({
+            "items": {"remove": items},
+            "fill": given("±0.2", "±0.2")
+        }),
     );
+    let previous: Vec<_> = found.iter().map(|item| item.number.unwrap()).collect();
+    let mut retired = previous.clone();
+    retired.sort_unstable();
+    assert_eq!(changed.retired, retired);
+    assert!(
+        changed
+            .report
+            .written
+            .iter()
+            .any(|line| line.contains("Ø8 ±0.2")),
+        "{:?}",
+        changed.report
+    );
+    let pm = part::load_bytes("deviations.step", changed.bytes).unwrap();
+    let after = existing::read_existing(&pm).unwrap();
+    let mut issued: Vec<_> = after.iter().map(|item| item.number.unwrap()).collect();
+    issued.sort_unstable();
+    let max = *previous.iter().max().unwrap();
+    assert_eq!(issued, [max + 1, max + 2]);
+    for before in found {
+        let item = after
+            .iter()
+            .find(|item| item.r#type == before.r#type)
+            .unwrap();
+        assert_eq!(item.faces, before.faces);
+        assert_eq!(item.faces2, before.faces2);
+        assert_eq!(item.upper, Some(0.2));
+        assert_eq!(item.lower, Some(-0.2));
+        assert!(item.limits.is_none());
+    }
+    let report = revision::diff(&written, &pm).unwrap();
+    let changes = &report.pmi.items;
+    assert_eq!(changes.len(), 4, "{changes:?}");
+    assert!(changes.iter().all(|change| change.kind == "dimension"));
+    for (old_text, new_text) in [("9.8 - 10.2", "10 ±0.2"), ("⌀7.8 - ⌀8.2", "⌀8 ±0.2")] {
+        let removed = changes
+            .iter()
+            .find(|change| change.old.as_deref() == Some(old_text))
+            .unwrap();
+        let added = changes
+            .iter()
+            .find(|change| change.new.as_deref() == Some(new_text))
+            .unwrap();
+        assert_eq!(removed.class, "removed");
+        assert_eq!(removed.reason.as_deref(), Some("retired"));
+        assert!(retired.contains(&removed.number.unwrap()));
+        assert_eq!(added.class, "added");
+        assert!(issued.contains(&added.number.unwrap()));
+        assert_eq!(removed.id, added.id);
+        assert_eq!(
+            removed
+                .faces
+                .old
+                .iter()
+                .map(|support| support.face)
+                .collect::<Vec<_>>(),
+            added
+                .faces
+                .new
+                .iter()
+                .map(|support| support.face)
+                .collect::<Vec<_>>(),
+        );
+    }
     let markdown = report.markdown("Limits", None);
     assert!(
         markdown.contains("9.8 - 10.2") && markdown.contains('±'),
@@ -232,10 +308,15 @@ fn combined_classes_are_choices_and_round_trip_without_changing_defaults() {
         "ISO 2768-mK"
     );
     let resumed = api::analyse(&written).unwrap();
-    assert_eq!(
-        resumed["resume"]["answers"]["part.general_tolerance"],
-        "ISO 2768-mK"
-    );
+    // ADR P11: the class writes PMI, so the file states it rather than storing the answer.
+    let row = resumed["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == "part.general_tolerance")
+        .unwrap();
+    assert_eq!(row["state"], "stated", "{row}");
+    assert_eq!(row["value"], "ISO 2768-mK", "{row}");
     assert!(
         notation(&pmi_scene::pmi_scene(&written.bytes, None).unwrap())
             .contains("GENERAL TOLERANCES ISO 2768-mK")
@@ -307,7 +388,8 @@ fn nist_ctc01_imported_limits_survive_analysis_resume_and_rewrite() {
     // Add mode stores the answers beside the foreign PMI: both come back on reopening.
     let reopened = api::analyse(&written).unwrap();
     let resumed = reopened["resume"]["answers"].as_object().unwrap().clone();
-    assert_eq!(resumed, answers);
+    // ADR P11: stored are the answers that leave no PMI behind.
+    assert_eq!(resumed, specify_core::feature_table::storable(&answers));
     assert_eq!(
         reopened["existing"]
             .as_array()

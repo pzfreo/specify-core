@@ -1,9 +1,9 @@
-//! Reopening skips stored answers where the file already has PMI in their scope. Ordinary
-//! file reconciliation handles the question, and the file's PMI survives saving.
+//! Answers that leave no PMI behind are stored and read back (ADR P11). Reopening ignores
+//! stored answers where the file already has PMI in their scope: the file states them, and
+//! the file's PMI survives saving.
 
 mod common;
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -12,13 +12,13 @@ use specify_core::api;
 use specify_core::part::{LoadedPart, load_bytes};
 use specify_core::session::{self, Opened, Session};
 
-/// The plate's answers that write no PMI, with the defaults it is offered.
-const SILENT: [&str; 8] = [
+/// The plate's answers that write no PMI, with the defaults it is offered. (Hole 9's
+/// "general" writes its size under the general tolerance, which the file then states.)
+const SILENT: [&str; 7] = [
     "part.coating",
     "part.heat_treatment",
     "part.notes",
     "part.locating",
-    "hole.function:holes:9",
     "datum.A.flatness",
     "datum.B.control",
     "datum.C.control",
@@ -57,6 +57,27 @@ fn material() -> Map<String, Value> {
 
 fn load(bytes: Vec<u8>) -> LoadedPart {
     load_bytes("plate.step", bytes).unwrap()
+}
+
+/// Whether the feature table says the file states `id`.
+fn stated(analysis: &Value, id: &str) -> bool {
+    analysis["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["id"] == id && r["state"] == "stated")
+}
+
+/// Each of `ids` is resumed when it leaves no PMI behind, else stated by the file.
+fn resumed_or_stated<'a>(analysis: &Value, ids: impl IntoIterator<Item = &'a String>) {
+    let answers = analysis["resume"]["answers"].as_object().unwrap();
+    for id in ids {
+        assert!(
+            answers.contains_key(id) || stated(analysis, id),
+            "{id} is neither resumed nor stated: {}",
+            analysis["resume"]
+        );
+    }
 }
 
 fn asked(analysis: &Value) -> (Vec<String>, Vec<String>) {
@@ -102,25 +123,29 @@ fn offered(analysis: &Value, answers: &Map<String, Value>) -> Map<String, Value>
         .collect()
 }
 
-/// The page's Save with every default offered approved, round by round (taking one can ask
-/// another): the file last saved.
+/// The page's Save with the answers given, then every default offered approved, round by round
+/// (taking one can ask another), each an edit list filling them: the file last saved.
 fn approve_all(path: &Path, given: &Map<String, Value>) -> PathBuf {
     let shared = session_of(path);
-    session::lock(&shared).set(0, given.clone(), "page");
-    let analysis = api::analyse_file(path, None).unwrap();
+    let mut fill = given.clone();
     let mut saved = None;
     loop {
+        let analysis = session::analysis(&shared, 0).unwrap();
         let answers = session::lock(&shared)
             .answers(0)
             .cloned()
             .unwrap_or_default();
-        let defaults = offered(&analysis, &answers);
-        if defaults.is_empty() {
+        let mut with_given = answers.clone();
+        with_given.extend(fill.clone());
+        fill.extend(offered(&analysis, &with_given));
+        if fill.is_empty() {
             break;
         }
-        let approved: session::Approved = BTreeMap::from([(0, defaults)]);
-        saved =
-            Some(session::save(&shared, None, &approved, "page").unwrap_or_else(|e| panic!("{e}")));
+        let list = specify_core::edits::parse_value(json!({ "fill": fill })).unwrap();
+        saved = Some(
+            session::save_edits(&shared, None, &list, "page").unwrap_or_else(|e| panic!("{e}")),
+        );
+        fill = Map::new();
     }
     PathBuf::from(saved.expect("defaults were offered").path)
 }
@@ -137,20 +162,27 @@ fn approved_defaults_that_write_no_pmi_resume_and_are_not_asked() {
     let resume = &again["resume"];
     assert!(resume.get("conflicts").is_none(), "{resume}");
     let answers = resume["answers"].as_object().unwrap();
-    for id in SILENT.iter().chain(&WRITING) {
-        assert!(answers.contains_key(*id), "{id} is not resumed: {resume}");
+    // ADR P11: a "none" suggestion is not open, so the page never offers it for approval:
+    // left as a gap, it is not stored and is not open on reopening either. The choice that
+    // writes nothing (how holes are located) is offered, approved and stored.
+    for id in SILENT {
+        let none = id != "part.locating";
+        assert_eq!(!answers.contains_key(id), none, "{id}: {resume}");
+    }
+    // Those that write PMI are not stored; the file states them.
+    for id in WRITING {
+        assert!(!answers.contains_key(id), "{id} is stored: {resume}");
+        assert!(stated(&again, id), "{id} is not stated");
     }
     let (_, open) = asked(&again);
     assert!(open.is_empty(), "asked again: {open:?}");
 }
 
-/// `write --accept-defaults` (every default, the person's "accept all"): the defaults that
-/// write no PMI are stored with the answers and resumed; those that write PMI are not stored
-/// and read back from the file as present (#204), and nothing is asked again.
+/// The CLI edit list approves each named suggestion. Decisions that leave no PMI are stored
+/// and the other approvals read back from the file as stated (#204).
 #[test]
 fn accept_defaults_on_the_command_line_stores_the_defaults_that_write_no_pmi() {
     let dir = scratch("cli");
-    let analysis = dir.join("analysis.json");
     let answers = dir.join("answers.json");
     let out = dir.join("out.step");
     let run = |args: &[&std::ffi::OsStr]| {
@@ -164,34 +196,33 @@ fn accept_defaults_on_the_command_line_stores_the_defaults_that_write_no_pmi() {
             String::from_utf8_lossy(&got.stderr)
         );
     };
-    run(&[
-        "analyse".as_ref(),
-        plate().as_os_str(),
-        "-o".as_ref(),
-        analysis.as_os_str(),
-    ]);
-    std::fs::write(&answers, Value::Object(material()).to_string()).unwrap();
+    let analysed = api::analyse_file(&plate(), None).unwrap();
+    std::fs::write(
+        &answers,
+        common::approve_edits(&analysed, &material()).to_string(),
+    )
+    .unwrap();
     run(&[
         "write".as_ref(),
         plate().as_os_str(),
-        analysis.as_os_str(),
         answers.as_os_str(),
         "-o".as_ref(),
         out.as_os_str(),
-        "--accept-defaults".as_ref(),
     ]);
     let again = api::analyse_file(&out, None).unwrap();
     let resume = &again["resume"];
     assert!(resume.get("conflicts").is_none(), "{resume}");
     let answers = resume["answers"].as_object().unwrap();
-    let present = resume["present"].as_object().unwrap();
-    assert!(answers.contains_key("part.material"), "{resume}");
-    for id in SILENT {
+    assert!(stated(&again, "part.material"), "{resume}");
+    // The file has an implicit locating method and did not offer it for approval. An
+    // explicit edit list has no reason to turn that rule default into a stored choice.
+    assert!(!answers.contains_key("part.locating"));
+    for id in SILENT.into_iter().filter(|id| *id != "part.locating") {
         assert!(answers.contains_key(id), "{id} is not resumed: {resume}");
     }
     for id in WRITING {
         assert!(!answers.contains_key(id), "{id} is stored: {resume}");
-        assert!(present.contains_key(id), "{id} is not present: {resume}");
+        assert!(stated(&again, id), "{id} is not stated");
     }
     let (_, open) = asked(&again);
     assert!(open.is_empty(), "asked again: {open:?}");
@@ -273,10 +304,12 @@ fn foreign_flatness_withholds_stored_none() {
     }
 }
 
-/// An answer that wrote PMI whose PMI was then removed in the file is still a conflict,
-/// "removed in the file": its answer is not mistaken for one that never wrote anything.
+/// An answer that wrote PMI whose PMI is not in the file: the deletion stands (ADR P11). Its
+/// feature-and-kind is a gap, with no conflict, and the answer is not mistaken for one that
+/// never wrote anything (it is not resumed). The writer no longer stores such an answer, so
+/// there is nothing to mention; `tests/feature_table.rs` reopens a 0.2 file that did.
 #[test]
-fn an_answer_whose_pmi_was_removed_is_still_a_conflict() {
+fn an_answer_whose_pmi_was_removed_is_a_gap_again() {
     let mut given = material();
     given.insert("datum.A.flatness".into(), json!("0.05"));
     let mut wrote = given.clone();
@@ -292,12 +325,28 @@ fn an_answer_whose_pmi_was_removed_is_still_a_conflict() {
     )
     .unwrap()
     .0;
-    let again = api::analyse(&load(bytes)).unwrap();
-    let conflicts = again["resume"]["conflicts"].as_array().unwrap();
-    assert_eq!(conflicts.len(), 1, "{}", again["resume"]);
-    assert_eq!(conflicts[0]["id"], "datum.A.flatness");
-    assert_eq!(conflicts[0]["stored"], "0.05");
-    assert_eq!(conflicts[0]["file"], Value::Null);
+    let (again, warnings) = api::analyse_reporting(&load(bytes)).unwrap();
+    assert!(
+        again["resume"].get("conflicts").is_none(),
+        "{}",
+        again["resume"]
+    );
+    assert!(again["resume"]["answers"].get("datum.A.flatness").is_none());
+    let row = again["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == "datum.A.flatness")
+        .unwrap();
+    assert_eq!(row["state"], "gap", "{row}");
+    assert_eq!(
+        warnings
+            .iter()
+            .filter(|w| w.contains("datum.A.flatness"))
+            .count(),
+        0,
+        "{warnings:?}"
+    );
     // The silent answers stored beside it resume.
     let answers = again["resume"]["answers"].as_object().unwrap();
     for id in SILENT.iter().filter(|id| **id != "datum.A.flatness") {
@@ -305,30 +354,136 @@ fn an_answer_whose_pmi_was_removed_is_still_a_conflict() {
     }
 }
 
-/// A page's Save of an assembly approving defaults for a part with no answers of its own
-/// (`acceptDefaults: {"1": {...}}`): the part is written with them, and they are stored.
+/// ADR P11 rule 2: an approval the plan writes nothing for (the pin's ⌀10 left to the general
+/// tolerance: its surface is datum A, and no size is written on a datum's own faces) is stored
+/// as decided. Saved as an edit list (piece 6) on the pin, part 1 of the assembly: reopened,
+/// its row is decided, not a gap, and a second save with every default keeps it.
 #[test]
-fn an_assembly_part_with_only_approved_defaults_is_written() {
-    let dir = scratch("assembly");
+fn an_approval_that_writes_nothing_stays_decided() {
+    let dir = scratch("writes-nothing");
     let input = dir.join("assembly.step");
     std::fs::copy(
         common::fixtures().join("parts").join("assembly.step"),
         &input,
     )
     .unwrap();
-    let pin = api::analyse_file(&input, Some(1)).unwrap();
-    let defaults = offered(&pin, &Map::new());
-    assert!(!defaults.is_empty());
+    let id = "diameter.fit:turned_steps:0";
     let shared = session_of(&input);
-    let approved: session::Approved = BTreeMap::from([(1, defaults.clone())]);
-    let saved = session::save(&shared, None, &approved, "page").unwrap_or_else(|e| panic!("{e}"));
-    let written = saved.report["written"].to_string();
-    assert!(written != "[]", "{}", saved.report);
+    let pin = map(json!({"part.material": "steel", (id): "general"}));
+    let analysis = api::analyse_file(&input, Some(1)).unwrap();
+    let mut fill = pin.clone();
+    fill.extend(offered(&analysis, &pin));
+    let list = specify_core::edits::parse_value(json!({ "fill": fill })).unwrap();
+    let saved = session::save_part_edits(&shared, Some(1), None, &list, "page")
+        .unwrap_or_else(|e| panic!("{e}"));
+    let report = saved.report.to_string();
+    assert!(
+        report.contains(&format!(
+            "answer {id} ('general'): approved, but nothing of its kind was written on its feature"
+        )),
+        "{report}"
+    );
     let again = api::analyse_file(Path::new(&saved.path), Some(1)).unwrap();
+    let row = again["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == id)
+        .unwrap();
+    assert_eq!(
+        (&row["state"], &row["value"]),
+        (&json!("decided_none"), &json!("general")),
+        "{row}"
+    );
     let answers = again["resume"]["answers"].as_object().unwrap();
-    for (id, value) in &defaults {
-        assert_eq!(answers.get(id), Some(value), "{id}: {}", again["resume"]);
-    }
+    assert_eq!(
+        answers.get(id),
+        Some(&json!("general")),
+        "{}",
+        again["resume"]
+    );
+    // Saved again with every default the reopened file offers: it stays decided.
+    let shared = session_of(Path::new(&saved.path));
+    let more = offered(&again, answers);
+    let list = specify_core::edits::parse_value(json!({ "fill": more })).unwrap();
+    let twice = session::save_part_edits(&shared, Some(1), None, &list, "page")
+        .unwrap_or_else(|e| panic!("{e}"));
+    let third = api::analyse_file(Path::new(&twice.path), Some(1)).unwrap();
+    assert_eq!(third["resume"]["answers"].get(id), Some(&json!("general")));
+}
+
+/// The CLI approves suggestions by name. `questions --open` omits the saved decision
+/// and a later write with an empty edit list succeeds.
+#[test]
+fn the_command_line_keeps_an_approval_that_writes_nothing_decided() {
+    let dir = scratch("writes-nothing-cli");
+    let run = |args: &[&std::ffi::OsStr]| {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_specify-core"))
+            .args(args)
+            .output()
+            .unwrap();
+        (
+            out.status.success(),
+            String::from_utf8_lossy(&out.stdout).to_string(),
+            String::from_utf8_lossy(&out.stderr).to_string(),
+        )
+    };
+    let path = |name: &str| dir.join(name).into_os_string();
+    std::fs::copy(
+        common::fixtures().join("parts/pin.step"),
+        dir.join("pin.step"),
+    )
+    .unwrap();
+    let analysed = api::analyse_file(&dir.join("pin.step"), None).unwrap();
+    std::fs::write(
+        dir.join("steel.json"),
+        common::approve_edits(&analysed, &material()).to_string(),
+    )
+    .unwrap();
+    std::fs::write(dir.join("none.json"), "{}").unwrap();
+    let os = |s: &str| std::ffi::OsString::from(s);
+    let (ok, _, err) = run(&[
+        &os("analyse"),
+        &path("pin.step"),
+        &os("-o"),
+        &path("a.json"),
+    ]);
+    assert!(ok, "{err}");
+    let (ok, out, err) = run(&[
+        &os("write"),
+        &path("pin.step"),
+        &path("steel.json"),
+        &os("-o"),
+        &path("saved.step"),
+    ]);
+    assert!(ok, "{err}");
+    assert!(
+        out.contains("diameter.fit:turned_steps:0"),
+        "reported: {out}"
+    );
+    let (ok, _, err) = run(&[
+        &os("analyse"),
+        &path("saved.step"),
+        &os("-o"),
+        &path("b.json"),
+    ]);
+    assert!(ok, "{err}");
+    let (ok, out, err) = run(&[&os("questions"), &path("b.json"), &os("--open")]);
+    assert!(ok, "{err}");
+    assert!(!out.contains("diameter.fit:turned_steps:0"), "{out}");
+    let (ok, _, err) = run(&[
+        &os("write"),
+        &path("saved.step"),
+        &path("none.json"),
+        &os("-o"),
+        &path("again.step"),
+    ]);
+    assert!(ok, "a plain write of the saved file: {err}");
+    let again = api::analyse_file(&dir.join("again.step"), None).unwrap();
+    assert_eq!(
+        again["resume"]["answers"]["diameter.fit:turned_steps:0"],
+        json!("general")
+    );
 }
 
 /// `bytes` with `added` written by haecceity's own writer (Add): another tool's PMI, without
@@ -380,7 +535,7 @@ fn silent_answers_resume_on_clean_plate_and_enclosure_faces() {
         answers.insert("part.heat_treatment".into(), json!("None"));
         answers.insert("part.notes".into(), json!([]));
         let intent = api::preview(&analysis, &answers).unwrap();
-        let (bytes, _) =
+        let (bytes, report) =
             api::write_bytes(part.bytes.to_vec(), &[(intent, Some(answers.clone()))]).unwrap();
         let back = load_bytes("clean.step", bytes).unwrap();
         assert!(
@@ -389,10 +544,17 @@ fn silent_answers_resume_on_clean_plate_and_enclosure_faces() {
                 .is_empty()
         );
         let again = api::analyse(&back).unwrap();
-        assert_eq!(again["resume"]["answers"], json!(answers));
+        // A partial preview that leaves out the size has not fulfilled the hole's
+        // general approval. Retain the ordinary decisions and leave this gap open.
+        let stored = specify_core::feature_table::storable(&answers);
+        assert_eq!(again["resume"]["answers"], json!(stored));
+        assert!(report.not_written.iter().any(|line| {
+            line == &format!("answer {} ('general'): the plan supplied no writable PMI on this feature; remains open", hole.id)
+        }), "{report:?}");
         assert!(again["resume"].get("conflicts").is_none());
+        let open = asked(&again).1;
         for id in answers.keys() {
-            assert!(!asked(&again).1.contains(id), "{id}");
+            assert_eq!(open.contains(id), *id == hole.id, "{id}");
         }
     }
 }
@@ -480,8 +642,9 @@ fn edited_location_survives_two_saves(old: i32, new: i32, basic: bool, question:
     assert!(location_measure(&part, f64::from(new), basic).is_some());
     for _ in 0..2 {
         let analysis = api::analyse(&part).unwrap();
-        // The basic case has file position PMI. The nominal location leaves function open.
-        assert_withheld(&analysis, question, !basic);
+        // The basic case has file position PMI. In the nominal case the file states the
+        // hole's size under the general tolerance (ADR P11: whoever wrote it).
+        assert_withheld(&analysis, question, false);
         (part, _) = saved_again(&part, &analysis);
         assert!(
             location_measure(&part, f64::from(new), basic).is_some(),
@@ -496,6 +659,9 @@ fn flatness_on_the_files_moved_datum_survives_two_saves() {
     assert_eq!(stored["datum.A"], json!([2]));
     assert_eq!(stored["datum.A.flatness"], "none");
     let mut answers = stored.clone();
+    // general dimensions are rows (Paul, 2026-11-21). Accept their suggestions with
+    // datum A in its final position, as the measured spans can change when it moves.
+    answers.retain(|id, _| !id.starts_with("length:planes:") && !id.starts_with("location:holes:"));
     answers.insert("datum.A".into(), json!([4]));
     answers.insert("datum.A.flatness".into(), json!("0.05"));
     let mut part = load(written(&answers, &stored));
@@ -559,15 +725,9 @@ fn a_marked_position_tolerance_contradicts_stored_none() {
     let resume = &analysis["resume"];
     let (back, again) = saved_again(&edited, &analysis);
     assert_eq!(positions(&back), [(0.2, true)], "{resume}");
-    // The marked position answers the question as file PMI under #204.
+    // The marked position answers the question as file PMI (ADR P11).
     assert_withheld(&analysis, hole, false);
-    assert!(
-        resume["file"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|id| id == hole)
-    );
+    assert!(stated(&analysis, hole), "{resume}");
     let (back, _) = saved_again(&back, &again);
     assert_eq!(positions(&back), [(0.2, true)]);
 }
@@ -698,8 +858,8 @@ fn another_tools_general_note_contradicts_stored_no_notes() {
     let input = dir.join("noted.step");
     std::fs::write(&input, back.bytes.as_slice()).unwrap();
     let shared = session_of(&input);
-    let saved =
-        session::save(&shared, None, &Default::default(), "page").unwrap_or_else(|e| panic!("{e}"));
+    let saved = session::save_edits(&shared, None, &Default::default(), "page")
+        .unwrap_or_else(|e| panic!("{e}"));
     let reopened = api::analyse_file(Path::new(&saved.path), None).unwrap();
     assert_eq!(
         reopened["part"]["notes"],
@@ -806,10 +966,7 @@ fn another_part_resumes_its_silent_answers() {
         let again = api::analyse(&back).unwrap();
         let resume = &again["resume"];
         assert!(resume.get("conflicts").is_none(), "{resume}");
-        let answers = resume["answers"].as_object().unwrap();
-        for id in stored.keys() {
-            assert!(answers.contains_key(id), "{id} is not resumed: {resume}");
-        }
+        resumed_or_stated(&again, stored.keys());
         let (_, open) = asked(&again);
         assert!(open.is_empty(), "asked again: {open:?}");
     }
@@ -875,9 +1032,9 @@ fn file_process(part: &LoadedPart) -> (usize, Value) {
     (sets, process::read_pmi(&read.parts[0]).unwrap().value)
 }
 
-/// Both P9 rules on one file: another tool changed the process (#208) and added a flatness on
-/// datum A against the stored "none" (no-PMI answers). Two reopen-and-save rounds keep both:
-/// the process is a foreign conflict on reopening, and the flatness answer is withheld.
+/// Another tool changed the process (#208) and added a flatness on datum A against the stored
+/// "none" (no-PMI answers). Two reopen-and-save rounds keep both: the file states them (ADR
+/// P11), with no conflict, and the stored "none" is dropped.
 #[test]
 fn foreign_process_and_flatness_survive_two_saves() {
     use specify_core::process;
@@ -889,21 +1046,12 @@ fn foreign_process_and_flatness_survive_two_saves() {
     assert_eq!(file_process(&part), (1, json!(process::CAST)));
     for round in 0..2 {
         let analysis = api::analyse(&part).unwrap();
-        let conflict = analysis["resume"]["conflicts"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|c| c["id"] == process::QUESTION);
-        if round == 0 {
-            let conflict = conflict.expect("the changed process conflicts with the saved answer");
-            assert_eq!(conflict["stored"], process::MACHINED);
-            assert_eq!(conflict["file"], process::CAST);
-            assert_eq!(conflict["foreign"], true);
-        } else {
-            // #208: a foreign process's answer is not stored again, so the file's process
-            // stands unchallenged on later reopenings.
-            assert!(conflict.is_none(), "{}", analysis["resume"]);
-        }
+        // ADR P11: the file's process is simply the file's: no conflict, in any round.
+        assert!(
+            analysis["resume"].get("conflicts").is_none(),
+            "{}",
+            analysis["resume"]
+        );
         assert!(
             analysis["resume"]["answers"]
                 .get(process::QUESTION)
@@ -928,10 +1076,9 @@ fn foreign_process_and_flatness_survive_two_saves() {
                 .any(|e| e.r#type == "Flatness" && e.faces == [2] && e.value == Some(0.05)),
             "round {round}: lost the flatness"
         );
-        // The withheld answer stays dormant in the file, still withheld on the next reopen.
-        assert_eq!(
-            specify_core::resume::stored(&part.bytes)[&0]["answers"]["datum.A.flatness"],
-            "none"
-        );
+        // ADR P11: the file's flatness states the question, so the stored "none" is not read
+        // back. (It stays in the payload until a save from the table drops it: piece 2.)
+        let again = api::analyse(&part).unwrap();
+        assert!(again["resume"]["answers"].get("datum.A.flatness").is_none());
     }
 }

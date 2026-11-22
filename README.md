@@ -13,10 +13,9 @@ answer, with its reason, for each question:
 - fits, threads, positions;
 - surface finish and the general tolerance.
 
-It writes your answers into the STEP file as AP242 semantic PMI, which CAD and inspection tools
-can read, and verifies the file by reading it back. The answers are stored in the file too. When
-the part changes, Specify carries them to the new revision and says what changed. An answer it
-can't place is listed, never silently moved.
+It writes requirements into the STEP file as AP242 semantic PMI and verifies them by reading
+the file back. When the part changes, Specify carries requirements to the new revision and lists
+anything it could not place.
 
 Specify captures manufacturing intent; it is not a DFM (design-for-manufacturability) checker.
 It does not judge whether a part can be made, or how cheaply: wall thickness, tool access,
@@ -87,29 +86,27 @@ The flow is the same everywhere:
 ```bash
 specify-core analyse plate.step -o plate.analysis.json          # features, faces, existing PMI
 specify-core questions plate.analysis.json --open                # what is still unanswered
-echo '{"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"}' > answers.json
-# The defaults the person approved, by part, each with the value they saw (here every
-# default offered for the open questions, once the person has seen the list and agreed):
-specify-core questions plate.analysis.json --answers answers.json --open \
-  | jq '{"0": (map(select(.default != null) | {(.id): .default}) | add // {})}' > approved.json
-# Export the answers plus those defaults, with face evidence; stderr lists what is still open:
-specify-core questions plate.analysis.json --answers answers.json \
-  --resolve-defaults --step plate.step --accept-defaults approved.json > plate.answers.json
-specify-core write plate.step plate.analysis.json plate.answers.json -o plate-pmi.step
+echo '{"fill":{"part.material":"6082-T6","hole.function:holes:9":"fit:H7"},"accept_suggestions":["part.general_tolerance"]}' > edits.json
+specify-core write plate.step edits.json -o plate-pmi.step
 ```
 
-An export takes no default the person did not approve (ADR P9), so without `--accept-defaults`
-it is usually incomplete. `write` still needs a complete set: answer the open questions, or
-approve their defaults in the approvals file, and export again. `write` refuses until every
-question has an answer, or its own `--accept-defaults` supplies the rest.
-It prints a JSON report with `output`, `written`, `not_written` and `warnings`. `not_written`
-gives each reason, including an answer whose question is not asked given the other answers
-([answers](docs/answers.md#answers-to-questions-not-asked)).
+`write STEP EDITS.json` applies the list in place to the PMI, then writes the result to the chosen
+output. Use `--part K` for a part in an assembly. Add `--check` in place of `-o` to validate the
+list without writing. A save can leave gaps open. The file's PMI records each requirement, and
+only decisions that write no PMI are stored alongside it. See [edit lists](docs/answers.md).
+
+The JSON report lists `written`, `not_written` and `warnings`, with the remaining open
+gaps under `missing`. To revise a stated value, send the value you saw as `expect`.
+
+```bash
+echo '{"change":{"part.material":{"to":"7075-T6","expect":"6082-T6"}}}' > change.json
+specify-core write plate-pmi.step change.json -o plate-revised.step
+```
 
 Exit codes:
 - **0:** done.
 - **1:** a write that didn't verify, or a file that can't be read.
-- **2:** a refusal, such as an unanswered question, an invalid answer or bad arguments.
+- **2:** an edit was refused or the command arguments are invalid.
 
 `specify-core mesh plate.step -o plate.mesh.json` writes the part's triangles grouped by face,
 for a face picker. Add `--max-deviation-mm 0.05` to request a measured chordal
@@ -170,17 +167,20 @@ analysis = api.analyse("plate.step")
 for q in api.questions(analysis, {}):                 # what is still unknown
     print(q.id, "|", q.prompt, "| default:", q.default)
 
-answers = {"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"}
-intent = api.apply(analysis, answers, accept_defaults=True)
-report = api.write("plate.step", intent, "plate-pmi.step", answers=answers)
+# An edit list, applied all or nothing (ids are the feature table's: analysis["table"]).
+edits = {"fill": {"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"},
+         "accept_suggestions": ["part.general_tolerance"]}
+print(api.check_edits("plate.step", edits)["applicable"])
+report = api.write("plate.step", edits, "plate-pmi.step")
 
-print(report.written)       # ['datum A', 'Ø8 H7 on holes:9', 'position 0.05 on holes:9', ...]
-print(report.not_written)   # anything not written, with the reason (an unasked answer too)
+print(report.written)       # ['material 6082-T6', 'Ø8 H7 on holes:9', ...]
+print(report.retired)       # characteristic numbers retired by a change or a remove
 ```
 
 The other functions are listed in the [package README](crates/specify-core-py/README.md):
 - `parts` and `load`, for assemblies and reading a file once;
-- `preview`;
+- `preview` and `apply`;
+- `check_edits`;
 - `write_parts`;
 - `mesh`;
 - `diff`;
@@ -218,27 +218,26 @@ and characteristic numbers are covered in [docs/library.md](docs/library.md).
 
 ### Opening the file again
 
-The answers are stored in the written file, so analysing it again resumes them. In Python,
-`api.analyse("plate-pmi.step")["resume"]["answers"]` returns them. Parts made by code-first CAD
-tools that name their faces (cadgen today) keep their answers on the same faces across rebuilds;
+Analysing the written file reads its requirements back from PMI. In Python,
+`api.analyse("plate-pmi.step")["table"]` shows the file’s stated requirements, gaps and
+decided-none rows. The file stores decisions that leave no PMI. Parts made by code-first CAD
+tools that name their faces (cadgen today) help carry requirements across rebuilds;
 see [docs/face-names.md](docs/face-names.md).
 
 ### Assemblies
 
-An assembly is specified a part at a time. `parts` lists its distinct parts; a part placed
-twice is one part with two placements. `analyse` and `mesh` take a part index. `write` takes an
-analysis and answers for each part and writes them all at once, each part's PMI on its own
-product definition:
+An assembly is specified a part at a time. `parts` lists its distinct parts. A part placed
+twice has one definition and two placements. `analyse`, `mesh` and `write` take a part index.
 
 ```bash
 specify-core parts asm.step
 specify-core analyse asm.step --part 0 -o plate.json
 specify-core analyse asm.step --part 1 -o pin.json
-specify-core write asm.step plate.json plate-a.json pin.json pin-a.json -o out.step --accept-defaults
+specify-core write asm.step plate-edits.json --part 0 -o plate-specified.step
+specify-core write plate-specified.step pin-edits.json --part 1 -o out.step
 ```
 
-Writing a part again replaces its PMI and answers. A part written alone leaves the other parts
-as they were.
+Each edit list applies to the selected part. Every other part and placement keeps its records.
 
 ## Review a revision
 
@@ -248,6 +247,13 @@ two annotated files. It reads only the PMI in the two files.
 
 ```bash
 specify-core diff old.step new.step -o changes
+```
+
+Carry fills the new revision’s gaps wherever it can, retains characteristic numbers where
+available, and reports requirements that need review or could not carry. See [docs/carry.md](docs/carry.md).
+
+```bash
+specify-core carry old.step new.step -o new.specified.step
 ```
 
 `changes/` gets:
@@ -311,11 +317,7 @@ stdout. Each request carries everything it needs, so a restarted process loses n
 echo '{"id": 1, "op": "analyse", "step": "part.step"}' | specify-core serve
 ```
 
-- **Ops:** `parts`, `analyse`, `questions`, `preview`, `interpret`, `export_answers` and `write`.
-  `export_answers` takes `step`, `analysis`, `answers` and optional `accept_defaults` (the
-  defaults approved, `{"<part>": {"<id>": value}}`), and returns `result.answers` (what is
-  answered plus those defaults, with geometry evidence), `complete` and `missing`.
-  See [answer files](docs/answers.md#export-a-sidecar).
+- **Ops:** `parts`, `analyse`, `questions`, `preview`, `interpret` and `write`.
 - `analyse` accepts optional `max_deviation_mm` for the returned mesh (for example `0.05`).
   It must be a finite number of at least 0.001 mm; invalid or unmet bounds return `invalid`.
   Omission or `null` preserves the default mesh. See [mesh tolerance](docs/mesh-tolerance.md).
@@ -354,7 +356,9 @@ that implementation wrote. The `specify-core` Python package is now this engine;
 
 | | |
 | --- | --- |
-| [docs/diff.md](docs/diff.md) | how revisions are compared and answers carried |
+| [docs/ids.md](docs/ids.md) | the ids other tools can build on: part-level ids, requirement kinds, feature ids |
+| [docs/diff.md](docs/diff.md) | review PMI differences between revisions |
+| [docs/carry.md](docs/carry.md) | carry requirements and decisions to a new revision |
 | [docs/face-names.md](docs/face-names.md) | answers on named faces (code-first CAD) |
 | [docs/characteristic-numbers.md](docs/characteristic-numbers.md) | characteristic numbers |
 | [docs/wasm.md](docs/wasm.md) | the WebAssembly module |

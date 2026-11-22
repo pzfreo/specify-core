@@ -115,12 +115,17 @@ known-difference verdicts. Regenerate with `SPECIFY_CORPUS_ALL=1 UPDATE_RULE_DEF
 `locating_plus_minus_needs_no_positions_or_datums` now expects A/B/C in Rust without
 positions or FCFs, and `rules_datums_proposed_only_when_measured_from` expects the default
 frame even with every hole set to general. Their `.result.json.gz` files retain Python's
-original no-datum outputs as evidence. CLI/serve envelopes (including complete `--intent`
-text and refusal messages) are pinned separately in `../cli_datum_origins.json.gz`, with
+original no-datum outputs as evidence. The active CLI and serve envelopes, including
+refusal messages, are checked separately in `../cli_datum_origins.json.gz`, with
 verdicts in `../known_differences/cli.json`. Regenerate with
 `SPECIFY_CORPUS_ALL=1 UPDATE_CLI_DATUM_ORIGINS=1 cargo test --release --test cli the_command_line_matches_the_oracle`;
 set `QUIDDITY_CORPUS` to include corpus cases. Regeneration without a corpus retains their
 existing snapshot entries. The independent library/executable comparison must be empty.
+
+Quiddity 0.5.5 removes the fillet radius floor (#297). Fillet rows wait for quiddity 0.5.6
+radius groups (Paul, 2026-11-22). The live CLI uses the new step-level axes and supporting
+cap accounting (#307). The exact arrays and changed report values have reasons in the
+known-difference ledgers. The frozen Python captures are retained.
 
 Corpus-backed scenarios: 15 scenarios answer a corpus case whose input is not committed (11 on
 `corpus/nist/nist_ctc_03_asme1_rc`, from specify-core's CTC-03 tests, and 4 on
@@ -162,3 +167,7 @@ existing `tools/capture.py cross-engine` tool (see `../cross_engine/README.md`).
 through its existing `UPDATE_CLI_DATUM_ORIGINS=1 cargo test --release --test cli
 the_command_line_matches_the_oracle` hook, preserving full before/after values if envelopes
 change. The STEP byte fixtures themselves are the cross-engine `rust.step.gz` files.
+
+The CLI datum-origin snapshot records exact observations. A re-recorded entry can also carry
+a `reason` explaining the change. The CLI oracle compares the observation fields and retains
+the reason when a capture reproduces those fields exactly.

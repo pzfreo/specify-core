@@ -246,8 +246,9 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
     // and Basic bolt circles, and consolidates General rows. Recognition
     // remains unchanged. Exact tap defaults add three depth questions,
     // replace the general bore-size rows, and resolve their conflicting proposal.
-    // Exact unsupported proposals stay visible. Each count includes the appended
-    // part.process question (docs/process.md); nothing else in the interview changed.
+    // Exact unsupported proposals stay visible. Each ordinary question count includes
+    // part.process (docs/process.md). The additional measurements are counted separately
+    // because general dimensions are rows (Paul, 2026-11-21).
     for (
         file,
         count,
@@ -265,7 +266,7 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
             66,
             43,
             56,
-            44,
+            42, // 0.5.5 removes the two supporting-cap locations.
             3,
             62,
             &[
@@ -278,7 +279,7 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
             4,
             19,
             0,
-            17,
+            16, // 0.5.5 makes the connector's cap supporting evidence.
             2,
             6,
             &[][..],
@@ -341,7 +342,19 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
         }
         let roundtrip: Value = serde_json::from_str(&analysis.to_string()).unwrap();
         let qs = questions(&roundtrip, &Map::new()).unwrap();
-        assert_eq!(qs.len(), question_count, "{file}: interview changed");
+        let standalone = qs
+            .iter()
+            .filter(|q| q.id.starts_with("length:planes:") || q.id.starts_with("location:holes:"))
+            .count();
+        // 0.5.5 omits the two supporting-cap lengths in CGB243 and the one
+        // in the threaded connector.
+        assert_eq!(standalone, if count == 4 { 34 } else { 8 }, "{file}");
+        // Fillet rows wait for quiddity 0.5.6 radius groups (Paul, 2026-11-22).
+        assert_eq!(
+            qs.len() - standalone,
+            question_count,
+            "{file}: ordinary questions"
+        );
         let applied = intent(&roundtrip).unwrap();
         assert_eq!(applied.requirements.len(), requirements, "{file}");
         assert_eq!(applied.general.len(), general, "{file}");
@@ -365,9 +378,12 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
             "{file}: exact unresolved proposals"
         );
         let resumed = specify_core::part::load(&output, None).unwrap();
+        // ADR P11: stored are the answers that leave no PMI (the material is stated).
         assert_eq!(
             specify_core::resume::answers_for(&resumed).unwrap(),
-            answers.as_object().cloned(),
+            Some(specify_core::feature_table::storable(
+                answers.as_object().unwrap()
+            )),
             "{file}"
         );
         println!(

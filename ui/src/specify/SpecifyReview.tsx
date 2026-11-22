@@ -7,7 +7,7 @@ import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from 
 import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
-import { defaultShowing, drawnShown, drawnViews, partCentre, type DrawnPmi } from './drawn';
+import { defaultShowing, drawnGroup, drawnShown, drawnViews, partCentre, type DrawnPmi } from './drawn';
 import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, byBalloon, characteristics, noteStatements, ranges, toCsv } from './characteristics';
 import { as9102 } from './as9102';
@@ -160,7 +160,14 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const datumGroup = rows.find((g) => g.key === 'datums') ?? { key: 'datums', title: 'Datums', questions: [] };
   const featureRows = rows.filter((g) => g.key !== 'datums');
   // Settings the file already states are not asked; they are shown as read.
-  const stated = Object.entries(session.analysis.part ?? {});
+  // `part` leaves a part of an assembly's material and general tolerance out; the feature
+  // table states them for every part (ADR P11), so its stated part rows fill the gaps.
+  const stated = Object.entries({
+    ...Object.fromEntries((session.analysis.table?.rows ?? [])
+      .filter((r) => r.state === 'stated' && r.id.startsWith('part.') && r.id !== 'part.process' && typeof r.value === 'string')
+      .map((r) => [r.id.slice('part.'.length), r.value as string])),
+    ...(session.analysis.part ?? {}),
+  });
   const notes = partGroup?.questions.filter((q) => NOTE_FIELDS.has(q.id)) ?? [];
   // A suggestion that states nothing is said as such, by its question (specify-ui#14).
   const notesSummary = notes.map((q) => (noneSuggested(q, answers) ? `${labelOf(q)}: ${NONE_SUGGESTED}` : String(answerOf(q, answers) ?? '')))
@@ -327,7 +334,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   }, [drawnShow, seen.farSide, drawnPmi, session]);
   // Ways to look square at the drawn PMI shown: the file's saved views, and each plane's front.
   const squares = useMemo(() => (drawnPmi
-    ? drawnViews(drawnPmi, (g, item) => drawnShown(g.source, item === null ? undefined : drawnPmi.links[item]?.status, drawnShow), partCentre(session.mesh.positions))
+    ? drawnViews(drawnPmi, (g, item) => drawnShown(g.source, item === null ? undefined : drawnGroup(drawnPmi.links[item]), drawnShow), partCentre(session.mesh.positions))
     : []), [drawnPmi, drawnShow, session]);
 
   useEffect(() => { picker.current?.setTools?.(moreTools); }, [moreTools, session]);
@@ -888,7 +895,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                     onChange={(event) => setShow({ ...show, [key]: event.target.checked })}
                   />{' '}
                   {{
-                    labels: 'Labels', defaults: 'Defaults to check', existing: 'PMI from the file',
+                    labels: 'Labels', defaults: 'Defaults to check', existing: 'Requirements',
                     general: 'General dimensions', farSide: 'Hide far side',
                   }[key]}
                 </label>
@@ -959,7 +966,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                   >
                     {c.letter}
                   </button>
-                  <span className="what">{c.existing ? `${c.text}, from the file` : c.text}</span>
+                  <span className="what">{c.text}</span>
                 </span>
               ))}
             </div>
@@ -969,7 +976,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               readOnly rows={setRows} selected={selectedChar}
               onSelect={(id, at) => { setSelectedDatum(null); showChar(id, at); }}
               onDownload={() => {}} skipped={skipped} onSkip={() => {}} onEdit={() => null} onCallOut={() => null}
-              generalTolerance={preview?.part['general_tolerance'] ?? ''} calledOut={0}
+              generalTolerance={preview?.part['general_tolerance'] ?? session.analysis.part?.['general_tolerance'] ?? ''} calledOut={0}
             />
           )}
           {setChips.length === 0 && setRows.length === 0 && <p className="pmi-lab-none">No PMI is set on this part.</p>}
@@ -1058,7 +1065,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               skipped={skipped} onSkip={skip} onEdit={readOnly ? () => null : editChar}
               onCallOut={(row) => (!readOnly && row.source.startsWith('general:')
                 ? () => callOut(Number(row.source.slice('general:'.length)), row.text) : null)}
-              generalTolerance={preview?.part['general_tolerance'] ?? ''}
+              generalTolerance={preview?.part['general_tolerance'] ?? session.analysis.part?.['general_tolerance'] ?? ''}
               calledOut={added.filter(([, extra]) => CALL_OUTS.includes(extra.kind)).length}
             />
           ) : (<>
@@ -1067,7 +1074,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               {stated.map(([key, value]) => (
                 <div key={key} className="pmi-lab-line stated">
                   <span className="name">{PART_FIELD[`part.${key}`] ?? key}</span>
-                  <span className="value">{value} <small>(from the file)</small></span>
+                  <span className="value">{value}</span>
                 </div>
               ))}
               {partGroup?.questions.filter((q) => !NOTE_FIELDS.has(q.id)).map((q) => {
@@ -1168,7 +1175,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                   >
                     {c.letter}
                   </button>
-                  <span className="what">{c.existing ? `${c.text}, from the file` : c.text}</span>
+                  <span className="what">{c.text}</span>
                   {!c.existing && !(`datum.${c.letter}` in answers) && <small className="sg">suggested</small>}
                   {!c.existing && !readOnly && (
                     <button

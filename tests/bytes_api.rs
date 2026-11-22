@@ -44,60 +44,112 @@ fn answers(fit: &str) -> Map<String, Value> {
     .unwrap()
 }
 
-/// verify_pmi.rs: the plate written with an H7 fit, then that file written again with H8. Each
-/// time the bytes and the report's `written`, `not_written` and `warnings` from memory equal
-/// the file writer's, and the bytes written resume the answers when loaded from memory. Also
-/// what the editor's session takes from the loaded part: its binding, analysis and mesh.
+/// verify_pmi.rs: `input` written with `fit` by `write_bytes` and by `write` gives the same
+/// bytes and the same `written`, `not_written` and `warnings`; also what the editor's session
+/// takes from the loaded part (its binding, analysis and mesh) is the same from memory.
+fn same_from_memory_and_disk(input: &Path, fit: &str, output: &Path) -> Vec<u8> {
+    let bytes = std::fs::read(input).unwrap();
+    let answers = answers(fit);
+    let in_memory = part::load_bytes("part.step", bytes).unwrap();
+    let native = part::load(input, None).unwrap();
+    assert_eq!(in_memory.binding, native.binding);
+    assert_eq!(in_memory.path, PathBuf::from("part.step"));
+    let analysis = api::analyse(&in_memory).unwrap();
+    assert_eq!(analysis, api::analyse(&native).unwrap());
+    assert_eq!(api::mesh(&in_memory), api::mesh(&native));
+
+    let intent = api::preview(&analysis, &answers).unwrap();
+    let (memory_bytes, memory_report) =
+        writer::write_bytes(&in_memory, &intent, Some(&answers)).unwrap();
+    let native_report = writer::write(&native, &intent, output, Some(&answers)).unwrap();
+    assert_eq!(
+        memory_bytes,
+        std::fs::read(output).unwrap(),
+        "write_bytes differs from write ({fit})"
+    );
+    let (memory_report, native_report) = (memory_report.to_dict(), native_report.to_dict());
+    for key in ["written", "not_written", "warnings"] {
+        assert_eq!(
+            memory_report[key], native_report[key],
+            "the reports differ on {key} ({fit})"
+        );
+    }
+    assert_eq!(memory_report["output"], json!("part.step"));
+    assert!(
+        memory_report["written"]
+            .as_array()
+            .is_some_and(|w| !w.is_empty()),
+        "something is written ({fit})"
+    );
+    memory_bytes
+}
+
+/// A fresh write from memory is the file writer's, byte for byte, with the same report.
 #[test]
-fn bytes_in_bytes_out_match_the_file_writer_fresh_and_resumed() {
-    let dir = temp("parity");
+fn bytes_in_bytes_out_match_the_file_writer_fresh() {
+    let dir = temp("parity-fresh");
+    same_from_memory_and_disk(&fixture("plate"), "fit:H7", &dir.join("native-0.step"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A fit changed on the written file is identical through both edit-list entry points.
+#[test]
+fn bytes_in_bytes_out_match_the_file_writer_resumed() {
+    use specify_core::{characteristics, edits, existing};
+    use writer::apply::{apply_bytes, apply_to};
+
+    let dir = temp("parity-resumed");
     let mut input = fixture("plate");
-    for (index, fit) in ["fit:H7", "fit:H8"].iter().enumerate() {
-        let bytes = std::fs::read(&input).unwrap();
-        let answers = answers(fit);
-
-        let in_memory = part::load_bytes("part.step", bytes).unwrap();
-        let native = part::load(&input, None).unwrap();
-        assert_eq!(in_memory.binding, native.binding);
-        assert_eq!(in_memory.path, PathBuf::from("part.step"));
-        let analysis = api::analyse(&in_memory).unwrap();
-        assert_eq!(analysis, api::analyse(&native).unwrap());
-        assert_eq!(api::mesh(&in_memory), api::mesh(&native));
-
-        let intent = api::preview(&analysis, &answers).unwrap();
-        let (memory_bytes, memory_report) =
-            writer::write_bytes(&in_memory, &intent, Some(&answers)).unwrap();
+    let mut number = None;
+    for (index, class) in ["H7", "H8"].into_iter().enumerate() {
         let output = dir.join(format!("native-{index}.step"));
-        let native_report = writer::write(&native, &intent, &output, Some(&answers)).unwrap();
+        let list = if index == 0 {
+            json!({"fill": answers("fit:H7")})
+        } else {
+            json!({"change": {"hole.function:holes:9": {"to": "fit:H8", "expect": "⌀8 H7"}}})
+        };
+        let bytes = std::fs::read(&input).unwrap();
+        let in_memory = part::load_bytes("part.step", bytes.clone()).unwrap();
+        let native = part::load(&input, None).unwrap();
+        assert_eq!(in_memory.path, PathBuf::from("part.step"));
+        assert_eq!(in_memory.binding, native.binding);
         assert_eq!(
-            memory_bytes,
-            std::fs::read(&output).unwrap(),
-            "write_bytes differs from write ({fit})"
+            api::analyse(&in_memory).unwrap(),
+            api::analyse(&native).unwrap()
         );
-        let (memory_report, native_report) = (memory_report.to_dict(), native_report.to_dict());
-        for key in ["written", "not_written", "warnings"] {
-            assert_eq!(
-                memory_report[key], native_report[key],
-                "the reports differ on {key} ({fit})"
-            );
+        assert_eq!(api::mesh(&in_memory), api::mesh(&native));
+        let memory = apply_bytes("part.step", bytes, None, &list.to_string()).unwrap();
+        let native = apply_to(&native, &edits::parse_value(list).unwrap(), &output).unwrap();
+        assert_eq!(memory.bytes, std::fs::read(&output).unwrap());
+        assert_eq!(memory.report.output, PathBuf::from("part.step"));
+        assert_eq!(native.report.output, output);
+        let (memory_report, native_report) = (memory.to_dict(), native.to_dict());
+        for key in ["written", "not_written", "warnings", "retired"] {
+            assert_eq!(memory_report[key], native_report[key], "{key} ({class})");
         }
-        assert_eq!(memory_report["output"], json!("part.step"));
+        assert!(!memory.report.written.is_empty(), "{class}");
+        let reopened = part::load_bytes("written.step", memory.bytes).unwrap();
+        let fit = existing::read_existing(&reopened)
+            .unwrap()
+            .into_iter()
+            .find(|item| item.faces == [9] && item.fields.contains_key("fit"))
+            .unwrap();
+        assert_eq!(fit.fields["fit"], class);
+        let fit_number = fit.number.unwrap();
         assert!(
-            memory_report["written"]
-                .as_array()
-                .is_some_and(|w| !w.is_empty()),
-            "something is written ({fit})"
+            characteristics::read(&reopened)
+                .unwrap()
+                .iter()
+                .any(|item| item.number == fit_number)
         );
-
-        let resumed = part::load_bytes("written.step", memory_bytes).unwrap();
-        let resumed = api::analyse(&resumed).unwrap();
-        assert_eq!(
-            resumed["resume"]["answers"]["hole.function:holes:9"],
-            json!(fit)
+        assert_eq!(fit_number, *number.get_or_insert(fit_number));
+        assert!(
+            api::analyse(&reopened).unwrap()["resume"]["answers"]["hole.function:holes:9"]
+                .is_null()
         );
         input = output;
     }
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 /// A file of several parts is refused from memory as `load` refuses it without a part, the

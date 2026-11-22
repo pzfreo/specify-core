@@ -4,25 +4,28 @@
 //! opened file and the page server (src/open.rs) serves one, so the agent and the page edit one
 //! set of answers; `specify-core open` holds one with no agent.
 //!
-//! Save writes the session's answers with the same writer as `specify-core write` (the answers
-//! stored in the file), beside the file under the first free `<stem>.specified.step` (later saves
-//! update that copy while it is as the session left it), or over it when opened in place (the
-//! original kept once as `.bak`). An incomplete save is written: what
-//! is answered, and the answer says what is still open.
+//! Save applies an edit list (ADR P11, src/edits.rs: all or nothing, touching only what it
+//! names) to the file as the session's last save left it, with the same writer as
+//! `specify-core write STEP EDITS.json`, beside the file under the first free
+//! `<stem>.specified.step` (later saves update that copy while it is as the session left it),
+//! or over it when opened in place (the original kept once as `.bak`). The session's answers
+//! include the decisions stored in the file and draft answers. The agent can save both its
+//! drafts and explicit edits together, and the page submits its visible drafts in its lists.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 
+use serde::Serialize;
 use serde_json::{Map, Value, json};
+
+use crate::edits::{self, EditList, Failure, Outcome};
 use sha2::{Digest, Sha256};
 
 use crate::api::{self, Error};
 use crate::part::{self, LoadError};
-use crate::rules::{self, Intent};
-use crate::writer::WriteError;
 
 /// The changes kept for `changes since`; an older `since` gets the whole answers instead.
 pub const KEPT_CHANGES: usize = 256;
@@ -37,6 +40,14 @@ pub type Shared = Arc<Mutex<Session>>;
 /// Locks a session, whatever a panicking holder left (its state is always whole).
 pub fn lock(session: &Shared) -> std::sync::MutexGuard<'_, Session> {
     session.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// The feature table's row `id`, when the file states it.
+pub(crate) fn stated_row<'a>(analysis: &'a Value, id: &str) -> Option<&'a Value> {
+    analysis["table"]["rows"]
+        .as_array()?
+        .iter()
+        .find(|row| row["id"] == id && row["state"] == "stated")
 }
 
 /// A file as opened: its path (absolute, as given or as the caller chose), its name and its
@@ -102,6 +113,8 @@ pub struct Saved {
     pub bytes: usize,
     pub rev: u64,
     pub report: Value,
+    /// The session answers at the revision acknowledged by the page save.
+    pub parts: Value,
     pub complete: bool,
     pub missing: Vec<String>,
 }
@@ -134,6 +147,10 @@ pub enum SaveError {
     Changed(String),
     /// An answer the writer refuses (the message names the question).
     Refused(String),
+    /// An edit list that cannot be applied, all or nothing: every failing entry and why.
+    Edits(Vec<crate::edits::Failure>),
+    /// A batch's refused entries with their part indices.
+    PartEdits(Vec<PartFailure>),
     /// The file could not be written.
     Failed(String),
 }
@@ -143,11 +160,28 @@ impl std::fmt::Display for SaveError {
         match self {
             SaveError::Stale(rev) => write!(f, "the answers have moved on to rev {rev}"),
             SaveError::Question { message, .. } => f.write_str(message),
+            SaveError::Edits(failures) => f.write_str(&edits_refused(failures)),
+            SaveError::PartEdits(failures) => f.write_str(&part_edits_refused(failures)),
             SaveError::Changed(m)
             | SaveError::Outside(m)
             | SaveError::Refused(m)
             | SaveError::Failed(m) => f.write_str(m),
         }
+    }
+}
+
+/// Explicit changes are savable. Refused answers only explain the refusal in the panel.
+#[derive(Default)]
+struct AgentDraft {
+    change: BTreeMap<String, edits::Change>,
+    refused: BTreeMap<String, String>,
+}
+
+impl AgentDraft {
+    fn remove(&mut self, id: &str) -> bool {
+        let change = self.change.remove(id);
+        let refused = self.refused.remove(id);
+        change.is_some() || refused.is_some()
     }
 }
 
@@ -175,23 +209,29 @@ pub struct Session {
     /// The file the last successful save wrote (as the save reports its path) and SHA-256 of
     /// the bytes it stored there (`GET file?rev=saved`).
     last_saved: Option<(PathBuf, String)>,
+    /// Reopening the original after a copy save needs a real edit to produce another copy.
+    reopened_original: bool,
     /// The directories saves may write in (MCP's `--allow`); None: anywhere beside the file.
     allowed: Option<Vec<PathBuf>>,
     analyses: BTreeMap<usize, Arc<Value>>,
     answers: BTreeMap<usize, Map<String, Value>>,
+    agent_drafts: BTreeMap<usize, AgentDraft>,
     rev: u64,
     changes: VecDeque<Change>,
     /// The newest `rev` whose change is no longer kept (0: none dropped).
     dropped: u64,
     subscribers: Vec<mpsc::SyncSender<String>>,
-    /// One save at a time (held while writing, without the session's lock).
+    /// One save at a time, including staging outside the session lock.
     save_lock: Arc<Mutex<()>>,
-    /// The parts this session changed (a set, a clear, a page's change or an approval) since
-    /// they joined: written even with no answers, so a clear reaches the file.
-    touched: BTreeSet<usize>,
-    /// Tests only: called by a save between its two holds of the session's lock.
+    /// Each part's answers as the file last saved (or opened) holds them: answers that differ
+    /// are unsaved.
+    saved: BTreeMap<usize, Map<String, Value>>,
+    /// Tests only: called by a save just before it acquires the final commit lock.
     #[doc(hidden)]
     pub between_locks: Option<fn(&Shared)>,
+    /// Tests only: called after the final revision check, immediately before disk commit.
+    #[doc(hidden)]
+    pub commit_boundary: Option<fn(&Shared)>,
     /// The page server serving this session, if one was started.
     pub page: Option<crate::open::Page>,
 }
@@ -225,16 +265,19 @@ impl Session {
             backup: None,
             written: Vec::new(),
             last_saved: None,
+            reopened_original: false,
             allowed: None,
             analyses: BTreeMap::new(),
             answers: BTreeMap::new(),
+            agent_drafts: BTreeMap::new(),
             rev: 0,
             changes: VecDeque::new(),
             dropped: 0,
             subscribers: Vec::new(),
             save_lock: Arc::new(Mutex::new(())),
-            touched: BTreeSet::new(),
+            saved: BTreeMap::new(),
             between_locks: None,
+            commit_boundary: None,
             page: None,
         }
     }
@@ -261,7 +304,135 @@ impl Session {
                 self.answers.entry(k).or_insert_with(|| resumed.clone());
             }
         }
+        self.saved = self.answers.clone();
         Ok(())
+    }
+
+    /// The working edits on one part, only where its answers differ from the saved file.
+    fn draft(&self, part: usize) -> EditList {
+        let empty = Map::new();
+        let current = self.answers.get(&part).unwrap_or(&empty);
+        let saved = self.saved.get(&part).unwrap_or(&empty);
+        let mut draft = EditList::default();
+        if let Some(agent) = self.agent_drafts.get(&part) {
+            draft.change.clone_from(&agent.change);
+        }
+        for (id, value) in current {
+            if id.starts_with('_')
+                || saved.get(id) == Some(value)
+                || self
+                    .analyses
+                    .get(&part)
+                    .and_then(|a| stated_row(a, id))
+                    .is_some()
+            {
+                continue;
+            } else if edits::is_none_answer(value) {
+                draft.none.insert(id.clone());
+            } else {
+                draft.fill.insert(id.clone(), value.clone());
+            }
+        }
+        draft.clear.extend(
+            saved
+                .keys()
+                .filter(|id| !id.starts_with('_') && !current.contains_key(*id))
+                .cloned(),
+        );
+        draft
+    }
+
+    fn drafts(&self) -> BTreeMap<usize, EditList> {
+        self.answers
+            .keys()
+            .filter_map(|&part| {
+                let draft = self.draft(part);
+                (!draft.is_empty()).then_some((part, draft))
+            })
+            .collect()
+    }
+
+    pub(crate) fn refused_answers(&self, part: usize) -> Option<&BTreeMap<String, String>> {
+        self.agent_drafts
+            .get(&part)
+            .map(|agent| &agent.refused)
+            .filter(|refused| !refused.is_empty())
+    }
+
+    fn shown_draft(&self, part: usize) -> Option<Value> {
+        let draft = self.draft(part);
+        let refused = self.refused_answers(part);
+        if draft.is_empty() && refused.is_none() {
+            return None;
+        }
+        let mut shown = json!(draft);
+        if let Some(refused) = refused {
+            shown["refused"] = json!(refused);
+        }
+        Some(shown)
+    }
+
+    pub(crate) fn answer_snapshot(&self) -> Value {
+        let mut snapshot = json!({"rev": self.rev, "parts": self.parts()});
+        let drafts: BTreeMap<_, _> = self
+            .answers
+            .keys()
+            .filter_map(|&part| self.shown_draft(part).map(|draft| (part, draft)))
+            .collect();
+        if !drafts.is_empty() {
+            snapshot["drafts"] = json!(drafts);
+        }
+        snapshot
+    }
+
+    /// Keep refused answers visible without adding them to the edits a save can apply.
+    pub(crate) fn set_agent_answers<'a>(
+        &mut self,
+        part: usize,
+        answers: Map<String, Value>,
+        cleared: &[String],
+        accepted: impl IntoIterator<Item = &'a str>,
+        refused: BTreeMap<String, String>,
+    ) {
+        let draft = self.agent_drafts.entry(part).or_default();
+        let mut changed = false;
+        for id in cleared {
+            changed |= draft.remove(id);
+        }
+        for id in accepted {
+            changed |= draft.refused.remove(id).is_some();
+        }
+        for (id, reason) in refused {
+            if draft.refused.get(&id) != Some(&reason) {
+                draft.refused.insert(id, reason);
+                changed = true;
+            }
+        }
+        self.change(part, answers, "mcp", None, changed);
+    }
+
+    /// Stage only changes checked against this revision, retaining their supplied expectations.
+    pub(crate) fn stage_changes(
+        &mut self,
+        part: usize,
+        rev: u64,
+        changes: BTreeMap<String, edits::Change>,
+    ) -> Result<u64, SaveError> {
+        if self.rev != rev {
+            return Err(SaveError::Stale(self.rev));
+        }
+        let draft = self.agent_drafts.entry(part).or_default();
+        let mut changed = false;
+        for (id, edit) in changes {
+            changed |= draft.refused.remove(&id).is_some();
+            if draft.change.get(&id) != Some(&edit) {
+                draft.change.insert(id, edit);
+                changed = true;
+            }
+        }
+        let answers = self.answers.get(&part).cloned().unwrap_or_default();
+        self.change(part, answers, "mcp", None, changed);
+        Ok(self.rev)
     }
 
     /// `specify-core open --diff OLD NEW` (and MCP's `open` with `old`): `diff OLD NEW` compared
@@ -393,24 +564,23 @@ impl Session {
         answers: Map<String, Value>,
         source: &'static str,
     ) -> Option<u64> {
-        self.change(part, answers, source, None, None)
+        self.change(part, answers, source, None, false)
     }
 
-    /// [`Session::set`], the event also naming the `defaults` the person approved (a save's),
-    /// at `rev` when several parts change together (else the next rev).
+    /// [`Session::set`], at `rev` when several parts change together (else the next rev).
     fn change(
         &mut self,
         part: usize,
         answers: Map<String, Value>,
         source: &'static str,
-        defaults: Option<&[String]>,
         at: Option<u64>,
+        draft_changed: bool,
     ) -> Option<u64> {
         let before = self.answers.get(&part);
         // A part joining the session is a change even with no answers: a page holding an older
         // rev then re-reads, and sees it.
         let joined = before.is_none();
-        if before == Some(&answers) {
+        if before == Some(&answers) && !draft_changed {
             return None;
         }
         let empty = Map::new();
@@ -427,9 +597,6 @@ impl Session {
             .collect();
         self.rev = at.unwrap_or(self.rev + 1);
         let rev = self.rev;
-        if !joined {
-            self.touched.insert(part);
-        }
         self.changes.push_back(Change {
             rev,
             part,
@@ -443,13 +610,17 @@ impl Session {
             }
         }
         let mut data = json!({"rev": rev, "part": part, "answers": answers, "source": source});
-        if let Some(ids) = defaults {
-            data["defaults"] = json!({ part.to_string(): ids });
-        }
         if joined {
             data["joined"] = json!(true);
         }
         self.answers.insert(part, answers);
+        if at.is_some() {
+            // Saves and whole-file discards publish several part events at one revision.
+            // Clear the draft bar on the first event, even before the other parts arrive.
+            data["drafts"] = json!({});
+        } else if let Some(draft) = self.shown_draft(part) {
+            data["draft"] = draft;
+        }
         self.publish(&event("answers", Some(rev), &data));
         Some(rev)
     }
@@ -466,7 +637,8 @@ impl Session {
     /// per change and save.
     pub fn subscribe(&mut self) -> mpsc::Receiver<String> {
         let (tell, events) = mpsc::sync_channel(MAX_BEHIND + 1);
-        let data = json!({"rev": self.rev, "parts": self.parts(), "source": "start"});
+        let mut data = self.answer_snapshot();
+        data["source"] = json!("start");
         let _ = tell.send(event("answers", Some(self.rev), &data));
         self.subscribers.push(tell);
         events
@@ -511,25 +683,8 @@ impl Session {
             .map(|(path, sha)| (path.as_path(), sha.as_str()))
     }
 
-    /// The parts a save writes: every part with at least one answer (keys starting with `_`,
-    /// metadata such as `_specify`, not counting), and every part this session changed since it
-    /// joined, so a clear reaches the file. A part the session did not change and that has no
-    /// answers is left as it is, with the PMI and stored answers it has.
-    fn parts_to_write(&self) -> Vec<usize> {
-        self.answers
-            .iter()
-            .filter(|(k, a)| self.touched.contains(k) || a.keys().any(|id| !id.starts_with('_')))
-            .map(|(k, _)| *k)
-            .collect()
-    }
-
-    /// The parts a save reports open questions for: those it writes, and a file's only part.
-    fn parts_to_report(&self) -> Vec<usize> {
-        let mut parts: BTreeSet<usize> = self.parts_to_write().into_iter().collect();
-        if self.part_count() == 1 {
-            parts.insert(0);
-        }
-        parts.into_iter().collect()
+    pub(crate) fn mark_reopened_original(&mut self) {
+        self.reopened_original = true;
     }
 
     /// Saves write only inside these directories (canonical), as MCP's `--allow` says.
@@ -572,16 +727,22 @@ impl Session {
 /// Part `part`'s analysis, made without holding the session's lock (and kept: the part is
 /// then open in the session).
 pub fn analysis(shared: &Shared, part: usize) -> Result<Arc<Value>, Error> {
-    let step = {
-        let s = lock(shared);
-        if let Some(a) = s.analyses.get(&part) {
-            return Ok(Arc::clone(a));
+    loop {
+        let step = {
+            let s = lock(shared);
+            if let Some(a) = s.analyses.get(&part) {
+                return Ok(Arc::clone(a));
+            }
+            Arc::clone(&s.step)
+        };
+        let made = analyse(&step, part);
+        let mut s = lock(shared);
+        if Arc::ptr_eq(&step, &s.step) {
+            return Ok(Arc::clone(
+                s.analyses.entry(part).or_insert(Arc::new(made?)),
+            ));
         }
-        Arc::clone(&s.step)
-    };
-    let made = Arc::new(analyse(&step, part)?);
-    let mut s = lock(shared);
-    Ok(Arc::clone(s.analyses.entry(part).or_insert(made)))
+    }
 }
 
 /// Part `part` of `step`, analysed.
@@ -590,71 +751,363 @@ fn analyse(step: &part::File, part: usize) -> Result<Value, Error> {
     Ok(api::analyse_reporting_in(step, &loaded)?.0)
 }
 
-/// Writes the session's answers at `rev` (docs/open.md, `save`; None: the current rev), from
-/// the file as opened, with `write`'s writer, after the defaults `approved` (by part, the
-/// question ids the person approved, ADR P9) have become answers at a new rev. Open questions
-/// never refuse it: what is
-/// answered is written and `missing` says what is still open. The answers are taken under the
-/// session's lock and written without it (one save at a time), so the file holds exactly the
-/// answers of `rev`. Every subscriber gets a `saved` event.
-pub fn save(
+/// Drops working answers without writing. An individual discard restores that row to the
+/// file's saved value, and a whole-file discard restores every part at one new revision.
+pub fn discard_answers(
     shared: &Shared,
     rev: Option<u64>,
-    approved: &Approved,
+    target: Option<(usize, &str)>,
+    source: &'static str,
+) -> Result<Value, SaveError> {
+    let mut s = lock(shared);
+    if rev.is_some_and(|rev| rev != s.rev) {
+        return Err(SaveError::Stale(s.rev));
+    }
+    let at = s.rev + 1;
+    if let Some((part, id)) = target {
+        if part >= s.part_count() || id.starts_with('_') {
+            return Err(SaveError::Refused("invalid part or question id".into()));
+        }
+        if let Some(mut current) = s.answers.get(&part).cloned() {
+            match s.saved.get(&part).and_then(|answers| answers.get(id)) {
+                Some(value) => {
+                    current.insert(id.to_owned(), value.clone());
+                }
+                None => {
+                    current.remove(id);
+                }
+            }
+            let draft_changed = s
+                .agent_drafts
+                .get_mut(&part)
+                .is_some_and(|draft| draft.remove(id));
+            s.change(part, current, source, None, draft_changed);
+        }
+    } else {
+        let parts: Vec<_> = s.answers.keys().copied().collect();
+        let discarded = std::mem::take(&mut s.agent_drafts);
+        for part in parts {
+            let saved = s.saved.get(&part).cloned().unwrap_or_default();
+            let draft_changed = discarded
+                .get(&part)
+                .is_some_and(|draft| !draft.change.is_empty() || !draft.refused.is_empty());
+            s.change(part, saved, source, Some(at), draft_changed);
+        }
+    }
+    Ok(s.answer_snapshot())
+}
+
+/// Applies the edit list `list` (ADR P11: all or nothing, touching only what it names) to the
+/// session's file as its last save left it (the input before any), and saves the result:
+/// in place, to the session's own copy, or beside the input under the first free
+/// `<stem>.specified.step`. `rev` (None: any) is the session revision the caller last saw: a
+/// session that has moved on is refused as [`SaveError::Stale`]. A list that cannot be applied
+/// writes nothing, with every failing entry named. MCP adds the working answers to its lists,
+/// and the page submits or explicitly discards every draft. The session then uses the saved file: its
+/// analyses are made again, and each part's answers are those the saved file resumes (a new
+/// rev). Every subscriber gets a `saved` event. A file of several parts (or of a part placed more than
+/// once) takes [`save_part_edits`].
+pub fn save_edits(
+    shared: &Shared,
+    rev: Option<u64>,
+    list: &crate::edits::EditList,
     source: &'static str,
 ) -> Result<Saved, SaveError> {
-    let refused = |e: Error| match e {
-        Error::Rules(rules::Error::Invalid(m)) | Error::Write(WriteError::Invalid(m)) => {
-            SaveError::Refused(m)
+    save_part_edits(shared, None, rev, list, source)
+}
+
+/// [`save_edits`] on part `part` of the session's file (None: a file of one part), as
+/// `write STEP EDITS.json --part K` applies it: in an assembly only that part is edited, once
+/// however often it is placed, and every other part, placement and their PMI keep their bytes
+/// (decision D3).
+pub fn save_part_edits(
+    shared: &Shared,
+    part: Option<usize>,
+    rev: Option<u64>,
+    list: &crate::edits::EditList,
+    source: &'static str,
+) -> Result<Saved, SaveError> {
+    save_with(shared, rev, source, |step, drafts| {
+        let loaded = step
+            .load(part)
+            .map_err(|e| SaveError::Refused(e.to_string()))?;
+        let index = loaded.binding.part;
+        let lists = include_drafts(
+            BTreeMap::from([(index, list.clone())]),
+            drafts,
+            &step,
+            source,
+        )?;
+        if lists.len() == 1 {
+            let applied =
+                crate::writer::apply::apply(&loaded, &lists[&index]).map_err(SaveError::Edits)?;
+            let report = applied.to_dict();
+            Ok((Arc::new(applied.bytes), report, applied.unchanged))
+        } else {
+            stage_assembly_edits(step, &lists).map(StagedAssembly::save)
         }
-        Error::Rules(e) => SaveError::Refused(e.to_string()),
-        other => SaveError::Failed(other.to_string()),
+    })
+}
+
+/// A failure from a part list. Keep the existing qualified diagnostic in `entry` and give
+/// callers the index and raw edit path separately for routing errors to a row.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PartFailure {
+    part: usize,
+    entry: String,
+    edit_entry: String,
+    reason: String,
+}
+
+impl PartFailure {
+    fn new(part: usize, label: &str, failure: Failure) -> Self {
+        Self {
+            part,
+            entry: format!("{label}: {}", failure.entry),
+            edit_entry: failure.entry,
+            reason: failure.reason,
+        }
+    }
+
+    fn plain(&self) -> Failure {
+        Failure {
+            entry: self.entry.clone(),
+            reason: self.reason.clone(),
+        }
+    }
+}
+
+pub(crate) fn part_edits_refused(failures: &[PartFailure]) -> String {
+    edits_refused(&failures.iter().map(PartFailure::plain).collect::<Vec<_>>())
+}
+
+fn part_label(parts: &[part::PartSummary], part: usize) -> String {
+    match parts.get(part) {
+        Some(item) => format!("Part {:?} ({part})", item.name),
+        None => format!("Part {part}"),
+    }
+}
+
+fn mentions(list: &EditList, id: &str) -> bool {
+    list.fill.contains_key(id)
+        || list.change.contains_key(id)
+        || list.none.contains(id)
+        || list.clear.contains(id)
+        || list.accept_suggestions.contains(id)
+        || list.items.remove_ids.contains(id)
+}
+
+fn include_drafts(
+    mut lists: BTreeMap<usize, EditList>,
+    drafts: &BTreeMap<usize, EditList>,
+    step: &part::File,
+    source: &str,
+) -> Result<BTreeMap<usize, EditList>, SaveError> {
+    let mut failures = Vec::new();
+    let parts = if drafts.is_empty() || source == "mcp" {
+        Vec::new()
+    } else {
+        step.parts()
     };
+    for (&part, draft) in drafts {
+        if source == "mcp" {
+            let list = lists.entry(part).or_default();
+            let mut draft = draft.clone();
+            draft.fill.retain(|id, _| !mentions(list, id));
+            draft.change.retain(|id, _| !mentions(list, id));
+            draft.none.retain(|id| !mentions(list, id));
+            draft.clear.retain(|id| !mentions(list, id));
+            list.fill.extend(draft.fill);
+            list.change.extend(draft.change);
+            list.none.extend(draft.none);
+            list.clear.extend(draft.clear);
+        } else {
+            let label = part_label(&parts, part);
+            for (section, id) in draft
+                .fill
+                .keys()
+                .map(|id| ("fill", id))
+                .chain(draft.change.keys().map(|id| ("change", id)))
+                .chain(draft.none.iter().map(|id| ("none", id)))
+                .chain(draft.clear.iter().map(|id| ("clear", id)))
+            {
+                if !lists.get(&part).is_some_and(|list| mentions(list, id)) {
+                    failures.push(PartFailure::new(
+                        part,
+                        &label,
+                        Failure {
+                            entry: format!("{section}[{}]", json!(id)),
+                            reason:
+                                "include the staged answer in the list, or discard it before saving"
+                                    .into(),
+                        },
+                    ));
+                }
+            }
+        }
+    }
+    if failures.is_empty() {
+        Ok(lists)
+    } else {
+        Err(SaveError::PartEdits(failures))
+    }
+}
+
+/// A malformed assembly edit request. Page and MCP callers share its shape and entry parsing.
+pub(crate) enum PartEditsError {
+    Shape(String),
+    List(Vec<PartFailure>),
+}
+
+pub(crate) fn read_part_edits(value: &Value) -> Result<BTreeMap<usize, EditList>, PartEditsError> {
+    let bad = |why: &str| PartEditsError::Shape(why.into());
+    let parts = value
+        .as_array()
+        .filter(|parts| !parts.is_empty())
+        .ok_or_else(|| bad("partEdits must be a nonempty array of {part, edits}"))?;
+    let mut lists = BTreeMap::new();
+    for entry in parts {
+        let part = entry
+            .get("part")
+            .and_then(Value::as_u64)
+            .and_then(|n| usize::try_from(n).ok())
+            .ok_or_else(|| bad("each partEdits entry requires a nonnegative part index"))?;
+        let list = entry
+            .get("edits")
+            .filter(|e| e.is_object())
+            .ok_or_else(|| {
+                bad(&format!(
+                    "Part {part} requires an edits object ({{}} for none)"
+                ))
+            })?;
+        let list = edits::read(&list.to_string()).map_err(|failures| {
+            let label = format!("Part {part}");
+            PartEditsError::List(
+                failures
+                    .into_iter()
+                    .map(|f| PartFailure::new(part, &label, f))
+                    .collect(),
+            )
+        })?;
+        if lists.insert(part, list).is_some() {
+            return Err(bad(&format!("partEdits repeats part {part}")));
+        }
+    }
+    Ok(lists)
+}
+
+struct StagedAssembly {
+    bytes: Arc<Vec<u8>>,
+    reports: Vec<Value>,
+    unchanged: bool,
+    unchanged_entries: Vec<String>,
+}
+
+impl StagedAssembly {
+    fn save(self) -> (Arc<Vec<u8>>, Value, bool) {
+        (
+            self.bytes,
+            json!({"parts": self.reports, "unchanged": self.unchanged}),
+            self.unchanged,
+        )
+    }
+}
+
+/// Runs each list through the assembly writer on the staged result of the preceding lists.
+/// The same staging drives both saves and dry-run checks.
+fn stage_assembly_edits(
+    mut step: Arc<part::File>,
+    lists: &BTreeMap<usize, EditList>,
+) -> Result<StagedAssembly, SaveError> {
+    if lists.is_empty() {
+        return Err(SaveError::Refused("no part lists to apply".into()));
+    }
+    let parts = step.parts();
+    let mut failures = Vec::new();
+    let mut staged = StagedAssembly {
+        bytes: Arc::clone(step.bytes()),
+        reports: Vec::new(),
+        unchanged: true,
+        unchanged_entries: Vec::new(),
+    };
+    for (&part, list) in lists {
+        let name = parts.get(part).map(|p| p.name.as_str());
+        let label = part_label(&parts, part);
+        let result = step
+            .load(Some(part))
+            .map_err(|e| {
+                vec![Failure {
+                    entry: "(the whole list)".into(),
+                    reason: e.to_string(),
+                }]
+            })
+            .and_then(|loaded| crate::writer::apply::apply(&loaded, list));
+        match result {
+            Ok(applied) => {
+                staged
+                    .reports
+                    .push(json!({"part": part, "name": name, "report": applied.to_dict()}));
+                staged.unchanged_entries.extend(
+                    applied
+                        .outcome
+                        .unchanged
+                        .iter()
+                        .map(|e| format!("{label}: {e}")),
+                );
+                staged.unchanged &= applied.unchanged;
+                if !applied.unchanged {
+                    staged.bytes = Arc::new(applied.bytes);
+                    step = Arc::new(
+                        part::File::of_shared(step.path(), Arc::clone(&staged.bytes))
+                            .map_err(|e| SaveError::Failed(e.to_string()))?,
+                    );
+                }
+            }
+            Err(refused) => failures.extend(
+                refused
+                    .into_iter()
+                    .map(|f| PartFailure::new(part, &label, f)),
+            ),
+        }
+    }
+    if failures.is_empty() {
+        Ok(staged)
+    } else {
+        Err(SaveError::PartEdits(failures))
+    }
+}
+
+/// Applies a list per part through the assembly writer, then commits the file once. The
+/// session and disk are untouched on refusal.
+pub fn save_assembly_edits(
+    shared: &Shared,
+    rev: Option<u64>,
+    lists: &BTreeMap<usize, EditList>,
+    source: &'static str,
+) -> Result<Saved, SaveError> {
+    save_with(shared, rev, source, |step, drafts| {
+        let lists = include_drafts(lists.clone(), drafts, &step, source)?;
+        stage_assembly_edits(step, &lists).map(StagedAssembly::save)
+    })
+}
+
+/// The single save transaction for either request form, including the revision checks and
+/// publication of the saved file and its new session state.
+fn save_with(
+    shared: &Shared,
+    rev: Option<u64>,
+    source: &'static str,
+    apply: impl FnOnce(
+        Arc<part::File>,
+        &BTreeMap<usize, EditList>,
+    ) -> Result<(Arc<Vec<u8>>, Value, bool), SaveError>,
+) -> Result<Saved, SaveError> {
     let save_lock = Arc::clone(&lock(shared).save_lock);
     let _one_at_a_time = save_lock.lock().unwrap_or_else(|p| p.into_inner());
-    // The parts' analyses, made without the session's lock.
-    let parts = {
+    let (seen, step, file, in_place, gz, mut backup, copy, drafts) = {
         let s = lock(shared);
         if rev.is_some_and(|r| r != s.rev) {
-            return Err(SaveError::Stale(s.rev));
-        }
-        let count = s.part_count();
-        if let Some((&k, ids)) = approved.iter().find(|(k, _)| **k >= count) {
-            return Err(SaveError::Question {
-                message: format!("the file has {count} part(s): there is no part {k}"),
-                part: k,
-                question: ids.keys().next().cloned().unwrap_or_default(),
-                values: None,
-            });
-        }
-        let mut parts = s.parts_to_report();
-        let more: Vec<usize> = approved
-            .keys()
-            .filter(|k| !parts.contains(k))
-            .copied()
-            .collect();
-        parts.extend(more);
-        parts
-    };
-    let mut analyses = BTreeMap::new();
-    for &k in &parts {
-        analyses.insert(k, analysis(shared, k).map_err(refused)?);
-    }
-    let hook = lock(shared).between_locks;
-    if let Some(hook) = hook {
-        hook(shared);
-    }
-    let (reported, parts, rev, answers, step, file, in_place, gz, mut backup, before, copy) = {
-        let mut s = lock(shared);
-        if rev.is_some_and(|r| r != s.rev) {
-            return Err(SaveError::Stale(s.rev));
-        }
-        // The parts may have changed while the analyses were made (a page's first change to
-        // another part, which an agent's save has no rev to notice): refused, not guessed.
-        if s.parts_to_report()
-            .iter()
-            .any(|k| !analyses.contains_key(k))
-        {
             return Err(SaveError::Stale(s.rev));
         }
         s.check_allowed()?;
@@ -669,144 +1122,292 @@ pub fn save(
                 )));
             }
         }
-        // The defaults the person approved become answers (ADR P9: a default is written only
-        // when approved), checked and applied under this one hold of the lock: one new rev,
-        // whose answers the save writes.
-        let approvals = approve(&s, &analyses, approved)?;
-        let before: Vec<(usize, Map<String, Value>, bool)> = approvals
-            .keys()
-            .map(|k| {
-                let answers = s.answers.get(k).cloned().unwrap_or_default();
-                (*k, answers, s.touched.contains(k))
-            })
-            .collect();
-        if !approvals.is_empty() {
-            let at = s.rev + 1;
-            for (k, (answers, ids)) in approvals {
-                s.change(k, answers, source, Some(&ids), Some(at));
-            }
-        }
         (
-            s.parts_to_report(),
-            s.parts_to_write(),
             s.rev,
-            s.answers.clone(),
             Arc::clone(&s.step),
             s.file.clone(),
             s.in_place,
             s.gz,
             s.backup.clone(),
-            before,
             s.own_copy().map(Path::to_path_buf),
+            s.drafts(),
         )
     };
-    let written = (|| {
-        let mut loaded = Vec::with_capacity(parts.len());
-        let mut intents = Vec::with_capacity(parts.len());
-        let mut missing = Vec::new();
-        let empty = Map::new();
-        for &k in &reported {
-            let analysis = analyses.get(&k).ok_or(SaveError::Stale(rev))?;
-            let given = answers.get(&k).unwrap_or(&empty);
-            let part = step.load(Some(k)).map_err(|e| refused(e.into()))?;
-            let (intent, open) = intent_for(&part, analysis, given).map_err(|e| {
-                match (refused(e), parts.len() > 1) {
-                    (SaveError::Refused(m), true) => SaveError::Refused(format!("part {k}: {m}")),
-                    (e, _) => e,
-                }
-            })?;
-            missing.extend(open);
-            if parts.contains(&k) {
-                loaded.push(part);
-                intents.push(intent);
-            }
+    let (text, mut report, unchanged) = apply(step, &drafts)?;
+    // The file saved, as the session works on it from now on.
+    let saved_step = part::File::of_shared(&file.path, Arc::clone(&text))
+        .map_err(|e| SaveError::Failed(e.to_string()))?;
+    let resumed = Session::of(file.clone(), saved_step, in_place);
+    let mut analyses = BTreeMap::new();
+    let mut answers = BTreeMap::new();
+    // The required questions the saved file still leaves open, as `write` would list them.
+    let mut missing = Vec::new();
+    for k in 0..resumed.part_count() {
+        let analysis =
+            Arc::new(analyse(&resumed.step, k).map_err(|e| SaveError::Failed(e.to_string()))?);
+        let resumed_answers = analysis["resume"]["answers"]
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+        if let Err(Error::Rules(crate::rules::Error::Incomplete(e))) =
+            api::apply(&analysis, &resumed_answers, false)
+        {
+            missing.extend(e.missing);
         }
-        let jobs: Vec<crate::writer::Job<'_>> = parts
-            .iter()
-            .zip(&loaded)
-            .zip(&intents)
-            .map(|((k, l), i)| (l, i, Some(answers.get(k).unwrap_or(&empty))))
-            .collect();
-        // With nothing to write, the file is saved as it was opened: its PMI and stored
-        // answers are never rewritten from no answers.
-        let (text, report) = if jobs.is_empty() {
-            let report = json!({"output": "", "written": [], "not_written": [], "warnings": []});
-            (step.bytes().to_vec(), report)
-        } else {
-            let (text, report) =
-                crate::writer::write_parts_bytes(&jobs).map_err(|e| refused(Error::Write(e)))?;
-            (text, report.to_dict())
-        };
-        let cannot = |e: io::Error| SaveError::Failed(format!("cannot save: {e}"));
-        let (path, bytes, stored, sha) = if in_place {
-            let stored =
-                replace_input(shared, &file.path, gz, &mut backup, text).map_err(cannot)?;
-            let sha = sha256(&stored);
-            (file.path.clone(), stored.len(), Some(stored), sha)
-        } else {
-            let bytes = text.len();
-            let sha = sha256(&text);
-            let path = match copy {
-                Some(copy) => update_copy(shared, &file, copy, &text),
-                None => write_new(&file, &text),
-            };
-            (path.map_err(cannot)?, bytes, None, sha)
-        };
-        Ok((path, bytes, stored, sha, report, missing))
-    })();
-    let (path, bytes, stored, sha, mut report, missing) = match written {
-        Ok(w) => w,
-        Err(e) => {
-            // Nothing was written: the approvals are rolled back (a further rev), unless the
-            // session has moved on since.
-            let mut s = lock(shared);
-            if !before.is_empty() && s.rev == rev {
-                let at = rev + 1;
-                for (k, answers, touched) in before {
-                    s.change(k, answers, source, None, Some(at));
-                    if !touched {
-                        // As it was: a part the session had not changed is still not written.
-                        s.touched.remove(&k);
-                    }
-                }
-            }
-            return Err(e);
+        if analysis["resume"]["answers"].is_object() {
+            answers.insert(k, resumed_answers);
         }
+        analyses.insert(k, analysis);
+    }
+    let hook = lock(shared).between_locks;
+    if let Some(hook) = hook {
+        hook(shared);
+    }
+    // An agent can change the answers while we stage. Keep the lock from this final
+    // revision check through the write and the publication of the new session state.
+    let mut s = lock(shared);
+    if s.rev != seen {
+        return Err(SaveError::Stale(s.rev));
+    }
+    if unchanged && !in_place && copy.is_none() && s.reopened_original {
+        return Err(SaveError::Refused(
+            "nothing to save: the reopened input is unchanged".into(),
+        ));
+    }
+    if let Some(hook) = s.commit_boundary {
+        hook(shared);
+    }
+    // Keep the session locked for the disk I/O, including the first .bak copy. An answer
+    // accepted after this revision check would otherwise be overwritten by publication.
+    let cannot = |e: io::Error| SaveError::Failed(format!("cannot save: {e}"));
+    let (path, bytes, stored, sha) = if in_place {
+        let stored = replace_input(&mut s, &file.path, gz, &mut backup, text.as_ref().clone())
+            .map_err(cannot)?;
+        let sha = sha256(&stored);
+        (file.path.clone(), stored.len(), Some(stored), sha)
+    } else {
+        let bytes = text.len();
+        let sha = sha256(&text);
+        let path = match copy {
+            Some(copy) => update_copy(&s, &file, copy, &text),
+            None => write_new(&file, &text),
+        };
+        (path.map_err(cannot)?, bytes, None, sha)
     };
     let shown = path.display().to_string();
     report["output"] = json!(shown);
-    let saved = Saved {
-        path: shown,
-        bytes,
-        rev,
-        report,
-        complete: missing.is_empty(),
-        missing,
-    };
-    let mut s = lock(shared);
     if let Some(stored) = stored {
         s.backup = backup;
         s.current = Arc::new(stored);
     }
+    s.step = resumed.step;
+    s.analyses = analyses;
+    let at = s.rev + 1;
+    // Set the saved baseline before publishing answers, so saved decisions are no longer drafts.
+    s.saved = answers.clone();
+    let mut cleared_drafts = BTreeMap::new();
+    if !unchanged
+        || s.agent_drafts
+            .values()
+            .any(|draft| !draft.change.is_empty())
+    {
+        cleared_drafts = std::mem::take(&mut s.agent_drafts);
+    }
+    // Each part once: one change (and event) per part, to the answers the saved file stores.
+    let parts: std::collections::BTreeSet<usize> =
+        s.answers.keys().chain(answers.keys()).copied().collect();
+    for k in &parts {
+        let now = answers.remove(k).unwrap_or_default();
+        let draft_changed = cleared_drafts
+            .get(k)
+            .is_some_and(|draft| !draft.change.is_empty() || !draft.refused.is_empty());
+        s.change(*k, now, source, Some(at), draft_changed);
+    }
+    // A save that changed the file is a new rev even when the stored answers are the same (a
+    // fill writes PMI, not an answer): a page or agent holding the old rev must read again
+    // before it saves. Each part's answers are sent again at it.
+    if !unchanged && s.rev < at {
+        s.rev = at;
+        for k in parts {
+            let answers = s.answers.get(&k).cloned().unwrap_or_default();
+            s.changes.push_back(Change {
+                rev: at,
+                part: k,
+                source,
+                set: Map::new(),
+                cleared: Vec::new(),
+            });
+            let data =
+                json!({"rev": at, "part": k, "answers": answers, "source": source, "drafts": {}});
+            s.publish(&event("answers", Some(at), &data));
+        }
+        while s.changes.len() > KEPT_CHANGES {
+            if let Some(gone) = s.changes.pop_front() {
+                s.dropped = gone.rev;
+            }
+        }
+    }
     s.last_saved = Some((path, sha));
+    let saved = Saved {
+        path: shown,
+        bytes,
+        rev: s.rev,
+        report,
+        parts: s.parts(),
+        complete: missing.is_empty(),
+        missing,
+    };
     let data = json!({"path": saved.path, "bytes": saved.bytes, "rev": saved.rev,
                       "source": source});
     s.publish(&event("saved", None, &data));
     Ok(saved)
 }
 
+/// `text` (an edit list, or a 0.2 answers file) checked against the session's file as its last
+/// save left it, as [`save_edits`] would apply it (`writer::apply::check`). Nothing is written
+/// and the session is not changed.
+pub fn check_edits(shared: &Shared, text: &str) -> Outcome {
+    check_part_edits(shared, None, text).1.outcome
+}
+
+pub(crate) struct CheckedEdits {
+    outcome: Outcome,
+    part_failures: Vec<PartFailure>,
+}
+
+impl CheckedEdits {
+    fn plain(outcome: Outcome) -> Self {
+        Self {
+            outcome,
+            part_failures: Vec::new(),
+        }
+    }
+
+    pub(crate) fn to_json(&self) -> Value {
+        let mut data = self.outcome.to_json();
+        if !self.part_failures.is_empty() {
+            data["failures"] = json!(self.part_failures);
+        }
+        data
+    }
+}
+
+/// Checks the opened part's list with working answers, and reports the revision checked.
+pub(crate) fn check_part_edits(
+    shared: &Shared,
+    part: Option<usize>,
+    text: &str,
+) -> (u64, CheckedEdits) {
+    let (rev, step, drafts) = {
+        let s = lock(shared);
+        (s.rev, Arc::clone(&s.step), s.drafts())
+    };
+    let loaded = match step.load(part) {
+        Ok(loaded) => loaded,
+        Err(e) => {
+            return (
+                rev,
+                CheckedEdits::plain(Outcome::malformed(vec![Failure {
+                    entry: "(the whole list)".into(),
+                    reason: e.to_string(),
+                }])),
+            );
+        }
+    };
+    if drafts.is_empty() {
+        return (
+            rev,
+            CheckedEdits::plain(crate::writer::apply::check(&loaded, text)),
+        );
+    }
+    let list = match edits::read(text) {
+        Ok(list) => list,
+        Err(failures) => return (rev, CheckedEdits::plain(Outcome::malformed(failures))),
+    };
+    let index = loaded.binding.part;
+    let lists = BTreeMap::from([(index, list)]);
+    let checked = check_with_drafts(step, lists, &drafts, Some(&loaded));
+    (rev, checked)
+}
+
+/// Checks an assembly batch by staging the same writes as a save, with no disk effects.
+pub(crate) fn check_assembly_edits(
+    shared: &Shared,
+    lists: &BTreeMap<usize, EditList>,
+) -> (u64, CheckedEdits) {
+    let (rev, step, drafts) = {
+        let s = lock(shared);
+        (s.rev, Arc::clone(&s.step), s.drafts())
+    };
+    (rev, check_with_drafts(step, lists.clone(), &drafts, None))
+}
+
+fn check_with_drafts(
+    step: Arc<part::File>,
+    lists: BTreeMap<usize, EditList>,
+    drafts: &BTreeMap<usize, EditList>,
+    loaded: Option<&part::LoadedPart>,
+) -> CheckedEdits {
+    let mut outcome = Outcome {
+        well_formed: true,
+        checked_against_file: false,
+        applicable: true,
+        entries: lists.values().map(EditList::len).sum(),
+        unchanged: Vec::new(),
+        failures: Vec::new(),
+    };
+    let result = include_drafts(lists, drafts, &step, "mcp").and_then(|lists| {
+        outcome.checked_against_file = true;
+        outcome.entries = lists.values().map(EditList::len).sum();
+        if let Some(loaded) = loaded.filter(|_| lists.len() == 1) {
+            crate::writer::apply::apply(loaded, &lists[&loaded.binding.part])
+                .map(|applied| applied.outcome.unchanged)
+                .map_err(SaveError::Edits)
+        } else {
+            stage_assembly_edits(step, &lists).map(|staged| staged.unchanged_entries)
+        }
+    });
+    let mut part_failures = Vec::new();
+    match result {
+        Ok(unchanged) => outcome.unchanged = unchanged,
+        Err(SaveError::Edits(failures)) => outcome.failures = failures,
+        Err(SaveError::PartEdits(failures)) => {
+            outcome.failures = failures.iter().map(PartFailure::plain).collect();
+            part_failures = failures;
+        }
+        Err(e) => outcome.failures.push(Failure {
+            entry: "(the whole list)".into(),
+            reason: e.to_string(),
+        }),
+    }
+    outcome.applicable = outcome.failures.is_empty();
+    CheckedEdits {
+        outcome,
+        part_failures,
+    }
+}
+
+/// An edit list's refusal in plain words: nothing was written, and each failing entry.
+pub fn edits_refused(failures: &[crate::edits::Failure]) -> String {
+    let mut message = "nothing was written: an edit list is applied all or nothing, and these \
+                       entries cannot be applied:"
+        .to_string();
+    for f in failures {
+        message.push_str(&format!("\n- {}: {}", f.entry, f.reason));
+    }
+    message
+}
+
 /// A later save of the session's own copy (see [`Session::own_copy`]): a temporary file is
 /// written, then, under the session's lock, the copy is checked again and the file renamed onto
 /// it. A copy no longer the session's by then is left alone: the save takes a new name.
-fn update_copy(shared: &Shared, file: &Opened, copy: PathBuf, body: &[u8]) -> io::Result<PathBuf> {
+fn update_copy(s: &Session, file: &Opened, copy: PathBuf, body: &[u8]) -> io::Result<PathBuf> {
     let dir = copy
         .parent()
         .ok_or_else(|| io::Error::other("the copy has no directory"))?;
     let temp = temp_file(dir, body)?;
-    let s = lock(shared);
     if s.own_copy() == Some(copy.as_path()) {
         let renamed = fs::rename(&temp, &copy);
-        drop(s);
         return match renamed {
             Ok(()) => Ok(copy),
             Err(e) => {
@@ -815,7 +1416,6 @@ fn update_copy(shared: &Shared, file: &Opened, copy: PathBuf, body: &[u8]) -> io
             }
         };
     }
-    drop(s);
     let _ = fs::remove_file(&temp);
     write_new(file, body)
 }
@@ -859,11 +1459,10 @@ fn write_new(file: &Opened, body: &[u8]) -> io::Result<PathBuf> {
 /// save of the session (`backup` None) first copies the original to the first free `.bak`
 /// beside the path as given; later saves keep no other copy. A link is followed (its target
 /// replaced, the link kept). The replacement keeps the original's permissions, and a gzipped
-/// input is written gzipped. What is stored is recorded as the session's own before the
-/// rename (and forgotten if it fails), so a reopen or a check meanwhile never takes the file as
-/// changed by someone else. Returns the bytes stored.
+/// input is written gzipped. With the session locked, record the bytes as the session's own
+/// once the rename succeeds. Returns the bytes stored.
 fn replace_input(
-    shared: &Shared,
+    s: &mut Session,
     step: &Path,
     gz: bool,
     backup: &mut Option<PathBuf>,
@@ -887,19 +1486,11 @@ fn replace_input(
             *backup = Some(back_up(step, &real)?);
         }
         let sha = sha256(&stored);
-        let recorded = {
-            let mut s = lock(shared);
-            let new = !s.written.contains(&sha);
-            if new {
-                s.written.push(sha.clone());
-            }
-            new
-        };
-        let renamed = fs::rename(&temp, &real);
-        if renamed.is_err() && recorded {
-            lock(shared).written.retain(|w| *w != sha);
+        fs::rename(&temp, &real)?;
+        if !s.written.contains(&sha) {
+            s.written.push(sha);
         }
-        renamed
+        Ok(())
     })();
     if let Err(e) = replaced {
         let _ = fs::remove_file(&temp);
@@ -908,107 +1499,10 @@ fn replace_input(
     Ok(stored)
 }
 
-/// The intent `write` writes for these answers, and the required questions still open. When
-/// none is open it is exactly `write`'s (`api::apply`). Otherwise what is answered (never a
-/// default not approved): the preview, with what `apply` reports as not written, as the editor
-/// writes an incomplete part.
-pub fn intent_for(
-    loaded: &part::LoadedPart,
-    analysis: &Value,
-    answers: &Map<String, Value>,
-) -> Result<(Intent, Vec<String>), Error> {
-    if answers.contains_key(crate::answer_file::META) {
-        crate::answer_file::check(loaded, answers)
-            .map_err(|why| Error::Rules(rules::Error::Invalid(why)))?;
-    }
-    match api::apply(analysis, answers, false) {
-        Ok(intent) => Ok((intent, Vec::new())),
-        Err(Error::Rules(rules::Error::Incomplete(e))) => {
-            let mut intent = api::preview(analysis, answers)?;
-            intent
-                .requirements
-                .extend(rules::unasked_rows(analysis, answers)?);
-            Ok((intent, e.missing))
-        }
-        Err(e) => Err(e),
-    }
-}
-
 pub use crate::api::{Approved, approvals};
 
-/// A JSON object's entries in order, duplicate keys kept (a `Map` keeps only the last).
-pub struct Entries<T>(pub Vec<(String, T)>);
-
-impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for Entries<T> {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        struct Visit<T>(std::marker::PhantomData<T>);
-        impl<'de, T: serde::Deserialize<'de>> serde::de::Visitor<'de> for Visit<T> {
-            type Value = Entries<T>;
-            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.write_str("an object")
-            }
-            fn visit_map<A: serde::de::MapAccess<'de>>(
-                self,
-                mut map: A,
-            ) -> Result<Entries<T>, A::Error> {
-                let mut out = Vec::new();
-                while let Some(entry) = map.next_entry::<String, T>()? {
-                    out.push(entry);
-                }
-                Ok(Entries(out))
-            }
-        }
-        d.deserialize_map(Visit(std::marker::PhantomData))
-    }
-}
-
-/// Approvals as sent, `{"<part>": {"<id>": <value>}}` with its duplicate keys: an id given
-/// twice with the same value is taken once; with different values, `Err(Some((part, id)))`. A
-/// part that is not an index: `Err(None)`.
-pub fn approvals_from(sent: Entries<Entries<Value>>) -> Result<Approved, Option<(usize, String)>> {
-    let mut out = Approved::new();
-    for (part, ids) in sent.0 {
-        let part: usize = part.parse().map_err(|_| None)?;
-        let taken = out.entry(part).or_default();
-        for (id, value) in ids.0 {
-            match taken.get(&id) {
-                Some(seen) if *seen != value => return Err(Some((part, id))),
-                Some(_) => {}
-                None => {
-                    taken.insert(id, value);
-                }
-            }
-        }
-    }
-    Ok(out)
-}
-
-/// Each part's answers with the approved defaults taken, and the ids taken in it.
-type Approvals = BTreeMap<usize, (Map<String, Value>, Vec<String>)>;
-
-/// The answers each part takes with the defaults `approved` for it, and the ids taken. Every
-/// approval is checked against the defaults as they stand now, before any is applied: each id
-/// must be an open question with a default on its part, and the value approved must be that
-/// default (the one the person saw), else the whole save is refused naming it. They are then
-/// applied together, so no approval changes the value of another. Only the part named takes a
-/// default.
-fn approve(
-    s: &Session,
-    analyses: &BTreeMap<usize, Arc<Value>>,
-    approved: &Approved,
-) -> Result<Approvals, SaveError> {
-    let mut out = Approvals::new();
-    for (&k, wanted) in approved.iter().filter(|(_, ids)| !ids.is_empty()) {
-        let analysis = analyses.get(&k).ok_or(SaveError::Stale(s.rev))?;
-        let answers = s.answers.get(&k).cloned().unwrap_or_default();
-        let taken = with_approved(analysis, &answers, k, wanted)?;
-        out.insert(k, (taken, wanted.keys().cloned().collect()));
-    }
-    Ok(out)
-}
-
 /// [`api::with_approved`], refused as a save is: an approval as [`SaveError::Question`].
-/// `save`, and MCP's `write_pmi` and `export_answers`.
+/// `save`, and MCP's `write_pmi`.
 pub fn with_approved(
     analysis: &Value,
     answers: &Map<String, Value>,

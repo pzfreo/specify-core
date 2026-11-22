@@ -69,6 +69,27 @@ pub(crate) fn bores(ids: &[i64], diameter: f64, faces: &Faces) -> Result<Vec<i64
     Ok(out)
 }
 
+/// Live analysis reports hole diameters to six significant digits. Recover a
+/// bore from that rounding only when the exact-radius test found no carrier.
+pub(crate) fn table_bores(ids: &[i64], diameter: f64, ctx: &Ctx<'_>) -> Result<Vec<i64>> {
+    let exact = bores(ids, diameter, &ctx.faces)?;
+    if !exact.is_empty() || !ctx.has_table() {
+        return Ok(exact);
+    }
+    let nominal = crate::pyfmt::g(diameter);
+    Ok(ids
+        .iter()
+        .copied()
+        .filter(|&id| {
+            ctx.faces.at(id).is_ok_and(|f| {
+                f.is_cylinder()
+                    && f.radius
+                        .is_some_and(|r| crate::pyfmt::g(2.0 * r) == nominal)
+            })
+        })
+        .collect())
+}
+
 /// `_bores_of`: a hole feature's bore faces.
 pub(crate) fn bores_of(hole: &Feature<'_>, faces: &Faces) -> Result<Vec<i64>> {
     bores(hole.faces()?, hole.number("diameter")?, faces)
@@ -147,7 +168,7 @@ pub(crate) fn hole_questions(
     process: &str,
 ) -> Result<Vec<Question>> {
     let diameter = hole.number("diameter")?;
-    let bores = bores(&target.faces, diameter, &ctx.faces)?;
+    let bores = table_bores(&target.faces, diameter, ctx)?;
     let count = target.members.len().max(1);
     let mut label = if count > 1 {
         format!("{count}× Ø{} holes", fmt(diameter)?)

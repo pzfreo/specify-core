@@ -102,8 +102,10 @@ fn a_full_thread_depth_of_a_through_hole_is_listed() {
 }
 
 /// The editor writes its preview intent plus `rules::unasked_rows` (WASM `writePmi`); the row
-/// reaches that report too, and the answer stays stored so the question takes it again when it
-/// returns. Preview itself leaves the rows out, so reviews do not pay for them.
+/// reaches that report too. Preview itself leaves the rows out, so reviews do not pay for them.
+/// Rewritten for D11 (#126) with ADR P11: the unasked answer is reported in `not_written` and
+/// not stored (the file is the only copy); the caller's own answers keep it, so switching back
+/// asks it again with the kept answer.
 #[test]
 fn a_preview_write_lists_it_and_keeps_the_answer() {
     let analysis = api::analyse_file(&plate(), None).unwrap();
@@ -126,29 +128,19 @@ fn a_preview_write_lists_it_and_keeps_the_answer() {
     );
     let loaded = specify_core::part::load_bytes("out.step", written).unwrap();
     let resumed = api::analyse(&loaded).unwrap();
-    assert_eq!(resumed["resume"]["answers"]["datum.A.flatness"], "0.05");
+    // D11: reported above, so not stored; reopening has nothing of it to report again.
+    assert!(
+        resumed["resume"]["answers"]
+            .get("datum.A.flatness")
+            .is_none(),
+        "{}",
+        resumed["resume"]
+    );
+    assert!(resumed["resume"].get("dropped_answers").is_none());
     // Switching back asks it again, with the kept answer.
     answers.insert("part.locating".into(), json!("position tolerances"));
     let intent = api::apply(&analysis, &answers, true).unwrap();
     assert!(intent.requirements.iter().any(|r| r["kind"] == "flatness"));
-}
-
-/// Export keeps an unasked answer: dropping it would lose it silently, and refusing would break
-/// callers that revise answers across a change of mode. A regression guard: main already kept it.
-#[test]
-fn export_keeps_an_unasked_answer() {
-    let analysis = api::analyse_file(&plate(), None).unwrap();
-    let loaded = specify_core::part::load(&plate(), None).unwrap();
-    let saved = api::export_answers(
-        &loaded,
-        &analysis,
-        &revised("± dimensions"),
-        &api::Approved::new(),
-    )
-    .unwrap()
-    .answers;
-    assert_eq!(saved["datum.A.flatness"], "0.05");
-    assert_eq!(saved["hole.position:holes:12"], "0.1");
 }
 
 const UNKNOWN: &str = "Invalid answers: bogus.question: unknown answer ID";
@@ -184,13 +176,6 @@ fn the_library_refuses_an_unknown_id() {
         message(api::review(&analysis, &answers).unwrap_err()),
         UNKNOWN
     );
-    let loaded = specify_core::part::load(&plate(), None).unwrap();
-    assert_eq!(
-        message(
-            api::export_answers(&loaded, &analysis, &answers, &api::Approved::new()).unwrap_err()
-        ),
-        UNKNOWN
-    );
     // Added requirements and reserved members remain answers.
     let mut answers = revised("position tolerances");
     answers.insert(
@@ -223,11 +208,9 @@ fn the_command_line_refuses_an_unknown_id() {
         vec![
             "write".as_ref(),
             plate().into_os_string().leak(),
-            analysis.as_os_str(),
             answers.as_os_str(),
             "-o".as_ref(),
             out.as_os_str(),
-            "--accept-defaults".as_ref(),
         ],
     ];
     for args in runs {
@@ -237,7 +220,11 @@ fn the_command_line_refuses_an_unknown_id() {
             .unwrap();
         assert_eq!(run.status.code(), Some(2), "{args:?}");
         let stderr = String::from_utf8_lossy(&run.stderr);
-        assert!(stderr.contains(UNKNOWN), "{stderr}");
+        assert!(
+            stderr.contains("bogus.question")
+                && (stderr.contains("unknown answer ID") || stderr.contains("no feature-and-kind")),
+            "{stderr}"
+        );
     }
     assert!(!out.exists());
 }
@@ -292,7 +279,7 @@ fn blocked(locating: &str) -> Map<String, Value> {
 }
 
 /// A block applies only while its question is asked: under ± dimensions it does not stop
-/// write (nor export, nor the editor's preview write) and is reported instead.
+/// write (nor the editor's preview write) and is reported instead.
 #[test]
 fn a_carry_block_on_an_unasked_question_is_reported_not_refused() {
     let answers = blocked("± dimensions");
@@ -314,15 +301,6 @@ fn a_carry_block_on_an_unasked_question_is_reported_not_refused() {
     let bytes = std::fs::read(plate()).unwrap();
     let (_, report) = api::write_bytes(bytes, &[(intent, Some(complete))]).unwrap();
     assert!(report.not_written.contains(&line.to_string()));
-    // The export keeps the block, so it applies again if the question returns.
-    let loaded = specify_core::part::load(&plate(), None).unwrap();
-    let saved = api::export_answers(&loaded, &analysis, &answers, &api::Approved::new())
-        .unwrap()
-        .answers;
-    assert_eq!(
-        saved["_specify"]["unresolved"]["datum.A.flatness"],
-        "its datum datum.A is unresolved"
-    );
 }
 
 /// #128 with #126: an added requirement (`extra.*`) has no question, so its carry block is
@@ -471,7 +449,15 @@ fn a_stored_unknown_id_is_left_open_with_a_warning() {
     let (analysis, warnings) = api::analyse_reporting(&reopened).unwrap();
     let resumed = analysis["resume"]["answers"].as_object().unwrap();
     assert!(!resumed.contains_key("bogus.question"), "{resumed:?}");
-    assert_eq!(resumed["part.material"], "6082-T6");
+    // ADR P11: the material writes PMI, so the file states it rather than storing the answer.
+    let material = analysis["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == "part.material")
+        .unwrap();
+    assert_eq!(material["state"], "stated", "{material}");
+    assert_eq!(material["value"], "6082-T6", "{material}");
     assert_eq!(analysis["resume"]["unresolved"][0]["id"], "bogus.question");
     assert!(
         warnings
@@ -493,5 +479,165 @@ fn a_stored_unknown_id_is_left_open_with_a_warning() {
         run.status.success(),
         "{}",
         String::from_utf8_lossy(&run.stderr)
+    );
+}
+
+/// D11 (#126), stored answers: an older file stores an answer whose question is not asked given
+/// the other stored answers (`datum.A.flatness` "none" under ± dimensions). Reopening reports it
+/// once, in `resume.dropped_answers` and a warning, and leaves it out of the resumed answers; the
+/// next save lists it in `not_written` and does not store it again, so the reopened save reports
+/// nothing.
+#[test]
+fn a_stored_answer_to_an_unasked_question_is_reported_once_and_not_stored_again_126() {
+    let dir = temp("stored-unasked");
+    let answers = map(json!({
+        "part.material": "6082-T6",
+        "part.locating": "± dimensions",
+        "datum.A": [2], "datum.B": [1], "datum.C": [0],
+    }));
+    let written = write(&answers, "stored-unasked-source").output;
+    // As an older build stored it: inject the unasked answer into this write's payload.
+    let text = String::from_utf8(std::fs::read(&written).unwrap()).unwrap();
+    let mut payload = Value::Object(specify_core::resume::stored(text.as_bytes())[&0].clone());
+    assert_eq!(payload["answers"]["part.locating"], "± dimensions");
+    let before = specify_core::resume::encode(&payload);
+    payload["answers"]["datum.A.flatness"] = json!("none");
+    let bytes = text
+        .replace(&before, &specify_core::resume::encode(&payload))
+        .into_bytes();
+    let older = dir.join("older.step");
+    std::fs::write(&older, &bytes).unwrap();
+
+    let loaded = specify_core::part::load(&older, None).unwrap();
+    let (analysis, warnings) = api::analyse_reporting(&loaded).unwrap();
+    let resume = &analysis["resume"];
+    assert!(
+        resume["answers"].get("datum.A.flatness").is_none(),
+        "{resume}"
+    );
+    assert_eq!(resume["answers"]["part.locating"], "± dimensions");
+    let dropped = resume["dropped_answers"].as_array().unwrap();
+    assert_eq!(dropped.len(), 1, "{resume}");
+    assert_eq!(dropped[0]["id"], "datum.A.flatness");
+    assert_eq!(dropped[0]["value"], "none");
+    let reason = dropped[0]["reason"].as_str().unwrap();
+    assert_eq!(
+        reason,
+        "its question is not asked when part.locating is '± dimensions'"
+    );
+    let warning =
+        format!("saved answer datum.A.flatness ('none'): {reason}; it is not stored again");
+    assert_eq!(
+        warnings.iter().filter(|w| **w == warning).count(),
+        1,
+        "{warnings:?}"
+    );
+
+    // The next save, from the resumed answers: reported once more as what the save did, and gone.
+    let resumed = resume["answers"].as_object().unwrap().clone();
+    let intent = api::apply(&analysis, &resumed, true).unwrap();
+    let saved = dir.join("saved.step");
+    let report = api::write_file(&older, &intent, &saved, Some(&resumed)).unwrap();
+    assert!(
+        report.not_written.iter().any(|l| l
+            == &format!(
+                "saved answer datum.A.flatness ('none'): {reason}; it was not stored again"
+            )),
+        "{:?}",
+        report.not_written
+    );
+    let stored = specify_core::resume::stored(&std::fs::read(&saved).unwrap());
+    assert!(stored[&0]["answers"].get("datum.A.flatness").is_none());
+    let (again, warnings) =
+        api::analyse_reporting(&specify_core::part::load(&saved, None).unwrap()).unwrap();
+    assert!(
+        again["resume"].get("dropped_answers").is_none(),
+        "{}",
+        again["resume"]
+    );
+    assert!(
+        !warnings.iter().any(|w| w.contains("datum.A.flatness")),
+        "{warnings:?}"
+    );
+}
+
+/// D11 (#126), edit lists: an answer whose id names nothing the part has (a feature it does not
+/// have, or a kind that feature's family has no question of) refuses the whole list, named with
+/// its reason, at every entry point that takes answers: never ignored. An id naming a real
+/// question that is merely not asked now is not refused: it is reported in `not_written`.
+#[test]
+fn an_answer_naming_nothing_the_part_has_refuses_the_whole_list_126() {
+    let analysis = api::analyse_file(&plate(), None).unwrap();
+    for (id, value, why) in [
+        (
+            "hole.position:holes:999",
+            json!("0.1"),
+            "unknown feature holes:999",
+        ),
+        (
+            "hole.position:holes:999",
+            json!("none"),
+            "unknown feature holes:999",
+        ),
+        (
+            "diameter.fit:holes:12",
+            json!("h6"),
+            "unknown answer ID for this feature family",
+        ),
+    ] {
+        let mut answers = revised("± dimensions");
+        answers.insert(id.into(), value);
+        let expected = format!("Invalid answers: {id}: {why}");
+        let message = |e: api::Error| e.to_string();
+        for result in [
+            api::questions(&analysis, &answers)
+                .map(|_| ())
+                .map_err(message),
+            api::apply(&analysis, &answers, true)
+                .map(|_| ())
+                .map_err(message),
+            api::preview(&analysis, &answers)
+                .map(|_| ())
+                .map_err(message),
+            api::review(&analysis, &answers)
+                .map(|_| ())
+                .map_err(message),
+        ] {
+            assert_eq!(result.unwrap_err(), expected);
+        }
+        // The writer checks the answers itself, whatever intent it is given.
+        let intent = api::apply(&analysis, &revised("± dimensions"), true).unwrap();
+        let bytes = std::fs::read(plate()).unwrap();
+        let error = api::write_bytes(bytes, &[(intent, Some(answers.clone()))]).unwrap_err();
+        assert!(error.to_string().contains(&expected), "{error}");
+        // The command line refuses it the same way, writing nothing.
+        let dir = temp("names-nothing");
+        let (given, out) = (dir.join("edits.json"), dir.join("out.step"));
+        std::fs::write(&given, json!({"fill": answers}).to_string()).unwrap();
+        let run = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+            .arg("write")
+            .arg(plate())
+            .arg(&given)
+            .arg("-o")
+            .arg(&out)
+            .output()
+            .unwrap();
+        assert_eq!(run.status.code(), Some(2));
+        let stderr = String::from_utf8_lossy(&run.stderr);
+        assert!(
+            stderr.contains("no feature-and-kind") && stderr.contains("fill["),
+            "{stderr}"
+        );
+        assert!(!out.exists());
+    }
+    // A real question not asked now (#126) is reported, not refused.
+    let report = write(&revised("± dimensions"), "names-a-real-question");
+    assert!(
+        report.not_written.contains(&not_written(
+            "datum.A.flatness",
+            "when part.locating is '± dimensions'"
+        )),
+        "{:?}",
+        report.not_written
     );
 }

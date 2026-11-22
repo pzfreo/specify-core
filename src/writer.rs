@@ -5,7 +5,8 @@
 //! features (coplanar faces, or a hole's cylinders for an axis datum), sizes (an ISO 286 fit as
 //! the fit, `±` as deviations and limits as limits), locations (basic, deviations or limits)
 //! from the reference faces to the feature, geometric tolerances with their zone, modifier and datum system,
-//! material, the general tolerance as a class, threads (with their manufacturing data as a
+//! material, the general tolerance (a class, or a block as a default tolerance table and its
+//! note, `tolerance_block`), threads (with their manufacturing data as a
 //! user defined attribute set, upstream need U8), knurls, surface finish and the part's notes.
 //! Every part is written in one `haecceity::pmi::write` edit of the file, which validates every
 //! instance it makes against the AP242 schema before anything is returned.
@@ -14,20 +15,15 @@
 //! standard AP242 fields or representation descriptions. Input PMI stays unmarked; see
 //! `docs/pmi-provenance.md` for the exact STEP-only reader contract.
 //!
-//! **Modes.** A bare part or a legacy resumed Specify part uses `Mode::Replace`.
-//! A part with foreign PMI uses `Mode::Add`, storing answers and characteristic numbers
-//! alongside Specify's provenance-marked requirements. Its payload carries `pmi_scope`
-//! equal to [`PMI_PROVENANCE`]. On resume, only marked requirements belong to those answers;
-//! unmarked PMI stays in `existing` and continues to answer the interview's questions.
-//! Rewriting a mixed part still uses Add: first remove only Specify's marked requirements
-//! with the kernel's removal planner, then append the edited intent and new saved answers.
-//! Foreign requirements and their forward dependencies (including shared features/datums)
-//! are protected against removal or rewriting. Characteristic numbers match Specify's
-//! previous items; foreign numbers are reserved, and reused foreign datums are not numbered.
-//! Payloads without the scope field retain legacy resume semantics. In particular, 0.1.7
-//! Add-mode files without answers still open as existing PMI; a marker alone does not
-//! authorize deletion. Each assembly part follows the same rule independently. Parts not
-//! selected for writing retain their PMI and answers byte for byte (decision D3).
+//! **Modes** (ADR P11: the file's PMI is the only copy). A bare part uses `Mode::Replace`.
+//! A part with PMI, whoever wrote it, uses `Mode::Add`: every requirement in the file stays
+//! as it is, and only Specify's bookkeeping (the stored answers and the characteristic-number
+//! record) is replaced. A requirement the file already states (the same measurement on the
+//! same faces) is not written again, whatever its value: changing it is an explicit edit.
+//! Existing numbers stay; new requirements are numbered after the high-water mark. A save
+//! that adds nothing keeps the file's bytes. Each assembly part follows the same rule
+//! independently. Parts not selected for writing retain their PMI and answers byte for byte
+//! (decision D3).
 //!
 //! **Notes and finish** (question Q3, decided 2026-10-09). A surface finish (`Ra 3.2`, on faces
 //! or the part's default) is a surface texture in ISO 10303-1110's form, 'any process allowed'
@@ -111,6 +107,7 @@ use crate::pyjson;
 use crate::resume;
 use crate::rules::Intent;
 
+pub mod apply;
 #[cfg(test)]
 mod tests;
 
@@ -304,8 +301,18 @@ pub fn write_parts_with(
 ) -> Result<WriteReport, WriteError> {
     check_jobs(jobs)?;
     check_extra(jobs, extra)?;
+    let (bytes, mut report) = write_verified(jobs, extra, Replace::Nothing)?;
+    put(output, bytes)?;
+    report.output = output.to_path_buf();
+    Ok(report)
+}
 
-    // Written and verified beside the destination, which is replaced only once all is well.
+/// `bytes` written to `output`: staged and read back beside the destination, which is
+/// replaced only once all is well (a symbolic link is written through, an existing file keeps
+/// its permissions, a `.gz` destination is gzipped). Any failure leaves the destination as it
+/// was.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn put(output: &Path, bytes: Vec<u8>) -> Result<(), WriteError> {
     let target = match std::fs::symlink_metadata(output) {
         Ok(m) if m.file_type().is_symlink() => std::fs::canonicalize(output)
             .map_err(|e| WriteError::Failed(format!("{}: {e}", output.display())))?,
@@ -318,7 +325,7 @@ pub fn write_parts_with(
         )));
     };
     let staged = target.with_file_name(format!(".{name}.{}.{}.part", std::process::id(), tag()));
-    let result = write_verified(jobs, extra).and_then(|(bytes, report)| {
+    let result = (|| {
         // Gzipped only when the destination is named `.gz` (a write in place to a `.gz` input
         // stays gzipped); the STEP text is verified before it is compressed.
         let bytes = if output
@@ -343,15 +350,12 @@ pub fn write_parts_with(
                 .map_err(|e| WriteError::Failed(format!("{}: {e}", output.display())))?;
         }
         std::fs::rename(&staged, &target)
-            .map_err(|e| WriteError::Failed(format!("{}: {e}", output.display())))?;
-        Ok(report)
-    });
+            .map_err(|e| WriteError::Failed(format!("{}: {e}", output.display())))
+    })();
     if result.is_err() {
         let _ = std::fs::remove_file(&staged);
     }
-    let mut report = result?;
-    report.output = output.to_path_buf();
-    Ok(report)
+    result
 }
 
 /// `bytes` gzipped, deterministically (no name, no time stamp).
@@ -415,7 +419,33 @@ pub fn write_parts_bytes_with(
 ) -> Result<(Vec<u8>, WriteReport), WriteError> {
     check_jobs(jobs)?;
     check_extra(jobs, extra)?;
-    write_verified(jobs, extra)
+    write_verified(jobs, extra, Replace::Nothing)
+}
+
+/// What a write may replace of what the file states. A raw intent replaces nothing: a stated
+/// general tolerance that differs from the intent's is refused (ADR P11). Only an explicit
+/// change (the edit list's `change` of `part.general_tolerance`) replaces it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Replace {
+    /// Nothing the file states is replaced.
+    Nothing,
+    /// The part's general tolerance (its classes, default tolerance tables and Specify's
+    /// general tolerance note) gives way to the intent's, when the two differ (#228, "Change
+    /// replaces the table"). Every other entity stays byte for byte.
+    GeneralTolerance,
+}
+
+/// [`write_bytes`] for an explicit change of the part's general tolerance (#228): the file's
+/// general tolerance gives way to the one `intent` gives ([`Replace::GeneralTolerance`]). For
+/// the edit list's `change`; a raw intent written with [`write_bytes`] never replaces it.
+pub fn write_bytes_changing_general_tolerance(
+    loaded: &LoadedPart,
+    intent: &Intent,
+    answers: Option<&Map<String, Json>>,
+) -> Result<(Vec<u8>, WriteReport), WriteError> {
+    let jobs = [(loaded, intent, answers)];
+    check_jobs(&jobs)?;
+    write_verified(&jobs, &[], Replace::GeneralTolerance)
 }
 
 /// Reserve both names: resume reads descriptive items by name, independently of their set.
@@ -485,6 +515,17 @@ fn check_jobs(jobs: &[Job<'_>]) -> Result<(), WriteError> {
             // is derived from these answers on this part, never taken from the intent: only
             // when there is a block, as that needs the part's analysis.
             crate::answer_file::validate(answers).map_err(WriteError::Invalid)?;
+            // D11 (#126): an answer on a feature this part does not have (a suppressed boss's)
+            // names nothing the part has: it refuses the write, whatever intent is given.
+            if answers.keys().any(|id| id.contains(':')) {
+                let features = crate::features::recognise(loaded)
+                    .ok()
+                    .and_then(|fs| serde_json::to_value(fs).ok());
+                if let Some(features) = features {
+                    crate::input::feature_ids(Some(&features), answers)
+                        .map_err(|e| WriteError::Invalid(e.to_string()))?;
+                }
+            }
             if !crate::answer_file::unresolved(answers).is_empty() {
                 let analysis =
                     crate::api::analyse(loaded).map_err(|e| WriteError::Failed(e.to_string()))?;
@@ -624,15 +665,455 @@ impl Source {
     }
 }
 
-/// The datums another tool's (unmarked) tolerances on part `part` cite, with their features:
-/// kept with those tolerances, so a rewrite's equal datum is that one (ADR P9).
-fn foreign_support(original: &Source, part: usize) -> BTreeSet<(String, usize)> {
-    let tolerances = provenance::unmarked(&original.doc, &original.read, part)
-        .into_iter()
-        .filter(|(collection, _)| collection == "tolerances")
-        .map(|(_, i)| i)
+/// Every item of `pmi` but Specify's bookkeeping (the stored answers and the
+/// characteristic-number record), by haecceity collection and index: what a save keeps.
+fn requirements(pmi: &PartPmi) -> BTreeSet<(String, usize)> {
+    let mut out: BTreeSet<(String, usize)> = [
+        ("features", pmi.features.len()),
+        ("datums", pmi.datums.len()),
+        ("datum_targets", pmi.datum_targets.len()),
+        ("dimensions", pmi.dimensions.len()),
+        ("tolerances", pmi.tolerances.len()),
+        ("general", pmi.general.len()),
+        ("threads", pmi.threads.len()),
+        ("knurls", pmi.knurls.len()),
+        ("notes", pmi.notes.len()),
+        ("surface_textures", pmi.surface_textures.len()),
+        ("material", usize::from(pmi.material.is_some())),
+    ]
+    .into_iter()
+    .flat_map(|(collection, len)| (0..len).map(move |i| (collection.to_string(), i)))
+    .collect();
+    out.extend(pmi.attributes.iter().enumerate().filter_map(|(i, set)| {
+        (!resume::is_answers(set) && set.name != crate::characteristics::PROPERTY)
+            .then_some(("attributes".to_string(), i))
+    }));
+    out
+}
+
+/// Every item of `pmi`, by haecceity collection and index, Specify's bookkeeping included: what
+/// a save that only replaces the general tolerance keeps.
+fn every_item(pmi: &PartPmi) -> BTreeSet<(String, usize)> {
+    let mut out = requirements(pmi);
+    out.extend((0..pmi.attributes.len()).map(|i| ("attributes".to_string(), i)));
+    out
+}
+
+/// The requirement answers of `answers` that the plan made no PMI from, by feature and kind:
+/// no requirement it made names the answer's question, and neither its PMI (`planned`) nor
+/// what the file `loaded` was read from states the answer's feature-and-kind (the feature table's
+/// matching, per direction for a location: a size made on a feature does not answer its
+/// position). Part settings, datums' own answers, choices that are not requirements, "none"
+/// answers and answers to questions not asked are not counted.
+fn unwritten_approvals(
+    loaded: &LoadedPart,
+    answers: &Map<String, Json>,
+    made: &[Map<String, Json>],
+    planned: &PartPmi,
+    unasked: &BTreeSet<&str>,
+    general: &[Map<String, Json>],
+) -> BTreeSet<String> {
+    let candidates: Vec<&String> = answers
+        .iter()
+        .filter(|(id, value)| {
+            crate::feature_table::is_requirement(id)
+                && !id.starts_with("part.")
+                && !id.starts_with("datum.")
+                && !crate::feature_table::leaves_nothing(value)
+                && !unasked.contains(id.as_str())
+        })
+        .map(|(id, _)| id)
+        .filter(|id| {
+            !made
+                .iter()
+                .any(|r| r.get("question").and_then(Json::as_str) == Some(id.as_str()))
+        })
         .collect();
-    resume::truth::datum_support(&original.read.parts[part], &tolerances)
+    if candidates.is_empty() {
+        return BTreeSet::new();
+    }
+    // What the file states and what the plan made, as the feature table reads PMI.
+    let mut stated: Vec<Json> = crate::existing::read(loaded)
+        .ok()
+        .and_then(|reading| reading.existing_all(loaded).ok())
+        .and_then(|items| serde_json::to_value(items).ok())
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    stated.extend(crate::existing::items_of(planned));
+    let geometry: Vec<Json> = crate::features::describe_faces(loaded)
+        .ok()
+        .and_then(|faces| serde_json::to_value(faces).ok())
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    let features = crate::features::recognise(loaded).unwrap_or_default();
+    candidates
+        .into_iter()
+        .filter(|id| {
+            if crate::rules::general_rows::is_id(id) {
+                // An answer from a previous save can now be stated or dormant. Only a
+                // row that reached this intent could have been skipped by its writer.
+                return general
+                    .iter()
+                    .find(|r| r.get("question").and_then(Json::as_str) == Some(id.as_str()))
+                    .is_some_and(|row| {
+                        !crate::feature_table::requirement_stated(row, &stated, &geometry)
+                    });
+            }
+            let (_, feature) = crate::feature_table::kind_and_feature(id);
+            let Some(f) = features.iter().find(|f| f.id == feature) else {
+                return true;
+            };
+            let mut req = Map::new();
+            req.insert("question".into(), Json::from(id.as_str()));
+            req.insert("faces".into(), Json::from(f.faces.clone()));
+            !crate::feature_table::requirement_stated(&req, &stated, &geometry)
+        })
+        .cloned()
+        .collect()
+}
+
+/// The intent's requirements a plan made PMI from.
+type Made = Vec<Map<String, Json>>;
+
+/// [`part_pmi`] in add mode (ADR P11): what the file already states stays as it is and is
+/// never stated twice. A requirement of `intent` whose feature-and-kind the file states (the
+/// feature table's matching: the faces it sits on and its kind, whatever its value, type or
+/// reference) is left out and reported as not written; so is any item the plan makes that
+/// measures exactly what `before` states.
+fn part_pmi_added(
+    loaded: &LoadedPart,
+    intent: &Intent,
+    before: &PartPmi,
+) -> Result<(PartPmi, Lines, Made), WriteError> {
+    let mut sources: Vec<((String, usize), Map<String, Json>)> = Vec::new();
+    let (planned, full_lines) =
+        part_pmi_observed(loaded, intent, before, Mode::Add, &[], &mut |c, i, r| {
+            sources.push(((c.to_string(), i), r.clone()))
+        })?;
+    let stated: BTreeSet<String> = crate::characteristics::measures(before)
+        .into_iter()
+        .filter(|((collection, _), _)| *collection != "datums")
+        .map(|(_, key)| key)
+        .collect();
+    let mut restated: std::collections::BTreeMap<(String, usize), String> =
+        crate::characteristics::measures(&planned)
+            .into_iter()
+            .filter(|((collection, _), key)| *collection != "datums" && stated.contains(key))
+            .map(|((collection, i), key)| ((collection.to_string(), i), key))
+            .collect();
+    // The feature table's matching of each requirement to the file's PMI.
+    let existing: Vec<Json> = crate::existing::read(loaded)
+        .ok()
+        .and_then(|reading| reading.existing_all(loaded).ok())
+        .and_then(|items| serde_json::to_value(items).ok())
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    let geometry: Vec<Json> = crate::features::describe_faces(loaded)
+        .ok()
+        .and_then(|faces| serde_json::to_value(faces).ok())
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    for (at, req) in &sources {
+        // A location the planner shares across several features (one dimension from face 9
+        // to holes 37, 51, 53, 54 and 56) is stated only when the file already locates every
+        // feature it locates, not just the one whose requirement made it.
+        let shared;
+        let req = match (at.0.as_str(), planned.dimensions.get(at.1).map(|d| &d.kind)) {
+            ("dimensions", Some(DimensionKind::Location { from, to, .. }))
+                if req.get("kind").and_then(Json::as_str) == Some("location") =>
+            {
+                let mut whole = req.clone();
+                let faces = |f: &FeatureId| {
+                    Json::from(crate::existing::faces_in_arena(&planned.features, &[*f]))
+                };
+                whole.insert("faces".into(), faces(to));
+                whole.insert("reference".into(), faces(from));
+                shared = whole;
+                &shared
+            }
+            _ => req,
+        };
+        if at.0 != "datums" && crate::feature_table::requirement_stated(req, &existing, &geometry) {
+            restated
+                .entry(at.clone())
+                .or_insert_with(|| format!("{} {}", at.0, at.1));
+        }
+    }
+    let by_kind: BTreeSet<(String, usize)> = restated.keys().cloned().collect();
+    // A requirement of the intent is left out when all it makes is stated already.
+    let mut whole: Vec<(&Map<String, Json>, bool)> = Vec::new();
+    for (at, req) in &sources {
+        if at.0 == "datums" {
+            continue;
+        }
+        let here = restated.contains_key(at);
+        match whole.iter_mut().find(|(r, _)| *r == req) {
+            Some((_, all)) => *all &= here,
+            None => whole.push((req, here)),
+        }
+    }
+    let gone: Vec<&Map<String, Json>> = whole
+        .into_iter()
+        .filter_map(|(r, all)| all.then_some(r))
+        .collect();
+    let part_finish = planned
+        .surface_textures
+        .iter()
+        .enumerate()
+        .any(|(i, t)| t.on.is_none() && restated.contains_key(&("surface_textures".into(), i)));
+    let mut said = Vec::new();
+    let replanned;
+    let intent = if gone.is_empty() && !part_finish {
+        intent
+    } else {
+        let mut less = intent.clone();
+        let mut out = |list: &mut Vec<Map<String, Json>>| {
+            list.retain(|r| {
+                let drop = gone.contains(&r);
+                if drop && !truthy(r.get("general")) && !intent.general.contains(r) {
+                    let kind = r
+                        .get("kind")
+                        .and_then(Json::as_str)
+                        .unwrap_or("requirement");
+                    let faces = r.get("faces").map(Json::to_string).unwrap_or_default();
+                    said.push(format!(
+                        "{kind} on faces {faces}: the file already states it; not written again"
+                    ));
+                }
+                !drop
+            })
+        };
+        out(&mut less.requirements);
+        out(&mut less.general);
+        if part_finish && let Some(finish) = less.part.shift_remove("surface_finish") {
+            said.push(format!(
+                "surface finish {}: the file already states the part's finish; not written again",
+                py_str(&finish)
+            ));
+        }
+        replanned = less;
+        &replanned
+    };
+    // The plan stays the one made for the whole intent (the dimension planner's choices must
+    // not change because a requirement is already in the file); the plan without what is
+    // stated says which of its lines are still written.
+    let mut pmi = planned;
+    let mut lines = full_lines;
+    if !gone.is_empty() || part_finish {
+        let (_, less) = part_pmi(loaded, intent, before, Mode::Add, &[])?;
+        lines.written.retain(|line| {
+            line.ends_with(" under the general tolerance") || less.written.contains(line)
+        });
+    }
+    if let Some(at) = lines
+        .written
+        .iter()
+        .position(|line| line.ends_with(" under the general tolerance"))
+    {
+        // The pre-filter count changes when an approved dimension is already
+        // stated. Count the surviving writes instead of comparing report strings.
+        let general = sources
+            .iter()
+            .filter(|(key, req)| {
+                key.0 == "dimensions" && !restated.contains_key(key) && truthy(req.get("general"))
+            })
+            .count();
+        if general == 0 {
+            lines.written.remove(at);
+        } else {
+            lines.written[at] = general_count_line(general);
+        }
+    }
+    lines.not_written.extend(said);
+    let mut reported = BTreeSet::new();
+    for (at, row) in &sources {
+        if restated.contains_key(at) && (truthy(row.get("general")) || intent.general.contains(row))
+        {
+            reported.insert(at.clone());
+            if let Some(id) = row.get("question").and_then(Json::as_str) {
+                lines.answer_skips.insert(
+                    id.into(),
+                    "the reconciled measurement is already stated by the file".into(),
+                );
+            }
+            lines.not_written.push(format!(
+                "{}: the file already states it; not written again",
+                general_dimension_label(row)
+            ));
+        }
+    }
+    for (at, what) in drop_stated(&mut pmi, before, &by_kind) {
+        if !reported.contains(&at) {
+            lines.not_written.push(format!(
+                "{what}: the file already states it; not written again"
+            ));
+        }
+    }
+    // A note the file already holds, as written, on the part or on a feature of the same
+    // faces (a part note, a thread's manufacturing data), is not written twice.
+    let owner = |p: &PartPmi, on: &Option<NoteOwner>| match on {
+        None => Some(Vec::new()),
+        Some(NoteOwner::Feature(f)) => Some(crate::existing::faces_of(p, &[*f])),
+        _ => None,
+    };
+    let planned_owners: Vec<_> = pmi.attributes.iter().map(|a| owner(&pmi, &a.on)).collect();
+    let held = |set: &AttributeSet, on: &Option<Vec<usize>>| {
+        on.is_some()
+            && before.attributes.iter().any(|old| {
+                old.name == set.name && old.items == set.items && owner(before, &old.on) == *on
+            })
+    };
+    let mut gone = Vec::new();
+    let mut at = 0;
+    pmi.attributes.retain(|set| {
+        let on = &planned_owners[at];
+        at += 1;
+        if !held(set, on) {
+            return true;
+        }
+        if set.on.is_some() {
+            return false;
+        }
+        for (kind, value) in &set.items {
+            let key = crate::existing::PART_NOTES
+                .iter()
+                .find(|(_, k)| k == kind)
+                .map_or(kind.as_str(), |(key, _)| key);
+            if let AttributeValue::Text(words) = value {
+                gone.push(format!("{} {words}", key.replace('_', " ")));
+            }
+        }
+        false
+    });
+    for line in gone {
+        lines.written.retain(|l| *l != line);
+        lines.not_written.push(format!(
+            "{line}: the file already states it; not written again"
+        ));
+    }
+    // A separately approved measurement can be consolidated onto different
+    // support. Check its original question against the file if we dropped it.
+    let made = sources
+        .into_iter()
+        .filter(|(at, req)| {
+            !by_kind.contains(at)
+                || !req
+                    .get("question")
+                    .and_then(Json::as_str)
+                    .is_some_and(crate::rules::general_rows::is_id)
+        })
+        .map(|(_, req)| req)
+        .collect();
+    Ok((pmi, lines, made))
+}
+
+/// Drop from `planned` every requirement that measures what `before` already states (the
+/// same kind and type on the same faces and reference, whatever its value), and those `also`
+/// names (whose feature-and-kind the file states), with what depends on it, and say which. The file's requirement stands (ADR P11): changing it is an explicit
+/// edit, never a side effect of writing answers again.
+fn drop_stated(
+    planned: &mut PartPmi,
+    before: &PartPmi,
+    also: &BTreeSet<(String, usize)>,
+) -> Vec<((String, usize), String)> {
+    use pmi::{DimensionId, ToleranceId};
+    let stated: BTreeSet<String> = crate::characteristics::measures(before)
+        .into_iter()
+        .filter(|((collection, _), _)| *collection != "datums")
+        .map(|(_, key)| key)
+        .collect();
+    let mut drop: BTreeSet<(&'static str, usize)> = BTreeSet::new();
+    let mut said = Vec::new();
+    for ((collection, i), key) in crate::characteristics::measures(planned) {
+        if collection != "datums"
+            && (stated.contains(&key) || also.contains(&(collection.to_string(), i)))
+        {
+            drop.insert((collection, i));
+            said.push(((collection.to_string(), i), key));
+        }
+    }
+    if drop.is_empty() {
+        return said;
+    }
+    // A tolerance on a dropped dimension goes with it.
+    for (i, t) in planned.tolerances.iter().enumerate() {
+        if let ToleranceTarget::Dimension(d) = &t.target
+            && drop.contains(&("dimensions", d.0))
+        {
+            drop.insert(("tolerances", i));
+        }
+    }
+    let remap = |collection: &'static str, len: usize| -> Vec<Option<usize>> {
+        let mut next = 0;
+        (0..len)
+            .map(|i| {
+                if drop.contains(&(collection, i)) {
+                    None
+                } else {
+                    next += 1;
+                    Some(next - 1)
+                }
+            })
+            .collect()
+    };
+    let dims = remap("dimensions", planned.dimensions.len());
+    let tols = remap("tolerances", planned.tolerances.len());
+    fn kept<T>(items: Vec<T>, drop: &BTreeSet<(&str, usize)>, collection: &str) -> Vec<T> {
+        items
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| !drop.contains(&(collection, *i)))
+            .map(|(_, item)| item)
+            .collect()
+    }
+    planned.dimensions = kept(std::mem::take(&mut planned.dimensions), &drop, "dimensions");
+    planned.tolerances = kept(std::mem::take(&mut planned.tolerances), &drop, "tolerances");
+    for t in &mut planned.tolerances {
+        if let ToleranceTarget::Dimension(d) = &mut t.target
+            && let Some(n) = dims[d.0]
+        {
+            *d = DimensionId(n);
+        }
+    }
+    planned.surface_textures = kept(
+        std::mem::take(&mut planned.surface_textures),
+        &drop,
+        "surface_textures",
+    );
+    planned.threads = kept(std::mem::take(&mut planned.threads), &drop, "threads");
+    planned.knurls = kept(std::mem::take(&mut planned.knurls), &drop, "knurls");
+    planned
+        .tolerance_relations
+        .retain_mut(|r| match (tols[r.relating.0], tols[r.related.0]) {
+            (Some(a), Some(b)) => {
+                r.relating = ToleranceId(a);
+                r.related = ToleranceId(b);
+                true
+            }
+            _ => false,
+        });
+    let owner = |on: &mut Option<NoteOwner>| -> bool {
+        match on {
+            Some(NoteOwner::Dimension(d)) => match dims[d.0] {
+                Some(n) => {
+                    *d = DimensionId(n);
+                    true
+                }
+                None => false,
+            },
+            Some(NoteOwner::Tolerance(t)) => match tols[t.0] {
+                Some(n) => {
+                    *t = ToleranceId(n);
+                    true
+                }
+                None => false,
+            },
+            _ => true,
+        }
+    };
+    planned.notes.retain_mut(|n| owner(&mut n.on));
+    planned.attributes.retain_mut(|a| owner(&mut a.on));
+    said
 }
 
 /// One part to write, as planned.
@@ -651,6 +1132,105 @@ struct Lines {
     not_written: Vec<String>,
     warnings: Vec<String>,
     conveyed_depth_spans: Vec<(DepthPlane, DepthPlane, f64)>,
+    datum_sizes: BTreeSet<String>,
+    answer_skips: std::collections::BTreeMap<String, String>,
+}
+
+impl Lines {
+    /// Report an unwritten approval. Only deliberate datum-size omissions are decisions.
+    fn record_unwritten_approval(&mut self, id: &str, answer: &Json) -> bool {
+        let value = crate::choices::short_repr(answer, 6);
+        let deliberate = self.datum_sizes.contains(id)
+            && crate::feature_table::is_datum_size_approval(id, answer);
+        if deliberate {
+            self.not_written.push(format!(
+                "answer {id} ({value}): approved, but nothing of its kind was written on its \
+                 feature (general size on a datum's own faces); stored as decided"
+            ));
+        } else {
+            let reason = self.answer_skips.get(id).map_or(
+                "the plan supplied no writable PMI on this feature",
+                String::as_str,
+            );
+            self.not_written
+                .push(format!("answer {id} ({value}): {reason}; remains open"));
+        }
+        deliberate
+    }
+}
+
+fn general_size_question(row: &Map<String, Json>) -> Option<String> {
+    if row.get("kind")?.as_str()? != "size" || !truthy(row.get("general")) {
+        return None;
+    }
+    let feature = row.get("feature")?.as_str()?;
+    let kind = match feature.split_once(':')?.0 {
+        "turned_steps" => "diameter.fit",
+        "holes" => "hole.function",
+        family if family.starts_with("hole_patterns.") => "hole.function",
+        _ => return None,
+    };
+    Some(format!("{kind}:{feature}"))
+}
+
+fn general_dimension_label(row: &Map<String, Json>) -> String {
+    let faces = face_list(row.get("faces"));
+    let value = |key| {
+        row.get(key)
+            .and_then(Json::as_f64)
+            .map_or_else(|| "without a value".into(), pyfmt::g)
+    };
+    match row.get("kind").and_then(Json::as_str) {
+        Some("size") => {
+            let feature = row.get("feature").and_then(Json::as_str).unwrap_or("");
+            let on = if feature.is_empty() {
+                String::new()
+            } else {
+                format!(" on {feature}")
+            };
+            format!("general size {}{on} faces {faces}", value("nominal"))
+        }
+        Some("location") => format!(
+            "general location {} to faces {faces} from faces {}",
+            value("distance"),
+            face_list(row.get("reference"))
+        ),
+        kind => format!("general {} on faces {faces}", kind.unwrap_or("row")),
+    }
+}
+
+fn general_count_line(count: usize) -> String {
+    let plural = if count == 1 { "" } else { "s" };
+    format!("{count} dimension{plural} under the general tolerance")
+}
+
+/// The upgrade can keep a measurement but add planner metadata and round its nominal.
+fn same_general_measurement(old: &Map<String, Json>, new: &Map<String, Json>) -> bool {
+    let key = match old.get("kind").and_then(Json::as_str) {
+        Some("size") => "nominal",
+        Some("location") => "distance",
+        _ => return old == new,
+    };
+    let same_faces = |left, right| {
+        let sorted = |faces| {
+            let mut ids = face_ids(faces);
+            if let Some(ids) = &mut ids {
+                ids.sort_unstable();
+            }
+            ids
+        };
+        sorted(old.get(left)) == sorted(new.get(right))
+    };
+    old.get("kind") == new.get("kind")
+        && (same_faces("faces", "faces") && same_faces("reference", "reference")
+            || key == "distance"
+                && same_faces("faces", "reference")
+                && same_faces("reference", "faces"))
+        && old
+            .get(key)
+            .and_then(Json::as_f64)
+            .zip(new.get(key).and_then(Json::as_f64))
+            .is_some_and(|(a, b)| (a - b).abs() <= 0.0000005)
 }
 
 /// Writes `jobs` and verifies the result by reading it back: the file's bytes and the report
@@ -658,127 +1238,82 @@ struct Lines {
 fn write_verified(
     jobs: &[Job<'_>],
     extra: &[AttributeSet],
+    replace: Replace,
 ) -> Result<(Vec<u8>, WriteReport), WriteError> {
     // Every write_verified caller first rejects empty jobs; a session supplies exactly one job.
     let first = jobs[0].0;
     let bytes: &[u8] = &first.bytes;
     let original = Source::of(bytes)?;
+    // ADR P11: the file's PMI is the only copy. A save never cleans and re-plans: every
+    // requirement in the file stays, whoever wrote it, and what the answers add is appended
+    // (Add). Only Specify's bookkeeping on a part it wrote (the stored answers and the
+    // characteristic-number record) is replaced, by a scoped Add that keeps every other item.
     let mut scoped = Vec::new();
-    // ADR P9: a resumed part keeps PMI another tool added and the file's items of a conflict
-    // not yet decided (or kept), unless the rewrite states them again. A part with nothing to
-    // keep is rewritten as before; a replace-written one with something to keep is rewritten
-    // as a scoped Add, replacing only Specify's marked requirements.
     let mut keep = std::collections::BTreeMap::new();
-    // The file's items of conflicts the answers now decide (restored, or answered anew): they
-    // give way, marked or not.
-    let mut give_way = std::collections::BTreeMap::new();
-    // Replace-written parts taken to a scoped Add only for the Specify-marked PMI they keep.
-    let mut for_keep = BTreeSet::new();
-    let mut reconciled = std::collections::BTreeMap::new();
-    let empty = Map::new();
-    for (loaded, intent, answers) in jobs {
+    // Only Specify's marked bookkeeping and legacy caller extras go. An unmarked copy of stored answers (an older
+    // engine's, or another tool's) stays untouched; the payload written now carries
+    // `pmi_scope`, so it is the one read. What gives way whoever wrote it (`bookkeeping`, by
+    // part) is only a general tolerance the intent replaces.
+    let mut bookkeeping = std::collections::BTreeMap::new();
+    let mut cleaning = Vec::new();
+    for (loaded, intent, _) in jobs {
         let part = loaded.binding.part;
-        let writes_process = intent.part.contains_key(crate::process::INTENT_KEY);
         let resumed = resume::has_answers(loaded).map_err(|e| WriteError::Failed(e.to_string()))?;
-        // Another tool's PMI: unmarked requirements the resumed answers do not explain.
-        let mut foreign = false;
-        let kept = if resumed {
-            match crate::api::reconciled(loaded).map_err(|e| WriteError::Failed(e.to_string()))? {
-                Some(r) => {
-                    let kept = r.kept_items(
-                        &original.read.parts[part],
-                        answers.unwrap_or(&empty),
-                        writes_process,
-                        &BTreeSet::new(),
-                    );
-                    foreign = provenance::unmarked(&original.doc, &original.read, part)
-                        .iter()
-                        .any(|at| !r.explained.contains(at));
-                    let yields = r.give_way(
-                        &original.read.parts[part],
-                        answers.unwrap_or(&empty),
-                        writes_process,
-                    );
-                    if !yields.is_empty() {
-                        give_way.insert(part, yields);
-                    }
-                    let mut kept = kept;
-                    kept.extend(foreign_support(&original, part));
-                    reconciled.insert(part, r);
-                    kept
+        if resumed && original.has_pmi(part) {
+            scoped.push(part);
+            cleaning.push(part);
+            let before = &original.read.parts[part];
+            let mut kept = requirements(before);
+            let provenance = &original.read.provenance.parts[part];
+            // A caller marker identifies the complete replaceable payload. Older files
+            // shared the regular marker with engine attributes. Preserve those unless
+            // this caller explicitly supplies a replacement for the same property.
+            for (i, set) in before.attributes.iter().enumerate() {
+                let ids = &provenance.attributes[i];
+                let replaces = extra.iter().any(|e| e.name == set.name && e.on == set.on);
+                if provenance::caller_attribute(&original.doc, ids)
+                    || (replaces && provenance::marked(&original.doc, ids, "attribute"))
+                {
+                    kept.remove(&("attributes".to_string(), i));
                 }
-                None => BTreeSet::new(),
             }
+            keep.insert(part, kept);
+        }
+        // Only an explicit change replaces the file's general tolerance (#228: "Change
+        // replaces the table"), whoever wrote it; every other item stays byte for byte. A raw
+        // intent that differs is refused by `part_pmi`.
+        let replaced = if replace == Replace::GeneralTolerance {
+            general_giving_way(
+                loaded,
+                intent,
+                &original.read.parts[part],
+                &original.read.provenance.parts[part],
+                &original.doc,
+            )?
         } else {
             BTreeSet::new()
         };
-        if resume::scoped(&original.doc, part) && resumed {
-            scoped.push(part);
-        } else if !kept.is_empty() || foreign {
-            // Reconciliation identified this replace-written part's PMI to preserve. Use a
-            // scoped Add so the rewrite only replaces Specify's marked requirements.
-            scoped.push(part);
-            if !foreign {
-                for_keep.insert(part);
+        if !replaced.is_empty() {
+            if !cleaning.contains(&part) {
+                cleaning.push(part);
+                keep.insert(part, every_item(&original.read.parts[part]));
             }
-        }
-        if !kept.is_empty() {
-            keep.insert(part, kept);
+            bookkeeping.insert(part, replaced);
         }
     }
-    let clean =
-        |scoped: &[usize], keep: &std::collections::BTreeMap<usize, BTreeSet<(String, usize)>>| {
-            provenance::without_owned_except(&original.doc, &original.read, scoped, keep, &give_way)
-                .map_err(WriteError::Refused)
-                .and_then(|bytes| Source::of(&bytes))
-        };
-    let mut cleaned = if scoped.is_empty() {
+    let cleaned = if cleaning.is_empty() {
         None
     } else {
-        Some(clean(&scoped, &keep)?)
+        let bytes = provenance::without_owned_except(
+            &original.doc,
+            &original.read,
+            &cleaning,
+            &keep,
+            &bookkeeping,
+        )
+        .map_err(WriteError::Refused)?;
+        Some(Source::of(&bytes)?)
     };
-    // What the rewrite states again is not kept beside it: the file's copy gives way.
-    if let Some(first_clean) = &cleaned
-        && !keep.is_empty()
-    {
-        let mut narrowed = keep.clone();
-        for &(loaded, intent, answers) in jobs {
-            let part = loaded.binding.part;
-            let (Some(kept), Some(r)) = (narrowed.get_mut(&part), reconciled.get(&part)) else {
-                continue;
-            };
-            let retained = crate::dimensioning::stated_where(&original.read.parts[part], |i| {
-                r.retained.contains(&("dimensions".into(), i))
-            });
-            let (planned, _) = part_pmi(
-                loaded,
-                intent,
-                &first_clean.read.parts[part],
-                Mode::Add,
-                &retained,
-            )?;
-            let restated = resume::truth::restated(&original.read.parts[part], &planned);
-            *kept = r.kept_items(
-                &original.read.parts[part],
-                answers.unwrap_or(&empty),
-                intent.part.contains_key(crate::process::INTENT_KEY),
-                &restated,
-            );
-            kept.extend(foreign_support(&original, part));
-        }
-        narrowed.retain(|_, kept| !kept.is_empty());
-        if narrowed != keep {
-            keep = narrowed;
-            // A replace-written part whose kept PMI the rewrite states again (an unchanged
-            // rewrite) is written by replace as before, keeping its bytes when unchanged.
-            scoped.retain(|part| !for_keep.contains(part) || keep.contains_key(part));
-            cleaned = if scoped.is_empty() {
-                None
-            } else {
-                Some(clean(&scoped, &keep)?)
-            };
-        }
-    }
     let source = cleaned.as_ref().unwrap_or(&original);
     let failed = |e: crate::features::FeatureError| WriteError::Failed(e.to_string());
 
@@ -827,29 +1362,51 @@ fn write_verified(
         // (haecceity's replace touches only the parts written), so it need not be written
         // again with these; Python's refusal ("write them again with these") is not kept.
     }
-    // Bare/legacy resumed parts use Replace (Q18). Scoped resumed Add parts keep
-    // the foreign baseline above and use Add; only marked requirements were removed.
-    // Unselected assembly parts remain untouched (D3).
-    let mut modes = Vec::new();
-    for (loaded, _, _) in jobs {
-        let foreign = source.has_pmi(loaded.binding.part)
-            && (scoped.contains(&loaded.binding.part)
-                || !resume::has_answers(loaded).map_err(failed)?);
-        modes.push(if foreign { Mode::Add } else { Mode::Replace });
-    }
+    // A part with PMI is added to (ADR P11); a bare part, or one holding only its stored
+    // answers, is written by replace. Unselected assembly parts remain untouched (D3).
+    let modes: Vec<Mode> = jobs
+        .iter()
+        .map(|(loaded, _, _)| {
+            if source.has_pmi(loaded.binding.part) {
+                Mode::Add
+            } else {
+                Mode::Replace
+            }
+        })
+        .collect();
 
     let mut planned = Vec::new();
     for (&(loaded, intent, answers), &mode) in jobs.iter().zip(&modes) {
+        let mut approved_intent;
+        let intent = if let Some(answers) = answers.filter(|a| a.values().any(|v| v == "general")) {
+            approved_intent = intent.clone();
+            for row in &mut approved_intent.general {
+                if let Some(id) = general_size_question(row)
+                    && answers.get(&id).is_some_and(|v| v == "general")
+                {
+                    row.insert("question".into(), Json::from(id));
+                }
+            }
+            &approved_intent
+        } else {
+            intent
+        };
         // The binding was checked against these same bytes' parts; Source::of verifies reader counts.
         let before = &source.read.parts[loaded.binding.part];
-        let retained = reconciled
-            .get(&loaded.binding.part)
-            .map_or_else(Vec::new, |r| {
-                crate::dimensioning::stated_where(&original.read.parts[loaded.binding.part], |i| {
-                    r.retained.contains(&("dimensions".into(), i))
-                })
-            });
-        let (mut pmi, mut lines) = part_pmi(loaded, intent, before, mode, &retained)?;
+        let (mut pmi, mut lines, made) = if mode == Mode::Add {
+            part_pmi_added(loaded, intent, before)?
+        } else {
+            let mut made = Vec::new();
+            let (pmi, lines) = part_pmi_observed(
+                loaded,
+                intent,
+                before,
+                Mode::Replace,
+                &[],
+                &mut |_, _, r| made.push(r.clone()),
+            )?;
+            (pmi, lines, made)
+        };
         if let Some(bom) = intent.part.get("bom").and_then(Json::as_object) {
             for (key, value) in bom {
                 lines.written.push(format!("BOM {key} {value}"));
@@ -857,78 +1414,102 @@ fn write_verified(
         }
         let payload = match answers {
             Some(answers) => {
-                let part = loaded.binding.part;
-                let reconciliation = reconciled.get(&part);
-                let foreign_process = reconciliation.map_or_else(
-                    || {
-                        crate::process::file_pmi(
-                            &original.doc,
-                            &original.read.parts[part],
-                            &original.read.provenance.parts[part],
-                        )
-                        .is_some_and(|(_, field)| field.source == "file")
-                    },
-                    |r| r.foreign_process,
-                );
                 let mut saved = answers.clone();
                 saved.remove(crate::answer_file::META);
                 saved.remove(crate::characteristics::CARRY);
                 saved.remove(crate::bom::CARRY);
                 saved.retain(|key, _| !key.starts_with("bom."));
-                // ADR P9: an answer another tool's requirement holds the question against is
-                // not written, so it is not stored either: reopening reads the file's value.
-                if let Some(r) = reconciliation {
-                    // Keep a withheld answer dormant. On the next reopen, the same file
-                    // PMI still prevents it from becoming an active answer.
-                    for (id, value) in &r.withheld {
-                        if !saved.contains_key(id) {
-                            saved.insert(id.clone(), value.clone());
+                // ADR P11: only what leaves no PMI behind is stored; the file states the rest.
+                // What the file stored already stays unless answered anew: leaving an answer
+                // out removes nothing.
+                // Read as resuming reads them (matched to today's features).
+                let mut kept: Map<String, Json> = resume::answers_for(loaded)
+                    .map_err(failed)?
+                    .as_ref()
+                    .map(|old| {
+                        crate::feature_table::storable(old)
+                            .into_iter()
+                            .filter(|(id, _)| !id.starts_with('_') && !id.starts_with("bom."))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                // D11 (#126): an answer whose question is not asked (an `unasked` row: given
+                // now, or stored and dropped on reopening) is reported in not_written and not
+                // stored, so it is never carried silently.
+                let unasked: std::collections::BTreeSet<&str> = intent
+                    .requirements
+                    .iter()
+                    .filter(|r| r.get("kind").and_then(Json::as_str) == Some(crate::rules::UNASKED))
+                    .filter_map(|r| r.get("answer").and_then(Json::as_str))
+                    .collect();
+                kept.retain(|id, _| !unasked.contains(id.as_str()));
+                // P11 rule 2 stores deliberate omissions. A failed PMI approval
+                // stays open, even if the planner produced no requirement for it.
+                let mut nothing = BTreeSet::new();
+                for id in
+                    unwritten_approvals(loaded, &saved, &made, &pmi, &unasked, &intent.general)
+                {
+                    let answer = &saved[&id];
+                    if kept.get(&id) == Some(answer)
+                        && crate::feature_table::is_datum_size_approval(&id, answer)
+                        && !lines.datum_sizes.contains(&id)
+                    {
+                        continue;
+                    }
+                    if lines.record_unwritten_approval(&id, answer) {
+                        nothing.insert(id);
+                    }
+                }
+                if !nothing.is_empty() {
+                    let meta = saved
+                        .entry(crate::answer_file::META)
+                        .or_insert_with(|| Json::Object(Map::new()));
+                    if let Some(meta) = meta.as_object_mut() {
+                        meta.insert(
+                            crate::feature_table::NO_PMI.into(),
+                            Json::from(nothing.iter().cloned().collect::<Vec<_>>()),
+                        );
+                    }
+                }
+                // An answer given now replaces the stored one, whatever its value.
+                let now = crate::feature_table::storable(&saved);
+                for (id, value) in &saved {
+                    match now.get(id).filter(|_| !unasked.contains(id.as_str())) {
+                        Some(_) => {
+                            kept.insert(id.clone(), value.clone());
+                        }
+                        None if kept.get(id) == Some(value)
+                            && crate::feature_table::is_datum_size_approval(id, value) => {}
+                        None => {
+                            kept.shift_remove(id);
                         }
                     }
-                    for c in r.conflicts.iter().filter(|c| c.foreign) {
-                        saved.remove(&c.id);
-                    }
-                    for id in &r.foreign_file {
-                        saved.remove(id);
-                    }
                 }
-                if foreign_process {
-                    saved.remove(crate::process::QUESTION);
-                }
+                kept.shift_remove(crate::answer_file::META);
+                // Every stored answer that writes a requirement is one that wrote nothing.
+                let no_pmi: Vec<Json> = kept
+                    .iter()
+                    .filter(|(id, v)| {
+                        crate::feature_table::is_requirement(id)
+                            && !crate::feature_table::leaves_nothing(v)
+                    })
+                    .map(|(id, _)| Json::from(id.as_str()))
+                    .collect();
+                let saved = kept;
                 let mut payload = resume::payload(loaded, &saved).map_err(failed)?;
+                if !no_pmi.is_empty() {
+                    payload[crate::feature_table::NO_PMI] = Json::Array(no_pmi);
+                }
                 // Carry blocks on questions not asked now (#126) are kept beside the answers,
                 // never inside them: older builds refuse `_specify` among answers.
                 let blocks = crate::answer_file::unresolved(answers);
                 if !blocks.is_empty() {
                     payload[resume::UNRESOLVED] = Json::Object(blocks);
                 }
-                // ADR P9: conflicts kept are stored beside the answers (a kept requirement is
-                // also written unmarked, as the file's own), so a later answer to the question
-                // still finds the file's requirement it replaces. Answering clears the keep.
-                // Another tool's requirement (a foreign process or PMI) doesn't acquire that
-                // permission when its conflict is kept: it stays keep-only.
-                let kept: Vec<Json> = resume::truth::kept(answers)
-                    .into_iter()
-                    .filter(|id| !answers.contains_key(*id))
-                    .filter(|id| !foreign_process || *id != crate::process::QUESTION)
-                    .filter(|id| !reconciliation.is_some_and(|r| r.is_foreign(id)))
-                    .map(Json::from)
-                    .collect();
-                if kept.iter().any(|id| id == crate::process::QUESTION)
-                    && let Some((i, identity)) =
-                        reconciliation.and_then(|r| r.process_keep_identity.as_ref())
-                    && keep
-                        .get(&part)
-                        .is_some_and(|items| items.contains(&("attributes".into(), *i)))
-                {
-                    payload[resume::KEPT_PROCESS] = identity.clone();
-                }
-                if !kept.is_empty() {
-                    payload[resume::KEPT] = Json::Array(kept);
-                }
-                if mode == Mode::Add || scoped.contains(&loaded.binding.part) {
-                    payload["pmi_scope"] = Json::String(PMI_PROVENANCE.into());
-                }
+                // The payload Specify writes now is the one to read when the file also holds an
+                // older one it cannot replace (another tool's unmarked copy): `pmi_scope` marks
+                // it, on every save, so that saves stay byte-stable.
+                payload["pmi_scope"] = Json::String(PMI_PROVENANCE.into());
                 pmi.attributes.push(resume::attribute_set(&payload));
                 Some(payload)
             }
@@ -942,15 +1523,25 @@ fn write_verified(
             &original.read.provenance.parts[loaded.binding.part],
             &original.doc,
             answers,
-            if scoped.contains(&loaded.binding.part) {
-                crate::characteristics::Allocation::Scoped
-            } else if mode == Mode::Replace {
+            if mode == Mode::Replace {
                 crate::characteristics::Allocation::Replace
             } else {
                 crate::characteristics::Allocation::Add
             },
         )
         .map_err(WriteError::Invalid)?;
+        // The number record was taken off with the stored answers; with nothing new to
+        // number, the file's record is written back as it was.
+        let property = |set: &AttributeSet| set.name == crate::characteristics::PROPERTY;
+        if scoped.contains(&loaded.binding.part) && !pmi.attributes.iter().any(property) {
+            pmi.attributes.extend(
+                original.read.parts[loaded.binding.part]
+                    .attributes
+                    .iter()
+                    .filter(|set| property(set))
+                    .cloned(),
+            );
+        }
         if mode == Mode::Replace || scoped.contains(&loaded.binding.part) {
             let mut retired = crate::characteristics::retired(
                 &original.read.parts[loaded.binding.part],
@@ -1010,35 +1601,8 @@ fn write_verified(
         .iter()
         .map(|p| (PartId(p.loaded.binding.part), p.pmi.clone()))
         .collect();
-    let (back, kernel_report) = write_by_modes(source, &items, &modes)?;
+    let (back, kernel_report) = write_by_modes(source, &items, &modes, extra)?;
     verify(source, &items, &modes, &back)?;
-    // ADR P9: a conflict kept by keeping the file's requirement makes it the file's own: it is
-    // written without Specify's provenance marker, so any reader (and Specify reopening it)
-    // sees it as PMI another tool stated, not as Specify's to restate from its answers.
-    let back = {
-        let mut ids = BTreeSet::new();
-        for (&part, r) in &reconciled {
-            let Some(kept) = keep.get(&part) else {
-                continue;
-            };
-            let Some(job) = jobs.iter().find(|(l, _, _)| l.binding.part == part) else {
-                continue;
-            };
-            let empty = Map::new();
-            let answers = job.2.unwrap_or(&empty);
-            ids.extend(r.decided_kept(
-                &original.read.parts[part],
-                &original.read.provenance.parts[part],
-                kept,
-                answers,
-            ));
-        }
-        if ids.is_empty() {
-            back
-        } else {
-            provenance::unmark(&back, &ids).map_err(WriteError::Failed)?
-        }
-    };
     let stored = resume::stored(&back);
     for p in &planned {
         let k = p.loaded.binding.part;
@@ -1068,6 +1632,24 @@ fn write_verified(
                     &source.doc,
                 )
         });
+    // ADR P11: a save whose result states exactly what the file did (the same PMI, answers
+    // and number history: nothing was added) keeps the file's bytes, whatever mix of Add and
+    // Replace parts it wrote (a part written by Replace keeps them only when all its items
+    // carry their provenance, as above).
+    let adds_nothing = !unchanged
+        && Source::of(&back).is_ok_and(|after| {
+            items.iter().zip(&modes).all(|((part, _), mode)| {
+                differences_as_stated(&original.read.parts[part.0], &after.read.parts[part.0])
+                    .is_empty()
+                    && (*mode == Mode::Add
+                        || provenance::all(
+                            &original.read.parts[part.0],
+                            &original.read.provenance.parts[part.0],
+                            &original.doc,
+                        ))
+            })
+        });
+    let unchanged = unchanged || adds_nothing;
     let back = if unchanged { bytes.to_vec() } else { back };
     let back = if jobs
         .iter()
@@ -1129,6 +1711,7 @@ fn write_by_modes(
     source: &Source,
     items: &[(PartId, PartPmi)],
     modes: &[Mode],
+    extra: &[AttributeSet],
 ) -> Result<(Vec<u8>, KernelWriteReport), WriteError> {
     let policy = PresentationPolicy::RemovePresentation;
     let refused = |e: pmi::write::WriteError| match e {
@@ -1255,12 +1838,14 @@ fn write_by_modes(
             );
         // AddPreservation is a refusal, never a reason to retry with Replace:
         // Replace would re-author the caller's foreign PMI.
-        if mode == Mode::Replace {
-            // Python's own form of stored answers is not PMI haecceity reads (it reports it as
-            // not modelled and keeps it), so a replace takes it out here: the answers stored
-            // now are the only ones.
-            for (part, _) in &these {
-                // these retains the same validated part ids; replace edits do not change geometry or definitions.
+        // Python's own form of stored answers is not PMI haecceity reads (it reports it as
+        // not modelled and keeps it), so a replace, or an add that stores answers anew, takes
+        // it out here: the answers stored now are the only ones. An unmarked copy in
+        // haecceity's form (a user defined attribute) is not Python's and stays untouched;
+        // the payload written now is the one read (`pmi_scope`).
+        for (part, pmi) in &these {
+            if mode == Mode::Replace || pmi.attributes.iter().any(resume::is_answers) {
+                // these retains the same validated part ids; edits do not change geometry or definitions.
                 for id in python_answers(current, &defs[part.0]) {
                     edit.remove(id);
                 }
@@ -1271,7 +1856,27 @@ fn write_by_modes(
             .map_err(|e| WriteError::Failed(format!("haecceity could not apply the edit: {e}")))?;
         let after =
             Document::parse(applied.bytes).map_err(|e| WriteError::Failed(e.to_string()))?;
-        let mut marker_edit = provenance::mark_new(current, &after);
+        let mut caller_links = BTreeSet::new();
+        if !extra.is_empty() {
+            let read = pmi::read(&after, defs).map_err(|e| WriteError::Failed(e.to_string()))?;
+            for (part, _) in &these {
+                let attributes = &read.parts[part.0].attributes;
+                let provenance = &read.provenance.parts[part.0].attributes;
+                for (set, ids) in attributes.iter().zip(provenance) {
+                    if extra
+                        .iter()
+                        .any(|e| e.name == set.name && e.items == set.items)
+                    {
+                        caller_links.extend(ids.iter().copied().filter(|&id| {
+                            current.get(id).is_none()
+                                && matches!(after.get(id), Some(p21::RawEntity::Simple { name, .. })
+                                    if name == "PROPERTY_DEFINITION_REPRESENTATION")
+                        }));
+                    }
+                }
+            }
+        }
+        let mut marker_edit = provenance::mark_new(current, &after, &caller_links);
         name_depth_points(current, &after, defs, &mut marker_edit)?;
         let marked = after
             .apply(&marker_edit)
@@ -1393,12 +1998,15 @@ fn python_answers(doc: &Document, part: &PartDefinition) -> Vec<u64> {
     };
     let mut out = Vec::new();
     for &pdef in doc.referrers(part.product_definition) {
-        let Some(("PROPERTY_DEFINITION", [Attribute::String(n), _, Attribute::EntityRef(pd)])) =
+        let Some(("PROPERTY_DEFINITION", [Attribute::String(n), d, Attribute::EntityRef(pd)])) =
             simple(pdef)
         else {
             continue;
         };
-        if n != resume::NAME || *pd != part.product_definition {
+        // haecceity's form (`resume::attribute_set`) is described as a user defined attribute;
+        // only Python's own form is taken out.
+        let haecceity_form = matches!(d, Attribute::String(d) if d == "user defined attribute");
+        if n != resume::NAME || haecceity_form || *pd != part.product_definition {
             continue;
         }
         let pdrs = doc.referrers(pdef);
@@ -1618,6 +2226,118 @@ pub const SEMANTIC_TEXT: &str = "semantic text";
 pub const HOLE_NOTE: &str = "hole note";
 /// The semantic text item of a ± general tolerance, written as a note on the part.
 pub const GENERAL_TOLERANCE_NOTE: &str = "general tolerance";
+
+/// The part's general tolerance note: 'semantic text' on the part with one
+/// [`GENERAL_TOLERANCE_NOTE`] item.
+fn general_tolerance_note_set(text: &str) -> AttributeSet {
+    AttributeSet {
+        description: None,
+        general_property: None,
+        name: SEMANTIC_TEXT.into(),
+        on: None,
+        items: vec![(
+            GENERAL_TOLERANCE_NOTE.into(),
+            AttributeValue::Text(text.to_string()),
+        )],
+    }
+}
+
+fn unit_label(unit: &LengthUnit) -> &'static str {
+    match unit {
+        LengthUnit::Inch => "inches",
+        LengthUnit::Millimetre => "millimetres",
+        LengthUnit::Micrometre => "micrometres",
+        LengthUnit::Centimetre => "centimetres",
+        LengthUnit::Metre => "metres",
+        LengthUnit::Foot => "feet",
+        LengthUnit::Other { .. } => "the file's unit",
+    }
+}
+
+/// The general tolerance `before` states, as its row shows it (class, or table then note).
+fn stated_general(before: &PartPmi, file_unit: &LengthUnit) -> Option<String> {
+    before
+        .general
+        .iter()
+        .find_map(|g| match g {
+            GeneralTolerance::Class { text, .. } => Some(text.clone()),
+            GeneralTolerance::Table { .. } => None,
+        })
+        .or_else(|| {
+            let note = crate::existing::general_tolerance_note(before);
+            crate::existing::general_tolerance_shown(before, note.as_deref(), file_unit)
+        })
+}
+
+/// The general tolerance answer `text` as its row will show it once written.
+fn general_shown(text: &str, file_unit: &LengthUnit) -> Result<String, WriteError> {
+    Ok(
+        match crate::tolerance_block::parse(text).map_err(WriteError::Invalid)? {
+            Some(block) => {
+                let w = block.written(file_unit).map_err(WriteError::Invalid)?;
+                let table = match &w.table {
+                    Some(GeneralTolerance::Table { cells, .. }) => {
+                        crate::tolerance_block::table_text(cells, file_unit)
+                    }
+                    _ => None,
+                };
+                crate::tolerance_block::shown(table.as_deref(), w.note.as_deref())
+                    .unwrap_or_default()
+            }
+            None => text.to_string(),
+        },
+    )
+}
+
+/// The file's general tolerance items that give way to the one `intent` gives, when the two
+/// differ ("Change replaces the table", #228): every class and default tolerance table of the
+/// part, and Specify's general tolerance note. Empty when the intent gives none, or the same.
+fn general_giving_way(
+    loaded: &LoadedPart,
+    intent: &Intent,
+    before: &PartPmi,
+    prov: &pmi::PartProvenance,
+    doc: &Document,
+) -> Result<BTreeSet<(String, usize)>, WriteError> {
+    let mut out = BTreeSet::new();
+    let Some(general) = intent
+        .part
+        .get("general_tolerance")
+        .filter(|v| truthy(Some(v)))
+    else {
+        return Ok(out);
+    };
+    let file_unit = crate::existing::file_length_unit(loaded);
+    let new = general_shown(&py_str(general), &file_unit)?;
+    let notes: Vec<usize> = before
+        .attributes
+        .iter()
+        .enumerate()
+        .filter(|(i, a)| {
+            crate::existing::general_tolerance_text(a).is_some()
+                && provenance::marked(doc, &prov.attributes[*i], "attribute")
+        })
+        .map(|(i, _)| i)
+        .collect();
+    let old = before
+        .general
+        .iter()
+        .find_map(|g| match g {
+            GeneralTolerance::Class { text, .. } => Some(text.clone()),
+            GeneralTolerance::Table { .. } => None,
+        })
+        .or_else(|| {
+            let note = notes
+                .first()
+                .and_then(|&i| crate::existing::general_tolerance_text(&before.attributes[i]));
+            crate::existing::general_tolerance_shown(before, note, &file_unit)
+        });
+    if old.is_some_and(|old| old != new) {
+        out.extend((0..before.general.len()).map(|i| ("general".to_string(), i)));
+        out.extend(notes.into_iter().map(|i| ("attributes".to_string(), i)));
+    }
+    Ok(out)
+}
 
 /// One-based order of a free-text part note within its `semantic text` attribute set.
 pub const NOTE_INDEX: &str = "note index";
@@ -2471,17 +3191,36 @@ impl Features<'_> {
 }
 
 /// The geometric tolerance kinds of the intent (Python's `_GEOM_TYPES`).
+const TOLERANCE_KINDS: [(&str, ToleranceKind); 7] = [
+    ("position", ToleranceKind::Position),
+    ("flatness", ToleranceKind::Flatness),
+    ("perpendicularity", ToleranceKind::Perpendicularity),
+    ("parallelism", ToleranceKind::Parallelism),
+    ("profile", ToleranceKind::SurfaceProfile),
+    ("runout", ToleranceKind::CircularRunout),
+    ("total_runout", ToleranceKind::TotalRunout),
+];
+
+/// The requirement kinds the writer writes other than tolerances: one arm each in
+/// [`part_pmi_observed`]'s match.
+const OWN_KINDS: [&str; 6] = ["size", "location", "thread", "knurl", "note", "finish"];
+
+/// Every requirement kind the writer writes (an intent requirement's `kind`): its own kinds,
+/// then the geometric tolerances. Anything else is refused as an unknown kind. The read-back
+/// round trip (`tests/readback.rs`) is driven from this list, so a kind added here without a
+/// read-back case fails there.
+pub fn requirement_kinds() -> Vec<&'static str> {
+    OWN_KINDS
+        .into_iter()
+        .chain(TOLERANCE_KINDS.iter().map(|(name, _)| *name))
+        .collect()
+}
+
 fn tolerance_kind(kind: &str) -> Option<ToleranceKind> {
-    Some(match kind {
-        "position" => ToleranceKind::Position,
-        "flatness" => ToleranceKind::Flatness,
-        "perpendicularity" => ToleranceKind::Perpendicularity,
-        "parallelism" => ToleranceKind::Parallelism,
-        "profile" => ToleranceKind::SurfaceProfile,
-        "runout" => ToleranceKind::CircularRunout,
-        "total_runout" => ToleranceKind::TotalRunout,
-        _ => return None,
-    })
+    TOLERANCE_KINDS
+        .iter()
+        .find(|(name, _)| *name == kind)
+        .map(|(_, k)| *k)
 }
 
 /// An ISO 286 class from its name (`H7`, `g6`, `js11`), refused when it is not one.
@@ -2626,8 +3365,9 @@ fn part_pmi_observed(
     // Old JSON analyses/intents lack the typed planner input. Upgrade only rule-generated
     // intent here; a caller's hand-authored dimensions remain authoritative as stated.
     // Rule-produced General rows always carry a feature key (empty for plane levels).
+    let original_general = &intent.general;
     let mut upgraded;
-    let mut frame_warning = None;
+    let mut lines = Lines::default();
     let intent = if !intent
         .requirements
         .iter()
@@ -2648,14 +3388,52 @@ fn part_pmi_observed(
         }
         match crate::dimensioning::input(&loaded.part) {
             Ok(input) => {
-                crate::dimensioning::apply(input, &mut upgraded).map_err(WriteError::Failed)?;
+                crate::dimensioning::upgrade(input, &mut upgraded, same_general_measurement)
+                    .map_err(WriteError::Failed)?;
+                for row in &mut upgraded.general {
+                    if !row.contains_key("question")
+                        && let Some(question) = original_general.iter().find_map(|original| {
+                            let question = original.get("question")?.as_str()?;
+                            (crate::rules::general_rows::is_id(question)
+                                && same_general_measurement(original, row))
+                            .then_some(question)
+                        })
+                    {
+                        row.insert("question".into(), Json::from(question));
+                    }
+                }
+                for row in &intent.general {
+                    if !upgraded
+                        .general
+                        .iter()
+                        .any(|r| row == r || same_general_measurement(row, r))
+                    {
+                        if intent.accept_defaults
+                            || row
+                                .get("question")
+                                .and_then(Json::as_str)
+                                .is_some_and(crate::rules::general_rows::is_id)
+                        {
+                            // A named edit approves this exact measurement. Legacy intents
+                            // that accepted all defaults also retain their approved rows.
+                            upgraded.general.push(row.clone());
+                        } else {
+                            lines.not_written.push(format!(
+                                "{}: the shared planner did not retain this dimension when upgrading the intent",
+                                general_dimension_label(row)
+                            ));
+                        }
+                    }
+                }
                 &upgraded
             }
             // A face whose area cannot be computed leaves the part without a frame to plan
             // in (quiddity needs the solid's volume): that reason alone. The intent is
             // written as stated, as a hand-authored one is, and the report says so.
             Err(why) if crate::dimensioning::is_unmeasured_frame(&why) => {
-                frame_warning = Some(crate::dimensioning::unplanned_note(loaded));
+                lines
+                    .warnings
+                    .push(crate::dimensioning::unplanned_note(loaded));
                 intent
             }
             Err(why) => return Err(WriteError::Failed(why)),
@@ -2723,8 +3501,6 @@ fn part_pmi_observed(
     };
     let mut p = PartPmi::default();
     let origins = crate::pmi_origin::Planner::new(loaded).map_err(WriteError::Failed)?;
-    let mut lines = Lines::default();
-    lines.warnings.extend(frame_warning);
     let mut depth_input = None;
     let mut features = Vec::new();
     let mut f = Features(&mut features);
@@ -2863,12 +3639,55 @@ fn part_pmi_observed(
     let mut general = 0usize;
     // The shared planner has accounted for stored dimensions. Its slice-one rows are
     // required in Add mode too; only later-slice legacy General rows retain the old omission.
-    let covered = intent
-        .general
+    for (req, general_row) in intent
+        .requirements
         .iter()
-        .filter(|r| mode == Mode::Replace || r.contains_key("planner"));
-    for req in intent.requirements.iter().chain(covered) {
+        .map(|r| (r, false))
+        .chain(intent.general.iter().map(|r| (r, true)))
+    {
+        let mut skip = |reason: &str| {
+            if let Some(id) = req.get("question").and_then(Json::as_str) {
+                lines.answer_skips.insert(id.into(), reason.into());
+            }
+            if general_row {
+                let mut original = original_general
+                    .iter()
+                    .filter(|r| *r == req || same_general_measurement(r, req))
+                    .peekable();
+                if original.peek().is_none() {
+                    lines
+                        .not_written
+                        .push(format!("{}: {reason}", general_dimension_label(req)));
+                }
+                for row in original {
+                    lines
+                        .not_written
+                        .push(format!("{}: {reason}", general_dimension_label(row)));
+                }
+            }
+        };
+        let reported_reason = req.get("not_written_reason").and_then(Json::as_str);
+        if general_row && let Some(reason) = reported_reason {
+            skip(reason);
+            continue;
+        }
+        if general_row
+            && mode == Mode::Add
+            && !intent.accept_defaults
+            && !req.contains_key("planner")
+            && !req
+                .get("question")
+                .and_then(Json::as_str)
+                .is_some_and(|id| {
+                    crate::rules::general_rows::is_id(id)
+                        || general_size_question(req).as_deref() == Some(id)
+                })
+        {
+            skip("adding PMI skips dimensions deferred by the shared planner");
+            continue;
+        }
         if truthy(req.get("stored")) {
+            skip("the intent marks the measurement as already stated");
             continue;
         }
         let kind = req.get("kind").and_then(Json::as_str).unwrap_or("");
@@ -2881,6 +3700,7 @@ fn part_pmi_observed(
                     .all(|key| req.get(*key) == old.get(*key))
             })
         {
+            skip("the file already states this measurement");
             continue;
         }
         let under_general = truthy(req.get("general"));
@@ -2890,6 +3710,7 @@ fn part_pmi_observed(
                     && (a.same(&from) && b.same(&to) || a.same(&to) && b.same(&from))
             })
         {
+            skip("the same distance is conveyed by a straight depth dimension");
             lines.conveyed_depth_spans.push((from, to, nominal));
             continue;
         }
@@ -2906,9 +3727,14 @@ fn part_pmi_observed(
                     && face_ids(d.get("faces")) == face_ids(req.get("faces"))
             })
         {
+            skip("the faces establish a datum and the writer cannot mark a datum feature of size");
+            if let Some(id) = general_size_question(req) {
+                lines.datum_sizes.insert(id);
+            }
             continue;
         }
-        if let Some(reason) = req.get("not_written_reason").and_then(Json::as_str) {
+        if let Some(reason) = reported_reason {
+            skip(reason);
             lines.not_written.push(reason.into());
             continue;
         }
@@ -2916,13 +3742,15 @@ fn part_pmi_observed(
         // A requirement on no faces (a hole whose bores the rules keep no cylinder for) is
         // listed and the rest written (question Q17).
         if let Some(what) = faceless(kind, req).filter(|_| !req.contains_key("planner")) {
-            // One the general tolerance covers is not a requirement: nothing to report.
-            if under_general {
-                continue;
+            if general_row {
+                skip(&format!("{what} names no faces (question Q17)"));
+            } else if !under_general {
+                let reason = format!(
+                    "{what} names no faces, so nothing in the file can carry it (question Q17)"
+                );
+                skip(&reason);
+                lines.not_written.push(reason);
             }
-            lines.not_written.push(format!(
-                "{what} names no faces, so nothing in the file can carry it (question Q17)"
-            ));
             continue;
         }
         if let Some(planned) = req.get("planner") {
@@ -2944,13 +3772,19 @@ fn part_pmi_observed(
                 if from.faces.is_empty() || to.faces.is_empty()
                     || planned.witnesses.as_ref().is_some_and(|pair| pair.iter().any(|s| s.faces.is_empty())))
             {
-                lines.not_written.push(format!(
+                let reason = format!(
                     "location {} has a support with no faces; not written",
                     planned.required.id
-                ));
+                );
+                if general_row {
+                    skip(&reason);
+                } else {
+                    lines.not_written.push(reason);
+                }
                 continue;
             }
             if mode == Mode::Add && thread_carries_planned(before, &planned) {
+                skip("the file's thread manufacturing data already states it");
                 continue;
             }
             planned.bore_supports(&loaded.part);
@@ -2971,10 +3805,13 @@ fn part_pmi_observed(
                 match result {
                     Ok(kind) => kind,
                     Err(reason) => {
-                        lines.not_written.push(format!(
-                            "depth {}: {reason}; not written",
-                            planned.required.id
-                        ));
+                        let reason =
+                            format!("depth {}: {reason}; not written", planned.required.id);
+                        if general_row {
+                            skip(&reason);
+                        } else {
+                            lines.not_written.push(reason);
+                        }
                         continue;
                     }
                 }
@@ -3339,10 +4176,7 @@ fn part_pmi_observed(
         }
     }
     if general > 0 {
-        lines.written.push(format!(
-            "{general} dimension{} under the general tolerance",
-            if general == 1 { "" } else { "s" }
-        ));
+        lines.written.push(general_count_line(general));
     }
     for d in &intent.datums {
         let letter = d.get("letter").and_then(Json::as_str).unwrap_or("");
@@ -3366,8 +4200,8 @@ fn part_pmi_observed(
             Ok(false)
         }
         Some(old) => invalid(format!(
-            "the part already states {what} {old}; adding {new} would give it two (it was \
-             not written by specify-core, so it is added to, not replaced)"
+            "the part already states {what} {old}; adding {new} would give it two (the \
+             file's value stands whoever wrote it: changing it is an explicit edit)"
         )),
         None => Ok(true),
     };
@@ -3394,30 +4228,38 @@ fn part_pmi_observed(
         .filter(|v| truthy(Some(v)))
     {
         let text = py_str(general);
-        let old = before
-            .general
-            .iter()
-            .find_map(|g| match g {
-                GeneralTolerance::Class { text, .. } => Some(text.as_str()),
-                GeneralTolerance::Table { .. } => None,
-            })
-            .filter(|_| add);
-        if crate::general::plus_minus(&text).is_some() {
+        let file_unit = crate::existing::file_length_unit(loaded);
+        // What the file states, in any form (a class, a table and its note, a ± note),
+        // whoever wrote it: a different one is refused, as add cannot replace it.
+        let shown = stated_general(before, &file_unit).filter(|_| add);
+        let old = shown.as_deref();
+        let block = crate::tolerance_block::parse(&text).map_err(WriteError::Invalid)?;
+        if let Some(block) = block {
+            // A block as stated (#228): the decimal-place lines as AP242's default tolerance
+            // table, in the block's unit; the lines it cannot express in the general tolerance
+            // note beside it. Nothing else: no class, no dimension.
+            let written = block.written(&file_unit).map_err(WriteError::Invalid)?;
+            let new = general_shown(&text, &file_unit)?;
+            if stated("general tolerance", old, &new, &mut lines)? {
+                lines.warnings.extend(block.warnings());
+                if let Some(table) = written.table {
+                    p.general.push(table);
+                    lines.written.push(format!(
+                        "general tolerance table in {}",
+                        unit_label(&block.unit_in(&file_unit))
+                    ));
+                }
+                if let Some(note) = written.note {
+                    p.attributes.push(general_tolerance_note_set(&note));
+                    lines.written.push(format!("general tolerance note {note}"));
+                }
+                lines.written.push(format!("general tolerance {new}"));
+            }
+        } else if crate::general::plus_minus(&text).is_some() {
             // A ± figure is no ISO 2768 class, which the kernel's general tolerance carries:
             // it is written as the part's general tolerance note.
-            let note = crate::existing::general_tolerance_note(before);
-            let old = note.as_deref().filter(|_| add).or(old);
             if stated("general tolerance", old, &text, &mut lines)? {
-                p.attributes.push(AttributeSet {
-                    description: None,
-                    general_property: None,
-                    name: SEMANTIC_TEXT.into(),
-                    on: None,
-                    items: vec![(
-                        GENERAL_TOLERANCE_NOTE.into(),
-                        AttributeValue::Text(text.clone()),
-                    )],
-                });
+                p.attributes.push(general_tolerance_note_set(&text));
                 lines.written.push(format!("general tolerance note {text}"));
             }
         } else if stated("general tolerance", old, &text, &mut lines)? {

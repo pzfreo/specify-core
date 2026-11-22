@@ -64,8 +64,11 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
             resume::answers_for(&loaded).unwrap().as_ref(),
             Some(answers)
         );
-        let a = api::analyse(&loaded).unwrap();
-        assert_eq!(a["resume"]["answers"], json!(expected));
+        // ADR P11: of the answers a v0.2.4 file stores, only those that leave no PMI resume;
+        // the rest the file states.
+        let stored = specify_core::feature_table::storable(answers);
+        let mut a = api::analyse(&loaded).unwrap();
+        assert_eq!(a["resume"]["answers"], json!(stored));
         let migrated: Vec<_> = base["answers"]
             .as_object()
             .unwrap()
@@ -95,7 +98,32 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
             json!(existing::read_existing(&loaded).unwrap()),
             base["existing"]
         );
-        let intent = rules::apply(&a, answers).unwrap();
+        // Rewritten for ADR P11 / D11 (#126): this file states the PMI its answers made, so
+        // applied to the file itself they write nothing again (each is an `unasked` row, "the
+        // file already states this requirement"). The v0.2.4 intent they make is checked on the
+        // part without its PMI: the same analysis with the file's PMI, settings, table and
+        // stored answers taken out.
+        let mut bare = a.clone();
+        bare["existing"] = json!([]);
+        bare["part"] = json!({});
+        for key in ["table", "dimensioning_stated", "characteristics", "resume"] {
+            bare.as_object_mut().unwrap().shift_remove(key);
+        }
+        let annotated = std::mem::replace(&mut a, bare);
+        // general dimensions are rows (Paul, 2026-11-21). Explicitly approve the
+        // standalone measurements to keep comparing all the historical spans.
+        let standalone =
+            |id: &str| id.starts_with("length:planes:") || id.starts_with("location:holes:");
+        let approved = |analysis: &Value| {
+            let mut approved = answers.clone();
+            for q in rules::questions(analysis, answers).unwrap() {
+                if standalone(&q.id) {
+                    approved.insert(q.id, q.default.unwrap());
+                }
+            }
+            approved
+        };
+        let intent = rules::apply(&a, &approved(&a)).unwrap();
         // Preserve the complete historical comparison on the legacy path. #75's
         // live path adds planner metadata and removes generated drill-floor rows;
         // it must still preserve every answered requirement and physical span.
@@ -108,7 +136,21 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
             .as_object_mut()
             .unwrap()
             .shift_remove("dimensioning_stated");
-        let mut legacy = rules::apply(&legacy_analysis, answers).unwrap().to_dict();
+        let mut legacy = rules::apply(&legacy_analysis, &approved(&legacy_analysis))
+            .unwrap()
+            .to_dict();
+        let remove_standalone_id = |row: &mut Map<String, Value>| {
+            if row
+                .get("question")
+                .and_then(Value::as_str)
+                .is_some_and(standalone)
+            {
+                row.shift_remove("question");
+            }
+        };
+        for row in legacy["general"].as_array_mut().unwrap() {
+            remove_standalone_id(row.as_object_mut().unwrap());
+        }
         let mut prior = base["intent"].clone();
         // Only identity fields change; literal notes and every other value stay exact.
         for list in ["requirements", "general"] {
@@ -157,6 +199,7 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
                     let map = r.as_object_mut().unwrap();
                     map.shift_remove("planner");
                     if general {
+                        remove_standalone_id(map);
                         // Anonymous plane rows can acquire the shared support's name;
                         // physical endpoints, nominal and tolerance remain authoritative.
                         map.shift_remove("feature");
@@ -223,6 +266,30 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
                     .unwrap()
                     .contains("General contract conflicts with an answered requirement")
             );
+        } else {
+            // Quiddity 0.5.5 classifies the round boss cap (face 3) as supporting
+            // evidence. Its old 24 mm location is still in the file PMI.
+            assert_eq!(a["dimensioning"]["supporting_faces"], json!([3]));
+            assert!(
+                annotated["table"]["file_pmi"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|r| r["number"] == "#6"
+                        && r["faces"] == json!([8, 3])
+                        && r["text"] == "24")
+            );
+            let cap = expected_general
+                .iter()
+                .position(|r| r["faces"] == json!([3]) && r["reference"] == json!([8]))
+                .unwrap();
+            assert_eq!(
+                expected_general.remove(cap),
+                json!({
+                    "kind":"location", "feature":"", "faces":[3], "reference":[8],
+                    "distance":24.0, "upper":0.2, "lower":-0.2, "general":true,
+                })
+            );
         }
         let written_general: Vec<_> = current["general"]
             .as_array()
@@ -236,25 +303,29 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
             rows(&expected_general, true),
             "{name}: all independent physical spans"
         );
-        let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(answers)).unwrap();
+        // A save of the file from its stored answers (ADR P11): the intent made on the file as
+        // it is. The file's PMI stands, with its numbers, and only storable answers are stored.
+        let saved = rules::apply(&annotated, answers).unwrap();
+        let (bytes, _) = writer::write_bytes(&loaded, &saved, Some(answers)).unwrap();
         let back = part::load_bytes("rewritten.step", bytes).unwrap();
-        assert_eq!(resume::answers_for(&back).unwrap().as_ref(), Some(answers));
+        assert_eq!(resume::answers_for(&back).unwrap(), Some(stored));
         let expected = existing::read_existing(&loaded).unwrap();
         if name == "chamfer" {
-            // #75 emits the retained boss fit before the shared hole fit again,
-            // matching the old file's order; both original numbers must survive.
+            // Both original numbers of the boss fit and the shared hole fit survive.
             assert_eq!((expected[0].number, expected[1].number), (Some(4), Some(3)));
         }
+        // Every legacy field, as the file stated it (#77 metadata aside, which tests/pmi_origin.rs
+        // checks on its own).
         let rows = existing::read_existing(&back).unwrap();
-        for row in rows.iter().filter(|r| r.kind == "dimension") {
-            assert_eq!(
-                row.origin,
-                Some(specify_core::pmi_origin::Origin::Requirement)
-            );
-        }
-        // #77 adds stored metadata to rewritten old files; compare every legacy field,
-        // and verify the new metadata independently in tests/pmi_origin.rs.
         let legacy = rows
+            .into_iter()
+            .map(|mut row| {
+                row.origin = None;
+                row.source = None;
+                row
+            })
+            .collect::<Vec<_>>();
+        let expected = expected
             .into_iter()
             .map(|mut row| {
                 row.origin = None;

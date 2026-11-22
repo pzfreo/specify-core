@@ -162,17 +162,16 @@ default on the corpus and fixture analyses has one. Where it appears:
 - **Preview intent:** `sources` beside `intent` in `api::review` (WASM `review`) and the MCP
   `characteristics` tool (`api::preview_sources`): question ID to source, for each answer that equals its question's
   default (an accepted default; an answer typed equal to the default is traced too).
-- **Answers export:** `_specify.sources` in `questions --resolve-defaults`, serve
-  `export_answers`, `api::export_answers`, WASM `exportAnswers`, Python and the MCP
-  `export_answers` tool, on the same terms (an export takes only the defaults approved, ADR
-  P9, so those are the defaults it traces). It is output only: ignored when the map is read
-  back and recomputed on each export. `diff` does not carry it.
+- **Answers export:** removed in 0.3.0 (ADR P11: no export of answers as a record).
+  `_specify.sources` in an answer map an earlier version exported is ignored when the map is
+  read.
 - **Not in the STEP.** The source is not written into the file.
 
 | Rule id | Kind | Refs | Default |
 | --- | --- | --- | --- |
 | `part.general_tolerance.machined` | convention | ISO 2768-1 | `ISO 2768-m` |
 | `part.general_tolerance.printed` | vendor | — | the process's ± figure |
+| `dimensions.general` | convention | — | measured from the model using the applicable general tolerance |
 | `part.surface_finish.machined` | convention | — | `Ra 3.2` |
 | `part.edges.machined` | convention | — | `Break sharp edges 0.2 max` |
 | `part.edges.sheet_metal` | convention | — | `Deburr only` |

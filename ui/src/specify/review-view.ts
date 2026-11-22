@@ -12,7 +12,7 @@ import type { PmiAnalysis, PmiMesh, PmiVec } from '../types/pmi';
 import { createAnnotations } from './annotations';
 import { createDefaultView } from './cad-view';
 import { HOME, type DefaultView } from './default-view';
-import { partCentre, type DrawnPmi, type DrawnPoint } from './drawn';
+import { drawnGroup, partCentre, type DrawnPmi, type DrawnPoint } from './drawn';
 import { createDrawnLayer } from './drawn-layer';
 import { chooseFaceRoute, faceSamples, withFaceRoute, type Box, type HostPointerEvent, type HostView, type Vec3 } from './host-view';
 import { toLabels, type PmiLabel } from './labels';
@@ -331,7 +331,7 @@ function overlaysOver(own: DefaultView, { mesh, analysis, occluders, onLabel }: 
   const drawnLabel = (item: string): PmiLabel => {
     const link = drawnPmi?.links[item];
     return {
-      id: `drawn:${item}`, kind: 'note', group: link?.status ?? 'existing',
+      id: `drawn:${item}`, kind: 'note', group: drawnGroup(link) ?? 'existing',
       cells: [drawnPmi?.presentation.items[item]?.[0]?.name ?? item],
       faces: (link?.faces ?? []).filter((f) => f >= 0 && f < mesh.faces.length),
       ...(link?.question ? { question: link.question } : {}),

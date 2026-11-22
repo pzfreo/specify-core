@@ -1,8 +1,9 @@
 //! The browser session on assemblies (specify-core-rust #2): a two-part assembly (`parts/
 //! assembly.step`: a plate, and a pin placed twice) and a file of one part placed twice. The
 //! session lists the parts as `specify-core parts` does, opens a chosen one, analyses it as the
-//! command line's `--part` does and writes it into the original file as `api::write_bytes`
-//! does, the other parts and placements kept.
+//! command line's `--part` does and writes it into the original file with an edit list
+//! (`edit`, as `specify-core write STEP EDITS.json` does), the other parts and placements kept.
+//! Edits on a part of an assembly wait on the assembly edits (piece 2's follow-on).
 
 use std::path::{Path, PathBuf};
 
@@ -66,15 +67,26 @@ fn pmi_of(bytes: &[u8]) -> Vec<PartPmi> {
     pmi::read(&doc, &defs).unwrap().parts
 }
 
-/// What the command line's writer gives for part `k` of `bytes` with these answers: the same
-/// preview intent, written by `api::write_bytes` (the in-memory form of `write --part`).
+/// The edit list filling these answers (each a feature-and-kind of the part).
+fn fills(given: &Map<String, Value>) -> String {
+    json!({ "fill": given }).to_string()
+}
+
+/// The engine's `edit` of part `session` with these answers as fills: applied, or the test fails.
+fn edit(session: &Session, given: &Map<String, Value>) -> Value {
+    let out = session.edit(&fills(given));
+    assert_eq!(out["written"], json!(true), "{out}");
+    out
+}
+
+/// What the command line's writer gives for part `k` of `bytes` with these answers as an edit
+/// list (`specify-core write STEP EDITS.json`, in memory: `writer::apply`).
 fn cli_write(bytes: &[u8], k: usize, given: &Map<String, Value>) -> Vec<u8> {
     let file = File::of_bytes(Path::new("x.step"), bytes.to_vec()).unwrap();
-    let analysis = api::analyse(&file.load(Some(k)).unwrap()).unwrap();
-    let intent = api::preview(&analysis, given).unwrap();
-    api::write_bytes(bytes.to_vec(), &[(intent, Some(given.clone()))])
+    let list = specify_core::edits::read(&fills(given)).unwrap();
+    specify_core::writer::apply::apply(&file.load(Some(k)).unwrap(), &list)
         .unwrap()
-        .0
+        .bytes
 }
 
 /// Every instance of `before` is in `after` under the same number with the same text: the
@@ -157,7 +169,7 @@ fn each_part_of_an_assembly_is_analysed_as_the_command_line_does() {
 fn a_part_of_an_assembly_is_written_into_the_original_file() {
     let original = assembly();
     let pin = Session::open_part("assembly.step", &original, PIN).unwrap();
-    let out = pin.write_pmi(&answers(PIN), None, None).unwrap();
+    let out = edit(&pin, &answers(PIN));
     let after_pin = written(&out);
     assert_eq!(after_pin, cli_write(&original, PIN, &answers(PIN)));
     assert_eq!(
@@ -171,7 +183,7 @@ fn a_part_of_an_assembly_is_written_into_the_original_file() {
     assert_eq!(read[PIN].material.as_ref().unwrap().id, "brass");
 
     let plate = Session::open_part("assembly.step", &after_pin, PLATE).unwrap();
-    let after_plate = written(&plate.write_pmi(&answers(PLATE), None, None).unwrap());
+    let after_plate = written(&edit(&plate, &answers(PLATE)));
     assert_eq!(after_plate, cli_write(&after_pin, PLATE, &answers(PLATE)));
     assert_kept(&after_pin, &after_plate);
     let read_again = pmi_of(&after_plate);
@@ -180,13 +192,20 @@ fn a_part_of_an_assembly_is_written_into_the_original_file() {
 
     let listed = Session::parts("both.step", &after_plate).unwrap();
     for (k, part) in listed.as_array().unwrap().iter().enumerate() {
-        assert_eq!(part["written"], json!(true));
+        // Under P11 these edits wrote only PMI. `written` reports an embedded answers payload.
+        assert_eq!(part["written"], json!(false));
         let before = &Session::parts("assembly.step", &original).unwrap()[k];
         assert_eq!(part["placements"], before["placements"], "part {k}");
         let session = Session::open_part("both.step", &after_plate, k).unwrap();
+        // ADR P11: the material is the file's PMI, so it is not a stored answer.
         assert_eq!(
-            session.snapshot()["analysis"]["resume"]["answers"],
-            json!(answers(k)),
+            json!(
+                session.snapshot()["analysis"]["resume"]["answers"]
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default()
+            ),
+            json!(specify_core::feature_table::storable(&answers(k))),
             "part {k}"
         );
     }
@@ -200,7 +219,10 @@ fn a_project_is_carried_on_its_part_of_an_assembly() {
     // base64 of `{"revision":1}`, as the editor encodes its project.
     let project = "eyJyZXZpc2lvbiI6MX0=";
     let pin = Session::open_part("assembly.step", &original, PIN).unwrap();
-    let after_pin = written(&pin.write_pmi(&answers(PIN), Some(project), None).unwrap());
+    let after_pin = written(
+        &pin.edit_carrying(&fills(&answers(PIN)), Some(project), None)
+            .unwrap(),
+    );
     assert_kept(&original, &after_pin);
     let plate = Session::open_part("assembly.step", &after_pin, PLATE).unwrap();
     assert_eq!(
@@ -212,7 +234,7 @@ fn a_project_is_carried_on_its_part_of_an_assembly() {
     let payload = json!({ "name": "app", "value": { "sheet": 2 } });
     let after_plate = written(
         &plate
-            .write_pmi(&answers(PLATE), None, Some(&payload))
+            .edit_carrying(&fills(&answers(PLATE)), None, Some(&payload))
             .unwrap(),
     );
     for (k, project, app) in [
@@ -225,7 +247,9 @@ fn a_project_is_carried_on_its_part_of_an_assembly() {
         assert_eq!(session.original().as_deref(), Some(original.as_slice()));
     }
     assert_kept(&after_pin, &after_plate);
-    assert_eq!(resume::stored(&after_plate).len(), 2);
+    // Project payloads belong to their own parts. With only material written, neither
+    // part stores a duplicate answer under P11.
+    assert!(resume::stored(&after_plate).is_empty());
 }
 
 /// A file of one part placed twice: refused without a part chosen, as before; listed with its
@@ -252,13 +276,20 @@ fn a_part_placed_twice_is_opened_and_written() {
     );
     assert_eq!(session.snapshot()["mesh"], api::mesh(&loaded));
     let given = answers(PLATE);
-    let out = written(&session.write_pmi(&given, None, None).unwrap());
+    let out = written(&edit(&session, &given));
     assert_eq!(out, cli_write(&bytes, 0, &given));
     assert_kept(&bytes, &out);
     let back = Session::open_part("twice.step", &out, 0).unwrap();
+    // ADR P11: the material is the file's PMI, so it is not a stored answer.
     assert_eq!(
-        back.snapshot()["analysis"]["resume"]["answers"],
-        json!(given)
+        // (Nothing stored: an edit list writes no resume block when no decision is stored.)
+        json!(
+            back.snapshot()["analysis"]["resume"]["answers"]
+                .as_object()
+                .cloned()
+                .unwrap_or_default()
+        ),
+        json!(specify_core::feature_table::storable(&given))
     );
     assert_eq!(
         Session::parts("twice.step", &out).unwrap()[0]["instances"],
@@ -277,8 +308,44 @@ fn part_zero_of_one_part_opens_as_before() {
     assert_eq!(open.snapshot(), chosen.snapshot());
     assert_eq!(open.snapshot()["provenance"]["part"], json!(0));
     let given = answers(PLATE);
-    assert_eq!(
-        open.write_pmi(&given, None, None).unwrap(),
-        chosen.write_pmi(&given, None, None).unwrap()
+    assert_eq!(edit(&open, &given), edit(&chosen, &given));
+}
+
+#[test]
+fn edit_changes_general_tolerance_on_a_selected_assembly_part() {
+    let original = assembly();
+    let pin = Session::open_part("assembly.step", &original, PIN).unwrap();
+    let with_pin = written(&edit(&pin, &answers(PIN)));
+    let plate = Session::open_part("assembly.step", &with_pin, PLATE).unwrap();
+    let class = plate.edit(r#"{"fill":{"part.general_tolerance":"ISO 2768-m"}}"#);
+    assert_eq!(class["written"], true, "{class}");
+    let classed = written(&class);
+    let reopened = Session::open_part("classed.step", &classed, PLATE).unwrap();
+    let changed = reopened
+        .edit(r#"{"change":{"part.general_tolerance":{"to":".XX ±.01","expect":"ISO 2768-m"}}}"#);
+    assert_eq!(changed["written"], true, "{changed}");
+    let changed = written(&changed);
+    let after = Session::open_part("changed.step", &changed, PLATE).unwrap();
+    assert!(
+        after.snapshot()["analysis"]["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == "part.general_tolerance"
+                && row["state"] == "stated"
+                && row["value"] == ".XX ±.01")
     );
+    let (before_doc, after_doc) = (
+        Document::parse(classed).unwrap(),
+        Document::parse(changed).unwrap(),
+    );
+    let defs = read_part_definitions(before_doc.bytes()).unwrap();
+    let before = pmi::read(&before_doc, &defs).unwrap();
+    for id in before.provenance.parts[PIN].all() {
+        assert_eq!(
+            &before_doc.bytes()[before_doc.span(id).unwrap()],
+            &after_doc.bytes()[after_doc.span(id).unwrap()],
+            "other part entity #{id}"
+        );
+    }
 }

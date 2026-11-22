@@ -35,8 +35,9 @@ fn bad(id: &str, why: impl Into<String>) -> Error {
     }
 }
 
-/// The `part.*` answer names.
-const PART_NAMES: [&str; 9] = [
+/// The `part.*` answer names. A contract (docs/ids.md, pinned by `tests/ids_contract.rs`).
+#[doc(hidden)]
+pub const PART_NAMES: &[&str] = &[
     "material",
     "general_tolerance",
     "locating",
@@ -47,8 +48,10 @@ const PART_NAMES: [&str; 9] = [
     "notes",
     "process",
 ];
-/// The kinds of feature-scoped answer IDs (`kind:feature`).
-const FEATURE_KINDS: [&str; 7] = [
+/// The kinds of feature-scoped answer IDs (`kind:feature`). A contract (docs/ids.md, pinned
+/// by `tests/ids_contract.rs`).
+#[doc(hidden)]
+pub const FEATURE_KINDS: &[&str] = &[
     "hole.function",
     "hole.full_thread",
     "hole.frame",
@@ -57,6 +60,12 @@ const FEATURE_KINDS: [&str; 7] = [
     "diameter.fit",
     "diameter.runout",
 ];
+/// The letters a datum answer (`datum.<letter>`) can have. A contract (docs/ids.md).
+#[doc(hidden)]
+pub const DATUM_LETTERS: &[&str] = &["A", "B", "C", "D", "E", "F", "G", "H"];
+/// The datum controls (`datum.<these>`). A contract (docs/ids.md).
+#[doc(hidden)]
+pub const DATUM_CONTROLS: &[&str] = &["A.flatness", "B.control", "C.control"];
 
 /// Whether some question, added requirement or reserved transport member can have `id`.
 /// A BOM key is checked with its value (`bom::validate`), keeping that message.
@@ -72,11 +81,10 @@ pub fn known_id(id: &str) -> bool {
         return PART_NAMES.contains(&name);
     }
     if let Some(suffix) = id.strip_prefix("datum.") {
-        let (letter, control) = suffix.split_once('.').unwrap_or((suffix, ""));
-        return matches!(letter, "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H")
-            && (control.is_empty()
-                || suffix == "A.flatness"
-                || matches!(suffix, "B.control" | "C.control"));
+        return DATUM_LETTERS.contains(&suffix) || DATUM_CONTROLS.contains(&suffix);
+    }
+    if crate::rules::general_rows::is_id(id) {
+        return true;
     }
     if let Some((kind, feature)) = id.split_once(':') {
         return FEATURE_KINDS.contains(&kind) && !feature.is_empty();
@@ -156,13 +164,17 @@ pub fn answers_shape(answers: &Map<String, Value>) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn answers(analysis: &Value, answers: &Map<String, Value>) -> Result<(), Error> {
-    answers_shape(answers)?;
+/// Refuses a feature-scoped answer (`kind:feature`) whose feature the part does not have, or
+/// whose kind that feature's family has no question of: an answer that names nothing the part
+/// has refuses the whole map, never ignored (D11, #126). `features` is the analysis's.
+pub fn feature_ids(features: Option<&Value>, answers: &Map<String, Value>) -> Result<(), Error> {
     // Resolve even dormant feature answers: edits may retain a question hidden by a mode.
-    for (id, value) in answers {
-        if let Some((kind, feature)) = id.split_once(':') {
-            let found = analysis
-                .get("features")
+    for id in answers.keys() {
+        if let Some((kind, feature)) = id
+            .split_once(':')
+            .filter(|(kind, _)| FEATURE_KINDS.contains(kind))
+        {
+            let found = features
                 .and_then(Value::as_array)
                 .and_then(|fs| {
                     fs.iter()
@@ -179,6 +191,14 @@ pub fn answers(analysis: &Value, answers: &Map<String, Value>) -> Result<(), Err
                 return Err(bad(id, "unknown answer ID for this feature family"));
             }
         }
+    }
+    Ok(())
+}
+
+pub fn answers(analysis: &Value, answers: &Map<String, Value>) -> Result<(), Error> {
+    answers_shape(answers)?;
+    feature_ids(analysis.get("features"), answers)?;
+    for (id, value) in answers {
         if id.starts_with("datum.")
             && let Some(ids) = value.as_array()
         {

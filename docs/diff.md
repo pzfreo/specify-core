@@ -15,7 +15,8 @@ The [STEP diff action](../step-diff/README.md) runs it on pull requests.
 each file's requirements are read as any file's are, whoever wrote them. Answers a file
 stores are never read to compare, so the same requirements pair the same way with or without
 them (only the items' labels, each file's `pmiScene` ids and statuses, follow the editor);
-`diff` takes no answers and writes none. (Carrying requirements to a new revision is not `diff`'s.)
+`diff` takes no answers and writes none. Carrying requirements to a new revision is `carry`'s
+([carry.md](carry.md)).
 
 ## What it writes
 
@@ -190,7 +191,7 @@ matching thread, remain separate items. Optional scenes retain all semantic reco
 ```json
 {"class":"changed","number":7,"id":"size:holes:9","kind":"dimension",
  "faces":{"old":[{"face":9}],"new":[{"face":9}]},
- "status":"answered","on":"⌀6.6 holes","old":"⌀6.6 H7","new":"⌀6.6 H8"}
+ "status":"stated","on":"⌀6.6 holes","old":"⌀6.6 H7","new":"⌀6.6 H8"}
 ```
 
 Each item has `class` (`added`, `removed`, `changed`, or `renumbered`), optional

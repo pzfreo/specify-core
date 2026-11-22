@@ -76,9 +76,14 @@ try {
   const { analysis, mesh, provenance } = JSON.parse(engine.snapshot());
   const answersJson = JSON.stringify({ 'part.material': 'steel' });
   const state = JSON.parse(engine.review(answersJson));
-  const result = JSON.parse(engine.writePmi(answersJson, projectBase64));
-  const stepBytes = Uint8Array.from(result.bytes);
-  // Download stepBytes; present result.report and state.problems to the user.
+  // Edits are applied all or nothing: the new file, or every entry that cannot be applied.
+  const result = JSON.parse(engine.edit(JSON.stringify({ fill: { 'part.material': 'steel' } })));
+  if (result.written) {
+    const stepBytes = Uint8Array.from(result.bytes);
+    // Download stepBytes; present result.report and state.problems to the user.
+  } else {
+    // Nothing was written: show result.message (it names each failing entry).
+  }
 } finally {
   engine.free();
 }
@@ -113,23 +118,28 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | Export | Behaviour |
 | --- | --- |
 | `new IntentEngine(name, bytes)` | Opens one STEP part. Refuses gzip, any count other than one distinct part, any count other than one placement, and a mismatch between haecceity's ordered face sources and the STEP definition. `name` labels the input; it is never read as a path. An assembly, or a part placed more than once, is opened with `IntentEngine.openPart`. |
-| `IntentEngine.parts(name, bytes)` | The file's distinct parts, as `specify-core parts` lists them: `[{part, name, product_id, faces, instances, placements, written, same_as, faces_of_first}]`, `written` saying whether Specify has stored answers for the part, `same_as` the index of the first part this one is a copy of (the same shape moved, with the same stated BOM facts, effective stated process (answer before file; none for bought parts or defaults), and `part.*`/`bom.*` answers), or `null`. A copy keeps its own index; a picker can show the first with the copies' instances added (`M3×8 hex bolt ×4`). `faces_of_first` gives, for each of a copy's faces in its own order, the face of the first part it lands on (`null` when `same_as` is). A copy may list its faces in another order, so carry an answer given for faces (`datum.*`, feature questions) to a copy only through it; answers for faces never decide `same_as`. Refuses gzip, as the constructor does. |
+| `IntentEngine.parts(name, bytes)` | The file's distinct parts, as `specify-core parts` lists them: `[{part, name, product_id, faces, instances, placements, written, same_as, faces_of_first}]`, `written` saying whether the part has an embedded answers payload. Under P11 a PMI-only edit can leave `written` false. `same_as` gives the index of the first part this one is a copy of (the same shape moved, with the same stated BOM facts, effective stated process (answer before file; none for bought parts or defaults), and `part.*`/`bom.*` answers), or `null`. A copy keeps its own index; a picker can show the first with the copies' instances added (`M3×8 hex bolt ×4`). `faces_of_first` gives, for each of a copy's faces in its own order, the face of the first part it lands on (`null` when `same_as` is). A copy may list its faces in another order, so carry an answer given for faces (`datum.*`, feature questions) to a copy only through it; answers for faces never decide `same_as`. Refuses gzip, as the constructor does. |
 | `IntentEngine.openPart(name, bytes, part)` | Opens part `part` (an index from `parts`) of any file: an assembly's part, or a part placed more than once. See "Assemblies" below. Part 0 of a file of one part used once opens exactly as the constructor opens it. |
 | `IntentEngine.bom(bytes)` | The file's BOM rows as JSON, one per distinct part, as `specify-core bom` gives them: each field `{value, source}`. Reading never accepts suggestions or allocates numbers. See [BOM](bom.md). |
 | `engine.snapshot(max_deviation_mm?)` | `{analysis, mesh, provenance: {source_sha256, face_entities, part}}`; `part` is the part opened (0 from the constructor). |
-| `engine.review(answersJson)` | `{questions, open, intent, sources, problems, conflicts?}`; adds geometry anchors to `intent.anchors`. `conflicts` (only when there are some) are a reopened file's undecided conflicts with its stored answers, each `{id, kind: "conflict", text, stored, file, choices}`; see "Reopening a file Specify wrote" below. |
-| `engine.exportAnswers(answersJson, approvalsJson?)` | Answer map as a JSON string: the answers given plus exactly the defaults in `approvalsJson` (`{"<part>": {"<id>": value}}` with the values the person saw; none when absent; only this part's apply), never every default (ADR P9), plus `_specify.evidence`, `_specify.unresolved` (carry blocks still open) and `_specify.sources` (each answered default's rule source; see [rule sources](rule-sources.md)). Open questions and carry blocks do not throw; stale evidence does, and so does an approval that is not an open question's default as it stands (naming the part, question and both values). Recursively sorts object keys; preserves array order. Does not write or mutate the session. Save with `JSON.stringify(JSON.parse(result), null, 2) + "\n"`. Accepted directly by review, writePmi and diff. See [answer files](answers.md). |
-| `engine.acceptDefaults(answersJson)` | Answers object with every unanswered default filled to a fixed point, using the same rules as CLI/serve `accept_defaults`. Preserves supplied answers; questions without defaults stay unanswered. |
-| `engine.writePmi(answersJson, projectBase64?, payloadJson?, bom?)` | `{bytes, source_sha256, report}`; `bytes` is an array of byte values. Writes and verifies answered PMI and stored answers in memory. Unanswered defaults remain suggestions. An incomplete set is written (a STEP file need not answer everything), never refused: `report.complete` is `false` and `report.missing` lists what `write` without `--accept-defaults` would refuse as incomplete: the required questions still open, or, while carried answers wait for a decision, those carry blocks only (`[]` when complete). `report` is otherwise the upstream writer's report; its `output` is the constructor's name. `payloadJson` is `{name, value}`: any JSON value carried in the STEP under `name` (give the project or a payload, not both; see below). |
+| `engine.review(answersJson)` | `{questions, open, intent, sources, problems}`; adds geometry anchors to `intent.anchors`. What a reopened file states is not asked (see "Reopening a file" below). |
+| `engine.table()` | The feature table (Specify 0.3.0, ADR P11), read from the file: `{rows, file_pmi, decided_none}`. Each row `{id, kind, feature, faces, state, value?, requirements?, suggestion?, open}`: `state` is `stated` (with the file's `value` and its `requirements`, each `{number?, kind, type, faces, text}`), `gap` (with Specify's `suggestion`, `null` when it has none) or `decided_none`. `file_pmi` lists the requirements on no recognised feature, each with its `id` (`file_pmi:#<entity>`, for `items.remove`). Row ids are question ids, and the ids an edit list names. |
+| `engine.checkEdits(editsJson)` | An edit list (or a 0.2 answers file) checked against this file, all or nothing, as `specify-core write STEP EDITS.json --check` checks it: `{well_formed, checked_against_file, applicable, entries, unchanged, failures: [{entry, reason}], written: false, message}`. Writes nothing; a list it passes is one `edit` applies, and one it refuses `edit` refuses with the same reasons. |
+| `engine.edit(editsJson, project?, payload?)` | An edit list (or a 0.2 answers file) applied to this file in memory, all or nothing, with the same writer as `specify-core write STEP EDITS.json`: `{written: true, bytes, report, source_sha256}`, `bytes` an array of byte values and `report` the writer's report with `retired` (the characteristic numbers the edit retired) and `unchanged` (the list changed nothing: the bytes are the file's own); or `{written: false, failures: [{entry, reason}], message}`, every entry that cannot be applied named, and nothing written. A refused or malformed list is a result, not a thrown error; only an oversized input throws. The engine is not changed: open the returned bytes to edit further. A part of an assembly (opened with `IntentEngine.openPart`) is edited in place: only that part changes, once however often it is placed; every other part and placement keeps its bytes. Its BOM is written with it: `fill` of `bom.<field>` (`bom.description`, `bom.make_buy`, …) with a value, or `accept_suggestions` of `bom.<field>` taking the BOM's suggestion; every part of the file is numbered when the BOM is written. On a file with no assembly structure a `bom.*` entry is refused (`bom_no_assembly`). `project` (the editor's base64 project, stored as `draftwright editor project`) or `payload` (`{name, value}` JSON), at most one, is carried with the record of the original part: it replaces what the file carried under that name, and the file is then always written; a plain edit keeps whatever the file carries. The edit list (`src/edits.rs`): `{fill: {id: value}, change: {id: {to, expect}}, items: {remove: ["#N", {"id": "<stated row or file_pmi:#entity>"}]}, none: [id], accept_suggestions: [id], clear: [id]}`; anything it does not mention is left alone. `clear` takes back a stored decision that leaves no PMI (a decided none, or a choice such as `part.locating`), so the feature-and-kind is a gap, or the choice unanswered, again; it never touches PMI (that is `change` and `items.remove`). `items.change` is reserved and currently refused. A fill of `extra.<name>` with a requirement's spec (`{kind, faces, value, …}`, as an answer gave it) adds that requirement. A 0.2 answers file whose `_specify.evidence` is from another revision is refused as stale (`_specify.evidence`). |
 | `engine.payload(name)` | The JSON text of the payload `name` the opened STEP carries, or `undefined`. |
 | `engine.original()` | `Uint8Array` of the part the opened STEP was first written from (without what the writer added, its `FILE_SCHEMA` and `FILE_DESCRIPTION` restored), or `undefined` when it records none or the bytes do not hash to the recorded sha256. |
 | `engine.evidence()` | `{schema, face_count, faces}`: the face evidence to keep with answers saved outside the STEP. |
 | `engine.rematchAnswers(answersJson, evidenceJson?, automaticJson?)` | Saved answers matched to this part as now recognised: `{answers, unresolved?, migrated?, unverified?, automatic?}`. Does not change the session. See "Answers saved outside the STEP". |
 | `review(analysisJson, answersJson)` | Same review composition without a session or geometry anchors. Calls `specify_core::api::review`. |
-| `acceptDefaults(analysisJson, answersJson)` | Same accepted answers as the session method, using the supplied analysis. |
+| `acceptDefaults(analysisJson, answersJson)` | Answers object with every unanswered default filled to a fixed point, for previews (showing what the defaults would be). Preserves supplied answers; questions without defaults stay unanswered. Nothing is written: a save writes only what an edit list names. |
 | `interpret(analysisJson, answersJson, questionId, text)` | `{value, code, callout?}` for a choice question; includes a diameter callout for `hole.function:` and `diameter.fit:`. |
-| `diff(oldName, oldBytes, newName, newBytes, _answers, title, scenes?)` | Two revisions of a part compared, as `specify-core diff` compares two files, from their geometry and PMI only (ADR P11): `_answers` is not read (pass `"{}"`; it keeps its place so callers need not change), and the report carries no answers: `{report, markdown, view}`. `report` is what `report.json` holds and `markdown` is the report headed `title` with no picture. `view` is what a viewer needs to draw the change as `model.png` does: `new` and `old` meshes (as `snapshot().mesh`), `faces` (each new face's class, `changed`, `new` or `ambiguous`, keyed by face number; unchanged faces left out), `gone` (the old faces gone or moved), `motion` (`{rotation, translation}` taking the old part's frame to the new one's, or `null`) and `changes`, the report's "What changed" lines in order, each `{line, features, new, old}`: its text, its features (indices in `report.features`) and their faces on the new part and the old, for linking the lines and the faces. Two revisions of an assembly are compared part by part: `{report, markdown, parts}`, the assembly's report and Markdown, and each part's `{name, status, old, new}`, with its `report` when it is in both files and, when it changed, its `markdown` (headed `#### name`) and `view`, shaped as a part's. Refuses gzip. |
+| `diff(oldName, oldBytes, newName, newBytes, title, scenes?)` | Two revisions of a part compared, as `specify-core diff` compares two files, from their geometry and PMI only (ADR P11); the report carries no answers: `{report, markdown, view}`. `report` is what `report.json` holds and `markdown` is the report headed `title` with no picture. `view` is what a viewer needs to draw the change as `model.png` does: `new` and `old` meshes (as `snapshot().mesh`), `faces` (each new face's class, `changed`, `new` or `ambiguous`, keyed by face number; unchanged faces left out), `gone` (the old faces gone or moved), `motion` (`{rotation, translation}` taking the old part's frame to the new one's, or `null`) and `changes`, the report's "What changed" lines in order, each `{line, features, new, old}`: its text, its features (indices in `report.features`) and their faces on the new part and the old, for linking the lines and the faces. Two revisions of an assembly are compared part by part: `{report, markdown, parts}`, the assembly's report and Markdown, and each part's `{name, status, old, new}`, with its `report` when it is in both files and, when it changed, its `markdown` (headed `#### name`) and `view`, shaped as a part's. Refuses gzip. |
 | `start()` | Installs `console_error_panic_hook`; initialization also calls it automatically. |
+
+**Removed in 0.3.0.** `engine.writePmi` is replaced by `edit`. The free
+`acceptDefaults(analysisJson, answersJson)` still supplies preview defaults after removal of
+`engine.acceptDefaults`. `exportAnswers` was removed under P11. `checkEdits` validates an edit
+list and `rematchAnswers` remains available for external project state.
 
 `engine.snapshot(0.05)` requests a measured mesh deviation of at most 0.05 mm.
 The optional argument is named `max_deviation_mm` in the generated declarations;
@@ -150,23 +160,23 @@ is the list of ids returned by `rules::open_questions`. `intent` is `api::previe
 `problems` comes from `problems::problems`. Native front ends can use `api::review` directly.
 
 Defaults and their reasons remain in `questions`, and unanswered ids remain in `open`.
-They contribute no PMI to review or `writePmi` until their values are supplied in answers;
+They contribute no PMI to review or an edit until their values are supplied (answers, or fills);
 in particular, an unanswered general tolerance is absent from `intent.part`, so a drawing
 can continue reporting `general_tolerance_missing`. Existing file datums remain available.
 The shared #16 settling path still records its automatic ±/plain answers in `state.auto`;
 it does not accept datum or general-tolerance suggestions. Diagnostic `problems` continues
 to inspect the proposed scheme. These are behaviour changes with no signature changes.
 
-For an explicit bulk acceptance, store `JSON.parse(engine.acceptDefaults(answersJson))`
-as the editor's ordinary answers (or use the free function). The call returns answers only;
-it does not mutate the session or write PMI. Defaults that reveal further questions are
-accepted until no more defaults can be added. Repeating the call is idempotent. Feed the
-result to `review`, `settle` (as `state.answers`, with `state.auto = []` to mark the bulk
-result as manual) and `writePmi`: accepted items are answered,
-editable, absent from `open`, and drawn/written through the existing paths. Accepting
-`part.general_tolerance` puts it in `intent.part.general_tolerance`, clearing the condition
-for `general_tolerance_missing`. A required question without a default, such as material,
-still needs an answer. These two exports are additive; existing signatures are unchanged.
+The free `acceptDefaults(analysisJson, answersJson)` returns a preview answer map. Defaults
+that reveal further questions are included until it reaches a fixed point. To write
+suggestions the caller approved, name their rows in the edit list.
+
+```js
+const edited = JSON.parse(engine.edit(JSON.stringify({
+  fill: { 'part.material': 'steel' },
+  accept_suggestions: ['part.general_tolerance'],
+})));
+```
 
 Answered items that await an unanswered datum frame remain omitted from PMI. Review's
 `problems` (also returned by serve) includes an additive warning with
@@ -188,12 +198,11 @@ openings (`six_axis_grid`) is not sealed and is not stated. No answer changes it
 question is asked about a void. The same list reaches serve (`questions`), Python
 `problems` and both WASM `review`s; revision diffs leave `info` problems out, as before.
 
-An optional project is written through `writer::write_bytes_with` as an `AttributeSet` with
+An optional project passed to `edit` is written as an `AttributeSet` with
 `name: "draftwright editor project"`, `on: None`, one text item with that same name and the
 supplied base64 text, and `description`/`general_property` both `None`. The editor's check is
 preserved exactly: nonempty ASCII alphanumerics or `+`, `/`, `=` only (no decoding or JSON
-validation). Omit the argument for no project attribute. Rewriting a resumed part replaces
-previous extras, so resupply the project on every write that should retain it.
+validation). Supplying the argument replaces the project for this part. A plain edit keeps the existing project.
 
 A payload (`{name, value}`) is stored the same way under its own `name`, as base64 of the
 value's compact UTF-8 JSON; for `name: "draftwright editor project"` that is exactly the
@@ -208,14 +217,10 @@ the PMI recommended-practice reference to it. A record from an earlier write has
 gains it when that file is rewritten. Readers that restore only `FILE_SCHEMA` (the editor's
 `originalOf` and draftwright-mcp's legacy fallback) no longer recover a v0.4.8 write's part
 exactly; both use `original()` first. Rewriting a file that records its original carries the
-record forward, so `original()` remains the part first opened. `writePmi` without a project or
-payload drops what the opened file carried: the written file has no project, payload or
-original record, so resupply the project or payload on every write that should keep them.
-The core sets no payload size limit (`carried` leaves limits to callers); `writePmi` refuses
-payload JSON over 8 MiB, its JSON input limit. A part that came with PMI or presentation the
-writer replaced, or a file written without a project or payload, gives `undefined`. Core
-callers use `specify_core::carried::{attributes, payload, original}` with
-`writer::write_bytes_with`.
+record forward, so `original()` remains the part first opened. A plain edit keeps the stored
+payload and original record. The WASM edit API limits JSON payload arguments to 8 MiB.
+`original()` returns `undefined` when the original cannot be reconstructed and verified.
+Core callers can use `specify_core::carried::{attributes, payload, original}`.
 
 
 ## Assemblies
@@ -232,21 +237,17 @@ const engine = IntentEngine.openPart('assembly.step', bytes, parts[1].part);
 
 The part is analysed as `specify-core analyse --part K` analyses it: in its own frame, with
 its mates against the file's other parts (read from the same bytes), and its snapshot, review,
-`acceptDefaults`, `settle`, `evidence` and `rematchAnswers` are that part's. `writePmi` writes
-into the original file as `specify-core write` does for an analysis of that part: the part's
-PMI, stored answers and any project or payload go on that part's product definition (once,
-however often it is placed); every other part, every placement and what earlier writes put on
-other parts are kept byte for byte, so parts are written one at a time, each from a session on
-the file the previous write returned. `parts()` then shows each written part as `written`.
-`payload(name)` reads the payload written on the opened part (another part's payload of the
-same name is not this part's); `original()` gives back the whole file as first opened.
+`settle`, `evidence` and `rematchAnswers` are that part’s. `edit` applies one list to the
+selected part’s definition. The returned bytes contain the whole assembly, with every other
+part and placement preserved. Open those bytes before applying another edit list. The part
+list’s `written` field records an embedded answers payload. PMI-only edits under P11 may
+leave it false. `payload(name)` reads the selected part’s payload and `original()` can
+reconstruct the whole file as first opened.
 
-**BOM and process.** An assembly part's questions include the optional `bom.*` questions
-(make/buy, part number, description, revision, optional, stock; [BOM](bom.md)), which never
-block a write and are not accepted by `acceptDefaults`, and the part's snapshot carries its BOM
-row as `analysis.bom`. Explicit `bom.*` answers are written with the part; `writePmi`'s fourth
-argument `true` also stores the accepted BOM suggestions and numbers every part of the file
-(omitted or `false`, a write without `bom.*` answers adds no BOM data). `part.process`, how the
+**BOM and process.** The snapshot exposes the part’s BOM row under `analysis.bom`. Fill
+`bom.*` fields explicitly, or name them in `accept_suggestions` to approve the file’s BOM
+proposals. A BOM edit numbers every part of the file. See [BOM](bom.md).
+`part.process`, how the
 part is made, is asked of every made part, last ([process](process.md)); a part whose make/buy
 is `bought` (answered or in the file, not guessed) is asked no process, and the
 assembly product none.
@@ -288,7 +289,7 @@ without it, so its answers are matched by feature ID.
 Refusals throw **strings**, preserving the editor's existing error transport: malformed JSON
 starts with `Invalid answers:`, `Invalid analysis:` or `Invalid state:`; rule and STEP errors
 name what could not be read or specified. A refusal to write a BOM into a file with no assembly
-structure (`writePmi` with `bom=true`, or a stale `bom.*` answer) contains the code
+structure (a `bom.*` entry in an edit list) contains the code
 `bom_no_assembly:`; match the code, not the prose after it, which may change. Unknown answer/feature/face IDs, invalid choice or
 note types, and contradictory choices refuse explicitly. Text answers (`part.material`,
 `part.coating`, `part.heat_treatment`) preserve the core rules' Python-compatible truthiness
@@ -366,7 +367,7 @@ on 2026-10-16:
 | Raw, optimized | 10,197,823 | 9.73 |
 | gzip, level 9 | 3,157,943 | 3.01 |
 | Brotli, quality 11 | 2,148,100 | 2.05 |
-| Raw ceiling | 16,500,000 | 15.74 |
+| Raw ceiling | 17,000,000 | 16.21 |
 
 These measure `specify_core_wasm_bg.wasm`, excluding the small JS/TypeScript/metadata files.
 CI and releases print current measurements and the remaining size headroom; sizes can change
@@ -455,6 +456,9 @@ maintainer raised it by 10% to 12,980,000 bytes, after PR #57's revision-report 
 when `pmiScene` (PR #83) measured 12,903,620 bytes, 76,380 below the old ceiling.
 On 2026-11-09 the maintainer raised it to 16,500,000 bytes, after the deviation-checked mesher
 for #162 (PR #164) added 182 KB and measured 15,002,152 bytes (2,152 over).
+On 2026-11-22 it was raised to 17,000,000 bytes, approved by Paul, 2026-11-22, for the 0.3.0
+feature set: the integrated stack (feature table, edit writer, carry, WASM edits, #228, panel)
+measured 16,568,361 bytes (68,361 over).
 Raising it requires a deliberate, reviewed JSON edit; the size checker never
 updates the budget automatically. When rebaselining, record the three measurements and
 tool versions together and explain the increase in the changelog.
@@ -524,7 +528,7 @@ The old `stored` / `existing` PMI lists
 are deprecated for one release. See [PMI requirement comparison](diff.md#pmi-requirements).
 
 For #77, dimension entries in `snapshot().analysis.characteristics` also expose optional
-stored `origin` and `source`, including nominal-only general dimensions. `writePmi` writes
+stored `origin` and `source`, including nominal-only general dimensions. `edit` writes
 the same per-dimension UDAs as native. See [dimension origin and source](pmi-origin.md).
 
 ## PMI scenes
@@ -532,10 +536,13 @@ the same per-dimension UDAs as native. See [dimension origin and source](pmi-ori
 `JSON.parse(engine.pmiScene(JSON.stringify(answers)))` returns the PMI for the current
 answers on the already-open part. `openPart` uses the same API, in the part's own frame.
 The session caches the source STEP and semantic PMI; answering does not reload geometry.
-Pass the editor's full `{answers, auto?, gdt?}` review state instead of just answers when
-available: `auto` identifies the questions whose values are unreviewed automatic defaults.
-An explicitly supplied value is `answered`, even when it equals a question's default.
-Unanswered suggestions produce no PMI, just as in `review` and `writePmi`.
+The editor's full `{answers, auto?, gdt?}` review state may be passed instead of just answers.
+An item's `status` is the feature table's state of the requirement it belongs to (ADR P11):
+`stated` when the file has it, `gap` when it is planned for an open gap, `decided_none` when it
+was decided none. Who wrote an item, and whether a value was answered or accepted
+automatically, is not shown, and item ids do not depend on either: a requirement keeps its id
+from the preview to the written file. Unanswered suggestions produce no PMI, just as in
+`review` and `edit`.
 
 Both calls return a JSON string. The generated declarations export `PmiScene`,
 `PmiSceneItem`, `PmiSceneItems`, `PmiSceneGraphic`, `PmiSceneTextPlacement`,
@@ -550,11 +557,12 @@ scene structure and presentation metadata are typed. The result is:
   presentation: /* haecceity.presentation/1 document */,
   specify: {
     [itemId: string]: {
-      status: 'answered' | 'default' | 'general' | 'existing';
+      status: 'stated' | 'gap' | 'decided_none';
       question?: string; // extra.N for a face-picked extra
       number?: number;   // characteristic number, as the STEP writer allocates it
       notation?: string; // this requirement's own semantic note wording
-      origin?: 'requirement' | 'general_tolerance' | 'imported';
+      general?: true;    // a dimension the general tolerance governs
+      basic?: true;      // a basic dimension
       source?: {schema: number; faces: string; support: number[]; parameter: string};
     }
   }
@@ -643,32 +651,20 @@ with x along `x_axis` and y along `normal × x_axis`. Hosts can fit and centre t
 own font in that box. File graphics omit roles/boxes unless known. These additive
 fields keep schema `/1`; strict `deny_unknown_fields` consumers must update their
 types. Specify passes both through unchanged. Native, WASM and Python builds pin the same release tag
-`v0.5.4`; no local path patch is needed.
+`v0.5.5`; no local path patch is needed.
 
 In the role array, `text` includes explicit ISO glyph strokes already represented
 in cell strings (⌖, ⌀, Ⓜ). Remove those when replacing whole cells with host-font
 text. Standalone finish marks and leader scope rings remain `symbol` geometry.
 
-Assembly `diff` answers use `{partName: answerMap}`. `acceptDefaults` returns the answer map as JSON; in JavaScript use
-`JSON.stringify({[partName]: JSON.parse(engine.acceptDefaults("{}"))})` (and add the other
-parts' maps). No `answers` or `parts` envelope is accepted. Validation follows assembly
-routing; an invalid nested answer reports both part name and question id. Single-part
-answer validation and JSON size limits remain in force. See [diff](diff.md#assemblies).
+Assembly `diff` compares the requirements in each file’s PMI. Use `carry` to transfer
+requirements and decisions. See [assembly comparisons](diff.md#assemblies).
 
-## Resuming answers beside foreign PMI
+## Reopening PMI and stored decisions
 
-Writes store supplied answers even when the part already contains foreign PMI. Reopening
-returns them in `resume.answers`, while unmarked foreign PMI stays in `existing` and keeps
-its questions answered. Writing edited answers replaces Specify's provenance-marked items
-and preserves foreign entity bytes. Specify's characteristic numbers survive these edits.
-Mixed parts use Add after selective removal of Specify's items; older Add-mode files with
-no stored answers continue to open as existing PMI. See [writing modes](design.md).
-
-Mixed-file rewrites require a writer implementing `pmi_scope`. Older writers, including
-0.1.7 and the archived Python engine, can read the saved answers without honoring that
-scope; their replacement rules do not guarantee preservation of foreign PMI. Use the
-scoped writer for these rewrites. Existing 0.1.7 Add-mode files without saved answers keep
-their existing-PMI opening behavior in this engine.
+The reopened feature table reads requirements directly from the file, regardless of their
+origin. Stored answers record decisions that leave no PMI. A save applies the edit list to
+the selected part, preserving the entity bytes and numbers of the other requirements.
 
 With v0.4.8, native/CLI, Python and WASM write reports expose these optional keys,
 omitted when empty:
@@ -696,29 +692,15 @@ Add preserves original entities in the kernel. It can add a separate datum featu
 on a kept carrier; an upgrade requiring original-entity repairs instead fails with
 ids and repair details. Specify never automatically retries a refused Add with Replace.
 
-## Reopening a file Specify wrote
+## Reopening a file
 
-On reopening, the PMI is the truth (ADR P9; [answers](answers.md#reopening-a-file-specify-wrote-the-pmi-is-the-truth)).
-`snapshot().analysis` reads the file's PMI first: `resume.answers` holds only the stored
-answers the file agrees with, `existing` the file's PMI they do not explain, and
-`resume.conflicts: [{id, stored, file}]` the stored answers the file changed (`file`, its
-notation) or removed (`file: null`). `resume.present: {id: value}` lists the defaults the
-file states (written but not stored as answers): the engine's `review`, `writePmi` and the
-other calls take each as its question's answer unless the answers give one, so a page may
-show them as answered. `review` presents the undecided ones as `conflicts`,
-`{id, kind: "conflict", text, stored, file, choices: [{choice: "keep", label}, {choice:
-"restore", label, answer}]}`. The page asks the person; it never decides for them:
-
-- **Restore:** set `answers[id] = conflict.stored` (the choice's `answer`). `writePmi` then
-  writes the stored value and not the file's.
-- **Keep the file's:** add `id` to `answers._specify.keep` (a list of ids). `writePmi`
-  writes the file's requirement without Specify's provenance marker, so it stays the file's
-  own; a kept removal is stored with the answers and comes back in `resume.answers._specify`.
-
-The conflict's question is not in `questions` or `open` until decided, and an undecided
-conflict never blocks `writePmi`: the file's state is what is written.
-
-`resume.foreign` (only when there are some) lists the ids of questions the file answers with
-another tool's requirement among Specify's own, such as a hole's position tolerance beside
-Specify's location dimensions. Like a foreign conflict, such a question is not asked, and an
-answer to it is neither written nor stored; the report's `not_written` gives the reason.
+The file is the only copy (ADR P11; [answers](answers.md#reopening-a-file-the-file-is-the-only-copy)):
+its PMI is the state, whoever wrote it. `snapshot().analysis` has `existing` (the file's whole
+PMI, Specify's own included, each item with its full `text`, `text_only` and planner-named
+fields) and `table`, the feature table: each feature-and-kind `stated`, `gap` (with Specify's
+suggestion) or `decided_none`. A stated row is not asked; `review` asks the gaps.
+`resume.answers` holds only the stored answers that leave no PMI behind: decided none, choices
+that are not requirements, and general sizes deliberately omitted on datum faces (listed in
+`_specify.no_pmi`). A stored answer the file no longer bears out is listed once in
+`resume.dropped_answers`. There are no conflicts, no `_specify.keep`, and no `resume.present`
+or `resume.foreign` (0.2.x); changing what the file states is an explicit edit.

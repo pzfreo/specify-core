@@ -8,9 +8,10 @@ Initialize the web module, then use `IntentEngine`, `review` and `interpret`.
 Errors are thrown as strings. STEP input must be decompressed. The constructor opens a file
 of one distinct part with one placement; for an assembly or a part placed more than once, list
 the parts with `IntentEngine.parts(name, bytes)` and open one with
-`IntentEngine.openPart(name, bytes, part)`, whose `writePmi` writes that part into the
-original file. `writePmi` uses the upstream verified writer and optionally stores the
-base64 `draftwright editor project` attribute on the part.
+`IntentEngine.openPart(name, bytes, part)`. `engine.table()` gives the feature table;
+`engine.checkEdits(editsJson)` checks an edit list against the file and `engine.edit(editsJson)`
+applies it in memory, all or nothing, with the upstream verified writer: the new bytes, or every
+entry that cannot be applied.
 
 Apache-2.0; see [LICENSE](https://github.com/pzfreo/specify-core/blob/main/LICENSE) and
 [NOTICE](https://github.com/pzfreo/specify-core/blob/main/NOTICE). The bundled haecceity and
@@ -22,8 +23,6 @@ Shared/generic labels retain geometric matching and are omitted from analysis. K
 duplicate names are unresolved without geometric fallback. See
 [face-name matching and compatibility](https://github.com/pzfreo/specify-core/blob/main/docs/face-names.md).
 
-Answer sidecars (with geometry evidence) can be exported before writing:
-`engine.exportAnswers(answersJson, approvalsJson?)` returns an answer map as JSON: the answers
-given plus exactly the defaults approved (`{"<part>": {"<id>": value}}`).
-Open questions and carry blocks do not throw (`writePmi` reports what is open). See
-[answer files](https://github.com/pzfreo/specify-core/blob/main/docs/answers.md#export-a-sidecar).
+There is no export of answers as a record (ADR P11, 0.3.0: `exportAnswers` is removed); the
+written STEP holds them. See
+[answer files](https://github.com/pzfreo/specify-core/blob/main/docs/answers.md#no-export-of-answers).

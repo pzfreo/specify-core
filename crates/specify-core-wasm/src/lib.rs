@@ -95,13 +95,9 @@ export interface SavedViewFinding {
   entity: string;
   detail: string;
 }
-/** Report in writePmi JSON; optional diagnostic keys are absent when empty. */
+/** Report in edit JSON; optional diagnostic keys are absent when empty. */
 export interface WriteReport {
   output: string;
-  /** False when required questions are still open; the file is written all the same. */
-  complete: boolean;
-  /** The required question ids still open (as `write` would list them); [] when complete. */
-  missing: string[];
   written: string[];
   not_written: string[];
   warnings: string[];
@@ -110,7 +106,15 @@ export interface WriteReport {
   preserved_normalizations?: PreservedNormalization[];
   retained_shared?: number[];
   saved_view_findings?: SavedViewFinding[];
+  /** The characteristic numbers the edit retired (never reused). */
+  retired: number[];
+  /** True when the list changed nothing: the bytes are the file's own. */
+  unchanged: boolean;
 }
+/** JSON returned by `edit()`: the new file, or every entry that cannot be applied. */
+export type EditResult =
+  | { written: true; bytes: number[]; report: WriteReport; source_sha256: string }
+  | { written: false; failures: { entry: string; reason: string }[]; message: string };
 /** JSON returned by evidence(), also embedded alongside stored answers. */
 export interface AnswerEvidence {
   schema: 1 | 2 | 3;
@@ -131,7 +135,7 @@ export interface PmiItemChange {
   old_id?: string;
   faces: { old: { face: number }[]; new: { face: number }[] };
   kind: string;
-  status: "answered" | "default" | "general" | "existing";
+  status: PmiSceneStatus;
   on: string;
   old?: string;
   new?: string;
@@ -157,7 +161,9 @@ export interface DiffPmi {
 /** Document-local semantic or graphic identity; never a mesh face index. */
 export type PmiSceneId = string;
 export type PmiSceneVector = [number, number, number];
-export type PmiSceneStatus = "answered" | "default" | "general" | "existing";
+/** The feature table's state of the requirement an item belongs to (ADR P11): the file states
+ * it, it is planned for an open gap (a preview), or it was decided none. */
+export type PmiSceneStatus = "stated" | "gap" | "decided_none";
 /** A lossless semantic/unit row. Values follow the packaged haecceity.pmi/1 schema;
  * decimal quantities are strings and semantic references use PmiSceneId. */
 export interface PmiSceneItem {
@@ -235,10 +241,11 @@ export interface PmiSceneMetadata {
   status: PmiSceneStatus;
   question?: string;
   number?: number;
-  origin?: "requirement" | "general_tolerance" | "imported";
   source?: {schema: number; faces: string; support: number[]; parameter: string};
   /** A basic (theoretically exact) dimension; absent otherwise. */
   basic?: true;
+  /** A dimension the general tolerance governs; absent otherwise. */
+  general?: true;
 }
 /** JSON.parse of either pmiScene call. Supporting rows may lack a specify entry. */
 export interface PmiScene {
@@ -316,69 +323,10 @@ export interface PmiScene {
                 .map_err(js_error)
         }
 
-        /// `project` is the editor's base64 project; `payload` is `{name, value}` JSON. At most one.
-        /// Rewriting replaces what a previous write carried: without either, the written file
-        /// carries no project, payload or original record, even if the opened one did.
-        #[wasm_bindgen(js_name = writePmi)]
-        pub fn write_pmi(
-            &self,
-            answers: &str,
-            project: Option<String>,
-            payload: Option<String>,
-            bom: Option<bool>,
-        ) -> Result<String, JsValue> {
-            let answers = self::answers(answers)?;
-            let payload = payload
-                .as_deref()
-                .map(|text| json("Payload", text))
-                .transpose()?;
-            self.0
-                .write_pmi_with_bom(
-                    &answers,
-                    project.as_deref(),
-                    payload.as_ref(),
-                    bom.unwrap_or(false),
-                )
-                .map(|value| value.to_string())
-                .map_err(|error| JsValue::from_str(&error))
-        }
-
         /// `AnswerEvidence` JSON: keep it with answers saved outside the STEP.
         pub fn evidence(&self) -> Result<String, JsValue> {
             self.0
                 .evidence()
-                .map(|value| value.to_string())
-                .map_err(|error| JsValue::from_str(&error))
-        }
-
-        /// Saved answers matched to this part: `{answers, unresolved?, migrated?, unverified?,
-        /// automatic?}`. `evidence` is what `evidence()` gave when they were saved; `automatic`
-        /// a JSON list of the IDs the default path answered. Without evidence answers are
-        /// matched by feature ID. Schema 3 matches exact authored names first; a missing or
-        /// duplicate name is unresolved without geometric fallback. Unnamed faces use
-        /// verified indices or saved geometric correspondence. Schema 1/2 retain their
-        /// fingerprint checks. Extras and datum lists follow their face supports.
-        #[wasm_bindgen(js_name = rematchAnswers)]
-        pub fn rematch_answers(
-            &self,
-            answers: &str,
-            evidence: Option<String>,
-            automatic: Option<String>,
-        ) -> Result<String, JsValue> {
-            let answers = self::answers(answers)?;
-            let evidence = evidence
-                .as_deref()
-                .map(|text| json("Evidence", text))
-                .transpose()?;
-            let automatic: Option<Vec<String>> = automatic
-                .as_deref()
-                .map(|text| {
-                    serde_json::from_value(json("Automatic", text)?)
-                        .map_err(|error| JsValue::from_str(&format!("Invalid automatic: {error}")))
-                })
-                .transpose()?;
-            self.0
-                .rematch_answers(&answers, evidence.as_ref(), automatic.as_deref())
                 .map(|value| value.to_string())
                 .map_err(|error| JsValue::from_str(&error))
         }
@@ -409,31 +357,75 @@ export interface PmiScene {
                 .map_err(|error| JsValue::from_str(&error))
         }
 
-        /// Answer map for saving: the answers given, exactly the defaults in `approved`
-        /// (optional JSON, `{"<part>": {"<id>": value}}` with the values the person saw; none
-        /// when absent) and `_specify.evidence`. Never every default (ADR P9); open questions
-        /// stay open. Throws if an approval is not an open question's default as it stands.
-        #[wasm_bindgen(js_name = exportAnswers)]
-        pub fn export_answers(
+        /// The feature table: `{rows, file_pmi, decided_none}`, each row `{id, kind, feature,
+        /// faces, state, value?, requirements?, suggestion?, open}` (`state` is `stated`, `gap`
+        /// or `decided_none`). Row ids are the ids an edit list names.
+        pub fn table(&self) -> String {
+            self.0.table().to_string()
+        }
+
+        /// Checks an edit list (or a 0.2 answers file) against this file, all or nothing:
+        /// `{well_formed, checked_against_file, applicable, entries, unchanged, failures,
+        /// written: false, message}`. Writes nothing.
+        #[wasm_bindgen(js_name = checkEdits)]
+        pub fn check_edits(&self, edits: &str) -> Result<String, JsValue> {
+            limit("Edits", edits, input::JSON_LIMIT)?;
+            Ok(self.0.check_edits(edits).to_string())
+        }
+
+        /// Applies an edit list (or a 0.2 answers file) to this file in memory, all or nothing:
+        /// `{written: true, bytes, report, source_sha256}` (the report with `retired` and
+        /// `unchanged`), or `{written: false, failures, message}` naming every entry that cannot
+        /// be applied. The engine is not changed: open the bytes returned to edit further.
+        ///
+        /// `project` is the editor's base64 project, stored as `draftwright editor project`;
+        /// `payload` is any application's `{name, value}` JSON. At most one; each replaces what
+        /// the file carried under its name, with the record of the original part (`original()`
+        /// gives it back), and the file is then always written. Throws when it cannot be
+        /// carried.
+        pub fn edit(
             &self,
-            answers: &str,
-            approved: Option<String>,
+            edits: &str,
+            project: Option<String>,
+            payload: Option<String>,
         ) -> Result<String, JsValue> {
-            let approved = match approved {
-                Some(text) => self::approvals(&text)?,
-                None => specify_core::api::Approved::new(),
-            };
+            limit("Edits", edits, input::JSON_LIMIT)?;
+            let payload = payload
+                .as_deref()
+                .map(|text| json("Payload", text))
+                .transpose()?;
             self.0
-                .export_answers(&self::answers(answers)?, &approved)
-                .map(|answers| Value::Object(answers).to_string())
+                .edit_carrying(edits, project.as_deref(), payload.as_ref())
+                .map(|value| value.to_string())
                 .map_err(|error| JsValue::from_str(&error))
         }
 
-        #[wasm_bindgen(js_name = acceptDefaults)]
-        pub fn accept_defaults(&self, answers: &str) -> Result<String, JsValue> {
+        /// Saved answers held outside the STEP (the editor's project) matched to this part:
+        /// `{answers, unresolved?, migrated?, unverified?, automatic?}`. `evidence` is what
+        /// `evidence()` gave when they were saved; `automatic` a JSON list of the ids the default
+        /// path answered. Reads only.
+        #[wasm_bindgen(js_name = rematchAnswers)]
+        pub fn rematch_answers(
+            &self,
+            answers: &str,
+            evidence: Option<String>,
+            automatic: Option<String>,
+        ) -> Result<String, JsValue> {
+            let answers = self::answers(answers)?;
+            let evidence = evidence
+                .as_deref()
+                .map(|text| json("Evidence", text))
+                .transpose()?;
+            let automatic: Option<Vec<String>> = automatic
+                .as_deref()
+                .map(|text| {
+                    serde_json::from_value(json("Automatic", text)?)
+                        .map_err(|error| JsValue::from_str(&format!("Invalid automatic: {error}")))
+                })
+                .transpose()?;
             self.0
-                .accept_defaults(&self::answers(answers)?)
-                .map(|answers| Value::Object(answers).to_string())
+                .rematch_answers(&answers, evidence.as_ref(), automatic.as_deref())
+                .map(|value| value.to_string())
                 .map_err(|error| JsValue::from_str(&error))
         }
     }
@@ -453,15 +445,14 @@ export interface PmiScene {
 
     /// Two revisions of a part compared (`session::diff`), from the two files' geometry and PMI
     /// only: `{report, markdown, view}` JSON; of an assembly, `{report, markdown, parts}`, each
-    /// changed part with its own `markdown` and `view`. `_answers` is not read (ADR P11: the
-    /// report never depends on answers); it keeps its place so callers need not change.
+    /// changed part with its own `markdown` and `view` (ADR P11: the report never depends on
+    /// answers).
     #[wasm_bindgen(js_name = diff)]
     pub fn diff_json(
         old_name: &str,
         old: &[u8],
         new_name: &str,
         new: &[u8],
-        _answers: &str,
         title: &str,
         scenes: Option<bool>,
     ) -> Result<String, JsValue> {
@@ -532,19 +523,6 @@ export interface PmiScene {
         input::answers_shape(&answers).map_err(js_error)?;
         Ok(answers)
     }
-    fn approvals(json: &str) -> Result<specify_core::api::Approved, JsValue> {
-        limit("Approvals", json, input::JSON_LIMIT)?;
-        serde_json::from_str::<Value>(json)
-            .ok()
-            .as_ref()
-            .and_then(specify_core::api::approvals)
-            .ok_or_else(|| {
-                JsValue::from_str(&format!(
-                    "Invalid approvals: {}",
-                    specify_core::api::APPROVALS_FORM
-                ))
-            })
-    }
     fn out(state: tolerancing::State) -> Result<String, JsValue> {
         serde_json::to_string(&state).map_err(js_error)
     }
@@ -609,7 +587,7 @@ mod tests {
     #[test]
     fn blind_thread_interpretation_summary_matches_the_intent() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/fixtures/spindle.step");
+            .join("../../tests/fixtures/parts/pin.step");
         let analysis = api::analyse_file(&path, None).unwrap();
         let questions = api::questions(&analysis, &Map::new()).unwrap();
         let hole = questions

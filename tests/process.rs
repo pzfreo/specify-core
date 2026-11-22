@@ -76,9 +76,13 @@ fn an_unanswered_part_is_machined_and_unchanged() {
     let analysis = api::analyse(&loaded).unwrap();
     let given = answers(json!({"part.material": "steel"}));
     let qs = api::questions(&analysis, &given).unwrap();
-    // The process is appended after every other question, so no question moves.
-    assert_eq!(qs.last().unwrap().id, process::QUESTION);
-    let q = qs.last().unwrap();
+    // general dimensions are rows (Paul, 2026-11-21). The process is the last
+    // ordinary question, followed by the separately approved measurements.
+    let q = qs
+        .iter()
+        .rfind(|q| !q.id.starts_with("length:planes:") && !q.id.starts_with("location:holes:"))
+        .unwrap();
+    assert_eq!(q.id, process::QUESTION);
     assert_eq!(q.default, Some(json!(MACHINED)));
     assert_eq!(q.attention, "routine");
     assert_eq!(q.options, process::PROCESSES.map(String::from).to_vec());
@@ -283,11 +287,16 @@ fn fdm_defaults_tolerance_note_holes_locations_and_no_finish_questions() {
         reading.settings(&back)["general_tolerance"],
         json!("±0.3 mm or ±0.3 % (FDM)")
     );
-    // Resumed, the answers come back, and the process with them.
-    assert_eq!(resume::answers_for(&back).unwrap(), Some(chosen.clone()));
+    // ADR P11: only answers that leave no PMI are stored; the file states the process, so it
+    // is not asked again.
+    assert_eq!(
+        resume::answers_for(&back).unwrap(),
+        Some(specify_core::feature_table::storable(&chosen))
+    );
     let again = api::analyse(&back).unwrap();
+    assert_eq!(again["part"]["process"], json!(FDM));
     let qs = api::questions(&again, &chosen).unwrap();
-    assert_eq!(question(&qs, process::QUESTION).id, process::QUESTION);
+    assert!(!ids(&qs).contains(&process::QUESTION));
     // Writing the same answers again changes nothing.
     let intent = api::apply(&again, &chosen, true).unwrap();
     let (rewritten, _) = writer::write_bytes(&back, &intent, Some(&chosen)).unwrap();
@@ -383,13 +392,17 @@ fn a_part_answer_the_process_leaves_unasked_is_not_written() {
             .not_written
             .contains(&row["not_written_reason"].as_str().unwrap().to_string())
     );
-    // The answer itself is kept, and is written again once the part is machined.
+    // ADR P11: the answer writes PMI when it applies, so it is not stored in the file; it is
+    // written once the part is machined.
     let back = part::File::of_bytes(Path::new("p.step"), bytes)
         .unwrap()
         .load(None)
         .unwrap();
-    let mut stored = resume::answers_for(&back).unwrap().unwrap();
-    assert_eq!(stored["part.surface_finish"], json!("Ra 1.6"));
+    assert_eq!(
+        resume::answers_for(&back).unwrap(),
+        Some(specify_core::feature_table::storable(&given))
+    );
+    let mut stored = given.clone();
     stored.insert("part.process".into(), json!(MACHINED));
     let intent = api::apply(&analysis, &stored, true).unwrap();
     assert_eq!(intent.part["surface_finish"], json!("Ra 1.6"));
@@ -416,27 +429,24 @@ fn the_attribute_is_on_the_product_definition_and_reads_back_with_its_source() {
     let text = String::from_utf8(bytes.clone()).unwrap();
     assert!(text.contains("GENERAL_PROPERTY('','specify process',$)"));
     assert!(!text.contains(process::DEFAULT_ITEM));
+    // ADR P11 (D5a): a process read from the file is the file's, whoever wrote it.
     let field = read_back(&bytes, None).unwrap();
-    assert_eq!(
-        (field.value, field.source.as_str()),
-        (json!(RESIN), "answered")
-    );
+    assert_eq!((field.value, field.source.as_str()), (json!(RESIN), "file"));
     let back = part::File::of_bytes(Path::new("p.step"), bytes.clone())
         .unwrap()
         .load(None)
         .unwrap();
     let resumed = api::analyse(&back).unwrap();
     let answered = resumed["resume"]["answers"].as_object().unwrap().clone();
-    assert_eq!(answered[process::QUESTION], json!(RESIN));
+    // ADR P11: the answer is not stored; the file states it.
+    assert!(!answered.contains_key(process::QUESTION));
+    assert_eq!(resumed["part"]["process"], json!(RESIN));
     assert_eq!(
         resumed["process"],
-        json!({"value": RESIN, "source": "answered"})
+        json!({"value": RESIN, "source": "file"})
     );
     let field = process::of(&resumed, &answered).unwrap().unwrap();
-    assert_eq!(
-        (field.value, field.source.as_str()),
-        (json!(RESIN), "answered")
-    );
+    assert_eq!((field.value, field.source.as_str()), (json!(RESIN), "file"));
 
     // Accepted suggestion: marked, read as a default, and the question's default next time.
     let given = answers(json!({"part.material": "PA12 (MJF)"}));
@@ -648,8 +658,6 @@ fn a_process_answer_is_checked_and_round_trips_through_the_answer_file() {
     let qs = api::questions(&analysis, &given).unwrap();
     assert!(!ids(&qs).contains(&"part.surface_finish"));
     assert!(ids(&qs).contains(&"part.edges"));
-    let exported = api::export_answers(&loaded, &analysis, &given, &api::Approved::new()).unwrap();
-    assert_eq!(exported.answers[process::QUESTION], json!("cast"));
 }
 
 /// The surface textures written in `bytes` for part `None`, as the kernel reads them.
@@ -853,16 +861,25 @@ fn specifys_process_set_is_never_written_twice() {
             .iter()
             .any(|w| w.contains("process 3D printed: FDM is already stated"))
     );
+    // ADR P11 (D5b): an answer naming another process is not written, nor refused: the file's
+    // value stands, and the report says so.
     let resin = answers(json!({"part.material": "PLA (FDM)", "part.process": RESIN}));
     let other = api::apply(&stated, &resin, true).unwrap();
-    let err = writer::write_bytes(&back, &other, Some(&resin)).unwrap_err();
+    let (kept, report) = writer::write_bytes(&back, &other, Some(&resin)).unwrap();
+    assert_eq!(process_owners(&kept).len(), 1);
+    assert_eq!(read_back(&kept, None).unwrap().value, json!(FDM));
     assert!(
-        err.to_string()
-            .contains("already states process 3D printed: FDM"),
-        "{err}"
+        report.not_written.contains(&format!(
+            "part.process {RESIN}: not written, as the file states {FDM} (the file's value \
+             stands whoever wrote it: changing it is an explicit edit)"
+        )),
+        "{:?}",
+        report.not_written
     );
+    assert!(!report.written.iter().any(|w| w.starts_with("process")));
 
-    // Stored answers scope Specify's own PMI: a rewrite replaces the set.
+    // ADR P11 (D5b): stored answers no longer scope Specify's own PMI: a rewrite with another
+    // process keeps the file's set, and reports the answer not written.
     let foreign = foreign_uda(
         loaded.bytes.as_ref().clone(),
         loaded.definition.product_definition,
@@ -883,9 +900,17 @@ fn specifys_process_set_is_never_written_twice() {
         .unwrap();
     let resumed = api::analyse(&back).unwrap();
     let intent = api::apply(&resumed, &resin, true).unwrap();
-    let (rewritten, _) = writer::write_bytes(&back, &intent, Some(&resin)).unwrap();
+    let (rewritten, report) = writer::write_bytes(&back, &intent, Some(&resin)).unwrap();
     assert_eq!(process_owners(&rewritten).len(), 1);
-    assert_eq!(read_back(&rewritten, None).unwrap().value, json!(RESIN));
+    assert_eq!(read_back(&rewritten, None).unwrap().value, json!(FDM));
+    assert!(
+        report
+            .not_written
+            .iter()
+            .any(|w| w.starts_with(&format!("part.process {RESIN}: not written"))),
+        "{:?}",
+        report.not_written
+    );
 }
 
 #[test]

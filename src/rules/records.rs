@@ -467,6 +467,52 @@ impl<'a> Ctx<'a> {
         })
     }
 
+    /// Whether the analysis carries the file's feature table (ADR P11).
+    pub(crate) fn has_table(&self) -> bool {
+        self.analysis.get("table").is_some_and(Value::is_object)
+    }
+
+    /// The feature-and-kinds the file's feature table says the file states.
+    pub(crate) fn table_stated(&self) -> std::collections::BTreeSet<&str> {
+        self.analysis
+            .get("table")
+            .and_then(|t| t.get("rows"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|r| r["state"] == "stated")
+            .filter_map(|r| r["id"].as_str())
+            .collect()
+    }
+
+    /// Whether the table row `id` is a location gap the file already locates in some
+    /// directions (D8): what it suggests covers only the directions left.
+    pub(crate) fn table_partly_located(&self, id: &str) -> bool {
+        self.analysis
+            .get("table")
+            .and_then(|t| t.get("rows"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .any(|r| {
+                r["id"] == id
+                    && r["state"] == "gap"
+                    && r["missing"].as_array().is_some_and(|m| !m.is_empty())
+            })
+    }
+
+    /// The value of the stated table row `id`, as the table reports it.
+    pub(crate) fn table_stated_value(&self, id: &str) -> Option<&str> {
+        self.analysis
+            .get("table")
+            .and_then(|t| t.get("rows"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .find(|r| r["state"] == "stated" && r["id"] == id)
+            .and_then(|r| r["value"].as_str())
+    }
+
     /// The feature `id`; the analysis is expected to have it (a pattern's member).
     pub fn feature(&self, id: &str) -> Result<&Feature<'a>> {
         self.by_id

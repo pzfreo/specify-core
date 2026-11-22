@@ -36,14 +36,19 @@ analysis = api.analyse("plate.step")         # features, faces and any existing 
 for q in api.questions(analysis, {}):         # what is still unknown
     print(q.id, "|", q.prompt, "| default:", q.default)
 
-answers = {"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"}
-intent = api.apply(analysis, answers, accept_defaults=True)   # suggested defaults for the rest
-report = api.write("plate.step", intent, "plate-pmi.step", answers=answers)
+# An edit list: fill gaps, change what the file states, remove by number, decide none,
+# accept suggestions. Ids are the feature table's (analysis["table"]["rows"]).
+edits = {"fill": {"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"},
+         "accept_suggestions": ["part.general_tolerance"]}
+report = api.write("plate.step", edits, "plate-pmi.step")   # all or nothing
 
-print(report.written)       # ['datum A', 'Ø8 H7 on holes:9', 'position 0.05 on holes:9', ...]
-print(report.not_written)   # anything that could not be written, with the reason,
-                            # including an answer whose question is not asked
+print(report.written)       # ['material 6082-T6', 'Ø8 H7 on holes:9', ...]
+print(report.retired)       # characteristic numbers a change or a remove retired
 ```
+
+A list is applied all or nothing: if any entry cannot be applied, nothing is written and
+`EditsRefused` (a `ValueError`, from `specify_core.writer`) names every failing entry in its
+`failures`. `api.check_edits(step, edits)` checks a list without writing.
 
 Write reports optionally include `geometry_carrier_exemptions` (`{part, condition,
 aspect, feature}`), `preserved_normalizations` (`{id, normalization}`),
@@ -54,8 +59,9 @@ preserves original entity text during Add, including when adding a separate datu
 feature on a kept carrier. Add upgrades requiring source repairs raise a clear
 `RuntimeError` naming the entities and repair; Specify never retries with Replace.
 
-Opening the written file again picks up where you left off:
-`api.analyse("plate-pmi.step")["resume"]["answers"]` returns the answers stored in it.
+Opening the written file again picks up where you left off: the file is the only copy (its PMI,
+read into `api.analyse(...)["table"]`, and the decisions that left no PMI, in
+`["resume"]["answers"]`).
 
 The main functions, all in `specify_core.api`:
 
@@ -67,7 +73,8 @@ The main functions, all in `specify_core.api`:
 | `questions(analysis, answers)` | The questions, given the answers so far (`Question` objects). |
 | `apply(analysis, answers, accept_defaults=False)` | Turns answers into the intent to write. Raises `IncompleteError` naming what is still missing, unless defaults are accepted. |
 | `preview(analysis, answers)` | The intent the answers so far would give, without requiring every answer. |
-| `write(step, intent, output, answers=None)` | Writes the PMI (and the answers) and verifies the file. Returns a `WriteReport`. |
+| `write(step, edits, output)` | Applies an edit list to the file, all or nothing, and verifies it. Returns a `WriteReport`. |
+| `check_edits(step, edits)` | Checks an edit list as `write` would apply it; writes nothing. |
 | `write_parts(step, intents, output)` | The same for several parts of an assembly, in one file. |
 | `mesh(step, part=None, *, max_deviation_mm=None)` | Triangles grouped by face index, for showing the part and picking faces. |
 
@@ -80,13 +87,12 @@ answers.
 ```bash
 specify-core analyse plate.step -o plate.analysis.json
 specify-core questions plate.analysis.json --open                # unanswered questions, as JSON
-echo '{"part.material": "6082-T6"}' > answers.json
-specify-core write plate.step plate.analysis.json answers.json --accept-defaults -o plate-pmi.step
+echo '{"fill":{"part.material":"6082-T6"},"accept_suggestions":["part.general_tolerance"]}' > edits.json
+specify-core write plate.step edits.json -o plate-pmi.step
 ```
 
-`specify-core parts` lists an assembly's parts and `--part` picks one; `write` takes an
-analysis and answers pair for each part to write together. `specify-core mesh` writes the
-face-indexed triangles.
+`specify-core parts` lists an assembly's parts. Pass `--part INDEX` to write the edit
+list to one of them. `specify-core mesh` writes the face-indexed triangles.
 
 ## For a host program
 
@@ -97,12 +103,13 @@ drives it as a child process:
 ```json
 {"id": 1, "op": "analyse", "step": "/path/part.step"}
 {"id": 2, "op": "questions", "analysis": {...}, "answers": {...}}
-{"id": 3, "op": "write", "step": "/path/part.step", "output": "/path/out.step", "analysis": {...}, "answers": {...}, "accept_defaults": true}
 ```
 
 Each reply is `{"id", "ok": true, "result"}` or `{"id", "ok": false, "error": {"code", "message"}}`,
 where the code is `incomplete` (with what is `missing`), `invalid` or `failed`. `analyse` replies
-with the analysis and the mesh; `write` with the report and the intent.
+with the analysis and the mesh. For edit-list writes use the CLI command above or the
+Python `write` function. The serve protocol retains its intent-based `write` request
+for existing clients.
 `analyse` accepts optional `"max_deviation_mm": 0.05` for its mesh. It must be a
 finite number of at least 0.001 mm; invalid or unmet bounds return `invalid`. Omitting
 it (or `null`) preserves the default mesh. Requested meshes add `max_deviation_mm`
@@ -126,8 +133,5 @@ file is read back and checked before it is kept.
 Status: early (0.x). The JSON formats may change between minor versions; changes are listed in
 the changelog. Draftwright® is a registered trade mark of Betwixt Ltd.
 
-Answer sidecars (with geometry evidence) can be exported before writing:
-`api.export_answers(step, analysis, answers, accept_defaults=None)` returns a dict of the
-answers given plus exactly the defaults approved (`{"<part>": {"<id>": value}}`).
-Open questions and carry blocks do not refuse it (`write` still needs a complete set). See
-[answer files](../../docs/answers.md#export-a-sidecar).
+There is no export of answers as a record (ADR P11, 0.3.0: `api.export_answers` is removed);
+the written STEP holds them. See [answer files](../../docs/answers.md#no-export-of-answers).

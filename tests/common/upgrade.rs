@@ -120,6 +120,12 @@ pub fn check(loaded: &LoadedPart, base: &Value, analysis: &Value, mapping: &[(&s
     for pair in expected {
         let old = pair[0].as_str().unwrap();
         let new = pair[1].as_str().unwrap();
-        assert_eq!(analysis["resume"]["answers"][new], base["answers"][old]);
+        // ADR P11: a moved answer is resumed only when it leaves no PMI the file states
+        // (kernel_upgrade's p11_resumed accounts for the rest); one resumed is the saved value.
+        let now = &analysis["resume"]["answers"][new];
+        assert!(
+            now.is_null() || *now == base["answers"][old],
+            "{old} -> {new}"
+        );
     }
 }

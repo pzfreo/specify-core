@@ -166,6 +166,7 @@ fn key_order(case: &str, path: &str, python: &Value, rust: &Value, out: &mut Vec
             rs.sort();
             if ps == rs && pk != rk {
                 out.push(Difference {
+                    context: None,
                     case: case.to_string(),
                     path: at("(key order)"),
                     python: Some(json!(pk)),
@@ -179,8 +180,12 @@ fn key_order(case: &str, path: &str, python: &Value, rust: &Value, out: &mut Vec
             }
         }
         (Value::Array(p), Value::Array(r)) => {
+            let start = out.len();
             for (i, (pv, rv)) in p.iter().zip(r).enumerate() {
                 key_order(case, &format!("{path}[{i}]"), pv, rv, out);
+            }
+            if out.len() > start {
+                common::array_context(&mut out[start..], path, "", Some(python), Some(rust));
             }
         }
         _ => {}
@@ -254,7 +259,8 @@ fn rules_match_the_oracle() {
     );
     // Turned defaults, datum origins, free-text notes and #20's unaccepted suggestions change
     // the Python rules. #20 changes preview and adds pending-frame problems; applied defaults
-    // are intact. Keep the
+    // are intact. The additional gaps and their approval results are
+    // covered by general dimensions are rows (Paul, 2026-11-21). Keep the
     // complete before/after values, including ordering, under an exact regression guard;
     // the known-difference entries below document the verdict, not a blanket exemption.
     let tie_entries: Vec<_> = common::load_known(&common::known_differences_file("rules"))

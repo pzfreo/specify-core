@@ -4,16 +4,17 @@ use haecceity::pmi::{PartPmi, PartProvenance};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const MARKER: &str = "specify-core:written:v1";
+const CALLER_ATTRIBUTE: &str = "specify-core:caller-attribute:v1";
 
 fn string(a: Option<&Attribute>, expected: &str) -> bool {
     matches!(a, Some(Attribute::String(s)) if s == expected)
 }
 
-fn description_target(entity: &RawEntity) -> Option<u64> {
+fn description_target_with(entity: &RawEntity, marker: &str) -> Option<u64> {
     match entity {
         RawEntity::Simple {
             name, attributes, ..
-        } if name == "DESCRIPTION_ATTRIBUTE" && string(attributes.first(), MARKER) => {
+        } if name == "DESCRIPTION_ATTRIBUTE" && string(attributes.first(), marker) => {
             match attributes.get(1) {
                 Some(Attribute::EntityRef(id)) => Some(*id),
                 _ => None,
@@ -21,6 +22,21 @@ fn description_target(entity: &RawEntity) -> Option<u64> {
         }
         _ => None,
     }
+}
+
+fn description_target(entity: &RawEntity) -> Option<u64> {
+    description_target_with(entity, MARKER)
+        .or_else(|| description_target_with(entity, CALLER_ATTRIBUTE))
+}
+
+pub(crate) fn caller_attribute(doc: &Document, ids: &[u64]) -> bool {
+    ids.iter().any(|&id| {
+        doc.referrers(id).iter().any(|r| {
+            doc.get(*r)
+                .and_then(|e| description_target_with(e, CALLER_ATTRIBUTE))
+                == Some(id)
+        })
+    })
 }
 
 /// A description attached to this exact representation/link, never to a shared owner.
@@ -99,7 +115,7 @@ fn property_helper(doc: &Document, id: u64, attributes: &[Attribute]) -> bool {
 
 /// Annotate only newly emitted semantic roots. In particular, preserve all UDA vocabulary,
 /// material names, surface-condition parameters and thread parameter helper definitions.
-pub fn mark_new(before: &Document, after: &Document) -> Edit {
+pub fn mark_new(before: &Document, after: &Document, caller_links: &BTreeSet<u64>) -> Edit {
     let mut edit = Edit::new();
     for (&id, entity) in &after.graph().entities {
         if before.get(id).is_some() {
@@ -133,9 +149,14 @@ pub fn mark_new(before: &Document, after: &Document) -> Edit {
                         if name == "PROPERTY_DEFINITION"
                             && !property_helper(after, *root, attributes)));
         if name == "SHAPE_DIMENSION_REPRESENTATION" || property_link {
+            let marker = if caller_links.contains(&id) {
+                CALLER_ATTRIBUTE
+            } else {
+                MARKER
+            };
             edit.add(haecceity::p21::simple(
                 "DESCRIPTION_ATTRIBUTE",
-                vec![Attribute::String(MARKER.into()), Attribute::EntityRef(id)],
+                vec![Attribute::String(marker.into()), Attribute::EntityRef(id)],
             ));
         }
         let slot = match name.as_str() {
@@ -202,132 +223,11 @@ pub fn all(p: &PartPmi, prov: &PartProvenance, doc: &Document) -> bool {
         && p.decimal_places.is_none()
 }
 
-/// Whether to reconcile a replace-written part. The process question postdates marking, so
-/// its saved answer is evidence even when its UDA and the answers marker were removed.
-pub(crate) fn can_reconcile(
-    doc: &Document,
-    read: &haecceity::pmi::PmiRead,
-    part: usize,
-    saved_process: bool,
-) -> bool {
-    saved_process
-        || read.parts[part]
-            .attributes
-            .iter()
-            .any(crate::process::is_process_set)
-        || marks(doc, read, part).iter().any(|(_, marked)| *marked)
-}
-
-/// Whether any requirement of part `part` carries Specify's provenance marker. A file written
-/// before requirements were marked (#22) has none.
-pub(crate) fn any_marked(doc: &Document, read: &haecceity::pmi::PmiRead, part: usize) -> bool {
-    marks(doc, read, part).iter().any(|(_, marked)| *marked)
-}
-
-/// Whether a marked part also carries a mark outside its part attributes.
-pub(crate) fn marked_outside_attributes(
-    doc: &Document,
-    read: &haecceity::pmi::PmiRead,
-    part: usize,
-) -> bool {
-    marks(doc, read, part)
-        .iter()
-        .any(|((collection, _), marked)| *marked && collection != "attributes")
-}
-
-/// The requirements of part `part` without Specify's provenance marker, by haecceity
-/// collection and index: PMI another tool wrote (or, before #22, Specify itself).
-pub(crate) fn unmarked(
-    doc: &Document,
-    read: &haecceity::pmi::PmiRead,
-    part: usize,
-) -> Vec<(String, usize)> {
-    marks(doc, read, part)
-        .into_iter()
-        .filter(|(_, marked)| !marked)
-        .map(|(at, _)| at)
-        .collect()
-}
-
-/// Whether each requirement of part `part` is marked as Specify's.
-fn marks(
-    doc: &Document,
-    read: &haecceity::pmi::PmiRead,
-    part: usize,
-) -> Vec<((String, usize), bool)> {
-    let p = &read.parts[part];
-    let prov = &read.provenance.parts[part];
-    let at = |collection: &str, i: usize| (collection.to_string(), i);
-    let mut out: Vec<_> = prov
-        .dimensions
-        .iter()
-        .enumerate()
-        .map(|(i, ids)| (at("dimensions", i), dimension(doc, ids)))
-        .collect();
-    out.extend(p.tolerances.iter().enumerate().map(|(i, t)| {
-        (
-            at("tolerances", i),
-            t.description.as_deref() == Some(MARKER),
-        )
-    }));
-    for (items, kind, collection) in [
-        (&prov.datums, "datum", "datums"),
-        (&prov.general, "general", "general"),
-        (&prov.threads, "thread", "threads"),
-        (&prov.knurls, "knurl", "knurls"),
-        (
-            &prov.surface_textures,
-            "surface texture",
-            "surface_textures",
-        ),
-    ] {
-        out.extend(
-            items
-                .iter()
-                .enumerate()
-                .map(|(i, ids)| (at(collection, i), marked(doc, ids, kind))),
-        );
-    }
-    out.extend(
-        prov.attributes
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| {
-                let set = &p.attributes[*i];
-                set.on.is_none() && set.name == crate::writer::SEMANTIC_TEXT
-            })
-            .map(|(i, ids)| (at("attributes", i), marked(doc, ids, "attribute"))),
-    );
-    if p.material.is_some() {
-        out.push((at("material", 0), marked(doc, &prov.material, "material")));
-    }
-    for (i, _) in p
-        .attributes
-        .iter()
-        .enumerate()
-        .filter(|(_, set)| crate::process::is_process_set(set))
-    {
-        out.push((
-            at("attributes", i),
-            marked(doc, &prov.attributes[i], "attribute"),
-        ));
-    }
-    out
-}
-
-/// Remove only marked requirements of resumed Add-mode parts. Unmarked requirements and
-/// their complete forward dependencies are protected, including shared features/datums.
-/// The kernel planner handles helpers and presentation; any foreign edit is refused.
-pub(crate) fn without_owned(
-    doc: &Document,
-    read: &haecceity::pmi::PmiRead,
-    parts: &[usize],
-) -> Result<Vec<u8>, String> {
-    without_owned_except(doc, read, parts, &BTreeMap::new(), &BTreeMap::new())
-}
-
-/// [`without_owned`], keeping the items `keep` names for each part (by haecceity collection
-/// and index: a reopened file's PMI its answers do not explain, ADR P9).
+/// `doc` with Specify's marked items of `parts` removed, but those `keep` names for each part
+/// (by haecceity collection and index), and with the items `give_way` names removed whether
+/// marked or not. Unmarked requirements and their complete forward dependencies are
+/// protected, including shared features/datums; any foreign edit is refused. The writer keeps
+/// every requirement and gives way only its own bookkeeping (ADR P11).
 pub(crate) fn without_owned_except(
     doc: &Document,
     read: &haecceity::pmi::PmiRead,
@@ -344,8 +244,6 @@ pub(crate) fn without_owned_except(
         let kept = keep.get(&part).unwrap_or(&none);
         let yields = give_way.get(&part).unwrap_or(&none);
         let kept_at = |collection: &str, i: usize| kept.contains(&(collection.to_string(), i));
-        // An item the person decided against (a conflict restored or answered anew) gives way
-        // even when it is not marked as Specify's (kept earlier, so written as the file's own).
         let yields_at = |collection: &str, i: usize| yields.contains(&(collection.to_string(), i));
         let mut classified = BTreeSet::<u64>::new();
         let mut classify = |ids: &[u64], owned: bool| {
@@ -463,8 +361,12 @@ pub(crate) fn without_owned_except(
             if let RawEntity::Simple {
                 name, attributes, ..
             } = e
-                && (matches!(name.as_str(), "ID_ATTRIBUTE" | "UUID_ATTRIBUTE")
-                    || description_target(e).is_some())
+                // Any description of a removed record goes with it, whatever it says (another
+                // tool's marker on Specify's number record included).
+                && matches!(
+                    name.as_str(),
+                    "ID_ATTRIBUTE" | "UUID_ATTRIBUTE" | "DESCRIPTION_ATTRIBUTE"
+                )
                 && matches!(attributes.get(1), Some(Attribute::EntityRef(target)) if seeds.contains(target))
                 && !seeds.contains(&id)
                 && !protected.contains(&id)
@@ -509,49 +411,5 @@ pub(crate) fn without_owned_except(
     }
     let mut edit = Edit::new();
     plan.into_edit(&mut edit);
-    doc.apply(&edit).map(|w| w.bytes).map_err(|e| e.to_string())
-}
-
-/// `bytes` with Specify's provenance marker taken off the entities `ids` (its string where an
-/// attribute holds it, and the description attributes that state it of them): requirements a
-/// person decided are the file's own (ADR P9), written as any other tool's PMI.
-pub(crate) fn unmark(bytes: &[u8], ids: &BTreeSet<u64>) -> Result<Vec<u8>, String> {
-    let doc = Document::parse(bytes.to_vec()).map_err(|e| e.to_string())?;
-    let mut edit = Edit::new();
-    let clear = |attributes: &mut Vec<Attribute>| {
-        let mut changed = false;
-        for a in attributes.iter_mut() {
-            if matches!(a, Attribute::String(s) if s == MARKER) {
-                *a = Attribute::String(String::new());
-                changed = true;
-            }
-        }
-        changed
-    };
-    for &id in ids {
-        let Some(entity) = doc.get(id) else {
-            continue;
-        };
-        let mut record = entity.clone();
-        let changed = match &mut record {
-            RawEntity::Simple { attributes, .. } => clear(attributes),
-            RawEntity::Complex { parts, .. } => {
-                // Every part of the record, not just the first that holds the marker.
-                let mut any = false;
-                for p in parts.iter_mut() {
-                    any |= clear(&mut p.attributes);
-                }
-                any
-            }
-        };
-        if changed {
-            edit.replace(id, record);
-        }
-        for &r in doc.referrers(id) {
-            if doc.get(r).and_then(description_target) == Some(id) {
-                edit.remove(r);
-            }
-        }
-    }
     doc.apply(&edit).map(|w| w.bytes).map_err(|e| e.to_string())
 }

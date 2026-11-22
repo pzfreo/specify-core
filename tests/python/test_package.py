@@ -16,7 +16,10 @@ from specify_core.existing import ExistingPmi, read_existing
 from specify_core.load import Binding, LoadedPart, load
 from specify_core.problems import problems
 from specify_core.rules import IncompleteError, Intent, Question, with_all_defaults
-from specify_core.writer import WriteReport
+from specify_core.writer import EditsRefused, WriteReport
+
+from p11 import leaves_nothing, stated, storable
+from written import write_answers
 
 STEEL = {"part.material": "steel"}
 BIN = Path(sys.executable).parent
@@ -67,35 +70,51 @@ def test_answers_left_open_are_an_incomplete_error(plate):
     assert isinstance(raised.value, ValueError)
 
 
-def test_write_writes_a_step_that_reads_back(plate, tmp_path):
+def test_write_applies_an_edit_list_and_it_reads_back(plate, tmp_path):
+    # Specify 0.3.0: write applies an edit list to the file (fill the material, accept every
+    # suggestion), on a loaded part or a path alike.
     loaded = load(plate)
-    intent = api.apply(api.analyse(loaded), STEEL, accept_defaults=True)
+    rows = api.analyse(loaded)["table"]["rows"]
+    gaps = [r["id"] for r in rows if r["state"] == "gap" and r.get("suggestion") is not None]
+    edits = {"fill": STEEL, "accept_suggestions": gaps}
+    assert api.check_edits(loaded, edits)["applicable"] is True
     out = tmp_path / "plate-pmi.step"
-    report = api.write(loaded, intent, out, answers=STEEL)
+    report = api.write(loaded, edits, out)
     assert isinstance(report, WriteReport) and report.output == out
     assert "material steel" in report.written
+    assert report.retired == [] and report.unchanged is False
+    assert api.write(plate, json.dumps(edits), tmp_path / "by-path.step").written == report.written
     existing = read_existing(load(out))
     assert existing and all(isinstance(e, ExistingPmi) for e in existing)
-    # The answer given resumes as an answer; the defaults written with accept_defaults are
-    # what the file states (ADR P9: resume.present), not answers the person gave.
-    resume = api.analyse(out)["resume"]
-    assert set(resume) == {"answers", "present"}
-    assert resume["answers"] == STEEL
-    defaults = with_all_defaults(api.analyse(loaded), STEEL)
-    taken = {k: v for k, v in defaults.items() if k not in STEEL}
-    # Every default the file states resumes as present, with the value taken.
-    assert all(taken.get(k) == v for k, v in resume["present"].items())
-    # The rest are defaults that write no PMI, so the file cannot state them.
-    assert set(taken) - set(resume["present"]) == {
-        "part.coating",
-        "part.heat_treatment",
-        "part.notes",
-        "part.locating",
-        "hole.function:holes:9",
-        "datum.A.flatness",
-        "datum.B.control",
-        "datum.C.control",
-    }
+    # ADR P11: the material is the file's (stated), not a stored answer; every suggestion that
+    # writes PMI is stated, and each that leaves nothing behind is decided none.
+    reopened = api.analyse(out)
+    assert reopened["resume"]["answers"] == storable(reopened["resume"]["answers"])
+    assert "part.material" in stated(reopened)
+    by_id = {r["id"]: r for r in reopened["table"]["rows"]}
+    for row in rows:
+        if row["id"] in gaps:
+            want = "decided_none" if leaves_nothing(row["suggestion"]) else "stated"
+            assert by_id[row["id"]]["state"] == want, row["id"]
+
+
+def test_an_edit_list_with_a_bad_entry_writes_nothing_and_names_every_bad_entry(plate, tmp_path):
+    edits = {"fill": {"part.material": "steel", "bogus.question": "x"},
+             "items": {"remove": ["#404"]}}
+    checked = api.check_edits(plate, edits)
+    assert checked["applicable"] is False and checked["written"] is False
+    entries = sorted(f["entry"] for f in checked["failures"])
+    assert entries == ['fill["bogus.question"]', 'items.remove["#404"]'], checked
+    out = tmp_path / "refused.step"
+    with pytest.raises(EditsRefused) as refused:
+        api.write(plate, edits, out)
+    assert isinstance(refused.value, ValueError)
+    assert sorted(f["entry"] for f in refused.value.failures) == entries
+    assert "#404" in str(refused.value) and "bogus.question" in str(refused.value)
+    assert not out.exists()
+    # Leaving everything out writes the file as it is.
+    assert api.write(plate, {}, out).unchanged is True
+    assert out.read_bytes() == Path(plate).read_bytes()
 
 
 def test_write_parts_writes_both_parts_of_an_assembly(assembly, tmp_path):
@@ -189,15 +208,15 @@ def test_pmi_scene_and_packaged_schemas(plate, tmp_path):
     for graphic in generated:
         assert len(graphic["polyline_roles"]) == len(graphic["polylines"])
         assert all("cell_box" in run for run in graphic.get("text_placements", []))
-    assert scene["specify"]["planner:specified:dim:hole:9/bore.diameter"]["status"] == "answered"
-    assert scene["specify"]["planner:specified:dim:hole:9/bore.diameter"]["question"] == "hole.function:holes:9"
+    # ADR P11 (D3): a planned item is a gap, and its id says nothing of who stated it.
+    assert scene["specify"]["planner:dim:hole:9/bore.diameter"]["status"] == "gap"
+    assert scene["specify"]["planner:dim:hole:9/bore.diameter"]["question"] == "hole.function:holes:9"
     assert scene["specify"]["part.surface_finish"]["number"] > 0
     empty = api.pmi_scene(plate.read_bytes())
     assert empty["pmi"]["pmi"]["dimensions"] == []
     answers = {"part.material": "6061-T6"}
     written = tmp_path / "numbered.step"
-    api.write(plate, api.apply(api.analyse(plate), answers, accept_defaults=True),
-              written, answers=answers)
+    write_answers(plate, answers, written, accept_defaults=True)
     readback = api.pmi_scene(written.read_bytes())
     dimensions = readback["pmi"]["pmi"]["dimensions"]
     assert dimensions and all(isinstance(row["identifier"], str) for row in dimensions)
@@ -277,8 +296,9 @@ def test_diff_exposes_numbered_pmi_with_scene_identities(plate, tmp_path):
     before = {"hole.function:holes:9": "fit:H7"}
     after = {"hole.function:holes:9": "fit:H8"}
     analysis = api.analyse(plate)
-    api.write(plate, api.preview(analysis, before), old, answers=before)
-    api.write(old, api.preview(api.analyse(old), after), new, answers=after)
+    # ADR P11: a save does not change a stated fit, so the new revision is the plate with H8.
+    api.write(plate, {"fill": before}, old)
+    api.write(plate, {"fill": after}, new)
     result = api.diff(api.load(old), new)
     scene = api.pmi_scene(new)
     changed = [c for c in result["report"]["pmi"]["items"] if c["class"] == "changed"]
@@ -308,13 +328,13 @@ def test_bom_write_requires_explicit_acceptance(assembly, tmp_path):
     # Part number and revision carry no suggestion; the rest propose one.
     assert all(bool(q.suggestions) == (q.id not in ("bom.part_number", "bom.revision")) for q in questions)
     assert "bom" not in api.apply(analysis, STEEL, accept_defaults=True).part
-    intent = api.apply(analysis, STEEL, accept_defaults=True, bom=True)
     out = tmp_path / "bom.step"
-    api.write(assembly, intent, out, answers=STEEL)
+    write_answers(assembly, STEEL, out, part=0, accept_defaults=True, bom=True)
     rows = bom(out)
     assert rows[0]["item_number"]["value"] == 1
     assert rows[0]["description"]["source"] == "default"
-    assert api.analyse(out, part=0)["resume"]["answers"] == STEEL
+    # The command stores the defaults it took that write no PMI (ADR P9, P11).
+    assert api.analyse(out, part=0)["resume"]["answers"] == storable(with_all_defaults(analysis, STEEL))
 
 
 def test_diff_scenes_are_optional(plate):
@@ -337,8 +357,12 @@ def test_limits_and_combined_iso_class_round_trip(plate, tmp_path):
     assert question.default == "ISO 2768-m"
     assert len(question.options) == 16 and "ISO 2768-mK" in question.options
     out = tmp_path / "limits.step"
-    api.write(plate, api.preview(analysis, given), out, answers=given)
-    assert api.analyse(out)["resume"]["answers"] == given
+    # The explicit limit dimension supplies the hole size. The general hole suggestion
+    # would try to supply the same size and leaves no separate requirement to write.
+    written = {**given, "part.material": "steel"}
+    write_answers(plate, written, out, accept_defaults=True,
+                  skip_suggestions=("hole.function:holes:9",))
+    assert api.analyse(out)["resume"]["answers"] == storable(with_all_defaults(analysis, written))
     limits = [d for d in read_existing(out) if d.limits is not None]
     assert {d.limits for d in limits} == {(7.8, 8.2), (9.8, 10.2)}
     assert all(d.to_dict()["limits"] == list(d.limits) for d in limits)
@@ -394,27 +418,34 @@ def test_basic_dimensions_read_as_basic():
     assert all("basic" not in d.to_dict() for d in found if not d.basic)
 
 
-def test_dropped_carry_cannot_default_and_saved_evidence_rejects_changed_geometry(tmp_path):
+def test_stated_pmi_reads_back_whole():
+    """ADR P11: the stated text and fields carry the fit class, the zone and Ⓜ, and the thread."""
+    spindle = Path(__file__).resolve().parents[2] / "ui" / "test" / "fixtures" / "19-spindle-semantic-links-only.step.gz"
+    found = read_existing(spindle)
+    bore = next(d for d in found if d.kind == "dimension" and d.faces == (14,))
+    assert bore.text == "⌀3.3 H11" and bore.fields["fit"] == "H11"
+    assert abs(bore.upper - 0.075) < 1e-9 and bore.lower == 0
+    assert bore.to_dict()["fit"] == "H11" and "text_only" not in bore.to_dict()
+    position = next(d for d in found if d.type == "Position" and d.faces == (14,))
+    assert position.text == "⌖ ⌀0.3Ⓜ A"
+    assert position.fields["diametral"] is True and position.fields["mmc"] is True
+    thread = next(d for d in found if d.type == "internal thread")
+    assert thread.text == "M2×0.4-6H ↧ 2"
+    assert (thread.fields["designation"], thread.fields["class"]) == ("M2", "6H")
+
+
+def test_dropped_carry_cannot_default(tmp_path):
     revisions = Path(__file__).resolve().parents[1] / "fixtures" / "revisions"
-    old = revisions / "plate_split.old.step.gz"
     new = revisions / "plate_split.new.step.gz"
-    given = {"part.material": "6061-T6", "datum.A": [4]}
     analysis = api.analyse(new)
     # An answers file carried with its datum dropped, as an earlier diff returned one (diff no
     # longer returns answers: ADR P11).
-    carried = api.export_answers(new, analysis, {"part.material": "6061-T6"})
-    carried["_specify"]["unresolved"] = {"datum.A": "face 4 has no match in the new part"}
+    carried = {"part.material": "6061-T6",
+               "_specify": {"unresolved": {"datum.A": "face 4 has no match in the new part"}}}
     blocked = next(q for q in api.questions(analysis, carried) if q.id == "datum.A")
     assert blocked.default is None and blocked.attention == "required"
     assert blocked.reason == "carried answer could not be applied: " + carried["_specify"]["unresolved"]["datum.A"]
     with pytest.raises(IncompleteError, match="datum.A.*carried answer could not be applied"):
         api.apply(analysis, carried, accept_defaults=True)
     carried["datum.A"] = [4, 8]
-    intent = api.apply(analysis, carried, accept_defaults=True)
-    api.write(new, intent, tmp_path / "resolved.step", answers=carried)
-    saved = api.export_answers(old, api.analyse(old), given)
-    api.write(old, api.apply(api.analyse(old), saved, accept_defaults=True),
-              tmp_path / "unchanged.step", answers=saved)
-    with pytest.raises(ValueError, match="stale answers.*another revision"):
-        api.write(new, intent, tmp_path / "stale.step", answers=saved)
-    assert not (tmp_path / "stale.step").exists()
+    write_answers(new, carried, tmp_path / "resolved.step", accept_defaults=True)

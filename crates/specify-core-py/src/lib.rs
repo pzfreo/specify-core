@@ -6,7 +6,7 @@
 //! serde_json's text round-trips every number through Python's `json` exactly.
 //!
 //! A part loaded once is a [`LoadedPart`] handle (Python's `LoadedPart`, opaque here): `analyse`,
-//! `mesh`, `write`, `write_parts`, `read_existing` and `part_settings` take it (or a path), so a
+//! `mesh`, `write`, `check_edits`, `write_parts`, `read_existing` and `part_settings` take it (or a path), so a
 //! caller that reuses a part, as `serve` does, reads the file once.
 //!
 //! The command line ([`cli`]) and a serving session ([`Server`], `serve.reply`) are the engine's
@@ -302,65 +302,57 @@ fn pmi_scene(
     .map_err(PyValueError::new_err)
 }
 
-/// Answer file of the answers given and exactly the defaults in `accept_defaults` (JSON,
-/// `{"<part>": {"<id>": value}}`; none when absent; ADR P9), with evidence checked against
-/// the part. Open questions stay open.
+/// Apply the edit list `edits` (JSON: an edit list, or a 0.2 answers file) to `step` (a path,
+/// or a part already loaded) and write the result to `output`, all or nothing
+/// (`writer::apply::apply_to`). JSON: `{applied: true, report}`, the write's report with
+/// `retired` and `unchanged`, or `{applied: false, failures, message}` when any entry cannot be
+/// applied (nothing is written).
 #[pyfunction]
-#[pyo3(signature = (step, analysis, answers, accept_defaults=None))]
-fn export_answers(
+fn write(
     py: Python<'_>,
     step: &Bound<'_, PyAny>,
-    analysis: &str,
-    answers: &str,
-    accept_defaults: Option<&str>,
+    edits: &str,
+    output: PathBuf,
 ) -> PyResult<String> {
-    let analysis = parse("analysis", analysis)?;
-    let answers = answers_of(answers)?;
-    let approved = match accept_defaults {
-        Some(text) => api::approvals(&parse("accept_defaults", text)?).ok_or_else(|| {
-            PyValueError::new_err(format!("accept_defaults: {}", api::APPROVALS_FORM))
-        })?,
-        None => api::Approved::new(),
-    };
-    let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
     let owned;
     let handle = match loaded(step, None)? {
         Some(handle) => handle,
         None => {
-            owned = load_path(py, step, Some(index))?;
+            owned = load_path(py, step, None)?;
             &owned
         }
     };
-    py.detach(|| api::export_answers(&handle.loaded, &analysis, &answers, &approved))
-        .map(|exported| Value::Object(exported.answers).to_string())
-        .map_err(raised)
+    let refused = |failures: Vec<specify_core::edits::Failure>| {
+        json!({"applied": false, "message": specify_core::session::edits_refused(&failures),
+               "failures": failures})
+    };
+    let out = py.detach(|| match specify_core::edits::read(edits) {
+        Err(failures) => refused(failures),
+        Ok(list) => match specify_core::writer::apply::apply_to(&handle.loaded, &list, &output) {
+            Ok(applied) => json!({"applied": true, "report": applied.to_dict()}),
+            Err(failures) => refused(failures),
+        },
+    });
+    Ok(out.to_string())
 }
 
-/// Write `intent` (JSON) into `step` at `output`, on the part it was made for, or into a part
-/// already loaded, verified by reading back; given the `answers` (JSON) it came from, they are
-/// stored too. The report, as JSON (`api.write`).
+/// The edit list `edits` (JSON) checked against `step` (a path, or a part already loaded) as
+/// `write` would apply it, all or nothing (`writer::apply::check`). Writes nothing.
 #[pyfunction]
-#[pyo3(signature = (step, intent, output, answers=None))]
-fn write(
-    py: Python<'_>,
-    step: &Bound<'_, PyAny>,
-    intent: &str,
-    output: PathBuf,
-    answers: Option<&str>,
-) -> PyResult<String> {
-    let intent = intent_of(intent)?;
-    let answers = answers.map(answers_of).transpose()?;
-    let report = match loaded(step, None)? {
-        Some(handle) => {
-            py.detach(|| api::write(&handle.loaded, &intent, &output, answers.as_ref()))
-        }
+fn check_edits(py: Python<'_>, step: &Bound<'_, PyAny>, edits: &str) -> PyResult<String> {
+    let owned;
+    let handle = match loaded(step, None)? {
+        Some(handle) => handle,
         None => {
-            let path: PathBuf = step.extract()?;
-            py.detach(|| api::write_file(&path, &intent, &output, answers.as_ref()))
+            owned = load_path(py, step, None)?;
+            &owned
         }
-    }
-    .map_err(raised)?;
-    Ok(report.to_dict().to_string())
+    };
+    Ok(py.detach(|| {
+        specify_core::writer::apply::check(&handle.loaded, edits)
+            .to_json()
+            .to_string()
+    }))
 }
 
 /// Write several parts of `step` (a path, or any part of the file, loaded) together: each
@@ -432,7 +424,8 @@ fn read_existing(py: Python<'_>, step: &Bound<'_, PyAny>, part: Option<usize>) -
         .iter()
         .map(|e| {
             json!({"kind": e.kind, "type": e.r#type, "faces": e.faces, "faces2": e.faces2,
-                   "value": e.value, "upper": e.upper, "lower": e.lower, "limits": e.limits, "basic": e.basic, "datums": e.datums})
+                   "value": e.value, "upper": e.upper, "lower": e.lower, "limits": e.limits, "basic": e.basic, "datums": e.datums,
+                   "text": e.text, "text_only": e.text_only, "fields": e.fields})
         })
         .collect();
     Ok(Value::Array(records).to_string())
@@ -730,6 +723,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Server>()?;
     m.add_function(wrap_pyfunction!(cli, m)?)?;
     m.add_function(wrap_pyfunction!(problems, m)?)?;
+    m.add_function(wrap_pyfunction!(check_edits, m)?)?;
     m.add_function(wrap_pyfunction!(choices_interpret, m)?)?;
     m.add_function(wrap_pyfunction!(choices_check, m)?)?;
     m.add_function(wrap_pyfunction!(choices_describe, m)?)?;
@@ -743,7 +737,6 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(apply, m)?)?;
     m.add_function(wrap_pyfunction!(preview, m)?)?;
     m.add_function(wrap_pyfunction!(with_all_defaults, m)?)?;
-    m.add_function(wrap_pyfunction!(export_answers, m)?)?;
     m.add_function(wrap_pyfunction!(mesh, m)?)?;
     m.add_function(wrap_pyfunction!(pmi_scene, m)?)?;
     m.add_function(wrap_pyfunction!(diff, m)?)?;

@@ -128,11 +128,10 @@ fn assert_round_trip(
     let stored = resume::stored(&written.bytes).remove(&0).unwrap();
     assert_eq!(stored["schema"], 3);
     assert_eq!(stored["face_names"], json!(original.face_names));
-    assert_eq!(stored["answers"], json!(answers));
-    assert_eq!(
-        resume::answers_for(written).unwrap().as_ref(),
-        Some(answers)
-    );
+    // ADR P11: stored are the answers that leave no PMI; the file states the rest.
+    let kept = specify_core::feature_table::storable(answers);
+    assert_eq!(stored["answers"], json!(kept));
+    assert_eq!(resume::answers_for(written).unwrap(), Some(kept));
 
     // Read the actual AP242 PMI, independently of the stored-answer payload.
     // xcaf-pmi can follow these anchors back to the original named STEP faces.
@@ -278,17 +277,32 @@ fn specified_answers_resume_per_name_and_refuse_cadgens_added_hole_renames() {
     let rev1 = fixture("rev1");
     let rev2 = fixture("rev2");
     let rev3 = fixture("rev3");
-    let answers = rules::with_all_defaults(
+    let mut answers = rules::with_all_defaults(
         &api::analyse(&rev1).unwrap(),
         json!({"part.material": "aluminium"}).as_object().unwrap(),
     )
     .unwrap();
+    // general dimensions are rows (Paul, 2026-11-21). These approvals identify one
+    // geometry revision. The face-name migration test carries the original questions.
+    assert_eq!(answers.len(), 19);
+    answers.retain(|id, _| !id.starts_with("length:planes:") && !id.starts_with("location:holes:"));
     assert_eq!(answers.len(), 16);
     assert_eq!(answers["datum.A"], json!([2])); // defaults choose the top, not the source PMI's bottom
     assert_eq!(answers["datum.B"], json!([1]));
     assert_eq!(answers["datum.C"], json!([0]));
-    let written1 = specified(&rev1, &answers, "rev1");
-    assert_round_trip(&rev1, &written1, &answers);
+    let approve_measurements = |part: &part::LoadedPart, given: &Map<String, Value>| {
+        let mut approved = given.clone();
+        let analysis = api::analyse(part).unwrap();
+        for q in rules::questions(&analysis, given).unwrap() {
+            if q.id.starts_with("length:planes:") || q.id.starts_with("location:holes:") {
+                approved.insert(q.id, q.default.unwrap());
+            }
+        }
+        approved
+    };
+    let approved1 = approve_measurements(&rev1, &answers);
+    let written1 = specified(&rev1, &approved1, "rev1");
+    assert_round_trip(&rev1, &written1, &approved1);
     let saved = Value::Object(resume::stored(&written1.bytes).remove(&0).unwrap());
     let resumed2 = resume::rematch_answers(
         &rev2,
@@ -312,7 +326,11 @@ fn specified_answers_resume_per_name_and_refuse_cadgens_added_hole_renames() {
             "rev2 support: {id}"
         );
     }
-    let written2 = specified(&rev2, &resumed2.answers, "rev2");
+    let written2 = specified(
+        &rev2,
+        &approve_measurements(&rev2, &resumed2.answers),
+        "rev2",
+    );
     // Exercise both the original saved answers and the sequential rev2 → rev3 path.
     let saved2 = Value::Object(resume::stored(&written2.bytes).remove(&0).unwrap());
     let expected_unresolved = [

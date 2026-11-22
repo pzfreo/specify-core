@@ -186,6 +186,7 @@ fn a_part_is_analysed_as_before_from_one_read() {
             // For #79 the only additive analysis field is the sourced BOM row.
             // Keep comparing every pre-existing key, value and ordering to the old capture.
             let difference = common::Difference {
+                context: None,
                 case: format!("parts/assembly#{k}"),
                 path: "bom".into(),
                 python: None,
@@ -198,6 +199,14 @@ fn a_part_is_analysed_as_before_from_one_read() {
             assert_eq!(
                 analysis.as_object_mut().unwrap().shift_remove("bom"),
                 Some(bom.clone())
+            );
+            // ADR P11: analyses carry the feature table, an additive key.
+            assert!(
+                analysis
+                    .as_object_mut()
+                    .unwrap()
+                    .shift_remove("table")
+                    .is_some()
             );
             assert_same(&analysis, want, at);
         };
@@ -302,7 +311,8 @@ fn parts_written_alone_in_memory_keep_each_others_answers() {
     for k in [PLATE, PIN] {
         assert_eq!(
             answers_for(&file.load(Some(k)).unwrap()).unwrap(),
-            Some(answers(k)),
+            // ADR P11: stored are the answers that leave no PMI behind.
+            Some(specify_core::feature_table::storable(&answers(k))),
             "part {k}"
         );
     }

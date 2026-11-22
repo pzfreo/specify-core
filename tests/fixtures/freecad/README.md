@@ -23,7 +23,7 @@ Its three separate Ø19 lands share datum A. The regression checks that the
 ## Local acceptance check, 2026-11-01
 
 Read-only inputs from dw-examples `steps/freecad/`, with scratch outputs, answers
-`{"part.material":"6061-T6"}`, and `--accept-defaults`. Each file passed CLI
+`{"part.material":"6061-T6"}`, and the historical CLI’s default-approval option. Each file passed CLI
 analysis, write, PMI/answer readback and resave. GT2 is an assembly: analyse each
 of its three parts with `--part`, then supply all three analysis/answer pairs to
 one write.

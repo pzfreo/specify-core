@@ -7,7 +7,7 @@ use quiddity::correspondence::{self as qc, Fingerprints};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::part::File;
+use crate::part::{File, LoadedPart};
 use crate::rules::Question;
 
 pub const PROPERTY: &str = "specify bom";
@@ -306,7 +306,6 @@ pub(crate) fn read_rows(
     offset: usize,
     pmi: &[haecceity::pmi::PartPmi],
 ) -> Result<Vec<Item>, String> {
-    let saved = crate::resume::stored_in(doc);
     let mut rows = Vec::new();
     for (index, def) in definitions.iter().enumerate() {
         let part = index + offset;
@@ -421,15 +420,6 @@ pub(crate) fn read_rows(
         }
         if row.description.value.is_null() {
             row.description = field(def.name.clone(), "default");
-        }
-        if let Some(a) = saved
-            .get(&part)
-            .and_then(|p| p.get("answers"))
-            .and_then(Value::as_object)
-            && a.get("part.material")
-                .is_some_and(|m| Some(m) == Some(&row.material.value))
-        {
-            row.material.source = "answered".into();
         }
         rows.push(row);
     }
@@ -787,18 +777,31 @@ pub(crate) fn answered_in(
     values
 }
 
+/// The `bom.*` answer keys. A contract (docs/ids.md, pinned by `tests/ids_contract.rs`).
+#[doc(hidden)]
+pub const KEYS: &[&str] = &[
+    "make_buy",
+    "description",
+    "part_number",
+    "revision",
+    "optional",
+    "stock",
+    "name",
+];
+
 pub(crate) fn validate(key: &str, value: &Value) -> Result<(), String> {
-    let ok = match key {
-        "make_buy" => value
-            .as_str()
-            .is_some_and(|s| ["made", "bought", "not known"].contains(&s)),
-        "optional" => value.as_str().is_some_and(|s| ["yes", "no"].contains(&s)),
-        "stock" => value
-            .as_str()
-            .is_some_and(|s| ["from stock", "to be made"].contains(&s)),
-        "description" | "part_number" | "revision" | "name" => value.is_string(),
-        _ => false,
-    };
+    let ok = KEYS.contains(&key)
+        && match key {
+            "make_buy" => value
+                .as_str()
+                .is_some_and(|s| ["made", "bought", "not known"].contains(&s)),
+            "optional" => value.as_str().is_some_and(|s| ["yes", "no"].contains(&s)),
+            "stock" => value
+                .as_str()
+                .is_some_and(|s| ["from stock", "to be made"].contains(&s)),
+            // The text keys: description, part number, revision, name.
+            _ => value.is_string(),
+        };
     if ok {
         Ok(())
     } else {
@@ -951,6 +954,25 @@ fn refingerprint(
             e.geometry = fingerprints(i);
         }
     }
+}
+
+/// [`refingerprint`] `h`, read from `part`'s file, reading and recognising its parts only when an
+/// entry is [`stale`]. A file whose parts cannot be read leaves `h` unchanged: its stale entries
+/// match nothing, as they did before, and the caller's work is not refused for it.
+fn refingerprint_in(h: &mut History, part: &LoadedPart) {
+    if !h.entries.iter().any(stale) {
+        return;
+    }
+    let Ok(file) = File::of_shared(&part.path, std::sync::Arc::clone(&part.bytes)) else {
+        return;
+    };
+    let (Ok(parts), Ok(rows)) = (file.load_all(), read(&file)) else {
+        return;
+    };
+    let names: Vec<_> = parts.iter().map(|p| p.name.clone()).collect();
+    refingerprint(h, &rows, &names, |i| {
+        parts[i].recognition().fingerprints.clone()
+    });
 }
 
 fn uda(edit: &mut Edit, owner: u64, name: &str, values: &Map<String, Value>) {
@@ -1388,6 +1410,195 @@ fn allocate(
     }
     h.entries = entries;
     Ok(numbers)
+}
+
+/// One BOM value the new file states differently from the old: the new file's stands.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct KeptField {
+    pub old_part: String,
+    pub new_part: String,
+    /// `bom.description`, `part.material`, `bom.item_number` ...
+    pub key: String,
+    pub old: Value,
+    pub new: Value,
+}
+
+/// `carry`'s BOM for an assembly (ADR P11, carry forward).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Carried {
+    /// The BOM written onto the new file's bytes, if anything is carried.
+    pub bytes: Option<Vec<u8>>,
+    /// Each new part's carried BOM fields, by its name.
+    pub fields: Vec<(String, Map<String, Value>)>,
+    /// Materials carried onto parts that stated none: (part name, material).
+    pub materials: Vec<(String, String)>,
+    /// The old history (and so its item numbers and retired numbers) went with them.
+    pub numbers: bool,
+    pub kept: Vec<KeptField>,
+}
+
+/// Whether a BOM row's field is stated by the file (not a default or a guess).
+fn states(field: &Field) -> bool {
+    matches!(field.source.as_str(), "file" | "answered")
+        && !field.value.is_null()
+        && !field.value.as_str().is_some_and(|s| s.trim().is_empty())
+}
+
+/// The old assembly's BOM carried onto the new one's parts through geometric part
+/// correspondence, renamed and added parts included. A new part matched to an old one takes
+/// the old part's BOM answers and material where the new file states none; where it states one,
+/// the new file's stands and a difference is listed. The old history (its item numbers and the
+/// numbers it retired) carries unless the new file has item numbers of its own. Written by
+/// appending only: every entity of `new_bytes` keeps its bytes. Nothing when the old file has
+/// no BOM history.
+pub(crate) fn carry_assembly(
+    old: &[LoadedPart],
+    new: &[LoadedPart],
+    new_bytes: &[u8],
+) -> Result<Carried, String> {
+    let mut out = Carried::default();
+    let Some(first) = old.first() else {
+        return Ok(out);
+    };
+    let doc = Document::parse(first.bytes.as_ref().clone()).map_err(|e| e.to_string())?;
+    let Some(mut h) = history(&doc)? else {
+        return Ok(out);
+    };
+    refingerprint_in(&mut h, first);
+    let read_file = |p: &LoadedPart| {
+        File::of_shared(&p.path, std::sync::Arc::clone(&p.bytes))
+            .map_err(|e| e.to_string())
+            .and_then(|f| read(&f))
+    };
+    let old_rows = read_file(first)?;
+    let new_rows = match new.first() {
+        Some(p) => read_file(p)?,
+        None => return Ok(out),
+    };
+    let new_doc = Document::parse(new_bytes.to_vec()).map_err(|e| e.to_string())?;
+    // The new file's own item numbers stand: a history of its own, or native find numbers.
+    let own_numbers =
+        history(&new_doc)?.is_some() || new_rows.iter().any(|r| states(&r.item_number));
+    let old_numbers: BTreeSet<u64> = h.entries.iter().map(|e| e.number).collect();
+    // The transport: the old history's numbers and geometry. Its BOM answers are carried as
+    // fields below, only where the new file states none, so none are in it.
+    let mut transport = h.clone();
+    for e in &mut transport.entries {
+        e.fields = Map::new();
+        e.material = None;
+    }
+    let mut matched = h.clone();
+    let geometry: Vec<_> = new
+        .iter()
+        .map(|p| p.recognition().fingerprints.clone())
+        .collect();
+    allocate(
+        &mut matched,
+        &new.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
+        &geometry,
+        &vec![None; new.len()],
+    )?;
+    let mut materials: Vec<(usize, String)> = Vec::new();
+    for (i, e) in matched.entries.iter().enumerate() {
+        let new_name = new[i].name.clone();
+        let mut fields = Map::new();
+        if !old_numbers.contains(&e.number) {
+            // A part the old file did not have.
+            out.fields.push((new_name, fields));
+            continue;
+        }
+        let old_row = old_rows.iter().find(|r| number(r) == Some(e.number));
+        let old_name = old_row
+            .and_then(|r| r.name.value.as_str().map(str::to_owned))
+            .unwrap_or_else(|| e.name.clone());
+        let row = serde_json::to_value(&new_rows[i]).map_err(|e| e.to_string())?;
+        let stated = |key: &str| -> Option<Value> {
+            let field: Field = serde_json::from_value(row.get(key)?.clone()).ok()?;
+            states(&field).then_some(field.value)
+        };
+        let mut keep = |key: String, old: Value, new: Value| {
+            if old != new {
+                out.kept.push(KeptField {
+                    old_part: old_name.clone(),
+                    new_part: new_name.clone(),
+                    key,
+                    old,
+                    new,
+                });
+            }
+        };
+        for (key, value) in &e.fields {
+            if key == "item_number" || key == "item_number_source" || key.starts_with("default.") {
+                continue;
+            }
+            match stated(key) {
+                Some(now) => keep(format!("bom.{key}"), value.clone(), now),
+                None => {
+                    let value = if key == "optional" {
+                        json!(if value == true { "yes" } else { "no" })
+                    } else {
+                        value.clone()
+                    };
+                    fields.insert(key.clone(), value);
+                }
+            }
+        }
+        let material = e
+            .material
+            .clone()
+            .or_else(|| old_row.and_then(|r| r.material.value.as_str().map(str::to_owned)));
+        if let Some(material) = material {
+            match stated("material") {
+                Some(now) => keep("part.material".into(), json!(material), now),
+                None => materials.push((i, material)),
+            }
+        }
+        if own_numbers && let Some(now) = stated("item_number") {
+            keep("bom.item_number".into(), json!(e.number), now);
+        }
+        out.fields.push((new_name, fields));
+    }
+    // Materials first, through the PMI writer, every entity kept; then the BOM appended.
+    let bytes = crate::writer::apply::add_materials(new_bytes, &materials)?;
+    out.materials = materials
+        .iter()
+        .map(|(i, m)| (new[*i].name.clone(), m.clone()))
+        .collect();
+    let file = File::of_bytes(&new[0].path, bytes.clone()).map_err(|e| e.to_string())?;
+    let parts = file.load_all().map_err(|e| e.to_string())?;
+    let source = serde_json::to_value(&transport).map_err(|e| e.to_string())?;
+    let intents: Vec<crate::rules::Intent> = parts
+        .iter()
+        .zip(&out.fields)
+        .map(|(p, (_, fields))| {
+            let mut intent = crate::rules::Intent::new(
+                serde_json::to_value(&p.binding).map_err(|e| e.to_string())?,
+            );
+            intent
+                .part
+                .insert("bom".into(), Value::Object(fields.clone()));
+            Ok(intent)
+        })
+        .collect::<Result<_, String>>()?;
+    let answers: Vec<Map<String, Value>> = parts
+        .iter()
+        .map(|_| {
+            if own_numbers {
+                Map::new()
+            } else {
+                Map::from_iter([(CARRY.to_string(), source.clone())])
+            }
+        })
+        .collect();
+    let jobs: Vec<crate::writer::Job<'_>> = parts
+        .iter()
+        .zip(&intents)
+        .zip(&answers)
+        .map(|((p, i), a)| (p, i, Some(a)))
+        .collect();
+    out.bytes = Some(append(bytes, &jobs)?);
+    out.numbers = !own_numbers;
+    Ok(out)
 }
 
 /// The PMI reader deliberately reports assembly UDAs as out of scope. Only our own

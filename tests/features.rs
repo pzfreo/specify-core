@@ -310,6 +310,7 @@ fn subject(case: &Case) -> (Option<Value>, Subject) {
 
 fn absent(case: &Case, why: &str) -> Difference {
     Difference {
+        context: None,
         case: case.name.clone(),
         path: "part".into(),
         python: Some(json!("analysed")),
@@ -399,6 +400,7 @@ fn feature_differences(
     let python = &analysis["features"];
     let found = features::recognise(loaded).map_err(|e| {
         Box::new(Difference {
+            context: None,
             case: case.name.clone(),
             path: "features".into(),
             python: Some(json!(python.as_array().map_or(0, Vec::len))),
@@ -528,6 +530,7 @@ fn paired(case: &str, differences: Vec<Difference>, faces: &Value) -> Vec<Differ
             out.push(d);
         }
         out.push(Difference {
+            context: None,
             case: case.to_string(),
             path: format!("features[id={id}].faces{how}"),
             python: Some(py["faces"].clone()),
@@ -570,6 +573,7 @@ fn order(case: &str, python: &Value, rust: &Value) -> Option<Difference> {
     let p: Vec<&String> = p.iter().filter(|id| r.contains(id)).collect();
     let r: Vec<&String> = r.iter().filter(|id| p.contains(id)).collect();
     (p != r).then(|| Difference {
+        context: None,
         case: case.to_string(),
         path: "features(order)".into(),
         python: Some(json!(p)),

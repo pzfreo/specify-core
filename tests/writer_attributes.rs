@@ -121,10 +121,15 @@ fn editor_project_and_other_extras_read_back_and_answers_resume() {
         1
     );
     let read = part::load_bytes("written.step", bytes).unwrap();
-    assert_eq!(resume::answers_for(&read).unwrap(), Some(answers.clone()));
+    // ADR P11: stored are the answers that leave no PMI behind.
+    assert_eq!(
+        resume::answers_for(&read).unwrap(),
+        Some(specify_core::feature_table::storable(&answers))
+    );
     assert_eq!(
         api::analyse(&read).unwrap()["resume"]["answers"],
-        json!(answers)
+        // ADR P11: stored are the answers that leave no PMI behind.
+        json!(specify_core::feature_table::storable(&answers))
     );
 
     let jobs = [(&loaded, &intent, Some(&answers))];
@@ -228,8 +233,64 @@ fn rewriting_a_resumed_part_replaces_extras_as_it_replaces_answers() {
             1
         );
         let loaded = part::load_bytes("rewritten.step", bytes).unwrap();
-        assert_eq!(resume::answers_for(&loaded).unwrap(), Some(answers.clone()));
+        // ADR P11: this payload retains only answers that leave no PMI behind.
+        assert_eq!(
+            resume::answers_for(&loaded).unwrap(),
+            Some(specify_core::feature_table::storable(&answers))
+        );
     }
+}
+
+#[test]
+fn replay_keeps_an_attribute_with_the_old_ambiguous_author_marker() {
+    use haecceity::p21::{Attribute, Edit, RawEntity};
+    let plate = plate();
+    let answers = answers("steel");
+    let custom = AttributeSet {
+        name: "unclassified original data".into(),
+        ..project(1)
+    };
+    let (bytes, _) = writer::write_bytes_with(
+        &plate,
+        &preview_intent(&plate, &answers),
+        Some(&answers),
+        std::slice::from_ref(&custom),
+    )
+    .unwrap();
+    // Prior versions used the same generic marker for caller and engine attributes. Remove
+    // the newer distinction without changing the property or any of its values.
+    let doc = Document::parse(bytes).unwrap();
+    let mut edit = Edit::new();
+    let mut roots = Vec::new();
+    for id in doc.ids() {
+        let Some(RawEntity::Simple {
+            name, attributes, ..
+        }) = doc.get(id)
+        else {
+            continue;
+        };
+        if name == "DESCRIPTION_ATTRIBUTE"
+            && let [Attribute::String(marker), Attribute::EntityRef(root)] = attributes.as_slice()
+            && marker == "specify-core:caller-attribute:v1"
+        {
+            let mut old = doc.get(id).unwrap().clone();
+            if let RawEntity::Simple { attributes, .. } = &mut old {
+                attributes[0] = Attribute::String("specify-core:written:v1".into());
+            }
+            edit.replace(id, old);
+            roots.push(*root);
+        }
+    }
+    let legacy = doc.apply(&edit).unwrap().bytes;
+    let loaded = part::load_bytes("old.step", legacy).unwrap();
+    let (after, _) =
+        writer::write_bytes(&loaded, &preview_intent(&loaded, &answers), Some(&answers)).unwrap();
+    assert_attribute(&pmi_of(&after), &custom);
+    assert_eq!(
+        roots.len(),
+        1,
+        "only the caller attribute has its dedicated marker"
+    );
 }
 
 #[test]
@@ -252,7 +313,11 @@ fn adding_to_foreign_pmi_keeps_existing_attributes_and_adds_extras() {
     assert_attribute(&read, &existing);
     assert_attribute(&read, &project(2));
     let reopened = part::load_bytes("added.step", bytes).unwrap();
-    assert_eq!(resume::answers_for(&reopened).unwrap(), Some(answers));
+    // ADR P11: stored are the answers that leave no PMI behind.
+    assert_eq!(
+        resume::answers_for(&reopened).unwrap(),
+        Some(specify_core::feature_table::storable(&answers))
+    );
 }
 
 #[test]
@@ -276,7 +341,11 @@ fn extras_work_with_atomic_plain_and_gzip_destinations() {
         let read = part::load(&output, None).unwrap();
         assert_eq!(&*read.bytes, &expected.0);
         assert_attribute(&pmi_of(&read.bytes), &extra[0]);
-        assert_eq!(resume::answers_for(&read).unwrap(), Some(answers.clone()));
+        // ADR P11: stored are the answers that leave no PMI behind.
+        assert_eq!(
+            resume::answers_for(&read).unwrap(),
+            Some(specify_core::feature_table::storable(&answers))
+        );
         // The parts variant uses the same staging and compression path.
         writer::write_parts_with(&jobs, &output, &extra).unwrap();
         assert_eq!(std::fs::read(&output).unwrap(), bytes);
@@ -343,7 +412,8 @@ fn extras_are_written_on_a_part_of_an_assembly() {
         let back = part::File::of_bytes(Path::new("written.step"), bytes.clone()).unwrap();
         assert_eq!(
             resume::answers_for(&back.load(Some(k)).unwrap()).unwrap(),
-            Some(given[k].clone())
+            // ADR P11: stored are the answers that leave no PMI behind.
+            Some(specify_core::feature_table::storable(&given[k]))
         );
         assert_eq!(
             back.parts()[1].instances,

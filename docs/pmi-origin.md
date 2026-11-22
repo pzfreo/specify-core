@@ -112,6 +112,6 @@ and `faces2` is the target, whereas `source.support` always identifies the targe
 interview continues to omit general dimensions (#63).
 
 WASM `IntentEngine.snapshot().analysis.characteristics` exposes the identical stored
-metadata. `writePmi` uses the native planner/writer. JavaScript signatures are unchanged.
+metadata. `edit` (an edit list) uses the native planner/writer.
 Files without attributes add no fields; their old analysis and PMI outputs are unchanged.
 The writer verifies these UDAs through haecceity's ordinary full semantic readback comparison.

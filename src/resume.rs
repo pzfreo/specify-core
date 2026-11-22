@@ -1,11 +1,9 @@
 //! Answers stored in a written STEP and resumed from it (port of `resume.py`).
 //!
-//! Writing a part, specify-core also stores the answers it was given in the file, so that
-//! opening the file again resumes them. Replace-mode files analyse the geometry alone;
-//! scoped Add-mode files also retain foreign PMI as existing interview answers. A mixed
-//! rewrite removes only provenance-marked Specify requirements before adding replacements.
-//! Add payloads carry `pmi_scope: "specify-core:written:v1"`; legacy payloads without it
-//! retain their previous behavior. The payload is
+//! Writing a part, specify-core also stores in the file the answers that leave no PMI behind
+//! (decided none, and choices): ADR P11, the file's PMI is the only copy of the rest. Older
+//! files store every answer; those that repeat the file's PMI are ignored on reading. Older
+//! Payloads carry `pmi_scope`, which only picks among several stored frames. The payload is
 //! Python's: `{schema, answers, part, face_count, faces}` as compact JSON, base64-encoded (a
 //! Part 21 string then needs no escapes), `faces` being a [`fingerprint`] of the part's faces
 //! that is checked before unnamed face indices are trusted. Named parts write schema 3 with
@@ -82,31 +80,67 @@ fn without_unknown(out: &mut Resumed) {
     }
 }
 
-/// The payload member holding the questions whose requirement the person decided to leave
-/// removed from the file (ADR P9 conflicts kept, `_specify.keep`): a removal leaves no item to
-/// carry the decision in the PMI itself, so it is kept beside the answers.
-pub const KEPT: &str = "kept";
-
-/// The set name and items of a kept Specify-authored process UDA.
-pub(crate) const KEPT_PROCESS: &str = "kept_process";
-
-/// The payload's carry blocks ([`UNRESOLVED`]) and kept removals ([`KEPT`]) as answers'
-/// metadata, when well formed.
-fn restore_blocks(payload: &Map<String, Value>, answers: &mut Map<String, Value>) {
+/// The payload's carry blocks ([`UNRESOLVED`]) as answers' metadata, when well formed. A
+/// 0.2 payload's kept conflicts (`kept`) are ignored: ADR P11 has no conflicts to keep.
+fn restore_blocks(
+    loaded: &LoadedPart,
+    payload: &Map<String, Value>,
+    answers: &mut Map<String, Value>,
+) {
     restore_unresolved(payload, answers);
-    if let Some(kept) = payload.get(KEPT).and_then(Value::as_array)
-        && !kept.is_empty()
-        && kept
-            .iter()
-            .all(|id| id.as_str().is_some_and(|s| !s.is_empty()))
+    // Older writes could mark a failed PMI approval as decided. Reopen those
+    // answers so they cannot satisfy the interview without a write.
+    let key = crate::feature_table::NO_PMI;
+    if let Some(ids) = payload.get(key).and_then(Value::as_array)
+        && !ids.is_empty()
+        && ids.iter().all(Value::is_string)
     {
+        let mut datum_sizes = None;
+        let mut ids = ids.clone();
+        ids.retain(|id| {
+            let id = id.as_str().unwrap_or_default();
+            if answers
+                .get(id)
+                .is_some_and(|v| crate::feature_table::is_datum_size_approval(id, v))
+                && datum_sizes
+                    .get_or_insert_with(|| datum_size_features(loaded))
+                    .contains(crate::feature_table::kind_and_feature(id).1.as_str())
+            {
+                return true;
+            }
+            answers.shift_remove(id);
+            false
+        });
+        if ids.is_empty() {
+            return;
+        }
         let meta = answers
             .entry(crate::answer_file::META)
             .or_insert_with(|| json!({}));
         if let Some(meta) = meta.as_object_mut() {
-            meta.insert(truth::KEEP.into(), Value::Array(kept.clone()));
+            meta.insert(key.into(), Value::Array(ids));
         }
     }
+}
+
+fn datum_size_features(loaded: &LoadedPart) -> std::collections::BTreeSet<String> {
+    let Ok(reading) = crate::existing::read(loaded) else {
+        return Default::default();
+    };
+    let pmi = reading.model();
+    let datums: std::collections::BTreeSet<Vec<usize>> = pmi
+        .datums
+        .iter()
+        .filter_map(|d| d.feature())
+        .map(|f| crate::existing::faces_of(pmi, &[f]))
+        .filter(|faces| !faces.is_empty())
+        .collect();
+    crate::features::recognise(loaded)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|f| datums.contains(&f.faces))
+        .map(|f| f.id)
+        .collect()
 }
 
 fn restore_unresolved(payload: &Map<String, Value>, answers: &mut Map<String, Value>) {
@@ -120,14 +154,6 @@ fn restore_unresolved(payload: &Map<String, Value>, answers: &mut Map<String, Va
             json!({ UNRESOLVED: blocks }),
         );
     }
-}
-
-/// Add-mode payloads scope replacement to provenance-marked requirements. Absence keeps
-/// legacy resume semantics, including 0.1.7 Add-mode files with no stored answers.
-pub(crate) fn scoped(doc: &Document, part: usize) -> bool {
-    stored_with_form(doc).get(&part).is_some_and(|(p, _)| {
-        p.get("pmi_scope").and_then(Value::as_str) == Some(crate::provenance::MARKER)
-    })
 }
 
 /// The faces in order, by kind and centroid rounded to 3 decimals: what answers refer to, as
@@ -237,6 +263,21 @@ pub fn is_answers(set: &AttributeSet) -> bool {
     set.name == NAME
         && set.on.is_none()
         && matches!(set.items.as_slice(), [(name, AttributeValue::Text(_))] if name == NAME)
+}
+
+/// Whether an answer attribute is unreadable or its legacy face evidence rejects the part.
+/// The writer can preserve such an unmarked attribute as input data without resuming it.
+pub(crate) fn unrecognised_attribute(
+    loaded: &LoadedPart,
+    set: &AttributeSet,
+) -> Result<bool, FeatureError> {
+    let [(_, AttributeValue::Text(text))] = set.items.as_slice() else {
+        return Ok(false);
+    };
+    let Some(payload) = decode(text) else {
+        return Ok(true);
+    };
+    Ok(schema_of(&payload) != Some(3) && check(loaded, &payload, true)? == Check::Mismatch)
 }
 
 /// Every part's stored answers in the STEP text `bytes`, by part (Python's `stored`): each
@@ -509,7 +550,7 @@ fn stored_answers(
     };
     if let Some(answers) = &mut answers {
         answers.retain(|id, _| crate::input::known_id(id));
-        restore_blocks(&payload, answers);
+        restore_blocks(loaded, &payload, answers);
         answers.extend(crate::bom::answered_in(&doc, &loaded.definition));
     }
     Ok(answers)
@@ -564,6 +605,17 @@ pub struct UnresolvedAnswer {
     pub automatic: bool,
 }
 
+/// A stored answer the reopening leaves out (D11, #126): reported once, here and in the
+/// analysis warnings, and not stored again by the next save. `reason` says why: its question
+/// is not asked given the other answers, or the file states it, or the requirement it answered
+/// is no longer in the file.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct DroppedAnswer {
+    pub id: String,
+    pub value: Value,
+    pub reason: String,
+}
+
 /// The result shown in the resume/session report. Only `answers` are applied; unresolved
 /// values remain available for review and their current questions remain unanswered.
 #[derive(Clone, Debug, Default, serde::Serialize)]
@@ -583,6 +635,10 @@ pub struct Resumed {
     /// renamed, unresolved ones left out.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub automatic: Option<Vec<String>>,
+    /// Stored answers left out of `answers` on reopening ([`DroppedAnswer`]); filled by
+    /// `api::analyse`, which has the file's requirements and questions.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub dropped_answers: Vec<DroppedAnswer>,
 }
 
 // Why answers have no verified face evidence. Without evidence (LEGACY, NO_EVIDENCE) answers are
@@ -650,7 +706,7 @@ fn ordinary_report_for_parsed(
     };
     if let Some(out) = &mut out {
         without_unknown(out);
-        restore_blocks(&payload, &mut out.answers);
+        restore_blocks(loaded, &payload, &mut out.answers);
     }
     Ok(out)
 }

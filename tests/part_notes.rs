@@ -136,14 +136,17 @@ fn notes_round_trip_as_semantic_text_and_answers_with_a_byte_stable_rewrite() {
     }
     let reopened = part::load_bytes("notes.step", bytes.clone()).unwrap();
     assert_eq!(existing::part_settings(&reopened).unwrap()["notes"], notes);
+    // ADR P11: the notes and material write PMI, so they are not stored; the file states
+    // them, and a stated part.notes is not asked.
+    let stored = specify_core::feature_table::storable(&answers);
     assert_eq!(
         resume::answers_for(&reopened).unwrap(),
-        Some(answers.clone())
+        Some(stored.clone())
     );
     let analysis = api::analyse(&reopened).unwrap();
-    assert_eq!(analysis["resume"]["answers"], json!(answers));
+    assert_eq!(analysis["resume"]["answers"], json!(stored));
     assert!(
-        api::questions(&analysis, &answers)
+        !api::questions(&analysis, &answers)
             .unwrap()
             .iter()
             .any(|q| q.id == "part.notes")
@@ -154,21 +157,60 @@ fn notes_round_trip_as_semantic_text_and_answers_with_a_byte_stable_rewrite() {
         rewritten == bytes,
         "an unchanged resumed rewrite must preserve every byte"
     );
+}
 
+// Split from notes_round_trip_…: editing and clearing notes the file states is an edit in
+// place (ADR P11 piece 2); the round trip above stays live.
+#[test]
+fn edited_and_cleared_notes_replace_the_written_notes() {
+    let loaded = plate();
+    let notes = json!([
+        "Inspect O'Brien's \\ bore ⌀8\nAfter coating",
+        "None",
+        "  Keep dry  ",
+        "",
+        "None",
+        "   ",
+        "(blank)",
+        "  \nVisible note\n  "
+    ]);
+    let bytes = common::apply_edits(&loaded, json!({"fill": given(notes.clone())})).bytes;
+    let reopened = part::load_bytes("notes.step", bytes).unwrap();
+    let original = existing::part_settings(&reopened).unwrap()["notes"].clone();
+    assert_eq!(original, notes);
+    let state = api::analyse(&reopened).unwrap();
+    let current = state["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == "part.notes")
+        .unwrap();
     let edited = given(json!(["New first", "New second"]));
-    let intent = api::apply(&analysis, &edited, true).unwrap();
-    let (bytes, _) = writer::write_bytes(&reopened, &intent, Some(&edited)).unwrap();
+    let bytes = common::apply_edits(
+        &reopened,
+        json!({"change": {
+            "part.notes": {"to": edited["part.notes"], "expect": current["value"]}
+        }}),
+    )
+    .bytes;
     let edited_part = part::load_bytes("edited.step", bytes).unwrap();
     assert_eq!(
         existing::part_settings(&edited_part).unwrap()["notes"],
         edited["part.notes"]
     );
-    // Explicitly clearing the list removes all previously written free-text notes.
-    let analysis = api::analyse(&edited_part).unwrap();
-    let cleared = given(json!([]));
-    let intent = api::apply(&analysis, &cleared, true).unwrap();
-    let (bytes, _) = writer::write_bytes(&edited_part, &intent, Some(&cleared)).unwrap();
+    // An explicit removal takes away the free-text notes and preserves the material.
+    let bytes = common::apply_edits(
+        &edited_part,
+        json!({
+            "items": {"remove": [{"id": "part.notes"}]}
+        }),
+    )
+    .bytes;
     let cleared_part = part::load_bytes("cleared.step", bytes).unwrap();
+    assert_eq!(
+        existing::part_settings(&cleared_part).unwrap()["material"],
+        "steel"
+    );
     assert!(
         !existing::part_settings(&cleared_part)
             .unwrap()
@@ -263,7 +305,54 @@ fn assembly_notes_belong_to_their_part() {
         );
         assert_eq!(
             api::analyse(&loaded).unwrap()["resume"]["answers"],
-            json!(answers)
+            // ADR P11: stored are the answers that leave no PMI behind.
+            json!(specify_core::feature_table::storable(answers))
+        );
+    }
+}
+
+/// A part setting answered on a part whose file states part notes adds to the file's notes
+/// block (ADR P11): the scene lays the block out again rather than refusing two layouts of it.
+#[test]
+fn a_part_setting_added_to_an_assemblys_stated_notes_has_a_scene() {
+    let file = part::File::read(&fixture("assembly")).unwrap();
+    let parts: Vec<_> = (0..2).map(|k| file.load(Some(k)).unwrap()).collect();
+    let answers: Vec<_> = (0..2)
+        .map(|k| {
+            json!({"part.material": format!("material {k}")})
+                .as_object()
+                .unwrap()
+                .clone()
+        })
+        .collect();
+    let intents: Vec<_> = parts
+        .iter()
+        .zip(&answers)
+        .map(|(p, a)| api::preview(&api::analyse(p).unwrap(), a).unwrap())
+        .collect();
+    let jobs: Vec<_> = parts
+        .iter()
+        .zip(&intents)
+        .zip(&answers)
+        .map(|((p, i), a)| (p, i, Some(a)))
+        .collect();
+    let (bytes, _) = writer::write_parts_bytes(&jobs).unwrap();
+    let file = part::File::of_bytes(Path::new("assembly-material.step"), bytes).unwrap();
+    let finish =
+        json!({"part.surface_finish": "Ra 3.2", "part.edges": "Break sharp edges 0.2 max"})
+            .as_object()
+            .unwrap()
+            .clone();
+    for k in 0..2 {
+        let loaded = file.load(Some(k)).unwrap();
+        let analysis = api::analyse(&loaded).unwrap();
+        let scene = specify_core::pmi_scene::Scene::new(&loaded)
+            .unwrap()
+            .scene(&loaded, Some(&analysis), Some(&finish))
+            .unwrap_or_else(|e| panic!("part {k}: {e}"));
+        assert!(
+            !scene["specify"]["part.surface_finish"].is_null(),
+            "part {k}"
         );
     }
 }

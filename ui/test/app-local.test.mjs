@@ -2,15 +2,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getConfig, keepAlive } from '../app/local.ts';
 import { createSession } from '../app/answers.ts';
-import { sessionSaver } from '../app/save.ts';
+import { editsSaver } from '../app/save.ts';
 import { SESSION_API, SessionApiMismatch } from '../app/session-api.ts';
 
 const config = { name: 'part.step', saveTarget: '/tmp/part.specified.step' };
 const flush = async () => { for (let n = 0; n < 20; n++) await Promise.resolve(); };
 
-test('config without api remains compatible with specify-core 0.2.0', async (t) => {
+// Session API 2 (specify-core 0.3.0): Save sends an edit list. specify-core 0.2.0 gives no api and
+// speaks contract 1 (answers PUT and saved), which this page can no longer follow.
+test('config without api (specify-core 0.2.0, contract 1) refuses startup', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => Response.json(config));
-  assert.deepEqual(await getConfig(), config);
+  await assert.rejects(getConfig(), (error) => error instanceof SessionApiMismatch
+    && error.message === 'This Specify page speaks session API 2, but specify-core speaks 1: update specify-core or the app');
 });
 
 test('config with the supported session API is accepted', async (t) => {
@@ -19,9 +22,9 @@ test('config with the supported session API is accepted', async (t) => {
 });
 
 test('config with a mismatched API refuses startup and names both versions', async (t) => {
-  t.mock.method(globalThis, 'fetch', async () => Response.json({ api: 2, ...config }));
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ api: 3, ...config }));
   await assert.rejects(getConfig(), (error) => error instanceof SessionApiMismatch
-    && error.message === 'This Specify page speaks session API 1, but specify-core speaks 2: update specify-core or the app');
+    && error.message === 'This Specify page speaks session API 2, but specify-core speaks 3: update specify-core or the app');
 });
 
 /** Browser timers run against wall time. Sleeping moves time without executing callbacks. */
@@ -82,11 +85,12 @@ function command(t) {
   t.mock.method(globalThis, 'fetch', (_url, { signal }) => {
     const call = { signal, started: Date.now() };
     calls.push(call);
-    if (state.mode === 'ok') return Promise.resolve(Response.json(config));
+    // The command's config names its session API (2): one without it is specify-core 0.2.0's, refused.
+    if (state.mode === 'ok') return Promise.resolve(Response.json({ api: SESSION_API, ...config }));
     if (state.mode === 'busy') return Promise.resolve(Response.json({ error: 'busy' }, { status: 503 }));
     if (state.mode === 'offline') return Promise.reject(new TypeError('connection refused'));
     return new Promise((resolve, reject) => {
-      call.answer = () => resolve(Response.json(config));
+      call.answer = () => resolve(Response.json({ api: SESSION_API, ...config }));
       signal.addEventListener('abort', () => reject(signal.reason), { once: true });
     });
   });
@@ -217,41 +221,6 @@ test('a probe hung before sleep is timed out only after a fresh response window 
   assert.equal(calls.length, 2, 'a hung request does not prevent later recovery');
 });
 
-test('pagehide aborts PUTs across parts and cancels queued retries before the closed beacon', async (t) => {
-  const clock = browser(t);
-  const events = [];
-  const signals = [];
-  t.mock.method(globalThis, 'fetch', async (_url, { signal }) => new Promise((_resolve, reject) => {
-    signals.push(signal);
-    events.push('PUT');
-    signal.addEventListener('abort', () => {
-      events.push('abort');
-      reject(signal.reason);
-    }, { once: true });
-  }));
-  const session = createSession(0, { 0: {}, 1: {} });
-  const a = session.store(0);
-  const b = session.store(1);
-  a.set({ material: 'Steel' }, {});
-  b.set({ material: 'Brass' }, {});
-  await flush();
-  a.set({ material: 'Titanium' }, a.get());
-  const heartbeat = keepAlive(() => {}, () => {}, () => session.close());
-  clock.cleanup(heartbeat.stop);
-  t.mock.method(navigator, 'sendBeacon', () => {
-    assert.ok(signals.every((signal) => signal.aborted), 'every active PUT is aborted before closed');
-    events.push('closed');
-    return true;
-  });
-  clock.window.dispatchEvent(Object.assign(new Event('pagehide'), { persisted: true }));
-  assert.deepEqual(events, ['PUT', 'PUT'], 'bfcache navigation keeps the session active');
-  clock.window.dispatchEvent(Object.assign(new Event('pagehide'), { persisted: false }));
-  await Promise.all([a.settled(), b.settled()]);
-  a.set({ material: 'Copper' }, a.get());
-  await clock.advance(60_000);
-  assert.deepEqual(events, ['PUT', 'PUT', 'abort', 'abort', 'closed'], 'no queued PUT or heartbeat follows closed');
-});
-
 test('pagehide cancels an in-flight Save before sending closed', async (t) => {
   const clock = browser(t);
   const events = [];
@@ -269,7 +238,7 @@ test('pagehide cancels an in-flight Save before sending closed', async (t) => {
   const store = session.store(0);
   const heartbeat = keepAlive(() => {}, () => {}, () => session.close());
   clock.cleanup(heartbeat.stop);
-  const saving = sessionSaver(store, session, () => ({}), async () => []).save({ defaults: [] });
+  const saving = editsSaver(store, session, () => ({})).save({});
   const cancelled = assert.rejects(saving, { name: 'AbortError' });
   await flush();
   t.mock.method(navigator, 'sendBeacon', () => {

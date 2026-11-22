@@ -49,8 +49,9 @@ UDA names to interpret them; XCAF is only expected to expose the native material
 ## JSON and APIs
 
 Every BOM value is an object with `value` and `source`. `source` is `file` for
-pre-existing export data, `answered` for explicit BOM answers or saved material
-answers, and `default` for suggestions and automatic item allocation. Unknown values
+pre-existing export data and for the material the file states (whoever wrote it, ADR P11),
+`answered` for explicit BOM answers, and `default` for suggestions and automatic item
+allocation. Unknown values
 are JSON null. Unnumbered files are not numbered merely by reading.
 
 ```json
@@ -62,7 +63,7 @@ are JSON null. Unnumbered files are not numbered merely by reading.
   "description": {"value": "Brass shank", "source": "answered"},
   "revision": {"value": null, "source": "default"},
   "make_buy": {"value": "made", "source": "answered"},
-  "material": {"value": "Brass", "source": "answered"},
+  "material": {"value": "Brass", "source": "file"},
   "quantity": {"value": 1, "source": "file"},
   "optional": {"value": false, "source": "answered"},
   "stock": {"value": "to be made", "source": "answered"}
@@ -91,23 +92,25 @@ Questions are `bom.make_buy`, `bom.description`, `bom.part_number`, `bom.revisio
 `suggestions` array with the proposed value (none for part number and revision); make/buy's
 `reason` is its proposal ("From the file", "Your answer" for one given earlier in Specify, or
 "Proposed: …"). Its one `check` is a standard-hardware name on a part recognised with pockets,
-proposed made. Stock is not asked: it follows make/buy, `--bom`
-proposes it with the rest, and an explicit `bom.stock` answer is written. Existing part numbers and
+proposed made. Stock follows make/buy. An edit list can approve the `bom.stock`
+suggestion or fill the field explicitly. Existing part numbers and
 revisions are not asked again. BOM questions never block a write and are excluded from
-`--accept-defaults` / `with_all_defaults`. Material remains `part.material`. They are asked
+routine PMI suggestions. Material remains `part.material`. They are asked
 only of a part of a file the BOM can be written into (`bom::assembly_shape`): an assembly
 product definition with a shape, and an assembly occurrence of every part. A file of several
 products with no `NEXT_ASSEMBLY_USAGE_OCCURRENCE` is not asked them (#149).
 
-A write opts in when its intent contains at least one explicit `bom.*` answer, or when
-BOM suggestions are explicitly accepted (using a current assembly analysis):
+An edit list opts in through `fill` for explicit `bom.*` values or through
+`accept_suggestions` for the specific BOM fields the caller approves. For example,
+save `{"fill":{"bom.part_number":"GRM-02"},"accept_suggestions":["bom.description"]}`
+as `edits.json`, then run `specify-core write asm.step edits.json --part 0 -o out.step`.
+Use `specify-core parts asm.step` to find the index. Apply another list to the output to
+edit another part. Opening a part with WASM `IntentEngine.openPart` or selecting a part
+in Python `api.write` accepts the same list. A file without assembly structure refuses
+BOM fields with `bom_no_assembly`.
 
-- CLI: `specify-core write asm.step analysis.json answers.json -o out.step --bom`
-  (one analysis/answers pair per part to include; `--accept-defaults` independently accepts PMI).
-- Rust: apply/preview normally, then `bom::accept_suggestions(&analysis, &answers, &mut intent)`.
-- Python: `api.apply(analysis, answers, accept_defaults=True, bom=True)`.
-- WASM: `session.writePmi(answersJson, project, payload, true)`; omitted/false fourth argument
-  keeps the existing behavior. Native session API: `write_pmi_with_bom(..., true)`.
+The Rust and Python intent builders can preview BOM suggestions through
+`bom::accept_suggestions` and `api.apply(..., bom=True)` respectively.
 
 Without opt-in, neither single parts nor assemblies receive new BOM records, history,
 numbers or owner changes; the ordinary PMI write bytes remain unchanged. Reading never
@@ -160,10 +163,10 @@ names and stored/occurrence order; they do not acquire new numbers due to ambigu
 STEP entity IDs never establish identity. A fresh CAD export with no transported history
 has no prior allocation to preserve and starts at 1 (unless native find numbers exist).
 The writer still accepts a history transported in the opaque answer member `_specify_bom`
-(destination history wins over transport), but `diff` no longer produces one: it reads the
-two files' PMI only and returns no answers (ADR P11). Carrying the history to a new revision
-is for `carry`.
-Keep the returned transport in answers passed to `write`, including subset writes.
+(destination history wins over transport). `diff` no longer produces one: it reads the two
+files' PMI only and returns no answers (ADR P11). `carry OLD NEW -o OUT` carries the history
+to a new revision ([carry.md](carry.md)): each new part matched to an old one keeps its item
+number and BOM answers, and the old history's retired numbers stay retired.
 BOM matching uses geometry independently of the existing assembly PMI name-pairing rule.
 
 BOM updates append their complete current overrides and leave earlier UDA records

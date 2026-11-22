@@ -33,6 +33,11 @@ Older JSON analyses have no typed geometry input. Their rule results remain
 provisional, and the writer upgrades rule-generated intent using the loaded part.
 Unmarked, hand-authored writer rows remain authoritative. Rule-produced General rows
 carry a feature field (empty for planes), so general-only saved rule results also upgrade.
+The upgrade writes no General dimension the intent did not approve (ADR P9, D1): a planner
+row on a hole is kept only when the intent sizes or locates that hole (by a general row or an
+answer to its function or location question), and any other row only when a general row of
+its kind touches the same faces. A general-only intent with every feature still open therefore
+writes no dimension.
 Invalid planner input is a write
 failure, not a silently selected alternative planner.
 

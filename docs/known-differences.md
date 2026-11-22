@@ -13,16 +13,17 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 270 | 0 | 52 | 0 | 2 | 1 | 325 |
-| [cross_engine](#cross_engine) | 55 | 2 | 0 | 1 | 1 | 20 | 79 |
-| [existing](#existing) | 31 | 0 | 0 | 0 | 7 | 0 | 38 |
-| [features](#features) | 3454 | 1414 | 571 | 2491 | 1066 | 1886 | 10882 |
+| [cli](#cli) | 352 | 0 | 8 | 0 | 234 | 1 | 595 |
+| [cross_engine](#cross_engine) | 342 | 2 | 0 | 1 | 1 | 20 | 366 |
+| [cross_engine_written](#cross_engine_written) | 75 | 0 | 0 | 0 | 0 | 0 | 75 |
+| [existing](#existing) | 420 | 0 | 0 | 0 | 7 | 0 | 427 |
+| [features](#features) | 4525 | 1414 | 567 | 2462 | 1060 | 1883 | 11911 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
-| [writer](#writer) | 1090 | 0 | 0 | 0 | 15 | 2 | 1107 |
-| **all** | 5029 | 1433 | 1249 | 2497 | 1101 | 1909 | 13218 |
+| [writer](#writer) | 2267 | 0 | 0 | 0 | 15 | 13 | 2295 |
+| **all** | 8110 | 1433 | 1201 | 2468 | 1327 | 1917 | 16456 |
 
 ## analysis
 
@@ -76,13 +77,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (270 entries)
+### cli: rust-correct (352 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
   The evidence is stated per entry (12 distinct; all in `cli.json`). The first, for `cli/*/questions` at `stdout.[1].options[4]`: Option 4 is now ISO 2768-fH, one of the requested twelve f/m/c/v × H/K/L combinations after the existing four plain classes. Default stays ISO 2768-m. In open-only CLI output the answered material question is removed, moving the general question from index 1 to 0. The served full question retains index 1. cli_datum_origins.json.gz pins every exact case/path/old/new value; tests/limits_and_classes.rs verifies the complete choices and mK PMI. Frozen Python captures remain unchanged.
 
-- **Absolute slash bounds are accepted by CLI answers** (3 entries, 1 case glob)
+- **Absolute slash bounds are accepted by CLI answers** (2 entries, 1 case glob)
 
   The frozen scenario gives extra.1 size limits 6.58/6.62 on the plate’s Ø6.6 face 6. This requested unsigned slash grammar is now valid: questions exits 0 without the former invalid-answer stderr. Apply accepts the dimension and instead reports the still-unanswered required part.material question. cli_datum_origins.json.gz pins these exact three command envelope changes; rule_defaults_oracle.json.gz pins the corresponding accepted intent and tests/limits_and_classes.rs verifies Limits STEP write/read/resume. The original refused scenario and Python result are retained.
 
@@ -90,13 +91,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (21 distinct; all in `cli.json`). The first, for `parts/assembly@serve` at `write.written[plate: location 15 basic to holes:6 from faces [1]]`: Shared planner, #75: fresh frozen-intent writer-oracle evidence. The exact human-readable report line changes with answered:dim:pattern[hole:10,hole:12,hole:6,hole:7,hole:8,hole:9]/pitch/0 = 30 mm, basic, [6] to [7]: pattern pitch (2 interval(s)), with aligned physical member witnesses; answered:dim:pattern[hole:10,hole:12,hole:6,hole:7,hole:8,hole:9]/pitch/1 = 30 mm, basic, [6] to [9]: pattern pitch (1 interval(s)), with aligned physical member witnesses; answered:dim:plane:0/to/pattern[hole:10,hole:12,hole:6,hole:7,hole:8,hole:9]/0 = 50 mm, basic, [0] to [6, 7, 8, 9, 10, 12]: pattern centre located once with its internal grammar. The report names the shared survivor rather than repeating each generated member. Its measured quantity, tolerance class and semantic face supports are checked by STEP readback. The oracle checks EXPRESS validity; the corpus check rejects duplicate face pairs, faceless location supports and independent plane chains. Only this exact item/report line is covered, with no location-family wildcard. The serve reply carries this same exact report item and occurrence count as writer-area case parts/assembly. The CLI composition check compares library and executable outputs exactly; cli_datum_origins.json.gz independently pins this item’s Python and Rust values in the serve envelope.
 
-- **measurement datum defaults in CLI and serve envelopes** (100 entries, 94 case globs)
+- **measurement datum defaults in CLI and serve envelopes** (85 entries, 79 case globs)
 
   The evidence is stated per entry (6 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb217` at `questions.defaults.questions.[37]`: For #21, this exact CLI question field exposes the optional hole.full_thread text edit with refine attention. It is excluded from open and changes neither the accepted tap's inline/computed depth nor review obligations. tests/thread_depth_help.rs verifies exact alpha.7 STEP equivalence; cli_datum_origins.json.gz pins this question value.
-
-- **Python's write prints OpenCascade's transfer statistics on stdout before the report** (`cli/*` at `stdout_noise`)
-
-  specify-core's STEPCAFControl_Writer prints 9 lines of ANSI-coloured 'Statistics on Transfer (Write)' to stdout (captured in tests/fixtures/cli_oracle.json.gz, cut and counted in stdout_noise), so Python's stdout is not JSON and a host must strip it (serve moves fd 1 to stderr for this reason). The Rust binary's stdout is exactly the report, which parses as JSON (tests/cli.rs, check 3).
 
 - **a file or part that cannot be loaded: an error line, not a traceback** (2 entries, 2 case globs)
 
@@ -113,10 +110,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **a STEP file that cannot be read: the reason is given** (`cli/serve` at `lines[13].error.message`)
 
   analyse of /no/such/file.step is 'invalid' in both, with 'cannot read STEP file /no/such/file.step'; part::load's message adds why ('No such file or directory (os error 2)'), where OpenCascade's reader gives none.
-
-- **a write that cannot be made is reported as a failed write, not a traceback** (`cli/errors/write-into-a-missing-directory` at `stderr`)
-
-  Writing into a directory that does not exist: Python's OpenCascade writer raises RuntimeError('OCCT could not write the STEP (no reason given)'), which cli.py does not catch (exit 1, traceback). The Rust writer fails to create its temporary file beside the destination and the command line says 'write failed, OUT left as it was: \<the temporary file>: No such file or directory' with exit 1, the message cli.py gives a failed write; nothing is created. Exit codes are equal.
 
 - **a non-finite number is written null, not Python's Infinity token** (`cli/json-text` at `json_text.*infinity`)
 
@@ -150,7 +143,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Issue #150: beside same_as, a copy lists faces_of_first, for each of its faces in its own order the face of the first part it lands on (the pairing quiddity::correspondence::congruent proves), so an answer given for faces carries over to a copy that lists its faces in another order; null where same_as is null. Python's parts listing has no such key; every other key is still compared and equal. Every value here is null except in a_file_with_two_parts_must_say_which, whose second part, the same unit box moved (tools/make_parts.py), maps each face to the same index. tests/part_copies.rs checks moved copies (the identity) and a copy turned a quarter turn whose shell lists its faces in reverse.
 
-- **CLI and serve expose the corrected turned datums and blind-thread summaries** (20 entries, 11 case globs)
+- **CLI and serve expose the corrected turned datums and blind-thread summaries** (18 entries, 9 case globs)
 
   The CLI composition check independently requires byte-identical library and executable outputs. Corrected axis-first defaults change datum faces, axial position/runout frames, question ordering and dependent intent text on the pin/stack; blind tap summaries include computed full-thread depth. The full library before/after changes are exactly pinned in rule_defaults_oracle.json.gz; tests/turned_defaults.rs and tests/thread_depth_help.rs verify the intended geometry and displays. CLI Python-input checks inherit only exact matching reviewed rule changes via without_reviewed_rule_departures; these entries cover command/transcript envelopes and intent text. No composition differences are filtered.
 
@@ -158,25 +151,17 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `parts/assembly*` at `write.warnings[pin: datum B is in the file but no tolerance references it; OCCT-based readers (including Draftwright) will not see it]`: The turned pin now uses axis A for its coaxial hole position; shoulder B remains available for axial location but no default control cites it. The existing writer warning correctly reports that OCCT readers omit unreferenced datums. The intent still stores and verifies B. See docs/turned-defaults.md and the live thumbwheel write verification.
 
-- **Dominant round bosses use their main axis in CLI and serve** (6 entries, 3 case globs)
+- **Dominant round bosses use their main axis in CLI and serve** (5 entries, 2 case globs)
 
   The dominant cylindrical boss on a_hole_along_x_is_labelled_from_its_rim now supplies A on cylinder 0 and B on end plane 1. The axial hole keeps its rim anchor and position about A; B is available as an axial stop and is reported unused. The question transcript replaces A flatness with B perpendicularity, and the datum anchor groups change from face 1 to faces 0/1. tests/fixtures/rule_defaults_oracle.json.gz pins the complete library changes exactly, tests/turned_defaults.rs verifies dominant-boss axis selection, and the CLI composition sweep still compares library/executable bytes and every serve reply without filtering. These entries cover only this fixture's Python transcript/envelope differences.
 
-- **axis-first turned defaults change string-post datum and basic-location report lines** (4 entries, 1 case glob)
-
-  The existing axis-first turned defaults (cx/turned-part-defaults) select string_post axis A on face 0 and shoulder B on face 8, replacing Python's A plane 11 and B axis 0. Consequently B is now a written datum; the old 1.2 mm basic offsets from plane 11 disappear, and the transverse hole holes:5 has a 3.85 mm basic location from shoulder 8. This is the report envelope of the already pinned library intent in rule_defaults_oracle.json.gz; tests/turned_defaults.rs verifies the actual axis, shoulder, coaxial hole and cross-hole defaults, and tests/writer.rs verifies readback. The full corpus CLI sweep compares executable/library composition independently.
-
 - **BOM opt-in flag in exact CLI usage and help captures** (3 entries, 3 case globs)
 
-  The evidence is stated per entry (3 distinct; all in `cli.json`). The first, for `cli/usage/09 write tests/fixtures/parts/plate.step` at `stderr`: For #79, compared the archived Python CLI capture with the current command: the usage adds [--bom]; write help also adds its explicit optional-BOM description and clarifies that --accept-defaults accepts PMI defaults. tests/cli.rs::command_lines asserts this exact transformation for this individual capture before consulting the ledger: every other byte, argument-error wording and exit code remains checked. No datum-origin snapshot or other oracle value is changed. tests/bom_opt_in.rs verifies ordinary writes against main 8d5a040 with and without default acceptance. In this capture, missing ANALYSIS ANSWERS and -o/--output still produce exactly the Python argument error. Since the port to clap (Python specify-core is retired; help and usage errors are clap's) this capture's text is clap's: the exact transformation assertion was retired with it and tests/cli.rs::usage_or_help checks the exit code and the argument named instead (see the cli/usage/\* entry).
+  The evidence is stated per entry (3 distinct; all in `cli.json`). The first, for `cli/usage/09 write tests/fixtures/parts/plate.step` at `stderr`: For #79, compared the archived Python CLI capture with the then-current command: the usage added the former BOM option, and write help described its optional BOM and PMI default approval. tests/cli.rs::command_lines asserts this exact transformation for this individual capture before consulting the ledger: every other byte, argument-error wording and exit code remains checked. No datum-origin snapshot or other oracle value is changed. tests/bom_opt_in.rs verifies ordinary writes against main 8d5a040 with and without default acceptance. In this capture, missing ANALYSIS ANSWERS and -o/--output still produce exactly the Python argument error. Since the port to clap (Python specify-core is retired; help and usage errors are clap's) this capture's text is clap's: the exact transformation assertion was retired with it and tests/cli.rs::usage_or_help checks the exit code and the argument named instead (see the cli/usage/\* entry).
 
 - **Exact tap-drill defaults and dependent question order** (13 entries, 3 case globs)
 
   src/rules/holes.rs prefers an exact tabulated tap drill to an ambiguous smaller clearance screw. Accepted defaults now include the thread and its optional full-thread edit, changing dependent question positions. cli_datum_origins.json.gz pins the complete before/after values; explicit clearance answers remain supported.
-
-- **Complete answer export flags in questions usage and help** (2 entries, 2 case globs)
-
-  questions now exports complete evidence-bearing sidecars with --resolve-defaults --step STEP. tests/cli.rs::command_lines asserts the exact usage/help transformation for this individual capture; every other byte and exit code stays checked. No oracle payload or existing known-difference entry changes. Since the port to clap (Python specify-core is retired; help and usage errors are clap's) this capture's text is clap's: the exact transformation assertion was retired with it and tests/cli.rs::usage_or_help checks the exit code and the argument named instead (see the cli/usage/\* entry).
 
 - **clap help and usage errors** (2 entries, 1 case glob)
 
@@ -186,7 +171,27 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Maintainer decision (5 November 2026, docs/process.md): part.process is appended after every other question of a made part, so no existing question moves; an unanswered part is machined and its other questions, defaults and writes are unchanged. Python has no such question. tests/process.rs covers the question, its defaults and the STEP attribute.
 
-### cli: equivalent (52 entries)
+- **One JSON after STEP is an edit list** (`cli/usage/10 write tests/fixtures/parts/plate.step {tmp}/a.json -o {tmp}/o.step` at `exit`)
+
+  Proposal specify-0.3.0 use case 7 (Paul, 2026-11-20): write STEP EDITS.json -o OUT applies an edit list in place, so one JSON after STEP is no longer a usage error (exit 2) but an edit list; here the list file does not exist, which is a file error (exit 1, `a.json: No such file`). tests/cli.rs::usage_or_help checks that message for this capture; cli_datum_origins.json.gz records the exit departure. Three or more positionals still give the usage error.
+
+- **general dimensions are rows (Paul, 2026-11-21)** (52 entries, 40 case globs)
+
+  The evidence is stated per entry (3 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `questions.defaults.questions.measurement_count`: Item 8 adds this exact number of separately approved measurement questions to the list.
+
+- **General dimensions are rows in CLI defaults** (10 entries, 10 case globs)
+
+  The evidence is stated per entry (7 distinct; all in `cli.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `questions.defaults.questions`: The general-dimension rows decision (Paul, 2026-11-21) exposes measured plane lengths and hole locations as questions on this captured analysis. Round 6's feature table requires an explicit approval for each standalone measurement, so the same captured questions in the same order no longer mark those measurements as optional.
+
+- **0.5.5 / CLI all-axis step count** (`cli/default_datum_a_takes_every_coplanar_face#0/analyse` at `stdout.features.step_levels`)
+
+  Quiddity 0.5.5 #307 reports X and Y levels alongside Z, increasing the step level count in the CLI summary.
+
+- **Expanded corpus required measurements in CLI defaults** (45 entries, 43 case globs)
+
+  The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb245` at `questions.defaults.questions.measurement_count`: Round 6 reports standalone measurements as required rows. This exact result counts or names the CGB245 questions that the Python capture had no standalone rows for.
+
+### cli: equivalent (8 entries)
 
 - **mesh's triangle count is the triangulation stand-in's** (`cli/*` at `stdout.triangles`)
 
@@ -196,11 +201,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `cli/errors/questions-answers-not-json` at `stderr`: Both refuse '{' as 'invalid answer: ...' with exit 2 (Python's JSONDecodeError is a ValueError, caught as an invalid answer; Rust maps a parse error the same way); only the parser's wording differs: 'Expecting property name enclosed in double quotes: line 1 column 2 (char 1)' against 'EOF while parsing an object at line 1 column 1'.
 
-- **measurement datum defaults in CLI and serve envelopes** (49 entries, 5 case globs)
+- **measurement datum defaults in CLI and serve envelopes** (5 entries, 5 case globs)
 
-  The evidence is stated per entry (49 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb245` at `questions.defaults.questions.[21].faces[0]`: corpus/cadgenbench_inputs/cgb245 faces 80/79 have captured areas 3079.999999998903/3079.9999999988927 mm2; difference 1.04591890704e-11 \<= max(1e-6, 1e-6\*larger) = 0.00308 mm2. Their order is arbitrary within the requested tolerance; keep source-face order. This is a Specify datum-comparator change exposed by quiddity #61, not a claim that Python chose incorrect geometry. Dependent CLI question/measurement: questions.defaults.questions.[21].faces[0]. Exact observed departure: captured 147; current 80. The CLI/library composition check and cli_datum_origins.json.gz preserve these exact values.
+  The evidence is stated per entry (5 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb245` at `questions.defaults.questions.[21].faces[0]`: corpus/cadgenbench_inputs/cgb245 faces 80/79 have captured areas 3079.999999998903/3079.9999999988927 mm2; difference 1.04591890704e-11 \<= max(1e-6, 1e-6\*larger) = 0.00308 mm2. Their order is arbitrary within the requested tolerance; keep source-face order. This is a Specify datum-comparator change exposed by quiddity #61, not a claim that Python chose incorrect geometry. Dependent CLI question/measurement: questions.defaults.questions.[21].faces[0]. Exact observed departure: captured 147; current 80. The CLI/library composition check and cli_datum_origins.json.gz preserve these exact values.
 
-### cli: not-applicable (2 entries)
+### cli: not-applicable (234 entries)
 
 - **feature-id cascade (rule): the engines recognise features differently by design, so analyses are never compared feature by feature with Python's** (`cli/*` at `stdout.features*`)
 
@@ -210,6 +215,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   specify-core's pyproject installs the same entry point twice, as specify-core and as pmi-assist ('the name it was first released under, kept for hosts that still run it'). The alias is an artifact of the Python package's history; a host running the Rust engine names its binary, specify-core (Cargo.toml's one [[bin]]), with the same arguments.
 
+- **whole-intent write removed (Paul, 2026-11-22)** (232 entries, 232 case globs)
+
+  whole-intent write removed (Paul, 2026-11-22)
+
 ### cli: resolved (1 entry)
 
 - **feature-id cascade: the same family counts in another first-appearance order** (`cli/*/analyse` at `stdout.text`)
@@ -218,7 +227,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cross_engine
 
-### cross_engine: rust-correct (55 entries)
+### cross_engine: rust-correct (342 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `python_readback.existing[key=*].provenance`)
 
@@ -226,7 +235,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **the part's default finish, written as a surface texture, is not read by specify-core (Python)** (`*` at `python_readback.part.surface_finish`)
 
-  The Rust writer writes the part's default finish (Ra 3.2 on every accept-defaults intent) as ISO 10303-1110's surface texture on the part's product_definition_shape (property_definition 'surface texture', material removal 'any process allowed', its parameter a surface_texture_representation of 'measuring method' 'Ra' and 'characteristic value' 3.2 µm; question Q3, decided 2026-10-09; haecceity checks surface_texture_representation WR1-WR5 and general_property_association WR1-WR2 on its writes, quiddity-rust c228f95), and reads it back as the part's surface_finish (src/existing.rs). specify-core's part_settings finds the default finish only in its own text route, a DESCRIPTIVE_REPRESENTATION_ITEM('surface texture','Ra 3.2 µm unless otherwise specified') (existing.py), and OpenCascade's XCAF has no surface texture model, so Python reads none, on every Rust-written part of a single-part file (assemblies report no settings in either engine). The form is AP242's standard one, the text route is not (haecceity decision 5); the gap is Python's reader.
+  The Rust writer writes the part's default finish (Ra 3.2 on every default-approved historical intent) as ISO 10303-1110's surface texture on the part's product_definition_shape (property_definition 'surface texture', material removal 'any process allowed', its parameter a surface_texture_representation of 'measuring method' 'Ra' and 'characteristic value' 3.2 µm; question Q3, decided 2026-10-09; haecceity checks surface_texture_representation WR1-WR5 and general_property_association WR1-WR2 on its writes, quiddity-rust c228f95), and reads it back as the part's surface_finish (src/existing.rs). specify-core's part_settings finds the default finish only in its own text route, a DESCRIPTIVE_REPRESENTATION_ITEM('surface texture','Ra 3.2 µm unless otherwise specified') (existing.py), and OpenCascade's XCAF has no surface texture model, so Python reads none, on every Rust-written part of a single-part file (assemblies report no settings in either engine). The form is AP242's standard one, the text route is not (haecceity decision 5); the gap is Python's reader.
 
 - **a material written without a separate name is not read by specify-core's (Python's) text route** (`*` at `python_readback.part.material`)
 
@@ -264,6 +273,30 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension\|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics.
 
+- **the existing item's fit, a 0.3.0 read-back field the Python reference does not have** (11 entries, 9 case globs)
+
+  ADR P11 adds the fit field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (14 entries, 7 case globs)
+
+  ADR P11 adds the mmc field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (14 entries, 7 case globs)
+
+  ADR P11 adds the modifiers field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (30 entries, 11 case globs)
+
+  ADR P11 adds the diametral field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (188 entries, 12 case globs)
+
+  ADR P11 adds the text field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (30 entries, 11 case globs)
+
+  ADR P11 adds the zone field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
 ### cross_engine: rust-wrong (2 entries)
 
 - **the faces' rounded centroids differ where haecceity's face integrals are off (U11), so the schema 2 fingerprints differ** (`nist/nist_ctc_05_asme1_ap242` at `fingerprint_v2[fingerprint differs: faces differ in kind or rounded centroid]`)
@@ -284,7 +317,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **no Rust-written file: Python's intents name parts the Rust engine does not have** (`nist/nist_ctc_0*_asme1_ap242` at `rust_written[refused]`)
 
-  NIST CTC-02 and CTC-04: OpenCascade's XCAF makes a part of each shape representation of one product (the solid and its surface models: 3 and 2 parts), haecceity one part per product with all its faces (question Q7; existing.json and the part stream's entries). Python's accept-defaults intents are bound to parts 1 and 2 of its numbering, which the Rust engine's reading of the file does not have, so examples/write_fixtures.rs refuses the case before calling the writer (its part-index check; the message is rust.refused.txt) rather than write an intent onto the wrong part; Python itself refuses the write of these files ('this assembly already has PMI not written by specify-core', write.json). Nothing to cross until Q7 is settled; an intent made by the Rust engine's own analysis of these files is the CLI stream's to write.
+  NIST CTC-02 and CTC-04: OpenCascade's XCAF makes a part of each shape representation of one product (the solid and its surface models: 3 and 2 parts), haecceity one part per product with all its faces (question Q7; existing.json and the part stream's entries). Python's default-approved historical intents are bound to parts 1 and 2 of its numbering, which the Rust engine's reading of the file does not have, so examples/write_fixtures.rs refuses the case before calling the writer (its part-index check; the message is rust.refused.txt) rather than write an intent onto the wrong part; Python itself refuses the write of these files ('this assembly already has PMI not written by specify-core', write.json). Nothing to cross until Q7 is settled; an intent made by the Rust engine's own analysis of these files is the CLI stream's to write.
 
 ### cross_engine: resolved (20 entries)
 
@@ -292,9 +325,33 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (20 distinct; all in `cross_engine.json`). The first, for `nist/nist_ctc_01_asme1_ap242` at `python_readback.existing[key=dimension|Location_LinearDistance|[4]|[0,1,91,92,93,94,95,96]#1]`: Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The 400 mm General location from [4] now has complete semantic target [0, 1, 71, 72, 73, 74, 91, 92, 93, 94, 95, 96], replacing the old subset [0, 1, 91, 92, 93, 94, 95, 96]. This real MultipleElements/pattern target includes the covered coincident claimants and recognised constituent faces. There is one physical row; the former subset-only root is absent. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks.
 
+## cross_engine_written
+
+### cross_engine_written: rust-correct (75 entries)
+
+- **ADR P11 rule 2: the material answer is written as PMI, so it is no longer stored** (18 entries, 18 case globs)
+
+  ADR P11 rule 2: the committed file stored the steel answer. The current writer states steel in PMI and leaves the answer out of resume.
+
+- **D8: the origin hole gets no general location in its origin directions** (`nist/nist_ctc_03_asme1_ap242` at `characteristics[key=dimension|Location_LinearDistance|[11,12]|[16,17]#1]`)
+
+  Maintainer decision D8 (commit d9067fb; the writer.json entry for this case's write.not_written): CTC-03's datum B is the hole 11/12, the origin of the x and y dimensions, so the planner's general location of B from the hole 16/17 is stated by the file and left out (the write reports 'dimension Location_LinearDistance [11, 12] [16, 17]: the file already states it; not written again'). Present in a write at 9717139, absent at d9067fb (bisected). Its characteristic number goes with it; the renumbering of the rest has its own entries. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
+
+- **D1: dimensioning::upgrade's heuristic for an old intent keeps a planner general row only on a hole it sizes or locates** (2 entries, 1 case glob)
+
+  The evidence is stated per entry (2 distinct; all in `cross_engine_written.json`). The first, for `nist/nist_ctc_05_asme1_ap242` at `characteristics[key=dimension|Location_LinearDistance|[]|[70]#1]`: A heuristic for old intents only (no planner rows): Decision D1 (commit 9717139, 'A general-tolerance answer writes only its note'): the writer's upgrade of an old intent without planner rows (dimensioning::upgrade) keeps a planner general row only on a hole the intent sizes or locates, or, off holes, where a general row of its kind touches the same faces. Python's accept-defaults intent for CTC-05 has no planner rows, and the general depth location from the entry face 70 (a hole depth ending at a point, so no faces of its own) is no longer written: present in a write at 9717139~1, absent at 9717139 (bisected). Its characteristic number goes with it. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
+
+- **characteristic numbers close up over the items no longer written** (39 entries, 2 case globs)
+
+  The evidence is stated per entry (2 distinct; all in `cross_engine_written.json`). The first, for `nist/nist_ctc_03_asme1_ap242` at `characteristics[key=dimension|Location_LinearDistance|[16,17]|[18,19]#1].number`: A fresh write numbers its characteristics 1..n in order with no history (docs/characteristic-numbers.md); with the one location D8 leaves out no longer written, every later number moves down by the items before it (CTC-03 by 1; CTC-05 by 1 to 3). The items themselves (kind, type, faces, reference, origin, source) are unchanged; only the number field of a keyed item is covered, so an item added, lost or changed in any other field still fails. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
+
+- **general dimensions are rows (Paul, 2026-11-21)** (15 entries, 1 case glob)
+
+  The evidence is stated per entry (15 distinct; all in `cross_engine_written.json`). The first, for `nist/nist_ctc_01_asme1_ap242` at `characteristics[key=dimension|Location_LinearDistance|[0,1,71,72,73,74,75,76,89,90,91,92,93,94,95,96]|[4]#1].number`: The omitted span formerly received characteristic #1. On this fresh write the allocation for this exact measurement shifts from #11 to #10.
+
 ## existing
 
-### existing: rust-correct (31 entries)
+### existing: rust-correct (420 entries)
 
 - **presentation read as a dimension** (`*` at `existing[key=dimension|DimensionPresentation|*`)
 
@@ -388,6 +445,30 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension\|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics.
 
+- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (269 entries, 17 case globs)
+
+  ADR P11 adds the text field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (39 entries, 14 case globs)
+
+  ADR P11 adds the diametral field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (11 entries, 8 case globs)
+
+  ADR P11 adds the mmc field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (14 entries, 8 case globs)
+
+  ADR P11 adds the modifiers field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's text_only, a 0.3.0 read-back field the Python reference does not have** (17 entries, 4 case globs)
+
+  ADR P11 adds the text_only field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (39 entries, 14 case globs)
+
+  ADR P11 adds the zone field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
 ### existing: not-applicable (7 entries)
 
 - **Python's surface-model part does not exist in Rust** (5 entries, 5 case globs)
@@ -404,7 +485,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## features
 
-### features: rust-correct (3454 entries)
+### features: rust-correct (4525 entries)
 
 - **quiddity #134: boss end treatment** (8 entries, 4 case globs)
 
@@ -418,9 +499,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (91 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=fillets:86].record.side`: At v0.2.5: quiddity-rust#134. Native torus face 86: major radius 45 mm, minor radius 10 mm, trimmed UV sweeps 360°/90°. At 25%, 50%, 75% of the trimmed domain, outward-normal dot tube-radial vector is [-10, -10, -10] mm. All three negative signs prove material outside the tube (a concave root round). Defining faces and radius are unchanged; the old turned path hard-coded convex. Exact comparison: Python "convex"; Rust "concave".
 
-- **quiddity #127: inside rounds and spherical caps are concave fillets** (1012 entries, 20 case globs)
+- **quiddity #127: inside rounds and spherical caps are concave fillets** (1003 entries, 20 case globs)
 
-  The evidence is stated per entry (1012 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=fillets:41]`: At v0.2.3: quiddity #127: inside rounds and spherical caps are concave fillets. face 41: native cylinder R40 mm, inward/concave, sweep 53.4873679°. Material-side checks distinguish these inside rounds from the historical false convex claim. Cylindrical runs and any spherical cap keep their exact source-face anchors; #127 supplies the tangent-round proof. Exact comparison: Python null; Rust {"id":"fillets:41","family":"fillets","record":{"axis":"z","radius":40.0,"at":[37.778,-21.811,134.0],"turned":false,"side":"concave"},"faces":[41]}.
+  The evidence is stated per entry (1003 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=fillets:41]`: At v0.2.3: quiddity #127: inside rounds and spherical caps are concave fillets. face 41: native cylinder R40 mm, inward/concave, sweep 53.4873679°. Material-side checks distinguish these inside rounds from the historical false convex claim. Cylindrical runs and any spherical cap keep their exact source-face anchors; #127 supplies the tangent-round proof. Exact comparison: Python null; Rust {"id":"fillets:41","family":"fillets","record":{"axis":"z","radius":40.0,"at":[37.778,-21.811,134.0],"turned":false,"side":"concave"},"faces":[41]}.
 
 - **quiddity #127: former inside blends become concave fillets** (239 entries, 18 case globs)
 
@@ -530,6 +611,54 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (8 distinct; all in `features.json`). The first, for `corpus/mfcadpp/10092` at `features[id=chamfers:26].record.corner`: At v0.4.2, quiddity-rust#167/#160 requires a corner to reconstruct its published wedge and to have no material interior; see upstream tests/internal/recognition.rs, mfcadpp_bevel_corners_are_reconstructible_or_absent (independent OCCT audit) and bevel_corner_proof_keeps_good_wider_and_captured_points. This exact frozen Python corner [9.828, 14.663, 0.0] is now null; the feature, defining faces and remaining fields still compare against the untouched capture. Conservatively omitting an unproved optional point meets the new publication contract; it does not remove the bevel or invent replacement geometry.
 
+- **0.5.5 / All-axis level supports** (401 entries, 58 case globs)
+
+  Quiddity 0.5.5 #307 discovers X and Y levels, excludes drafted planes outside the level band, and publishes the resulting level faces and coordinates.
+
+- **0.5.5 / All-axis level coordinates** (372 entries, 35 case globs)
+
+  Quiddity 0.5.5 #307 publishes the measuring basis for a level whose height cannot be read as file Z.
+
+- **0.5.5 / Recognition inventory order** (33 entries, 33 case globs)
+
+  Quiddity 0.5.5 emits all-axis levels and risers (#307) and additional edge fillets (#297) in family order, changing the common inventory sequence.
+
+- **0.5.5 / Stock flat proof** (12 entries, 4 case globs)
+
+  Quiddity 0.5.5 #307 requires the chord to straddle the stock axis projection and stay within the stock radius, excluding the side of a protrusion.
+
+- **0.5.5 / All-axis level body evidence** (66 entries, 18 case globs)
+
+  Quiddity 0.5.5 #307 pairs the new or regrouped level with its supporting solid; the body key carries the solid bounds, volume and area.
+
+- **0.5.5 / Curved-wall and slot-end round proofs** (47 entries, 3 case globs)
+
+  Quiddity 0.5.5 #307 revises the curved-wall corner proof and recognises convex toroidal rounds that follow a concave slot end. Residual cylinders and blends follow the resulting face ownership.
+
+- **0.5.5 / Updated edge round recognition** (26 entries, 7 case globs)
+
+  Quiddity 0.5.5 #297 and #307 change the edge-round proofs, including small radii and convex rounds at concave slot ends. This entry pins the exact changed edge-round record or field.
+
+- **0.5.5 / Small edge fillet recognition** (103 entries, 7 case globs)
+
+  Quiddity 0.5.5 #297 removes the 0.6 mm fillet floor and publishes the proved edge round at its measured radius.
+
+- **0.5.5 / Body inventory after recognition upgrade** (3 entries, 3 case globs)
+
+  The evidence is stated per entry (3 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb207` at `features[id=thin_wall_bodies:114.115.116.117.118.119.120.121.122.123.124.125.126.127.128.129.130.131.132.133.134.135.136.137.138.139.140.141.142.143.144.145.146.147.148.149.150.151.152.153.155.157.158.159.160.161.162.163.164.165.166.167.168.169.170.171.172.173.179.180.181.182.183.184.185.186.187.188.189.190.191.198.199.200.208.210.212.213.214.215.216.217.218.219.220.221.224.227.233.234.235.236.237.238.239.240.241.242.246.248.249.252.254.255.257.258.259.260.261.262.263.264.265.267.268.269]`: Quiddity 0.5.5 #307 carries face integrals through the move into the recognition frame. CGB207 keeps the same 116 wall faces and thickness, while the paired area fraction changes from 0.8948159188848565 to 0.8948159188848559.
+
+- **0.5.5 / Counterbore floor proof** (2 entries, 2 case globs)
+
+  Quiddity 0.5.5 #307 requires an inward annular floor for an overlapping counterbore. The CGB242 hub bore loses the false outer step and its wall faces.
+
+- **0.5.5 / Integration of threaded surfaces** (5 entries, 1 case glob)
+
+  Quiddity 0.5.5 changes helical and B-spline integration (#302, #312) and carries the resulting integrals into the inferred frame (#307). CGB243’s affected thread surfaces or support groups read differently under the released kernel.
+
+- **0.5.5 / All-axis riser supports** (10 entries, 4 case globs)
+
+  Quiddity 0.5.5 #307 publishes risers and their supporting levels relative to each riser’s height axis and drops drafted faces from the body levels.
+
 ### features: rust-wrong (1414 entries)
 
 - **Python at the adaptive integral, Rust off (U11)** (1407 entries, 16 case globs)
@@ -564,7 +693,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   quiddity-rust v0.1.0-alpha.2 publishes section_recesses in Features (154 records over the corpus and fixtures at v0.1.0-alpha.3); each differs only by Python's faces adding plane faces, records equal. quiddity-rust gives defining faces only (Features::defining); Python quiddity's evidence view gives constituent faces (upstream need U2).
 
-### features: equivalent (571 entries)
+### features: equivalent (567 entries)
 
 - **quiddity #134: plate under trimming** (18 entries, 8 case globs)
 
@@ -598,9 +727,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Fillet 121 is a full ring of radius 33.61 and each engine reports a different point on it. Here 2 value(s), largest difference 33.6.
 
-- **a blend's reported point differs by a rounding unit** (2 entries, 2 case globs)
+- **a blend's reported point differs by a rounding unit** (`corpus/cadgenbench_inputs/cgb242` at `features[id=blends:*].record.path.at[*]`)
 
-  The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb242` at `features[id=blends:*].record.path.at[*]`: 'at' is a point of the blend's path rounded to 3 decimals: 22.779 against 22.778 is a rounding boundary. Here 2 value(s), largest difference 0.001.
+  'at' is a point of the blend's path rounded to 3 decimals: 22.779 against 22.778 is a rounding boundary. Here 2 value(s), largest difference 0.001.
 
 - **a flat-pattern overlap witness reports another triangulation's largest triangle overlap** (`corpus/ttt_inputs/sm-hanger` at `features[id=sheet_metal_bodies:*].record.flat_pattern.overlap_witnesses[*].area`)
 
@@ -622,9 +751,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   A difference of 1e-7 mm: the face's plane is at z = -40 in the STEP file; Python's value carries OpenCascade's tolerance noise, Rust's is the plane's exact height.
 
-- **Audited record field in file or inferred coordinates** (303 entries, 40 case globs)
+- **Audited record field in file or inferred coordinates** (300 entries, 39 case globs)
 
-  The evidence is stated per entry (260 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=holes:0].record.axis[2]`: quiddity #57/#58/#61: published file directions [0.0,0.0,1.0] and [0.0,0.0,-1.0]; normalized cross residual 0, dot -1. Same line; an axis/path sign is a gauge. Exact observation features[id=holes:0].record.axis[2]: captured -1.0, v0.1.1 1.0.
+  The evidence is stated per entry (257 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=holes:0].record.axis[2]`: quiddity #57/#58/#61: published file directions [0.0,0.0,1.0] and [0.0,0.0,-1.0]; normalized cross residual 0, dot -1. Same line; an axis/path sign is a gauge. Exact observation features[id=holes:0].record.axis[2]: captured -1.0, v0.1.1 1.0.
 
 - **Outline roll #91: same physical feature, changed direction gauge** (4 entries, 1 case glob)
 
@@ -678,7 +807,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   quiddity 0.5.4 (#285, for specify-core#180) adds a sorted `faces` listing to a hole's nested cbore, spotface, outer_steps items and csink, the faces that locate that sub-record among the hole's own defining faces; it changes no face, id or other record field (published hole faces are identical at v0.5.3 and v0.5.4, e.g. nist_ctc_04 holes/31 [69,70,71,72,171,172] in both). The frozen Python sub-records have no such field. The feature still pairs with Python's under its id, and its faces and every other field remain compared.
 
-### features: undetermined (2491 entries)
+### features: undetermined (2462 entries)
 
 - **face numbering differs from OpenCascade's** (`corpus/inventory_refusal/13975` at `faces[*`)
 
@@ -724,10 +853,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Both engines report the same sheet-metal body (same faces, flanges, bends and flat pattern structure; tests/fixtures/known_differences/features.json's generator, compared by hand on sm-hanger and NIST CTC-03 AP242 with each engine's analysis). A flange's area is its faces' integral in each kernel (the faces entries judge those). Here 1 value(s), largest difference 0.0916.
 
-- **a flat's reported point differs by up to 0.015 mm** (`corpus/cadgenbench_inputs/cgb242` at `features[id=flats:*].record.at[*]`)
-
-  'at' comes from each kernel's sampling of a freeform-bounded flat; not checked against an independent reference. Here 4 value(s), largest difference 0.015.
-
 - **a hole or boss location differs by up to 1.85e-3 mm** (3 entries, 3 case globs)
 
   The evidence is stated per entry (3 distinct; all in `features.json`). The first, for `corpus/nist/nist_ftc_07_asme1_rd` at `features[id=*].record.*location[*]`: Locations come from the hole's edges as each kernel reads them; these files' hole edges are B-spline approximations, and each kernel fits them differently. Not checked against an independent reference. Here 14 value(s), largest difference 0.0018.
@@ -756,9 +881,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The Rust feature on these faces (listed beside it as Rust only) is composed differently: other faces or a record differing beyond a micron.
 
-- **holes reported by Rust only** (3 entries, 3 case globs)
+- **holes reported by Rust only** (2 entries, 2 case globs)
 
-  The evidence is stated per entry (3 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb217` at `features[id=holes:319]`: Python's holes feature(s) holes:315.319.331.333.335.337.339.341.343 share faces with it but differ in record or faces (the two quiddities compose it differently).
+  The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb217` at `features[id=holes:319]`: Python's holes feature(s) holes:315.319.331.333.335.337.339.341.343 share faces with it but differ in record or faces (the two quiddities compose it differently).
 
 - **interior_voids reported by Rust only** (`corpus/cadgenbench_inputs/cgb243` at `features[id=interior_voids:31.32.33.34.126.227.528.529.530.531.532.533]`)
 
@@ -796,9 +921,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   specify-core's oracle was captured with its own venv's quiddity 0.3.9; quiddity-rust ports Python quiddity 0.4.0.dev0 call by call, and its risers and step levels joined recognise() at quiddity-rust v0.1.0-alpha.1 (q-risers-step-levels, q-land-evidence-mesh-risers). Not settled which side is right until the oracle is recaptured with quiddity 0.4.
 
-- **Audited record field in file or inferred coordinates** (957 entries, 71 case globs)
+- **Audited record field in file or inferred coordinates** (930 entries, 70 case globs)
 
-  The evidence is stated per entry (863 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[0].axis[2]`: quiddity #57/#58/#61 changed the published record. Local fields are []; No numeric frame mapping or physical-role proof for this field is established; do not assert equivalence or a kernel correction. Exact observation features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[0].axis[2]: captured -1.0, v0.1.1 1.0.
+  The evidence is stated per entry (836 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[0].axis[2]`: quiddity #57/#58/#61 changed the published record. Local fields are []; No numeric frame mapping or physical-role proof for this field is established; do not assert equivalence or a kernel correction. Exact observation features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[0].axis[2]: captured -1.0, v0.1.1 1.0.
 
 - **Unclaimed support requires recall investigation** (44 entries, 8 case globs)
 
@@ -836,7 +961,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (4 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=holes:*].record.mouth_chamfers`: At quiddity v0.5.0 (#247) holes publish measured coaxial conical mouth edge breaks as mouth_chamfers; the frozen Python record has no such field. First, holes:17 (diameter 10, at [-45,0,140]): size 1.0, depth 1.0, angle 45, face 36; the six bolt-circle holes each have one. Recorded as an unverified addition, not a certified measurement. Only the added mouth_chamfers field is explained: every other hole field, face and feature remains compared.
 
-### features: not-applicable (1066 entries)
+### features: not-applicable (1060 entries)
 
 - **Python's surface-model part does not exist in Rust** (5 entries, 5 case globs)
 
@@ -850,13 +975,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Alpha.8 record {"id":"oriented_chamfers:2","family":"oriented_chamfers","record":{"run":[0.988735,0.149678,0.0],"length":18.694,"at":[30.876,11.879,0.274],"corner":[31.254,12.205,0.0],"leg1":0.54,"leg2":0.54,"leg1_direction":[0.0,0.0,1.0],"leg2_direction":[0.149678,-0.988735,0.0],"support_spans":[[-11.091,9.429],[-9.347,9.347]],"angle":45.0,"body_key":[0.0,0.0,0.0,40.576289,17.844972,13.59351,7453.68620207,3395.44771494]},"faces":[2]}. v0.1.1 schema-5 accounting: face 2: {"group":"unexplained"}. No named refusal accounts for all of this support. No replacement is claimed for the unexplained/body faces. Exact observation features[id=oriented_chamfers:2]: captured {"id":"oriented_chamfers:2","family":"oriented_chamfers","record":{"run":[0.988735,0.149678,0.0],"length":18.694,"at":[30.876,11.879,0.274],"corner":[31.254,12.205,0.0],"leg1":0.54,"leg2":0.54,"leg1_direction":[0.0,0.0,1.0],"leg2_direction":[0.149678,-0.988735,0.0],"support_spans":[[-11.091,9.429],[-9.347,9.347]],"angle":45.0,"body_key":[0.0,0.0,0.0,40.576289,17.844972,13.59351,7453.68620207,3395.44771494]},"faces":[2]}, v0.1.1 null. Retired by quiddity #81/#92 at release fb84622b: the 120-part features sweep has no comparison at this historical path. Kernel correction #81 changes the winning frame and restores/re-pairs these supports. Current finer comparisons remain active; this absence assertion preserves the old inventory regression without exempting any returning difference. Reopened after quiddity #92 family merge: the old namespace is absent again, while the physical feature is present under its merged ID. quiddity #92 family merge at ada4a044: oriented_chamfers:2 is now chamfers:2 on the same physical faces [2]. tests/schema6.rs::merged_families_keep_the_frozen_oriented_feature_geometry checks all 20 renamed supports against the frozen geometry: same chamfer points, leg/span pairs (allowing paired swaps and reversed run sense), lengths and angles, or the same slot end planes/width. mfcadpp/10252 additionally checks the actual bevel plane and overlapping support-edge intervals. This is a namespace/representation change, not lost or newly invented recognition. Remaining body-key integral differences, where present, are below 1e-9 relative; this verdict concerns cross-family representation, not a claim of exact integral equality.  Exact alpha.2 candidate observation: {"case":"corpus/mfcadpp/10252","path":"features[id=oriented_chamfers:2]","python":{"id":"oriented_chamfers:2","family":"oriented_chamfers","record":{"run":[0.988735,0.149678,0.0],"length":18.694,"at":[30.876,11.879,0.274],"corner":[31.254,12.205,0.0],"leg1":0.54,"leg2":0.54,"leg1_direction":[0.0,0.0,1.0],"leg2_direction":[0.149678,-0.988735,0.0],"support_spans":[[-11.091,9.429],[-9.347,9.347]],"angle":45.0,"body_key":[0.0,0.0,0.0,40.576289,17.844972,13.59351,7453.68620207,3395.44771494]},"faces":[2]},"rust":null}.
 
-- **Explicit published measuring frame and end-plane data** (72 entries, 20 case globs)
+- **Schema-6 published measurement differs from frozen Python** (266 entries, 16 case globs)
 
-  The evidence is stated per entry (67 distinct; all in `features.json`). The first, for `corpus/cadgenbench/threaded_connector_109` at `features[id=flats:139].record.section_axes`: quiddity #92 adds self-contained file-coordinate measuring directions/origins; Python has no corresponding field. Specify derives end planes from those records (or explicit oriented-slot centre/direction/length), tested against actual walls and three rigid motions in tests/schema6.rs. This additive field is published explicitly, not dropped or interpreted through provenance. Exact release observation at features[id=flats:139].record.section_axes: captured null, 0.2.0-alpha.1 [[-0.45979133716192094,-0.8880269851028474,0.0],[0.8880269851028474,-0.45979133716192094,0.0]].
+  The evidence is stated per entry (245 distinct; all in `features.json`). The first, for `corpus/cadgenbench/threaded_connector_109` at `features[id=grooves:214].record.profile.body_bounds`: quiddity #92 schema-6 publication, reviewed at ada4a044: Python stores a file AABB; schema 6 stores an oriented measuring box. tests/schema6.rs::published_profile_bounds_measure_the_body_in_their_stated_basis checks every one of these 14 boxes against native B-rep extents along its three stated orthonormal axes within 1e-6 mm. The two scalar layouts cannot be compared directly. Body volume/area integral residuals remain independently undetermined. Historical exact observation: features[id=grooves:214].record.profile.body_bounds: captured [-65.47,65.47,-65.47,65.47,0.0,420.0000001], 0.2.0-alpha.1 {"origin":[0.008329991897289531,0.022317892367120378,178.81026452977366],"axes":["z",[-0.45979133716192094,-0.8880269851028474,0.0],[0.8880269851028474,-0.45979133716192094,0.0]],"bounds":[[-178.81026453,241.18973547],[-65.44635105,65.49364895],[-65.46713568,65.47286432]]}.
 
-- **Schema-6 published measurement differs from frozen Python** (270 entries, 16 case globs)
+- **Explicit published measuring frame and end-plane data** (70 entries, 20 case globs)
 
-  The evidence is stated per entry (249 distinct; all in `features.json`). The first, for `corpus/cadgenbench/threaded_connector_109` at `features[id=grooves:214].record.profile.body_bounds`: quiddity #92 schema-6 publication, reviewed at ada4a044: Python stores a file AABB; schema 6 stores an oriented measuring box. tests/schema6.rs::published_profile_bounds_measure_the_body_in_their_stated_basis checks every one of these 14 boxes against native B-rep extents along its three stated orthonormal axes within 1e-6 mm. The two scalar layouts cannot be compared directly. Body volume/area integral residuals remain independently undetermined. Historical exact observation: features[id=grooves:214].record.profile.body_bounds: captured [-65.47,65.47,-65.47,65.47,0.0,420.0000001], 0.2.0-alpha.1 {"origin":[0.008329991897289531,0.022317892367120378,178.81026452977366],"axes":["z",[-0.45979133716192094,-0.8880269851028474,0.0],[0.8880269851028474,-0.45979133716192094,0.0]],"bounds":[[-178.81026453,241.18973547],[-65.44635105,65.49364895],[-65.46713568,65.47286432]]}.
+  The evidence is stated per entry (65 distinct; all in `features.json`). The first, for `corpus/cadgenbench/threaded_connector_109` at `features[id=turned_steps:162.217].record.origin`: quiddity #92 adds self-contained file-coordinate measuring directions/origins; Python has no corresponding field. Specify derives end planes from those records (or explicit oriented-slot centre/direction/length), tested against actual walls and three rigid motions in tests/schema6.rs. This additive field is published explicitly, not dropped or interpreted through provenance. Exact release observation at features[id=turned_steps:162.217].record.origin: captured null, 0.2.0-alpha.1 [0.008329991897289531,0.022317892367120378,178.81026452977366].
 
 - **Optional merged-family field is explicitly null** (705 entries, 35 case globs)
 
@@ -866,7 +991,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (7 distinct; all in `features.json`). The first, for `corpus/mfcadpp/1007` at `features[id=oriented_chamfers:2]`: quiddity #92 family merge at ada4a044: oriented_chamfers:2 is now chamfers:2 on the same physical faces [2]. tests/schema6.rs::merged_families_keep_the_frozen_oriented_feature_geometry checks all 20 renamed supports against the frozen geometry: same chamfer points, leg/span pairs (allowing paired swaps and reversed run sense), lengths and angles, or the same slot end planes/width. mfcadpp/10252 additionally checks the actual bevel plane and overlapping support-edge intervals. This is a namespace/representation change, not lost or newly invented recognition. Remaining body-key integral differences, where present, are below 1e-9 relative; this verdict concerns cross-family representation, not a claim of exact integral equality.  Exact alpha.2 candidate observation: {"case":"corpus/mfcadpp/1007","path":"features[id=oriented_chamfers:2]","python":{"id":"oriented_chamfers:2","family":"oriented_chamfers","record":{"run":[0.0,0.963429,0.267965],"length":1.315,"at":[6.876,11.184,16.322],"corner":[6.926,11.197,16.274],"leg1":0.1,"leg2":0.1,"leg1_direction":[-1.0,0.0,0.0],"leg2_direction":[0.0,-0.267965,0.963429],"support_spans":[[-0.715,0.715],[-0.658,0.658]],"angle":45.0,"body_key":[0.0,0.0,0.0,11.999845,37.829959,20.147884,5672.85285361,2527.96466244]},"faces":[2]},"rust":null}.
 
-### features: resolved (1886 entries)
+### features: resolved (1883 entries)
 
 - **quiddity #134: turned fillet side** (190 entries, 5 case globs)
 
@@ -916,17 +1041,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   body_key[7] is the body's volume, integrated by each kernel; cgb217's faces mostly differ from the adaptive reference in Rust and not in Python (its faces[i] entries; U11), but the whole body was not integrated independently; specify-core never reads body_key. Here 5 value(s), largest difference 7.13. Retired by quiddity #81/#92 at release fb84622b: the 120-part features sweep has no comparison at this historical path. The old frame-local/scalar-array layout or old inventory is no longer the comparison unit. Schema 6 publishes measuring axes/origins and oriented bounds explicitly; replacement differences are recorded separately. This is retirement of a representation comparison, not proof that a historically unverified measurement became correct.
 
-- **body surface area in the body key differs below 1e-7 relative** (2 entries, 2 case globs)
+- **body surface area in the body key differs below 1e-7 relative** (`corpus/cadgenbench/threaded_connector_109` at `features[id=*body_key[6]`)
 
-  The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/cadgenbench/threaded_connector_109` at `features[id=*body_key[6]`: body_key[6] is the body's surface area, integrated by each kernel (e.g. ctc_04's area: 17519780.20 against 17519779.30); agreement to 1e-7 is within either kernel's integration error; specify-core never reads body_key. Here 10 value(s), largest difference 0.0616. Retired by quiddity #92 at release fb84622b: the 120-part features sweep has no comparison at this historical path. The old frame-local/scalar-array layout or old inventory is no longer the comparison unit. Schema 6 publishes measuring axes/origins and oriented bounds explicitly; replacement differences are recorded separately. This is retirement of a representation comparison, not proof that a historically unverified measurement became correct.
+  body_key[6] is the body's surface area, integrated by each kernel (e.g. ctc_04's area: 17519780.20 against 17519779.30); agreement to 1e-7 is within either kernel's integration error; specify-core never reads body_key. Here 10 value(s), largest difference 0.0616. Retired by quiddity #92 at release fb84622b: the 120-part features sweep has no comparison at this historical path. The old frame-local/scalar-array layout or old inventory is no longer the comparison unit. Schema 6 publishes measuring axes/origins and oriented bounds explicitly; replacement differences are recorded separately. This is retirement of a representation comparison, not proof that a historically unverified measurement became correct.
 
 - **body volume in the body key differs below 1e-7 relative** (`corpus/cadgenbench/threaded_connector_109` at `features[id=*body_key[7]`)
 
   body_key[7] is the body's volume, integrated by each kernel (e.g. ctc_04's area: 17519780.20 against 17519779.30); agreement to 1e-7 is within either kernel's integration error; specify-core never reads body_key. Here 10 value(s), largest difference 0.000497. Retired by quiddity #92 at release fb84622b: the 120-part features sweep has no comparison at this historical path. The old frame-local/scalar-array layout or old inventory is no longer the comparison unit. Schema 6 publishes measuring axes/origins and oriented bounds explicitly; replacement differences are recorded separately. This is retirement of a representation comparison, not proof that a historically unverified measurement became correct.
-
-- **body volume in the body key differs up to 2e-5 relative** (`corpus/nist/nist_ftc_10_asme1_rb` at `features[id=*body_key[7]`)
-
-  body_key[7] is the body's volume, integrated by each kernel; the difference follows the face integrals' (this case's faces[i].area entries judge each against the adaptive reference: e.g. string_post's face 0, Python 95.29644, Rust 95.29871, reference 95.29871), but the whole body was not integrated independently; specify-core never reads body_key. Here 1 value(s), largest difference 0.0071. At v0.2.1-alpha.1: #100 changes FTC-10 slot support 163.165 to 162.163.165.166, so the sweep now reports the complete changed-support slot rather than this scalar body-key path. The discrepancy is retained in that entry, not claimed numerically corrected. Historical label correction: features/body.rs appends volume at body_key[6] and area at [7]; the original area/volume labels above were reversed.
 
 - **quiddity #134: plate under trimming** (`corpus/nist/nist_ftc_06_asme1_rd` at `features[id=plates:*].record.u`)
 
@@ -947,10 +1068,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **interior_voids reported by Rust only** (`corpus/cadgenbench_inputs/cgb217` at `features[id=interior_voids:26.41]`)
 
   Python's interior_voids feature(s) interior_voids:25.26.28.40.41.53 share faces with it but differ in record or faces (the two quiddities compose it differently). Resolved by quiddity #49/#57/#61 at v0.1.1: The old Rust-only chamber on support 26.41 is no longer published; the named refusal policy requires proof of widening behind the throat (ADR 0011). This retained entry asserts absence; any returning departure fails even if another active entry matches it.
-
-- **step levels carry a body key in Rust where specify-core's quiddity gives none** (`corpus/inventory_refusal/14052` at `features[id=step_levels:*].record.body_key`)
-
-  specify-core's oracle was captured with its own venv's quiddity 0.3.9; quiddity-rust ports Python quiddity 0.4.0.dev0 call by call, and its risers and step levels joined recognise() at quiddity-rust v0.1.0-alpha.1 (q-risers-step-levels, q-land-evidence-mesh-risers). Not settled which side is right until the oracle is recaptured with quiddity 0.4. 14052 is the part where Python recovers by local degradation, which quiddity-rust does not port (quiddity-rust docs/alpha1.md (b), question 6). Resolved by quiddity #57/#61 at v0.1.1: Step levels are recognised in the inferred frame; the body-key-vs-null difference on 14052 is absent in the complete corpus sweep. This retained entry asserts absence; any returning departure fails even if another active entry matches it.
 
 - **a riser of two coplanar faces in Rust where specify-core's quiddity gives one face** (2 entries, 2 case globs)
 
@@ -1210,7 +1327,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (1090 entries)
+### writer: rust-correct (2267 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1220,15 +1337,15 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   The maintainer's decision Q4/Q15 (docs/questions.md): a knurl is written as AP242's turned_knurl, which needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9); Python's intent states pattern, pitch and diameter only, so the Rust writer derives the rest from the knurling standard (src/standards.rs knurl_parameters: teeth round(pi d/P), depth P/2 of DIN 82's 90 degree profile, root fillet the knurling wheel's crest radius, IS 3403:1981 and IS 6776:1980 4.3) and says so in a warning, as decided. The knurl itself is written as Python's line ('straight knurl on turned_steps:0') and reads back in both engines' terms as a knurl note on the same faces; verified by read-back (tests/writer.rs, knurls). Python writes no turned_knurl, only its text route and a UDA.
 
-- **a g6 diameter Python's reader garbles, and reads with no deviations** (2 entries, 2 case globs)
+- **a g6 diameter Python's reader garbles, and reads with no deviations** (7 entries, 2 case globs)
 
-  The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `scenarios/turned_runout_and_a_g6_fit` at `existing[key=dimension|Size_Diameter|[4]|#1]*`: The intent's nominal is 6 (the pin's Ø6 shaft, g6). Python reads back 3.006: OpenCascade's reader cannot return a tolerance whose deviations are both below nominal and garbles the value (writer.py docstring: 'Ø70 g6 reads back as 35.0145'). haecceity reads the nominal as written. Python reads no upper or lower deviation either; the Rust reader reads the fit's class, compared as the limits the class states (ISO 286 g6: -0.004/-0.012 at 6 mm, the intent's own), which the writer checks the intent's limits against before writing.
+  The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `scenarios/turned_runout_and_a_g6_fit` at `existing[key=dimension|Size_Diameter|[4]|#1].value`: The intent's nominal is 6 (the pin's Ø6 shaft, g6). Python reads back 3.006: OpenCascade's reader cannot return a tolerance whose deviations are both below nominal and garbles the value (writer.py docstring: 'Ø70 g6 reads back as 35.0145'). haecceity reads the nominal as written. Python reads no upper or lower deviation either; the Rust reader reads the fit's class, compared as the limits the class states (ISO 286 g6: -0.004/-0.012 at 6 mm, the intent's own), which the writer checks the intent's limits against before writing.
 
 - **a p6 lower deviation whose sign Python's round trip loses** (2 entries, 1 case glob)
 
   The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `scenarios/writer_every_kind_v1_writes` at `existing[key=dimension|Size_Diameter|[70]|#1].lower`: The intent states p6 on the spool's Ø130 (turned_steps:70) with upper 0.068 and lower 0.043, ISO 286's p6 at 130 mm (both above nominal). Python reads back lower -0.043: OpenCascade's plus-minus form cannot hold a range wholly above nominal (writer.py's docstring on fits). The Rust writer writes the class p6, read back and compared as the class's limits +0.068/+0.043.
 
-- **a distance -0.05/-0.1 Python's reader garbles** (`scenarios/callout_a_distance_with_limits_0` at `existing[key=dimension|Location_LinearDistance|[4]|[2]#1]*`)
+- **a distance -0.05/-0.1 Python's reader garbles** (3 entries, 1 case glob)
 
   The intent states distance 10, upper -0.05, lower -0.1 (scenario value '-0.05/-0.1'). Python reads back value 5.05 and no deviations: OpenCascade cannot return a tolerance wholly below nominal (writer.py docstring). haecceity reads 10 with -0.05/-0.1, as written.
 
@@ -1258,7 +1375,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 - **Python's write fails its verification on items with no faces; Rust writes the rest and lists them (Q17)** (`nist/nist_ctc_05_asme1_ap242` at `write`)
 
-  Captured from specify-core with its ISO 286 extension (branch iso286-3150; docs/questions.md Q8, 'Recapture source'), which applies this part's answers where the earlier specify-core refused its Ø558.8 diameter. Python's own intent has the size (H11, 0.11/0.0, clearance for M10) and the position of two hole patterns, hole_patterns.linear:84.85.86.87.88.89 and :78.79.80.81.82.83, with faces []; its write raises VerificationError naming exactly those four ('limits 0.11/0.0 not in file' twice, 'position on [] missing or wrong' twice). As question Q17 decides, the Rust writer writes the rest (material, general tolerance, finish, edges) and lists each of the four in not_written ('the size on hole_patterns.linear:84.85.86.87.88.89 names no faces, so nothing in the file can carry it (question Q17)'; checked by running specify-core write --accept-defaults with the oracle's analysis), verified by reading back; the same file is the cross-engine check's nist/nist_ctc_05_asme1_ap242, which OpenCascade opens and reads (tests/cross_engine.rs). Shared planner, #75 integration: the writer also reports and omits the General offsets 171.45, 206.375 and 241.3 from face 8 to target sets [78,79,84,85], [80,81,86,87] and [82,83,88,89]. Those fallback coordinates cannot be reconciled with the answered position requirements. They have no written PMI or new characteristic numbers; the independent cross-engine recapture confirms all three are absent, and their stale per-item cross-engine exceptions are removed. This parent write-result difference still records Python’s Q17 refusal versus Rust’s supported write and explicit unresolved-proposal report.
+  Captured from specify-core with its ISO 286 extension (branch iso286-3150; docs/questions.md Q8, 'Recapture source'), which applies this part's answers where the earlier specify-core refused its Ø558.8 diameter. Python's own intent has the size (H11, 0.11/0.0, clearance for M10) and the position of two hole patterns, hole_patterns.linear:84.85.86.87.88.89 and :78.79.80.81.82.83, with faces []; its write raises VerificationError naming exactly those four ('limits 0.11/0.0 not in file' twice, 'position on [] missing or wrong' twice). As question Q17 decides, the Rust writer writes the rest (material, general tolerance, finish, edges) and lists each of the four in not_written ('the size on hole_patterns.linear:84.85.86.87.88.89 names no faces, so nothing in the file can carry it (question Q17)'; checked using the archived CLI's whole-intent default approval against the oracle's analysis), verified by reading back; the same file is the cross-engine check's nist/nist_ctc_05_asme1_ap242, which OpenCascade opens and reads (tests/cross_engine.rs). Shared planner, #75 integration: the writer also reports and omits the General offsets 171.45, 206.375 and 241.3 from face 8 to target sets [78,79,84,85], [80,81,86,87] and [82,83,88,89]. Those fallback coordinates cannot be reconciled with the answered position requirements. They have no written PMI or new characteristic numbers; the independent cross-engine recapture confirms all three are absent, and their stale per-item cross-engine exceptions are removed. This parent write-result difference still records Python’s Q17 refusal versus Rust’s supported write and explicit unresolved-proposal report.
 
 - **the report counts the dimensions written under the general tolerance (#63)** (`*` at `write.written[*under the general tolerance]`)
 
@@ -1276,13 +1393,13 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   Shared planner, #75: the frozen Python intent sizes a subset of the recognised bore faces; quiddity::dimensioning v0.4.0 uses the complete defining support of the same hole or equal-hole group. The writer oracle reads the removed subset and added complete-support roots explicitly. Nominals and answered ISO 286 fit classes are preserved; writer verification checks the class against the answered limits. The oracle comparison can expand class limits only on its old intent face set, so the newly keyed full support reads as a class without numeric limits. Only these exact measured roots are covered; deferred owners remain unchanged.
 
-- **Basic bolt-circle and bore use distinct shared roles on the same complete support (#75)** (4 entries, 3 case globs)
+- **Basic bolt-circle and bore use distinct shared roles on the same complete support (#75)** (10 entries, 3 case globs)
 
   The evidence is stated per entry (4 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb243` at `existing[key=dimension|Size_Diameter|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]|#1]`: Shared planner, #75: this exact occurrence now reads Ø70 Basic from answered:dim:pattern[hole:10.11.578.579,hole:12.13.576.577,hole:14.15.574.575,hole:16.17.572.573,hole:2.3.586.587,hole:4.5.584.585,hole:6.7.582.583,hole:8.9.580.581]/bolt_circle.diameter, before the answered-fit bore on the same complete face support. Python states only its member bore size. The separate bore retains its answered fit and moves to the next same-face comparison occurrence; characteristic identities use planner roles and are unchanged. The oracle's fit-limit projection requires both matching faces and matching nominal, preventing the Basic bolt-circle diameter from inheriting the bore fit limits. Exact fresh readback differences: {"case":"corpus/cadgenbench_inputs/cgb243","path":"existing[key=dimension\|Size_Diameter\|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]\|#1]","python":null,"rust":{"kind":"dimension","type":"Size_Diameter","faces":[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587],"value":70.0,"provenance":"specify-core:written:v1","key":"dimension\|Size_Diameter\|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]\|#1"}}. The actual STEP Basic tolerance is verified by the planner regression; no dimensional value is normalized away.
 
-- **Exact unsupported planner proposal is reported, not written (shared planner, #75)** (62 entries, 11 case globs)
+- **Exact unsupported planner proposal is reported, not written (shared planner, #75)** (53 entries, 11 case globs)
 
-  The evidence is stated per entry (13 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `write.not_written[shared planner dim:envelope:0:min/to/hole:1261.1262/0: General contract conflicts with an answered requirement; retained answered intent instead]`: Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. The shared General proposal cannot replace the answered/stored tolerance contract. It is omitted and explicitly reported; the existing intent path remains authoritative. This entry covers the exact not_written diagnostic, never an extra dimension. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance.
+  The evidence is stated per entry (53 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `write.not_written[shared planner dim:envelope:0:min/to/hole:1261.1262/0: General contract conflicts with an answered requirement; retained answered intent instead]`: On corpus/cadgenbench_inputs/cgb202, shared planner dim:envelope:0:min/to/hole:1261.1262/0 is reported because the answered tolerance contract takes precedence over this General proposal.
 
 - **Exact shared location conveyance or physical-support change (#75)** (903 entries, 31 case globs)
 
@@ -1308,6 +1425,122 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension\|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics. Specify writes basic location dimensions for answered positions, so every written case with one reads basic: true on readback.
 
+- **ADR P11: an answer that writes PMI is not stored; the file states it** (75 entries, 45 case globs)
+
+  The evidence is stated per entry (74 distinct; all in `writer.json`). The first, for `corpus/mfcadpp/1000` at `resume.part.material`: ADR P11 rule 2 (src/feature_table.rs storable): a file stores only the answers that leave no PMI, and the file's PMI is the only copy of the rest. Python stores part.material = "steel" in its payload; that answer is a requirement whose value is not none, so the Rust writer writes it as PMI and does not store it: answers_for leaves it out. Its PMI is written: no other new writer-oracle difference for corpus/mfcadpp/1000 (its existing readback is Python's, apart from the entries already here). Only this exact case and path are covered.
+
+- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (97 entries, 47 case globs)
+
+  ADR P11 adds the diametral field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (55 entries, 32 case globs)
+
+  ADR P11 adds the mmc field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (55 entries, 32 case globs)
+
+  ADR P11 adds the modifiers field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (389 entries, 49 case globs)
+
+  ADR P11 adds the text field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (97 entries, 47 case globs)
+
+  ADR P11 adds the zone field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's fit, a 0.3.0 read-back field the Python reference does not have** (56 entries, 36 case globs)
+
+  ADR P11 adds the fit field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's class, a 0.3.0 read-back field the Python reference does not have** (29 entries, 28 case globs)
+
+  ADR P11 adds the class field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's designation, a 0.3.0 read-back field the Python reference does not have** (29 entries, 28 case globs)
+
+  ADR P11 adds the designation field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's drill_diameter, a 0.3.0 read-back field the Python reference does not have** (28 entries, 28 case globs)
+
+  ADR P11 adds the drill_diameter field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's hand, a 0.3.0 read-back field the Python reference does not have** (29 entries, 28 case globs)
+
+  ADR P11 adds the hand field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's pitch, a 0.3.0 read-back field the Python reference does not have** (31 entries, 28 case globs)
+
+  ADR P11 adds the pitch field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's side, a 0.3.0 read-back field the Python reference does not have** (29 entries, 28 case globs)
+
+  ADR P11 adds the side field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's spec, a 0.3.0 read-back field the Python reference does not have** (29 entries, 28 case globs)
+
+  ADR P11 adds the spec field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's through, a 0.3.0 read-back field the Python reference does not have** (17 entries, 17 case globs)
+
+  ADR P11 adds the through field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's drill_depth, a 0.3.0 read-back field the Python reference does not have** (11 entries, 11 case globs)
+
+  ADR P11 adds the drill_depth field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's full_thread, a 0.3.0 read-back field the Python reference does not have** (11 entries, 11 case globs)
+
+  ADR P11 adds the full_thread field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's finish, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
+
+  ADR P11 adds the finish field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's diameter, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
+
+  ADR P11 adds the diameter field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's pattern, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
+
+  ADR P11 adds the pattern field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's root_fillet, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
+
+  ADR P11 adds the root_fillet field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's teeth, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
+
+  ADR P11 adds the teeth field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's tooth_depth, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
+
+  ADR P11 adds the tooth_depth field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **the existing item's length, a 0.3.0 read-back field the Python reference does not have** (`scenarios/turned_external_thread_and_straight_knurl` at `existing[key=note|external thread|[4]|#1].length`)
+
+  ADR P11 adds the length field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
+
+- **General sizes omitted on a datum feature** (8 entries, 8 case globs)
+
+  The evidence is stated per entry (8 distinct; all in `writer.json`). The first, for `corpus/gramel/GRM-03_thumbwheel_drive_screw` at `write.not_written[general size 3 on turned_steps:6 faces [6]: the faces establish a datum and the writer cannot mark a datum feature of size]`: On corpus/gramel/GRM-03_thumbwheel_drive_screw, general size 3 on turned_steps:6 faces [6] is reported because the writer cannot mark this datum feature of size for preservation.
+
+- **General dimensions with missing supports** (45 entries, 4 case globs)
+
+  The evidence is stated per entry (45 distinct; all in `writer.json`). The first, for `corpus/mfcadpp/1007` at `write.not_written[general location 0.778084 to faces [] from faces [1]: the location of holes:4.7.20.21 names no faces (question Q17)]`: On corpus/mfcadpp/1007, general location 0.778084 to faces [] from faces [1] is reported because the location of holes:4.7.20.21 names no faces and AP242 needs both supports.
+
+- **General dimensions already stated by imported PMI** (30 entries, 2 case globs)
+
+  The evidence is stated per entry (30 distinct; all in `writer.json`). The first, for `nist/nist_ctc_03_asme1_ap242` at `write.not_written[general location 447.345 to faces [11, 12] from faces [16, 17]: the file already states it; not written again]`: On nist/nist_ctc_03_asme1_ap242, general location 447.345 to faces [11, 12] from faces [16, 17] is reported because the existing PMI already states this measurement, so P11 preserves it.
+
+- **0.5.5 / Writer CGB242 bore support** (9 entries, 1 case glob)
+
+  Quiddity 0.5.5 #307 requires a proved annular floor for overlapping counterbores. The hub bore loses its false outer step and the staged writer uses the corrected faces for locations and size.
+
+- **0.5.5 / Writer drafted level omission** (`corpus/mfcadpp/10077` at `write`)
+
+  Quiddity 0.5.5 #307 excludes the drafted support from the height ladder, removing the obsolete unmatched principal-plane diagnostic on 10077 face 11.
+
 ### writer: not-applicable (15 entries)
 
 - **Python's three parts of one product are one part here** (`nist/nist_ctc_02_asme1_ap242` at `write.message[*]`)
@@ -1326,15 +1559,19 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   Python's own text route ('manufacturing requirement' sentences, leaders) or its own datum symbol lettering, which haecceity does not write (decisions 5 and 6 of docs/step-ap242.md); the semantic content each test also checks is ported in tests/writer.rs.
 
-### writer: resolved (2 entries)
+### writer: resolved (13 entries)
+
+- **Exact unsupported planner proposal is reported, not written (shared planner, #75)** (9 entries, 2 case globs)
+
+  The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `write.not_written[shared planner dim:envelope:2:min/to/step:1876/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]`: Quiddity 0.5.5 #307 no longer publishes this CGB202 side as a stock step, so no unmatched principal-plane proposal is made. The historical exact diagnostic must stay absent.
 
 - **Resolved exact unsupported planner proposal (shared planner, #75)** (`corpus/mfcadpp/10103` at `write.not_written[shared planner dim:plane:2/to/step:29/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]`)
 
   At b590592 quiddity #241 recognises prismatic_through_cuts:28.29.30, so face 29 (Python's step_levels:9.14.29.36) is a through-cut wall and the planner no longer proposes the projected plane:2/to/step:29 location. The diagnostic, previously reported and not written, must not return; no other writer output for this part changes.
 
-- **Verified saved answers exclude feature IDs absent from the current recogniser** (`scenarios/turned_a_typed_thread_depth_is_written` at `resume.hole.function:holes:3.5`)
+- **0.5.5 / Writer CGB202 stock flat correction** (3 entries, 1 case glob)
 
-  Resolved by quiddity #216: the native pin hole now claims its planar floor 5 and has exactly the frozen Python ID holes:3.5. The frozen tapped:M5@5.6 value resumes unchanged, with the same 5.6 mm full-thread and 8 mm drilling depths. This exact resolved entry is a negative regression assertion: losing that answer again fails the writer oracle. Before #216, v0.4.9 recognised only holes:3, so verified rematching retained the frozen answer in the raw payload and unresolved review rather than applying an unsupported feature ID.
+  The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `write.written[50 dimensions under the general tolerance]`: Quiddity 0.5.5 #307 excludes protrusion sides from stock flats. Removing flats 1734 and 1735 retires those deferred general dimensions. Round 6 retains the captured legacy writer's independently specified measurements; the integrated writer reports exactly 839 general dimensions as before. This reviewed-branch-only line must stay absent.
 
 ## Open work
 
@@ -1441,8 +1678,6 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `nist/nist_ctc_03_asme1_ap242`: `features[id=sheet_metal_bodies:*].record.flat_pattern.flat_faces[*].triangles[*`
 - **a flange's area differs below 4e-6 relative** (1 entry)
   - `corpus/cadgenbench_inputs/cgb245`: `features[id=sheet_metal_bodies:*].record.flanges[*].area`
-- **a flat's reported point differs by up to 0.015 mm** (1 entry)
-  - `corpus/cadgenbench_inputs/cgb242`: `features[id=flats:*].record.at[*]`
 - **a hole or boss location differs by up to 1.85e-3 mm** (3 entries)
   - `corpus/nist/nist_ftc_07_asme1_rd`: `features[id=*].record.*location[*]`
   - `corpus/nist/nist_ftc_10_asme1_rb`: `features[id=*].record.*location[*]`
@@ -1466,9 +1701,8 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
 - **interior_voids reported by Python only** (2 entries)
   - `corpus/cadgenbench_inputs/cgb217`: `features[id=interior_voids:25.26.28.40.41.53]`
   - `corpus/cadgenbench_inputs/cgb243`: `features[id=interior_voids:29.30.31.32.33.34.75.126.127.128.139.146.147.153.158.159.186.220.226.227.528.529.530.531.532.533.534.535]`
-- **holes reported by Rust only** (3 entries)
+- **holes reported by Rust only** (2 entries)
   - `corpus/cadgenbench_inputs/cgb217`: `features[id=holes:319]`
-  - `corpus/cadgenbench_inputs/cgb242`: `features[id=holes:156.158.173.185]`
   - `corpus/cadgenbench_inputs/cgb243`: `features[id=holes:133.134.135.136.137.138.139.140.141.142.143.144.145.146.187]`
 - **interior_voids reported by Rust only** (1 entry)
   - `corpus/cadgenbench_inputs/cgb243`: `features[id=interior_voids:31.32.33.34.126.227.528.529.530.531.532.533]`
@@ -1645,15 +1879,14 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
 - **a riser of two coplanar faces in Rust where specify-core's quiddity gives one face** (2 entries)
   - `corpus/mfcadpp/10049`: `features[id=risers:2].faces-plane`
   - `corpus/mfcadpp/10060`: `features[id=risers:23].faces-plane`
-- **Audited record field in file or inferred coordinates** (957 entries)
+- **Audited record field in file or inferred coordinates** (930 entries)
   - `corpus/cadgenbench/flanged_spool_132`: `features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[0].axis[2]`, `features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[0].location[2]`, `features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[1].axis[2]`, `features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[1].location[2]`, `features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[2].axis[2]`, `features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[2].location[2]`, `features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[3].axis[2]`, `features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[3].location[2]`, `features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[4].axis[2]`, `features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[4].location[2]`, `features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[5].axis[2]`, `features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[5].location[2]`, `features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.center[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[0].axis[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[0].location[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[1].axis[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[1].location[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[2].axis[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[2].location[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[3].axis[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[3].location[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[4].axis[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[4].location[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[5].axis[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[5].location[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[6].axis[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[6].location[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[7].axis[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[7].location[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[8].axis[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[8].location[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[9].axis[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[9].location[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[10].axis[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[10].location[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[11].axis[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.holes[11].location[2]`, `features[id=hole_patterns.bolt_circle:57.58.59.60.61.62.63.64.65.66.67.68].record.center[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[0].axis[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[0].location[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[1].axis[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[1].location[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[2].axis[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[2].location[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[3].axis[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[3].location[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[4].axis[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[4].location[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[5].axis[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[5].location[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[6].axis[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[6].location[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[7].axis[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[7].location[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[8].axis[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[8].location[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[9].axis[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[9].location[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[10].axis[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[10].location[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[11].axis[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.holes[11].location[2]`, `features[id=hole_patterns.bolt_circle:73.74.75.76.77.78.79.80.81.82.83.84].record.center[2]`, `features[id=holes:0].record.location[2]`, `features[id=holes:16].record.location[2]`, `features[id=holes:17].record.location[2]`, `features[id=holes:18].record.location[2]`, `features[id=holes:20].record.location[2]`, `features[id=holes:21].record.location[2]`, `features[id=holes:57].record.location[2]`, `features[id=holes:58].record.location[2]`, `features[id=holes:59].record.location[2]`, `features[id=holes:60].record.location[2]`, `features[id=holes:61].record.location[2]`, `features[id=holes:62].record.location[2]`, `features[id=holes:63].record.location[2]`, `features[id=holes:64].record.location[2]`, `features[id=holes:65].record.location[2]`, `features[id=holes:66].record.location[2]`, `features[id=holes:67].record.location[2]`, `features[id=holes:68].record.location[2]`, `features[id=holes:73].record.location[2]`, `features[id=holes:74].record.location[2]`, `features[id=holes:75].record.location[2]`, `features[id=holes:76].record.location[2]`, `features[id=holes:77].record.location[2]`, `features[id=holes:78].record.location[2]`, `features[id=holes:79].record.location[2]`, `features[id=holes:80].record.location[2]`, `features[id=holes:81].record.location[2]`, `features[id=holes:82].record.location[2]`, `features[id=holes:83].record.location[2]`, `features[id=holes:84].record.location[2]`
-  - `corpus/cadgenbench/threaded_connector_109`: `features[id=flats:139].record.axis_line[0]`, `features[id=flats:139].record.axis_line[1]`
   - `corpus/cadgenbench_inputs/cgb203`: `features[id=circular_face_patterns:0.1.2.3.4.5.6.7.8.9.10.11.12.13.14.15.16.17.18.19.20.21.22.23.24.25.26.27.28.29.30.31.32.33.34.35.36.37.38.39.40.41.42.43.44.45.46.47.48.49.50.51.52.53.54.55.56.57.58.59.60.61.62.63.64.65.66.67.68.69.70.71.72.73.74.75.76.77.78.79.80.81.82.83.84.85.86.87.88.89.90.91.92.93.94.95.96.97.98.99.100.101.102.103.104.105.106.107.108.109.110.111.112.113.114.115.116.117.118.119.120.121.122.123.124.125.126.127.128.129.130.131.132.133.134.135.136.137.138.139.140.141.142.143.144.146.150.151.152.153.154.155].record.axis_direction[2]`, `features[id=holes:149].record.location[2]`
   - `corpus/cadgenbench_inputs/cgb217`: `features[id=holes:26].record.location[0]`, `features[id=holes:26].record.location[1]`, `features[id=holes:28].record.location[0]`, `features[id=holes:28].record.location[1]`, `features[id=turned_steps:314].record.lo`
-  - `corpus/cadgenbench_inputs/cgb242`: `features[id=blends:155.383].record.path.normal[2]`, `features[id=blends:157.827].record.path.normal[2]`, `features[id=blends:160.779].record.path.normal[2]`, `features[id=blends:161.778].record.path.normal[2]`, `features[id=blends:20.432].record.path.normal[2]`, `features[id=blends:224.299].record.path.normal[2]`, `features[id=blends:39.433].record.path.normal[2]`, `features[id=blends:51.434].record.path.normal[2]`, `features[id=blends:83.436].record.path.normal[2]`, `features[id=blends:84.435].record.path.normal[2]`, `features[id=flats:123].record.stock_span[0]`, `features[id=flats:123].record.stock_span[1]`, `features[id=flats:123].record.axis_direction[2]`, `features[id=flats:126].record.stock_span[0]`, `features[id=flats:126].record.stock_span[1]`, `features[id=flats:126].record.axis_direction[2]`, `features[id=flats:237].record.stock_span[0]`, `features[id=flats:237].record.stock_span[1]`, `features[id=flats:237].record.axis_direction[2]`, `features[id=flats:93].record.stock_span[0]`, `features[id=flats:93].record.stock_span[1]`, `features[id=flats:93].record.axis_direction[2]`, `features[id=flats:97].record.stock_span[0]`, `features[id=flats:97].record.stock_span[1]`, `features[id=flats:97].record.axis_direction[2]`, `features[id=hole_patterns.set:21.22.40.41.89.91].record.holes[0].axis[2]`, `features[id=hole_patterns.set:21.22.40.41.89.91].record.holes[0].location[2]`, `features[id=hole_patterns.set:21.22.40.41.89.91].record.holes[1].axis[2]`, `features[id=hole_patterns.set:21.22.40.41.89.91].record.holes[1].location[2]`, `features[id=hole_patterns.set:21.22.40.41.89.91].record.holes[2].axis[2]`, `features[id=hole_patterns.set:21.22.40.41.89.91].record.holes[2].location[2]`, `features[id=holes:21.22].record.location[2]`, `features[id=holes:222.223].record.location[2]`, `features[id=holes:40.41].record.location[2]`, `features[id=holes:89.91].record.location[2]`
-  - `corpus/cadgenbench_inputs/cgb243`: `features[id=flats:255].record.stock_span[0]`, `features[id=flats:255].record.stock_span[1]`, `features[id=flats:255].record.axis_direction[1]`, `features[id=flats:260].record.stock_span[0]`, `features[id=flats:260].record.stock_span[1]`, `features[id=flats:260].record.axis_direction[1]`, `features[id=hole_patterns.set:51.52.371.372].record.holes[0].axis[2]`, `features[id=hole_patterns.set:51.52.371.372].record.holes[0].location[2]`, `features[id=hole_patterns.set:51.52.371.372].record.holes[1].axis[2]`, `features[id=hole_patterns.set:51.52.371.372].record.holes[1].location[2]`, `features[id=holes:148.149.150.151.152.153.154.155.156.157.158.159.185].record.location[2]`, `features[id=holes:51.372].record.location[2]`, `features[id=holes:52.371].record.location[2]`, `features[id=holes:57.333].record.location[1]`, `features[id=holes:58.332].record.location[1]`, `features[id=holes:75.76.77.78.79.80.81.82.83.84.85.300].record.location[1]`
+  - `corpus/cadgenbench_inputs/cgb242`: `features[id=blends:155.383].record.path.normal[2]`, `features[id=blends:157.827].record.path.normal[2]`, `features[id=blends:160.779].record.path.normal[2]`, `features[id=blends:161.778].record.path.normal[2]`, `features[id=blends:20.432].record.path.normal[2]`, `features[id=blends:224.299].record.path.normal[2]`, `features[id=blends:39.433].record.path.normal[2]`, `features[id=blends:51.434].record.path.normal[2]`, `features[id=blends:84.435].record.path.normal[2]`, `features[id=hole_patterns.set:21.22.40.41.89.91].record.holes[0].axis[2]`, `features[id=hole_patterns.set:21.22.40.41.89.91].record.holes[0].location[2]`, `features[id=hole_patterns.set:21.22.40.41.89.91].record.holes[1].axis[2]`, `features[id=hole_patterns.set:21.22.40.41.89.91].record.holes[1].location[2]`, `features[id=hole_patterns.set:21.22.40.41.89.91].record.holes[2].axis[2]`, `features[id=hole_patterns.set:21.22.40.41.89.91].record.holes[2].location[2]`, `features[id=holes:21.22].record.location[2]`, `features[id=holes:222.223].record.location[2]`, `features[id=holes:40.41].record.location[2]`, `features[id=holes:89.91].record.location[2]`
+  - `corpus/cadgenbench_inputs/cgb243`: `features[id=hole_patterns.set:51.52.371.372].record.holes[0].axis[2]`, `features[id=hole_patterns.set:51.52.371.372].record.holes[0].location[2]`, `features[id=hole_patterns.set:51.52.371.372].record.holes[1].axis[2]`, `features[id=hole_patterns.set:51.52.371.372].record.holes[1].location[2]`, `features[id=holes:148.149.150.151.152.153.154.155.156.157.158.159.185].record.location[2]`, `features[id=holes:51.372].record.location[2]`, `features[id=holes:52.371].record.location[2]`, `features[id=holes:57.333].record.location[1]`, `features[id=holes:58.332].record.location[1]`, `features[id=holes:75.76.77.78.79.80.81.82.83.84.85.300].record.location[1]`
   - `corpus/cadgenbench_inputs/cgb245`: `features[id=hole_patterns.rectangle:17.18.24.25.261.262.301.302].record.holes[0].location[1]`, `features[id=hole_patterns.rectangle:17.18.24.25.261.262.301.302].record.holes[1].location[0]`, `features[id=hole_patterns.rectangle:17.18.24.25.261.262.301.302].record.holes[2].location[1]`, `features[id=hole_patterns.rectangle:17.18.24.25.261.262.301.302].record.holes[3].location[0]`, `features[id=slots:13.306.307.308.309].record.length`, `features[id=slots:21.287.288.289.290].record.length`
-  - `corpus/gramel/string_post`: `features[id=blends:14].record.path.normal[2]`, `features[id=blends:7].record.path.normal[2]`, `features[id=flats:11].record.stock_span[0]`, `features[id=flats:11].record.stock_span[1]`, `features[id=flats:11].record.axis_direction[2]`, `features[id=flats:13].record.stock_span[0]`, `features[id=flats:13].record.stock_span[1]`, `features[id=flats:13].record.axis_direction[2]`
+  - `corpus/gramel/string_post`: `features[id=flats:11].record.stock_span[0]`, `features[id=flats:11].record.stock_span[1]`, `features[id=flats:11].record.axis_direction[2]`, `features[id=flats:13].record.stock_span[0]`, `features[id=flats:13].record.stock_span[1]`, `features[id=flats:13].record.axis_direction[2]`
   - `corpus/mfcadpp/1000`: `features[id=section_recesses:25].record.geometry.profile.boundary[0].bulge`, `features[id=section_recesses:25].record.geometry.profile.material_side`, `features[id=section_recesses:36.37.38].record.geometry.ends.low.surface.type`, `features[id=section_recesses:36.37.38].record.geometry.ends.low.surface.gradient`, `features[id=section_recesses:36.37.38].record.geometry.ends.low.surface.axis_point`, `features[id=section_recesses:36.37.38].record.geometry.ends.low.surface.axis_direction`, `features[id=section_recesses:36.37.38].record.geometry.ends.low.surface.radius`, `features[id=section_recesses:36.37.38].record.geometry.ends.low.surface.branch`, `features[id=section_recesses:36.37.38].record.geometry.ends.high.surface.type`, `features[id=section_recesses:36.37.38].record.geometry.ends.high.surface.axis_point`, `features[id=section_recesses:36.37.38].record.geometry.ends.high.surface.axis_direction`, `features[id=section_recesses:36.37.38].record.geometry.ends.high.surface.radius`, `features[id=section_recesses:36.37.38].record.geometry.ends.high.surface.branch`, `features[id=section_recesses:36.37.38].record.geometry.ends.high.surface.gradient`
   - `corpus/mfcadpp/10007`: `features[id=section_recesses:22].record.geometry.profile.boundary[0].bulge`, `features[id=section_recesses:22].record.geometry.profile.material_side`, `features[id=through_steps:2.7].record.section[0][0]`, `features[id=through_steps:2.7].record.section[0][1]`, `features[id=through_steps:2.7].record.section[2][0]`, `features[id=through_steps:2.7].record.section[2][1]`, `features[id=through_steps:6.8].record.section[0][0]`, `features[id=through_steps:6.8].record.section[0][1]`, `features[id=through_steps:6.8].record.section[2][0]`, `features[id=through_steps:6.8].record.section[2][1]`
   - `corpus/mfcadpp/10038`: `features[id=through_steps:4.6].record.section[0][0]`, `features[id=through_steps:4.6].record.section[0][1]`, `features[id=through_steps:4.6].record.section[2][0]`, `features[id=through_steps:4.6].record.section[2][1]`
@@ -1689,7 +1922,7 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `corpus/mfcadpp_holdout/203`: `features[id=section_recesses:3.5.10].record.geometry.profile.material_side`, `features[id=section_recesses:3.5.10].record.geometry.ends.low.condition`, `features[id=section_recesses:3.5.10].record.geometry.ends.high.condition`
   - `corpus/mfcadpp_holdout/205`: `features[id=through_steps:3.4].record.section[0][0]`, `features[id=through_steps:3.4].record.section[0][1]`, `features[id=through_steps:3.4].record.section[2][0]`, `features[id=through_steps:3.4].record.section[2][1]`
   - `corpus/mfcadpp_holdout/238`: `features[id=through_steps:2.3].record.section[0][0]`, `features[id=through_steps:2.3].record.section[0][1]`, `features[id=through_steps:2.3].record.section[2][0]`, `features[id=through_steps:2.3].record.section[2][1]`
-  - `corpus/mfcadpp_holdout/244`: `features[id=risers:18].record.z_lo`, `features[id=risers:18].record.z_hi`, `features[id=risers:18].record.body_levels[0].z`, `features[id=risers:18].record.body_levels[1].z`, `features[id=section_recesses:3.5.12].record.geometry.profile.material_side`, `features[id=section_recesses:3.5.12].record.geometry.ends.low.condition`, `features[id=section_recesses:3.5.12].record.geometry.ends.high.condition`
+  - `corpus/mfcadpp_holdout/244`: `features[id=risers:18].record.z_lo`, `features[id=risers:18].record.z_hi`, `features[id=risers:18].record.body_levels[0].z`, `features[id=section_recesses:3.5.12].record.geometry.profile.material_side`, `features[id=section_recesses:3.5.12].record.geometry.ends.low.condition`, `features[id=section_recesses:3.5.12].record.geometry.ends.high.condition`
   - `corpus/mfcadpp_holdout/257`: `features[id=risers:15].record.z_lo`, `features[id=risers:15].record.z_hi`, `features[id=risers:8].record.z_lo`, `features[id=risers:8].record.z_hi`
   - `corpus/mfcadpp_holdout/265`: `features[id=risers:11].record.axis`, `features[id=risers:11].record.z_lo`, `features[id=risers:11].record.z_hi`, `features[id=risers:11].record.lo_at_envelope`, `features[id=risers:11].record.hi_at_envelope`, `features[id=risers:11].record.body_levels[0].z`, `features[id=risers:11].record.body_levels[1].z`, `features[id=risers:11].record.body_levels[2].z`
   - `corpus/mfcadpp_holdout/317`: `features[id=hole_patterns.set:16.21].record.holes[0].axis[0]`, `features[id=hole_patterns.set:16.21].record.holes[0].location[0]`, `features[id=hole_patterns.set:16.21].record.holes[1].axis[0]`, `features[id=hole_patterns.set:16.21].record.holes[1].location[0]`, `features[id=holes:16].record.location[0]`, `features[id=holes:21].record.location[0]`

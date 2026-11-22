@@ -1,14 +1,36 @@
+//! The manufacturing process through the engine's `edit` (Specify 0.3.0: a save applies an edit
+//! list; a 0.2 answers map reads as fills). The file's process stands (ADR P11): a fill that
+//! differs from it is refused, all or nothing, and a list that names nothing leaves the bytes.
 use haecceity::p21::{Attribute, Document, Edit, RawEntity};
-use haecceity::pmi::{self, PartId, PartPmi};
 use serde_json::{Map, Value, json};
 use specify_core::{process, resume};
 use specify_core_wasm::session::Session;
 
+/// The engine's `edit` of `answers` (a 0.2 answers map, read as fills): its bytes.
 fn write(session: &Session, answers: &Value) -> Vec<u8> {
-    let written = session
-        .write_pmi(answers.as_object().unwrap(), None, None)
-        .unwrap();
+    let written = session.edit(&answers.to_string());
+    assert_eq!(written["written"], json!(true), "{written}");
     serde_json::from_value(written["bytes"].clone()).unwrap()
+}
+
+/// The engine's `edit` of `answers`, refused: what it says. Nothing is written.
+fn refused(session: &Session, answers: &Value) -> Value {
+    let out = session.edit(&answers.to_string());
+    assert_eq!(out["written"], json!(false), "{out}");
+    out
+}
+
+/// The fixtures: a file Specify 0.2 wrote from these answers (the whole intent, the answers
+/// stored), made by the library's writer. Only the edits the tests make go through the engine.
+fn written_by_0_2(answers: &Value) -> Vec<u8> {
+    let plate = include_bytes!("../../../tests/fixtures/parts/plate.step");
+    let loaded = specify_core::part::load_bytes("plate.step", plate.to_vec()).unwrap();
+    let analysis = specify_core::api::analyse(&loaded).unwrap();
+    let answers = answers.as_object().unwrap();
+    let intent = specify_core::api::preview(&analysis, answers).unwrap();
+    specify_core::writer::write_bytes(&loaded, &intent, Some(answers))
+        .unwrap()
+        .0
 }
 
 fn open(bytes: &[u8]) -> Session {
@@ -20,8 +42,7 @@ fn item(name: &str, value: &str) -> String {
 }
 
 fn marked_process(replacement: Option<(&str, &str)>) -> Document {
-    let plate = include_bytes!("../../../tests/fixtures/parts/plate.step");
-    let bytes = write(&open(plate), &json!({process::QUESTION: process::MACHINED}));
+    let bytes = written_by_0_2(&json!({process::QUESTION: process::MACHINED}));
     let original = String::from_utf8(bytes).unwrap();
     let before = item(process::ITEM, process::MACHINED);
     assert_eq!(original.matches(&before).count(), 1);
@@ -72,13 +93,9 @@ fn edited_process(replacement: Option<(&str, &str)>) -> Vec<u8> {
     doc.apply(&edit).unwrap().bytes
 }
 
-fn conflict(analysis: &Value) -> &Value {
-    analysis["resume"]["conflicts"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|c| c["id"] == process::QUESTION)
-        .unwrap()
+/// ADR P11: reopening reads the file's process, with no conflict.
+fn no_conflict(analysis: &Value) {
+    assert!(analysis["resume"].get("conflicts").is_none(), "{analysis}");
 }
 
 fn assert_only_process(bytes: &[u8], name: &str, value: &str) {
@@ -100,37 +117,37 @@ fn assert_only_process(bytes: &[u8], name: &str, value: &str) {
     );
 }
 
-#[test]
-fn keeping_a_foreign_process_never_makes_it_replaceable() {
-    let edited = edited_process(Some((process::ITEM, process::CAST)));
-    let opened = open(&edited);
-    assert_eq!(conflict(&opened.snapshot()["analysis"])["foreign"], true);
-    let kept = write(&opened, &json!({"_specify": {"keep": [process::QUESTION]}}));
-    let answered = write(&open(&kept), &json!({process::QUESTION: process::MOULDED}));
-    assert_only_process(&answered, process::ITEM, process::CAST);
-    assert_eq!(
-        open(&answered).snapshot()["analysis"]["part"]["process"],
-        process::CAST
-    );
-}
-
 fn stale_answer_after_the_first_save(name: &str) {
     let edited = edited_process(Some((name, process::CAST)));
     let opened = open(&edited);
-    assert_eq!(conflict(&opened.snapshot()["analysis"])["foreign"], true);
+    no_conflict(&opened.snapshot()["analysis"]);
+    assert_eq!(
+        opened.snapshot()["analysis"]["part"]["process"],
+        process::CAST
+    );
+    // The stale answer differs from the file's process: refused, naming it (was: filtered out
+    // of the whole-intent write); the file keeps its process and stores no answer for it.
     let stale = json!({process::QUESTION: process::MACHINED});
-    let first = write(&opened, &stale);
+    let out = refused(&opened, &stale);
+    assert!(
+        out["message"].as_str().unwrap().contains(process::QUESTION),
+        "{out}"
+    );
+    let first = write(&opened, &json!({}));
+    assert_eq!(first, edited, "a list naming nothing leaves the bytes");
     let reopened = open(&first);
     assert!(
         reopened.snapshot()["analysis"]["resume"]
             .get("conflicts")
             .is_none()
     );
-    let second = write(&reopened, &stale);
+    refused(&reopened, &stale);
+    let second = write(&reopened, &json!({}));
     assert_only_process(&second, name, process::CAST);
     assert!(
-        resume::stored(&second)[&0]["answers"]
-            .get(process::QUESTION)
+        resume::stored(&second)
+            .get(&0)
+            .and_then(|p| p["answers"].get(process::QUESTION))
             .is_none()
     );
     assert_eq!(
@@ -155,21 +172,30 @@ fn a_foreign_process_outside_the_options_survives_rewrite() {
     let opened = open(&edited);
     let rewritten = write(&opened, &json!({}));
     assert_only_process(&rewritten, process::ITEM, "laser cut");
-    let stale = write(
+    // A different process is refused (was: not written by the whole-intent write).
+    refused(
         &open(&rewritten),
         &json!({process::QUESTION: process::MACHINED}),
     );
-    assert_only_process(&stale, process::ITEM, "laser cut");
+    assert_only_process(&rewritten, process::ITEM, "laser cut");
 }
 
+/// ADR P11: the deletion stands. The removed process is a gap again, with no conflict, and a
+/// save does not restore it.
 #[test]
-fn removing_the_only_marked_requirement_is_a_conflict() {
+fn removing_the_only_marked_requirement_leaves_a_gap() {
     let edited = edited_process(None);
     let opened = open(&edited);
     let snapshot = opened.snapshot();
     let analysis = &snapshot["analysis"];
-    assert_eq!(conflict(analysis)["stored"], process::MACHINED);
-    assert_eq!(conflict(analysis)["file"], Value::Null);
+    no_conflict(analysis);
+    assert!(
+        analysis["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["id"] == process::QUESTION && r["state"] == "gap")
+    );
     let resumed = analysis["resume"]["answers"].as_object().unwrap();
     assert_eq!(resumed, &Map::new());
     let rewritten = write(&opened, &Value::Object(resumed.clone()));
@@ -180,145 +206,13 @@ fn removing_the_only_marked_requirement_is_a_conflict() {
     );
 }
 
-fn add_foreign_process(bytes: Vec<u8>, set_name: &str, value: &str) -> Vec<u8> {
-    let doc = Document::parse(bytes).unwrap();
-    let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
-    let mut set = process::attribute_set(value, false);
-    set.name = set_name.into();
-    let foreign = PartPmi {
-        attributes: vec![set],
-        ..PartPmi::default()
-    };
-    let (edit, _) = pmi::write(
-        &doc,
-        &defs,
-        &[(PartId(0), foreign)],
-        pmi::write::Mode::Add,
-        pmi::write::PresentationPolicy::RemovePresentation,
-    )
-    .unwrap();
-    doc.apply(&edit).unwrap().bytes
-}
-
-fn keep_marked_cast() -> Vec<u8> {
-    let edited = marked_process(Some((process::ITEM, process::CAST)));
-    let opened = open(edited.bytes());
-    let snapshot = opened.snapshot();
-    let analysis = &snapshot["analysis"];
-    assert_eq!(conflict(analysis)["file"], process::CAST);
-    assert!(conflict(analysis).get("foreign").is_none());
-    let kept = write(&opened, &json!({"_specify": {"keep": [process::QUESTION]}}));
-    assert_only_process(&kept, process::ITEM, process::CAST);
-    kept
-}
-
-#[test]
-fn a_supplier_process_with_the_kept_value_is_foreign() {
-    let doc = Document::parse(keep_marked_cast()).unwrap();
-    let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
-    let read = pmi::read(&doc, &defs).unwrap();
-    let kept = read.parts[0]
-        .attributes
-        .iter()
-        .position(|set| set.name == process::PROPERTY)
-        .unwrap();
-    let mut edit = Edit::new();
-    for &id in &read.provenance.parts[0].attributes[kept] {
-        edit.remove(id);
-    }
-    let stripped = doc.apply(&edit).unwrap().bytes;
-    let supplier = add_foreign_process(stripped, "supplier process", process::CAST);
-    let session = open(&supplier);
-    assert_eq!(
-        session.snapshot()["analysis"]["part"]["process"],
-        process::CAST
-    );
-    let saved = write(&session, &json!({process::QUESTION: process::MOULDED}));
-    let doc = Document::parse(saved).unwrap();
-    let read = pmi::read(&doc, &defs).unwrap();
-    let sets: Vec<_> = read.parts[0]
-        .attributes
-        .iter()
-        .filter(|s| s.items.iter().any(|(name, _)| name == process::ITEM))
-        .map(|s| (s.name.as_str(), s.items.as_slice()))
-        .collect();
-    let expected = [(
-        process::ITEM.into(),
-        pmi::AttributeValue::Text(process::CAST.into()),
-    )];
-    assert_eq!(sets, [("supplier process", expected.as_slice())]);
-    assert_eq!(
-        open(doc.bytes()).snapshot()["analysis"]["part"]["process"],
-        process::CAST
-    );
-}
-
-#[test]
-fn an_unmarked_process_with_only_a_legacy_keep_value_is_foreign() {
-    let kept = keep_marked_cast();
-    let mut payload = Value::Object(resume::stored(&kept)[&0].clone());
-    let current = resume::encode(&payload);
-    payload["kept_process"] = json!(process::CAST);
-    let text = String::from_utf8(kept).unwrap();
-    assert_eq!(text.matches(&current).count(), 1);
-    let legacy = text.replace(&current, &resume::encode(&payload));
-    let saved = write(
-        &open(legacy.as_bytes()),
-        &json!({process::QUESTION: process::MOULDED}),
-    );
-    assert_only_process(&saved, process::ITEM, process::CAST);
-}
-
-#[test]
-fn the_same_kept_process_remains_replaceable_after_another_save() {
-    let kept = keep_marked_cast();
-    let reopened = open(&kept);
-    let snapshot = reopened.snapshot();
-    let kept_again = write(&reopened, &snapshot["analysis"]["resume"]["answers"]);
-    assert_only_process(&kept_again, process::ITEM, process::CAST);
-    let saved = write(
-        &open(&kept_again),
-        &json!({process::QUESTION: process::MOULDED}),
-    );
-    assert_only_process(&saved, process::ITEM, process::MOULDED);
-}
-
-#[test]
-fn keeping_a_removal_never_makes_a_later_foreign_process_replaceable() {
-    let removed = edited_process(None);
-    let kept = write(
-        &open(&removed),
-        &json!({"_specify": {"keep": [process::QUESTION]}}),
-    );
-    assert!(
-        resume::stored(&kept)[&0]["kept"]
-            .as_array()
-            .unwrap()
-            .contains(&json!(process::QUESTION))
-    );
-    let added = add_foreign_process(kept, process::PROPERTY, process::CAST);
-    assert_only_process(&added, process::ITEM, process::CAST);
-    let reopened = open(&added);
-    let saved = write(&reopened, &json!({process::QUESTION: process::MOULDED}));
-    assert_only_process(&saved, process::ITEM, process::CAST);
-    let snapshot = reopened.snapshot();
-    let analysis = &snapshot["analysis"];
-    assert_eq!(analysis["part"]["process"], process::CAST);
-    assert!(
-        !analysis["resume"]["file"]
-            .as_array()
-            .is_some_and(|ids| ids.contains(&json!(process::QUESTION)))
-    );
-}
-
 /// The process edit has already lost its marker. Strip Specify's remaining description
 /// markers, including the one on the saved answers, without changing the payload.
 fn strip_description_markers(bytes: Vec<u8>) -> Vec<u8> {
     let stored = resume::stored(&bytes);
-    assert!(
-        stored[&0].get("pmi_scope").is_none(),
-        "replace-written fixture"
-    );
+    // ADR P11: every save now marks its payload with `pmi_scope` (Replace too), so the
+    // fixture's payload is only required to be there; the markers stripped are the entities'.
+    assert!(stored.contains_key(&0), "the fixture stores answers");
     let doc = Document::parse(bytes).unwrap();
     let mut edit = Edit::new();
     let mut removed = 0;
@@ -344,12 +238,13 @@ fn a_replace_written_file_keeps_the_process_when_its_markers_are_stripped() {
     let reopened = open(&edited);
     let rewritten = write(&reopened, &json!({}));
     assert_only_process(&rewritten, process::ITEM, process::CAST);
-    assert_eq!(conflict(&reopened.snapshot()["analysis"])["foreign"], true);
-    let answered = write(
+    no_conflict(&reopened.snapshot()["analysis"]);
+    // A different process is refused (was: not written by the whole-intent write).
+    refused(
         &open(&rewritten),
         &json!({process::QUESTION: process::MOULDED}),
     );
-    assert_only_process(&answered, process::ITEM, process::CAST);
+    assert_only_process(&rewritten, process::ITEM, process::CAST);
 }
 
 #[test]
@@ -364,23 +259,18 @@ fn a_replace_written_file_does_not_restore_a_process_removed_along_with_its_mark
             .get("process")
             .is_none()
     );
-    assert_eq!(conflict(analysis)["stored"], process::MACHINED);
-    assert_eq!(conflict(analysis)["file"], Value::Null);
+    no_conflict(analysis);
 }
 
 #[test]
 fn process_evidence_also_preserves_edited_notes_and_tolerances_after_marker_loss() {
-    let plate = include_bytes!("../../../tests/fixtures/parts/plate.step");
-    let bytes = write(
-        &open(plate),
-        &json!({
-            process::QUESTION: process::MACHINED,
-            "part.notes": ["original note"],
-            "part.general_tolerance": "ISO 2768-m",
-            "datum.A": [2],
-            "datum.A.flatness": "0.03",
-        }),
-    );
+    let bytes = written_by_0_2(&json!({
+        process::QUESTION: process::MACHINED,
+        "part.notes": ["original note"],
+        "part.general_tolerance": "ISO 2768-m",
+        "datum.A": [2],
+        "datum.A.flatness": "0.03",
+    }));
     let text = String::from_utf8(strip_description_markers(bytes)).unwrap();
     let edits = [
         ("original note", "edited note"),

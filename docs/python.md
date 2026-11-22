@@ -1,9 +1,39 @@
 # The Python specify-core
 
 Answer maps accept optional `_specify` geometry evidence and unresolved carry blocks.
-Bulk defaults cannot replace dropped answers; write rejects stale evidence. Plain maps
-remain compatible but cannot detect stale in-range face indices. See
-[answer files and changed geometry](answers.md).
+Bulk defaults cannot replace dropped answers. Plain maps remain compatible but cannot detect
+stale in-range face indices. See [answer files and changed geometry](answers.md).
+
+## Writing: an edit list
+
+`api.write(step, edits, output)` applies an edit list to `step` (a path or a `LoadedPart`) and
+writes the result to `output`, as `specify-core write STEP EDITS.json -o OUT` does (Specify
+0.3.0, ADR P11). `edits` is a dict or JSON text:
+
+```python
+from specify_core import api
+
+report = api.write("plate.step", {
+    "fill": {"part.material": "6061-T6", "hole.position:holes:12": "0.2"},
+    "change": {"hole.position:holes:14": {"to": "0.1", "expect": "0.2"}},
+    "items": {"remove": ["#17"]},
+    "none": ["part.coating"],
+    "accept_suggestions": ["part.general_tolerance"],
+    "clear": ["part.heat_treatment"],
+}, "plate.specified.step")
+```
+
+Ids are the feature table's (`api.analyse(step)["table"]["rows"]`), or a choice with no row
+such as `part.locating` (stored, as it writes no PMI), or an added requirement `extra.<name>`;
+items are characteristic numbers. `clear` takes back a stored decision that leaves no PMI (a decided none, or a choice such as `part.locating`), so the feature-and-kind is a gap, or the choice unanswered, again; it never touches PMI (that is `change` and `items.remove`). A fill of `extra.<name>` with a requirement's spec (`{kind, faces, value, …}`, as an answer gave it) adds that requirement. Anything the list does not name is left as it is, byte for byte. A 0.2 answers map is
+read as a list of fills. A list is all or nothing: if any entry cannot be applied nothing is
+written and `specify_core.writer.EditsRefused` (a `ValueError`) is raised, its `failures` naming
+every failing entry and why. The report (`WriteReport`) adds `retired`, the characteristic
+numbers the save retired, and `unchanged`. `api.check_edits(step, edits)` checks a list exactly
+as `write` would apply it and writes nothing: `{well_formed, checked_against_file, applicable,
+entries, unchanged, failures, written, message}`. (Until 0.3.0, `write(step, intent, output,
+answers=...)` wrote a whole intent; that is gone. `validate_edits`, which checked a list only
+against itself, is replaced by `check_edits`.)
 
 ## Mesh tolerance
 
@@ -14,36 +44,23 @@ keyword or passing `None` preserves the previous output. Non-positive/non-finite
 values and faces that cannot meet the measured bound raise `ValueError`.
 See [mesh tolerance](mesh-tolerance.md) for sampling and refusal semantics.
 
-## Export answers
+## Answers
 
-`api.export_answers(step, analysis, answers, accept_defaults=None)` returns the answers given
-plus exactly the defaults approved in `accept_defaults` (`{"<part>": {"<id>": value}}`, each
-with the value the person saw; ADR P9), with `_specify.evidence` for the selected part. Without
-approvals no default is taken. `step` can be a path or a `LoadedPart`; the analysis binding
-selects an assembly part. It writes no STEP. Open questions and carry blocks do not refuse it
-(blocks stay in `_specify.unresolved`); stale saved evidence, a mismatched analysis, or an
-approval that is not an open question's default as it stands raises `ValueError`.
-
-`api.apply` (and so `api.write`) still needs a complete set: answer the open questions, or
-approve their defaults. Here every default offered is approved, once the person has seen them:
+There is no export of answers as a record (ADR P11, 0.3.0: `api.export_answers` is removed): the
+STEP file holds them, and `api.write` takes an edit list (above). `api.apply` still needs a
+complete set: answer the open questions, or, once the person has seen every default and approved
+them, take them with `accept_defaults=True`:
 
 ```python
-import json
-from pathlib import Path
 from specify_core import api
-from specify_core.rules import with_all_defaults
 
 analysis = api.analyse("plate_v1.step")
-given = {"part.material": "6061-T6"}
-defaults = with_all_defaults(analysis, given)
-approved = {"0": {k: v for k, v in defaults.items() if k not in given}}
-answers = api.export_answers("plate_v1.step", analysis, given, approved)
-Path("plate.answers.json").write_text(json.dumps(answers, indent=2) + "\n", encoding="utf-8")
-api.write("plate_v1.step", api.apply(analysis, answers), "plate.pmi.step", answers=answers)
+answers = {"part.material": "6061-T6"}
+intent = api.apply(analysis, answers, accept_defaults=True)
 ```
 
-Keys are sorted recursively; arrays keep their order. The resulting map is accepted by
-all answer-taking operations. See [answer files](answers.md).
+Answer maps exported by earlier versions are still accepted by every answer-taking operation.
+See [answer files](answers.md).
 
 ## Limit dimensions and combined ISO 2768 classes
 
@@ -75,7 +92,12 @@ is absent otherwise. A basic dimension has no `upper`/`lower` of its own. Scene 
 The Python `ExistingPmi.basic` field is `False` unless the dimension is basic;
 `to_dict()` emits `basic` only when it is `True`.
 The Python `ExistingPmi.limits` field is an optional `(lower, upper)` tuple;
-`to_dict()` emits it as a two-element list only for limits. Stored answer strings resume
+`to_dict()` emits it as a two-element list only for limits.
+`ExistingPmi.text` is the item in full notation (`⌀3.3 H11`, `⌖ ⌀0.3Ⓜ A`), `text_only` is
+`True` when only that text holds all it states, and `fields` holds its structured values
+(`fit`, `diametral`, `mmc`, `modifiers`, a thread's `designation`, `pitch`, `class` ...;
+[answers.md](answers.md), "What the file states, read back whole"); `to_dict()` puts them beside
+the others, as the engine's `existing` records do. Stored answer strings resume
 unchanged. Python and WASM expose the same answer grammar and combined class choices.
 
 Specify began as a port of the Python [specify-core](https://github.com/pzfreo/specify-core), which
@@ -86,8 +108,8 @@ and the STEP files they read and write, so Draftwright Specify can drive either,
 ## The Python package
 
 `crates/specify-core-py` builds the Python package `specify_core` on this engine: specify-core's
-API (`load`, `parts`, `analyse`, `questions`, `apply`, `preview`, `write`, `write_parts`,
-`mesh`, with its types `Question`, `Intent`, `WriteReport`, `ExistingPmi` and its errors), plus
+API (`load`, `parts`, `analyse`, `questions`, `apply`, `preview`, `write` (an edit list),
+`check_edits`, `write_parts`, `mesh`, with its types `Question`, `Intent`, `WriteReport`, `ExistingPmi` and its errors), plus
 `problems`, `choices`, `serve.reply` and the `specify-core` command line, which runs this
 engine's (`specify_core::cli`) in the Python process. It needs no Python dependency (no
 quiddity, build123d or OpenCascade). A `LoadedPart` is a handle on the part held by the engine:

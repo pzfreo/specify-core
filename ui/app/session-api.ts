@@ -1,5 +1,5 @@
 /** The specify-core session API spoken by this app, independent of its release version. */
-export const SESSION_API = 1;
+export const SESSION_API = 2;
 
 export class SessionApiMismatch extends Error {
   constructor(api: number) {
@@ -8,7 +8,7 @@ export class SessionApiMismatch extends Error {
   }
 }
 
-/** specify-core 0.2.0 omits api; an explicitly different version is incompatible. */
+/** specify-core 0.2.0 omits api (its contract is 1); any version but this app's is incompatible. */
 export function requireSessionApi(api: number | undefined): void {
-  if (api !== undefined && api !== SESSION_API) throw new SessionApiMismatch(api);
+  if ((api ?? 1) !== SESSION_API) throw new SessionApiMismatch(api ?? 1);
 }

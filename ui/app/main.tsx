@@ -1,65 +1,60 @@
 // Specify on this computer: the app the page server serves (specify-core docs/open.md), started by
-// `specify-core open` or by an agent's `show` (docs/session.md). The answers live in the command's
-// session: the page sends its changes there and hears everyone else's (an agent's) as they land.
-// Save asks the command to write the STEP. Nothing is stored in the browser and nothing is fetched
-// from anywhere but the page's own origin.
+// `specify-core open` or by an agent's `show` (docs/session.md). The review panel (Panel.tsx) shows
+// the file's feature table; the person's edits are held in the page and Save sends them to the
+// command as an edit list per part, which it applies to the file all or nothing. The session's answers (an
+// agent's) come down as they land. Nothing is stored in the browser and nothing is fetched from
+// anywhere but the page's own origin.
 import '@fontsource/ibm-plex-mono/400.css';
 import '@fontsource/ibm-plex-mono/600.css';
 import '../src/specify/PmiLab.css';
 import './app.css';
+import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   as9102, createIntentEngine, drawnFromScene, hasGraphics, SpecifyReview, StepDiff, toCsv, withoutNotesBlock, xlsx,
   type DrawnPmi, type IntentReview, type PmiAnswers, type PmiLabSession, type PmiQuestion, type SpecifyEngine, type SpecifySlots, type WorkerClient,
 } from '../src/index';
+import type { PmiAnalysis } from '../src/types/pmi';
 import { stepBytes } from '../src/model/diff';
 import { SessionApiMismatch } from './session-api';
-import { defaultsToWrite } from '../src/specify/review';
 import { saveFile } from '../src/specify/SpecifyReview';
 import type { StoredInspection } from '../src/specify/saved-inspection';
-import { changedIds, createSession, exportableAnswers, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
+import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
-import { getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type LocalConfig } from './local';
-import { DefaultRefused, DefaultsChanged, FileChanged, NotShown, defaultParts, matchMissing, sessionSaver, Stale, writtenParts, type Default, type SavedWithAnswers, type Saver } from './save';
+import { discardAnswers, getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type EditFailure, type EditList, type LocalConfig, type AnswerDraft } from './local';
+import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } from './save';
+import { PendingEdits, rejectedNoneByPart, suggestionEdits, withDrafts } from './edits';
+import { EditBar, Panel } from './Panel';
+import { answerText, bareAnalysis, fileLengthUnit, isNoneValue, panelModel, tableOf, type PanelModel } from './table';
 
 declare const __APP_VERSION__: string;
 const DOCS = 'https://github.com/pzfreo/specify-core#readme';
 const ISSUES = 'https://github.com/pzfreo/specify-core/issues';
 /** A part of the file, as the engine's `parts` lists them; the session keeps answers by its index.
  * ``written``: the file stores Specify's answers for it. */
-interface PartRow { part: number; name: string; written: boolean }
+interface PartRow { part: number; name: string; instances: number; written: boolean }
 
-/** Part ``part`` of the file, as the engine opens it: a file of one part whole, a part of several as that part. */
-const fileOf = (name: string, bytes: Uint8Array, part: number, several: boolean) => ({
-  name, bytes, sourceId: several ? `${name}#${part}` : name, ...(several ? { part } : {}),
+/** Part ``part`` of the file, as the engine opens it: a file of one part whole, a part of several as that part.
+ * ``generation``: how many saves the bytes are on from the file as opened (each save's file is a new source). */
+const fileOf = (name: string, bytes: Uint8Array, part: number, several: boolean, generation = 0) => ({
+  name, bytes, sourceId: `${several ? `${name}#${part}` : name}${generation ? `@${generation}` : ''}`, ...(several ? { part } : {}),
 });
-
-/** The defaults a save with defaults lists for the session's answers ``parts``: those of every part
- * of the file (``indexes``), answered or not, in part order. */
-async function defaultsOf(worker: WorkerClient, name: string, bytes: Uint8Array, several: boolean, parts: Record<string, PmiAnswers>, indexes: readonly number[]): Promise<Default[]> {
-  const out: Default[] = [];
-  for (const part of defaultParts(parts, indexes, several)) {
-    const answers = parts[String(part)] ?? {};
-    const { questions, open } = await worker.request<IntentReview>('review', { ...fileOf(name, bytes, part, several), answers });
-    const raw = new Map(questions.map((q) => [q.id, JSON.stringify(q.default)] as const));
-    // The command takes only open questions' defaults (not the process, a full-thread depth or a
-    // parts-list row, which are never "open"): approving any other is a 400.
-    const asked = new Set(open);
-    out.push(...defaultsToWrite(questions, answers).filter((d) => asked.has(d.id)).map((d) => ({ ...d, part, raw: raw.get(d.id)! })));
-  }
-  return out;
-}
 
 interface Opened {
   /** The part shown: its index in the session, and whether the file has others. */
   part: number; several: boolean;
-  session: PmiLabSession; review: IntentReview; engine: SpecifyEngine; drawn: DrawnPmi | null;
+  /** How many saves ``bytes`` are on from the file as opened. */
+  generation: number;
+  session: PmiLabSession & { answers: PmiAnswers }; review: IntentReview; engine: SpecifyEngine; drawn: DrawnPmi | null;
   bytes: Uint8Array; store: AnswersStore; saver: Saver;
-  /** What SpecifyReview starts from; a new object only when the answers change outside the page. */
+  /** The review panel's model: the file's feature table, named. */
+  model: PanelModel;
+  /** The file's length unit, for a new general tolerance block (#228 decision 3). */
+  units: 'in' | 'mm';
+  /** Working answers used for agent notices and revision tracking. */
   external: { answers: PmiAnswers; review: IntentReview };
-  /** The answers SpecifyReview shows (and so bases the person's next change on): its own last
-   * change, or the last answers given to it from outside. */
+  /** The working answers processed by the page at the last shown session revision. */
   shown: { answers: PmiAnswers };
   /** Specify's review of ``answers``, for answers that arrive from outside the page. */
   reviewOf(answers: PmiAnswers): Promise<IntentReview>;
@@ -69,14 +64,17 @@ interface Compared { old: { name: string; bytes: Uint8Array }; next: { name: str
 
 /** Opens the part on the engine with the session's answers: its analysis and mesh, their review,
  * and the PMI as drawn. ``edited``: called on each change the person makes. */
-async function openPart(worker: WorkerClient, answersSession: AnswersSession, name: string, bytes: Uint8Array, at: { part: number; several: boolean }, readOnly: boolean, edited: () => void, indexes: () => readonly number[]): Promise<Opened> {
-  const file = fileOf(name, bytes, at.part, at.several);
+async function openPart(worker: WorkerClient, answersSession: AnswersSession, name: string, bytes: Uint8Array, at: { part: number; several: boolean }, readOnly: boolean, edited: () => void, generation = 0): Promise<Opened> {
+  const file = fileOf(name, bytes, at.part, at.several, generation);
   const { sourceId } = file;
   const snapshot = await worker.request<{ analysis: PmiLabSession['analysis']; mesh: PmiLabSession['mesh']; provenance?: PmiLabSession['provenance'] }>('open', file);
-  const answers = answersSession.answers(at.part);
+  // The session's answers with the page's unsaved changes to this part (kept while another part was shown).
+  const answers = answersSession.shown(at.part);
   const reviewOf = (given: PmiAnswers) => worker.request<IntentReview>(readOnly ? 'review-given' : 'review', { ...file, answers: given });
   const review = await reviewOf(answers);
-  const store = answersSession.store(at.part, snapshot.analysis.resume?.answers ?? {});
+  const stored = snapshot.analysis.resume?.answers ?? {};
+  const fileReview = sameAnswers(stored, answers) ? review : await reviewOf(stored);
+  const store = answersSession.store(at.part, stored);
   const shown = { answers };
   const engine: SpecifyEngine = {
     // Each commit of the page's answers comes through here: what the session gets once Specify
@@ -93,17 +91,21 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
     interpret: (_id, given, question, text) => worker.request('interpret', { analysis: snapshot.analysis, answers: given, question, text }),
     preview: async (_id, given) => (await reviewOf(given)).intent,
   };
-  const session: PmiLabSession = {
-    sessionId: sourceId, filename: name, analysis: snapshot.analysis, mesh: snapshot.mesh, answers,
+  const session: Opened['session'] = {
+    sessionId: sourceId, filename: name, analysis: snapshot.analysis, mesh: snapshot.mesh, answers: stored,
     ...(snapshot.provenance ? { provenance: snapshot.provenance } : {}),
-    questions: review.questions, open: review.open, problems: review.problems,
+    questions: fileReview.questions, open: fileReview.open, problems: fileReview.problems,
   };
-  const scene = drawnFromScene(await worker.request('scene', { ...file, state: { answers } }));
+  const scene = drawnFromScene(await worker.request('scene', { ...file, state: { answers: stored } }));
   const drawn = scene.ok ? withoutNotesBlock(scene.value) : null;
-  const defaults = (parts: Record<string, PmiAnswers>) => defaultsOf(worker, name, bytes, at.several, parts, indexes());
+  // Every row named as Specify asks it of the bare part (the table's rows are those questions).
+  const bare = await worker.request<IntentReview>('review-analysis-given', { analysis: bareAnalysis(snapshot.analysis as PmiAnalysis), answers: {} });
+  const analysis = snapshot.analysis as PmiAnalysis;
+  const model = panelModel(tableOf(analysis), bare.questions, analysis.features);
   return {
-    ...at, session, review, engine, drawn: drawn && hasGraphics(drawn) ? drawn : null, bytes, store, shown,
-    saver: sessionSaver(store, answersSession, () => shown.answers, defaults), external: { answers, review }, reviewOf,
+    ...at, generation, session, review: fileReview, engine, drawn: drawn && hasGraphics(drawn) ? drawn : null, bytes, store, shown,
+    saver: editsSaver(store, answersSession, () => shown.answers), external: { answers, review }, reviewOf, model,
+    units: fileLengthUnit(bytes),
   };
 }
 
@@ -123,9 +125,10 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 interface InspectionStep { path: string; name: string; bytes: Uint8Array }
 const inspectionName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 const SAVE_FIRST = 'Save first: the inspection files describe the saved STEP';
+const NO_EDITS = new PendingEdits();
 
 /** What the last save wrote, and the questions still open in it, by their short labels. */
-interface SavedLine { path: string; open: string[] | null; byAgent: boolean; assemblyCount?: number; matching?: boolean }
+interface SavedLine { path: string; open: string[] | null; byAgent: boolean }
 
 function App() {
   const [config, setConfig] = useState<LocalConfig | null>(null);
@@ -134,8 +137,6 @@ function App() {
   const [switching, setSwitching] = useState(false);
   // The session (every part's answers, and what is on disk) and the part shown, for its events.
   const sessionRef = useRef<AnswersSession | null>(null);
-  // The part indexes of the file, for the defaults a save lists (every part, answered or not).
-  const partIndexes = useRef<number[]>([0]);
   const shownRef = useRef<Opened | null>(null);
   const [compared, setCompared] = useState<Compared | null>(null);
   const [tab, setTab] = useState<'changes' | 'answers'>('changes');
@@ -150,10 +151,18 @@ function App() {
   const [stopped, setStopped] = useState(false);
   // An in-place save refused because another program changed the file: Save cannot succeed again.
   const [fileChanged, setFileChanged] = useState(false);
-  // Save with defaults: the defaults it would write, of every part it writes, listed for the person
-  // to confirm (ADR P9). ``written``: the parts the save writes (those with answers, and a file's only
-  // part). ``shownLeftOut``: the part shown has no answers in the session, so the save does not write it.
-  const [confirming, setConfirming] = useState<{ defaults: Default[]; written: number[]; shownLeftOut: boolean } | null>(null);
+  // The review panel's edits, held in the page until Save sends them (specify-panel.md decision 3).
+  const [localPending, setPending] = useState(() => new Map<number, PendingEdits>());
+  const [draftSnapshot, setDraftSnapshot] = useState<{ rev: number; drafts: Record<string, AnswerDraft> }>({ rev: 0, drafts: {} });
+  const [discarding, setDiscarding] = useState(false);
+  const [rejectedNone, setRejectedNone] = useState(() => new Map<number, Map<string, string>>());
+  const [checking, setChecking] = useState(false);
+  const [reopening, setReopening] = useState(false);
+  // What the bar says after a save, until the next edit.
+  const [savedNote, setSavedNote] = useState<string | null>(null);
+  const [addingAll, setAddingAll] = useState(false);
+  // The characteristics table (the review's, read only) is drawn into this, under the panel's tab.
+  const charsElement = useRef<HTMLDivElement>(document.createElement('div'));
   // Answers that arrived from outside the page but could not be shown (their review failed): Save
   // is refused until they are, so the page offers to show them again.
   const [unshown, setUnshown] = useState<string | null>(null);
@@ -168,7 +177,7 @@ function App() {
   const inspectionLoad = useRef(0);
   const savedRevision = useRef(-1);
   // The bytes the session's last save wrote: the 3D view draws their PMI, for every part shown since.
-  const savedBytes = useRef<Uint8Array | null>(null);
+  const savedSource = useRef<{ bytes: Uint8Array; generation: number } | null>(null);
   const heardSaves = useRef(new Set<string>());
   const captureSaved = useRef<(saved: { path: string; rev: number }) => void>(() => {});
   const [slots, setSlots] = useState<SpecifySlots | null>(null);
@@ -179,7 +188,7 @@ function App() {
   // agent changes something else.
   const [agent, setAgent] = useState<{ ids: string[]; n: number } | null>(null);
   const [other, setOther] = useState<{ name: string; part: number; n: number; joined: boolean } | null>(null);
-  const [focus, setFocus] = useState<{ questionId: string; faces?: readonly number[]; scroll?: boolean } | null>(null);
+  const [focus, setFocus] = useState<{ questionId: string; faces?: readonly number[]; scroll?: boolean; n?: number } | null>(null);
   const [lit, setLit] = useState<{ faces: readonly number[]; n: number } | undefined>(undefined);
   const edited = () => setAgent(null);
 
@@ -192,10 +201,7 @@ function App() {
       const first = await getConfig();
       setConfig(first);
       document.title = `${first.name} — Specify`;
-      const heartbeat = keepAlive(setConfig, (stopped) => {
-        if (stopped) setConfirming(null);
-        setStopped(stopped);
-      }, () => {
+      const heartbeat = keepAlive(setConfig, setStopped, () => {
         ended = true;
         unlisten();
         sessionRef.current?.close();
@@ -208,12 +214,13 @@ function App() {
         first.mode === 'diff' ? getFile('old').then(stepBytes) : null,
         first.mode === 'diff' ? getDiff() : null,
       ]);
-      const answersSession = createSession(answers.rev, answers.parts);
+      const answersSession = createSession(answers.rev, answers.parts, answers.drafts);
       if (first.readOnly) setInspectionStep({ path: first.path, name: first.name, bytes });
       captureSaved.current = (event) => {
         if (event.rev < savedRevision.current || ended) return;
         savedRevision.current = event.rev;
         const load = ++inspectionLoad.current;
+        setReopening(true);
         setInspectionStep(null);
         setInspectionData(null);
         setInspectionProblem(null);
@@ -222,33 +229,44 @@ function App() {
           const written = await getFile('saved').then(stepBytes);
           if (ended || load !== inspectionLoad.current) return;
           setInspectionStep({ path: event.path, name: inspectionName(event.path), bytes: written });
-          savedBytes.current = written;
-          // The 3D view draws the PMI as the save wrote it: the scene built on opening shows only
-          // what the file had then (specify-ui#14). A scene that fails leaves the view as it was.
+          savedSource.current = { bytes: written, generation: load };
+          // The session works on the file as saved from now on (ADR P11: the file is the only
+          // copy): the part shown opens again from it, so what the save wrote reads as the file's
+          // and the next edits apply to it. The 3D view draws the PMI as the save wrote it
+          // (specify-ui#14); a scene that fails leaves the view as the opening drew it.
           const shown = shownRef.current;
           if (!shown || !worker.current) return;
-          const drawn = await savedDrawn(worker.current, written, shown);
-          if (drawn !== undefined && !ended && load === inspectionLoad.current) {
-            setOpened((now) => (now?.store === shown.store ? { ...now, drawn } : now));
-          }
+          let next = await openPart(worker.current, answersSession, first.name, written, { part: shown.part, several: shown.several }, first.readOnly, edited, load);
+          const drawn = await savedDrawn(worker.current, written, next);
+          if (drawn !== undefined) next = { ...next, drawn };
+          if (ended || load !== inspectionLoad.current || shownRef.current?.store !== shown.store) { next.store.close(); return; }
+          shown.store.close();
+          shownRef.current = next;
+          setOpened(next);
         })().catch((error: unknown) => {
           if (!ended && load === inspectionLoad.current) setInspectionProblem(message(error));
+        }).finally(() => {
+          if (!ended && load === inspectionLoad.current) setReopening(false);
         });
       };
       sessionRef.current = answersSession;
       if (ended) answersSession.close();
-      unwatch = answersSession.subscribe(() => setDirty(answersSession.dirty()));
+      const showDrafts = () => {
+        setDirty(answersSession.dirty());
+        setDraftSnapshot(answersSession.draftSnapshot());
+      };
+      unwatch = answersSession.subscribe(showDrafts);
+      showDrafts();
       // An assembly's parts: the page shows one at a time, first the first the session has answers for.
-      const listed = (await worker.current.request<PartRow[]>('parts', { name: first.name, bytes })).map(({ part, name, written }) => ({ part, name, written: written === true }));
-      const several = listed.length > 1;
+      const listed = (await worker.current.request<PartRow[]>('parts', { name: first.name, bytes })).map(({ part, name, instances, written }) => ({ part, name, instances, written: written === true }));
+      const several = listed.length > 1 || listed[0]?.instances > 1;
       let rows = listed;
       const withAnswers = rows.find((row) => Object.keys(answers.parts[String(row.part)] ?? {}).some((id) => !id.startsWith('_')));
       // The part the agent's `show` named (config.part), else the first with answers.
       const asked = rows.find((row) => row.part === first.part);
       const at = { part: several ? (asked ?? withAnswers ?? rows[0]!).part : 0, several };
-      setParts(several ? rows : []);
-      partIndexes.current = rows.map((r) => r.part);
-      const part = await openPart(worker.current, answersSession, first.name, bytes, at, first.readOnly, edited, () => partIndexes.current);
+      setParts(rows);
+      const part = await openPart(worker.current, answersSession, first.name, bytes, at, first.readOnly, edited);
       if (old && diff) {
         const r = diff.report as { verdict?: string; summary?: string };
         setCompared({
@@ -262,12 +280,11 @@ function App() {
         // One rev can carry an event per part; a repeat of one already received is ignored.
         if (!answersSession.receive(event)) return;
         // A part joining the session is added to the page's model: the picker lists it, and the
-        // session (so the defaults a save lists) holds it, with the answers it has.
+        // session holds it, with the answers it has.
         if ('part' in event && several && !rows.some((r) => r.part === event.part)) {
-          rows = [...rows, { part: event.part, name: `Part ${event.part}`, written: false }];
+          rows = [...rows, { part: event.part, name: `Part ${event.part}`, instances: 1, written: false }];
           setParts(rows);
-          partIndexes.current = rows.map((r) => r.part);
-        }
+            }
         // An agent's change to another part than the one shown: said, by name.
         if (event.source === 'mcp' && 'part' in event && event.part !== shownRef.current?.part) {
           const row = rows.find((r) => r.part === event.part);
@@ -311,22 +328,30 @@ function App() {
     opened.store.onProblem((error) => setProblem(`Your change did not reach the session: ${error.message}`));
   }, [opened?.store]);
 
+  const busy = switching || saving || checking || addingAll || reopening || discarding;
+
   /** Shows another part of the file, with the session's answers for it now. */
   const showPart = async (index: number) => {
     const answersSession = sessionRef.current;
-    if (!opened || !config || !worker.current || !answersSession || index === opened.part) return;
+    if (busy || !opened || !config || !worker.current || !answersSession || index === opened.part) return;
     setSwitching(true); setProblem(null);
     try {
       // The part left keeps its unsaved answers: in the session, and counted as unsaved.
       await opened.store.settled();
-      let next = await openPart(worker.current, answersSession, config.name, opened.bytes, { part: index, several: true }, config.readOnly, edited, () => partIndexes.current);
-      // After a save, the part's PMI is drawn from the saved file, as for the part shown then.
-      const saved = savedBytes.current;
-      const drawn = saved ? await savedDrawn(worker.current, saved, next) : undefined;
-      if (drawn !== undefined) next = { ...next, drawn };
-      opened.store.close();
-      setOpened(next);
-      setOther(null); setAgent(null);
+      // If another page or the agent saved while this part was opening, open the saved version.
+      for (;;) {
+        const source = savedSource.current;
+        let next = await openPart(worker.current, answersSession, config.name, source?.bytes ?? opened.bytes,
+          { part: index, several: true }, config.readOnly, edited, source?.generation ?? opened.generation);
+        const drawn = source ? await savedDrawn(worker.current, source.bytes, next) : undefined;
+        if (source !== savedSource.current) { next.store.close(); continue; }
+        if (drawn !== undefined) next = { ...next, drawn };
+        shownRef.current?.store.close();
+        shownRef.current = next;
+        setOpened(next);
+        setOther(null); setAgent(null);
+        break;
+      }
     } catch (error) {
       setProblem(`That part could not be opened: ${message(error)}`);
     } finally { setSwitching(false); }
@@ -355,7 +380,7 @@ function App() {
         const n = Date.now();
         setAgent({ ids, n });
         setTab('answers');
-        setFocus({ questionId: ids[0]!, faces, scroll: true });
+        setFocus({ questionId: ids[0]!, faces, scroll: true, n });
         setLit({ faces, n });
       }, (error: unknown) => {
         if (current.current?.store !== store || !sameAnswers(store.get(), answers)) return;
@@ -408,109 +433,73 @@ function App() {
     if (review) setSaved((saved) => saved === line ? { ...line, open: prompts(review.open, review) } : saved);
   };
 
-  const assemblyQuestions = async (result: SavedWithAnswers, opened: Opened) => {
-    if (!worker.current || !config) return null;
-    const engine = worker.current;
-    const reviewed = await Promise.all(
-      Object.entries(result.answers).sort(([a], [b]) => Number(a) - Number(b)).map(async ([index, answers]) => {
-        const part = Number(index);
-        const name = parts.find((row) => row.part === part)?.name ?? `Part ${part}`;
-        const file = fileOf(config.name, opened.bytes, part, true);
-        const { questions, open } = await engine.request<IntentReview>('review-given', { ...file, answers });
-        const byId = new Map(questions.map((q) => [q.id, q.label ?? q.prompt]));
-        const labels = open.map((id) => byId.get(id));
-        return {
-          open,
-          labels: labels.every((label) => label !== undefined) ? labels.map((label) => `${name} — ${label}`) : null,
-          required: Object.keys(answers).some((id) => !id.startsWith('_')),
-        };
-      }),
-    );
-    return matchMissing(result.missing, reviewed);
-  };
-
-  /** Save with defaults, first: the full list of the defaults it would write, in every part
-   * of the file, to confirm. */
-  const askDefaults = async (keepProblem = false) => {
-    if (stopped || !opened || !config || !worker.current || !sessionRef.current) return;
-    if (!keepProblem) setProblem(null);
+  // Save sends every part's list in one request, applied to the file all or nothing, whatever is
+  // still open, and says what is.
+  const onSave = async () => {
+    if (busy || stopped || !opened) return;
+    // Nothing listed: nothing is written (the mock-up's "Nothing to save.").
+    const lists = [...pending].map(([part, list]) => ({ part, edits: list.list() }))
+      .filter(({ edits }) => Object.keys(edits).length > 0);
+    if (!lists.length) { setProblem(null); setSavedNote('Nothing to save.'); return; }
+    setSaving(true); setProblem(null); setRejectedNone(new Map());
+    const count = items.filter(({ edit }) => edit.kind !== 'refused').length;
     try {
-      await opened.store.settled();
-      const parts = sessionRef.current.parts();
-      const defaults = await defaultsOf(worker.current, config.name, opened.bytes, opened.several, parts, partIndexes.current);
-      // Written: every part with a default listed, and those with answers (and a file's only part).
-      const written = [...new Set([...writtenParts(parts, opened.several), ...defaults.map((d) => d.part)])].sort((a, b) => a - b);
-      setConfirming({ defaults, written, shownLeftOut: opened.several && !written.includes(opened.part) });
-    } catch (error) { setProblem(`The defaults could not be listed: ${message(error)}`); }
-  };
-
-  // Save writes the answers given, whatever is still open, and says what is. Defaults are written
-  // only when the person has seen and confirmed the list of them (``defaults``).
-  const onSave = async (defaults: readonly Default[]) => {
-    if (stopped || !opened) return;
-    setConfirming(null);
-    setSaving(true); setProblem(null);
-    try {
-      const result = await opened.saver.save({ defaults });
-      sessionRef.current?.markSaved(result.rev);
+      const result = await opened.saver.save(opened.several ? lists : partPending.list(), draftSnapshot.rev);
       // The saved events are ordered by the command. A delayed HTTP reply must not replace a
       // later save at the same answer revision (for example an agent saving again meanwhile).
       if (!heardSaves.current.has(`${result.rev}:${result.path}`)) captureSaved.current(result);
-      if (opened.several && result.missing.length) {
-        const line = { path: result.path, open: null, byAgent: false, assemblyCount: result.missing.length, matching: true };
-        setSaved(line);
-        void assemblyQuestions(result, opened).catch(() => null).then((open) => setSaved((now) => now === line ? { ...line, open, matching: false } : now));
-      } else {
-        setSaved({ path: result.path, open: prompts(result.missing, opened.external.review, opened.review), byAgent: false });
-      }
+      setSaved({ path: result.path, open: prompts(result.missing, opened.external.review, opened.review), byAgent: false });
+      // The edits are in the file now: the part opens again from it, and they read as the file's.
+      setPending(new Map());
+      setSavedNote(`Saved ${inspectionName(result.path)} · ${plural(count, 'change')} written, all together.`);
       refreshConfig.current();
     } catch (error) {
       if (sessionRef.current?.signal.aborted) return;
-      // A failed write rolls its approvals back in the session: whatever the page was told while
-      // they were applied is replaced by the session as it is now, so none shows as applied.
-      if (!(error instanceof NotShown || error instanceof DefaultsChanged)) {
+      // The session moved on: the page takes it as it is now (the panel's edits stay).
+      if (error instanceof Stale) {
         const now = await getAnswers().catch(() => null);
         if (now) sessionRef.current?.receive({ ...now, source: 'start' });
       }
       if (error instanceof FileChanged) {
         setFileChanged(true);
         setProblem('Not saved: the file changed on disk since it was opened (another program wrote it), so Save will not write over it. '
-          + 'Your answers are still here: keep them with Answers (JSON), then open the file again.');
-      } else if (error instanceof DefaultsChanged) {
-        setProblem('Not saved: the answers changed, so the defaults to write are not the ones you confirmed. Check the new list.');
-        void askDefaults(true);
-      } else if (error instanceof DefaultRefused) {
-        // The command refused a default it was sent: said by the part and the question, and the list is made again.
-        const row = error.part === null ? undefined : parts.find((r) => r.part === error.part);
-        const where = error.part === null ? '' : ` on ${row?.name ?? `part ${error.part}`}`;
-        const listed = defaults.find((d) => d.id === error.question && d.part === error.part);
-        const shownValue = (value: unknown) => typeof value === 'string' ? value : JSON.stringify(value);
-        const what = error.question;
-        setProblem(error.values
-          ? `Not saved: the default for ${what}${where} changed. You confirmed ${listed?.value ?? shownValue(error.values.expected)}; it is now ${shownValue(error.values.current)}. Nothing was written; check the new list and confirm again.`
-          : `Not saved: the default for ${what}${where} was refused (${error.message}). Nothing was written; check the new list.`);
-        void askDefaults(true);
+          + 'Your changes are still listed below; open the file again to make them.');
+      } else if (error instanceof EditsRefused) {
+        setRejectedNone(rejectedNoneByPart(pending, error.failures, opened.several));
+        // All or nothing: the command names every edit it cannot apply, and wrote nothing.
+        setProblem(`Not saved: nothing was written, because ${plural(error.failures.length, 'change')} cannot be applied: `
+          + error.failures.map((f) => `${f.entry}: ${f.reason}`).join('; '));
       } else if (error instanceof NotShown && unshown) {
-        // The answers that could not be shown: tried again; until they show, Save cannot write them.
         setProblem('Not saved: the latest answers in the session are not shown yet (see below). Trying to show them again.');
         reshow.current();
       } else if (error instanceof Stale || error instanceof NotShown) {
-        // The session moved on (an agent answered meanwhile): the page shows its answers before any save.
         reshow.current();
-        // The answers, or the set of parts, changed while saving: the defaults are listed again for the person to confirm.
-        if (error instanceof Stale && defaults.length) {
-          setProblem('Not saved: the answers or the parts changed while you saved (your agent changed them). The defaults are listed again; check them and confirm.');
-          void askDefaults(true);
-        } else setProblem('Not saved: the answers changed while you saved (your agent answered). The answers now shown are the latest; check them and Save again.');
+        setProblem('Not saved: the session changed while you saved (your agent answered). What is now shown is the latest; check it and Save again.');
       } else setProblem(`Not saved: ${message(error)}`);
     } finally { setSaving(false); }
   };
 
-  // The answers given and kept, including any defaults already approved in the session.
-  const downloadAnswers = () => {
-    if (!opened || !config) return;
-    const answers = exportableAnswers(opened.store.get());
-    saveFile(new File([`${JSON.stringify(answers, null, 2)}\n`], `${stem(config.name)}.answers.json`, { type: 'application/json' }));
+
+  const onDiscard = async (target?: { part: number; id: string }) => {
+    const session = sessionRef.current;
+    if (busy || stopped || !session) return;
+    setProblem(null);
+    setDiscarding(true);
+    try {
+      if (target || Object.keys(draftSnapshot.drafts).length) {
+        const snapshot = await discardAnswers(draftSnapshot.rev, target, session.signal);
+        session.receive({ ...snapshot, source: 'start' });
+      }
+      if (!target) setPending(new Map());
+      setRejectedNone(new Map());
+      setAgent(null);
+    } catch (error) {
+      if (!session.signal.aborted) {
+        const latest = await getAnswers().catch(() => null);
+        if (latest) session.receive({ ...latest, source: 'start' });
+        setProblem(`Could not discard: ${message(error)}`);
+      }
+    } finally { setDiscarding(false); }
   };
 
   // A part's exports are derived only from the retained saved/opened STEP. Live answers and
@@ -540,12 +529,81 @@ function App() {
   /** A decision picked in the diff: its question, in the answers. */
   const decide = (d: Decision) => {
     setTab('answers');
-    if (d.question) setFocus({ questionId: d.question, scroll: true });
+    if (d.question) setFocus({ questionId: d.question, scroll: true, n: Date.now() });
   };
 
   const showingChanges = mode === 'diff' && tab === 'changes';
   const saveBlocked = apiProblem ?? (openingError ? 'Save is disabled until the file and its answers can be loaded. Correct the session answers, then reload this page.'
     : stopped ? 'Specify has stopped' : fileChanged ? 'The file changed on disk since it was opened: open it again to save' : undefined);
+  // The panel edits in specify and diff mode; read-only shows the review's PMI viewer instead.
+  const editing = Boolean(config && !config.readOnly);
+  const pending = useMemo(() => {
+    const model = opened?.model;
+    const rows = model ? [...(model.part?.rows ?? []), ...model.features.flatMap((group) => group.rows), ...(model.datums?.rows ?? [])] : [];
+    return withDrafts(localPending, draftSnapshot.drafts, (part, id, value) => {
+      const row = part === opened?.part ? rows.find((row) => row.id === id) : undefined;
+      const words = id.startsWith('part.') ? id.slice(5).replace(/_/g, ' ') : id;
+      return { name: row?.name ?? words.charAt(0).toUpperCase() + words.slice(1), text: answerText(value, row?.question) };
+    });
+  }, [localPending, draftSnapshot.drafts, opened?.model, opened?.part]);
+  const partPending = pending.get(opened?.part ?? 0) ?? NO_EDITS;
+  const items = [...pending].flatMap(([part, list]) => list.values().map((edit) => {
+    const name = opened?.several || edit.draft ? parts.find((row) => row.part === part)?.name || `Part ${part}` : undefined;
+    return { part, ...(name ? { name } : {}), edit };
+  }));
+  // "Add all suggestions" (Paul, 2026-11-21): every gap's suggestion queued as an edit, through the
+  // same whole-list check as one edit. An entry the file refuses is left out, with its reason.
+  const addAll = async () => {
+    if (!opened || busy) return;
+    setAddingAll(true); setProblem(null);
+    try {
+      const m = opened.model;
+      const rows = [...(m.part?.rows ?? []), ...m.features.flatMap((g) => g.rows), ...(m.datums?.rows ?? [])];
+      let queued = suggestionEdits(rows, partPending, isNoneValue);
+      const refused: string[] = [];
+      for (let round = 0; queued.length && round < 5; round++) {
+        let next = partPending;
+        for (const p of queued) next = next.with(p);
+        const failures = await check(next.list());
+        if (!failures.length) { editPending(next); break; }
+        const bad = queued.filter((p) => failures.some((f) => f.entry.includes(JSON.stringify(p.id))));
+        // A failure that names no suggestion is the list's own: nothing is queued.
+        if (!bad.length) { refused.push(...failures.map((f) => f.reason)); queued = []; break; }
+        for (const p of bad) refused.push(`${p.name}: ${failures.filter((f) => f.entry.includes(JSON.stringify(p.id))).map((f) => f.reason).join('; ')}`);
+        queued = queued.filter((p) => !bad.includes(p));
+      }
+      if (refused.length) setProblem(`Not added: ${refused.join(' · ')}`);
+    } finally { setAddingAll(false); }
+  };
+  const editPending = (next: PendingEdits) => {
+    if (!opened) return;
+    setPending((all) => {
+      const updated = new Map(all);
+      const local = new PendingEdits(next.values().filter((edit) => !edit.draft));
+      if (local.size) updated.set(opened.part, local);
+      else updated.delete(opened.part);
+      return updated;
+    });
+    if (rejectedNone.has(opened.part)) {
+      setRejectedNone((all) => {
+        const updated = new Map(all);
+        updated.delete(opened.part);
+        return updated;
+      });
+    }
+    setSavedNote(null); setAgent(null);
+  };
+  const check = async (edits: EditList): Promise<EditFailure[]> => {
+    const whole = (reason: string) => [{ entry: '(the whole list)', reason }];
+    if (!opened || !worker.current || !config) return whole('The part is not open.');
+    setChecking(true);
+    try {
+      const result = await worker.current.request<{ applicable: boolean; failures?: EditFailure[]; message?: string }>(
+        'check-edits', { ...fileOf(config.name, opened.bytes, opened.part, opened.several, opened.generation), edits });
+      return result.applicable ? [] : result.failures?.length ? result.failures : whole(result.message || 'It cannot be applied.');
+    } catch (error) { return whole(message(error)); }
+    finally { setChecking(false); }
+  };
   return (
     <div className="app">
       <header className="app-header">
@@ -555,19 +613,18 @@ function App() {
           {config && mode === 'diff' && <span aria-hidden="true">→</span>}
           {config && <span className="app-file">{config.name}</span>}
           {config && <code className="app-path">{mode === 'diff' ? `${config.oldPath} → ${config.path}` : config.path}</code>}
-          {parts.length > 0 && opened && (
+          {parts.length > 1 && opened && (
             <label className="app-part">Part{' '}
-              <select value={opened.part} disabled={switching} onChange={(event) => void showPart(Number(event.target.value))}>
+              <select value={opened.part} disabled={busy} onChange={(event) => void showPart(Number(event.target.value))}>
                 {parts.map((row) => <option key={row.part} value={row.part}>{row.name}</option>)}
               </select>
             </label>
           )}
           {readOnly && config && <span className="app-badge">View only</span>}
-          {dirty && <span className="app-dirty">Unsaved changes</span>}
+          {(dirty || items.length > 0) && <span className="app-dirty">Unsaved changes</span>}
         </div>
         <div className="app-actions">
           <div className="app-exports">
-            {opened && <button type="button" onClick={downloadAnswers}>Answers (JSON)</button>}
             <button type="button" onClick={downloadCsv} disabled={!inspectionReady} title={inspectionTitle}>Inspection list (CSV)</button>
             <button type="button" onClick={downloadFai} disabled={!inspectionReady} title={inspectionTitle}>AS9102 FAI (Excel)</button>
             {inspectionStep && <span className="app-inspection-source">
@@ -575,31 +632,14 @@ function App() {
             </span>}
             {inspectionProblem && <span className="app-problem" role="alert">Inspection exports unavailable. {inspectionProblem}</span>}
           </div>
-          {config && !readOnly && (
-            <>
-              <button type="button" className="app-save" onClick={() => void onSave([])} disabled={!opened || saving || Boolean(saveBlocked)} title={saveBlocked}>
-                {saving && !stopped ? 'Saving…' : 'Save'}
-              </button>
-              <button type="button" className="app-save-defaults" onClick={() => void askDefaults()} disabled={!opened || saving || Boolean(saveBlocked) || confirming !== null}
-                title={saveBlocked ?? "List Specify's default for each question not answered; save them once you confirm"}>
-                Save with defaults
-              </button>
-            </>
-          )}
         </div>
         {config && (
           <div className="app-paths">
             {saved && (
               <div className="app-saved" role="status">
-                {saved.byAgent ? 'Your agent saved' : 'Saved'} <code>{saved.path}</code>{saved.assemblyCount === undefined && saved.open !== null && `: ${saved.open.length
+                {saved.byAgent ? 'Your agent saved' : 'Saved'} <code>{saved.path}</code>{saved.open !== null && `: ${saved.open.length
                   ? `${plural(saved.open.length, 'question')} ${saved.byAgent ? 'still unanswered' : 'still open'}: ${saved.open.slice(0, 6).join('; ')}${saved.open.length > 6 ? '; …' : ''}`
                   : 'complete'}`}
-                {saved.assemblyCount !== undefined && (saved.open ? (
-                  <details className="app-open-questions">
-                    <summary>{plural(saved.assemblyCount, 'question')} still open</summary>
-                    <ul>{saved.open.map((question, i) => <li key={i}>{question}</li>)}</ul>
-                  </details>
-                ) : ` · ${plural(saved.assemblyCount, 'question')} still open${saved.matching ? '' : '. Specify could not match the questions to individual parts.'}`)}
               </div>
             )}
             {!stopped && config.saveTarget && <span>Save writes <code className="app-target">{config.saveTarget}</code></span>}
@@ -619,35 +659,6 @@ function App() {
           <button type="button" onClick={() => reshow.current()}>Show the latest answers</button>
         </p>
       )}
-      {confirming && !stopped && (
-        <div className="app-defaults" role="dialog" aria-label="Save with defaults">
-          {confirming.defaults.length ? (
-            <>
-              <p>Save writes {plural(confirming.defaults.length, 'default')} as requirements, as if you had given each answer:</p>
-              {[...new Set(confirming.defaults.map((d) => d.part))].map((part) => {
-                const list = <ul>{confirming.defaults.filter((d) => d.part === part).map((d) => <li key={d.id} data-default={d.id}>{d.prompt} <strong>{d.value}</strong></li>)}</ul>;
-                // An assembly's defaults, by part: every part the save writes, not only the one shown.
-                return opened?.several ? (
-                  <section key={part} data-part={part}>
-                    <h4>{parts.find((row) => row.part === part)?.name ?? `Part ${part}`}{part === opened.part ? ' (shown)' : ''}</h4>
-                    {list}
-                  </section>
-                ) : <div key={part}>{list}</div>;
-              })}
-            </>
-          ) : confirming.written.length ? <p>Every question with a default is answered: nothing to fill in.</p>
-            : <p>No question has a default to approve.</p>}
-          {opened?.several && confirming.written.length > 0 && (
-            <p data-written>This save writes {confirming.written.map((part) => parts.find((row) => row.part === part)?.name ?? `Part ${part}`).join(', ')};
-              a part with no answers and no default listed is left as it is.</p>
-          )}
-          {confirming.shownLeftOut && <p>The part shown has no answers and no default to approve, so this save does not write it.</p>}
-          <button type="button" className="app-save" onClick={() => void onSave(confirming.defaults)}>
-            {confirming.defaults.length ? `Save with these ${plural(confirming.defaults.length, 'default')}` : 'Save'}
-          </button>{' '}
-          <button type="button" onClick={() => setConfirming(null)}>Cancel</button>
-        </div>
-      )}
       {stopped && config ? (
         <p className="app-offline app-stopped" role="status">
           Specify has stopped. Run <code>specify-core open …</code> again (or ask your agent to show it).
@@ -660,14 +671,14 @@ function App() {
       )}
       {agent && (
         <p className="app-agent" role="status">
-          Updated by your agent: {prompts(agent.ids, ...(opened ? [opened.external.review, opened.review] : [])).join('; ')}{' '}
+          Updated by your agent: {prompts(agent.ids, ...(opened ? [opened.external.review, opened.review] : [])).join('; ')} · pending review{' '}
           <button type="button" className="app-dismiss" onClick={() => setAgent(null)}>Dismiss</button>
         </p>
       )}
       {other && (
         <p className="app-agent" role="status">
-          {other.joined ? 'Your agent opened' : 'Updated by your agent:'} {other.name}{' '}
-          <button type="button" onClick={() => void showPart(other.part)}>Show it</button>
+          {other.joined ? 'Your agent opened' : 'Updated by your agent:'} {other.name}{other.joined ? '' : ' · pending review'}{' '}
+          <button type="button" disabled={busy} onClick={() => void showPart(other.part)}>Show it</button>
         </p>
       )}
       {mode === 'diff' && (
@@ -696,16 +707,33 @@ function App() {
         <div className={`app-slot app-view${showingChanges ? ' app-under' : ''}`} ref={view} />
         <div className={`app-slot app-panel${showingChanges ? ' app-under' : ''}`} ref={panel} />
         {opened && slots && (
+          // The 3D view and the file's PMI, read only: the panel is where requirements change.
           <SpecifyReview
             key={opened.session.sessionId}
-            engine={opened.engine} session={opened.session} slots={slots} readOnly={readOnly} drawn={opened.drawn}
+            engine={opened.engine} session={opened.session} readOnly drawn={opened.drawn}
+            slots={editing ? { ...slots, panel: charsElement.current } : slots}
             inspectionExports={false}
-            externalAnswers={opened.external.answers} externalReview={opened.external.review} disabled={saving || stopped}
+            externalAnswers={opened.session.answers} externalReview={opened.review} disabled={saving || stopped}
             focusRequest={focus} showFaces={lit}
             onExport={(_action, format) => { if (format === 'xlsx') downloadFai(); else downloadCsv(); }}
           />
         )}
+        {opened && slots && editing && createPortal(
+          <Panel
+            key={opened.session.sessionId}
+            filename={opened.session.filename} model={opened.model} pending={partPending} onPending={editPending} check={check}
+            rejectedNone={rejectedNone.get(opened.part)} refusedAnswers={draftSnapshot.drafts[opened.part]?.refused}
+            onUndoDraft={(id) => void onDiscard({ part: opened.part, id })} disabled={busy || stopped} units={opened.units}
+            characteristics={{ element: charsElement.current, count: (opened.session.analysis as { characteristics?: unknown[] }).characteristics?.length ?? 0 }}
+            onFaces={(faces) => setLit({ faces, n: Date.now() })}
+            focus={focus ? { id: focus.questionId, n: focus.n ?? 0 } : null}
+          />, slots.panel)}
       </main>
+      {editing && (
+        <EditBar items={items} drafts={draftSnapshot.drafts} saving={saving && !stopped} busy={busy} blocked={(!opened ? 'Opening…' : undefined) ?? saveBlocked} savedNote={savedNote}
+          onSave={() => void onSave()} onDiscard={() => void onDiscard()} onUndoDraft={(part, id) => void onDiscard({ part, id })}
+          onAddAll={() => void addAll()} />
+      )}
       <footer className="app-about">
         Specify {config?.specifyCore ?? ''} · app {__APP_VERSION__} · runs on this computer; the file is not uploaded ·{' '}
         <a href={DOCS} target="_blank" rel="noreferrer">Docs</a> ·{' '}

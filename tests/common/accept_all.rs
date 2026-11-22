@@ -1,8 +1,8 @@
 //! What `write --accept-defaults` stores, found without specify-core's own planning of which
 //! answers write PMI (`api::stored_with_defaults`): the part is written with every default
-//! taken and only the given answers stored, then reopened; the defaults the file states come
-//! back as `resume.present`. The answers stored are the given ones and every other default
-//! taken, but the process (a suggestion even when taken).
+//! taken and only the given answers stored, then reopened; the defaults the file states are
+//! stated rows of its feature table (ADR P11). The answers stored are the given ones and every
+//! other default taken, but the process (a suggestion even when taken).
 
 use std::path::Path;
 
@@ -30,14 +30,18 @@ pub fn stored(
     let reopened = api::analyse_reporting_in(&written, &written.load(Some(k)).unwrap())
         .unwrap()
         .0;
-    let present = reopened["resume"]["present"]
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
+    let present: Vec<&str> = reopened["table"]["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|r| r["state"] == "stated")
+        .filter_map(|r| r["id"].as_str())
+        .collect();
     let mut out = given.clone();
     for (id, value) in all {
         if !given.contains_key(&id)
-            && !present.contains_key(&id)
+            && (!present.contains(&id.as_str())
+                || specify_core::feature_table::leaves_nothing(&value))
             && !id.starts_with("bom.")
             && id != "part.process"
         {

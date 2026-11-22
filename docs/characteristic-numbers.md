@@ -41,11 +41,14 @@ It uses the existing CAx-IF UDA `AttributeSet` route, on that part's product def
 one text item named **`history`**. Its compact JSON is:
 
 ```json
-{"schema":2,"faces":"<resume schema-2 face fingerprint>","high_water":7,"entries":[{"key":{"role":"size","kind":"dimension","type":"Size_Diameter","faces":[9],"reference":[]},"number":3}]}
+{"schema":2,"faces":"<resume schema-2 face fingerprint>","high_water":7,"entries":[{"key":{"role":"size","kind":"dimension","type":"Size_Diameter","faces":[9],"reference":[]},"number":3}],"retired":[1,2,4,5,6,7]}
 ```
 
 `high_water` is the greatest number ever allocated, including retired requirements. Entries
-are the current requirements, not a list of reusable numbers. The key describes requirement
+are the current requirements, not a list of reusable numbers. `retired` lists the numbers
+allocated once and no longer any requirement's (written from 0.3.0; a history without it counts
+every number below `high_water` that no entry holds as retired), so `carry` can keep an older
+revision's number that is free here and was never retired. The key describes requirement
 kind/type, target role and face support; readers use `ID_ATTRIBUTE` instead of interpreting it. Values, modifiers, zones and notation are not
 identity. A replace carries the history even when all requirements are removed.
 An additive write retains earlier snapshots; the last snapshot is current and its counter
@@ -124,8 +127,9 @@ The **first allocation is in inspection order**, consecutively 1…N without gap
 part with no reserved numeric ids. Later allocations append above `high_water`, even if
 an added characteristic would sort first geometrically. Existing numbers always win,
 including files numbered in category order by the 0.1.3-era writer. Reordering, adding or
-removing another requirement does not compact the numbers. A removed number is retired
-permanently; reintroducing that requirement later receives a new number.
+removing another requirement does not compact the numbers. An explicit `items.remove`
+permanently retires the number, including when the same edit list fills the resulting
+gap. A `change` to a value on the same measurement retains its number.
 
 The first-allocation rule is:
 
@@ -196,11 +200,15 @@ mark survives.
 fingerprints/face correspondence to map the old numbered supports to the revised part, and
 pairs requirements by number only where the new file's history continues that mapped
 snapshot (docs/diff.md). It returns no answers, so no `_specify_characteristic_numbers`
-transport (ADR P11). The ordinary writer still accepts that member: it verifies its target
+transport (ADR P11). `carry OLD NEW -o OUT` ([carry.md](carry.md)) carries the history with
+the same mapping: a requirement it carries keeps OLD's number, and the history's high-water
+mark keeps OLD's retired numbers (and those of requirements not carried) from being reused.
+The ordinary writer still accepts that member: it verifies its target
 geometry fingerprint, uses the carried history and consumes the member; it does not store it
-among user answers. Once the destination has its own history, that history takes precedence
-over stale revision transport, so reusing external answers cannot reset its counter or
-resurrect retired numbers.
+among user answers. Once the destination has its own history, that history takes precedence:
+its numbers stand, a carried number is used only where it is free there and neither history
+retired it, and the high-water mark becomes the larger of the two, so transport cannot reset
+the counter or resurrect a number either history retired.
 No separate number-matching operation is needed in a drawing or CSV consumer.
 
 An Add-mode write preserves imported PMI byte for byte. Existing numeric characteristic ids
@@ -222,8 +230,8 @@ text notes and caller metadata are settings rather than individual inspection ch
   JSON omits `number` when absent. Numbered thread/knurl/finish rows are kept distinct instead
   of aggregating different requirements of the same kind. A default part texture is in the
   authoritative `characteristics` list even though it has no face-note row.
-- WASM `IntentEngine.snapshot().analysis` exposes the same list, `writePmi` uses the same
-  writer, and `diff` reads the same numbers from each file.
+- WASM `IntentEngine.snapshot().analysis` exposes the same list, `edit` applies an edit list
+  with the same writer, and `diff` reads the same numbers from each file.
 
 For #95, history schema 2 replaces the value-sensitive `specification` field with a
 structural `role` (size/location, feature/dimension/relation/whole part, or datum). Schema 1

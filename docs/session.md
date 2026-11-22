@@ -7,12 +7,12 @@ normal stdio MCP server in their AI agent, with no addresses or tokens:
 claude mcp add specify -- specify-core mcp
 ```
 
-The agent opens a part (or two revisions of it) through MCP, and Specify holds that part's
-answers in the MCP server's process: the *session*. When the person wants to see the part, the
-agent calls `show`, which serves the Specify page (docs/open.md) for that same session on
-127.0.0.1 and opens the browser. From then on both sides edit one set of answers: the agent's
-answers appear in the page as it makes them, and the person's edits in the page are what the
-agent reads next.
+The agent opens a part (or two revisions of it) through MCP, and Specify holds that file in
+the MCP server's process: the *session*. When the person wants to see the part, the agent
+calls `show`, which serves the Specify page (docs/open.md) for that same session on 127.0.0.1
+and opens the browser. Both sides change the file the same way: each sends an edit list
+(fill gaps, change what the file states, remove requirements by number, decide none), applied
+all or nothing, and each save is what the other reads next.
 
 `specify-core open FILE` and `specify-core open --diff OLD NEW` are the manual way in: the same
 session and the same page, with no agent attached.
@@ -21,7 +21,9 @@ session and the same page, with no agent attached.
 
 One session per opened file (per pair, for a diff), held in memory by the MCP server:
 
-- the answers, one answer map (docs/answers.md) per part;
+- the file as its last save left it (the input before any);
+- the answers, one answer map (docs/answers.md) per part: those the file stores (decided none,
+  and choices that write no PMI), plus any the agent set with `answer` and has not saved;
 - `rev`, a number that goes up by one on every change, whoever makes it;
 - the recent changes (the last 256), so a side can ask what changed since a `rev`;
 - for a diff, the revision report;
@@ -29,56 +31,51 @@ One session per opened file (per pair, for a diff), held in memory by the MCP se
   `in_place` (keeping a `.bak`), as docs/open.md's `save` says.
 
 It starts from the answers stored in the file (a file Specify wrote resumes them), for a diff
-too: nothing is carried from the old revision (ADR P11). It lasts as long as the MCP server
+too: nothing is carried from the old revision (ADR P11). After each save it works on the file
+saved, and its answers are those that file stores. It lasts as long as the MCP server
 process; nothing is written to disk unless a save or an `answers_file` asks for it (docs/mcp.md's
 memory rule).
 
 MCP's documents are parts (`doc`, one per part, as today). All the parts of one file share
-its session and its `rev`; the page shows the file, and a part the page edits that the agent
-has not opened is opened in the session when the page first changes it.
+its session and its `rev`. The page and MCP can save an assembly's part lists together as one
+file revision.
 
 ## MCP tools
 
-The existing tools (docs/mcp.md) work on the session, plus three new ones:
+The existing tools (docs/mcp.md) work on the session, plus these:
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
 | `open` | as today, plus `old?` (a revision to compare from), `in_place?` (on a session already open, changes where Save writes only when given) | as today, plus `rev`; with `old`, the diff's `verdict`, `summary` and `report` too; the session is the file's own, nothing carried |
-| `questions`, `review`, `characteristics`, `read_pmi`, `export_answers` | as today | as today, plus `rev`: they read the session as it is now, page edits included |
-| `answer` | as today | as today, plus the new `rev`; the page receives it as an `answers` event with `source: "mcp"` |
-| `changes` (new) | `doc`, `since` (a `rev`) | `rev`, and `changes`: `[{rev, part, source, set: {id: answer}, cleared: [id]}]` after `since`, oldest first. If `since` is older than the changes kept, `full: true` and the whole `answers` instead (every part's, by part index, as the page's `GET answers` gives `parts`) |
-| `show` (new) | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`. Starts the page server for this session on 127.0.0.1 (random port and token), or returns the running one's address; opens the browser unless `browser: false`. A session opened with `old` is shown in `diff` mode: the page shows what changed beside the new file, and the person may answer and save the new revision. `read_only: true` makes that page view-only (no answer changes or Save from the page); the agent can still answer. Only `read_only: true` is refused for a session opened with `old` or `in_place` (as `open` refuses `--read-only` with `--diff` or `--in-place`). A page already running in the other mode is never replaced: `show` is refused with its `url` and `mode` until the person has closed it |
-| `save` (new) | `doc`, `accept_defaults` (required: the defaults the person approved, each id with the default value they saw: `{"<part index>": {"<id>": <value>}}` as the page sends them, or `{"<id>": <value>}` meaning the `doc`'s own part; `{}` for none) | `path`, `bytes`, `rev`, `report`: writes the session's answers with the same writer and naming as the page's Save (docs/open.md); plus `complete` and `missing`. Open questions never refuse it: what is answered is written, as the page's Save does. The page gets the same `saved` event |
+| `questions`, `review`, `characteristics`, `read_pmi` | as today | as today, plus `rev`: they read the session as it is now |
+| `answer` | as today | as today, plus the new `rev`; the page receives it as an `answers` event with `source: "mcp"`. These answers become working edits in the page's pending bar |
+| `changes` | `doc`, `since` (a `rev`) | `rev`, and `changes`: `[{rev, part, source, set: {id: answer}, cleared: [id]}]` after `since`, oldest first. If `since` is older than the changes kept, `full: true` and the whole `answers` instead (every part's, by part index, as the page's `GET answers` gives `parts`) |
+| `show` | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`. Starts the page server for this session on 127.0.0.1 (random port and token), or returns the running one's address; opens the browser unless `browser: false`. A session opened with `old` is shown in `diff` mode: the page shows what changed beside the new file, and the person may edit and save the new revision. `read_only: true` makes that page view-only (no Save from the page). Only `read_only: true` is refused for a session opened with `old` or `in_place` (as `open` refuses `--read-only` with `--diff` or `--in-place`). A page already running in the other mode is never replaced: `show` is refused with its `url` and `mode` until the person has closed it |
+| `save` | `doc`, `edits` for that part or `partEdits: [{part, edits}, …]` for the file, `rev?` (the session revision the agent last saw) | `path`, `bytes`, `rev`, `report` (with `retired` and `unchanged`), `complete`, `missing`: the list applied to the file all or nothing and written with the same naming as the page's Save (docs/open.md). One entry that cannot be applied writes nothing, and the `invalid` error's `failures` names every failing entry and why. A `rev` the session has left is `stale`. The page gets the same `saved` event |
+| `check` | `doc`, either edit form above | `applicable`, `entries`, `unchanged`, `failures`, `message`, `rev`. Checks the same lists as `save` without writing |
+| `discard` | `doc`, `rev?` | `rev`, `parts`. Drops working answers on all parts of the file and restores the saved answers without writing |
 
-`write_pmi` stays for writing to a path of the agent's choosing; it does not change where
-Save writes.
+`write_pmi`, which wrote the whole intent of the answers to a path of the agent's choosing, is
+gone (ADR P11: a write applies an edit list). `specify-core write STEP EDITS.json -o OUT` writes
+an edit list to another path.
 
-A default is written only when the person approves it, per id (ADR P9: "we shouldn't create
-the default, which then becomes gospel"). `save` requires `accept_defaults`, exactly the defaults
-the person approved, each with the value the person saw (`{}` for none): the agent names only
-those the person saw and confirmed, never every default unless the person saw the list and
-confirmed it. All are checked against the defaults as they stand before any is applied: each
-must be an open question with a default on the part it is listed for, and its value that
-default (else an `invalid` error naming the part and the id, with `expected` and `current`
-when the value differs; nothing written). They are applied together, and only that part gets
-them. They become answers (a
-new `rev`, an `answers` event with `"defaults": {"<part>": [ids]}`), are stored in the file, and
-the rest stay open, unwritten. A save writes only the parts that have at least one answer (keys
-starting with `_` not counting) or that the session changed since they joined (so a clear
-reaches the file); any other part is left as it is, and with nothing to write the file is saved
-as it was opened. MCP's `write_pmi` and `export_answers` (and the session-free exports: `api::export_answers`,
-CLI `questions --resolve-defaults --accept-defaults FILE`, serve, WASM `exportAnswers` and
-Python, by part only) follow the same rule for defaults:
-they write or export what is answered plus exactly the `accept_defaults` given, with the values
-the person saw, checked against the current defaults; without them, no default, and open
-questions are reported (`complete`, `missing`), never filled. A part joining the session
-(opened by the agent, or first changed by the page) is a change: a new `rev` and an event with
-`"joined": true`. The page's Save sends the same object as `acceptDefaults`
-(docs/open.md). (Contract change, 2026-11-18: `accept_defaults` was `true` or `false`, then
-`{"<part>": [ids]}`; it is now `{"<part>": {"<id>": <value>}}`.) An incomplete save is written
-(docs/open.md, `save`): a STEP file with some requirements still open is a valid result.
+A suggestion is written only when the list names it, in `fill` with the value the person saw
+or in `accept_suggestions` (ADR P9: "we shouldn't create the default, which then becomes
+gospel"): the agent lists only what the person saw and confirmed. Anything the list does not
+name is left as it is, byte for byte, whoever wrote it.
 
-An agent that wants to follow the person's edits calls `changes` with the last `rev` it saw
+Working answers become fills, decisions of none, or clears of stored decisions. A different
+answer for a stated row is refused with the value the file states and the guarded change to
+make. To stage the change explicitly for the panel, use MCP `check` with `stage: true` and a
+`change` entry with `to` and `expect`.
+MCP `save` and `check` combine savable drafts from every part with the explicit lists at
+one revision. An explicit edit to the same question takes precedence. The panel's bar marks
+when a local edit replaces a draft. For example, `save {doc, edits: {}}` applies the working
+edits alone. The page shows refused answers on their rows, and its Save skips them. MCP
+`discard` and the page's **Discard** drop drafts and refusals without writing. The page also
+offers **Undo** for a single draft or refusal.
+
+An agent that wants to follow the person's saves calls `changes` with the last `rev` it saw
 (for example after the person says they are done, or before each step); MCP over stdio has no
 way to push to the agent unasked.
 
@@ -99,10 +96,10 @@ way to push to the agent unasked.
   the file, which is inside it.
 - Stale files: a file changed on disk after `open` is refused as `stale`, except by the
   session's own `in_place` save, which records what it wrote. A `save` during which the
-  session's set of parts changed (the page's first change to another part, which an agent's
-  save has no `rev` to notice) is refused as `stale` too, nothing written: read and save again.
-- A save whose write fails after its approvals were applied rolls them back (a further `rev`),
-  unless the session has moved on since; nothing is written.
+  session changed (an agent's answer, which a save without `rev` does not guard) is refused as
+  `stale` too, nothing written: read and save again.
+- A save applies its whole list or nothing; a write that fails leaves the file and the
+  session as they were.
 - The page server's rules (exact Host, token, Origin on changes, CSP, connection caps) are
   docs/open.md's, unchanged. There is no MCP endpoint over HTTP in the page server: the agent
   talks to the session over its own stdio connection only.

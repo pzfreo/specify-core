@@ -11,6 +11,23 @@ fn saved(name: &str) -> Vec<u8> {
     part::load(&path, None).unwrap().bytes.to_vec()
 }
 
+/// ADR P11: of the saved answers `expected` (as rekeyed), those reopening resumes: the ones
+/// that leave no PMI behind and whose feature-and-kind the file does not state. The rest are
+/// the file's to state.
+fn resumed_of(expected: &Map<String, Value>, analysis: &Value) -> Map<String, Value> {
+    let stated: Vec<&str> = analysis["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["state"] == "stated")
+        .filter_map(|r| r["id"].as_str())
+        .collect();
+    specify_core::feature_table::storable(expected)
+        .into_iter()
+        .filter(|(id, _)| !stated.contains(&id.as_str()))
+        .collect()
+}
+
 /// Rename only the specified feature IDs, preserving every historical answer value.
 fn rekey_answers(original: &Value, moves: &[(&str, &str)]) -> (Map<String, Value>, Vec<Value>) {
     let mut answers = Map::new();
@@ -49,7 +66,10 @@ fn browser_sessions_resume_all_87_alpha6_answers() {
         assert_eq!(migrated.len(), moves.len() * 2);
         let session = Session::open(name, &bytes).unwrap();
         let snapshot = session.snapshot();
-        assert_eq!(snapshot["analysis"]["resume"]["answers"], json!(expected));
+        assert_eq!(
+            snapshot["analysis"]["resume"]["answers"],
+            json!(resumed_of(&expected, &snapshot["analysis"]))
+        );
         assert_eq!(
             snapshot["analysis"]["resume"]
                 .get("migrated")
@@ -58,9 +78,21 @@ fn browser_sessions_resume_all_87_alpha6_answers() {
             json!(migrated)
         );
         count += expected.len();
-        // #21's optional depth override adds no review work to fully answered old files.
+        // #21's optional depth override still adds no review work. Standalone
+        // measurements are now open because their suggestions write PMI.
         let review = session.review(&expected).unwrap();
-        assert!(review["open"].as_array().unwrap().is_empty());
+        let asked = review["questions"].as_array().unwrap();
+        for id in review["open"].as_array().unwrap() {
+            assert!(
+                id.as_str().is_some_and(
+                    |id| id.starts_with("length:planes:") || id.starts_with("location:holes:")
+                ),
+                "{name}: {id}"
+            );
+            let question = asked.iter().find(|question| question["id"] == *id).unwrap();
+            assert!(question["default"].is_string(), "{name}: {question}");
+            assert_ne!(question["optional"], true, "{name}: {question}");
+        }
     }
     assert_eq!(count, 87);
 }
@@ -93,7 +125,10 @@ fn browser_resumes_v024_answers_on_bosses_with_corrected_end_heights() {
         };
         let (answers, migrated) = rekey_answers(&base["answers"], moves);
         assert_eq!(migrated.len(), moves.len() * 3);
-        assert_eq!(snapshot["analysis"]["resume"]["answers"], json!(answers));
+        assert_eq!(
+            snapshot["analysis"]["resume"]["answers"],
+            json!(resumed_of(&answers, &snapshot["analysis"]))
+        );
         assert_eq!(
             snapshot["analysis"]["resume"]
                 .get("migrated")
@@ -159,7 +194,10 @@ fn browser_reports_unmatched_values_and_the_file_answers_the_current_question() 
         .shift_remove("hole.function:holes:999")
         .unwrap();
     let (expected, migrated) = rekey_answers(&applicable, &[("holes:3", "holes:3.5")]);
-    assert_eq!(resumed["answers"], json!(expected));
+    assert_eq!(
+        resumed["answers"],
+        json!(resumed_of(&expected, &snapshot["analysis"]))
+    );
     assert_eq!(
         migrated,
         vec![json!(["hole.position:holes:3", "hole.position:holes:3.5"])]
@@ -172,11 +210,14 @@ fn browser_reports_unmatched_values_and_the_file_answers_the_current_question() 
         .review(resumed["answers"].as_object().unwrap())
         .unwrap();
     // The orphan retains its saved key/value; the current hole question owns floor 5.
-    // ADR P9: the file still states that hole's requirement as its default would, so the
-    // question is answered by the file (`resume.present`), not open.
+    // ADR P11: the file states that hole's requirement, so it is not asked.
     assert_eq!(key, "hole.function:holes:3");
     assert!(
-        resumed["present"].get("hole.function:holes:3.5").is_some(),
+        snapshot["analysis"]["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["id"] == "hole.function:holes:3.5" && r["state"] == "stated"),
         "{resumed}"
     );
     assert!(
@@ -201,7 +242,8 @@ fn browser_exposes_real_alpha6_pattern_id_migration_and_new_questions() {
     let session = Session::open("ftc10.step", &bytes).unwrap();
     let snapshot = session.snapshot();
     let resumed = &snapshot["analysis"]["resume"];
-    assert_eq!(resumed["answers"].as_object().unwrap().len(), 29);
+    // ADR P11: of the 29 saved answers, those that leave no PMI behind resume.
+    assert_eq!(original.as_object().unwrap().len(), 29);
     // #100 claims drill-point cones: six bore/row answers now move in addition to
     // the two schema-6 counterbore-pattern answers. Native kernel_upgrade's exact
     // support/adjacency checks prove these are the same physical features.
@@ -230,23 +272,40 @@ fn browser_exposes_real_alpha6_pattern_id_migration_and_new_questions() {
         .collect();
     assert_eq!(resumed["migrated"], json!(expected));
     assert!(resumed["unresolved"].is_null());
+    let (rekeyed, _) = rekey_answers(original, &moves);
+    assert_eq!(
+        resumed["answers"],
+        json!(resumed_of(&rekeyed, &snapshot["analysis"]))
+    );
     for pair in resumed["migrated"].as_array().unwrap() {
         assert_ne!(pair[0], pair[1]);
-        assert_eq!(
-            resumed["answers"][pair[1].as_str().unwrap()],
-            original[pair[0].as_str().unwrap()]
-        );
+        // A migrated answer that the file states is the file's (ADR P11).
+        if let Some(answer) = resumed["answers"].get(pair[1].as_str().unwrap()) {
+            assert_eq!(answer, &original[pair[0].as_str().unwrap()]);
+        }
     }
     let review = session
         .review(resumed["answers"].as_object().unwrap())
         .unwrap();
-    assert_eq!(
-        review["open"],
-        json!([
-            "hole.function:hole_patterns.linear:194.195.196.197.198.199",
-            "hole.position:hole_patterns.linear:194.195.196.197.198.199"
-        ])
-    );
+    // ADR P11: what is open is what the feature table says is open: its gaps.
+    let open: Vec<&str> = review["open"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    let rows = snapshot["analysis"]["table"]["rows"].as_array().unwrap();
+    assert!(!open.is_empty());
+    for id in &open {
+        let row = rows.iter().find(|r| r["id"] == *id);
+        assert!(
+            row.is_none_or(|r| r["state"] == "gap"),
+            "{id} is open but {row:?}"
+        );
+    }
+    for r in rows.iter().filter(|r| r["open"] == true) {
+        assert!(open.contains(&r["id"].as_str().unwrap()), "{r}");
+    }
 }
 
 #[test]
@@ -331,7 +390,8 @@ fn browser_sessions_resume_all_84_alpha7_answers_after_schema6_upgrade() {
         let migrations = resumed["migrated"].as_array().cloned().unwrap_or_default();
         assert_eq!(migrations.len(), moved, "{name}");
         assert_eq!(migrations, expected_migrations, "{name}");
-        assert_eq!(resumed["answers"], json!(expected_answers), "{name}");
+        let resumed_answers = resumed_of(&expected_answers, &snapshot["analysis"]);
+        assert_eq!(resumed["answers"], json!(resumed_answers), "{name}");
         if name == "cgb217" {
             assert_eq!(
                 expected_answers["hole.function:hole_patterns.set:105.106.107.108.109.110"],
@@ -342,18 +402,21 @@ fn browser_sessions_resume_all_84_alpha7_answers_after_schema6_upgrade() {
                 "1"
             );
         }
-        assert_eq!(
-            resumed["answers"].as_object().unwrap().len(),
-            count,
-            "{name}"
-        );
+        assert_eq!(expected.as_object().unwrap().len(), count, "{name}");
         for (old, value) in expected.as_object().unwrap() {
             let new = migrations
                 .iter()
                 .find(|pair| pair[0] == *old)
                 .and_then(|pair| pair[1].as_str())
                 .unwrap_or(old);
-            assert_eq!(&resumed["answers"][new], value, "{name}: {old} -> {new}");
+            if let Some(answer) = resumed["answers"].get(new) {
+                assert_eq!(answer, value, "{name}: {old} -> {new}");
+            } else {
+                assert!(
+                    !resumed_answers.contains_key(new),
+                    "{name}: {old} -> {new} dropped"
+                );
+            }
         }
         for pair in migrations {
             let old = pair[0].as_str().unwrap().split_once(':').unwrap().1;
@@ -460,7 +523,38 @@ fn browser_refuses_suppressed_od_boss_answers_in_saved_and_shared_projects() {
         true,
     )
     .unwrap();
-    let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
+    // D11 (#126): given now, the answer on the suppressed boss names nothing the part has, so
+    // the writer refuses it, named with its reason.
+    let refused = specify_core::writer::write_bytes(&loaded, &intent, Some(&answers))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        refused.contains(&format!("Invalid answers: {key}: unknown feature bosses:1")),
+        "{refused}"
+    );
+    let seed = json!({"part.material":"steel"})
+        .as_object()
+        .unwrap()
+        .clone();
+    let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, Some(&seed)).unwrap();
+    // The suppressed boss's answer is put in the payload as an older engine stored it.
+    let written = part::load_bytes("saved.step", bytes.clone()).unwrap();
+    let payload = resume::payload(&written, &answers).unwrap();
+    let doc = Document::parse(bytes).unwrap();
+    let mut edit = Edit::new();
+    for id in doc.ids() {
+        if let Some(RawEntity::Simple {
+            name, attributes, ..
+        }) = doc.get(id)
+            && name == "DESCRIPTIVE_REPRESENTATION_ITEM"
+            && matches!(attributes.first(), Some(Attribute::String(s)) if s == resume::NAME)
+        {
+            let mut attributes = attributes.clone();
+            attributes[1] = Attribute::String(resume::encode(&payload));
+            edit.replace(id, haecceity::p21::simple(name, attributes));
+        }
+    }
+    let bytes = doc.apply(&edit).unwrap().bytes;
     let session = Session::open("saved.step", &bytes).unwrap();
     let snapshot = session.snapshot();
     let out = &snapshot["analysis"]["resume"];
