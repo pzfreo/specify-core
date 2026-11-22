@@ -32,15 +32,9 @@ fn round_trip(loaded: part::LoadedPart) {
         .find(|f| f["kind"] == "plane")
         .unwrap()["id"]
         .clone();
-    let given = json!({"extra.1":{"kind":"flatness","faces":[face],"value":"0.031"}})
-        .as_object()
-        .unwrap()
-        .clone();
-    let intent = api::preview(&initial, &given).unwrap();
-    eprintln!("first write");
-    let bytes = writer::write_bytes(&loaded, &intent, Some(&given))
-        .unwrap()
-        .0;
+    let flatness = |value| json!({"kind":"flatness","faces":[face],"value":value});
+    let given = json!({"extra.1": flatness("0.031")});
+    let bytes = common::apply_edits(&loaded, json!({"fill": given})).bytes;
     assert_entities_identical(&original, &bytes);
     let part_index = loaded.binding.part;
     let reopened = part::File::of_bytes(std::path::Path::new("added.step"), bytes.clone())
@@ -48,11 +42,8 @@ fn round_trip(loaded: part::LoadedPart) {
         .load(Some(part_index))
         .unwrap();
     // ADR P11: an added requirement writes PMI, so it is not stored; the file states it.
-    let kept = specify_core::feature_table::storable(&given);
-    assert_eq!(resume::answers_for(&reopened).unwrap(), Some(kept.clone()));
-    eprintln!("analyse resumed");
     let analysis = api::analyse(&reopened).unwrap();
-    assert_eq!(analysis["resume"]["answers"], json!(kept));
+    assert!(analysis["resume"]["answers"]["extra.1"].is_null());
     // The file's PMI is listed whoever wrote it: the foreign items, unchanged, and Specify's.
     let theirs = |a: &Value| {
         Value::Array(
@@ -88,22 +79,17 @@ fn round_trip(loaded: part::LoadedPart) {
             .collect::<Vec<_>>()
     };
     assert_eq!(ids(&initial), ids(&analysis));
-    let mut edited = given.clone();
-    edited["extra.1"]["value"] = json!("0.047");
-    let intent = api::preview(&analysis, &edited).unwrap();
-    eprintln!("edited write");
-    let changed = writer::write_bytes(&reopened, &intent, Some(&edited))
-        .unwrap()
-        .0;
+    let changed = common::apply_edits(
+        &reopened,
+        json!({"items":{"remove": [format!("#{number}")]}, "fill":{"extra.1": flatness("0.047")}}),
+    )
+    .bytes;
     assert_entities_identical(&original, &changed);
     let again = part::File::of_bytes(std::path::Path::new("changed.step"), changed)
         .unwrap()
         .load(Some(part_index))
         .unwrap();
-    assert_eq!(
-        resume::answers_for(&again).unwrap(),
-        Some(specify_core::feature_table::storable(&edited))
-    );
+    assert!(api::analyse(&again).unwrap()["resume"]["answers"]["extra.1"].is_null());
     assert_eq!(theirs(&api::analyse(&again).unwrap()), foreign);
     let changed = existing::read_existing(&again)
         .unwrap()
@@ -127,56 +113,63 @@ fn nist(name: &str) {
 }
 
 #[test]
-#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn ctc01_foreign_pmi_answers_resume_and_edits_preserve_entity_text() {
     nist("nist/nist_ctc_01_asme1_ap242");
 }
 
 #[test]
-#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
+#[ignore = "Requires the assembly edit writer on int/2-asm"]
 fn ftc09_foreign_pmi_answers_resume_and_edits_preserve_entity_text() {
     nist("nist/nist_ftc_09_asme1_ap242-e1");
 }
 
 #[test]
-#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
-fn ctc01_defaulted_add_replaces_all_own_items_and_keeps_numbers() {
+fn ctc01_edits_only_addressed_settings_and_keeps_other_numbers() {
     let case = common::case("nist/nist_ctc_01_asme1_ap242");
     let loaded = part::load(&case.input().unwrap(), None).unwrap();
     let original = loaded.bytes.to_vec();
+    let a = api::analyse(&loaded).unwrap();
+    let plane = a["faces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["kind"] == "plane")
+        .unwrap();
+    let seeded = common::apply_edits(
+        &loaded,
+        json!({"fill": {
+            "extra.flatness":{"kind":"flatness","faces":[plane["id"]],"value":"0.031"}
+        }}),
+    );
+    let loaded = part::load_bytes("numbered.step", seeded.bytes).unwrap();
     let initial = api::analyse(&loaded).unwrap();
-    let mut answers = json!({"part.material":"brass", "part.notes":["First instruction"]})
-        .as_object()
-        .unwrap()
-        .clone();
-    let intent = api::apply(&initial, &answers, true).unwrap();
-    let bytes = writer::write_bytes(&loaded, &intent, Some(&answers))
-        .unwrap()
-        .0;
+    let bytes = common::apply_edits(
+        &loaded,
+        json!({
+            "fill": {"part.material":"brass", "part.notes":["First instruction"]}
+        }),
+    )
+    .bytes;
     let reopened = part::load_bytes("defaults.step", bytes).unwrap();
     let numbers = characteristics::read(&reopened).unwrap();
     assert!(!numbers.is_empty());
     let analysis = api::analyse(&reopened).unwrap();
     assert_eq!(analysis["existing"], initial["existing"]);
-    assert_eq!(analysis["part"], initial["part"]);
-    answers.insert("part.material".into(), json!("steel"));
-    answers.insert("part.notes".into(), json!(["Revised instruction"]));
-    let intent = api::apply(&analysis, &answers, true).unwrap();
-    let bytes = writer::write_bytes(&reopened, &intent, Some(&answers))
-        .unwrap()
-        .0;
+    assert_eq!(analysis["part"]["material"], "brass");
+    assert_eq!(analysis["part"]["notes"], json!(["First instruction"]));
+    let bytes = common::apply_edits(
+        &reopened,
+        json!({"change": {
+            "part.material":{"to":"steel","expect":"brass"},
+            "part.notes":{"to":["Revised instruction"],"expect":"First instruction"}
+        }}),
+    )
+    .bytes;
     assert_entities_identical(&original, &bytes);
     let reopened = part::load_bytes("edited.step", bytes).unwrap();
-    assert_eq!(resume::answers_for(&reopened).unwrap(), Some(answers));
-    let mut after = characteristics::read(&reopened).unwrap();
-    for c in &mut after {
-        c.entity = 0;
-    }
-    let mut numbers = numbers;
-    for c in &mut numbers {
-        c.entity = 0;
-    }
-    assert_eq!(after, numbers);
+    assert!(api::analyse(&reopened).unwrap()["resume"]["answers"]["part.notes"].is_null());
+    assert!(api::analyse(&reopened).unwrap()["resume"]["answers"]["part.material"].is_null());
+    assert_eq!(characteristics::read(&reopened).unwrap(), numbers);
     let model = existing::part_settings(&reopened).unwrap();
     assert_eq!(model["material"], "steel");
     assert_eq!(model["notes"], json!(["Revised instruction"]));
@@ -210,7 +203,6 @@ fn old_add_mode_without_saved_answers_still_opens_as_existing_pmi() {
 }
 
 #[test]
-#[ignore = "0.3.0: moves to piece 2 (edits in place)"]
 fn stale_unmarked_legacy_answers_cannot_mask_scoped_add_saves() {
     let case = common::case("nist/nist_ctc_01_asme1_ap242");
     let loaded = part::load(&case.input().unwrap(), None).unwrap();

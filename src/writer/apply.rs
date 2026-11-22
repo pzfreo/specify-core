@@ -165,9 +165,40 @@ fn answers_refused(list: &EditList, table: &FeatureTable, analysis: &Json) -> Ve
         .collect()
 }
 
+// Added requirements have no feature-table row. A fill supplies the measurement and value.
+struct WithExtras<'a> {
+    table: &'a FeatureTable,
+    fills: &'a BTreeMap<String, Json>,
+}
+
+impl edits::FileState for WithExtras<'_> {
+    fn kind(&self, id: &str) -> Option<edits::KindState> {
+        if id
+            .strip_prefix("extra.")
+            .is_some_and(|name| !name.is_empty())
+            && self.fills.contains_key(id)
+        {
+            return Some(edits::KindState::Gap { suggestion: None });
+        }
+        self.table.kind(id)
+    }
+
+    fn requirement(&self, number: u64) -> Option<edits::Requirement> {
+        self.table.requirement(number)
+    }
+
+    fn file_item(&self, id: &str) -> bool {
+        self.table.file_item(id)
+    }
+}
+
 fn validated(list: &EditList, table: &FeatureTable, analysis: &Json) -> (EditList, Outcome) {
     let list = edits::normalise(list, table);
-    let mut outcome = edits::validate(&list, table);
+    let state = WithExtras {
+        table,
+        fills: &list.fill,
+    };
+    let mut outcome = edits::validate(&list, &state);
     if outcome.failures.is_empty() {
         outcome.failures = answers_refused(&list, table, analysis);
     }
@@ -298,11 +329,13 @@ fn setting_items(p: &PartPmi, key: &str) -> Result<Vec<(String, usize)>, String>
                 if mine == 0 {
                     continue;
                 }
-                if mine != set.items.len()
-                    || !set.items.iter().all(|(_, v)| {
-                        matches!(v, AttributeValue::Text(_) | AttributeValue::Integer(_))
-                    })
-                {
+                if !set.items.iter().all(|(name, value)| {
+                    (name == kind
+                        && matches!(value, AttributeValue::Text(_) | AttributeValue::Integer(_)))
+                        || (key == "notes"
+                            && name == super::NOTE_INDEX
+                            && matches!(value, AttributeValue::Integer(_)))
+                }) {
                     return Err(format!(
                         "part.{key} is stated in one set with other notes; remove them together"
                     ));
@@ -666,7 +699,7 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
     {
         return Ok(Applied {
             bytes: loaded.bytes.to_vec(),
-            report: report(loaded, super::Lines::default()),
+            report: report(loaded, super::Lines::default(), Default::default()),
             outcome,
             retired: Vec::new(),
             unchanged: true,
@@ -888,7 +921,18 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
 
     // Take them out, with Specify's bookkeeping (replaced below) and each removed item's own
     // features unless something kept uses them; every other item is protected.
-    let all = requirements(before);
+    let mut all = requirements(before);
+    // An unmarked legacy answer block can be preserved as file data. A scoped payload
+    // supersedes it as Specify's stored decisions, without touching its entities.
+    let mut unmarked_answers = false;
+    for (i, set) in before.attributes.iter().enumerate() {
+        if crate::resume::is_answers(set)
+            && !crate::provenance::marked(&original.doc, &prov.attributes[i], "attribute")
+        {
+            all.insert(("attributes".to_string(), i));
+            unmarked_answers = true;
+        }
+    }
     let bookkeeping: BTreeSet<(String, usize)> = (0..before.attributes.len())
         .map(|i| ("attributes".to_string(), i))
         .filter(|at| !all.contains(at))
@@ -988,6 +1032,11 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         })
         .map(|(id, v)| (id.clone(), v.clone()))
         .collect();
+    let mode = if source.has_pmi(k) || unmarked_answers {
+        Mode::Add
+    } else {
+        Mode::Replace
+    };
     let mut lines = super::Lines::default();
     let mut pmi = if given.is_empty() {
         PartPmi::default()
@@ -1145,11 +1194,6 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
             }
             !covered
         });
-        let mode = if source.has_pmi(k) {
-            Mode::Add
-        } else {
-            Mode::Replace
-        };
         let (mut pmi, planned) = part_pmi(&loaded_clean, &intent, clean_before, mode, &[])
             .map_err(|e| whole(e.to_string()))?;
         lines = planned;
@@ -1202,11 +1246,6 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
         lines.not_written.extend(held);
         pmi
     };
-    let mode = if source.has_pmi(k) {
-        Mode::Add
-    } else {
-        Mode::Replace
-    };
 
     // The stored state: decided none, and the choices that are not requirements.
     let mut saved = choices;
@@ -1239,8 +1278,10 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
     for (id, value) in &none {
         saved.insert(id.clone(), value.clone());
     }
-    if !saved.is_empty() {
-        let payload = crate::resume::payload(loaded, &saved).map_err(|e| whole(e.to_string()))?;
+    if !saved.is_empty() || unmarked_answers {
+        let mut payload =
+            crate::resume::payload(loaded, &saved).map_err(|e| whole(e.to_string()))?;
+        payload["pmi_scope"] = Json::String(super::PMI_PROVENANCE.into());
         pmi.attributes.push(crate::resume::attribute_set(&payload));
     }
     crate::characteristics::allocate(
@@ -1290,7 +1331,8 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
     }
 
     let items = vec![(haecceity::pmi::PartId(k), pmi)];
-    let (back, _) = write_by_modes(&source, &items, &[mode]).map_err(|e| whole(e.to_string()))?;
+    let (back, kernel) =
+        write_by_modes(&source, &items, &[mode]).map_err(|e| whole(e.to_string()))?;
     verify(&source, &items, &[mode], &back).map_err(|e| whole(e.to_string()))?;
 
     // ADR P11: every item not named keeps its bytes, whoever wrote it.
@@ -1329,23 +1371,27 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
     }
     Ok(Applied {
         bytes: back,
-        report: report(loaded, lines),
+        report: report(loaded, lines, kernel),
         outcome,
         retired,
         unchanged: false,
     })
 }
 
-fn report(loaded: &LoadedPart, lines: super::Lines) -> WriteReport {
+fn report(
+    loaded: &LoadedPart,
+    lines: super::Lines,
+    kernel: super::KernelWriteReport,
+) -> WriteReport {
     WriteReport {
         output: loaded.path.clone(),
         written: lines.written,
         not_written: lines.not_written,
         warnings: lines.warnings,
-        geometry_carrier_exemptions: Vec::new(),
-        presentation_warnings: Vec::new(),
-        preserved_normalizations: Vec::new(),
-        retained_shared: Vec::new(),
-        saved_view_findings: Vec::new(),
+        geometry_carrier_exemptions: kernel.geometry_carrier_exemptions,
+        presentation_warnings: kernel.presentation_warnings,
+        preserved_normalizations: kernel.preserved_normalizations,
+        retained_shared: kernel.retained_shared,
+        saved_view_findings: kernel.saved_view_findings,
     }
 }
