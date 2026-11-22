@@ -344,3 +344,48 @@ fn ftc07_tilted_length_is_stated_changeable_and_removable() {
     assert_eq!(row(&after)["state"], "gap");
     assert_eq!(after["table"]["file_pmi"], *other);
 }
+
+#[test]
+fn ftc07_has_measured_step_rows_on_all_three_axes() {
+    let Some(part) = corpus_part("nist/nist_ftc_07_asme1_rd.stp") else {
+        return;
+    };
+    let analysis = api::analyse(&part).unwrap();
+    for (axis, level, id, suggestion) in [
+        (
+            "x",
+            "step_levels:201",
+            "length:planes:42-201",
+            "297.253 ±0.5 from face 42",
+        ),
+        (
+            "y",
+            "step_levels:174.176.178.179",
+            "length:planes:86-174.176.178.179",
+            "16.51 ±0.2 from A",
+        ),
+        (
+            "z",
+            "step_levels:166.170",
+            "length:planes:166.170-254.257",
+            "138.121 ±0.5 from faces 254, 257",
+        ),
+    ] {
+        assert!(
+            analysis["features"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|feature| {
+                    feature["id"] == level && feature["record"]["height_axis"] == axis
+                }),
+            "FTC-07: missing {axis} level {level}"
+        );
+        assert!(
+            rows(&analysis).iter().any(|row| {
+                row["id"] == id && row["state"] == "gap" && row["suggestion"] == suggestion
+            }),
+            "FTC-07: missing measured {axis} length {id}"
+        );
+    }
+}
