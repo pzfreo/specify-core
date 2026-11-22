@@ -875,7 +875,28 @@ fn part_pmi_added(
     let mut lines = full_lines;
     if !gone.is_empty() || part_finish {
         let (_, less) = part_pmi(loaded, intent, before, Mode::Add, &[])?;
-        lines.written.retain(|line| less.written.contains(line));
+        lines.written.retain(|line| {
+            line.ends_with(" under the general tolerance") || less.written.contains(line)
+        });
+    }
+    if let Some(at) = lines
+        .written
+        .iter()
+        .position(|line| line.ends_with(" under the general tolerance"))
+    {
+        // The pre-filter count changes when an approved dimension is already
+        // stated. Count the surviving writes instead of comparing report strings.
+        let general = sources
+            .iter()
+            .filter(|(key, req)| {
+                key.0 == "dimensions" && !restated.contains_key(key) && truthy(req.get("general"))
+            })
+            .count();
+        if general == 0 {
+            lines.written.remove(at);
+        } else {
+            lines.written[at] = general_count_line(general);
+        }
     }
     lines.not_written.extend(said);
     for (at, row) in &sources {
@@ -1090,6 +1111,11 @@ fn general_dimension_label(row: &Map<String, Json>) -> String {
         ),
         kind => format!("general {} on faces {faces}", kind.unwrap_or("row")),
     }
+}
+
+fn general_count_line(count: usize) -> String {
+    let plural = if count == 1 { "" } else { "s" };
+    format!("{count} dimension{plural} under the general tolerance")
 }
 
 /// The upgrade can keep a measurement but add planner metadata and round its nominal.
@@ -3097,10 +3123,15 @@ fn part_pmi_observed(
                         .iter()
                         .any(|r| row == r || same_general_measurement(row, r))
                     {
-                        lines.not_written.push(format!(
-                            "{}: the shared planner did not retain this dimension when upgrading the intent",
-                            general_dimension_label(row)
-                        ));
+                        if intent.accept_defaults {
+                            // This exact measurement was accepted under the old rules.
+                            upgraded.general.push(row.clone());
+                        } else {
+                            lines.not_written.push(format!(
+                                "{}: the shared planner did not retain this dimension when upgrading the intent",
+                                general_dimension_label(row)
+                            ));
+                        }
                     }
                 }
                 &upgraded
@@ -3348,6 +3379,7 @@ fn part_pmi_observed(
         }
         if general_row
             && mode == Mode::Add
+            && !intent.accept_defaults
             && !req.contains_key("planner")
             && !req
                 .get("question")
@@ -3841,10 +3873,7 @@ fn part_pmi_observed(
         }
     }
     if general > 0 {
-        lines.written.push(format!(
-            "{general} dimension{} under the general tolerance",
-            if general == 1 { "" } else { "s" }
-        ));
+        lines.written.push(general_count_line(general));
     }
     for d in &intent.datums {
         let letter = d.get("letter").and_then(Json::as_str).unwrap_or("");

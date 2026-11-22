@@ -19,6 +19,7 @@ fn known(case: &str, path: &str, verdict: &str) -> KnownDifference {
         pattern: "a pattern".into(),
         verdict: verdict.into(),
         evidence: "what was checked".into(),
+        values: None,
     }
 }
 
@@ -210,6 +211,14 @@ fn known_differences_explain_by_case_and_path_glob() {
     ];
     // Both matched, both entries used: passes.
     check_known_with("test", &entries, &differences);
+    let mut exact = known("parts/plate", "faces[0].area", "rust-correct");
+    exact.values = Some((Some(json!(1)), Some(json!(2))));
+    assert!(exact.matches(&differences[1]));
+    let mut changed = differences[1].clone();
+    changed.rust = Some(json!(3));
+    assert!(!exact.matches(&changed));
+    exact.path = "faces[*].area".into();
+    assert!(!exact.matches(&differences[1]));
 }
 
 #[test]
