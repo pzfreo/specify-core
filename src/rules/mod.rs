@@ -918,6 +918,7 @@ fn every_question(
         q.feature = Some(f.id.into());
         q.title = Some(label);
         q.default = Some(Value::from(NONE));
+        q.source = Some(&sources::FILLET_RADIUS_NONE);
         q.options = vec![NONE.into(), radius];
         if let Some(value) = answers.get(&q.id) {
             choices::check(&q.id, value, &q.options, None, None)?;

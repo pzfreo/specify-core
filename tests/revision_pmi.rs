@@ -953,9 +953,12 @@ fn fresh_revision_fixture_pairs_never_cross_requirement_types() {
     // files' PMI, paired by faces and kind, never two plans). They keep every addition, removal
     // and real renumbering rather than treating unrelated occupants of a number as edits.
     let cases = [
-        ("complex_counterbore", [5, 6, 2, 0]), // Five surviving pattern requirements grow support; two counterbore sizes are new.
+        ("complex_counterbore", [5, 11, 3, 0]), // 0.5.5 adds a 7 mm step location; five more rows shift number.
         ("complex_fillet_all", [0, 2, 2, 2]), // A pitch and a location now measured between other faces: removed and added.
-        ("complex_many", [4, 2, 4, 4]), // Recess, pocket and pattern size edits; slot locations new, removed holes' pitches go.
+        // 0.5.5 drops the location to supporting cap 17. Fresh numbers shift
+        // six more rows and the old bore diameter and the new bolt-circle
+        // pattern's bore diameter are reported as a removal and an addition.
+        ("complex_many", [3, 8, 5, 4]),
         ("complex_moved", [5, 12, 1, 0]), // The pattern's bore Ø6 → Ø7 H11, its pitches and locations re-supported; its position new.
         ("complex_pattern", [0, 6, 2, 3]), // Changed pattern structure replaces requirements.
         ("complex_remodelled", [0, 0, 4, 4]), // Each file's defaults locate the split halves from other faces: never paired across.
@@ -1001,6 +1004,21 @@ fn fresh_revision_fixture_pairs_never_cross_requirement_types() {
         let counts = ["changed", "renumbered", "added", "removed"]
             .map(|class| report.pmi.items.iter().filter(|i| i.class == class).count());
         assert_eq!(counts, expected, "{case}: {:?}", report.pmi.items);
+        if case == "complex_many" {
+            assert!(!report.pmi.items.iter().any(|i| {
+                i.class == "removed" && i.faces.old.iter().map(|f| f.face).eq([3, 17])
+            }));
+            assert!(report.pmi.items.iter().any(|i| {
+                i.class == "removed"
+                    && i.old.as_deref() == Some("⌀6")
+                    && i.faces.old.iter().map(|f| f.face).eq([8, 9, 11, 12])
+            }));
+            assert!(report.pmi.items.iter().any(|i| {
+                i.class == "added"
+                    && i.new.as_deref() == Some("⌀8")
+                    && i.faces.new.iter().map(|f| f.face).eq([6, 7, 8, 9, 14, 19])
+            }));
+        }
         let scenes = report.pmi.scenes.unwrap();
         for item in report
             .pmi
@@ -1114,7 +1132,19 @@ fn counterbores_grow_the_existing_pattern_requirements_instead_of_replacing_them
         .iter()
         .filter(|item| item.class == "added")
         .collect();
-    assert_eq!(added.len(), 2, "{added:?}");
+    // 0.5.5 also recognises the counterbore floor as a plate-axis step.
+    // Its 7 mm distance from the opposite face is distinct from the 3 mm depth.
+    assert_eq!(added.len(), 3, "{added:?}");
+    assert!(
+        added.iter().any(|item| item.new.as_deref() == Some("7")
+            && item
+                .faces
+                .new
+                .iter()
+                .map(|f| f.face)
+                .eq([3, 21, 22, 24, 25])),
+        "{added:?}"
+    );
     for text in ["⌀12", "3"] {
         assert!(
             added.iter().any(|item| item.new.as_deref() == Some(text)),

@@ -172,6 +172,7 @@ default on the corpus and fixture analyses has one. Where it appears:
 | `part.general_tolerance.machined` | convention | ISO 2768-1 | `ISO 2768-m` |
 | `part.general_tolerance.printed` | vendor | — | the process's ± figure |
 | `dimensions.general` | convention | — | measured from the model using the applicable general tolerance |
+| `fillet.radius.none` | convention | — | call out a fillet radius only when selected |
 | `part.surface_finish.machined` | convention | — | `Ra 3.2` |
 | `part.edges.machined` | convention | — | `Break sharp edges 0.2 max` |
 | `part.edges.sheet_metal` | convention | — | `Deburr only` |

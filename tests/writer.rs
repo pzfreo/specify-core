@@ -965,7 +965,13 @@ fn a_nist_part_keeps_all_its_pmi() {
     let asked: Vec<String> = questions(&analysis, &Map::new())
         .unwrap()
         .into_iter()
-        .map(|q| q.id.split(':').next().unwrap().to_string())
+        .map(|q| {
+            // Quiddity 0.5.5's optional radius rows leave the file's PMI alone.
+            if q.id.starts_with("fillet.radius:") {
+                assert_eq!(q.default, Some(json!("none")), "{}", q.id);
+            }
+            q.id.split(':').next().unwrap().to_string()
+        })
         .collect();
     let allowed = [
         "part.material",
@@ -979,6 +985,7 @@ fn a_nist_part_keeps_all_its_pmi() {
         "datum.C.control",
         // Appended for every made part (docs/process.md); NIST's PMI states no process.
         "part.process",
+        "fillet.radius",
         // general dimensions are rows (Paul, 2026-11-21).
         "length",
         "location",

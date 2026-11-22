@@ -239,7 +239,7 @@ fn corrected_round_inventory_agrees_with_material_side() {
             vec![2, 3, 11, 44, 46, 692, 697, 1215, 1219],
             // quiddity-rust#134 moves 194 turned root fillets from convex to concave.
             113,
-            595, // Includes #127's 401 prismatic inside rounds and sphere caps.
+            586, // 0.5.5 #307 leaves nine slot-wall patches to cylindrical profiles.
             194,
         ),
         (
@@ -247,7 +247,7 @@ fn corrected_round_inventory_agrees_with_material_side() {
             vec![177, 182, 205, 210, 233, 238, 261, 266],
             vec![],
             // quiddity-rust#134 moves five turned root fillets to the inside inventory.
-            17,
+            25, // 0.5.5 #297 adds the eight R0.5 edge-round patches.
             68, // Includes #127's 63 prismatic inside rounds.
             5,
         ),
@@ -324,6 +324,17 @@ fn corrected_round_inventory_agrees_with_material_side() {
                 "{name}:{face}"
             );
         }
+        if name == "cgb202" {
+            for face in [1966, 1968, 1982, 1989, 2003, 2010, 2026, 2032, 2041] {
+                assert!(!fillets.iter().any(|f| f.faces.contains(&face)), "{face}");
+                assert!(
+                    features
+                        .iter()
+                        .any(|f| { f.family == "cylindrical_profiles" && f.faces.contains(&face) }),
+                    "{face}"
+                );
+            }
+        }
         if name == "cgb241" {
             assert_eq!(
                 features
@@ -335,6 +346,11 @@ fn corrected_round_inventory_agrees_with_material_side() {
             );
         }
         if name == "cgb217" {
+            let small = features
+                .iter()
+                .find(|f| f.id == "fillets:58.63.66.71.74.79.82.87")
+                .unwrap();
+            assert_eq!(small.record["radius"], 0.5);
             // quiddity #120: all sixteen R1 rounds are now fillets, on the same faces.
             for face in [
                 177, 182, 191, 196, 205, 210, 219, 224, 233, 238, 247, 252, 261, 266, 296, 301,
@@ -490,6 +506,28 @@ fn published_body_level_frames_reconstruct_the_physical_supports() {
         serde_json::from_str(include_str!("fixtures/known_differences/features.json")).unwrap();
     let mut levels: BTreeMap<String, BTreeSet<(String, usize)>> = BTreeMap::new();
     for e in ledger {
+        if e["pattern"] == "0.5.5 / All-axis riser supports"
+            && let Some(path) = e["path"]
+                .as_str()
+                .and_then(|p| p.strip_prefix("features[id="))
+            && let Some((id, tail)) = path.split_once(']')
+        {
+            let rust = &e["exact"][1][0];
+            let body_levels = match tail {
+                "" => &rust["record"]["body_levels"],
+                ".record.body_levels" => rust,
+                _ => continue,
+            };
+            for (index, level) in body_levels.as_array().into_iter().flatten().enumerate() {
+                if level.get("origin").is_some() {
+                    levels
+                        .entry(e["case"].as_str().unwrap().into())
+                        .or_default()
+                        .insert((id.to_owned(), index));
+                }
+            }
+            continue;
+        }
         if e["pattern"] != "Schema-6 published measurement differs from frozen Python" {
             continue;
         }
@@ -509,7 +547,9 @@ fn published_body_level_frames_reconstruct_the_physical_supports() {
             .or_default()
             .insert((feature.to_owned(), index.parse().unwrap()));
     }
-    assert_eq!(levels.values().map(BTreeSet::len).sum::<usize>(), 64);
+    // 0.5.5 removes one drafted support on 244 and publishes seven new
+    // body-level frames when risers are measured along other axes.
+    assert_eq!(levels.values().map(BTreeSet::len).sum::<usize>(), 70);
     let expected: usize = levels
         .iter()
         .filter(|(case, _)| common::case_selected(case))
@@ -517,7 +557,7 @@ fn published_body_level_frames_reconstruct_the_physical_supports() {
         .sum();
     let mut checked = 0;
     // This is a corpus-wide ledger sweep, so use the same selection as the oracle sweeps.
-    // Keep all physical assertions and the complete capture's 64-support inventory above.
+    // Keep all physical assertions and the complete capture's support inventory above.
     for (case, supports) in levels
         .into_iter()
         .filter(|(case, _)| common::case_selected(case))
