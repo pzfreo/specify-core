@@ -215,8 +215,8 @@ and every other hole whose axis lies on the same line from the same reference: o
 left edge to a row of holes locates the Ø8 on that line too. Its reference side (the "from")
 locates nothing: a dimension from hole A to hole B locates B, not A. A position tolerance on the
 hole locates it in every direction. Identical patterns can share a row and its face list. A
-position tolerance on one pattern covers that pattern; the shared row stays open until each
-pattern is located. The location row is stated when every direction across the hole's axis is
+position tolerance Specify writes on one pattern covers that pattern; the shared row stays open
+until each pattern is located. Imported position tolerances may represent repeated callouts. The location row is stated when every direction across the hole's axis is
 located. Otherwise it is a gap, and when some directions are located, its
 `missing` lists the others (`["y"]`), `located` those already located (`["x"]`), and
 `requirements` the dimensions that locate it so far.

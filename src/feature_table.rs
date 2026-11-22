@@ -1127,7 +1127,10 @@ pub(crate) fn build_with_depths(
             }
             let unresolved = if positions.is_empty() {
                 Some(location)
-            } else if q.parts.is_empty() {
+            } else if q.parts.is_empty()
+                || positions.iter().any(|&i| existing[i]["provenance"].is_null())
+            {
+                // Imported PMI may use one representative carrier for a repeated callout.
                 None
             } else {
                 // Identical groups share one question, but each needs its own location.
