@@ -2124,6 +2124,12 @@ fn mcp_stages_only_explicit_guarded_changes() {
         json!({"doc": doc, "set": {"part.material": "aluminium"}}),
     );
     assert_eq!(answer["isError"], true, "{answer}");
+    let reviewed = call(&mut server, "review", json!({"doc": doc}));
+    let after_refusal = reviewed["structuredContent"]["rev"].as_u64().unwrap();
+    assert_eq!(
+        after_refusal,
+        same["structuredContent"]["rev"].as_u64().unwrap() + 1
+    );
     // Reporting a refusal on a stated row advances the panel revision without storing an answer.
     let answered = call(
         &mut server,
@@ -2136,10 +2142,7 @@ fn mcp_stages_only_explicit_guarded_changes() {
         .unwrap();
     assert!(reason.contains("hole.function:holes:14"), "{reason}");
     assert!(out["set"].as_array().unwrap().is_empty(), "{out}");
-    assert_eq!(
-        out["rev"],
-        same["structuredContent"]["rev"].as_u64().unwrap() + 1
-    );
+    assert_eq!(out["rev"], after_refusal + 1);
 
     let edits = json!({"doc": doc, "edits": {}});
     let checked = call(&mut server, "check", edits.clone());
