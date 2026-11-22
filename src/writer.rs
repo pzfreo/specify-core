@@ -882,19 +882,23 @@ fn part_pmi_added(
         }
     }
     lines.not_written.extend(said);
+    let mut reported = BTreeSet::new();
     for (at, row) in &sources {
         if restated.contains_key(at) && (truthy(row.get("general")) || intent.general.contains(row))
         {
+            reported.insert(at.clone());
             lines.not_written.push(format!(
                 "{}: the file already states it; not written again",
                 general_dimension_label(row)
             ));
         }
     }
-    for what in drop_stated(&mut pmi, before, &by_kind) {
-        lines.not_written.push(format!(
-            "{what}: the file already states it; not written again"
-        ));
+    for (at, what) in drop_stated(&mut pmi, before, &by_kind) {
+        if !reported.contains(&at) {
+            lines.not_written.push(format!(
+                "{what}: the file already states it; not written again"
+            ));
+        }
     }
     // A note the file already holds, as written, on the part or on a feature of the same
     // faces (a part note, a thread's manufacturing data), is not written twice.
@@ -951,7 +955,7 @@ fn drop_stated(
     planned: &mut PartPmi,
     before: &PartPmi,
     also: &BTreeSet<(String, usize)>,
-) -> Vec<String> {
+) -> Vec<((String, usize), String)> {
     use pmi::{DimensionId, ToleranceId};
     let stated: BTreeSet<String> = crate::characteristics::measures(before)
         .into_iter()
@@ -965,7 +969,7 @@ fn drop_stated(
             && (stated.contains(&key) || also.contains(&(collection.to_string(), i)))
         {
             drop.insert((collection, i));
-            said.push(key);
+            said.push(((collection.to_string(), i), key));
         }
     }
     if drop.is_empty() {
