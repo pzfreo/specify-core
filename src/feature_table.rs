@@ -59,6 +59,14 @@ pub struct Requirement {
     pub text_only: bool,
 }
 
+/// The support a row applies to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Scope {
+    Part,
+    Feature,
+}
+
 /// One feature-and-kind.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Row {
@@ -68,7 +76,8 @@ pub struct Row {
     pub kind: String,
     /// The feature (`holes:12`, `part`, `datum.A`).
     pub feature: String,
-    /// The feature's faces.
+    pub scope: Scope,
+    /// The feature's faces, empty for part settings.
     pub faces: Vec<usize>,
     pub state: State,
     /// Stated: the file's value, its requirements' notation joined. Decided none: the
@@ -163,6 +172,7 @@ impl FeatureTable {
                     id: q.id.clone(),
                     kind,
                     feature,
+                    scope: Scope::Feature,
                     faces: q
                         .faces
                         .iter()
@@ -925,6 +935,17 @@ pub fn build(
     settings: &Map<String, Value>,
     answers: &Map<String, Value>,
 ) -> Result<FeatureTable, crate::rules::Error> {
+    build_with_depths(analysis, settings, answers, &BTreeMap::new())
+}
+
+/// Build from a semantic read, where each dimension in `existing` is in its
+/// original order, including the endpoint dimensions that measure hole depths.
+pub(crate) fn build_with_depths(
+    analysis: &Value,
+    settings: &Map<String, Value>,
+    answers: &Map<String, Value>,
+    depths: &BTreeMap<usize, BTreeSet<usize>>,
+) -> Result<FeatureTable, crate::rules::Error> {
     let existing: Vec<&Value> = analysis["existing"]
         .as_array()
         .into_iter()
@@ -945,16 +966,17 @@ pub fn build(
     // Re-plan with the file's PMI in place for the remaining gaps. The bare plan also
     // supplies the measurements that disappeared from planning because the file states them.
     let mut dimensions = BTreeMap::new();
-    let current = crate::rules::dimension_suggestions(&crate::rules::Ctx::new(analysis)?, answers);
+    let ctx = crate::rules::Ctx::new(analysis)?;
+    let current = crate::rules::dimension_suggestions(&ctx, answers);
     let bare = if existing.is_empty() {
         Vec::new()
     } else {
         crate::rules::dimension_suggestions(&bare_ctx, &all)
     };
-    for s in current.into_iter().chain(
-        bare.into_iter()
-            .filter(|s| !general_matches(&s.dimension, &existing, &located).is_empty()),
-    ) {
+    for s in current.into_iter().chain(bare.into_iter().filter(|s| {
+        !crate::rules::general_rows::positioned_location(&ctx, s)
+            && !general_matches(&s.dimension, &existing, &located).is_empty()
+    })) {
         if let std::collections::btree_map::Entry::Vacant(entry) =
             dimensions.entry(s.question.id.clone())
         {
@@ -971,19 +993,19 @@ pub fn build(
             continue;
         }
         let (kind, feature) = kind_and_feature(&q.id);
+        let scope = if feature == "part" {
+            Scope::Part
+        } else {
+            Scope::Feature
+        };
         let mut faces: BTreeSet<usize> = q
             .faces
             .iter()
             .chain(q.parts.iter().flat_map(|(_, faces)| faces))
             .filter_map(|&f| usize::try_from(f).ok())
             .collect();
-        if feature == "part" {
-            faces.extend(
-                geometry
-                    .iter()
-                    .filter_map(|f| f["id"].as_u64())
-                    .map(|f| f as usize),
-            );
+        if scope == Scope::Part {
+            faces.clear();
         } else {
             let missing = q
                 .parts
@@ -1064,13 +1086,20 @@ pub fn build(
                 }
             }
         } else {
+            let mut has_requirement = false;
             for (i, item) in existing.iter().enumerate() {
-                if states(&kind, &faces, item) {
+                let states_kind = states(&kind, &faces, item);
+                let hole_depth = kind == "hole.function"
+                    && depths
+                        .get(&i)
+                        .is_some_and(|support| !faces.is_disjoint(support));
+                if states_kind || hole_depth {
                     claimed[i] = true;
                     requirements.push(requirement(item));
                 }
+                has_requirement |= states_kind;
             }
-            if !requirements.is_empty() {
+            if has_requirement {
                 value = Some(Value::String(
                     requirements
                         .iter()
@@ -1092,6 +1121,7 @@ pub fn build(
                 id: q.id.clone(),
                 kind,
                 feature,
+                scope,
                 faces: faces.into_iter().collect(),
                 state: State::Stated,
                 value,
@@ -1110,6 +1140,7 @@ pub fn build(
                 id: q.id.clone(),
                 kind,
                 feature,
+                scope,
                 faces: faces.into_iter().collect(),
                 state: State::DecidedNone,
                 value: Some(stored.clone()),
@@ -1127,6 +1158,7 @@ pub fn build(
                 id: q.id.clone(),
                 kind,
                 feature,
+                scope,
                 faces: faces.into_iter().collect(),
                 state: State::Gap,
                 value: None,

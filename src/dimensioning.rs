@@ -24,6 +24,40 @@ pub(crate) fn is_straight_depth(kind: &Kind) -> bool {
         if role.ends_with(".depth"))
 }
 
+/// A depth's endpoints can be planes or points. Its plan records the holes
+/// being measured, even when neither endpoint is supported by a bore face.
+pub(crate) fn depth_supports(pmi: &haecceity::pmi::PartPmi) -> BTreeMap<usize, BTreeSet<usize>> {
+    use haecceity::pmi::{AttributeValue, NoteOwner};
+
+    let mut depths = BTreeMap::<usize, BTreeSet<usize>>::new();
+    for attribute in &pmi.attributes {
+        let Some(NoteOwner::Dimension(id)) = attribute.on else {
+            continue;
+        };
+        if attribute.name != "specify dimension plan" {
+            continue;
+        }
+        let Some(Planned {
+            required, supports, ..
+        }) = attribute.items.iter().find_map(|(key, value)| match value {
+            AttributeValue::Text(text) if key == "requirement" => serde_json::from_str(text).ok(),
+            _ => None,
+        })
+        else {
+            continue;
+        };
+        if is_straight_depth(&required.kind) {
+            depths.entry(id.0).or_default().extend(
+                supports
+                    .into_iter()
+                    .filter(|s| required.covers.contains(&s.feature))
+                    .flat_map(|s| s.faces),
+            );
+        }
+    }
+    depths
+}
+
 pub(crate) fn input(part: &haecceity::Part) -> Result<Input, String> {
     Input::from_recognition(part, vec![], Policy::default())
 }

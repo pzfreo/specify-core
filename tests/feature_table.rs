@@ -2,6 +2,10 @@
 
 mod common;
 
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
 use serde_json::{Map, Value, json};
 use specify_core::api;
 use specify_core::part::{LoadedPart, load, load_bytes};
@@ -33,10 +37,62 @@ fn row<'a>(table: &'a Value, id: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no row {id} in {table}"))
 }
 
+fn scratch(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "specify-feature-table-{}-{name}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn cli_write(
+    part: &LoadedPart,
+    analysis: &Value,
+    answers: &Map<String, Value>,
+    output: &Path,
+    defaults: bool,
+) -> Value {
+    let analysis_file = output.with_extension("analysis.json");
+    let answers_file = output.with_extension("answers.json");
+    std::fs::write(&analysis_file, analysis.to_string()).unwrap();
+    std::fs::write(&answers_file, Value::Object(answers.clone()).to_string()).unwrap();
+    let mut cli = Command::new(env!("CARGO_BIN_EXE_specify-core"));
+    cli.arg("write")
+        .arg(&part.path)
+        .arg(analysis_file)
+        .arg(answers_file)
+        .arg("-o")
+        .arg(output);
+    if defaults {
+        cli.arg("--accept-defaults");
+    }
+    let result = cli.output().unwrap();
+    assert!(
+        result.status.success(),
+        "{}: {}",
+        part.path.display(),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    serde_json::from_slice(&result.stdout).unwrap()
+}
+
+fn assert_no_open(table: &Value, case: &str) {
+    let open: Vec<_> = table["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["open"] == true)
+        .map(|r| r["id"].as_str().unwrap())
+        .collect();
+    assert!(open.is_empty(), "{case} reopened with open rows: {open:?}");
+}
+
 #[test]
 fn ctc05_pattern_answers_are_stated_after_reopening() {
     // CTC-05 AP242 has the same holes as the corpus AP203 input, with faces 78–89.
-    for (index, mut part) in [fixture("nist/nist_ctc_05_asme1_ap242.stp.gz")]
+    let scratch = scratch("ctc05");
+    for (index, part) in [fixture("nist/nist_ctc_05_asme1_ap242.stp.gz")]
         .into_iter()
         .chain(
             common::corpus_dir()
@@ -58,17 +114,16 @@ fn ctc05_pattern_answers_are_stated_after_reopening() {
             .expect("CTC-05 clearance pattern");
         let function = format!("hole.function:{feature}");
         let position = format!("hole.position:{feature}");
-        let mut answers = map(json!({function.clone(): "clearance:M10", position.clone(): "0.72"}));
         let analysis = api::analyse(&part).unwrap();
-        for q in api::questions(&analysis, &answers).unwrap() {
-            if matches!(q.id.as_str(), "datum.A" | "datum.B") {
-                answers.insert(q.id, q.default.unwrap());
-            }
-        }
-        let (intent, _) = specify_core::session::intent_for(&part, &analysis, &answers).unwrap();
-        let (saved, _) = specify_core::writer::write_bytes(&part, &intent, Some(&answers)).unwrap();
-        part = load_bytes("ctc05.step", saved).unwrap();
-        let analysis = api::analyse(&part).unwrap();
+        let answers = specify_core::rules::with_all_defaults(
+            &analysis,
+            &map(json!({"part.material":"6061-T6", function.clone():"clearance:M10", position.clone():"0.72"})),
+        )
+        .unwrap();
+        let output = scratch.join(format!("{index}.step"));
+        cli_write(&part, &analysis, &answers, &output, false);
+        let reopened = load(&output, None).unwrap();
+        let analysis = api::analyse(&reopened).unwrap();
         let after = &analysis["table"];
         for (id, requirement) in [(&function, "⌀10.7163 H11"), (&position, "⌖ ⌀0.72Ⓜ A B")]
         {
@@ -88,16 +143,76 @@ fn ctc05_pattern_answers_are_stated_after_reopening() {
                 "{id}"
             );
         }
-        let (intent, _) = specify_core::session::intent_for(&part, &analysis, &answers).unwrap();
-        let (saved_again, report) =
-            specify_core::writer::write_bytes(&part, &intent, Some(&answers)).unwrap();
-        assert!(report.written.is_empty(), "{report:?}");
-        assert_eq!(
-            table(&load_bytes("ctc05.step", saved_again).unwrap()).0,
-            *after,
-            "{report:?}"
-        );
+        assert_no_open(after, "CTC-05");
+        let ids = |table: &Value| {
+            table["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["id"].as_str().unwrap().to_owned())
+                .collect::<BTreeSet<_>>()
+        };
+        assert_eq!(ids(&before), ids(after), "CTC-05 row IDs on reopen");
+        let second = scratch.join(format!("{index}-again.step"));
+        let report = cli_write(&reopened, &analysis, &Map::new(), &second, false);
+        assert_eq!(report["written"], json!([]), "{report}");
+        assert_eq!(table(&load(&second, None).unwrap()).0, *after, "{report}");
     }
+    std::fs::remove_dir_all(scratch).unwrap();
+}
+
+#[test]
+fn accepting_corpus_defaults_leaves_no_open_rows() {
+    let scratch = scratch("corpus");
+    for (index, case) in common::cases().into_iter().enumerate() {
+        let Some(input) = case.input() else { continue };
+        let Ok(part) = load(&input, case.part()) else {
+            continue;
+        };
+        let analysis = api::analyse(&part).unwrap();
+        let mut answers = Map::new();
+        if analysis["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == "part.material" && row["open"] == true)
+        {
+            answers.insert("part.material".into(), json!("6061-T6"));
+        }
+        let output = scratch.join(format!("{index}.step"));
+        cli_write(&part, &analysis, &answers, &output, true);
+        let reopened = load(&output, case.part()).unwrap();
+        assert_no_open(&table(&reopened).0, &case.name);
+    }
+    std::fs::remove_dir_all(scratch).unwrap();
+}
+
+#[test]
+fn enclosure_depth_reads_back_on_the_hole_function_row() {
+    let part = fixture("parts/electronics-enclosure-base.step.gz");
+    let analysis = api::analyse(&part).unwrap();
+    let scratch = scratch("enclosure");
+    let output = scratch.join("enclosure.step");
+    cli_write(
+        &part,
+        &analysis,
+        &map(json!({"part.material":"6061-T6"})),
+        &output,
+        true,
+    );
+    let (table, _) = table(&load(&output, None).unwrap());
+    let depth = |r: &Value| r["number"] == "#12" && r["text"] == "8";
+    let hole = row(
+        &table,
+        "hole.function:hole_patterns.rectangle:3.11.24.25.26.28.29.30",
+    );
+    assert_eq!(hole["state"], "stated", "{hole}");
+    assert!(
+        hole["requirements"].as_array().unwrap().iter().any(depth),
+        "expected enclosure depth #12 on its hole function row: {hole}"
+    );
+    assert!(!table["file_pmi"].as_array().unwrap().iter().any(depth));
+    std::fs::remove_dir_all(scratch).unwrap();
 }
 
 #[test]
@@ -119,7 +234,10 @@ fn corpus_feature_rows_that_can_write_pmi_have_faces() {
                 || row["requirements"].as_array().is_some_and(|requirements| {
                     requirements.iter().all(|r| r["faces"] == json!([]))
                 }));
-            if !datum_without_support {
+            if row["feature"] == "part" {
+                assert_eq!(row["scope"], "part", "{}: {row}", case.name);
+                assert_eq!(row["faces"], json!([]), "{}: {row}", case.name);
+            } else if !datum_without_support {
                 assert!(
                     !row["faces"].as_array().unwrap().is_empty(),
                     "{}: {}",

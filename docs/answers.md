@@ -134,7 +134,9 @@ tool or both wrote it, reads it the same way: `existing` and `part` are the file
 and settings, and `analyse` adds the **feature table**, `table`:
 
 - `rows`: one per feature and kind of requirement it can need, with the id of its question
-  (`hole.position:holes:12`, the position of hole 12). Each is
+  (`hole.position:holes:12`, the position of hole 12). A row's `scope` is `part` for a part
+  setting, with an empty `faces` list. A `feature` row lists its supporting faces when
+  available, including the faces of a resolved datum. Each row is
   - `stated`: the file has a requirement of that kind on the feature's faces, whoever wrote
     it. `value` is its notation and `requirements` its items, with their characteristic
     numbers (`#N`). It is not asked.
@@ -153,6 +155,10 @@ and settings, and `analyse` adds the **feature table**, `table`:
     command line's `questions` and `write`, `serve`, MCP, WASM and the page.
 - `file_pmi`: the file's requirements on no recognised feature and kind.
 - `decided_none`: the decided-none ids, read back from the file.
+
+A hole located by position PMI has its location on the position row of the hole or its
+pattern. It has no standalone general location row. A planned depth belongs to the hole's
+function row, including when the STEP dimension measures between endpoint planes or points.
 
 ### What the file states, read back whole
 

@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use serde_json::{Map, Value};
 
-use super::{Intent, Question};
+use super::{Ctx, Intent, Question};
 
 type Dimension = Map<String, Value>;
 
@@ -58,6 +58,18 @@ pub(crate) fn is_id(id: &str) -> bool {
             !faces.is_empty() && faces.split(['.', '-']).all(|n| n.parse::<usize>().is_ok())
         })
     })
+}
+
+/// A position tolerance already locates the hole. Its basic dimensions belong to the
+/// position scheme and must never be offered separately under the general tolerance.
+pub(crate) fn positioned_location(ctx: &Ctx<'_>, suggestion: &Suggestion) -> bool {
+    location_on(&suggestion.question.id, &suggestion.dimension, |f| {
+        ctx.positioned.contains(&f)
+    })
+}
+
+fn location_on(id: &str, row: &Dimension, matches: impl FnMut(i64) -> bool) -> bool {
+    id.starts_with("location:holes:") && face_ids(row, "faces").any(matches)
 }
 
 pub(crate) struct Suggestion {
@@ -187,10 +199,17 @@ fn notation(row: &Dimension, key: &str) -> Option<String> {
 }
 
 pub(super) fn suggestions(intent: &Intent, owners: &Owners<'_>) -> Vec<Suggestion> {
+    let positioned: BTreeSet<_> = intent
+        .requirements
+        .iter()
+        .filter(|r| kind(r) == "position")
+        .flat_map(|r| face_ids(r, "faces"))
+        .collect();
     intent
         .general
         .iter()
         .filter(|r| owners.of(r).next().is_none())
         .filter_map(|r| suggestion(r, &intent.datums))
+        .filter(|s| !location_on(&s.question.id, &s.dimension, |f| positioned.contains(&f)))
         .collect()
 }
