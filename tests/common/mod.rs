@@ -80,6 +80,9 @@ pub fn corpus_dir() -> Option<PathBuf> {
     dir
 }
 
+/// The pin's largest diameter establishes datum A. Its general size remains deferred.
+pub const PIN_DATUM_A_SIZE_OMISSION: &str = "general size 10 on turned_steps:0 faces [0]: the faces establish a datum and the writer cannot mark a datum feature of size";
+
 /// Optional live Python checks must opt into an explicit environment. Frozen captures
 /// remain the default comparison; never discover another checkout on the host.
 pub fn live_python() -> Option<PathBuf> {

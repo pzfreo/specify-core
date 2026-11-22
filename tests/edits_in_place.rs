@@ -1030,10 +1030,43 @@ fn accepting_any_one_suggestion_changes_that_row_alone() {
                 Err(failures) => assert_eq!(checked.failures, failures, "{name}: {id}"),
                 Ok(saved) => {
                     assert!(checked.applicable, "{name}: {id}: {checked:?}");
-                    let now = rows(&table(&reload(&saved.bytes)));
-                    for ((rid, s0, v0), (_, s1, v1)) in rows(&t).iter().zip(&now) {
-                        if *rid != id {
-                            assert_eq!((s0, v0), (s1, v1), "{name}: {id} changed {rid}");
+                    let now = table(&reload(&saved.bytes));
+                    // The planner lists gaps first and recovers stated dimensions afterwards.
+                    // Compare every original row by id so that reordering cannot hide a change.
+                    for (rid, s0, v0) in rows(&t) {
+                        let after = now["rows"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .find(|r| r["id"] == rid);
+                        // One hole measurement can close several gaps in its direction.
+                        // Check that its single new item states each additional stated row.
+                        if id.starts_with("location:holes:")
+                            && rid != id
+                            && rid.starts_with("location:holes:")
+                            && s0 == "gap"
+                            && after.is_none_or(|r| r["state"] == "stated")
+                        {
+                            let new = numbers(&reload(&saved.bytes));
+                            let old = numbers(&part);
+                            let added: Vec<_> =
+                                new.keys().filter(|n| !old.contains_key(n)).collect();
+                            assert_eq!(added.len(), 1, "{name}: {id}");
+                            if let Some(after) = after {
+                                let number = format!("#{}", added[0]);
+                                let items = after["requirements"].as_array().unwrap();
+                                assert!(
+                                    !items.is_empty()
+                                        && items.iter().all(|r| r["number"] == number)
+                                );
+                            }
+                            continue;
+                        }
+                        let after =
+                            after.unwrap_or_else(|| panic!("{name}: {id} removed row {rid}"));
+                        let (s1, v1) = (&after["state"], &after["value"]);
+                        if rid != id {
+                            assert_eq!((&s0, &v0), (s1, v1), "{name}: {id} changed {rid}");
                         } else {
                             assert_ne!(s1, "gap", "{name}: {id} still a gap");
                         }
@@ -1987,4 +2020,98 @@ fn an_answers_file_from_another_revision_is_refused_as_stale() {
     let refused = apply(&new, &list).expect_err("refused");
     assert!(refused.iter().any(stale), "{refused:?}");
     assert!(apply(&old, &list).is_ok(), "on its own revision it applies");
+}
+
+#[test]
+fn filling_a_grm05_length_only_adds_that_dimension() {
+    let Some(corpus) = common::corpus_dir() else {
+        return;
+    };
+    let part = load(&corpus.join("gramel/GRM-05_depth_lock_bolt.step"), None).unwrap();
+    let id = "length:planes:2-3";
+    let output = applied(&part, json!({"fill": {id: "14 ±0.2 from B"}}));
+    let after = reload(&output.bytes);
+    let analysis = api::analyse(&after).unwrap();
+    let existing = analysis["existing"].as_array().unwrap();
+    assert_eq!(existing.len(), 1, "{existing:?}");
+    assert_eq!(existing[0]["value"], 14.0);
+    assert_eq!(existing[0]["upper"], 0.2);
+    assert_eq!(row(&analysis["table"], id)["state"], "stated");
+    let new = records(&output.bytes);
+    for (entity, original) in records(&part.bytes) {
+        assert_eq!(
+            new.get(&entity),
+            Some(&original),
+            "original entity #{entity}"
+        );
+    }
+}
+
+#[test]
+fn general_length_suggestions_can_be_accepted_declined_and_removed() {
+    let Some(corpus) = common::corpus_dir() else {
+        return;
+    };
+    let part = load(&corpus.join("gramel/GRM-05_depth_lock_bolt.step"), None).unwrap();
+    let declined = "length:planes:2-3";
+    let accepted = ["length:planes:2-5", "length:planes:2-8"];
+    let offered: Vec<Value> = table(&part)["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["state"] == "gap" && !r["suggestion"].is_null())
+        .map(|r| r["id"].clone())
+        .collect();
+    let bulk = applied(&part, json!({"accept_suggestions": offered}));
+    let filled = table(&reload(&bulk.bytes));
+    for id in [declined, accepted[0], accepted[1]] {
+        assert_eq!(row(&filled, id)["state"], "stated");
+    }
+    let datum_size = "diameter.fit:turned_steps:0";
+    assert_eq!(row(&filled, datum_size)["state"], "decided_none");
+    assert!(
+        bulk.report
+            .not_written
+            .iter()
+            .any(|line| line.starts_with(&format!("answer {datum_size} ")))
+    );
+    let decision = applied(&part, json!({"none": [declined]}));
+    let decided = reload(&decision.bytes);
+    assert_eq!(row(&table(&decided), declined)["state"], "decided_none");
+    let output = applied(&decided, json!({"accept_suggestions": accepted}));
+    let after = reload(&output.bytes);
+    let state = table(&after);
+    assert_eq!(row(&state, declined)["state"], "decided_none");
+    for id in accepted {
+        assert_eq!(row(&state, id)["state"], "stated");
+    }
+    let output = applied(&after, json!({"items": {"remove": [{"id": accepted[0]}]}}));
+    let state = table(&reload(&output.bytes));
+    assert_eq!(row(&state, accepted[0])["state"], "gap");
+    assert_eq!(row(&state, accepted[1])["state"], "stated");
+}
+
+#[test]
+fn filling_an_unowned_hole_location_preserves_imported_pmi() {
+    let part = fixture("spindle.step");
+    let id = "location:holes:10-7";
+    let before = api::analyse(&part).unwrap();
+    let suggestion = row(&before["table"], id)["suggestion"].clone();
+    assert!(
+        suggestion.is_string(),
+        "expected a location suggestion for {id}"
+    );
+    let output = applied(&part, json!({"fill": {id: suggestion}}));
+    let after = reload(&output.bytes);
+    assert_eq!(row(&table(&after), id)["state"], "stated");
+    let old = records(&part.bytes);
+    let new = records(&output.bytes);
+    let imported: Vec<_> = old
+        .iter()
+        .filter(|(_, text)| text.contains("POSITION_TOLERANCE"))
+        .collect();
+    assert!(!imported.is_empty());
+    for (entity, original) in imported {
+        assert_eq!(new.get(entity), Some(original), "imported PMI #{entity}");
+    }
 }

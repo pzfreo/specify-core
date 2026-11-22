@@ -177,6 +177,28 @@ fn a_bare_new_revision_with_changed_geometry_gets_everything_it_can() {
     for r in before["rows"].as_array().unwrap() {
         if r["state"] == "stated" {
             let id = r["id"].as_str().unwrap();
+            // The chamfer changes the reference supports of these general rows. Locating
+            // their other side is insufficient to carry a measurement onto the new file.
+            if [
+                "length:planes:1-9",
+                "length:planes:1-5",
+                "length:planes:1-3",
+                "length:planes:2.6-10",
+                "location:holes:2.6-13",
+            ]
+            .contains(&id)
+            {
+                let omitted = report
+                    .not_carried
+                    .iter()
+                    .find(|n| n.id.as_deref() == Some(id))
+                    .unwrap();
+                assert!(
+                    omitted.reason.contains("does not offer")
+                        || omitted.reason.contains("measurement support")
+                );
+                continue;
+            }
             let entry = report
                 .carried
                 .iter()
@@ -1010,4 +1032,33 @@ fn an_assembly_parts_requirements_carry_through_the_in_place_writer() {
             n.name
         );
     }
+}
+
+#[test]
+fn a_stated_plane_length_carries_to_the_matched_row_and_other_lengths_stay_gaps() {
+    let old_id = "length:planes:0-5";
+    let new_id = "length:planes:0-9";
+    let unapproved = "length:planes:1-3";
+    let old = annotated(
+        "revisions/plate_split.old.step.gz",
+        json!({"fill": {old_id: "100 ±0.3 from C"}}),
+    );
+    let before = table(&old.load(None).unwrap());
+    assert_eq!(row(&before, old_id)["state"], "stated");
+    assert_eq!(row(&before, unapproved)["state"], "gap");
+
+    let new = file("revisions/plate_split.new.step.gz");
+    let outcome = carried(&old, &new);
+    let out = table(&written(&outcome));
+    assert_eq!(row(&out, new_id)["state"], "stated", "{:?}", outcome.report);
+    assert_eq!(row(&out, new_id)["value"], row(&before, old_id)["value"]);
+    assert_eq!(row(&out, unapproved)["state"], "gap");
+    let carried: Vec<_> = outcome
+        .report
+        .carried
+        .iter()
+        .chain(&outcome.report.to_check)
+        .collect();
+    assert_eq!(carried.len(), 1, "{carried:?}");
+    assert_eq!((&*carried[0].old, &*carried[0].new), (old_id, new_id));
 }

@@ -699,18 +699,19 @@ fn every_item(pmi: &PartPmi) -> BTreeSet<(String, usize)> {
     out
 }
 
-/// The requirement answers of `answers` that the plan made no PMI from: no requirement it
-/// made names the answer's question, is on the answer's feature (a general dimension carries
-/// no question; a thread's full-thread answer feeds the thread's requirement) or on its
-/// faces; and the file `loaded` was read from does not state the answer's feature-and-kind
-/// already (a repeated answer, ignored on reopening). Part settings, datums' own answers,
-/// choices that are not requirements, "none" answers and answers to questions not asked are
-/// not counted.
+/// The requirement answers of `answers` that the plan made no PMI from, by feature and kind:
+/// no requirement it made names the answer's question, and neither its PMI (`planned`) nor
+/// what the file `loaded` was read from states the answer's feature-and-kind (the feature table's
+/// matching, per direction for a location: a size made on a feature does not answer its
+/// position). Part settings, datums' own answers, choices that are not requirements, "none"
+/// answers and answers to questions not asked are not counted.
 fn wrote_nothing(
     loaded: &LoadedPart,
     answers: &Map<String, Json>,
     made: &[Map<String, Json>],
+    planned: &PartPmi,
     unasked: &BTreeSet<&str>,
+    general: &[Map<String, Json>],
 ) -> BTreeSet<String> {
     let candidates: Vec<&String> = answers
         .iter()
@@ -723,59 +724,61 @@ fn wrote_nothing(
         })
         .map(|(id, _)| id)
         .filter(|id| {
-            let (_, feature) = crate::feature_table::kind_and_feature(id);
-            !made.iter().any(|r| {
-                r.get("question").and_then(Json::as_str) == Some(id.as_str())
-                    || r.get("feature").and_then(Json::as_str) == Some(feature.as_str())
-            })
+            !made
+                .iter()
+                .any(|r| r.get("question").and_then(Json::as_str) == Some(id.as_str()))
         })
         .collect();
     if candidates.is_empty() {
         return BTreeSet::new();
     }
-    let existing: Vec<Json> = crate::existing::read(loaded)
+    // What the file states and what the plan made, as the feature table reads PMI.
+    let mut stated: Vec<Json> = crate::existing::read(loaded)
         .ok()
         .and_then(|reading| reading.existing_all(loaded).ok())
         .and_then(|items| serde_json::to_value(items).ok())
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
+    stated.extend(crate::existing::items_of(planned));
     let geometry: Vec<Json> = crate::features::describe_faces(loaded)
         .ok()
         .and_then(|faces| serde_json::to_value(faces).ok())
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
     let features = crate::features::recognise(loaded).unwrap_or_default();
-    let ids = |r: &Map<String, Json>| -> BTreeSet<u64> {
-        r.get("faces")
-            .and_then(Json::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Json::as_u64)
-            .collect()
-    };
     candidates
         .into_iter()
         .filter(|id| {
+            if crate::rules::general_rows::is_id(id) {
+                // An answer from a previous save can now be stated or dormant. Only a
+                // row that reached this intent could have been skipped by its writer.
+                return general
+                    .iter()
+                    .find(|r| r.get("question").and_then(Json::as_str) == Some(id.as_str()))
+                    .is_some_and(|row| {
+                        !crate::feature_table::requirement_stated(row, &stated, &geometry)
+                    });
+            }
             let (_, feature) = crate::feature_table::kind_and_feature(id);
             let Some(f) = features.iter().find(|f| f.id == feature) else {
                 return true;
             };
-            let faces: BTreeSet<u64> = f.faces.iter().map(|&i| i as u64).collect();
-            // A requirement made on its faces (a pattern's size is made on its members).
-            if made
-                .iter()
-                .any(|r| r.contains_key("kind") && !ids(r).is_disjoint(&faces))
-            {
-                return false;
-            }
             let mut req = Map::new();
             req.insert("question".into(), Json::from(id.as_str()));
             req.insert("faces".into(), Json::from(f.faces.clone()));
-            existing.is_empty()
-                || !crate::feature_table::requirement_stated(&req, &existing, &geometry)
+            !crate::feature_table::requirement_stated(&req, &stated, &geometry)
         })
         .cloned()
         .collect()
+}
+
+fn not_written_approval(id: &str, value: &Json) -> String {
+    format!(
+        "answer {id} ({}): approved, but nothing of its kind was written on its \
+         feature (none is written on a datum's own faces; otherwise the planner \
+         skipped it); stored as decided, not asked again",
+        crate::choices::short_repr(value, 6)
+    )
 }
 
 /// The intent's requirements a plan made PMI from.
@@ -876,7 +879,7 @@ fn part_pmi_added(
         let mut out = |list: &mut Vec<Map<String, Json>>| {
             list.retain(|r| {
                 let drop = gone.contains(&r);
-                if drop {
+                if drop && !truthy(r.get("general")) && !intent.general.contains(r) {
                     let kind = r
                         .get("kind")
                         .and_then(Json::as_str)
@@ -905,11 +908,20 @@ fn part_pmi_added(
     // stated says which of its lines are still written.
     let mut pmi = planned;
     let mut lines = full_lines;
-    if !said.is_empty() {
+    if !gone.is_empty() || part_finish {
         let (_, less) = part_pmi(loaded, intent, before, Mode::Add, &[])?;
         lines.written.retain(|line| less.written.contains(line));
     }
     lines.not_written.extend(said);
+    for (at, row) in &sources {
+        if restated.contains_key(at) && (truthy(row.get("general")) || intent.general.contains(row))
+        {
+            lines.not_written.push(format!(
+                "{}: the file already states it; not written again",
+                general_dimension_label(row)
+            ));
+        }
+    }
     for what in drop_stated(&mut pmi, before, &by_kind) {
         lines.not_written.push(format!(
             "{what}: the file already states it; not written again"
@@ -1087,6 +1099,61 @@ struct Lines {
     not_written: Vec<String>,
     warnings: Vec<String>,
     conveyed_depth_spans: Vec<(DepthPlane, DepthPlane, f64)>,
+}
+
+fn general_dimension_label(row: &Map<String, Json>) -> String {
+    let faces = face_list(row.get("faces"));
+    let value = |key| {
+        row.get(key)
+            .and_then(Json::as_f64)
+            .map_or_else(|| "without a value".into(), pyfmt::g)
+    };
+    match row.get("kind").and_then(Json::as_str) {
+        Some("size") => {
+            let feature = row.get("feature").and_then(Json::as_str).unwrap_or("");
+            let on = if feature.is_empty() {
+                String::new()
+            } else {
+                format!(" on {feature}")
+            };
+            format!("general size {}{on} faces {faces}", value("nominal"))
+        }
+        Some("location") => format!(
+            "general location {} to faces {faces} from faces {}",
+            value("distance"),
+            face_list(row.get("reference"))
+        ),
+        kind => format!("general {} on faces {faces}", kind.unwrap_or("row")),
+    }
+}
+
+/// The upgrade can keep a measurement but add planner metadata and round its nominal.
+fn same_general_measurement(old: &Map<String, Json>, new: &Map<String, Json>) -> bool {
+    let key = match old.get("kind").and_then(Json::as_str) {
+        Some("size") => "nominal",
+        Some("location") => "distance",
+        _ => return old == new,
+    };
+    let same_faces = |left, right| {
+        let sorted = |faces| {
+            let mut ids = face_ids(faces);
+            if let Some(ids) = &mut ids {
+                ids.sort_unstable();
+            }
+            ids
+        };
+        sorted(old.get(left)) == sorted(new.get(right))
+    };
+    old.get("kind") == new.get("kind")
+        && (same_faces("faces", "faces") && same_faces("reference", "reference")
+            || key == "distance"
+                && same_faces("faces", "reference")
+                && same_faces("reference", "faces"))
+        && old
+            .get(key)
+            .and_then(Json::as_f64)
+            .zip(new.get(key).and_then(Json::as_f64))
+            .is_some_and(|(a, b)| (a - b).abs() <= 0.0000005)
 }
 
 /// Writes `jobs` and verifies the result by reading it back: the file's bytes and the report
@@ -1273,13 +1340,9 @@ fn write_verified(
                 // ADR P11 rule 2: an approval the plan made no PMI from (a general size on a
                 // datum's own faces) is stored, listed as such, so it stays decided; else it
                 // would be dropped silently and its gap reopen.
-                let nothing = wrote_nothing(loaded, &saved, &made, &unasked);
+                let nothing = wrote_nothing(loaded, &saved, &made, &pmi, &unasked, &intent.general);
                 for id in &nothing {
-                    lines.not_written.push(format!(
-                        "answer {id} ({}): there is no PMI to write for it; it is stored as \
-                         decided",
-                        crate::choices::short_repr(&saved[id.as_str()], 6)
-                    ));
+                    lines.not_written.push(not_written_approval(id, &saved[id]));
                 }
                 if !nothing.is_empty() {
                     let meta = saved
@@ -3163,8 +3226,9 @@ fn part_pmi_observed(
     // Old JSON analyses/intents lack the typed planner input. Upgrade only rule-generated
     // intent here; a caller's hand-authored dimensions remain authoritative as stated.
     // Rule-produced General rows always carry a feature key (empty for plane levels).
+    let original_general = &intent.general;
     let mut upgraded;
-    let mut frame_warning = None;
+    let mut lines = Lines::default();
     let intent = if !intent
         .requirements
         .iter()
@@ -3185,14 +3249,41 @@ fn part_pmi_observed(
         }
         match crate::dimensioning::input(&loaded.part) {
             Ok(input) => {
-                crate::dimensioning::upgrade(input, &mut upgraded).map_err(WriteError::Failed)?;
+                crate::dimensioning::upgrade(input, &mut upgraded, same_general_measurement)
+                    .map_err(WriteError::Failed)?;
+                for row in &mut upgraded.general {
+                    if !row.contains_key("question")
+                        && let Some(question) = original_general.iter().find_map(|original| {
+                            let question = original.get("question")?.as_str()?;
+                            (crate::rules::general_rows::is_id(question)
+                                && same_general_measurement(original, row))
+                            .then_some(question)
+                        })
+                    {
+                        row.insert("question".into(), Json::from(question));
+                    }
+                }
+                for row in &intent.general {
+                    if !upgraded
+                        .general
+                        .iter()
+                        .any(|r| row == r || same_general_measurement(row, r))
+                    {
+                        lines.not_written.push(format!(
+                            "{}: the shared planner did not retain this dimension when upgrading the intent",
+                            general_dimension_label(row)
+                        ));
+                    }
+                }
                 &upgraded
             }
             // A face whose area cannot be computed leaves the part without a frame to plan
             // in (quiddity needs the solid's volume): that reason alone. The intent is
             // written as stated, as a hand-authored one is, and the report says so.
             Err(why) if crate::dimensioning::is_unmeasured_frame(&why) => {
-                frame_warning = Some(crate::dimensioning::unplanned_note(loaded));
+                lines
+                    .warnings
+                    .push(crate::dimensioning::unplanned_note(loaded));
                 intent
             }
             Err(why) => return Err(WriteError::Failed(why)),
@@ -3260,8 +3351,6 @@ fn part_pmi_observed(
     };
     let mut p = PartPmi::default();
     let origins = crate::pmi_origin::Planner::new(loaded).map_err(WriteError::Failed)?;
-    let mut lines = Lines::default();
-    lines.warnings.extend(frame_warning);
     let mut depth_input = None;
     let mut features = Vec::new();
     let mut f = Features(&mut features);
@@ -3400,12 +3489,48 @@ fn part_pmi_observed(
     let mut general = 0usize;
     // The shared planner has accounted for stored dimensions. Its slice-one rows are
     // required in Add mode too; only later-slice legacy General rows retain the old omission.
-    let covered = intent
-        .general
+    for (req, general_row) in intent
+        .requirements
         .iter()
-        .filter(|r| mode == Mode::Replace || r.contains_key("planner"));
-    for req in intent.requirements.iter().chain(covered) {
+        .map(|r| (r, false))
+        .chain(intent.general.iter().map(|r| (r, true)))
+    {
+        let mut skip = |reason: &str| {
+            if general_row {
+                let mut original = original_general
+                    .iter()
+                    .filter(|r| *r == req || same_general_measurement(r, req))
+                    .peekable();
+                if original.peek().is_none() {
+                    lines
+                        .not_written
+                        .push(format!("{}: {reason}", general_dimension_label(req)));
+                }
+                for row in original {
+                    lines
+                        .not_written
+                        .push(format!("{}: {reason}", general_dimension_label(row)));
+                }
+            }
+        };
+        let reported_reason = req.get("not_written_reason").and_then(Json::as_str);
+        if general_row && let Some(reason) = reported_reason {
+            skip(reason);
+            continue;
+        }
+        if general_row
+            && mode == Mode::Add
+            && !req.contains_key("planner")
+            && !req
+                .get("question")
+                .and_then(Json::as_str)
+                .is_some_and(crate::rules::general_rows::is_id)
+        {
+            skip("adding PMI skips dimensions deferred by the shared planner");
+            continue;
+        }
         if truthy(req.get("stored")) {
+            skip("the intent marks the measurement as already stated");
             continue;
         }
         let kind = req.get("kind").and_then(Json::as_str).unwrap_or("");
@@ -3418,6 +3543,7 @@ fn part_pmi_observed(
                     .all(|key| req.get(*key) == old.get(*key))
             })
         {
+            skip("the file already states this measurement");
             continue;
         }
         let under_general = truthy(req.get("general"));
@@ -3427,6 +3553,7 @@ fn part_pmi_observed(
                     && (a.same(&from) && b.same(&to) || a.same(&to) && b.same(&from))
             })
         {
+            skip("the same distance is conveyed by a straight depth dimension");
             lines.conveyed_depth_spans.push((from, to, nominal));
             continue;
         }
@@ -3443,9 +3570,10 @@ fn part_pmi_observed(
                     && face_ids(d.get("faces")) == face_ids(req.get("faces"))
             })
         {
+            skip("the faces establish a datum and the writer cannot mark a datum feature of size");
             continue;
         }
-        if let Some(reason) = req.get("not_written_reason").and_then(Json::as_str) {
+        if let Some(reason) = reported_reason {
             lines.not_written.push(reason.into());
             continue;
         }
@@ -3453,13 +3581,13 @@ fn part_pmi_observed(
         // A requirement on no faces (a hole whose bores the rules keep no cylinder for) is
         // listed and the rest written (question Q17).
         if let Some(what) = faceless(kind, req).filter(|_| !req.contains_key("planner")) {
-            // One the general tolerance covers is not a requirement: nothing to report.
-            if under_general {
-                continue;
+            if general_row {
+                skip(&format!("{what} names no faces (question Q17)"));
+            } else if !under_general {
+                lines.not_written.push(format!(
+                    "{what} names no faces, so nothing in the file can carry it (question Q17)"
+                ));
             }
-            lines.not_written.push(format!(
-                "{what} names no faces, so nothing in the file can carry it (question Q17)"
-            ));
             continue;
         }
         if let Some(planned) = req.get("planner") {
@@ -3481,13 +3609,19 @@ fn part_pmi_observed(
                 if from.faces.is_empty() || to.faces.is_empty()
                     || planned.witnesses.as_ref().is_some_and(|pair| pair.iter().any(|s| s.faces.is_empty())))
             {
-                lines.not_written.push(format!(
+                let reason = format!(
                     "location {} has a support with no faces; not written",
                     planned.required.id
-                ));
+                );
+                if general_row {
+                    skip(&reason);
+                } else {
+                    lines.not_written.push(reason);
+                }
                 continue;
             }
             if mode == Mode::Add && thread_carries_planned(before, &planned) {
+                skip("the file's thread manufacturing data already states it");
                 continue;
             }
             planned.bore_supports(&loaded.part);
@@ -3508,10 +3642,13 @@ fn part_pmi_observed(
                 match result {
                     Ok(kind) => kind,
                     Err(reason) => {
-                        lines.not_written.push(format!(
-                            "depth {}: {reason}; not written",
-                            planned.required.id
-                        ));
+                        let reason =
+                            format!("depth {}: {reason}; not written", planned.required.id);
+                        if general_row {
+                            skip(&reason);
+                        } else {
+                            lines.not_written.push(reason);
+                        }
                         continue;
                     }
                 }

@@ -248,16 +248,22 @@ fn an_existing_written_plate_retires_member_numbers_and_never_reuses_them() {
 fn reference_flag_is_written_as_a_standard_auxiliary_dimension() {
     let p = plate();
     let a = api::analyse(&p).unwrap();
-    // P9 / D1: the general tolerance writes only its note; with every suggestion approved
-    // ("accept suggestions") the general dimensions are written.
+    // Approve the offered rows along with the general tolerance. The auxiliary flag
+    // must survive the write on a location whose approval came from the table.
     let given = json!({"part.general_tolerance":"ISO 2768-m"});
     let given = rules::with_all_defaults(&a, given.as_object().unwrap()).unwrap();
     let mut i = api::preview(&a, &given).unwrap();
+    let offered = a["table"]["rows"].as_array().unwrap();
     let r = i
         .general
         .iter_mut()
-        .find(|r| r["kind"] == "location")
-        .unwrap();
+        .find(|r| {
+            r["kind"] == "location"
+                && offered
+                    .iter()
+                    .any(|row| row["id"] == r["question"] && row["state"] == "gap")
+        })
+        .expect("an approved location offered by its own row");
     r["planner"]["required"]["reference"] = json!(["determining-plane-path"]);
     r["planner"]["required"]["tolerance"] = json!("untoleranced");
     let (bytes, _) = writer::write_bytes(&p, &i, Some(&given)).unwrap();
@@ -428,6 +434,39 @@ fn an_old_intent_is_upgraded_only_where_it_approves_general_dimensions() {
         assert_eq!(d["faces"], json!([9]), "{d}");
         assert!(d.get("faces2").is_none_or(|f| f == &json!([9])), "{d}");
     }
+}
+
+#[test]
+fn old_plan_upgrades_cannot_approve_other_lengths_sharing_a_holes_reference() {
+    let p = plate();
+    let mut old = api::analyse(&p).unwrap();
+    old.as_object_mut().unwrap().shift_remove("dimensioning");
+    let given = json!({"part.material": "steel"});
+    let mut answers = rules::with_all_defaults(&old, given.as_object().unwrap()).unwrap();
+    answers.retain(|id, _| !id.starts_with("length:planes:") && !id.starts_with("location:holes:"));
+    let intent = rules::apply(&old, &answers).unwrap();
+    let (bytes, _) = writer::write_bytes(&p, &intent, Some(&answers)).unwrap();
+    let analysed = api::analyse(&part::load_bytes("old-plate.step", bytes).unwrap()).unwrap();
+    for id in [
+        "length:planes:0-5",
+        "length:planes:1-3",
+        "length:planes:2-4",
+    ] {
+        let row = analysed["table"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap_or_else(|| panic!("missing {id}"));
+        assert_eq!(row["state"], "gap", "{id}");
+    }
+    assert!(
+        analysed["existing"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["type"] == "Position")
+    );
 }
 
 mod common;

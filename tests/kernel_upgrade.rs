@@ -565,10 +565,10 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
             }
         }
         if name == "corpus/mfcadpp/10224" {
-            // Independent first writes: the recovered #75 hole dimensions enter
-            // different stored-frame view positions after the move. Pin just
-            // these four changed allocations; all other fields/numbers compare.
-            for (index, before, after) in [(3, 19, 20), (5, 20, 21), (8, 18, 19), (10, 21, 22)] {
+            // general dimensions are rows (Paul, 2026-11-21). On these first writes,
+            // the separately approved measurements shift the four allocations by one.
+            // The two poses still receive different stored-frame view positions.
+            for (index, before, after) in [(3, 18, 19), (5, 19, 20), (8, 17, 18), (10, 20, 21)] {
                 assert_eq!(expected_readback[index]["number"], before);
                 expected_readback[index]["number"] = json!(after);
             }

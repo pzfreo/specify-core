@@ -403,8 +403,10 @@ fn check_bulk_acceptance(path: &std::path::Path, given: Map<String, Value>, no_p
         "ISO 2768-m"
     );
 
-    // Accepted defaults are ordinary editable answers, not locked or automatic state.
+    // general dimensions are rows (Paul, 2026-11-21). A changed class needs fresh
+    // approvals for its measurements. The class itself remains an editable answer.
     let mut edited = accepted;
+    edited.retain(|id, _| !id.starts_with("length:planes:") && !id.starts_with("location:holes:"));
     edited.insert("part.general_tolerance".into(), json!("ISO 2768-f"));
     assert_eq!(
         accept_defaults(&session, &edited).unwrap()["part.general_tolerance"],
