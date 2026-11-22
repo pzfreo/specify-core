@@ -1893,7 +1893,7 @@ pub(crate) fn add_materials(
             }
         })
         .collect();
-    let (back, _) = write_by_modes(&source, &items, &modes).map_err(|e| e.to_string())?;
+    let (back, _) = write_by_modes(&source, &items, &modes, &[]).map_err(|e| e.to_string())?;
     verify(&source, &items, &modes, &back).map_err(|e| e.to_string())?;
     let after = haecceity::p21::Document::parse(back.clone()).map_err(|e| e.to_string())?;
     if let Some(id) = source
