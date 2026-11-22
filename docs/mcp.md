@@ -180,7 +180,7 @@ held **in the server's memory, by handle**, and nothing is written unless you as
 - **Reopened files.** The file's PMI is the state, whoever wrote it (ADR P11): `open` reads it
   into the feature table (each feature-and-kind `stated`, `gap` or `decided_none`), and only
   what is stated is not asked. The answers stored in a file are those that leave no PMI behind
-  (decided none, choices that are not requirements, approvals that wrote nothing); `resumed`
+  (decided none, choices that are not requirements, general sizes deliberately omitted on datum faces); `resumed`
   lists them. There are no conflicts to decide: what the file states stands. See
   [answers](answers.md#reopening-a-file-the-file-is-the-only-copy).
 - **Stale files.** If the file at the recorded path changes after `open`, every call on the

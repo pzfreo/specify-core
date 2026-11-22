@@ -65,6 +65,14 @@ pub struct Requirement {
     pub id: Option<String>,
 }
 
+/// The support a row applies to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Scope {
+    Part,
+    Feature,
+}
+
 /// One feature-and-kind.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Row {
@@ -74,7 +82,8 @@ pub struct Row {
     pub kind: String,
     /// The feature (`holes:12`, `part`, `datum.A`).
     pub feature: String,
-    /// The feature's faces.
+    pub scope: Scope,
+    /// The feature's faces, empty for part settings.
     pub faces: Vec<usize>,
     pub state: State,
     /// Stated: the file's value, its requirements' notation joined. Decided none: the
@@ -169,6 +178,7 @@ impl FeatureTable {
                     id: q.id.clone(),
                     kind,
                     feature,
+                    scope: Scope::Feature,
                     faces: q
                         .faces
                         .iter()
@@ -220,6 +230,13 @@ pub fn is_requirement(id: &str) -> bool {
 /// in the file states it, so the feature-and-kind stays decided.
 pub const NO_PMI: &str = "no_pmi";
 
+/// The only nonempty requirement approval that can deliberately leave no PMI.
+pub(crate) fn is_datum_size_approval(id: &str, value: &Value) -> bool {
+    id.split_once(':')
+        .is_some_and(|(kind, _)| matches!(kind, "diameter.fit" | "hole.function"))
+        && value == "general"
+}
+
 /// The answers listed under [`NO_PMI`] in `answers`' metadata.
 pub fn wrote_nothing(answers: &Map<String, Value>) -> BTreeSet<String> {
     answers
@@ -229,6 +246,11 @@ pub fn wrote_nothing(answers: &Map<String, Value>) -> BTreeSet<String> {
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
+        .filter(|id| {
+            answers
+                .get(*id)
+                .is_some_and(|v| is_datum_size_approval(id, v))
+        })
         .map(str::to_string)
         .collect()
 }
@@ -798,25 +820,60 @@ fn general_matches(
         .unwrap_or_default();
     let from = row("reference");
     if id.starts_with("location:holes:") {
-        let axis = located.measuring_axis(&from, &to, req.get("distance").and_then(Value::as_f64));
-        let positions: BTreeSet<_> = existing
+        let nominal = req.get("distance").and_then(Value::as_f64);
+        let exact_support: BTreeSet<_> = existing
             .iter()
             .enumerate()
-            .filter(|(_, item)| is_position(item) && on_any(item, &faces))
+            .filter(|(_, item)| {
+                item["type"] == "Location_LinearDistance"
+                    && item["value"]
+                        .as_f64()
+                        .zip(nominal)
+                        .is_some_and(|(stated, nominal)| (stated - nominal).abs() < SAME_VALUE)
+                    && faces_of(item, "faces")
+                        .iter()
+                        .copied()
+                        .collect::<BTreeSet<_>>()
+                        == from.iter().copied().collect()
+                    && !to.is_empty()
+                    && faces.is_subset(&faces_of(item, "faces2").into_iter().collect())
+            })
             .map(|(i, _)| i)
             .collect();
-        if !positions.is_empty() {
-            return positions;
+        if !exact_support.is_empty() {
+            return exact_support;
         }
-        if let Some(axis) = axis
-            && located.locates(&faces, Some(axis)) == Some(true)
-        {
-            return to
-                .iter()
-                .filter_map(|&f| located.by.get(&(f, axis)))
-                .flatten()
-                .copied()
-                .collect();
+        let axis = located.measuring_axis(&from, &to, nominal);
+        let holes = located.holes(&faces);
+        if !holes.is_empty() {
+            let mut matches = BTreeSet::new();
+            for (along, members) in holes {
+                let members: BTreeSet<_> = members.into_iter().collect();
+                let positions: BTreeSet<_> = existing
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| is_position(item) && on_any(item, &members))
+                    .map(|(i, _)| i)
+                    .collect();
+                if !positions.is_empty() {
+                    matches.extend(positions);
+                    continue;
+                }
+                let Some(axis) = axis.filter(|&a| a != along) else {
+                    return BTreeSet::new();
+                };
+                let covered: BTreeSet<_> = members
+                    .iter()
+                    .filter_map(|&f| located.by.get(&(f, axis)))
+                    .flatten()
+                    .copied()
+                    .collect();
+                if covered.is_empty() {
+                    return BTreeSet::new();
+                }
+                matches.extend(covered);
+            }
+            return matches;
         }
     }
     let overlaps = |faces: &[usize], side: &[usize]| faces.iter().any(|f| side.contains(f));
@@ -898,6 +955,7 @@ fn stated_setting<'a>(settings: &'a Map<String, Value>, id: &str) -> Option<&'a 
 fn feature_support(
     ctx: &crate::rules::Ctx<'_>,
     feature: &str,
+    bores_only: bool,
 ) -> Result<Vec<i64>, crate::rules::Error> {
     let Ok(target) = ctx.feature(feature) else {
         return Ok(Vec::new());
@@ -913,7 +971,7 @@ fn feature_support(
             support
                 .iter()
                 .copied()
-                .filter(|&f| ctx.faces.at(f).is_ok_and(|face| face.is_cylinder())),
+                .filter(|&f| !bores_only || ctx.faces.at(f).is_ok_and(|face| face.is_cylinder())),
         );
         if faces.len() == start {
             faces.extend_from_slice(support);
@@ -931,6 +989,17 @@ pub fn build(
     analysis: &Value,
     settings: &Map<String, Value>,
     answers: &Map<String, Value>,
+) -> Result<FeatureTable, crate::rules::Error> {
+    build_with_depths(analysis, settings, answers, &BTreeMap::new())
+}
+
+/// Build from a semantic read, where each dimension in `existing` is in its
+/// original order, including the endpoint dimensions that measure hole depths.
+pub(crate) fn build_with_depths(
+    analysis: &Value,
+    settings: &Map<String, Value>,
+    answers: &Map<String, Value>,
+    depths: &BTreeMap<usize, BTreeSet<usize>>,
 ) -> Result<FeatureTable, crate::rules::Error> {
     let existing: Vec<&Value> = analysis["existing"]
         .as_array()
@@ -967,16 +1036,31 @@ pub fn build(
     // Re-plan with the file's PMI in place for the remaining gaps. The bare plan also
     // supplies the measurements that disappeared from planning because the file states them.
     let mut dimensions = BTreeMap::new();
-    let current = crate::rules::dimension_suggestions(&crate::rules::Ctx::new(analysis)?, answers);
+    let ctx = crate::rules::Ctx::new(analysis)?;
+    let current = crate::rules::dimension_suggestions(&ctx, answers);
     let bare = if existing.is_empty() {
         Vec::new()
     } else {
         crate::rules::dimension_suggestions(&bare_ctx, &all)
     };
-    for s in current.into_iter().chain(
-        bare.into_iter()
-            .filter(|s| !general_matches(&s.dimension, &existing, &located).is_empty()),
-    ) {
+    let file_datums: Vec<_> = existing
+        .iter()
+        .filter(|item| item["kind"] == "datum")
+        .map(|item| {
+            Map::from_iter([
+                ("letter".into(), item["type"].clone()),
+                ("faces".into(), item["faces"].clone()),
+            ])
+        })
+        .collect();
+    let stated = bare
+        .into_iter()
+        .filter_map(|s| crate::rules::general_rows::without_positioned(s, &ctx, &file_datums))
+        .filter(|s| !general_matches(&s.dimension, &existing, &located).is_empty());
+    let current = current
+        .into_iter()
+        .filter_map(|s| crate::rules::general_rows::without_positioned(s, &ctx, &file_datums));
+    for s in current.chain(stated) {
         if let std::collections::btree_map::Entry::Vacant(entry) =
             dimensions.entry(s.question.id.clone())
         {
@@ -993,19 +1077,19 @@ pub fn build(
             continue;
         }
         let (kind, feature) = kind_and_feature(&q.id);
+        let scope = if feature == "part" {
+            Scope::Part
+        } else {
+            Scope::Feature
+        };
         let mut faces: BTreeSet<usize> = q
             .faces
             .iter()
             .chain(q.parts.iter().flat_map(|(_, faces)| faces))
             .filter_map(|&f| usize::try_from(f).ok())
             .collect();
-        if feature == "part" {
-            faces.extend(
-                geometry
-                    .iter()
-                    .filter_map(|f| f["id"].as_u64())
-                    .map(|f| f as usize),
-            );
+        if scope == Scope::Part {
+            faces.clear();
         } else {
             let missing = q
                 .parts
@@ -1015,7 +1099,7 @@ pub fn build(
                 .chain((q.parts.is_empty() && q.faces.is_empty()).then_some(feature.as_str()));
             for id in missing {
                 faces.extend(
-                    feature_support(&bare_ctx, id)?
+                    feature_support(&bare_ctx, id, true)?
                         .into_iter()
                         .filter_map(|f| usize::try_from(f).ok()),
                 );
@@ -1056,16 +1140,58 @@ pub fn build(
                 claimed[i] = true;
                 requirements.push(requirement(existing[i]));
             }
-            if positions.is_empty() && !location.missing.is_empty() {
-                if !location.items.is_empty() {
-                    missing = location
+            let unresolved = if positions.is_empty() {
+                Some(location)
+            } else if q.parts.is_empty()
+                || positions
+                    .iter()
+                    .any(|&i| existing[i]["provenance"].is_null())
+            {
+                // Imported PMI may use one representative carrier for a repeated callout.
+                None
+            } else {
+                // Identical groups share one question, but each needs its own location.
+                // A single position may represent a pattern, not a separate pattern.
+                let mut unpositioned = BTreeSet::new();
+                for (id, on) in &q.parts {
+                    let support = if on.is_empty() {
+                        feature_support(&bare_ctx, id, true)?
+                    } else {
+                        on.clone()
+                    };
+                    let support = support
+                        .into_iter()
+                        .filter_map(|f| usize::try_from(f).ok())
+                        .collect();
+                    if !positions.iter().any(|&i| on_any(existing[i], &support)) {
+                        unpositioned.extend(support);
+                    }
+                }
+                located.location(&unpositioned)
+            };
+            if let Some(unresolved) = unresolved.filter(|r| !r.missing.is_empty()) {
+                if !positions.is_empty()
+                    || unresolved.items.iter().any(|&i| {
+                        let item = existing[i];
+                        kind.ends_with(".location")
+                            || (item["basic"] != true
+                                && (item["kind"] != "datum"
+                                    || q.frame
+                                        .as_deref()
+                                        .or_else(|| q.default.as_ref().and_then(Value::as_str))
+                                        .is_some_and(|frame| {
+                                            frame.split('|').any(|letter| item["type"] == letter)
+                                        })))
+                    })
+                {
+                    missing = unresolved
                         .missing
                         .iter()
                         .map(|&a| AXES[a].to_string())
                         .collect();
-                    located_in = location
+                    located_in = unresolved
                         .needed
-                        .difference(&location.missing)
+                        .difference(&unresolved.missing)
                         .map(|&a| AXES[a].to_string())
                         .collect();
                 }
@@ -1086,13 +1212,52 @@ pub fn build(
                 }
             }
         } else {
+            let mut support = faces.clone();
+            if kind == "hole.function" {
+                for id in
+                    std::iter::once(feature.as_str()).chain(q.parts.iter().map(|p| p.0.as_str()))
+                {
+                    support.extend(
+                        feature_support(&bare_ctx, id, false)?
+                            .into_iter()
+                            .filter_map(|f| usize::try_from(f).ok()),
+                    );
+                }
+            }
+            let bore_faces = (kind == "hole.function").then(|| {
+                support
+                    .iter()
+                    .copied()
+                    .filter(|&f| {
+                        matches!(
+                            geometry.get(f).and_then(|face| face["kind"].as_str()),
+                            Some("cylinder" | "cone")
+                        )
+                    })
+                    .collect()
+            });
+            let mut has_requirement = false;
             for (i, item) in existing.iter().enumerate() {
-                if states(&kind, &faces, item) {
+                let carriers = bore_faces
+                    .as_ref()
+                    .filter(|_| {
+                        item["type"]
+                            .as_str()
+                            .is_some_and(|t| t.starts_with("Size_"))
+                    })
+                    .unwrap_or(&support);
+                let states_kind = states(&kind, carriers, item);
+                let hole_depth = kind == "hole.function"
+                    && depths
+                        .get(&i)
+                        .is_some_and(|measured| !support.is_disjoint(measured));
+                if states_kind || hole_depth {
                     claimed[i] = true;
                     requirements.push(requirement(item));
                 }
+                has_requirement |= states_kind;
             }
-            if !requirements.is_empty() {
+            if has_requirement {
                 value = Some(Value::String(
                     requirements
                         .iter()
@@ -1114,6 +1279,7 @@ pub fn build(
                 id: q.id.clone(),
                 kind,
                 feature,
+                scope,
                 faces: faces.into_iter().collect(),
                 state: State::Stated,
                 value,
@@ -1132,6 +1298,7 @@ pub fn build(
                 id: q.id.clone(),
                 kind,
                 feature,
+                scope,
                 faces: faces.into_iter().collect(),
                 state: State::DecidedNone,
                 value: Some(stored.clone()),
@@ -1149,6 +1316,7 @@ pub fn build(
                 id: q.id.clone(),
                 kind,
                 feature,
+                scope,
                 faces: faces.into_iter().collect(),
                 state: State::Gap,
                 value: None,
