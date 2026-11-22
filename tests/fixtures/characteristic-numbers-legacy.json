@@ -1,7 +1,7 @@
 {
   "parts/plate.step": {
     "existing": {},
-    "table_rows": 19
+    "table_rows": 24
   },
   "resume-alpha6/plate.step.gz": {
     "existing": {
@@ -13,7 +13,7 @@
       "geometric_tolerance/Position": 2,
       "note/internal thread": 1
     },
-    "table_rows": 19
+    "table_rows": 24
   },
   "resume-alpha6/shaft.step.gz": {
     "existing": {
@@ -23,6 +23,6 @@
       "geometric_tolerance/Position": 2,
       "note/internal thread": 1
     },
-    "table_rows": 17
+    "table_rows": 25
   }
 }

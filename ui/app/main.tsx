@@ -101,7 +101,8 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   const drawn = scene.ok ? withoutNotesBlock(scene.value) : null;
   // Every row named as Specify asks it of the bare part (the table's rows are those questions).
   const bare = await worker.request<IntentReview>('review-analysis-given', { analysis: bareAnalysis(snapshot.analysis as PmiAnalysis), answers: {} });
-  const model = panelModel(tableOf(snapshot.analysis as PmiAnalysis), bare.questions);
+  const analysis = snapshot.analysis as PmiAnalysis;
+  const model = panelModel(tableOf(analysis), bare.questions, analysis.features);
   return {
     ...at, generation, session, review, engine, drawn: drawn && hasGraphics(drawn) ? drawn : null, bytes, store, shown,
     saver: editsSaver(store, answersSession, () => shown.answers), external: { answers, review }, reviewOf, model,

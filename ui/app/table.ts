@@ -7,7 +7,7 @@
 // `file_pmi` is the file's PMI on no recognised feature-and-kind ("Other PMI in the file").
 import { codeOf } from '../src/specify/choose.ts';
 import { CHARACTERISTIC } from '../src/specify/labels.ts';
-import type { PmiAnalysis, PmiQuestion } from '../src/types/pmi.ts';
+import type { PmiAnalysis, PmiFeature, PmiQuestion } from '../src/types/pmi.ts';
 
 export type RowState = 'stated' | 'gap' | 'decided_none';
 
@@ -143,8 +143,15 @@ export function balloonText(numbers: readonly string[]): string {
 }
 
 /** The panel's model of ``table``, named with ``questions`` (the bare part's: see bareAnalysis). */
-export function panelModel(table: FeatureTable, questions: readonly PmiQuestion[]): PanelModel {
+export function panelModel(table: FeatureTable, questions: readonly PmiQuestion[], features: readonly PmiFeature[] = []): PanelModel {
   const byId = new Map(questions.map((q) => [q.id, q]));
+  const titles = new Map<string, string>();
+  for (const row of table.rows) {
+    const title = byId.get(row.id)?.title;
+    if (title) titles.set(row.feature, title);
+  }
+  const holes = features.filter(f => f.family === 'holes' || f.family.startsWith('hole_patterns'))
+    .sort((a, b) => a.faces.length - b.faces.length);
   const groups = new Map<string, PanelGroup>();
   const group = (key: string, title: string) => {
     let g = groups.get(key);
@@ -156,7 +163,14 @@ export function panelModel(table: FeatureTable, questions: readonly PmiQuestion[
     const title = q?.title ?? '';
     // A row's full name names its feature and its kind ("Ø1.6 hole function"), never the feature alone.
     const label = q?.label ?? kindWord(row.kind);
-    const name = title && label === title ? `${title} ${kindWord(row.kind).toLowerCase()}` : label;
+    const length = row.id.startsWith('length:planes:');
+    const holeLocation = row.id.startsWith('location:holes:');
+    const owner = holeLocation ? holes.find(f => row.faces.length && row.faces.every(face => f.faces.includes(face))) : undefined;
+    const locationTitle = owner
+      ? titles.get(owner.id) ?? owner.id
+      : `Hole location on ${row.faces.length === 1 ? 'face' : 'faces'} ${row.faces.join(', ')}`;
+    const name = length ? 'Length' : holeLocation ? (owner ? `${locationTitle} location` : locationTitle)
+      : title && label === title ? `${title} ${kindWord(row.kind).toLowerCase()}` : label;
     const short = title && name.startsWith(title) ? name.slice(title.length).trim() : name;
     const numbers = (row.requirements ?? []).flatMap((r) => (r.number ? [r.number] : []));
     const value = row.state === 'stated' ? displayText(answerText(row.value) || (row.requirements ?? []).map((r) => r.text).join('; '))
@@ -165,11 +179,12 @@ export function panelModel(table: FeatureTable, questions: readonly PmiQuestion[
     const offered = row.state === 'gap' ? row.suggestion : row.state === 'decided_none' ? q?.default : undefined;
     const suggestion = offered !== null && offered !== undefined ? offered : undefined;
     const panelRow: PanelRow = {
-      id: row.id, label: short ? capital(short) : kindWord(row.kind), name, state: row.state, value, expect: row.value,
+      id: row.id, label: length ? 'Length' : holeLocation ? 'Location' : short ? capital(short) : kindWord(row.kind), name, state: row.state, value, expect: row.value,
       open: row.open, numbers, faces: row.faces, ...(q ? { question: q } : {}),
       ...(suggestion !== undefined ? { suggestion, suggestionText: isNoneValue(suggestion) ? 'none' : answerText(suggestion, q) } : {}),
     };
-    if (row.feature === 'part') group('part', 'The part').rows.push(panelRow);
+    if (length || row.feature === 'part') group('part', 'The part').rows.push(panelRow);
+    else if (holeLocation) group(`feature:${owner?.id ?? row.feature}`, locationTitle).rows.push(panelRow);
     else if (row.id.startsWith('bom.')) group('bom', 'Parts list').rows.push(panelRow);
     else if (row.id.startsWith('datum.')) group('datums', 'Datums').rows.push(panelRow);
     else group(`feature:${row.feature}`, title || row.feature).rows.push(panelRow);

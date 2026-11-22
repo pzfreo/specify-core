@@ -83,6 +83,9 @@ pub fn known_id(id: &str) -> bool {
     if let Some(suffix) = id.strip_prefix("datum.") {
         return DATUM_LETTERS.contains(&suffix) || DATUM_CONTROLS.contains(&suffix);
     }
+    if crate::rules::general_rows::is_id(id) {
+        return true;
+    }
     if let Some((kind, feature)) = id.split_once(':') {
         return FEATURE_KINDS.contains(&kind) && !feature.is_empty();
     }

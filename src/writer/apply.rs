@@ -36,7 +36,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use haecceity::pmi::{DimensionKind, Mode, PartPmi, ToleranceTarget};
 use serde_json::{Map, Value as Json};
 
-use super::{Source, WriteReport, drop_stated, part_pmi, requirements, verify, write_by_modes};
+use super::{Source, WriteReport, drop_stated, requirements, verify, write_by_modes};
 use crate::edits::{self, EditList, Failure, Outcome};
 use crate::feature_table::{FeatureTable, State};
 use crate::part::{self, LoadedPart};
@@ -345,7 +345,7 @@ fn planned_states(
         .datums
         .retain(|d| d.get("existing") == Some(&Json::Bool(true)));
     intent.part.clear();
-    let Ok((planned, _)) = part_pmi(loaded, &intent, before, Mode::Add, &[]) else {
+    let Ok((planned, _)) = super::part_pmi(loaded, &intent, before, Mode::Add, &[]) else {
         return Vec::new();
     };
     crate::characteristics::against(&planned, before, prov, &source.doc)
@@ -720,6 +720,23 @@ fn same_requirement(
     }
 }
 
+/// The general measurement rows can show that the file's location already covers their
+/// direction. That readback must not make the original location or position uneditable.
+fn shared_by_other_feature(
+    table: &FeatureTable,
+    row: &crate::feature_table::Row,
+    req: &crate::feature_table::Requirement,
+) -> bool {
+    table.rows.iter().any(|other| {
+        other.feature != row.feature
+            && !crate::rules::general_rows::is_id(&other.id)
+            && other
+                .requirements
+                .iter()
+                .any(|item| same_requirement(item, req))
+    })
+}
+
 /// An answer that records "none" for `id`: its suggestion when that is a "none", an empty list
 /// for a datum, else `"none"`.
 fn none_answer(table: &FeatureTable, id: &str) -> Json {
@@ -966,7 +983,6 @@ pub(crate) fn planned_intent(
     table: &FeatureTable,
     given: &BTreeMap<String, Json>,
     choices: &Map<String, Json>,
-    whole_general: bool,
 ) -> Result<crate::rules::Intent, String> {
     let mut analysis_clean = analysis.clone();
     // The questions are those of the part with its PMI set aside but for its datums, as
@@ -985,6 +1001,25 @@ pub(crate) fn planned_intent(
     }
     let mut answers = choices.clone();
     answers.extend(given.iter().map(|(id, v)| (id.clone(), v.clone())));
+    // Approval names the supports by id. A datum in the same list can relabel the
+    // reference without changing the value the table offered.
+    if given.iter().any(|(id, value)| {
+        crate::rules::general_rows::is_id(id)
+            && table.row(id).and_then(|r| r.suggestion.as_ref()) == Some(value)
+    }) {
+        let ctx = crate::rules::Ctx::new(&analysis_clean).map_err(|e| e.to_string())?;
+        for offered in crate::rules::dimension_suggestions(&ctx, &answers) {
+            let id = &offered.question.id;
+            let Some(value) = given.get(id) else { continue };
+            if table.row(id).and_then(|r| r.suggestion.as_ref()) == Some(value)
+                && let Some(default) = offered.question.default
+                && crate::rules::general_rows::measure_text(value)
+                    == crate::rules::general_rows::measure_text(&default)
+            {
+                answers.insert(id.clone(), default);
+            }
+        }
+    }
     let mut intent = crate::rules::preview(&analysis_clean, &answers).map_err(|e| e.to_string())?;
     let addressed = |item: &Map<String, Json>| {
         item.get("question")
@@ -1002,7 +1037,7 @@ pub(crate) fn planned_intent(
     // the other features, which the list does not name. A hole or a diameter the list
     // leaves to the general tolerance (`general`) keeps its own size under it.
     // (Matched by faces: the planner's rows name no feature.)
-    let general_holes: Vec<(&String, BTreeSet<usize>)> = given
+    let general_sizes: Vec<(&String, BTreeSet<usize>)> = given
         .iter()
         .filter(|(id, v)| {
             v.as_str() == Some("general")
@@ -1010,7 +1045,7 @@ pub(crate) fn planned_intent(
         })
         .filter_map(|(id, _)| Some((id, table.row(id)?.faces.iter().copied().collect())))
         .collect();
-    let hole_of = |r: &Map<String, Json>| -> Option<String> {
+    let size_owner = |r: &Map<String, Json>| -> Option<String> {
         if r.get("kind").and_then(Json::as_str) != Some("size") {
             return None;
         }
@@ -1021,28 +1056,21 @@ pub(crate) fn planned_intent(
             .filter_map(Json::as_u64)
             .map(|f| f as usize)
             .collect();
-        general_holes
+        general_sizes
             .iter()
             .find(|(_, on)| !faces.is_empty() && faces.is_subset(on))
             .map(|(id, _)| (*id).clone())
     };
-    // D1: the dimensions no question asks about (plane levels) are written once every
-    // suggestion is approved: a list that answers every open gap with a suggestion writes the
-    // whole general set, as `write --accept-defaults` does (a question with no suggestion, the
-    // material, may stay open); otherwise only what it names. Not for `carry` (`whole_general`
-    // false), which writes only what the older revision states.
-    let nothing_open = whole_general
-        && table.rows.iter().all(|r| {
-            !r.open || given.contains_key(&r.id) || r.suggestion.as_ref().is_none_or(Json::is_null)
-        });
-    if !nothing_open {
-        intent.general.retain(|r| hole_of(r).is_some());
-    }
-    for r in &mut intent.general {
-        if let Some(id) = hole_of(r) {
-            r.insert("question".into(), Json::from(id));
+    intent.general.retain_mut(|r| {
+        if addressed(r) {
+            return true;
         }
-    }
+        let Some(id) = size_owner(r) else {
+            return false;
+        };
+        r.insert("question".into(), Json::from(id));
+        true
+    });
     for item in intent
         .requirements
         .iter_mut()
@@ -1068,7 +1096,7 @@ pub fn apply_with(
     list: &EditList,
     extra: &[haecceity::pmi::AttributeSet],
 ) -> Result<Applied, Vec<Failure>> {
-    applied_with(loaded, list, None, extra, false)
+    applied_with(loaded, list, None, extra)
 }
 
 /// [`apply`], with `numbers` an older revision's characteristic-number history carried onto
@@ -1080,7 +1108,7 @@ pub(crate) fn apply_numbered(
     list: &EditList,
     numbers: Option<&Map<String, Json>>,
 ) -> Result<Applied, Vec<Failure>> {
-    applied_with(loaded, list, numbers, &[], true)
+    applied_with(loaded, list, numbers, &[])
 }
 
 /// The `bom.*` entries of `list` (a part of an assembly's BOM fields: `fill` with a value, or
@@ -1179,7 +1207,6 @@ fn applied_with(
     list: &EditList,
     numbers: Option<&Map<String, Json>>,
     extra: &[haecceity::pmi::AttributeSet],
-    carrying: bool,
 ) -> Result<Applied, Vec<Failure>> {
     const GENERAL: &str = "part.general_tolerance";
     let Some(change) = list
@@ -1187,7 +1214,7 @@ fn applied_with(
         .get(GENERAL)
         .filter(|c| !crate::feature_table::is_none_value(&c.to))
     else {
-        return applied_parts(loaded, list, numbers, extra, carrying);
+        return applied_parts(loaded, list, numbers, extra);
     };
     let (analysis, table) = table_of(loaded).map_err(whole)?;
     let (pmi_list, bom) = bom_edits(list, &analysis);
@@ -1198,7 +1225,7 @@ fn applied_with(
     }
     let mut rest = list.clone();
     rest.change.remove(GENERAL);
-    let first = applied_parts(loaded, &rest, numbers, extra, carrying)?;
+    let first = applied_parts(loaded, &rest, numbers, extra)?;
     let entry = || format!("change[{}]", Json::from(GENERAL));
     let part = loaded.binding.part;
     let now = part::File::of_bytes(&loaded.path, first.bytes.clone())
@@ -1231,7 +1258,6 @@ fn applied_parts(
     list: &EditList,
     numbers: Option<&Map<String, Json>>,
     extra: &[haecceity::pmi::AttributeSet],
-    carrying: bool,
 ) -> Result<Applied, Vec<Failure>> {
     if !list
         .fill
@@ -1239,12 +1265,12 @@ fn applied_parts(
         .chain(&list.accept_suggestions)
         .any(|id| id.starts_with("bom."))
     {
-        return applied_pmi(loaded, list, numbers, extra, carrying);
+        return applied_pmi(loaded, list, numbers, extra);
     }
     let analysis = crate::api::analyse(loaded).map_err(|e| whole(e.to_string()))?;
     let (list, bom) = bom_edits(list, &analysis);
     let intent = bom?.expect("the list has BOM entries");
-    let mut applied = applied_pmi(loaded, &list, numbers, extra, carrying)?;
+    let mut applied = applied_pmi(loaded, &list, numbers, extra)?;
     // The BOM is appended after the PMI edit: every entity already there keeps its bytes.
     applied.bytes = crate::bom::append(applied.bytes, &[(loaded, &intent, None)])
         .map_err(|why| whole(format!("the BOM cannot be written: {why}")))?;
@@ -1262,7 +1288,6 @@ fn applied_pmi(
     list: &EditList,
     numbers: Option<&Map<String, Json>>,
     extra: &[haecceity::pmi::AttributeSet],
-    carrying: bool,
 ) -> Result<Applied, Vec<Failure>> {
     let (analysis, table) = table_of(loaded).map_err(whole)?;
     let (list, nominals) = field_changes(list, &table, &analysis)?;
@@ -1413,11 +1438,8 @@ fn applied_pmi(
             }
             continue;
         }
-        let shared = |req: &crate::feature_table::Requirement| {
-            table.rows.iter().any(|r| {
-                r.feature != row.feature && r.requirements.iter().any(|q| same_requirement(q, req))
-            })
-        };
+        let shared =
+            |req: &crate::feature_table::Requirement| shared_by_other_feature(&table, row, req);
         let own: Vec<_> = row.requirements.iter().filter(|r| !shared(r)).collect();
         if own.is_empty() {
             failures.push(entry_failure(
@@ -1466,13 +1488,8 @@ fn applied_pmi(
                 .requirements
                 .iter()
                 .any(|r| r.kind == "geometric_tolerance");
-        let same = same_requirement;
-        let shared = |req: &crate::feature_table::Requirement| {
-            table
-                .rows
-                .iter()
-                .any(|r| r.feature != row.feature && r.requirements.iter().any(|q| same(q, req)))
-        };
+        let shared =
+            |req: &crate::feature_table::Requirement| shared_by_other_feature(&table, row, req);
         // Changed to none, the frame goes with the basic dimensions only it used (decision 1).
         let to_none = list
             .change
@@ -1702,16 +1719,16 @@ fn applied_pmi(
         Mode::Replace
     };
     let mut lines = super::Lines::default();
-    // ADR P11 rule 2: the given answers the plan made no PMI from (a general size on a datum's
-    // own faces), stored as decided.
-    let mut wrote_nothing: BTreeMap<String, Json> = BTreeMap::new();
+    let mut unwritten = Map::new();
     let mut pmi = if given.is_empty() {
         PartPmi::default()
     } else {
         let analysis_clean =
             crate::api::analyse(&loaded_clean).map_err(|e| whole(e.to_string()))?;
         let mut intent =
-            planned_intent(&analysis_clean, &table, &given, &choices, !carrying).map_err(whole)?;
+            planned_intent(&analysis_clean, &table, &given, &choices).map_err(whole)?;
+        let has_general_tolerance = intent.part.contains_key("general_tolerance")
+            || !analysis_clean["part"]["general_tolerance"].is_null();
         let failing: Vec<Failure> = given
             .keys()
             .filter(|id| {
@@ -1736,7 +1753,10 @@ fn applied_pmi(
                                 && r.get("kind").and_then(Json::as_str) == Some("thread")
                         })
                     });
-                !written
+                let deferred_diameter = has_general_tolerance
+                    && id.starts_with("diameter.fit:")
+                    && given[*id] == "general";
+                !(written || deferred_diameter)
             })
             .map(|id| {
                 let section = if list.change.contains_key(id) {
@@ -1815,42 +1835,6 @@ fn applied_pmi(
         )
         .map_err(|e| whole(e.to_string()))?;
         lines = planned;
-        // An answer the plan made nothing from: no requirement made names its question, is on
-        // its feature, or on its faces.
-        let faces_of = |r: &Map<String, Json>| -> BTreeSet<usize> {
-            r.get("faces")
-                .and_then(Json::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Json::as_u64)
-                .map(|f| f as usize)
-                .collect()
-        };
-        for (id, value) in &given {
-            if !crate::feature_table::is_requirement(id)
-                || id.starts_with("part.")
-                || id.starts_with("datum.")
-            {
-                continue;
-            }
-            let (_, feature) = crate::feature_table::kind_and_feature(id);
-            let on: BTreeSet<usize> = table
-                .row(id)
-                .map(|r| r.faces.iter().copied().collect())
-                .unwrap_or_default();
-            let made_it = made.iter().any(|r| {
-                r.get("question").and_then(Json::as_str) == Some(id.as_str())
-                    || r.get("feature").and_then(Json::as_str) == Some(feature.as_str())
-                    || (r.contains_key("kind") && !faces_of(r).is_disjoint(&on))
-            });
-            if !made_it {
-                lines.not_written.push(format!(
-                    "answer {id} ({}): there is no PMI to write for it; it is stored as decided",
-                    crate::choices::short_repr(value, 6)
-                ));
-                wrote_nothing.insert(id.clone(), value.clone());
-            }
-        }
         keep_untouched(&mut pmi, before, &changed_items, &nominals)
             .map_err(|e| whole(e.to_string()))?;
         // A change replaces its row's own items: it never adds a location dimension beside
@@ -1899,6 +1883,23 @@ fn applied_pmi(
             }
         }
         lines.not_written.extend(held);
+        let approved: Map<_, _> = given
+            .iter()
+            .map(|(id, value)| (id.clone(), value.clone()))
+            .collect();
+        for id in super::wrote_nothing(
+            &loaded_clean,
+            &approved,
+            &made,
+            &pmi,
+            &BTreeSet::new(),
+            &intent.general,
+        ) {
+            lines
+                .not_written
+                .push(super::not_written_approval(&id, &approved[&id]));
+            unwritten.insert(id.clone(), approved[&id].clone());
+        }
         pmi
     };
 
@@ -1919,12 +1920,10 @@ fn applied_pmi(
         let shared_only = table.row(id).is_some_and(|row| {
             row.state == State::Stated
                 && !row.requirements.is_empty()
-                && row.requirements.iter().all(|req| {
-                    table.rows.iter().any(|r| {
-                        r.feature != row.feature
-                            && r.requirements.iter().any(|q| same_requirement(q, req))
-                    })
-                })
+                && row
+                    .requirements
+                    .iter()
+                    .all(|req| shared_by_other_feature(&table, row, req))
         });
         if shared_only
             && crate::feature_table::leaves_nothing(value)
@@ -1934,9 +1933,10 @@ fn applied_pmi(
             saved.insert(id.clone(), value.clone());
         }
     }
-    for (id, value) in none.iter().chain(&wrote_nothing) {
+    for (id, value) in &none {
         saved.insert(id.clone(), value.clone());
     }
+    saved.extend(unwritten);
     if !saved.is_empty() || unmarked_answers {
         let mut payload =
             crate::resume::payload(loaded, &saved).map_err(|e| whole(e.to_string()))?;
@@ -2135,7 +2135,19 @@ pub(crate) fn restates(
 ) -> bool {
     use crate::characteristics::Statement;
     let given = BTreeMap::from([(row.id.clone(), value.clone())]);
-    let Ok(intent) = planned_intent(analysis, table, &given, choices, false) else {
+    // For a standalone measurement, recover the suggestion the file's dimension now
+    // satisfies. Compare that plan to OLD below before carrying anything to NEW.
+    let mut bare;
+    let analysis = if crate::rules::general_rows::is_id(&row.id) {
+        bare = analysis.clone();
+        if let Some(object) = bare.as_object_mut() {
+            object.remove("dimensioning_stated");
+        }
+        &bare
+    } else {
+        analysis
+    };
+    let Ok(intent) = planned_intent(analysis, table, &given, choices) else {
         return false;
     };
     let Ok((planned, _)) = super::part_pmi(loaded, &intent, &stated.before, Mode::Add, &[]) else {
