@@ -75,7 +75,7 @@ fn ftc07_keeps_stated_location_between_retired_levels_as_other_pmi() {
     let Some(part) = corpus_part("nist/nist_ftc_07_asme1_rd.stp") else {
         return;
     };
-    // Quiddity 0.5.4 treated 84 and 173 as levels. 0.5.5 drops them
+    // Quiddity 0.5.4 included 84 and 173 in its planner ladder. 0.5.5 drops them
     // from its ladder. An independently stated location still belongs to the file.
     let mut intent = rules::Intent::new(serde_json::to_value(&part.binding).unwrap());
     intent.requirements.push(
@@ -90,6 +90,16 @@ fn ftc07_keeps_stated_location_between_retired_levels_as_other_pmi() {
     let (bytes, _) = api::write_bytes(part.bytes.to_vec(), &[(intent, None)]).unwrap();
     let annotated = part::load_bytes("ftc07.step", bytes).unwrap();
     let analysis = api::analyse(&annotated).unwrap();
+    let input: quiddity::dimensioning::Input =
+        serde_json::from_value(analysis["dimensioning"].clone()).unwrap();
+    assert!(
+        input
+            .steps
+            .heights
+            .iter()
+            .all(|step| !step.faces.iter().any(|face| [84, 173].contains(face))),
+        "FTC-07: faces 84 and 173 have left the kernel height ladder"
+    );
     assert!(analysis["features"].as_array().unwrap().iter().all(|r| {
         r["family"] != "step_levels"
             || [84, 173]

@@ -205,7 +205,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **0.5.5 / Optional fillets and adjacent CLI rows** (10 entries, 10 case globs)
 
-  The evidence is stated per entry (7 distinct; all in `cli.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `questions.defaults.questions`: Quiddity 0.5.5 #297 removes the fillet size floor. Optional radius questions default to none.
+  The evidence is stated per entry (7 distinct; all in `cli.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `questions.defaults.questions`: The 2026-11-21 general-dimension rows decision exposes plane lengths and hole locations as questions. Quiddity 0.5.5 #297 removes the fillet size floor, so optional radius questions enter the list with none suggested.
 
 - **0.5.5 / CLI plane locations under 0.5.5** (2 entries, 1 case glob)
 
@@ -665,7 +665,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **0.5.5 / Body inventory after recognition upgrade** (3 entries, 3 case globs)
 
-  Quiddity 0.5.5 #300 exposes the solid and void shells, and #307 updates the framed face evidence. The resulting body record changed in the kernel-only comparison; its exact support is recorded for review.
+  The evidence is stated per entry (3 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb207` at `features[id=thin_wall_bodies:114.115.116.117.118.119.120.121.122.123.124.125.126.127.128.129.130.131.132.133.134.135.136.137.138.139.140.141.142.143.144.145.146.147.148.149.150.151.152.153.155.157.158.159.160.161.162.163.164.165.166.167.168.169.170.171.172.173.179.180.181.182.183.184.185.186.187.188.189.190.191.198.199.200.208.210.212.213.214.215.216.217.218.219.220.221.224.227.233.234.235.236.237.238.239.240.241.242.246.248.249.252.254.255.257.258.259.260.261.262.263.264.265.267.268.269]`: Quiddity 0.5.5 #307 carries face integrals through the move into the recognition frame. CGB207 keeps the same 116 wall faces and thickness, while the paired area fraction changes from 0.8948159188848565 to 0.8948159188848559.
 
 - **0.5.5 / Counterbore floor proof** (2 entries, 2 case globs)
 
