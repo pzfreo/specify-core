@@ -719,7 +719,7 @@ PMI, Specify's own included, each item with its full `text`, `text_only` and pla
 fields) and `table`, the feature table: each feature-and-kind `stated`, `gap` (with Specify's
 suggestion) or `decided_none`. A stated row is not asked; `review` asks the gaps.
 `resume.answers` holds only the stored answers that leave no PMI behind: decided none, choices
-that are not requirements, and approvals the planner wrote nothing for (listed in
+that are not requirements, and general sizes deliberately omitted on datum faces (listed in
 `_specify.no_pmi`). A stored answer the file no longer bears out is listed once in
 `resume.dropped_answers`. There are no conflicts, no `_specify.keep`, and no `resume.present`
 or `resume.foreign` (0.2.x); changing what the file states is an explicit edit.

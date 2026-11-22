@@ -24,6 +24,40 @@ pub(crate) fn is_straight_depth(kind: &Kind) -> bool {
         if role.ends_with(".depth"))
 }
 
+/// A depth's endpoints can be planes or points. Its plan records the holes
+/// being measured, even when neither endpoint is supported by a bore face.
+pub(crate) fn depth_supports(pmi: &haecceity::pmi::PartPmi) -> BTreeMap<usize, BTreeSet<usize>> {
+    use haecceity::pmi::{AttributeValue, NoteOwner};
+
+    let mut depths = BTreeMap::<usize, BTreeSet<usize>>::new();
+    for attribute in &pmi.attributes {
+        let Some(NoteOwner::Dimension(id)) = attribute.on else {
+            continue;
+        };
+        if attribute.name != "specify dimension plan" {
+            continue;
+        }
+        let Some(Planned {
+            required, supports, ..
+        }) = attribute.items.iter().find_map(|(key, value)| match value {
+            AttributeValue::Text(text) if key == "requirement" => serde_json::from_str(text).ok(),
+            _ => None,
+        })
+        else {
+            continue;
+        };
+        if is_straight_depth(&required.kind) {
+            depths.entry(id.0).or_default().extend(
+                supports
+                    .into_iter()
+                    .filter(|s| required.covers.contains(&s.feature))
+                    .flat_map(|s| s.faces),
+            );
+        }
+    }
+    depths
+}
+
 pub(crate) fn input(part: &haecceity::Part) -> Result<Input, String> {
     Input::from_recognition(part, vec![], Policy::default())
 }
@@ -301,11 +335,66 @@ impl Planned {
     }
 }
 
+/// Preserve the unpositioned part of a shared offset when the planner's
+/// representative is covered by a position tolerance in the same write.
+fn retain_unpositioned_targets(
+    required: &mut [Required],
+    input: &Input,
+    answered: &[Map<String, Value>],
+) {
+    let position_faces: BTreeSet<_> = answered
+        .iter()
+        .filter(|r| r.get("kind").and_then(Value::as_str) == Some("position"))
+        .flat_map(|r| ids(r, "faces"))
+        .collect();
+    if position_faces.is_empty() {
+        return;
+    }
+    let positioned: BTreeSet<_> = input
+        .holes
+        .iter()
+        .filter(|h| h.support.faces.iter().any(|f| position_faces.contains(f)))
+        .map(|h| h.support.feature.as_str())
+        .collect();
+    for row in required {
+        if row.tolerance != Tolerance::General
+            || matches!(row.pattern, Some(shared::PatternRole::Pitch { .. }))
+        {
+            continue;
+        }
+        let Kind::Location { to, axis, .. } = &mut row.kind else {
+            continue;
+        };
+        if to.plane || !row.covers.iter().any(|id| positioned.contains(id.as_str())) {
+            continue;
+        }
+        let shares_offset =
+            |s: &Support| s.body == to.body && (s.at[*axis] - to.at[*axis]).abs() < 1e-4;
+        let Some(remaining) = input.holes.iter().map(|h| &h.support).find(|s| {
+            shares_offset(s)
+                && row.covers.contains(&s.feature)
+                && !positioned.contains(s.feature.as_str())
+        }) else {
+            // The conflict pass retains its established diagnostic for a wholly
+            // positioned measurement.
+            continue;
+        };
+        if to.faces.iter().any(|f| position_faces.contains(f)) {
+            *to = remaining.clone();
+        }
+        row.covers.retain(|id| !positioned.contains(id.as_str()));
+    }
+}
+
 /// Lower the shared slice-one requirements, accounting for existing carriers and
 /// reporting quantities that cannot be reconciled. Answered location *contracts*
 /// apply to the pattern's own origin and pitch; old per-member basics are generated witnesses,
 /// not independently authored dimensions. Explicit face-picked dimensions remain authorities.
-pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String> {
+pub(crate) fn apply(
+    mut input: Input,
+    intent: &mut Intent,
+    feature_table: bool,
+) -> Result<(), String> {
     input.datums = intent
         .datums
         .iter()
@@ -744,6 +833,9 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
     });
     // An answered fit/location is never replaced by a General guess when the
     // principal-plane grammar cannot represent its support or complete group.
+    if feature_table {
+        retain_unpositioned_targets(&mut required, &input, &intent.requirements);
+    }
     required.retain(|r| {
         if r.tolerance != Tolerance::General { return true; }
         let requested = match &r.kind {
@@ -1012,7 +1104,19 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             || deferred(&input, r)
             || (!generation_covered(r) && !is_authority(r))
     });
-    intent.general.retain(|r| deferred(&input, r));
+    let diameter_faces: BTreeSet<_> = required
+        .iter()
+        .filter(|r| matches!(&r.kind, Kind::Size { role, .. } if role == "bore.diameter"))
+        .flat_map(|r| &r.covers)
+        .filter_map(|id| input.holes.iter().find(|h| h.support.feature == *id))
+        .flat_map(|h| h.support.faces.iter().copied())
+        .collect();
+    intent.general.retain(|r| {
+        deferred(&input, r)
+            || (feature_table
+                && r.get("kind").and_then(Value::as_str) == Some("size")
+                && !ids(r, "faces").iter().any(|f| diameter_faces.contains(f)))
+    });
     for required in required {
         if general.is_none() && !authorities.contains_key(&required.id) {
             continue;
@@ -1196,7 +1300,7 @@ pub(crate) fn upgrade(
         .map(|h| h.support.faces.clone())
         .collect();
     let before = intent.clone();
-    apply(input, intent)?;
+    apply(input, intent, false)?;
     let on = |r: &Map<String, Value>| {
         let mut faces = ids(r, "faces");
         if r.get("kind").and_then(Value::as_str) == Some("location") {
