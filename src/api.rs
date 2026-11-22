@@ -252,10 +252,8 @@ fn analyse_with(
     let refused = |e: &dyn fmt::Display| Error::Analysis(format!("{}: {e}", loaded.path.display()));
     // Features first: on a part rebuilt without its record of unresolved geometry (U1),
     // recognition's refusal names the part and why, which is the failure to pass on.
-    let recognition = recognition.unwrap_or_else(|| loaded.recognition());
-    let document = quiddity::recognition::document(recognition, loaded.part.faces.len());
-    let features = features::recognise_from_document(loaded, recognition, &document)
-        .map_err(|e| refused(&e))?;
+    let (features, document) =
+        features::recognise_with_accounting(loaded, recognition).map_err(|e| refused(&e))?;
     let faces = features::describe_faces(loaded).map_err(|e| refused(&e))?;
     let mut faces = serde_json::to_value(faces).map_err(|e| refused(&e))?;
     let mut analysis = Map::new();
@@ -323,7 +321,7 @@ fn analyse_with(
             if !supporting.is_empty() {
                 value["supporting_faces"] = json!(supporting);
             }
-            let tilted = crate::dimensioning::tilted_step_faces(&loaded.part, &recognition.frame);
+            let tilted = crate::dimensioning::tilted_step_faces(&loaded.part, &document.frame);
             if !tilted.is_empty() {
                 value["tilted_step_faces"] = json!(tilted);
             }

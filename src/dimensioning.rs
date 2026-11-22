@@ -77,9 +77,8 @@ pub(crate) fn step_levels(
     Ok(())
 }
 
-/// Planes in quiddity's original Z level cone that fail 0.5.5's flatness band.
-/// This distinguishes the former step candidates from independently oblique
-/// measurements, which still use the legacy general-dimension path.
+/// Drafted step candidates are inside quiddity's level normal cone, but
+/// cannot provide an exact principal plane for a step length.
 pub(crate) fn tilted_step_faces(
     part: &haecceity::Part,
     recognition_frame: &quiddity::frames::RecordFrame,
@@ -87,6 +86,7 @@ pub(crate) fn tilted_step_faces(
     let quiddity::frames::RecordFrame::Inferred(frame) = recognition_frame else {
         return Vec::new();
     };
+    let axes = [frame.x, frame.y, frame.z];
     part.faces
         .iter()
         .enumerate()
@@ -94,21 +94,21 @@ pub(crate) fn tilted_step_faces(
             let haecceity::geom::Surface::Plane { frame: plane } = &face.surface else {
                 return None;
             };
-            let cos = haecceity::geom::dot(plane.z, frame.z).abs();
-            // The kernel's level normal cone and flatness band (quiddity #307).
-            (cos > 0.99
-                && cos < 1.0 - 1e-12
-                && part
-                    .face_projection_bounds(index, frame.z)
-                    .is_some_and(|(lo, hi)| hi - lo > 0.5))
-            .then_some(index)
+            axes.iter()
+                .any(|&axis| {
+                    let cos = haecceity::geom::dot(plane.z, axis).abs();
+                    cos > 0.99 && cos < 1.0 - 1e-12
+                })
+                .then_some(index)
         })
         .collect()
 }
 
 /// A rejected drafted level or a supporting cap is not a step measurement.
 pub(crate) fn general_plane_rows(general: &mut Vec<Map<String, Value>>, metadata: &Value) {
-    let metadata = metadata.as_object().expect("deserialised planner input");
+    let Some(metadata) = metadata.as_object() else {
+        return;
+    };
     let supporting = ids(metadata, "supporting_faces");
     let tilted = ids(metadata, "tilted_step_faces");
     general.retain(|row| {
