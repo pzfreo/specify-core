@@ -14,16 +14,16 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
 | [cli](#cli) | 296 | 0 | 8 | 0 | 234 | 1 | 539 |
-| [cross_engine](#cross_engine) | 142 | 2 | 0 | 1 | 1 | 20 | 166 |
-| [cross_engine_written](#cross_engine_written) | 23 | 0 | 0 | 0 | 0 | 0 | 23 |
-| [existing](#existing) | 96 | 0 | 0 | 0 | 7 | 0 | 103 |
+| [cross_engine](#cross_engine) | 342 | 2 | 0 | 1 | 1 | 20 | 366 |
+| [cross_engine_written](#cross_engine_written) | 75 | 0 | 0 | 0 | 0 | 0 | 75 |
+| [existing](#existing) | 420 | 0 | 0 | 0 | 7 | 0 | 427 |
 | [features](#features) | 3454 | 1414 | 571 | 2491 | 1066 | 1886 | 10882 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
-| [writer](#writer) | 1764 | 0 | 0 | 0 | 15 | 1 | 1780 |
-| **all** | 5904 | 1433 | 1205 | 2497 | 1333 | 1908 | 14280 |
+| [writer](#writer) | 2266 | 0 | 0 | 0 | 15 | 1 | 2282 |
+| **all** | 6982 | 1433 | 1205 | 2497 | 1333 | 1908 | 15358 |
 
 ## analysis
 
@@ -215,7 +215,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cross_engine
 
-### cross_engine: rust-correct (142 entries)
+### cross_engine: rust-correct (342 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `python_readback.existing[key=*].provenance`)
 
@@ -261,29 +261,29 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension\|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics.
 
-- **the existing item's fit, a 0.3.0 read-back field the Python reference does not have** (9 entries, 9 case globs)
+- **the existing item's fit, a 0.3.0 read-back field the Python reference does not have** (11 entries, 9 case globs)
 
-  The existing item's `fit` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the fit field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (11 entries, 6 case globs)
+- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (14 entries, 7 case globs)
 
-  The existing item's `mmc` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the mmc field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (11 entries, 6 case globs)
+- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (14 entries, 7 case globs)
 
-  The existing item's `modifiers` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the modifiers field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (18 entries, 9 case globs)
+- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (30 entries, 11 case globs)
 
-  The existing item's `diametral` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the diametral field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (20 entries, 10 case globs)
+- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (188 entries, 12 case globs)
 
-  The existing item's `text` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the text field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (18 entries, 9 case globs)
+- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (30 entries, 11 case globs)
 
-  The existing item's `zone` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the zone field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
 ### cross_engine: rust-wrong (2 entries)
 
@@ -315,11 +315,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cross_engine_written
 
-### cross_engine_written: rust-correct (23 entries)
+### cross_engine_written: rust-correct (75 entries)
 
-- **ADR P11 rule 2: the material answer is written as PMI, so it is no longer stored** (`*` at `resume.part.material`)
+- **ADR P11 rule 2: the material answer is written as PMI, so it is no longer stored** (18 entries, 18 case globs)
 
-  ADR P11 rule 2 (src/feature_table.rs storable): a file stores only the answers that leave no PMI, and the file's PMI is the only copy of the rest. Every case's base answers (the oracle's meta.answers) include part.material = "steel"; the committed files (written before P11) store it, so their resume read-back is {"part.material":"steel"}, while today's writer writes the material as PMI (the part's existing read-back is unchanged: material steel) and stores nothing, so answers_for gives {}. Seen on every part of all 16 written cases (18 parts), and nothing else changes on the 14 cases other than NIST CTC-03 and CTC-05 (whose other changes have entries of their own). Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
+  ADR P11 rule 2: the committed file stored the steel answer. The current writer states steel in PMI and leaves the answer out of resume.
 
 - **D8: the origin hole gets no general location in its origin directions** (`nist/nist_ctc_03_asme1_ap242` at `characteristics[key=dimension|Location_LinearDistance|[11,12]|[16,17]#1]`)
 
@@ -327,11 +327,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **D1: dimensioning::upgrade's heuristic for an old intent keeps a planner general row only on a hole it sizes or locates** (2 entries, 1 case glob)
 
-  The evidence is stated per entry (2 distinct; all in `cross_engine_written.json`). The first, for `nist/nist_ctc_05_asme1_ap242` at `characteristics[key=dimension|Location_LinearDistance|[]|[70]#1]`: A heuristic for old intents only (no planner rows): Decision D1 (commit 9717139, 'A general-tolerance answer writes only its note'): the writer's upgrade of an old intent without planner rows (dimensioning::upgrade) keeps a planner general row only on a hole the intent sizes or locates, or, off holes, where a general row of its kind touches the same faces. Python's default-approved historical intent for CTC-05 has no planner rows, and the general depth location from the entry face 70 (a hole depth ending at a point, so no faces of its own) is no longer written: present in a write at 9717139~1, absent at 9717139 (bisected). Its characteristic number goes with it. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
+  The evidence is stated per entry (2 distinct; all in `cross_engine_written.json`). The first, for `nist/nist_ctc_05_asme1_ap242` at `characteristics[key=dimension|Location_LinearDistance|[]|[70]#1]`: A heuristic for old intents only (no planner rows): Decision D1 (commit 9717139, 'A general-tolerance answer writes only its note'): the writer's upgrade of an old intent without planner rows (dimensioning::upgrade) keeps a planner general row only on a hole the intent sizes or locates, or, off holes, where a general row of its kind touches the same faces. Python's accept-defaults intent for CTC-05 has no planner rows, and the general depth location from the entry face 70 (a hole depth ending at a point, so no faces of its own) is no longer written: present in a write at 9717139~1, absent at 9717139 (bisected). Its characteristic number goes with it. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
 
-- **characteristic numbers close up over the items no longer written** (4 entries, 2 case globs)
+- **characteristic numbers close up over the items no longer written** (39 entries, 2 case globs)
 
-  The evidence is stated per entry (2 distinct; all in `cross_engine_written.json`). The first, for `nist/nist_ctc_03_asme1_ap242` at `characteristics[key=*].number`: A fresh write numbers its characteristics 1..n in order with no history (docs/characteristic-numbers.md); with the one location D8 leaves out no longer written, every later number moves down by the items before it (CTC-03 by 1; CTC-05 by 1 to 3). The items themselves (kind, type, faces, reference, origin, source) are unchanged; only the number field of a keyed item is covered, so an item added, lost or changed in any other field still fails. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
+  The evidence is stated per entry (2 distinct; all in `cross_engine_written.json`). The first, for `nist/nist_ctc_03_asme1_ap242` at `characteristics[key=dimension|Location_LinearDistance|[16,17]|[18,19]#1].number`: A fresh write numbers its characteristics 1..n in order with no history (docs/characteristic-numbers.md); with the one location D8 leaves out no longer written, every later number moves down by the items before it (CTC-03 by 1; CTC-05 by 1 to 3). The items themselves (kind, type, faces, reference, origin, source) are unchanged; only the number field of a keyed item is covered, so an item added, lost or changed in any other field still fails. Found by tests/cross_engine.rs rust_written_files_match_the_current_presentation_writer, which compares today's write of the case (examples/write_fixtures.rs) with the committed rust.step.gz field by field ('python' is the committed file's read-back, 'rust' today's). The committed files and Python's read-back of them ((b), cross_engine.json) are deliberately not regenerated or recaptured for this; only this exact case and path are covered, and any other change still fails.
 
 - **general dimensions are rows (Paul, 2026-11-21)** (15 entries, 1 case glob)
 
@@ -339,7 +339,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## existing
 
-### existing: rust-correct (96 entries)
+### existing: rust-correct (420 entries)
 
 - **presentation read as a dimension** (`*` at `existing[key=dimension|DimensionPresentation|*`)
 
@@ -433,29 +433,29 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension\|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics.
 
-- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (17 entries, 17 case globs)
+- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (269 entries, 17 case globs)
 
-  The existing item's `text` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the text field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (14 entries, 14 case globs)
+- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (39 entries, 14 case globs)
 
-  The existing item's `diametral` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the diametral field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (8 entries, 8 case globs)
+- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (11 entries, 8 case globs)
 
-  The existing item's `mmc` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the mmc field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (8 entries, 8 case globs)
+- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (14 entries, 8 case globs)
 
-  The existing item's `modifiers` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the modifiers field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's text_only, a 0.3.0 read-back field the Python reference does not have** (4 entries, 4 case globs)
+- **the existing item's text_only, a 0.3.0 read-back field the Python reference does not have** (17 entries, 4 case globs)
 
-  The existing item's `text_only` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the text_only field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (14 entries, 14 case globs)
+- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (39 entries, 14 case globs)
 
-  The existing item's `zone` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the zone field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
 ### existing: not-applicable (7 entries)
 
@@ -1279,7 +1279,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (1764 entries)
+### writer: rust-correct (2266 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1289,15 +1289,15 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   The maintainer's decision Q4/Q15 (docs/questions.md): a knurl is written as AP242's turned_knurl, which needs at least three of number of teeth, tooth depth, root fillet, helix angle and hand beside the diameters and pitch (WR2; a diamond's helix angle, WR9); Python's intent states pattern, pitch and diameter only, so the Rust writer derives the rest from the knurling standard (src/standards.rs knurl_parameters: teeth round(pi d/P), depth P/2 of DIN 82's 90 degree profile, root fillet the knurling wheel's crest radius, IS 3403:1981 and IS 6776:1980 4.3) and says so in a warning, as decided. The knurl itself is written as Python's line ('straight knurl on turned_steps:0') and reads back in both engines' terms as a knurl note on the same faces; verified by read-back (tests/writer.rs, knurls). Python writes no turned_knurl, only its text route and a UDA.
 
-- **a g6 diameter Python's reader garbles, and reads with no deviations** (2 entries, 2 case globs)
+- **a g6 diameter Python's reader garbles, and reads with no deviations** (7 entries, 2 case globs)
 
-  The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `scenarios/turned_runout_and_a_g6_fit` at `existing[key=dimension|Size_Diameter|[4]|#1]*`: The intent's nominal is 6 (the pin's Ø6 shaft, g6). Python reads back 3.006: OpenCascade's reader cannot return a tolerance whose deviations are both below nominal and garbles the value (writer.py docstring: 'Ø70 g6 reads back as 35.0145'). haecceity reads the nominal as written. Python reads no upper or lower deviation either; the Rust reader reads the fit's class, compared as the limits the class states (ISO 286 g6: -0.004/-0.012 at 6 mm, the intent's own), which the writer checks the intent's limits against before writing.
+  The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `scenarios/turned_runout_and_a_g6_fit` at `existing[key=dimension|Size_Diameter|[4]|#1].value`: The intent's nominal is 6 (the pin's Ø6 shaft, g6). Python reads back 3.006: OpenCascade's reader cannot return a tolerance whose deviations are both below nominal and garbles the value (writer.py docstring: 'Ø70 g6 reads back as 35.0145'). haecceity reads the nominal as written. Python reads no upper or lower deviation either; the Rust reader reads the fit's class, compared as the limits the class states (ISO 286 g6: -0.004/-0.012 at 6 mm, the intent's own), which the writer checks the intent's limits against before writing.
 
 - **a p6 lower deviation whose sign Python's round trip loses** (2 entries, 1 case glob)
 
   The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `scenarios/writer_every_kind_v1_writes` at `existing[key=dimension|Size_Diameter|[70]|#1].lower`: The intent states p6 on the spool's Ø130 (turned_steps:70) with upper 0.068 and lower 0.043, ISO 286's p6 at 130 mm (both above nominal). Python reads back lower -0.043: OpenCascade's plus-minus form cannot hold a range wholly above nominal (writer.py's docstring on fits). The Rust writer writes the class p6, read back and compared as the class's limits +0.068/+0.043.
 
-- **a distance -0.05/-0.1 Python's reader garbles** (`scenarios/callout_a_distance_with_limits_0` at `existing[key=dimension|Location_LinearDistance|[4]|[2]#1]*`)
+- **a distance -0.05/-0.1 Python's reader garbles** (3 entries, 1 case glob)
 
   The intent states distance 10, upper -0.05, lower -0.1 (scenario value '-0.05/-0.1'). Python reads back value 5.05 and no deviations: OpenCascade cannot return a tolerance wholly below nominal (writer.py docstring). haecceity reads 10 with -0.05/-0.1, as written.
 
@@ -1345,7 +1345,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   Shared planner, #75: the frozen Python intent sizes a subset of the recognised bore faces; quiddity::dimensioning v0.4.0 uses the complete defining support of the same hole or equal-hole group. The writer oracle reads the removed subset and added complete-support roots explicitly. Nominals and answered ISO 286 fit classes are preserved; writer verification checks the class against the answered limits. The oracle comparison can expand class limits only on its old intent face set, so the newly keyed full support reads as a class without numeric limits. Only these exact measured roots are covered; deferred owners remain unchanged.
 
-- **Basic bolt-circle and bore use distinct shared roles on the same complete support (#75)** (4 entries, 3 case globs)
+- **Basic bolt-circle and bore use distinct shared roles on the same complete support (#75)** (10 entries, 3 case globs)
 
   The evidence is stated per entry (4 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb243` at `existing[key=dimension|Size_Diameter|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]|#1]`: Shared planner, #75: this exact occurrence now reads Ø70 Basic from answered:dim:pattern[hole:10.11.578.579,hole:12.13.576.577,hole:14.15.574.575,hole:16.17.572.573,hole:2.3.586.587,hole:4.5.584.585,hole:6.7.582.583,hole:8.9.580.581]/bolt_circle.diameter, before the answered-fit bore on the same complete face support. Python states only its member bore size. The separate bore retains its answered fit and moves to the next same-face comparison occurrence; characteristic identities use planner roles and are unchanged. The oracle's fit-limit projection requires both matching faces and matching nominal, preventing the Basic bolt-circle diameter from inheriting the bore fit limits. Exact fresh readback differences: {"case":"corpus/cadgenbench_inputs/cgb243","path":"existing[key=dimension\|Size_Diameter\|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]\|#1]","python":null,"rust":{"kind":"dimension","type":"Size_Diameter","faces":[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587],"value":70.0,"provenance":"specify-core:written:v1","key":"dimension\|Size_Diameter\|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]\|#1"}}. The actual STEP Basic tolerance is verified by the planner regression; no dimensional value is normalized away.
 
@@ -1381,101 +1381,97 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   The evidence is stated per entry (74 distinct; all in `writer.json`). The first, for `corpus/mfcadpp/1000` at `resume.part.material`: ADR P11 rule 2 (src/feature_table.rs storable): a file stores only the answers that leave no PMI, and the file's PMI is the only copy of the rest. Python stores part.material = "steel" in its payload; that answer is a requirement whose value is not none, so the Rust writer writes it as PMI and does not store it: answers_for leaves it out. Its PMI is written: no other new writer-oracle difference for corpus/mfcadpp/1000 (its existing readback is Python's, apart from the entries already here). Only this exact case and path are covered.
 
-- **General dimensions already stated by imported PMI** (60 entries, 2 case globs)
+- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (97 entries, 47 case globs)
 
-  The evidence is stated per entry (60 distinct; all in `writer.json`). The first, for `nist/nist_ctc_03_asme1_ap242` at `write.not_written[dimension Location_LinearDistance [11, 12] [16, 17]: the file already states it; not written again]`: On nist/nist_ctc_03_asme1_ap242, dimension Location_LinearDistance [11, 12] [16, 17] is reported because the existing PMI already states this measurement, so P11 preserves it.
+  ADR P11 adds the diametral field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's diametral, a 0.3.0 read-back field the Python reference does not have** (46 entries, 46 case globs)
+- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (55 entries, 32 case globs)
 
-  The existing item's `diametral` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the mmc field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's mmc, a 0.3.0 read-back field the Python reference does not have** (31 entries, 31 case globs)
+- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (55 entries, 32 case globs)
 
-  The existing item's `mmc` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the modifiers field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's modifiers, a 0.3.0 read-back field the Python reference does not have** (31 entries, 31 case globs)
+- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (389 entries, 49 case globs)
 
-  The existing item's `modifiers` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the text field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's text, a 0.3.0 read-back field the Python reference does not have** (48 entries, 48 case globs)
+- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (97 entries, 47 case globs)
 
-  The existing item's `text` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the zone field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's zone, a 0.3.0 read-back field the Python reference does not have** (46 entries, 46 case globs)
+- **the existing item's fit, a 0.3.0 read-back field the Python reference does not have** (56 entries, 36 case globs)
 
-  The existing item's `zone` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the fit field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's fit, a 0.3.0 read-back field the Python reference does not have** (36 entries, 36 case globs)
+- **the existing item's class, a 0.3.0 read-back field the Python reference does not have** (29 entries, 28 case globs)
 
-  The existing item's `fit` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the class field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's class, a 0.3.0 read-back field the Python reference does not have** (28 entries, 28 case globs)
+- **the existing item's designation, a 0.3.0 read-back field the Python reference does not have** (29 entries, 28 case globs)
 
-  The existing item's `class` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
-
-- **the existing item's designation, a 0.3.0 read-back field the Python reference does not have** (28 entries, 28 case globs)
-
-  The existing item's `designation` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the designation field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
 - **the existing item's drill_diameter, a 0.3.0 read-back field the Python reference does not have** (28 entries, 28 case globs)
 
-  The existing item's `drill_diameter` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the drill_diameter field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's hand, a 0.3.0 read-back field the Python reference does not have** (28 entries, 28 case globs)
+- **the existing item's hand, a 0.3.0 read-back field the Python reference does not have** (29 entries, 28 case globs)
 
-  The existing item's `hand` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the hand field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's pitch, a 0.3.0 read-back field the Python reference does not have** (28 entries, 28 case globs)
+- **the existing item's pitch, a 0.3.0 read-back field the Python reference does not have** (31 entries, 28 case globs)
 
-  The existing item's `pitch` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the pitch field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's side, a 0.3.0 read-back field the Python reference does not have** (28 entries, 28 case globs)
+- **the existing item's side, a 0.3.0 read-back field the Python reference does not have** (29 entries, 28 case globs)
 
-  The existing item's `side` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the side field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's spec, a 0.3.0 read-back field the Python reference does not have** (28 entries, 28 case globs)
+- **the existing item's spec, a 0.3.0 read-back field the Python reference does not have** (29 entries, 28 case globs)
 
-  The existing item's `spec` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the spec field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
 - **the existing item's through, a 0.3.0 read-back field the Python reference does not have** (17 entries, 17 case globs)
 
-  The existing item's `through` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the through field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
 - **the existing item's drill_depth, a 0.3.0 read-back field the Python reference does not have** (11 entries, 11 case globs)
 
-  The existing item's `drill_depth` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the drill_depth field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
 - **the existing item's full_thread, a 0.3.0 read-back field the Python reference does not have** (11 entries, 11 case globs)
 
-  The existing item's `full_thread` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the full_thread field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
 - **the existing item's finish, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
 
-  The existing item's `finish` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the finish field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
 - **the existing item's diameter, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
 
-  The existing item's `diameter` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the diameter field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
 - **the existing item's pattern, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
 
-  The existing item's `pattern` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the pattern field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
 - **the existing item's root_fillet, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
 
-  The existing item's `root_fillet` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the root_fillet field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
 - **the existing item's teeth, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
 
-  The existing item's `teeth` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the teeth field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
 - **the existing item's tooth_depth, a 0.3.0 read-back field the Python reference does not have** (2 entries, 2 case globs)
 
-  The existing item's `tooth_depth` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the tooth_depth field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
-- **the existing item's length, a 0.3.0 read-back field the Python reference does not have** (`scenarios/turned_external_thread_and_straight_knurl` at `existing[key=*].length`)
+- **the existing item's length, a 0.3.0 read-back field the Python reference does not have** (`scenarios/turned_external_thread_and_straight_knurl` at `existing[key=note|external thread|[4]|#1].length`)
 
-  The existing item's `length` field: Python has no such field. Specify 0.3.0 (ADR P11, feature-table read-back) adds it to every existing item that states it (docs/answers.md, 'What the file states, read back whole'); no existing field changes meaning. A structural difference: one entry per case and field path. tests/readback.rs checks the field against what the writer wrote and against each NIST AP242 item's semantic content.
+  ADR P11 adds the length field the Python capture lacks. The exact value is the Rust read-back of this STEP requirement. tests/readback.rs checks the notation and semantic fields.
 
 - **General sizes omitted on a datum feature** (8 entries, 8 case globs)
 
@@ -1484,6 +1480,10 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **General dimensions with missing supports** (45 entries, 4 case globs)
 
   The evidence is stated per entry (45 distinct; all in `writer.json`). The first, for `corpus/mfcadpp/1007` at `write.not_written[general location 0.778084 to faces [] from faces [1]: the location of holes:4.7.20.21 names no faces (question Q17)]`: On corpus/mfcadpp/1007, general location 0.778084 to faces [] from faces [1] is reported because the location of holes:4.7.20.21 names no faces and AP242 needs both supports.
+
+- **General dimensions already stated by imported PMI** (30 entries, 2 case globs)
+
+  The evidence is stated per entry (30 distinct; all in `writer.json`). The first, for `nist/nist_ctc_03_asme1_ap242` at `write.not_written[general location 447.345 to faces [11, 12] from faces [16, 17]: the file already states it; not written again]`: On nist/nist_ctc_03_asme1_ap242, general location 447.345 to faces [11, 12] from faces [16, 17] is reported because the existing PMI already states this measurement, so P11 preserves it.
 
 ### writer: not-applicable (15 entries)
 
