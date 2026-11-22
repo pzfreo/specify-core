@@ -560,8 +560,8 @@ try {
     const original = readFileSync(file);
     const before = table(file);
     const lengthIds = [
-      'length:planes:1-3', 'length:planes:1-5', 'length:planes:1-7.11', 'length:planes:1-9',
-      'length:planes:2.6-10', 'length:planes:4-12', 'length:planes:8-10',
+      'length:planes:1-9', 'length:planes:1-5', 'length:planes:1-3', 'length:planes:8-10',
+      'length:planes:2.6-10', 'length:planes:4-12', 'length:planes:1-7.11',
     ];
     assert.deepEqual(Object.values(before).filter(r => r.kind === 'length').map(r => r.id), lengthIds);
     const partial = table(plainSave);
