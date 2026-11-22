@@ -1,7 +1,7 @@
 //! Cases moved from the WASM crate's tests (Specify 0.3.0, piece 6): they exercised the engine's
 //! whole-intent `writePmi`, which the browser API no longer has (it applies edit lists, `edit`).
-//! The whole-intent writer stays in the library and the command line's `write STEP ANALYSIS
-//! ANSWERS`, so what they check is checked here, natively.
+//! The library retains whole-intent replay, which these native tests exercise. The CLI
+//! writes edit lists.
 use serde_json::{Map, Value, json};
 use specify_core::{api, part, rules, writer};
 
