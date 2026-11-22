@@ -134,23 +134,20 @@ tool or both wrote it, reads it the same way: `existing` and `part` are the file
 and settings, and `analyse` adds the **feature table**, `table`:
 
 - `rows`: one per feature and kind of requirement it can need, with the id of its question
-  (`hole.position:holes:12`, the position of hole 12). Each is
+  (`hole.position:holes:12`, the position of hole 12). A row's `scope` is `part` for a part
+  setting, with an empty `faces` list. A `feature` row lists its supporting faces when
+  available, including the faces of a resolved datum. Each row is
   - `stated`: the file has a requirement of that kind on the feature's faces, whoever wrote
     it. `value` is its notation and `requirements` its items, with their characteristic
     numbers (`#N`). It is not asked.
   - `gap`: nothing is there. `suggestion` is Specify's default (`null` when there is none).
     It is asked. `open` is false when the suggestion is "none": leaving it and accepting
     "none" give the same file.
-  - `decided_none`: an answer that nothing is needed, stored in the file; or an approval the
-    planner wrote nothing for (a ⌀ left to the general tolerance on a datum's own faces: no size
-    is written on a datum feature), stored and listed in the payload's `no_pmi` (resumed as
-    `_specify.no_pmi`), its `value` the answer. The write report's `not_written` names it:
-    "answer diameter.fit:turned_steps:0 ('general'): approved, but nothing of its kind was
-    written on its feature (none is written on a datum's own faces; otherwise the planner
-    skipped it); stored as decided, not asked again", so a planner gap stays visible. The
-    check is per feature and kind (per direction for a location): a size written on a hole
-    does not count for its position. Every route treats the stored decisions as answered: the
-    command line's `questions` and `write`, `serve`, MCP, WASM and the page.
+  - `decided_none`: an answer that nothing is needed, stored in the file. A general size on
+    a datum's own faces is deliberately omitted and reported in `not_written`. This approval
+    is stored under the payload's `no_pmi`, exposed as `_specify.no_pmi` on reopen.
+    When a PMI-bearing approval cannot be fulfilled, `not_written` gives the reason and its
+    row stays open. Older payload markers for skipped PMI are discarded on reopen.
 - `file_pmi`: the file's requirements on no recognised feature and kind. Each has an `id`,
   `file_pmi:#<entity>`, naming the STEP entity its characteristic number is (or would be) on
   (`file_pmi:#1397`), so it stays the same while the file is saved in place. An edit list
@@ -162,7 +159,15 @@ and settings, and `analyse` adds the **feature table**, `table`:
 In an edit list, `fill` takes a general dimension row's displayed suggestion, and
 `accept_suggestions` uses the same value by id. `none` records a decision on that row.
 Once stated, the dimension can be removed through `items.remove` by row id or characteristic
-number. An approved dimension the planner cannot write is reported and stays decided.
+number. An approved dimension the planner cannot write is reported and stays open.
+
+A hole located by position PMI has its location on the position row of the hole or its
+pattern. A shared general location includes only the holes that still need it. Basic dimensions
+can coexist with the position tolerance that controls them. Bore sizes and planned depths
+belong to the hole function row, including depths measured between endpoint planes or points.
+When a rounded hole diameter leaves its bore unmatched, the feature table checks the measured
+cylinder at the same reported precision. An existing general-tolerance note governs newly
+approved sizes and locations.
 
 ### What the file states, read back whole
 
@@ -209,8 +214,10 @@ whose offset is its value), every hole on its located side (the "to", `faces2` i
 and every other hole whose axis lies on the same line from the same reference: one 50 from the
 left edge to a row of holes locates the Ø8 on that line too. Its reference side (the "from")
 locates nothing: a dimension from hole A to hole B locates B, not A. A position tolerance on the
-hole locates it in every direction. The location row is stated when every direction across the
-hole's axis is located. Otherwise it is a gap, and when some directions are located, its
+hole locates it in every direction. Identical patterns can share a row and its face list. A
+position tolerance on one pattern covers that pattern; the shared row stays open until each
+pattern is located. The location row is stated when every direction across the hole's axis is
+located. Otherwise it is a gap, and when some directions are located, its
 `missing` lists the others (`["y"]`), `located` those already located (`["x"]`), and
 `requirements` the dimensions that locate it so far.
 Its suggestion covers only the missing directions: answering it writes no position tolerance
