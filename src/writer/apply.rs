@@ -1422,7 +1422,7 @@ pub fn apply(loaded: &LoadedPart, list: &EditList) -> Result<Applied, Vec<Failur
 
     let items = vec![(haecceity::pmi::PartId(k), pmi)];
     let (back, kernel) =
-        write_by_modes(&source, &items, &[mode]).map_err(|e| whole(e.to_string()))?;
+        write_by_modes(&source, &items, &[mode], extra).map_err(|e| whole(e.to_string()))?;
     verify(&source, &items, &[mode], &back).map_err(|e| whole(e.to_string()))?;
 
     // ADR P11: every item not named keeps its bytes, whoever wrote it.
