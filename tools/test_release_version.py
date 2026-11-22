@@ -30,12 +30,13 @@ class ReleaseVersionTests(unittest.TestCase):
         rc = "0.3.0-rc.1"
         final = "0.3.0"
         cases = [
-            (rc, True, "0.3.0rc1", "0.2.3", "next", "0.3.0rc1", True),
+            (rc, True, "0.3.0rc1", "", "next", "0.3.0rc1", True),
             (rc, False, "0.3.0rc1", "0.2.3", "", "", False),
             (final, True, final, "0.2.3", "", "", False),
             (final, False, final, "0.2.3", "latest", final, True),
             (final, False, final, "0.3.1", "release-0.3.0", final, True),
-            (rc, True, final, "0.2.3", "next", "", True),
+            (final, False, final, "", "", final, True),
+            (rc, True, final, "0.2.3", "", "", False),
         ]
         header = ("tag", "flag", "pyproject", "npm-latest", *(job[0] for job in jobs))
         actual_rows = []
@@ -53,7 +54,7 @@ class ReleaseVersionTests(unittest.TestCase):
                 flag_value = str(flag).lower()
                 event.write_text(json.dumps({"release": {"tag_name": tag, "prerelease": flag}}))
                 pyproject.write_text(f'[project]\nversion = "{python_version}"\n')
-                actual = [tag, flag_value, python_version, latest]
+                actual = [tag, flag_value, python_version, latest or "(missing)"]
                 expected = actual.copy()
                 for name, channel, queries_registry in jobs:
                     command = [sys.executable, str(script), "--channel", channel, f"--tag={tag}"]
@@ -76,7 +77,7 @@ class ReleaseVersionTests(unittest.TestCase):
                             detail = fields["dist_tag"] or fields["python_version"]
                             actual.append(f"{status}/{detail}" if detail else status)
                     detail = {"npm": dist_tag, "pypi": pypi_version}.get(channel, "")
-                    if not eligible or (channel == "pypi" and not pypi_version):
+                    if not eligible or (channel == "npm" and not dist_tag):
                         expected.append("fail")
                     else:
                         expected.append(f"publish/{detail}" if detail else "publish")
@@ -86,6 +87,41 @@ class ReleaseVersionTests(unittest.TestCase):
         for row in (header, *actual_rows):
             print(" | ".join(row))
         self.assertEqual(actual_rows, expected_rows)
+
+    def test_cargo_and_pyproject_versions_must_be_lockstep(self):
+        script = Path(__file__).with_name("release_version.py").resolve()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "Cargo.toml").write_text('[package]\nversion = "0.3.0-rc.1"\n')
+            pyproject = root / "crates/specify-core-py/pyproject.toml"
+            pyproject.parent.mkdir(parents=True)
+            for version, exit_code in (("0.3.0", 1), ("0.3.0rc1", 0)):
+                with self.subTest(pyproject=version):
+                    pyproject.write_text(f'[project]\nversion = "{version}"\n')
+                    result = subprocess.run([sys.executable, str(script), "--check-lockstep"],
+                                            cwd=root, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, exit_code, result.stderr)
+                    if exit_code:
+                        self.assertIn("v0.3.0-rc.1 requires Python version 0.3.0rc1", result.stderr)
+
+    def test_dispatch_uses_the_requested_tag_without_comparing_main_pyproject(self):
+        script = Path(__file__).with_name("release_version.py").resolve()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            pyproject = root / "crates/specify-core-py/pyproject.toml"
+            pyproject.parent.mkdir(parents=True)
+            pyproject.write_text('[project]\nversion = "0.3.0"\n')
+            output = root / "outputs"
+            env = {**os.environ, "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_OUTPUT": str(output)}
+            for channel in ("github", "npm", "crates", "pypi"):
+                with self.subTest(channel=channel):
+                    output.unlink(missing_ok=True)
+                    result = subprocess.run(
+                        [sys.executable, str(script), "--channel", channel, "--tag=v0.2.3-rc.1",
+                         "--prerelease=true"], cwd=root, env=env, capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("publish=true", output.read_text().splitlines())
 
     def test_registry_skip_and_error(self):
         for channel in ("npm", "crates"):

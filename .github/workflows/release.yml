@@ -156,8 +156,9 @@ jobs:
           url="https://registry.npmjs.org/@draftwright%2fspecify-core-wasm"
           status=$(curl -s --retry 3 -o /dev/null -w '%{http_code}' "$url/$VERSION")
           latest=
-          if [ "$status" = 404 ]; then
-            latest=$(curl -s --retry 3 "$url" | jq -r '."dist-tags".latest // empty')
+          if [ "$status" = 404 ] && [ "$PRERELEASE" = false ]; then
+            metadata=$(curl -fsS --retry 3 "$url")
+            latest=$(jq -r '."dist-tags".latest // empty' <<<"$metadata")
           fi
           python3 tools/release_version.py --channel npm --tag="$TAG" --prerelease="$PRERELEASE" \
             --registry-status="$status" --latest="$latest"
@@ -361,8 +362,8 @@ jobs:
           latest=
           if [ "$(npm view "@draftwright/specify-ui@$version" version 2>/dev/null || true)" = "$version" ]; then
             status=200
-          else
-            latest=$(npm view "@draftwright/specify-ui" dist-tags.latest 2>/dev/null || true)
+          elif [ "$PRERELEASE" = false ]; then
+            latest=$(npm view "@draftwright/specify-ui" dist-tags.latest)
           fi
           python3 tools/release_version.py --channel npm --tag="$TAG" --prerelease="$PRERELEASE" \
             --registry-status="$status" --latest="$latest"

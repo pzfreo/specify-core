@@ -33,7 +33,6 @@ class NpmPackageTests(unittest.TestCase):
             ("0.2.3", "0.2.3", "latest"),
             ("0.2.3", "0.3.0", "release-0.2.3"),
             ("0.3.0", "0.2.3", "latest"),
-            ("0.3.0", "", "latest"),
             ("0.3.0-rc.1", "0.2.3", "next"),
             ("0.3.0-rc.1", "0.3.0", "next"),
             ("0.3.0-rc.1", "", "next"),
@@ -42,6 +41,10 @@ class NpmPackageTests(unittest.TestCase):
                 decision = decide_publish("npm", f"v{version}", "-" in version, latest=latest)
                 self.assertTrue(decision.publish)
                 self.assertEqual(decision.dist_tag, expected)
+
+    def test_final_publish_needs_npm_latest(self):
+        with self.assertRaisesRegex(ValueError, "npm latest is missing for v0.3.0"):
+            decide_publish("npm", "v0.3.0", False)
 
     def test_scopes_the_name_and_keeps_the_module(self):
         with tempfile.TemporaryDirectory() as tmp:

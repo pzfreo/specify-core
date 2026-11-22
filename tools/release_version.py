@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 import tomllib
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -47,6 +47,16 @@ def check_python_version(tag: str, version: str) -> str:
     return str(expected)
 
 
+def cargo_tag() -> str:
+    with open("Cargo.toml", "rb") as manifest:
+        return "v" + tomllib.load(manifest)["package"]["version"]
+
+
+def read_python_version() -> str:
+    with open("crates/specify-core-py/pyproject.toml", "rb") as pyproject:
+        return tomllib.load(pyproject)["project"]["version"]
+
+
 @dataclass(frozen=True)
 class Decision:
     publish: bool = True
@@ -60,24 +70,26 @@ def decide_publish(
     prerelease: bool | None,
     *,
     latest: str = "",
-    python_version: str = "",
+    python_version: str | None = None,
     registry_status: str | None = None,
 ) -> Decision:
     check_release(tag, prerelease, require_release=channel in ("github", "npm"))
+    expected = check_python_version(tag, python_version) if python_version is not None else ""
     if registry_status == "200":
         return Decision(publish=False)
     if registry_status not in (None, "404"):
         raise ValueError(f"{channel} answered {registry_status} for {tag}: publish refused.")
     if channel == "pypi":
-        return Decision(python_version=check_python_version(tag, python_version))
+        return Decision(python_version=expected)
     if channel == "npm":
         version = tag.removeprefix("v")
         if "-" in version:
             return Decision(dist_tag="next")
-        if latest:
-            ordered = subprocess.check_output(["sort", "-V"], input=f"{latest}\n{version}\n", text=True)
-            if ordered.splitlines()[-1] != version:
-                return Decision(dist_tag=f"release-{version}")
+        if not latest.strip():
+            raise ValueError(f"npm latest is missing for {tag}: publish refused.")
+        ordered = subprocess.check_output(["sort", "-V"], input=f"{latest}\n{version}\n", text=True)
+        if ordered.splitlines()[-1] != version:
+            return Decision(dist_tag=f"release-{version}")
         return Decision(dist_tag="latest")
     return Decision()
 
@@ -103,33 +115,37 @@ def lookup_prerelease(tag: str) -> bool | None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--channel", choices=("github", "npm", "crates", "pypi"), required=True)
-    parser.add_argument("--tag", required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--channel", choices=("github", "npm", "crates", "pypi"))
+    mode.add_argument("--check-lockstep", action="store_true")
+    parser.add_argument("--tag")
     parser.add_argument("--prerelease", choices=("true", "false", "missing"),
                         help="Use metadata already resolved by the release check")
     parser.add_argument("--latest", default="")
     parser.add_argument("--registry-status")
     args = parser.parse_args()
-    # The PyPI backfill builds main rather than a tag. Its Cargo version names the release.
-    tag = args.tag
-    if args.channel == "pypi" and not tag:
-        with open("Cargo.toml", "rb") as manifest:
-            tag = "v" + tomllib.load(manifest)["package"]["version"]
+    if args.channel and args.tag is None:
+        parser.error("--tag is required with --channel")
     try:
+        if args.check_lockstep:
+            check_python_version(cargo_tag(), read_python_version())
+            return
+        # The PyPI backfill builds main rather than a tag. Its Cargo version names the release.
+        tag = cargo_tag() if args.channel == "pypi" and not args.tag else args.tag
+        is_release = os.environ["GITHUB_EVENT_NAME"] == "release"
         if args.prerelease is not None:
             prerelease = {"true": True, "false": False, "missing": None}[args.prerelease]
-        elif os.environ["GITHUB_EVENT_NAME"] == "release":
+        elif is_release:
             event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
             prerelease = event["release"]["prerelease"]
         else:
             prerelease = lookup_prerelease(tag)
-        python_version = ""
-        if args.channel == "pypi":
-            with open("crates/specify-core-py/pyproject.toml", "rb") as pyproject:
-                python_version = tomllib.load(pyproject)["project"]["version"]
+        # Releases check the tagged checkout on every channel. Dispatch backfills can
+        # run from main while publishing an older tag, so skip the pyproject comparison then.
+        python_version = read_python_version() if is_release else None
         decision = decide_publish(args.channel, tag, prerelease, latest=args.latest,
                                   python_version=python_version, registry_status=args.registry_status)
-    except (ValueError, URLError) as error:
+    except (ValueError, OSError) as error:
         raise SystemExit(f"::error::{error}") from None
     if not decision.publish:
         print(f"{tag} is already on {args.channel}, skipping publication.")
