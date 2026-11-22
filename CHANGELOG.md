@@ -264,6 +264,8 @@ Read first:
 - A saved answer with no requirement for it in the file now warns "saved answer {id} ({value}): no
   requirement for this answer in the file; the question is open again", once per answer (ADR
   P11, D6).
+- The reviewed WASM size ceiling is raised from 16,500,000 to **17,000,000** bytes (approved by Paul,
+  2026-11-22, for the 0.3.0 feature set), after the integrated 0.3.0 stack measured 16,568,361 bytes.
 
 ### Removed
 
