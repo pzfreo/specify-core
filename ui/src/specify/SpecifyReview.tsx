@@ -186,6 +186,9 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   // A requirement being added or changed, its faces picked on the part.
   const [draft, setDraft] = useState<ExtraDraft | null>(null);
   const [problems, setProblems] = useState(session.problems ?? []);
+  // The native disclosures stay as the person left them when a review changes row focus.
+  const [finishOpen, setFinishOpen] = useState(false);
+  const [partNotesOpen, setPartNotesOpen] = useState(true);
   // Which one-line row is unfolded: a part setting, the notes, the datums or the added.
   const [unfolded, setUnfolded] = useState<string | null>(null);
   // Show only the rows with something to review: a suggestion, a doubt, a problem.
@@ -196,6 +199,11 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   // What is left out of the inspection list: the CSV's, not the PMI's.
   const [skipped, setSkipped] = useState<ReadonlySet<string>>(new Set());
   const toggle = (key: string) => setUnfolded((open) => (open === key ? null : key));
+  const unfoldPart = (id: string) => {
+    const inNotes = isNoteField(id);
+    if (inNotes && editingFile) setFinishOpen(true);
+    setUnfolded(inNotes ? `note:${id}` : id);
+  };
   const rowsBox = useRef<HTMLFieldSetElement>(null);
   const turned = useRef(false);
   const fileRowList = useMemo(() => editingFile
@@ -274,7 +282,8 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
       setView('review'); openProblem(id, focusRequest?.faces ?? []); return;
     }
     setView('review'); setOnlySuggestions(false); setCurrent(id);
-    setUnfolded(isNoteField(id) ? `note:${id}` : id.startsWith('part.') ? id : id.startsWith('datum.') ? 'datums' : null);
+    if (id.startsWith('part.')) unfoldPart(id);
+    else setUnfolded(id.startsWith('datum.') ? 'datums' : null);
     // Brought into view only when asked: the queue that asked may be above it in the same column.
     if (!focusRequest?.scroll) return;
     const timer = window.setTimeout(() => {
@@ -972,7 +981,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const changeChosen = (id: string) => {
     if (id.startsWith('part.')) {
       if (editingFile) setCurrent(id);
-      setUnfolded(isNoteField(id) ? `note:${id}` : id);
+      unfoldPart(id);
       rowsBox.current?.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
@@ -1178,7 +1187,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const openFileRow = (row: FileRow) => {
     const id = row.id;
     setCurrent(id);
-    if (id.startsWith('part.')) setUnfolded(isNoteField(id) ? `note:${id}` : id);
+    if (id.startsWith('part.')) unfoldPart(id);
     else if (id.startsWith('datum.')) setUnfolded('datums');
     picker.current?.highlight(row.faces);
     if (row.faces.length) picker.current?.lookAt(row.faces);
@@ -1395,7 +1404,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
           </label>
         </div>
         {partNotes.length > 0 && (
-          <details className="pmi-lab-partnotes" open>
+          <details className="pmi-lab-partnotes" open={partNotesOpen} onToggle={event => setPartNotesOpen(event.currentTarget.open)}>
             <summary title="The part's notes">Notes (unless otherwise specified):</summary>
             <ol>
               {partNotes.map((n) => (
@@ -1550,7 +1559,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
             {partGroup.questions.filter(q => !isNoteField(q.id) && (!onlySuggestions || needs(q, answers) || chosenById.has(q.id)))
               .map(q => renderFileRow(q, partGroup))}
             {notes.length > 0 && (!onlySuggestions || notes.some(q => chosenById.has(q.id))) && <details className="pmi-lab-notes"
-              open={unfolded === 'notes' || unfolded?.startsWith('note:') || undefined}>
+              open={finishOpen} onToggle={event => setFinishOpen(event.currentTarget.open)}>
               <summary className="pmi-lab-line"><span className="name">Finish and notes</span>
                 <span className="value">{notesSummary || 'none'}</span></summary>
               {notes.map(q => renderFileRow(q, partGroup))}

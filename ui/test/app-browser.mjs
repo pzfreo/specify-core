@@ -28,6 +28,7 @@ import { characteristicHistory, validateOpening, wasmDirectory } from './engine-
 //                 of passing --app dist-app --wasm SPECIFY_WASM_DIR (the release's check).
 //   SHOTS         a directory to save screenshots in (optional).
 const copiesOnly = process.argv.includes('--copies-only');
+const notesReplyOnly = process.argv.includes('--notes-reply-only');
 
 function identicalPins() {
   const [header, data] = readFileSync('../tests/fixtures/parts/pin.step', 'utf8').split('DATA;\n');
@@ -253,6 +254,10 @@ async function load(server, ready = '.pmi-lab-panel') {
     const post = Worker.prototype.postMessage;
     Worker.prototype.postMessage = function (message, ...rest) {
       if (message && typeof message.operation === 'string') window.__engineOps.push(message.operation);
+      if (window.__heldSavedReviews && message?.operation === 'review-edits' && /@\d+$/.test(message.args.sourceId)) {
+        window.__heldSavedReviews.push(() => post.call(this, message, ...rest));
+        return;
+      }
       return post.call(this, message, ...rest);
     };
   });
@@ -313,6 +318,36 @@ async function noneNeeded(page, id) {
   await r.getByRole('button', { name: 'None needed', exact: true }).click();
   await check(r).toHaveAttribute('data-state', 'decided_none');
   await check(listedEdit(page, id)).toBeVisible();
+}
+
+async function saveWhileNotesAreReopened(page) {
+  await noneNeeded(page, 'part.heat_treatment');
+  const notes = page.locator('details.pmi-lab-notes');
+  const summary = notes.locator('summary');
+  const coating = row(page, 'part.coating');
+  const addCoating = coating.locator('.acts').getByRole('button', { name: 'Add', exact: true });
+  await addCoating.click(); // Programmatic unfolding used to own the disclosure.
+  await summary.click();
+  await check(notes).toHaveJSProperty('open', false);
+
+  const save = page.getByRole('button', { name: 'Save', exact: true });
+  await page.evaluate(() => { window.__heldSavedReviews = []; });
+  await save.click();
+  await check.poll(() => page.evaluate(() => window.__heldSavedReviews.length)).toBeGreaterThan(0);
+  try {
+    await summary.click();
+    await check(notes).toHaveJSProperty('open', true);
+  } finally {
+    await page.evaluate(() => {
+      const held = window.__heldSavedReviews;
+      delete window.__heldSavedReviews;
+      held.forEach(release => release());
+    });
+  }
+  await check(save).toBeEnabled();
+  await check(coating.locator('.pmi-lab-file-input')).toHaveCount(0); // Reopened from the saved review.
+  assert.equal(await notes.evaluate(details => details.open), true, 'Finish and notes stays open when the held review lands');
+  await addCoating.click({ trial: true });
 }
 
 /** Every row's value fits its box and keeps clear of the row's icons and buttons. */
@@ -443,6 +478,20 @@ const assertExportsFromSaved = async (page, file, before) => {
 };
 /** The text of the save line, or null before one. */
 const savedLine = page => page.locator('.app-saved').textContent({ timeout: 1000 }).catch(() => null);
+
+if (notesReplyOnly) {
+  try {
+    const server = await open(part);
+    const { page } = await load(server);
+    await saveWhileNotesAreReopened(page);
+    assert.deepEqual(problems, [], 'no page errors');
+    console.log('Finish and notes stayed open after the saved review.');
+  } finally {
+    for (const child of servers) child.kill();
+    await browser.close();
+  }
+  process.exit(0);
+}
 
 try {
   // A real assembly: edit the plate in place and compare the original assembly records and the
@@ -713,8 +762,7 @@ try {
     assert.equal((server.output().match(/Saved /g) ?? []).length, 0);
     // A save with the material (required) still open is not refused: it writes the edit, and says
     // what is still open. Many STEP files have no complete answer to everything.
-    await noneNeeded(page, 'part.heat_treatment');
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await saveWhileNotesAreReopened(page);
     await check(page.locator('.app-saved')).toContainText(specified);
     await assertExportsFromSaved(page, specified);
     await check(page.locator('.app-saved')).toContainText('still open');
