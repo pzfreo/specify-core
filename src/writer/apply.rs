@@ -178,6 +178,21 @@ fn changes_plane_length(id: &str, value: &Json) -> bool {
             .is_some_and(|text| text.trim_start().starts_with('±'))
 }
 
+fn remaining_choices(analysis: &Json, clear: &BTreeSet<String>) -> Map<String, Json> {
+    let mut choices = Map::new();
+    if let Some(stored) = analysis["resume"]["answers"].as_object() {
+        for (id, value) in stored {
+            if !crate::feature_table::is_requirement(id)
+                && !id.starts_with('_')
+                && !clear.contains(id)
+            {
+                choices.insert(id.clone(), value.clone());
+            }
+        }
+    }
+    choices
+}
+
 fn answers_refused(
     list: &EditList,
     table: &FeatureTable,
@@ -185,17 +200,7 @@ fn answers_refused(
     unchanged: &[String],
 ) -> Vec<Failure> {
     let bare = bare(analysis);
-    let choices: Map<String, Json> = analysis["resume"]["answers"]
-        .as_object()
-        .into_iter()
-        .flatten()
-        .filter(|(id, _)| {
-            !crate::feature_table::is_requirement(id)
-                && !id.starts_with('_')
-                && !list.clear.contains(*id)
-        })
-        .map(|(id, v)| (id.clone(), v.clone()))
-        .collect();
+    let choices = remaining_choices(analysis, &list.clear);
     // As the writer stores it: a value meaning none is stored as the row's none.
     let stored = |id: &str, value: &Json| {
         if crate::feature_table::is_none_value(value) {
@@ -206,25 +211,13 @@ fn answers_refused(
     };
     let mut entries: Vec<(String, &str, Json)> = Vec::new();
     for (id, value) in &list.fill {
-        entries.push((
-            format!("fill[{}]", Json::from(id.as_str())),
-            id,
-            stored(id, value),
-        ));
+        entries.push((edits::key("fill", id), id, stored(id, value)));
     }
     for (id, change) in &list.change {
-        entries.push((
-            format!("change[{}]", Json::from(id.as_str())),
-            id,
-            stored(id, &change.to),
-        ));
+        entries.push((edits::key("change", id), id, stored(id, &change.to)));
     }
     for id in &list.none {
-        entries.push((
-            format!("none[{}]", Json::from(id.as_str())),
-            id,
-            none_answer(table, id),
-        ));
+        entries.push((edits::key("none", id), id, none_answer(table, id)));
     }
     let choices_asked = choice_questions(table, analysis);
     for id in &list.accept_suggestions {
@@ -233,11 +226,7 @@ fn answers_refused(
             .and_then(|r| r.suggestion.clone())
             .or_else(|| choices_asked.get(id).cloned().flatten());
         if let Some(s) = suggestion {
-            entries.push((
-                format!("accept_suggestions[{}]", Json::from(id.as_str())),
-                id,
-                stored(id, &s),
-            ));
+            entries.push((edits::key("accept_suggestions", id), id, stored(id, &s)));
         }
     }
     entries
@@ -275,12 +264,13 @@ fn choice_questions(table: &FeatureTable, analysis: &Json) -> BTreeMap<String, O
         .filter(|(id, _)| is_choice(table, id))
         .map(|(id, v)| (id.clone(), v.clone()))
         .collect();
-    crate::rules::questions(&bare(analysis), &stored)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|q| is_choice(table, &q.id))
-        .map(|q| (q.id, q.default))
-        .collect()
+    let mut choices = BTreeMap::new();
+    for question in crate::rules::questions(&bare(analysis), &stored).unwrap_or_default() {
+        if is_choice(table, &question.id) {
+            choices.insert(question.id, question.default);
+        }
+    }
+    choices
 }
 
 /// Whether `id` is an added requirement (`extra.<name>`): a fill of its spec adds it.
@@ -367,7 +357,7 @@ fn extra_states(
     let mut failures = Vec::new();
     let mut unchanged = Vec::new();
     for (id, value) in extras {
-        let entry = format!("fill[{}]", Json::from(id.as_str()));
+        let entry = edits::key("fill", id);
         let states = planned_states(loaded, analysis, &choices, before, prov, &source, id, value);
         if states.is_empty() {
             continue;
@@ -475,7 +465,7 @@ fn same_as_stated(
         );
         if !states.is_empty() && states.iter().all(|(_, s)| matches!(s, Some((true, _)))) {
             list.fill.remove(&id);
-            out.push(format!("fill[{}]", Json::from(id.as_str())));
+            out.push(edits::key("fill", &id));
         }
     }
     out
@@ -488,28 +478,20 @@ fn dependent_questions(
     table: &FeatureTable,
     analysis: &Json,
 ) -> BTreeMap<String, Option<Json>> {
-    let mut answers: Map<String, Json> = analysis["resume"]["answers"]
-        .as_object()
-        .into_iter()
-        .flatten()
-        .filter(|(id, _)| {
-            !crate::feature_table::is_requirement(id)
-                && !id.starts_with('_')
-                && !list.clear.contains(*id)
-        })
-        .map(|(id, v)| (id.clone(), v.clone()))
-        .collect();
+    let mut answers = remaining_choices(analysis, &list.clear);
     answers.extend(list.fill.iter().map(|(id, v)| (id.clone(), v.clone())));
     answers.extend(list.change.iter().map(|(id, c)| (id.clone(), c.to.clone())));
     for id in &list.none {
         answers.insert(id.clone(), none_answer(table, id));
     }
-    crate::rules::questions(&bare(analysis), &answers)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|q| table.row(&q.id).is_none() && !is_extra(&q.id) && !is_choice(table, &q.id))
-        .map(|q| (q.id, q.default))
-        .collect()
+    let mut dependent = BTreeMap::new();
+    for question in crate::rules::questions(&bare(analysis), &answers).unwrap_or_default() {
+        let id = &question.id;
+        if table.row(id).is_none() && !is_extra(id) && !is_choice(table, id) {
+            dependent.insert(question.id, question.default);
+        }
+    }
+    dependent
 }
 
 fn validated(
@@ -857,7 +839,7 @@ fn field_changes(
         let Json::Object(fields) = &change.to else {
             continue;
         };
-        let entry = format!("change[{}]", Json::String(id.clone()));
+        let entry = edits::key("change", id);
         let fail = |why: String| entry_failure(entry.clone(), why);
         let value = match (fields.len(), fields.get("value").and_then(Json::as_f64)) {
             (1, Some(v)) if v > 0.0 => v,
@@ -1237,65 +1219,93 @@ pub(crate) fn apply_numbered(
     applied_with(loaded, list, numbers, &[])
 }
 
+fn is_bom_id(id: &str) -> bool {
+    id.starts_with("bom.")
+}
+
+fn take_bom_entries<T>(entries: &mut BTreeMap<String, T>) -> BTreeMap<String, T> {
+    let mut bom = BTreeMap::new();
+    for (id, value) in std::mem::take(entries) {
+        let dest = if is_bom_id(&id) {
+            &mut bom
+        } else {
+            &mut *entries
+        };
+        dest.insert(id, value);
+    }
+    bom
+}
+
+fn take_bom_ids(ids: &mut BTreeSet<String>) -> BTreeSet<String> {
+    let mut bom = BTreeSet::new();
+    for id in std::mem::take(ids) {
+        let dest = if is_bom_id(&id) { &mut bom } else { &mut *ids };
+        dest.insert(id);
+    }
+    bom
+}
+
+fn bom_key(id: &str) -> &str {
+    id.trim_start_matches("bom.")
+}
+
+struct BomState<'a> {
+    table: &'a FeatureTable,
+    proposals: Option<&'a Json>,
+}
+
+impl edits::FileState for BomState<'_> {
+    fn kind(&self, id: &str) -> Option<edits::KindState> {
+        let mut state = edits::FileState::kind(self.table, id)?;
+        if let (edits::KindState::Gap { suggestion }, Some(proposals)) =
+            (&mut state, self.proposals)
+        {
+            *suggestion = proposals.get(bom_key(id)).cloned();
+        }
+        Some(state)
+    }
+
+    fn requirement(&self, _: u64) -> Option<edits::Requirement> {
+        None
+    }
+}
+
 /// Separate BOM edits from PMI planning and validate them against the published BOM rows.
 fn bom_edits(
     list: &EditList,
     analysis: &Json,
     table: &FeatureTable,
 ) -> (EditList, Outcome, Option<crate::rules::Intent>) {
-    let is_bom = |id: &str| id.starts_with("bom.");
     let mut rest = list.clone();
     let bom = EditList {
-        fill: rest.fill.extract_if(.., |id, _| is_bom(id)).collect(),
-        change: rest.change.extract_if(.., |id, _| is_bom(id)).collect(),
-        clear: rest.clear.extract_if(.., |id| is_bom(id)).collect(),
-        none: rest.none.extract_if(.., |id| is_bom(id)).collect(),
-        accept_suggestions: rest
-            .accept_suggestions
-            .extract_if(.., |id| is_bom(id))
-            .collect(),
+        fill: take_bom_entries(&mut rest.fill),
+        change: take_bom_entries(&mut rest.change),
+        clear: take_bom_ids(&mut rest.clear),
+        none: take_bom_ids(&mut rest.none),
+        accept_suggestions: take_bom_ids(&mut rest.accept_suggestions),
         items: edits::Items {
-            remove_ids: rest
-                .items
-                .remove_ids
-                .extract_if(.., |id| is_bom(id))
-                .collect(),
+            remove_ids: take_bom_ids(&mut rest.items.remove_ids),
             ..edits::Items::default()
         },
         ..EditList::default()
     };
-    let key = |id: &str| id.trim_start_matches("bom.").to_owned();
-    let mut state = edits::MemoryState::default();
-    for row in table.rows.iter().filter(|row| is_bom(&row.id)) {
-        if let Some(kind) = edits::FileState::kind(table, &row.id) {
-            state.kinds.insert(row.id.clone(), kind);
-        }
-    }
     let writable = analysis["bom"].is_object();
-    let answers: Map<String, Json> = bom
-        .fill
-        .iter()
-        .map(|(id, value)| (id.clone(), value.clone()))
-        .chain(
-            bom.change
-                .iter()
-                .map(|(id, change)| (id.clone(), change.to.clone())),
-        )
-        .collect();
     // Stock can follow a make/buy value supplied by this same list.
-    let mut proposed = crate::rules::Intent::new(analysis["binding"].clone());
+    let mut intent = crate::rules::Intent::new(analysis["binding"].clone());
     if writable && !bom.accept_suggestions.is_empty() {
-        let _ = crate::bom::accept_suggestions(analysis, &answers, &mut proposed);
-        for id in &bom.accept_suggestions {
-            if let Some(edits::KindState::Gap { suggestion }) = state.kinds.get_mut(id) {
-                *suggestion = proposed
-                    .part
-                    .get("bom")
-                    .and_then(|fields| fields.get(key(id)))
-                    .cloned();
-            }
+        let mut answers = Map::new();
+        for (id, value) in &bom.fill {
+            answers.insert(id.clone(), value.clone());
         }
+        for (id, change) in &bom.change {
+            answers.insert(id.clone(), change.to.clone());
+        }
+        let _ = crate::bom::accept_suggestions(analysis, &answers, &mut intent);
     }
+    let state = BomState {
+        table,
+        proposals: intent.part.get("bom"),
+    };
     let mut outcome = edits::validate(&bom, &state);
     if !writable {
         for failure in &mut outcome.failures {
@@ -1321,8 +1331,8 @@ fn bom_edits(
         )
     {
         let entry = edits::key(section, id);
-        let field = key(id);
-        let valid = crate::bom::validate(&field, value).and_then(|()| {
+        let field = bom_key(id);
+        let valid = crate::bom::validate(field, value).and_then(|()| {
             if section == "change" && value.as_str().is_some_and(|text| text.trim().is_empty()) {
                 Err(format!("{id} needs a non-empty replacement value"))
             } else {
@@ -1331,7 +1341,7 @@ fn bom_edits(
         });
         match valid {
             Ok(()) if !outcome.unchanged.contains(&entry) => {
-                fields.insert(field, value.clone());
+                fields.insert(field.to_owned(), value.clone());
             }
             Ok(()) => {}
             Err(why) => outcome.failures.push(entry_failure(entry, why)),
@@ -1345,17 +1355,16 @@ fn bom_edits(
     for id in &bom.accept_suggestions {
         if let Some(edits::KindState::Gap {
             suggestion: Some(value),
-        }) = state.kinds.get(id)
+        }) = edits::FileState::kind(&state, id)
         {
-            let field = key(id);
-            fields.insert(field.clone(), value.clone());
+            let field = bom_key(id).to_owned();
+            fields.insert(field.clone(), value);
             suggestions.push(field);
         }
     }
     if fields.is_empty() {
         return (rest, outcome, None);
     }
-    let mut intent = crate::rules::Intent::new(analysis["binding"].clone());
     intent.part.insert("bom".into(), Json::Object(fields));
     intent
         .part
@@ -1369,24 +1378,21 @@ fn applied_with(
     numbers: Option<&Map<String, Json>>,
     extra: &[haecceity::pmi::AttributeSet],
 ) -> Result<Applied, Vec<Failure>> {
-    if !list
-        .fill
-        .keys()
-        .chain(list.change.keys())
-        .chain(&list.clear)
-        .chain(&list.none)
-        .chain(&list.accept_suggestions)
-        .chain(&list.items.remove_ids)
-        .any(|id| id.starts_with("bom."))
-    {
-        return applied_pmi(loaded, list, numbers, extra);
-    }
     let (analysis, table) = table_of(loaded).map_err(whole)?;
+    if !list.fill.keys().any(|id| is_bom_id(id))
+        && !list.change.keys().any(|id| is_bom_id(id))
+        && !list.clear.iter().any(|id| is_bom_id(id))
+        && !list.none.iter().any(|id| is_bom_id(id))
+        && !list.accept_suggestions.iter().any(|id| is_bom_id(id))
+        && !list.items.remove_ids.iter().any(|id| is_bom_id(id))
+    {
+        return applied_pmi(loaded, list, numbers, extra, analysis, table);
+    }
     let (list, outcome, intent) = bom_edits(list, &analysis, &table);
     if !outcome.applicable {
         return Err(outcome.failures);
     }
-    let mut applied = applied_pmi(loaded, &list, numbers, extra)?;
+    let mut applied = applied_pmi(loaded, &list, numbers, extra, analysis, table)?;
     applied.outcome.entries += outcome.entries;
     applied.outcome.unchanged.extend(outcome.unchanged);
     if let Some(intent) = intent {
@@ -1403,22 +1409,68 @@ fn applied_with(
     Ok(applied)
 }
 
+/// Explain which prerequisites can be filled alongside an edit that wrote no requirement.
+#[cold]
+fn prerequisite_guidance(table: &FeatureTable, given: &BTreeMap<String, Json>, id: &str) -> String {
+    let general = table.row("part.general_tolerance").filter(|row| {
+        given[id] == "general" && row.state != State::Stated && !given.contains_key(&row.id)
+    });
+    let (rows, reason) = match general {
+        Some(row) => (
+            std::slice::from_ref(row),
+            ": a hole left to the general tolerance needs one; ",
+        ),
+        None => (
+            table.rows.as_slice(),
+            ": the datums it would cite are not in the file; ",
+        ),
+    };
+    let mut ids = String::new();
+    let mut clear = Vec::new();
+    for row in rows {
+        if general.is_none()
+            && (row.state == State::Stated
+                || !row
+                    .kind
+                    .strip_prefix("datum.")
+                    .is_some_and(|letter| !letter.contains('.'))
+                || given.contains_key(&row.id))
+        {
+            continue;
+        }
+        if !ids.is_empty() {
+            ids.push_str(", ");
+        }
+        ids.push_str(&row.id);
+        if row.state == State::DecidedNone {
+            clear.push(Json::from(row.id.as_str()));
+        }
+    }
+    if ids.is_empty() {
+        return ids;
+    }
+    let mut why = format!("{reason}fill {ids} in the same list");
+    if !clear.is_empty() {
+        why.push_str(&format!(" with \"clear\": {}", Json::Array(clear)));
+    }
+    why
+}
+
 fn applied_pmi(
     loaded: &LoadedPart,
     list: &EditList,
     numbers: Option<&Map<String, Json>>,
     extra: &[haecceity::pmi::AttributeSet],
+    analysis: Json,
+    table: FeatureTable,
 ) -> Result<Applied, Vec<Failure>> {
-    let (analysis, table) = table_of(loaded).map_err(whole)?;
     let (list, nominals) = field_changes(list, &table, &analysis)?;
     let (list, outcome) = validated(loaded, &list, &table, &analysis);
     if !outcome.failures.is_empty() {
         return Err(outcome.failures);
     }
     let unchanged: BTreeSet<&str> = outcome.unchanged.iter().map(String::as_str).collect();
-    let skip = |section: &str, id: &str| {
-        unchanged.contains(format!("{section}[{}]", Json::String(id.to_owned())).as_str())
-    };
+    let skip = |section: &str, id: &str| unchanged.contains(edits::key(section, id).as_str());
 
     // What the list writes (by question id, with its value), and what it decides writes
     // nothing (with the answer stored for it).
@@ -1593,7 +1645,7 @@ fn applied_pmi(
         .filter_map(|l| l.number)
         .collect();
     for id in list.change.keys() {
-        let entry = format!("change[{}]", Json::String(id.clone()));
+        let entry = edits::key("change", id);
         let Some(row) = table.row(id) else { continue };
         if let Some(key) = id.strip_prefix("part.") {
             match setting_items(before, key) {
@@ -1961,51 +2013,9 @@ fn applied_pmi(
                 } else {
                     "accept_suggestions"
                 };
-                // Usually a frame that cites datums the file does not state yet.
-                let datums: Vec<_> = table
-                    .rows
-                    .iter()
-                    .filter(|r| {
-                        r.state != State::Stated
-                            && r.kind
-                                .strip_prefix("datum.")
-                                .is_some_and(|l| !l.contains('.'))
-                            && !given.contains_key(&r.id)
-                    })
-                    .collect();
-                let general = table.row("part.general_tolerance").filter(|row| {
-                    given[id] == "general"
-                        && row.state != State::Stated
-                        && !given.contains_key(&row.id)
-                });
-                let fill = |rows: &[&crate::feature_table::Row]| {
-                    let ids: Vec<_> = rows.iter().map(|row| row.id.as_str()).collect();
-                    let clear: Vec<_> = rows
-                        .iter()
-                        .filter(|row| row.state == State::DecidedNone)
-                        .map(|row| row.id.as_str())
-                        .collect();
-                    let mut instruction = format!("fill {} in the same list", ids.join(", "));
-                    if !clear.is_empty() {
-                        instruction.push_str(&format!(" with \"clear\": {}", Json::from(clear)));
-                    }
-                    instruction
-                };
-                let why = if let Some(row) = general {
-                    format!(
-                        ": a hole left to the general tolerance needs one; {}",
-                        fill(&[row])
-                    )
-                } else if datums.is_empty() {
-                    String::new()
-                } else {
-                    format!(
-                        ": the datums it would cite are not in the file; {}",
-                        fill(&datums)
-                    )
-                };
+                let why = prerequisite_guidance(&table, &given, id);
                 entry_failure(
-                    format!("{section}[{}]", Json::String(id.clone())),
+                    edits::key(section, id),
                     format!(
                         "{id} with {} writes no requirement on this part as it is{why}",
                         given[id]
@@ -2097,7 +2107,7 @@ fn applied_pmi(
                     .count();
                 if planned > *own && !shared.is_empty() {
                     extra.push(entry_failure(
-                        format!("change[{}]", Json::String(id.clone())),
+                        edits::key("change", id),
                         format!(
                             "the new value would add a location beside one {id} shares with \
                              another feature ({}); remove that one by number first, or change \

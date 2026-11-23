@@ -1713,15 +1713,19 @@ pub fn diff_with_options(
     let mut check = pmi::checks(&changed_features, &new_features, &new_file);
     // Information only: new features with neither PMI nor a stored decision on their faces.
     let mut covered = pmi::stated_faces(&new_file);
-    covered.extend(
-        new_analysis["table"]["rows"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|row| row["state"] == "decided_none")
-            .flat_map(|row| row["faces"].as_array().into_iter().flatten())
-            .filter_map(|face| usize::try_from(face.as_u64()?).ok()),
-    );
+    if let Some(rows) = new_analysis["table"]["rows"].as_array() {
+        for row in rows {
+            if row["state"] == "decided_none"
+                && let Some(faces) = row["faces"].as_array()
+            {
+                for face in faces {
+                    if let Some(face) = face.as_u64().and_then(|face| usize::try_from(face).ok()) {
+                        covered.insert(face);
+                    }
+                }
+            }
+        }
+    }
     let new_unstated: Vec<Unstated> = feature_changes
         .iter()
         .filter(|c| c.class == "new")

@@ -804,45 +804,45 @@ pub(crate) fn edit_rows(analysis: &Map<String, Value>) -> Vec<crate::feature_tab
     let Some(bom) = analysis.get("bom").and_then(Value::as_object) else {
         return Vec::new();
     };
-    let proposals: BTreeMap<_, _> = questions(analysis)
-        .into_iter()
-        .filter_map(|q| Some((q.id, q.suggestions.into_iter().next()?)))
-        .collect();
-    KEYS.iter()
-        .map(|key| {
-            let field = &bom[*key];
-            let mut value = field["value"].clone();
-            let stated =
-                !value.is_null() && matches!(field["source"].as_str(), Some("file" | "answered"));
-            let id = format!("bom.{key}");
-            let suggestion = if stated {
-                None
-            } else if *key == "stock" {
-                (!value.is_null()).then(|| value.clone())
-            } else {
-                proposals.get(&id).cloned()
-            };
-            if *key == "optional"
-                && let Some(optional) = value.as_bool()
-            {
-                value = json!(if optional { "yes" } else { "no" });
-            }
-            Row {
-                kind: id.clone(),
-                id,
-                feature: "part".into(),
-                scope: Scope::Part,
-                faces: Vec::new(),
-                state: if stated { State::Stated } else { State::Gap },
-                value: stated.then_some(value),
-                requirements: Vec::new(),
-                suggestion,
-                missing: Vec::new(),
-                located: Vec::new(),
-                open: false,
-            }
-        })
-        .collect()
+    let questions = questions(analysis);
+    let mut rows = Vec::with_capacity(KEYS.len());
+    for &key in KEYS {
+        let field = &bom[key];
+        let mut value = field["value"].clone();
+        let stated =
+            !value.is_null() && matches!(field["source"].as_str(), Some("file" | "answered"));
+        let id = format!("bom.{key}");
+        let suggestion = if stated {
+            None
+        } else if key == "stock" {
+            (!value.is_null()).then(|| value.clone())
+        } else {
+            questions
+                .iter()
+                .find(|question| question.id == id)
+                .and_then(|question| question.suggestions.first().cloned())
+        };
+        if key == "optional"
+            && let Some(optional) = value.as_bool()
+        {
+            value = json!(if optional { "yes" } else { "no" });
+        }
+        rows.push(Row {
+            kind: id.clone(),
+            id,
+            feature: "part".into(),
+            scope: Scope::Part,
+            faces: Vec::new(),
+            state: if stated { State::Stated } else { State::Gap },
+            value: stated.then_some(value),
+            requirements: Vec::new(),
+            suggestion,
+            missing: Vec::new(),
+            located: Vec::new(),
+            open: false,
+        });
+    }
+    rows
 }
 
 pub(crate) fn validate(key: &str, value: &Value) -> Result<(), String> {
