@@ -64,10 +64,17 @@ or in `accept_suggestions` (ADR P9: "we shouldn't create the default, which then
 gospel"): the agent lists only what the person saw and confirmed. Anything the list does not
 name is left as it is, byte for byte, whoever wrote it.
 
+On a decided-none row, a `fill` with a value is refused and a `fill` meaning none is
+unchanged. To replace a stored decision, put its ID in both `clear` and `fill` in the same list.
+For example, `{"clear":["part.coating"],"fill":{"part.coating":"Anodised"}}` clears the
+decision first and fills the resulting gap.
+
 Working answers become fills, decisions of none, or clears of stored decisions. A different
 answer for a stated row is refused with the value the file states and the guarded change to
 make. To stage the change explicitly for the panel, use MCP `check` with `stage: true` and a
 `change` entry with `to` and `expect`.
+To replace a stored decision with MCP `answer`, explicitly clear its ID and set the new value.
+The draft carries both edits to the save.
 MCP `save` and `check` combine savable drafts from every part with the explicit lists at
 one revision. An explicit edit to the same question takes precedence. The panel's bar marks
 when a local edit replaces a draft. For example, `save {doc, edits: {}}` applies the working

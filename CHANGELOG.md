@@ -142,6 +142,10 @@ Read first:
 
 ### Changed
 
+- A fill on a decided-none row is refused unless the same list explicitly clears the
+  decision first. A fill meaning none on that row is unchanged. Use `clear` and `fill`
+  together to replace a stored decision, including a choice such as `part.locating`.
+
 - **Quiddity 0.5.5.** Published step levels on every part axis get plane-to-plane length rows.
   Independent plane lengths keep their rows. Stated locations on retired levels appear under
   **Other PMI in the file** when they match no measured row. A stated length on tilted planes
