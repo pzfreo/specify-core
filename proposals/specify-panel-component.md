@@ -1,6 +1,6 @@
 # 0.3.1: the review panel as a component other apps can embed
 
-**Agreed by Paul, 2026-11-23.** Planned for 0.3.1. It's built after the CI-speed work and once 0.3.0-rc.1 has published, alongside the other 0.3.1 items. Tests may not be weakened, and it needs an independent review before it's ready.
+**Agreed by Paul, 2026-11-23.** Planned for 0.3.1. Paul set its scope on 2026-11-23 as everything the editor needs to switch to Specify 0.3: this panel, hand-picked datums, free-form `extra.*` requirements, and BOM editing with CSV row exclusions. The grouped fillet rows move to 0.3.2, on quiddity 0.5.6. Work order: the Enter/lost-update fix, then the npm release guard, then 0.3.1. Tests may not be weakened, and it needs an independent review before it's ready.
 
 ## What you'll get
 
@@ -45,7 +45,7 @@ All of the writing happens in the browser, through the engine 0.3.0 already ship
 ## What stays the same
 
 - `specify-core open` keeps its page. That page becomes one user of the component: its Save posts to the local session exactly as today, so agents, `rev` and refusals are unchanged.
-- `SpecifyReview` stays exported and unchanged in 0.3.1, so existing users don't break. The changelog marks it as the old review.
+- `SpecifyReview` stays exported with the same props in 0.3.1, so existing users don't break. The changelog marks it as the old review.
 - The browser engine's worker can check an edit list today but can't apply one. Adding `edit` to the worker is part of this work.
 - The edit list is the same everywhere: command line, MCP, Python, WASM and now the component.
 
