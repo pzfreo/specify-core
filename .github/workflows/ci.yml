@@ -95,13 +95,39 @@ jobs:
       # Main, dispatch and release* PR heads retain the full suite.
       full-suite: ${{ matrix.os != 'macos-latest' || github.event_name != 'pull_request' || startsWith(github.head_ref, 'release') }}
 
-  # The engine. Its build also feeds the UI jobs, so it runs for either; its own checks (API
-  # snapshot, size, parity, the npm pack) only when Rust-side files changed.
-  wasm:
+  # Browser jobs start as soon as the package is available.
+  wasm-build:
     needs: changes
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ui == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 24
+    env:
+      CARGO_TERM_COLOR: always
+      WASM_PACK_CACHE: ${{ github.workspace }}/.cache/wasm-pack
+    steps:
+      - &checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - run: rustup toolchain install
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
+        with:
+          tool: wasm-pack@0.15.0
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: wasm-package
+          cache-directories: ${{ env.WASM_PACK_CACHE }}
+      - run: wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wasm-pkg
+          path: crates/specify-core-wasm/pkg
+          if-no-files-found: error
+
+  wasm-checks:
+    needs: [changes, wasm-build]
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ui == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
     env:
       CARGO_TERM_COLOR: always
       RUST_CHECKS: ${{ needs.changes.outputs.rust }}
@@ -111,20 +137,23 @@ jobs:
           fetch-depth: 0 # API acknowledgement is compared with the PR base / previous push.
       - name: Python and Cargo versions are lockstep
         run: python3 tools/release_version.py --check-lockstep
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - if: env.RUST_CHECKS == 'true'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
-      - run: rustup toolchain install
-      - run: rustup target add wasm32-unknown-unknown
-      - run: cargo install wasm-pack --version 0.15.0 --locked
       - if: env.RUST_CHECKS == 'true'
-        run: python3 -m unittest discover -s tools -p 'test_*.py'
-      - run: wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        run: rustup toolchain install
+      - if: env.RUST_CHECKS == 'true'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: wasm-parity
+      - if: env.RUST_CHECKS == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: wasm-pkg
           path: crates/specify-core-wasm/pkg
-          if-no-files-found: error
+      - if: env.RUST_CHECKS == 'true'
+        run: python3 -m unittest discover -s tools -p 'test_*.py'
       - name: Check WASM API snapshot and changelog
         if: env.RUST_CHECKS == 'true'
         env:
@@ -158,107 +187,167 @@ jobs:
       - if: env.RUST_CHECKS == 'true'
         run: node scripts/wasm-hostile.mjs
 
-  # The UI (ui/): the library's suites on the WASM built above, as specify-ui's own CI ran them.
+  # Build the library and pack it once for all three independent host runs.
   ui:
-    needs: [changes, wasm]
+    needs: [changes, wasm-build]
     if: needs.changes.outputs.ui == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 55
-    defaults:
-      run:
-        working-directory: ui
+    timeout-minutes: 4
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - *checkout
+      - &download_wasm
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: wasm-pkg
           path: crates/specify-core-wasm/pkg
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - &ui_node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: ui/package-lock.json
-      # The engine dependency is the in-repo build (file:../crates/specify-core-wasm/pkg).
-      - run: npm ci
-      - name: Install the in-repo engine into public/wasm/intent
+      - &ui_install
+        run: npm ci
+        working-directory: ui
+      - &ui_wasm
+        name: Install the in-repo engine into public/wasm/intent
         run: npm run fetch:wasm
-      - run: npm run typecheck
-      - run: npm run build
-      - run: npm run build:app
+        working-directory: ui
+      - run: npm run build # includes npm run typecheck
+        working-directory: ui
       - run: npm test
-      # Keyed on the lockfile, which pins @playwright/test and so the browser build.
-      - name: Cache Playwright browsers
+        working-directory: ui
+      - name: Show the package contents
+        run: npm pack --dry-run --ignore-scripts
+        working-directory: ui
+      - name: Pack the release tarball
+        run: node scripts/pack.mjs "$RUNNER_TEMP/ui-tarball"
+        working-directory: ui
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ui-tarball
+          path: ${{ runner.temp }}/ui-tarball/*.tgz
+          if-no-files-found: error
+
+  ui-browser:
+    needs: [changes, wasm-build]
+    if: needs.changes.outputs.ui == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 24
+    steps:
+      - *checkout
+      - *download_wasm
+      - *ui_node
+      - *ui_install
+      - *ui_wasm
+      - &playwright_cache
+        name: Cache Playwright browsers
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}
-      - run: npx playwright install --with-deps chromium
+      - &playwright_install
+        run: npx playwright install --with-deps chromium
+        working-directory: ui
       - run: npm run test:browser
-      - name: Test the packed tarball in a host app
-        run: npm run test:package
-      - name: Show the package contents
-        run: npm pack --dry-run
+        working-directory: ui
 
-  # The local app (ui/app) built into the specify-core command from the same commit (ADR P12):
-  # `open` by hand and `mcp`'s `show` as an agent (test/app-browser.mjs, test/app-agent.mjs),
-  # served from the command itself.
-  app:
-    needs: [changes, wasm]
+  ui-package:
+    needs: [changes, wasm-build, ui]
+    if: needs.changes.outputs.ui == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        # The default local test:package runs this same set, in order.
+        three: [pinned, '0.186.1', '0.187.0']
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - *checkout
+      - *download_wasm
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ui-tarball
+          path: ui/.cache/ci-package
+      - *ui_node
+      - *ui_install
+      - *ui_wasm
+      - *playwright_cache
+      - *playwright_install
+      - name: Test the packed tarball in a host app
+        env:
+          THREE_VERSION: ${{ matrix.three }}
+        run: npm run test:package -- "$THREE_VERSION" .cache/ci-package/*.tgz
+        working-directory: ui
+
+  # Both browser suites exercise one branch-built command with the built-in app (ADR P12).
+  app-build:
+    needs: [changes, wasm-build]
     if: needs.changes.outputs.ui == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 32
+    timeout-minutes: 10
     env:
       CARGO_TERM_COLOR: always
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: wasm-pkg
-          path: crates/specify-core-wasm/pkg
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
-      - run: npm ci
-        working-directory: ui
-      - run: npm run fetch:wasm
-        working-directory: ui
+      - *checkout
+      - *download_wasm
+      - *ui_node
+      - *ui_install
+      - *ui_wasm
       - run: npm run build:app
         working-directory: ui
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          key: app-cli
-      # build.rs builds in ui/dist-app and the WASM; SPECIFY_REQUIRE_BUNDLE fails rather than
-      # leave either out.
+          shared-key: app-cli-app # reuse the former app job's cache
       - name: Build the specify-core command with the app and engine
         env:
           SPECIFY_REQUIRE_BUNDLE: '1'
-        run: |
-          cargo build --release --locked --bin specify-core
-          echo "SPECIFY_CORE=$PWD/target/release/specify-core" >> "$GITHUB_ENV"
+        run: cargo build --release --locked --bin specify-core
       - name: Open serves the built-in app and engine
         run: |
           gunzip -c tests/fixtures/thread-depth-alpha7.step.gz > "$RUNNER_TEMP/part.step"
-          python3 tools/open_smoke.py "$SPECIFY_CORE" "$RUNNER_TEMP/part.step"
-      - name: Cache Playwright browsers
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+          python3 tools/open_smoke.py target/release/specify-core "$RUNNER_TEMP/part.step"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}
-      - run: npx playwright install --with-deps chromium
-        working-directory: ui
-      - name: The app against `specify-core open` and `mcp`, served from the command
+          name: app-cli
+          path: target/release/specify-core
+          if-no-files-found: error
+
+  app:
+    needs: [changes, wasm-build, app-build]
+    if: needs.changes.outputs.ui == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [app-browser, app-agent]
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - *checkout
+      - *download_wasm
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: app-cli
+          path: target/release
+      - run: chmod +x target/release/specify-core
+      - *ui_node
+      - *ui_install
+      - *ui_wasm
+      - *playwright_cache
+      - *playwright_install
+      - name: The app served from the command
         working-directory: ui
         env:
+          SPECIFY_CORE: ${{ github.workspace }}/target/release/specify-core
           SPECIFY_APP_BUILT_IN: '1'
-        run: node test/app-browser.mjs && node test/app-agent.mjs
+          APP_SUITE: ${{ matrix.suite }}
+        run: node "test/$APP_SUITE.mjs"
 
   # The one required check: passes when every job above passed or was skipped by the path
   # filter, fails when any failed or was cancelled.
   ci-ok:
-    needs: [changes, test, wasm, ui, app]
+    needs: [changes, test, wasm-build, wasm-checks, ui, ui-browser, ui-package, app-build, app]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2

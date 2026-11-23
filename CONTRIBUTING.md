@@ -13,8 +13,11 @@ macOS runs the floating-point test binaries in one job. Docs-only PRs skip Rust,
 UI and app jobs unless they touch a dependency listed in the workflow's path filter.
 
 A change to the WASM API also needs its `api.d.ts` snapshot and a CHANGELOG `### WASM API` entry
-(`python3 tools/check_wasm_api.py --base-ref origin/main`). CI's `wasm` job runs that and the size and
-parity checks; `.github/workflows/ci.yml` lists every step.
+(`python3 tools/check_wasm_api.py --base-ref origin/main`). CI's `wasm-checks` job runs that and the
+size and parity checks. The UI and app jobs can start as soon as `wasm-build` uploads the package.
+The UI browser suite and the packed-host suite run in parallel. All three packed-host jobs install
+the same tarball with different Three.js versions. The app browser and agent jobs share one bundled
+command. `tools/verify.sh` runs the same checks against this checkout's builds.
 
 A change that alters a recorded expectation (fixtures, oracle departures, known differences)
 says why for each change. Don't weaken a test to make it pass.

@@ -4,13 +4,14 @@
 #
 #   tools/verify.sh             run every step
 #   tools/verify.sh --quick     the fast checks only, while working: fmt, clippy, the test build, the WASM
-#                               build and API snapshot, the ui typecheck. Ends `VERIFY: PARTIAL`, never
+#                               build and API snapshot, the UI build and typecheck. Ends `VERIFY: PARTIAL`, never
 #                               PASS; run the touched area's tests beside it. The full run is owed once per
 #                               PR, on its final head, before it is marked ready (working-rules.md, rule 1).
 #   tools/verify.sh --dry-run   list the steps, run nothing (with --quick: the quick steps)
 #
 # It mirrors, step for step, the pull-request jobs of:
-#   ci.yml       test (the full Linux suite, combined locally), wasm, ui, app
+#   ci.yml       test, wasm-build and wasm-checks, ui and its browser and package jobs,
+#                app-build and app (the jobs share this checkout's builds locally)
 #   bundle.yml   the lockstep version check and the bundle/ layout
 #   cli.yml      this machine's build: "Try it on a revision" and the open smoke (the app job's build)
 #   python.yml   wheel and test (this machine's platform, Python 3.12), sdist
@@ -50,7 +51,7 @@ failed=()
 
 # step NAME COMMAND...: run COMMAND (in a subshell from the repository root), log it, record the result.
 # Quick mode runs only the steps named in `quick_steps`.
-quick_steps='|ci test: fmt|ci test: clippy|ci test: build tests|ci wasm: Python version lockstep|ci wasm: wasm-pack|ci wasm: API snapshot|ci ui: npm ci|ci ui: fetch:wasm|ci ui: typecheck|'
+quick_steps='|ci test: fmt|ci test: clippy|ci test: build tests|ci wasm: Python version lockstep|ci wasm: wasm-pack|ci wasm: API snapshot|ci ui: npm ci|ci ui: fetch:wasm|ci ui: build|'
 step() {
   local name=$1; shift
   if [ "$quick" = 1 ] && [[ "$quick_steps" != *"|$name|"* ]]; then
@@ -84,12 +85,12 @@ step "ci test: build tests"           "cargo nextest run --workspace --release -
 step "ci test: full suite"            "cargo nextest run --workspace --release --locked --no-fail-fast"
 step "ci test: doctests"              "cargo test --doc --workspace --release --locked --no-fail-fast"
 
-# --- ci.yml: wasm --------------------------------------------------------------------------------
+# --- ci.yml: wasm-build and wasm-checks -----------------------------------------------------------
+step "ci wasm: wasm-pack"             "wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked"
 [ "$dry" = 1 ] || git fetch -q origin main || echo "warning: could not fetch origin/main; the API snapshot compares with the local copy"
 base=$(git merge-base HEAD origin/main) || { echo "VERIFY: FAIL (no origin/main to compare the WASM API with)"; exit 1; }
 step "ci wasm: Python version lockstep" "python3 tools/release_version.py --check-lockstep"
 step "ci wasm: tools unittests"       "python3 -m unittest discover -s tools -p 'test_*.py'"
-step "ci wasm: wasm-pack"             "wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked"
 step "ci wasm: API snapshot"          "python3 tools/check_wasm_api.py --base-ref $base"
 step "ci wasm: size"                  "python3 tools/wasm_size.py"
 step "ci wasm: npm package packs"     "rm -rf '$work/npm-pkg' && cp -R crates/specify-core-wasm/pkg '$work/npm-pkg' && cp NOTICE '$work/npm-pkg/NOTICE' && python3 tools/npm_package.py '$work/npm-pkg' --check-pack"
@@ -100,24 +101,24 @@ for script in $scripts; do
   step "ci wasm: $(basename "$script" .mjs)" "node $script"
 done
 
-# --- ci.yml: ui (in ui/) -----------------------------------------------------------------------
+# --- ci.yml: ui, ui-browser and ui-package (in ui/) -------------------------------------------------
 step "ci ui: npm ci"                  "cd ui && npm ci"
 step "ci ui: fetch:wasm"              "cd ui && npm run fetch:wasm"
-step "ci ui: typecheck"               "cd ui && npm run typecheck"
 step "ci ui: build"                   "cd ui && npm run build"
-step "ci ui: build:app"               "cd ui && npm run build:app"
 step "ci ui: npm test"                "cd ui && npm test"
+step "ci ui: npm pack --dry-run"      "cd ui && npm pack --dry-run --ignore-scripts"
 step "ci ui: playwright chromium"     "cd ui && npx playwright install chromium"
 step "ci ui: test:browser"            "cd ui && npm run test:browser"
 step "ci ui: test:package"            "cd ui && npm run test:package"
-step "ci ui: npm pack --dry-run"      "cd ui && npm pack --dry-run"
 
-# --- ci.yml: app (the command built with this checkout's app and engine) ------------------------
+# --- ci.yml: app-build and app (the command built with this checkout's app and engine) --------------
 cli=$root/target/release/specify-core
+step "ci app: build:app"              "cd ui && npm run build:app"
 step "ci app: build specify-core"     "SPECIFY_REQUIRE_BUNDLE=1 cargo build --release --locked --bin specify-core"
 step "ci app: open smoke"             "gunzip -c tests/fixtures/thread-depth-alpha7.step.gz > '$work/part.step' && python3 tools/open_smoke.py '$cli' '$work/part.step'"
 step "cli: try it on a revision"      "rm -rf '$work/smoke' && printed=\$('$cli' diff tests/fixtures/revisions/spindle_pmi.old.step.gz tests/fixtures/revisions/spindle_pmi.new.step.gz -o '$work/smoke') && echo \"\$printed\" | grep -q '\"verdict\": *\"ok\"' && grep -q '^- #13 ' '$work/smoke/report.md' && grep -q '^- #16 added' '$work/smoke/report.md' && test ! -e '$work/smoke/answers.json'"
-step "ci app: app-browser, app-agent" "cd ui && SPECIFY_CORE='$cli' SPECIFY_APP_BUILT_IN=1 node test/app-browser.mjs && SPECIFY_CORE='$cli' SPECIFY_APP_BUILT_IN=1 node test/app-agent.mjs"
+step "ci app: app-browser"            "cd ui && SPECIFY_CORE='$cli' SPECIFY_APP_BUILT_IN=1 node test/app-browser.mjs"
+step "ci app: app-agent"              "cd ui && SPECIFY_CORE='$cli' SPECIFY_APP_BUILT_IN=1 node test/app-agent.mjs"
 
 # --- bundle.yml: bundle/, which python.yml and crates.yml build from ------------------------------
 step "bundle: versions are lockstep"  "version=\$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == \"specify-core\") | .version') && [ \"\$(jq -r .version ui/dist-app/specify-ui-app.json)\" = \"\$version\" ] && [ \"\$(jq -r .version crates/specify-core-wasm/pkg/package.json)\" = \"\$version\" ]"
