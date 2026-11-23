@@ -537,8 +537,9 @@ collect differences as `{case, path, python, rust}`. Each difference must match 
 ```
 
 An unmatched difference fails the test, and so does an entry that matches nothing (stale). A
-`rust-wrong` entry is a bug kept visible, not a pass. `check_known(area, diffs)` is the
-asserting form, used once per area by the area's own sweep. The harness also has a
+`rust-wrong` entry is a bug kept visible, not a pass. The area's own sweep checks both
+conditions. The writer applies its ledger in each input group and checks staleness in
+the group that holds the literal case or the case glob's recorded witness. The harness also has a
 non-asserting `explained(areas, diffs) -> Vec<Difference>` returning only the differences no
 entry of the named areas' files matches, with no stale check and no tally: a sweep that crosses
 areas filters through earlier areas' files with it, because running their `check_known` there

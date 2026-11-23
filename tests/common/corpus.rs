@@ -7,6 +7,40 @@
 //! area with corpus entries has a selected case. oracle_harness checks that coverage.
 //! Keep the complete oracle and ledgers: SPECIFY_CORPUS_ALL=1 opts into all inputs locally.
 
+use std::path::Path;
+
+pub const GROUPS: usize = 8;
+
+/// Partition by the file stem, independent of the checkout path, compression and part index.
+pub fn group(input: &Path) -> usize {
+    let name = input.file_name().and_then(|name| name.to_str()).unwrap();
+    let name = name
+        .strip_suffix(".gz")
+        .or_else(|| name.strip_suffix(".GZ"))
+        .unwrap_or(name);
+    let stem = Path::new(name)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap();
+    match stem {
+        // cgb202 dominates the sweeps. Pin keeps its group populated without the corpus.
+        "cgb202" | "pin" => 0,
+        "cgb203" => 1,
+        "cgb243" => 2,
+        "nist_ctc_02_asme1_rc" => 3,
+        "nist_ctc_02_asme1_ap242" => 4,
+        "nist_ctc_05_asme1_rd" => 5,
+        "nist_ctc_05_asme1_ap242" => 6,
+        "nist_ftc_09_asme1_ap242-e1" => 7,
+        _ => {
+            let hash = stem.bytes().fold(2_166_136_261_u32, |hash, byte| {
+                (hash ^ u32::from(byte)).wrapping_mul(16_777_619)
+            });
+            1 + hash as usize % (GROUPS - 1)
+        }
+    }
+}
+
 pub const SUBSET: &[&str] = &[
     "cadgenbench/flanged_spool_132",
     "cadgenbench/threaded_connector_109",

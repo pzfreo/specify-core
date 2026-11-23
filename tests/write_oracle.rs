@@ -12,8 +12,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use common::{
-    Case, Difference, Tolerances, case, cases, check_known, compare, corpus_dir, explained,
-    is_error, scenarios,
+    Case, Difference, Tolerances, case, cases, compare, corpus_dir, explained, is_error, scenarios,
 };
 use serde_json::{Map, Value, json};
 use specify_core::existing::{part_settings, read_existing};
@@ -33,21 +32,21 @@ struct Captured {
     readback: Option<Value>,
 }
 
-fn temp_dir() -> PathBuf {
+fn temp_dir(group: usize) -> PathBuf {
     let dir = std::env::temp_dir()
         .join("specify-core-write-oracle")
-        .join(std::process::id().to_string());
+        .join(format!("{}-{group}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
 
 /// The case-level writes: a file of one part with its `apply`, a file of several with each
 /// part's `apply`, the base answers stored for each.
-fn case_writes() -> Vec<Captured> {
+fn case_writes(group: usize) -> Vec<Captured> {
     let all = cases();
     let mut out = Vec::new();
     for c in &all {
-        if c.part().is_some() {
+        if c.group() != group || c.part().is_some() {
             continue;
         }
         let Some(report) = c.artifact("write") else {
@@ -92,7 +91,7 @@ fn case_writes() -> Vec<Captured> {
 }
 
 /// The scenarios that write: their intent, stored or not as the scenario says.
-fn scenario_writes() -> Vec<Captured> {
+fn scenario_writes(group: usize) -> Vec<Captured> {
     let mut out = Vec::new();
     for s in scenarios() {
         let Some(how) = s.spec.get("write").and_then(Value::as_str) else {
@@ -103,6 +102,9 @@ fn scenario_writes() -> Vec<Captured> {
             continue;
         };
         let c: Case = case(&s.case);
+        if c.group() != group {
+            continue;
+        }
         let Some(input) = c.input() else { continue };
         out.push(Captured {
             name: format!("scenarios/{}", s.name),
@@ -489,10 +491,10 @@ fn violations(bytes: Vec<u8>) -> Vec<String> {
 
 /// The files Python wrote, resumed by the Rust engine: `answers_for` of each part against
 /// Python's own read-back of its resume.
-fn python_written_resume() -> Vec<Difference> {
+fn python_written_resume(group: usize) -> Vec<Difference> {
     let mut out = Vec::new();
     for c in cases() {
-        if c.part().is_some() {
+        if c.group() != group || c.part().is_some() {
             continue;
         }
         let (Some(written), Some(Value::Array(back))) = (c.written_step(), c.artifact("readback"))
@@ -583,45 +585,102 @@ fn dropped() -> Vec<Difference> {
         .collect()
 }
 
-/// `check_known("writer")`, but without the corpus the entries for corpus cases and
-/// for scenarios on corpus cases, and the cross-case (`*`) entries that then match nothing, are
-/// left out: their cases were skipped, so they cannot be stale. With the corpus, every entry
-/// must match.
-fn check_area(differences: &[Difference]) {
-    if corpus_dir().is_some() {
-        return check_known("writer", differences);
-    }
-    let on_corpus: Vec<String> = scenarios()
-        .into_iter()
+/// Keep every entry available to explain differences, in the original matching
+/// order. A literal entry's input owns its stale check. For a glob, the input
+/// of its recorded witness owns that check.
+fn check_area(group: usize, differences: &[Difference]) {
+    let cases = cases();
+    let scenarios = scenarios();
+    let input_groups: BTreeMap<_, _> = cases
+        .iter()
+        .map(|c| (c.name.clone(), c.group()))
+        .chain(scenarios.iter().map(|s| {
+            let group = cases
+                .iter()
+                .find(|c| c.name == s.case)
+                .expect("selected scenario input")
+                .group();
+            (format!("scenarios/{}", s.name), group)
+        }))
+        .collect();
+    let on_corpus: Vec<_> = scenarios
+        .iter()
         .filter(|s| s.case.starts_with("corpus/"))
         .map(|s| format!("scenarios/{}", s.name))
         .collect();
     let path = common::known_differences_file("writer");
+    let with_corpus = corpus_dir().is_some();
+    let available = |name: &str| {
+        with_corpus || (!name.starts_with("corpus/") && !on_corpus.iter().any(|s| s == name))
+    };
+    let group_of = |name: &str| {
+        input_groups
+            .get(name)
+            .or_else(|| {
+                name.rsplit_once('#')
+                    .and_then(|(base, _)| input_groups.get(base))
+            })
+            .copied()
+    };
     let entries: Vec<_> = common::load_known(&path)
         .into_iter()
-        .filter(|e| !e.case.starts_with("corpus/") && !on_corpus.contains(&e.case))
-        .filter(|e| e.case != "*" || differences.iter().any(|d| e.matches(d)))
+        .filter(|e| available(&e.case))
         .collect();
-    println!("no corpus: corpus entries of writer not checked");
-    common::check_known_with(&path.display().to_string(), &entries, differences);
+    for e in &entries {
+        if e.verdict != "resolved" && e.case.contains('*') {
+            let witness = e.witness.as_deref().unwrap_or_else(|| {
+                panic!(
+                    "case {} path {} needs a stale-check witness",
+                    e.case, e.path
+                )
+            });
+            assert!(
+                group_of(witness).is_some(),
+                "unknown writer witness {witness}"
+            );
+        }
+    }
+    common::check_known_with_stale(
+        &format!("{} (group {group})", path.display()),
+        &entries,
+        differences,
+        |e| {
+            let owner = e.witness.as_deref().unwrap_or(&e.case);
+            available(owner)
+                && common::case_selected(owner)
+                && group_of(owner).unwrap_or(0) == group
+        },
+    );
 }
 
-#[test]
-fn writes_match_the_oracle() {
-    let dir = temp_dir();
-    let mut captured = case_writes();
-    captured.extend(scenario_writes());
+common::case_group_tests!(check_writes;
+    0 => writes_match_the_oracle_group_0,
+    1 => writes_match_the_oracle_group_1,
+    2 => writes_match_the_oracle_group_2,
+    3 => writes_match_the_oracle_group_3,
+    4 => writes_match_the_oracle_group_4,
+    5 => writes_match_the_oracle_group_5,
+    6 => writes_match_the_oracle_group_6,
+    7 => writes_match_the_oracle_group_7,
+);
+
+fn check_writes(group: usize) {
+    let dir = temp_dir(group);
+    let mut captured = case_writes(group);
+    captured.extend(scenario_writes(group));
     let mut differences = Vec::new();
     for c in &captured {
         differences.extend(rewrite(c, &dir));
     }
-    differences.extend(python_written_resume());
+    differences.extend(python_written_resume(group));
     println!("{} writes compared", captured.len());
     let _ = std::fs::remove_dir_all(&dir);
     // How the file's own PMI reads (NIST's) is the existing-PMI sweep's to explain; what is
     // left is the writer's.
     let mut differences = explained(&["existing"], &differences);
-    differences.extend(dropped());
+    if group == 0 {
+        differences.extend(dropped());
+    }
     if let Some(dir) = std::env::var_os("SPECIFY_DUMP") {
         let dir = PathBuf::from(dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -629,13 +688,15 @@ fn writes_match_the_oracle() {
             .iter()
             .map(|d| json!({"case":d.case,"path":d.path,"python":d.python,"rust":d.rust}))
             .collect();
+        let name = format!("writer-group-{group}");
+        common::dump_exact(&name, &dir, &differences);
         std::fs::write(
-            dir.join("writer.json"),
+            dir.join(format!("{name}.json")),
             serde_json::to_vec_pretty(&rows).unwrap(),
         )
         .unwrap();
     }
-    check_area(&differences);
+    check_area(group, &differences);
 }
 
 #[test]

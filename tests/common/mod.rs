@@ -35,6 +35,31 @@ pub mod accept_all;
 pub(crate) mod corpus;
 pub mod numbering;
 
+// Keep the list of Rust test names explicit while checking that each sweep has
+// one entry per group.
+#[allow(unused_macros)]
+macro_rules! case_group_tests {
+    ($check:ident; $($group:literal => $test:ident),+ $(,)?) => {
+        const _: () = {
+            let groups = [$($group),+];
+            assert!(groups.len() == common::corpus::GROUPS);
+            let mut index = 0;
+            while index < groups.len() {
+                assert!(groups[index] == index);
+                index += 1;
+            }
+        };
+        $(
+            #[test]
+            fn $test() {
+                $check($group);
+            }
+        )+
+    };
+}
+#[allow(unused_imports)]
+pub(crate) use case_group_tests;
+
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::io::Read;
@@ -228,6 +253,10 @@ fn collect_cases(root: &Path, dir: &Path, out: &mut Vec<Case>) {
 }
 
 impl Case {
+    pub fn group(&self) -> usize {
+        corpus::group(Path::new(self.meta["input"].as_str().expect("meta.input")))
+    }
+
     /// `parts`, `nist` or `corpus`.
     pub fn kind(&self) -> &str {
         self.meta["kind"].as_str().expect("meta.kind")
@@ -804,6 +833,7 @@ fn exact_value_matches(recorded: &Value, actual: &Value) -> bool {
 #[derive(Debug, Clone)]
 pub struct KnownDifference {
     pub case: String,
+    pub witness: Option<String>,
     pub path: String,
     pub pattern: String,
     pub verdict: String,
@@ -913,6 +943,10 @@ fn entry(item: &Value) -> Result<KnownDifference, String> {
     }
     let known = KnownDifference {
         case: field("case")?,
+        witness: fields
+            .get("witness")
+            .map(|_| field("witness"))
+            .transpose()?,
         path: field("path")?,
         pattern: field("pattern")?,
         verdict: field("verdict")?,
@@ -925,6 +959,11 @@ fn entry(item: &Value) -> Result<KnownDifference, String> {
     {
         return Err("exact entries need a literal case and a path without array indices".into());
     }
+    if let Some(witness) = &known.witness
+        && (!known.case.contains('*') || witness.contains('*') || !glob_match(&known.case, witness))
+    {
+        return Err("witness must be a literal case matched by the case glob".into());
+    }
     if !VERDICTS.contains(&known.verdict.as_str()) {
         return Err(format!(
             "verdict '{}' is not one of {}",
@@ -934,7 +973,7 @@ fn entry(item: &Value) -> Result<KnownDifference, String> {
     }
     if let Some(extra) = fields.keys().find(|k| {
         ![
-            "case", "path", "pattern", "verdict", "evidence", "values", "exact",
+            "case", "witness", "path", "pattern", "verdict", "evidence", "values", "exact",
         ]
         .contains(&k.as_str())
     }) {
@@ -986,6 +1025,20 @@ pub fn check_known_with(source: &str, entries: &[KnownDifference], differences: 
     {
         dump_exact(name, &PathBuf::from(dir), differences);
     }
+    check_known_with_stale(source, entries, differences, |entry| {
+        case_selected(&entry.case)
+    });
+}
+
+/// Keep the common matching order, but let a split sweep own the stale check for
+/// each entry in one group. Unknown and returning resolved differences are
+/// checked in every group.
+pub fn check_known_with_stale(
+    source: &str,
+    entries: &[KnownDifference],
+    differences: &[Difference],
+    check_stale: impl Fn(&KnownDifference) -> bool,
+) {
     let mut used = vec![0usize; entries.len()];
     let mut tally: BTreeMap<&str, usize> = BTreeMap::new();
     let mut unmatched = Vec::new();
@@ -1015,7 +1068,7 @@ pub fn check_known_with(source: &str, entries: &[KnownDifference], differences: 
     let stale: Vec<String> = entries
         .iter()
         .zip(&used)
-        .filter(|(e, n)| e.verdict != "resolved" && **n == 0 && case_selected(&e.case))
+        .filter(|(e, n)| e.verdict != "resolved" && **n == 0 && check_stale(e))
         .map(|(e, _)| format!("  case {} path {} ({})", e.case, e.path, e.pattern))
         .collect();
     let mut problems = Vec::new();
@@ -1057,7 +1110,7 @@ pub fn check_known_with(source: &str, entries: &[KnownDifference], differences: 
     );
 }
 
-fn dump_exact(name: &str, dir: &Path, differences: &[Difference]) {
+pub fn dump_exact(name: &str, dir: &Path, differences: &[Difference]) {
     let mut observed = BTreeMap::new();
     let mut rows = Vec::new();
     for difference in differences {
