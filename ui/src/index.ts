@@ -2,7 +2,19 @@
 export { default as StepDiff, type StepDiffProps } from './components/StepDiff';
 export { default as AssemblyDiffView, type AssemblyRow, type StepFile } from './components/AssemblyDiffView';
 export { SpecifyReview, type SpecifyEngine, type SpecifySlots } from './specify/SpecifyReview';
-export { drawnFromScene, withoutNotesBlock, hasGraphics, type DrawnPmi } from './specify/drawn';
+export {
+  drawnFromScene, withoutNotesBlock, hasGraphics,
+  type DrawnGraphic, type DrawnPlane, type DrawnPmi, type DrawnPoint, type DrawnStatus, type TextPlacement,
+} from './specify/drawn';
+// Helpers the editor uses outside the review (the editor imports them from the package).
+export { needs } from './specify/review';
+export { chosenForYou } from './specify/chosen';
+export { createCadView, pathOf, type CadNode, type CadView } from './specify/cad-view';
+export { createPicker, type Picker } from './specify/picker';
+export { createLook, type LookAt } from './specify/look';
+export { createDiffDrawn, PMI_COLOUR, type DiffDrawn } from './specify/diff-drawn';
+export { CHARACTERISTIC } from './specify/labels';
+export { sameBinding } from './specify/selection';
 export { readOnlyEngine } from './specify/read-only';
 export { createIntentEngine } from './engine/intent-engine';
 export { WorkerClient } from './engine/rpc';
