@@ -84,16 +84,23 @@ fn present(s: Option<String>) -> Option<String> {
 }
 fn text(doc: &Document, id: u64, entity: &str, index: usize) -> Option<String> {
     let a = attrs(doc, id, entity)?;
-    if entity == "PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE" && a.len() == 1 {
-        return if index == 3 {
-            present(string(a.first()))
+    let specified_source = entity == "PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE";
+    let attribute = if specified_source && a.len() == 1 {
+        if index == 3 {
+            a.first()
         } else {
-            present(string(
-                attrs(doc, id, "PRODUCT_DEFINITION_FORMATION")?.get(index),
-            ))
-        };
+            attrs(doc, id, "PRODUCT_DEFINITION_FORMATION")?.get(index)
+        }
+    } else {
+        a.get(index)
+    };
+    if specified_source
+        && index == 3
+        && matches!(attribute, Some(A::Enum(s)) if s.eq_ignore_ascii_case("NOT_KNOWN"))
+    {
+        return None;
     }
-    present(string(a.get(index)))
+    present(string(attribute))
 }
 fn formations(doc: &Document, pd: u64) -> (u64, u64, &'static str) {
     let formation = attrs(doc, pd, "PRODUCT_DEFINITION")

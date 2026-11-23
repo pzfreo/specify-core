@@ -629,7 +629,34 @@ fn pmi_and_bom_share_one_verified_write_and_partial_edits_keep_other_rows() {
     assert_eq!(reopened[0].description.value, "Revised plate");
     assert_eq!(reopened[1], rows[1]);
 
-    let plate = revised.load(Some(0)).unwrap();
+    let doc = Document::parse(revised.bytes().as_ref().clone()).unwrap();
+    let pd = attrs(
+        &doc,
+        revised.definitions()[0].product_definition,
+        "PRODUCT_DEFINITION",
+    )
+    .unwrap();
+    let A::EntityRef(formation) = pd[2] else {
+        panic!("expected a product formation reference");
+    };
+    let mut fields = attrs(&doc, formation, "PRODUCT_DEFINITION_FORMATION").unwrap();
+    fields.push(A::Enum("NOT_KNOWN".into()));
+    let mut edit = Edit::new();
+    edit.replace(
+        formation,
+        p21::simple("PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE", fields),
+    );
+    let unknown = file(doc.apply(&edit).unwrap().bytes);
+    let plate = unknown.load(Some(0)).unwrap();
+    let analysis = api::analyse(&plate).unwrap();
+    let make_buy = analysis["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == "bom.make_buy")
+        .unwrap();
+    assert_eq!(make_buy["state"], "gap", "native .NOT_KNOWN. is a gap");
+    assert_eq!(make_buy["suggestion"], "made");
     let with_stock = apply(
         &plate,
         json!({
@@ -638,6 +665,9 @@ fn pmi_and_bom_share_one_verified_write_and_partial_edits_keep_other_rows() {
         }),
     );
     let with_stock = file(with_stock.bytes);
+    let filled = bom::read(&with_stock).unwrap();
+    assert_eq!(filled[0].make_buy.value, "made");
+    assert_eq!(filled[0].make_buy.source, "answered");
     let plate = with_stock.load(Some(0)).unwrap();
     let bought = apply(
         &plate,
@@ -645,10 +675,20 @@ fn pmi_and_bom_share_one_verified_write_and_partial_edits_keep_other_rows() {
             "change": {"bom.make_buy": {"to": "bought", "expect": "made"}}
         }),
     );
-    let bought = bom::read_bytes(bought.bytes).unwrap();
+    let old = file(bought.bytes);
+    let bought = bom::read(&old).unwrap();
     assert_eq!(bought[0].make_buy.value, "bought");
     assert_eq!(bought[0].stock.value, "from stock");
     assert_eq!(bought[0].stock.source, "default");
+
+    let outcome = carry::carry(&old, &unknown).unwrap();
+    assert!(
+        outcome.report.refused.is_empty(),
+        "{:?}",
+        outcome.report.refused
+    );
+    let carried = bom::read_bytes(outcome.bytes.unwrap()).unwrap();
+    assert_eq!(carried[0].make_buy, bought[0].make_buy);
 }
 
 #[test]
