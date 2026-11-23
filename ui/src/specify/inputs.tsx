@@ -160,7 +160,7 @@ export function SuggestBox({ label, value, suggestions, placeholder, invalid, on
         // Leaving the box keeps a catalogue choice; anything else typed waits for Enter, so a
         // half-typed "alu" is not taken as the answer.
         onBlur={() => {
-          // Enter, Tab or a suggestion click may have already submitted the draft.
+          // A keyboard or suggestion choice may already have submitted this draft.
           const suggestion = draftSubmitted.current ? undefined : catalogueValue(text.trim());
           if (suggestion) commit(suggestion);
           else setOpen(false);
@@ -169,7 +169,6 @@ export function SuggestBox({ label, value, suggestions, placeholder, invalid, on
           if (event.key === 'ArrowDown') { event.preventDefault(); move(1); }
           else if (event.key === 'ArrowUp') { event.preventDefault(); move(-1); }
           else if (event.key === 'Escape') {
-            // Restoring the acknowledged value must not submit it over a review in progress.
             draftSubmitted.current = true;
             setText(value); setOpen(false); setActive(-1);
           }
@@ -382,21 +381,25 @@ export function SuggestionCard({ c, onKeep, onPick, onMore }: {
   return (
     <div className={`pmi-lab-suggestion${c.check ? ' check' : ''}`}>
       <div className="field">{c.field}{c.check && <em> · please check</em>}</div>
-      {/* Not an answer until it is kept: no tick, and a Keep that makes it one. */}
-      <div className="suggested" data-suggestion={c.id}>
-        <span>Suggested: <b>{c.what.split(': ').slice(1).join(': ') || c.options[0]?.label || c.what}</b></span>
-        <button type="button" className="keep" title="Keep this suggestion as the answer" onClick={onKeep}>Keep</button>
-      </div>
       <div className="btns">
         {c.options.length ? (
           <>
-            {c.options.slice(1).map((o) => (
-              <button key={o.value} type="button" title={`Choose ${o.label} instead`} onClick={() => onPick(o.value)}>{o.label}</button>
+            {c.options.map((o, i) => (
+              <button
+                key={o.value} type="button" className={i === 0 ? 'ok' : ''}
+                title={i === 0 ? 'Keep this' : `Choose ${o.label} instead`}
+                onClick={() => (i === 0 ? onKeep() : onPick(o.value))}
+              >
+                {i === 0 ? `✓ ${o.label}` : o.label}
+              </button>
             ))}
             {c.more && <button type="button" className="more" onClick={onMore}>More…</button>}
           </>
         ) : (
-          <button type="button" className="more" onClick={onMore}>Pick on the part…</button>
+          <>
+            <button type="button" className="ok" onClick={onKeep}>✓ {c.what.split(': ').slice(1).join(': ') || 'Keep'}</button>
+            <button type="button" className="more" onClick={onMore}>Pick on the part…</button>
+          </>
         )}
       </div>
       {c.why && <div className="why">{c.why}</div>}
@@ -411,12 +414,8 @@ export function SuggestionCard({ c, onKeep, onPick, onMore }: {
  * on demand: there may be a hundred, and few of them matter.
  */
 export function CharacteristicsTable({
-  rows, selected, onSelect, onDownload, skipped, onSkip, onEdit, onCallOut, generalTolerance, calledOut, readOnly = false, exportable = true,
+  rows, selected, onSelect, onDownload, skipped, onSkip, onEdit, onCallOut, generalTolerance, calledOut,
 }: {
-  /** A view of what is set: no tick boxes, edit or call-out column, or CSV. */
-  readOnly?: boolean;
-  /** Hosts owning saved-file exports suppress preview downloads and CSV inclusion controls. */
-  exportable?: boolean;
   rows: readonly Characteristic[]; selected: string | null;
   onSelect: (id: string, faces: readonly number[]) => void; onDownload: () => void;
   /** What is left out of the inspection list (``inspectKey``), and leaving out or back. */
@@ -442,7 +441,6 @@ export function CharacteristicsTable({
   }, [selected]);
   const n = (v: number | null, sign = false) => (v === null ? '' : `${sign && v > 0 ? '+' : ''}${fmt(v)}`);
   const groups = byBalloon(rows);
-  const firstGeneral = groups.findIndex((group) => group[0]?.source.startsWith('general:'));
   const left = rows.filter((r) => skipped.has(inspectKey(r))).length;
   // A balloon is inspected or not as a whole; ``balloon`` is given on its first row.
   const line = (
@@ -459,16 +457,14 @@ export function CharacteristicsTable({
       onClick={() => { toggle?.(); onSelect(key, faces); }}
       onKeyDown={(e) => { if (e.key === 'Enter') { toggle?.(); onSelect(key, faces); } }}
     >
-      {!readOnly && exportable && (
-        <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-          {balloon && (
-            <input
-              type="checkbox" checked={!out} aria-label={r.n ? `Inspect ${r.n}` : `Inspect ${r.text}`} title="In the inspection list (CSV)"
-              onChange={(e) => onSkip(keys, !e.target.checked)}
-            />
-          )}
-        </td>
-      )}
+      <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+        {balloon && (
+          <input
+            type="checkbox" checked={!out} aria-label={`Inspect ${r.n}`} title="In the inspection list (CSV)"
+            onChange={(e) => onSkip(keys, !e.target.checked)}
+          />
+        )}
+      </td>
       <td>{cells.bal}</td>
       <td>{cells.feature}</td>
       <td className="text">{r.text}</td>
@@ -478,7 +474,7 @@ export function CharacteristicsTable({
         {r.lower !== null && <><br />{fmt(r.lower)}</>}
       </td>
       <td>{r.datums}</td>
-      {!readOnly && <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
         {edit && (
           <button type="button" className="edit" aria-label={`Edit ${r.n}`} title="Change or remove it" onClick={edit}>
             ✎
@@ -489,38 +485,32 @@ export function CharacteristicsTable({
             Call out
           </button>
         )}
-      </td>}
+      </td>
     </tr>
     );
   };
   return (
-    <div className={`pmi-lab-table${readOnly ? ' view' : ''}`} ref={box}>
+    <div className="pmi-lab-table" ref={box}>
       <div className="pmi-lab-table-head">
-        {readOnly ? <span>{groups.length} characteristic{groups.length === 1 ? '' : 's'} set on this part.</span> : <>
         <span>
           {groups.length} characteristic{groups.length === 1 ? '' : 's'}
           {rows.length > groups.length ? `, ${rows.length} features to measure` : ''}: what is specified here, what the general tolerance covers and what the file states.
-          {exportable && left > 0 && ` ${left} left out of the CSV.`}
+          {left > 0 && ` ${left} left out of the CSV.`}
         </span>
-        {exportable && <span className="btns">
+        <span className="btns">
           <button type="button" className="csv" onClick={onDownload} disabled={left === rows.length}>⬇ Download CSV</button>
-        </span>}
-        </>}
+        </span>
       </div>
       <table>
         <thead>
-          <tr>
-            {!readOnly && exportable && <th title="In the inspection list (CSV)">✓</th>}
-            <th>#</th><th>Feature</th><th>Characteristic</th><th>Nom.</th><th>Tol.</th><th>Datums</th>
-            {!readOnly && <th />}
-          </tr>
+          <tr><th title="In the inspection list (CSV)">✓</th><th>#</th><th>Feature</th><th>Characteristic</th><th>Nom.</th><th>Tol.</th><th>Datums</th><th /></tr>
         </thead>
         <tbody>
           {groups.flatMap((g, gi) => {
             const [head] = g;
             if (!head) return [];
             const general = head.source.startsWith('general:');
-            const first = general && gi === firstGeneral;
+            const first = general && !groups[gi - 1]?.[0]?.source.startsWith('general:');
             const summary = first ? [generalRow(groups.filter((x) => x[0]?.source.startsWith('general:')))] : [];
             if (general && !showGeneral) return summary;
             return [...summary, ...balloonRows(g, head)];
@@ -541,16 +531,14 @@ export function CharacteristicsTable({
         onClick={toggle}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}
       >
-        {!readOnly && exportable && (
-          <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-            <input
-              type="checkbox" checked={!out} aria-label="Inspect what the general tolerance covers"
-              title="In the inspection list (CSV)" onChange={(e) => onSkip(keys, !e.target.checked)}
-            />
-          </td>
-        )}
+        <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox" checked={!out} aria-label="Inspect what the general tolerance covers"
+            title="In the inspection list (CSV)" onChange={(e) => onSkip(keys, !e.target.checked)}
+          />
+        </td>
         <td />
-        <td colSpan={readOnly ? 5 : 6}>
+        <td colSpan={6}>
           <span className="chev" aria-hidden>{showGeneral ? '▾' : '▸'}</span>{' '}
           {all.length} dimension{all.length === 1 ? '' : 's'} under {generalTolerance || 'the general tolerance'}
           {calledOut > 0 && ` · ${calledOut} called out`}
@@ -560,7 +548,7 @@ export function CharacteristicsTable({
   }
 
   function balloonRows(g: readonly Characteristic[], head: Characteristic) {
-    if (g.length === 1) return [line(head.id, head, { bal: <span className="bal">{head.n ? head.id : '—'}</span>, feature: head.feature }, head.faces, undefined, g)];
+    if (g.length === 1) return [line(head.id, head, { bal: <span className="bal">{head.id}</span>, feature: head.feature }, head.faces, undefined, g)];
     const isOpen = open.has(head.n);
     // What the rows share is said once; a run of basic dimensions is counted.
     const same = g.every((r) => r.text === head.text);

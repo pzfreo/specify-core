@@ -5,25 +5,20 @@
 // Pure, no DOM. Covers what is specified here, what the general tolerance
 // covers (pmi-assist lists it, from the datums) and what the file states,
 // ending with the part's notes -- material, general tolerance, finish -- which
-// are inspected too. Numbers come from the STEP or the engine's planned allocation,
-// so the display, inspection files and the STEP writer share the same IDs. Hosts without
-// number metadata retain the original sequential preview balloons.
+// are inspected too. The numbers are Specify's: a drawing's balloons need not
+// match them until Draftwright numbers its own (draftwright#2164).
 import type { PmiAnalysis, PmiIntent, PmiIntentItem } from '../types/pmi';
 
 import { describeFaces } from './datums.ts';
 import { CHARACTERISTIC, fmt } from './labels.ts';
 
 export interface Characteristic {
-  /** The numeric STEP/engine number, or a legacy balloon. Zero for a text ID or no ID. */
+  /** Its balloon number, from 1: one per requirement. */
   readonly n: number;
   /** Which of the balloon's features it is, from 1; 0 when it has one. */
   readonly sub: number;
-  /** Selection key, or numbered measurement ID ("3", "3.2"). Unnumbered keys are never exported. */
+  /** How the inspector numbers it: "3", or "3.2" for a pattern's second hole. */
   readonly id: string;
-  /** Exact ID_ATTRIBUTE string from the saved STEP (including leading zeros). */
-  readonly identifier?: string;
-  /** STEP numbering is explicit; absent for legacy hosts with sequential preview balloons. */
-  readonly numbering?: 'step';
   /** The feature it is on: "6× Ø6.6 holes, hole 2", "top face". */
   readonly feature: string;
   /** What the whole balloon is on: "6× Ø6.6 holes". */
@@ -42,7 +37,7 @@ export interface Characteristic {
   readonly source: string;
 }
 
-type Row = Omit<Characteristic, 'n' | 'sub' | 'id' | 'group'> & { group?: string; number?: number };
+type Row = Omit<Characteristic, 'n' | 'sub' | 'id' | 'group'> & { group?: string };
 
 /** What a characteristic's text says when the file states it with no value. */
 const NO_VALUE = 'no value stated';
@@ -74,9 +69,8 @@ const letters = (item: PmiIntentItem): string => {
 };
 
 /**
- * Every characteristic in ``intent`` and the file's own PMI, using stored or engine-planned
- * numbers when supplied. Legacy previews without metadata retain sequential balloons.
- * ``titles`` names features by id (a row's title).
+ * Every characteristic in ``intent`` and the file's own PMI, numbered in
+ * order. ``titles`` names features by id (a row's title).
  */
 export function characteristics(
   intent: PmiIntent | null, analysis: PmiAnalysis, titles: ReadonlyMap<string, string>,
@@ -121,23 +115,12 @@ export function characteristics(
     });
   };
 
-  const stepNumbers = intent?.partNumbers !== undefined
-    || [...(intent?.datums ?? []), ...(intent?.requirements ?? []), ...(intent?.general ?? []), ...analysis.existing]
-      .some((item) => item.number !== undefined);
   const rows: Row[] = [];
-  for (const datum of intent?.datums ?? []) {
-    if (!stepNumbers || datum.existing) continue;
-    rows.push({
-      source: `datum:${datum.letter}`, number: datum.number, question: datum.question,
-      feature: describeFaces(datum.faces, analysis), faces: datum.faces, text: `Datum ${datum.letter}`,
-      nominal: null, upper: null, lower: null, datums: '', basic: false,
-    });
-  }
   (intent?.requirements ?? []).forEach((r, i) => {
     // One Specify did not write (an answered requirement covers it) is not on the part.
     if (r['not_written_reason']) return;
     const source = `req:${i}`;
-    const base = { source, number: r.number, ...(r.question ? { question: r.question } : {}) };
+    const base = { source, ...(r.question ? { question: r.question } : {}) };
     const zone = (symbol: string) => {
       const t = num(r, 'tolerance');
       return {
@@ -164,9 +147,7 @@ export function characteristics(
       };
     } else if (r.kind === 'thread') {
       const spec = str(r, 'designation') ? `${str(r, 'designation')}×${fmt(num(r, 'pitch') ?? 0)}` : str(r, 'spec');
-      // A left-hand thread says so; the depth is the drawing's, not the inspection list's.
-      const hand = str(r, 'hand') === 'LH' ? ' LH' : '';
-      what = { text: `${spec}-${str(r, 'class')}${hand}`, nominal: null, upper: null, lower: null, datums: '', basic: false };
+      what = { text: `${spec}-${str(r, 'class')}`, nominal: null, upper: null, lower: null, datums: '', basic: false };
     } else if (r.kind === 'knurl') {
       what = { text: `${str(r, 'pattern')} knurl`, nominal: null, upper: null, lower: null, datums: '', basic: false };
     } else if (r.kind === 'finish') {
@@ -200,7 +181,7 @@ export function characteristics(
       const d = num(g, 'nominal');
       for (const at of instances(g)) {
         rows.push({
-          source, number: g.number, ...limits, ...at, text: `⌀${d === null ? '' : fmt(d)}`, nominal: d,
+          source, ...limits, ...at, text: `⌀${d === null ? '' : fmt(d)}`, nominal: d,
           group: name(str(g, 'feature'), g.faces),
         });
       }
@@ -208,115 +189,60 @@ export function characteristics(
       const d = num(g, 'distance');
       const from = Array.isArray(g['reference']) ? referenceName(g['reference'] as number[]) : '';
       rows.push({
-        source, number: g.number, ...limits, feature: name(str(g, 'feature'), g.faces), faces: g.faces,
+        source, ...limits, feature: name(str(g, 'feature'), g.faces), faces: g.faces,
         text: `${d === null ? '' : fmt(d)}${from ? ` from ${from}` : ''}`, nominal: d,
       });
     }
   });
 
-  const part = { ...analysis.part, ...intent?.part };
   // What the file already states, after what is specified here.
-  const existingDatums = new Set<string>();
   analysis.existing.forEach((e, i) => {
     const faces = e.faces ?? [];
-    if (!faces.length) return;
+    if (!faces.length || e.kind === 'datum') return;
     const feature = describeFaces(faces, analysis);
-    // A dimension the file states with its nominal alone is one the general tolerance covers
-    // (as Specify writes them, #63): it folds under the general tolerance, as a planned one does.
-    const general = e.kind === 'dimension' && e.value != null && e.upper == null && e.lower == null
-      && !e.basic && !e.fit && !e.limits && !e.text_only && Boolean(part.general_tolerance);
-    const source = general ? `general:existing:${i}` : `existing:${i}`;
+    const source = `existing:${i}`;
     // A characteristic the file states without a value (CTC-01's presentation-only
     // dimensions) is listed as such, never as 0.
-    if (e.kind === 'datum') {
-      if (!stepNumbers || existingDatums.has(e.type)) return;
-      existingDatums.add(e.type);
-      rows.push({
-        feature, faces, source, number: e.number, text: `Datum ${e.type}`,
-        nominal: null, upper: null, lower: null, datums: '', basic: false,
-      });
-    } else if (e.kind === 'dimension') {
+    if (e.kind === 'dimension') {
       const prefix = e.type.includes('Diameter') ? '⌀' : '';
-      // A location is on the faces it locates (its second set), from its first, as planned.
-      const located = e.type.startsWith('Location') && e.faces2?.length ? e.faces2 : null;
-      const from = located ? ` from ${referenceName(faces)}` : '';
-      // ADR P11: the stated row is all anyone sees of what the file says, so it reads the
-      // engine's full notation (its class, deviations or limits, basic, modifiers).
-      const stated = e.text ?? `${prefix}${e.value == null ? '' : fmt(e.value)}`;
       rows.push({
-        feature: located ? describeFaces(located, analysis) : feature, faces: located ?? faces, source, number: e.number,
-        text: e.value == null ? NO_VALUE : `${stated}${from}`, nominal: e.value ?? null,
-        upper: e.upper ?? null, lower: e.lower ?? null, datums: '', basic: Boolean(e.basic),
+        feature, faces, source, text: e.value == null ? NO_VALUE : `${prefix}${fmt(e.value)}`, nominal: e.value ?? null,
+        upper: e.upper ?? null, lower: e.lower ?? null, datums: '', basic: false,
       });
     } else if (e.kind === 'geometric_tolerance') {
-      // As planned ("⌖ ⌀0.3 Ⓜ"; the datums have their column) when its fields hold all it
-      // states; otherwise its whole frame as the engine states it (every modifier, zone and
-      // datum reference: "⌓ 0.02 A FⓂ").
-      const symbol = CHARACTERISTIC[e.type] ?? e.type;
-      const planned = !e.text_only && (e.modifiers ?? []).every((m) => m === 'maximum_material_requirement');
-      const text = e.value == null ? `${symbol} ${NO_VALUE}`
-        : planned || !e.text ? `${symbol} ${e.diametral ? '⌀' : ''}${fmt(e.value)}${e.mmc ? ' Ⓜ' : ''}` : e.text;
       rows.push({
-        feature, faces, source, number: e.number,
-        text,
+        feature, faces, source, text: `${CHARACTERISTIC[e.type] ?? e.type} ${e.value == null ? NO_VALUE : fmt(e.value)}`,
         nominal: null, upper: e.value ?? null, lower: null, datums: (e.datums ?? []).join('|'), basic: false,
       });
     } else {
-      // A thread reads as planned ("M2×0.4-6H", "M8×1.25-6g LH"), so a reopened file's list
-      // matches its preview; one stating more than its fields (text only) reads its whole
-      // text. A knurl, finish or note: its full notation, else its kind.
-      const thread = e.designation && e.class && e.pitch != null && !e.text_only
-        ? `${e.designation}×${fmt(e.pitch)}-${e.class}${e.hand === 'LH' ? ' LH' : ''}` : null;
-      rows.push({ feature, faces, source, number: e.number, text: thread ?? e.text ?? e.type, nominal: null, upper: null, lower: null, datums: '', basic: false });
+      rows.push({ feature, faces, source, text: e.type, nominal: null, upper: null, lower: null, datums: '', basic: false });
     }
   });
 
   // The part's notes, as given here or as the file states them.
+  const part = { ...analysis.part, ...intent?.part };
   for (const [key, name] of PART_NOTES) {
     const value = part[key];
     if (!value) continue;
     const ra = key === 'surface_finish' ? Number(value.replace(/^Ra\s*/i, '')) : Number.NaN;
     rows.push({
-      // The file's own surface texture keeps its number when nothing is planned for it.
-      feature: 'Part', faces: [], source: `part:${key}`,
-      number: intent?.partNumbers?.[key] ?? (key === 'surface_finish'
-        ? analysis.characteristics?.find((c) => c.kind === 'surface_texture')?.number : undefined),
-      text: `${name}: ${value}`, nominal: null,
+      feature: 'Part', faces: [], source: `part:${key}`, text: `${name}: ${value}`, nominal: null,
       upper: Number.isFinite(ra) ? ra : null, lower: null, datums: '', basic: false,
     });
   }
-  if (!stepNumbers) {
-    // Preserve origin/main's grouping, ordering and numbering for three-method hosts.
-    const key = (r: Row | undefined) => (r?.basic ? `basic:${r.group}` : r?.source);
-    const size = new Map<string | undefined, number>();
-    for (const r of rows) size.set(key(r), (size.get(key(r)) ?? 0) + 1);
-    const out: Characteristic[] = [];
-    let n = 0;
-    rows.forEach((r, i) => {
-      const first = key(r) !== key(rows[i - 1]);
-      if (first) n++;
-      const sub = (size.get(key(r)) ?? 1) > 1 ? (first ? 1 : (out[out.length - 1]?.sub ?? 0) + 1) : 0;
-      out.push({ ...r, n, sub, id: sub ? `${n}.${sub}` : `${n}`, group: r.group ?? r.feature });
-    });
-    return out;
-  }
-  // The engine assigns one stable number per semantic requirement. A pattern may have several
-  // measured instances of that requirement. Unnumbered settings get internal selection keys,
-  // while the display and files leave their number cell empty.
-  const key = (r: Row) => r.number ? `number:${r.number}` : r.source;
-  const size = new Map<string, number>();
-  for (const row of rows) size.set(key(row), (size.get(key(row)) ?? 0) + 1);
-  const instance = new Map<string, number>();
-  const out: Characteristic[] = rows.map((row) => {
-    const number = row.number ?? 0;
-    const n = Number.isSafeInteger(number) && number > 0 ? number : 0;
-    const count = (instance.get(key(row)) ?? 0) + 1;
-    instance.set(key(row), count);
-    const sub = (size.get(key(row)) ?? 1) > 1 ? count : 0;
-    const id = n ? `${n}${sub ? `.${sub}` : ''}` : `unnumbered:${row.source}${sub ? `.${sub}` : ''}`;
-    return { ...row, n, sub, id, numbering: 'step', group: row.group ?? row.feature };
+  // A balloon for each requirement, and one for each feature's basic
+  // dimensions; what is under it numbered.
+  const key = (r: Row | undefined) => (r?.basic ? `basic:${r.group}` : r?.source);
+  const size = new Map<string | undefined, number>();
+  for (const r of rows) size.set(key(r), (size.get(key(r)) ?? 0) + 1);
+  const out: Characteristic[] = [];
+  let n = 0;
+  rows.forEach((r, i) => {
+    const first = key(r) !== key(rows[i - 1]);
+    if (first) n++;
+    const sub = (size.get(key(r)) ?? 1) > 1 ? (first ? 1 : (out[out.length - 1]?.sub ?? 0) + 1) : 0;
+    out.push({ ...r, n, sub, id: sub ? `${n}.${sub}` : `${n}`, group: r.group ?? r.feature });
   });
-  out.sort((a, b) => (a.n || Infinity) - (b.n || Infinity));
   return out;
 }
 
@@ -360,7 +286,7 @@ export function byBalloon(rows: readonly Characteristic[]): Characteristic[][] {
   const out: Characteristic[][] = [];
   for (const r of rows) {
     const last = out[out.length - 1];
-    if (r.n && last && last[0]?.n === r.n) last.push(r);
+    if (last && last[0]?.n === r.n) last.push(r);
     else out.push([r]);
   }
   return out;
@@ -383,10 +309,7 @@ export function ranges(numbers: readonly number[]): string {
 /** Balloon numbers by what they are drawn as: a label's source. */
 export function balloonsBySource(rows: readonly Characteristic[]): Map<string, number[]> {
   const out = new Map<string, number[]>();
-  for (const row of rows) {
-    if (!row.n) continue;
-    out.set(row.source, [...new Set([...(out.get(row.source) ?? []), row.n])]);
-  }
+  for (const r of rows) out.set(r.source, [r.n]);
   return out;
 }
 
@@ -404,10 +327,10 @@ export const inspectKey = (r: Characteristic): string => `${r.group}|${r.feature
 export function toCsv(rows: readonly Characteristic[], skipped: ReadonlySet<string> = new Set()): string {
   const cell = (v: string | number | null) => {
     const text = v === null ? '' : String(v);
-    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
   const head = ['Balloon', 'Instance', 'Feature', 'Characteristic', 'Nominal', 'Upper', 'Lower', 'Datums', 'Basic', 'Measured'];
   return [head, ...rows.filter((r) => !skipped.has(inspectKey(r))).map((r) => [
-    r.identifier ?? (r.numbering === 'step' ? (r.n || '') : r.n), r.sub || '', r.feature, r.text, r.nominal, r.upper, r.lower, r.datums, r.basic ? 'yes' : '', '',
+    r.n, r.sub || '', r.feature, r.text, r.nominal, r.upper, r.lower, r.datums, r.basic ? 'yes' : '', '',
   ])].map((line) => line.map(cell).join(',')).join('\n') + '\n';
 }

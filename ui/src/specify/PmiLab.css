@@ -128,12 +128,12 @@
 /* The radio covers its label, unseen: what is tapped, focused and arrow-keyed. */
 .pmi-lab-viewpmi input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .pmi-lab-status { position: absolute; left: 110px; bottom: 14px; z-index: 9; color: #707880; font-size: 12px; }
-/* The notes' and drawn PMI's lettering: the host's --specify-mono-font, else IBM Plex Mono (Draftwright
-   drawings' lettering) when the host loads it, else the system monospace. The package loads no font. */
+/* Draftwright drawings' lettering (their PDFs embed it), for the notes and the drawn PMI. */
+@font-face { font-family: 'IBM Plex Mono'; src: url('/fonts/IBMPlexMono-Regular.ttf') format('truetype'); font-display: swap; }
 /* The part's notes: a drawing's notes block, on the view where it stays put -- no box, its
    lettering haloed as the labels are; folded to its heading when the part is wanted. */
 .pmi-lab-partnotes { position: absolute; left: 14px; bottom: 38px; z-index: 9; max-width: min(380px, calc(100% - 200px));
-  max-height: 40%; overflow: auto; color: #2f6fb5; font: 12px/1.35 var(--specify-mono-font, 'IBM Plex Mono', ui-monospace, monospace);
+  max-height: 40%; overflow: auto; color: #2f6fb5; font: 12px/1.35 'IBM Plex Mono', ui-monospace, monospace;
   letter-spacing: .2px; font-variant-numeric: tabular-nums;
   text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff, 0 0 2px #fff;
   /* The part shows through it, and is turned from it, but for its heading and notes' links. */
@@ -174,7 +174,7 @@
 .pmi-lab .pmi-lab-call-out { margin: 4px 0 0; align-self: flex-start; max-width: 100%; font-size: 12px;
   white-space: normal; text-align: left; }
 .pmi-lab-rows { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; }
-.pmi-lab-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 11px 12px 12px; background: #fff; border-bottom: 1px solid #d9dee4; }
+.pmi-lab-fields { display: grid; gap: 2px; padding: 11px 12px 12px; background: #fff; border-bottom: 1px solid #d9dee4; }
 .pmi-lab-field { display: grid; gap: 3px; }
 .pmi-lab-field .name { font-weight: 600; font-size: 12px; }
 .pmi-lab-field .name em { font-style: normal; font-weight: 600; color: #b04a00; font-size: 11px; margin-left: 4px; }
@@ -189,13 +189,12 @@
 .pmi-lab .pmi-lab-line { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; width: 100%;
   border: 0; border-bottom: 1px solid #eef1f4; border-radius: 0; background: none; padding: 5px 0; text-align: left; }
 .pmi-lab .pmi-lab-line:hover { background: rgba(47, 111, 181, .05); }
-/* Both wrap within the panel rather than widen the fields' column past its edge (specify-ui#14). */
-.pmi-lab-line .name { font-weight: 600; font-size: 12.5px; min-width: 0; overflow-wrap: anywhere; }
-.pmi-lab-line .value { color: #2f6fb5; font-size: 12.5px; text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.pmi-lab-line .name { font-weight: 600; font-size: 12.5px; white-space: nowrap; }
+.pmi-lab-line .value { color: #2f6fb5; font-size: 12.5px; text-align: right; overflow: hidden; text-overflow: ellipsis; }
 .pmi-lab-line.stated .value { color: #3a4450; }
 .pmi-lab-line.stated .value small { color: #8a929b; }
 .pmi-lab-line.open .value { color: #707880; }
-.pmi-lab-notes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding-left: 8px; border-left: 2px solid #e3e7ec; }
+.pmi-lab-notes { display: grid; gap: 4px; padding-left: 8px; border-left: 2px solid #e3e7ec; }
 .pmi-lab-chev { display: inline-block; width: 1em; margin-right: 4px; color: #2f6fb5; font-size: 11px;
   transition: transform .15s; transform-origin: 40% 50%; }
 .pmi-lab-chev.open { transform: rotate(90deg); }
@@ -218,7 +217,6 @@
 .pmi-lab-datums .chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #c3cad3; border-radius: 4px;
   background: #fff; padding: 1px 2px 1px 1px; font-size: 12px; }
 .pmi-lab-datums .chip.existing { background: #f3f5f7; color: #5a626b; }
-.pmi-lab-datums .chip.on { border-color: #009ccf; background: #1ec8ff1f; }
 .pmi-lab .pmi-lab-datums .letter { font-weight: 700; min-width: 22px; padding: 1px 5px; border: 1px solid #2f6fb5;
   border-radius: 3px; background: #fff; color: #2f6fb5; }
 .pmi-lab .pmi-lab-datums .letter:disabled { border-color: #8a929b; color: #5a626b; cursor: default; }
@@ -265,7 +263,6 @@
 .pmi-lab .pmi-lab-table button.edit { border: 0; background: none; padding: 0 2px; font-size: 13px; color: #2f6fb5; cursor: pointer; }
 /* Where a row is changed or called out stays in sight while the table scrolls sideways. */
 .pmi-lab-table td:last-child { position: sticky; right: 0; background: #fff; }
-.pmi-lab-table.view td:last-child { position: static; background: none; }
 .pmi-lab .pmi-lab-table button.call-out { border: 0; background: none; padding: 0 2px; font-size: 12px; color: #2f6fb5; cursor: pointer; white-space: nowrap; }
 .pmi-lab-table tbody tr.general-summary td { color: #5a626b; font-style: italic; cursor: pointer; }
 .pmi-lab-cards { display: grid; gap: 5px; padding: 0 12px 9px; }
@@ -281,9 +278,6 @@
 .pmi-lab .pmi-lab-suggestion .ok, .pmi-lab .pmi-lab-review .ok {
   background: #e9f6ee; border-color: #9fd3b3; color: #14632f; font-weight: 600; }
 .pmi-lab .pmi-lab-suggestion .more { border-style: dashed; color: #5d5470; }
-.pmi-lab-suggestion .suggested { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 12.5px; color: #4a4360; }
-.pmi-lab .pmi-lab-suggestion .keep { background: #fff; border-color: #7b5cc4; color: #4b2f93; font-weight: 600; }
-.pmi-lab-tick { color: #14632f; font-weight: 700; margin-right: 4px; }
 .pmi-lab-review { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px;
   color: #5d5470; }
 .pmi-lab-review button { font-size: 12px; padding: 1px 8px; }
@@ -405,7 +399,3 @@ fieldset.pmi-lab-rows { min-width: 0; margin: 0; padding: 0; border: 0; }
 .pmi-lab .pmi-lab-pad button.pmi-lab-more-tools[aria-pressed="true"] { background: #e8f0f8; border-color: #2f6fb5; }
 /* The viewer's toolbar and tools panel, folded away until "More view tools". */
 .cad-tools-hidden .tcv_cad_toolbar, .cad-tools-hidden .tcv_cad_navigation { display: none !important; }
-.pmi-lab-none { margin: 0; padding: 10px 12px; color: #5a626b; font-size: 12.5px; }
-.pmi-lab-keep-all { margin-top: 6px; padding: 6px 8px; border: 1px solid #c9dccf; border-radius: 4px; background: #f3f9f5; font-size: 12px; }
-.pmi-lab-keep-all p { margin: 0 0 4px; }
-.pmi-lab-keep-all ul { margin: 0 0 6px; padding-left: 18px; max-height: 180px; overflow: auto; }
