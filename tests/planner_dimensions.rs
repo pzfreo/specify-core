@@ -671,10 +671,20 @@ fn checked_depth_ends(
     (from_ends, to_ends)
 }
 
-/// Check the written PMI, including retained later-slice rows, rather than only
-/// the shared planner's output. References do not add independent constraints.
-#[test]
-fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
+// Check the written PMI, including retained later-slice rows, rather than only
+// the shared planner's output. References do not add independent constraints.
+common::case_group_tests!(check_corpus_locations;
+    0 => corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains_group_0,
+    1 => corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains_group_1,
+    2 => corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains_group_2,
+    3 => corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains_group_3,
+    4 => corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains_group_4,
+    5 => corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains_group_5,
+    6 => corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains_group_6,
+    7 => corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains_group_7,
+);
+
+fn check_corpus_locations(group: usize) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let corpus = common::corpus_dir();
     let mut paths = vec![root.join("parts/plate.step"), root.join("parts/pin.step")];
@@ -695,7 +705,10 @@ fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
     }
     let mut counts = Vec::new();
     let errors = std::cell::RefCell::new(Vec::new());
-    for path in paths {
+    for path in paths
+        .into_iter()
+        .filter(|path| common::corpus::group(path) == group)
+    {
         eprintln!("dimension corpus: {}", path.display());
         let file = part::File::read(&path).unwrap();
         for k in 0..file.parts().len() {
@@ -992,7 +1005,7 @@ fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
     }
     if let Some(dir) = dump {
         std::fs::write(
-            dir.join("counts.json"),
+            dir.join(format!("counts-group-{group}.json")),
             serde_json::to_vec_pretty(&counts).unwrap(),
         )
         .unwrap();

@@ -12,9 +12,43 @@ use common::{
 };
 use serde_json::{Value, json};
 
+#[test]
+fn corpus_groups_cover_selected_inputs_once() {
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::path::Path;
+
+    let cases = cases();
+    let names: BTreeSet<_> = cases.iter().map(|case| case.name.as_str()).collect();
+    assert_eq!(names.len(), cases.len(), "selected case names are unique");
+    let mut assigned = BTreeSet::new();
+    let mut inputs = BTreeMap::new();
+    for group in 0..common::corpus::GROUPS {
+        let mut count = 0;
+        for case in cases.iter().filter(|case| case.group() == group) {
+            count += 1;
+            assert!(
+                assigned.insert(case.name.as_str()),
+                "duplicate {}",
+                case.name
+            );
+            let input = Path::new(case.meta["input"].as_str().expect("meta.input"));
+            let input = case.input().unwrap_or_else(|| input.into());
+            assert_eq!(
+                *inputs.entry(input.clone()).or_insert(group),
+                group,
+                "parts of {} must stay together",
+                input.display()
+            );
+        }
+        assert!(count > 0, "corpus group {group} is empty");
+    }
+    assert_eq!(names, assigned);
+}
+
 fn known(case: &str, path: &str, verdict: &str) -> KnownDifference {
     KnownDifference {
         case: case.into(),
+        witness: None,
         path: path.into(),
         pattern: "a pattern".into(),
         verdict: verdict.into(),
