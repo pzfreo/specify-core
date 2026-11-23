@@ -84,16 +84,23 @@ fn present(s: Option<String>) -> Option<String> {
 }
 fn text(doc: &Document, id: u64, entity: &str, index: usize) -> Option<String> {
     let a = attrs(doc, id, entity)?;
-    if entity == "PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE" && a.len() == 1 {
-        return if index == 3 {
-            present(string(a.first()))
+    let specified_source = entity == "PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE";
+    let attribute = if specified_source && a.len() == 1 {
+        if index == 3 {
+            a.first()
         } else {
-            present(string(
-                attrs(doc, id, "PRODUCT_DEFINITION_FORMATION")?.get(index),
-            ))
-        };
+            attrs(doc, id, "PRODUCT_DEFINITION_FORMATION")?.get(index)
+        }
+    } else {
+        a.get(index)
+    };
+    if specified_source
+        && index == 3
+        && matches!(attribute, Some(A::Enum(s)) if s.eq_ignore_ascii_case("NOT_KNOWN"))
+    {
+        return None;
     }
-    present(string(a.get(index)))
+    present(string(attribute))
 }
 fn formations(doc: &Document, pd: u64) -> (u64, u64, &'static str) {
     let formation = attrs(doc, pd, "PRODUCT_DEFINITION")
@@ -789,6 +796,55 @@ pub const KEYS: &[&str] = &[
     "name",
 ];
 
+/// Editable BOM values use the same row states as other file data. A default is a proposal,
+/// even when its provenance was recorded in a UDA.
+pub(crate) fn edit_rows(analysis: &Map<String, Value>) -> Vec<crate::feature_table::Row> {
+    use crate::feature_table::{Row, Scope, State};
+
+    let Some(bom) = analysis.get("bom").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    let questions = questions(analysis);
+    let mut rows = Vec::with_capacity(KEYS.len());
+    for &key in KEYS {
+        let field = &bom[key];
+        let mut value = field["value"].clone();
+        let stated =
+            !value.is_null() && matches!(field["source"].as_str(), Some("file" | "answered"));
+        let id = format!("bom.{key}");
+        let suggestion = if stated {
+            None
+        } else if key == "stock" {
+            (!value.is_null()).then(|| value.clone())
+        } else {
+            questions
+                .iter()
+                .find(|question| question.id == id)
+                .and_then(|question| question.suggestions.first().cloned())
+        };
+        if key == "optional"
+            && let Some(optional) = value.as_bool()
+        {
+            value = json!(if optional { "yes" } else { "no" });
+        }
+        rows.push(Row {
+            kind: id.clone(),
+            id,
+            feature: "part".into(),
+            scope: Scope::Part,
+            faces: Vec::new(),
+            state: if stated { State::Stated } else { State::Gap },
+            value: stated.then_some(value),
+            requirements: Vec::new(),
+            suggestion,
+            missing: Vec::new(),
+            located: Vec::new(),
+            open: false,
+        });
+    }
+    rows
+}
+
 pub(crate) fn validate(key: &str, value: &Value) -> Result<(), String> {
     let ok = KEYS.contains(&key)
         && match key {
@@ -1271,7 +1327,10 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
             {
                 continue;
             }
-            if value[key]["value"] != *expected {
+            let stock = (key == "stock" && values.get("default.stock") == Some(&json!(true)))
+                .then(|| stock_for(&value["make_buy"]["value"]))
+                .filter(|stock| !stock.is_null());
+            if value[key]["value"] != *stock.as_ref().unwrap_or(expected) {
                 return Err(format!("BOM part {i} {key} did not read back"));
             }
         }
@@ -1548,9 +1607,18 @@ pub(crate) fn carry_assembly(
             .clone()
             .or_else(|| old_row.and_then(|r| r.material.value.as_str().map(str::to_owned)));
         if let Some(material) = material {
-            match stated("material") {
-                Some(now) => keep("part.material".into(), json!(material), now),
-                None => materials.push((i, material)),
+            if let Some(now) = stated("material") {
+                keep("part.material".into(), json!(material), now);
+            } else {
+                // The BOM reads stated material only. A stored decision also closes the gap.
+                let decided = crate::resume::answers_for(&new[i])
+                    .map_err(|e| e.to_string())?
+                    .is_some_and(|answers| {
+                        crate::feature_table::storable(&answers).contains_key("part.material")
+                    });
+                if !decided {
+                    materials.push((i, material));
+                }
             }
         }
         if own_numbers && let Some(now) = stated("item_number") {

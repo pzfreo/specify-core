@@ -26,8 +26,12 @@ fn state() -> MemoryState {
         .insert("hole.position:holes:14".into(), stated(json!("0.2")));
     s.kinds
         .insert("hole.function:holes:14".into(), stated(json!("tapped:M5")));
-    s.kinds
-        .insert("part.coating".into(), KindState::DecidedNone);
+    s.kinds.insert(
+        "part.coating".into(),
+        KindState::DecidedNone {
+            value: json!("none"),
+        },
+    );
     s.kinds.insert(
         "hole.size:holes:3".into(),
         KindState::Gap {
@@ -350,7 +354,9 @@ fn a_real_0_2_answers_file_applies_cleanly_when_it_matches_the_file() {
         let mut file = MemoryState::default();
         for (id, value) in answers.iter().filter(|(id, _)| !id.starts_with('_')) {
             let state = if edits::is_none_answer(value) {
-                KindState::DecidedNone
+                KindState::DecidedNone {
+                    value: value.clone(),
+                }
             } else {
                 stated(value.clone())
             };
@@ -394,7 +400,12 @@ fn characteristic_numbers_are_written_with_a_hash() {
 fn a_file_state_is_used_through_the_trait() {
     // The interface the feature table implements: lookup by id and by number.
     let s: &dyn FileState = &state();
-    assert_eq!(s.kind("part.coating"), Some(KindState::DecidedNone));
+    assert_eq!(
+        s.kind("part.coating"),
+        Some(KindState::DecidedNone {
+            value: json!("none")
+        })
+    );
     assert_eq!(s.kind("nope"), None);
     assert_eq!(s.requirement(30).unwrap().feature, None);
     assert!(s.requirement(31).is_none());

@@ -569,9 +569,126 @@ fn pmi_and_bom_share_one_verified_write_and_partial_edits_keep_other_rows() {
         .unwrap()
         .clone();
     let bytes = writer::write_bytes(&other, &intent, Some(&a)).unwrap().0;
-    let rows = bom::read_bytes(bytes).unwrap();
+    let rows = bom::read_bytes(bytes.clone()).unwrap();
     assert_eq!(rows[0].description.value, "Plate with datum A");
     assert_eq!(rows[1].stock.value, "from stock");
+
+    let assembly = file(bytes);
+    let plate = assembly.load(Some(0)).unwrap();
+    let changed = json!({"change": {"bom.description": {
+        "to": "Revised plate", "expect": "Plate with datum A"
+    }}});
+    let check = writer::apply::check(&plate, &changed.to_string());
+    assert!(check.applicable, "BOM change refused: {}", check.message());
+    let table = specify_core::api::analyse(&plate).unwrap()["table"].clone();
+    let row = table["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == "bom.description")
+        .unwrap();
+    assert_eq!(row["state"], "stated");
+    assert_eq!(row["value"], "Plate with datum A");
+    let equal_fill = json!({"fill": {"bom.description": row["value"]}});
+    let equal = writer::apply::check(&plate, &equal_fill.to_string());
+    assert!(equal.applicable, "{}", equal.message());
+    assert_eq!(equal.unchanged, [r#"fill["bom.description"]"#]);
+    for (list, entry, message) in [
+        (
+            json!({"clear": ["bom.description"]}),
+            r#"clear["bom.description"]"#,
+            r#"the file states "Plate with datum A" for bom.description; use change with {"to": "<new value>", "expect": "Plate with datum A"}"#,
+        ),
+        (
+            json!({"fill": {"bom.description": "Revised plate"}}),
+            r#"fill["bom.description"]"#,
+            r#"the file already states "Plate with datum A" for bom.description; to replace it, use change with "to": "Revised plate", "expect": "Plate with datum A""#,
+        ),
+        (
+            json!({"change": {"bom.description": {"to": "Revised plate", "expect": "Wrong plate"}}}),
+            r#"change["bom.description"]"#,
+            r#"expected "Wrong plate" but the file states "Plate with datum A": it has changed since you read it; read it again and send the change with "expect": "Plate with datum A""#,
+        ),
+    ] {
+        let check = writer::apply::check(&plate, &list.to_string());
+        let failures =
+            writer::apply::apply(&plate, &specify_core::edits::parse_value(list).unwrap())
+                .unwrap_err();
+        assert_eq!(check.failures, failures);
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].entry, entry);
+        assert_eq!(failures[0].reason, message);
+    }
+    let apply = |plate: &part::LoadedPart, list| {
+        writer::apply::apply(plate, &specify_core::edits::parse_value(list).unwrap())
+            .unwrap_or_else(|failures| panic!("{failures:?}"))
+    };
+    let applied = apply(&plate, changed);
+    let revised = file(applied.bytes);
+    let reopened = bom::read(&revised).unwrap();
+    assert_eq!(reopened[0].description.value, "Revised plate");
+    assert_eq!(reopened[1], rows[1]);
+
+    let doc = Document::parse(revised.bytes().as_ref().clone()).unwrap();
+    let pd = attrs(
+        &doc,
+        revised.definitions()[0].product_definition,
+        "PRODUCT_DEFINITION",
+    )
+    .unwrap();
+    let A::EntityRef(formation) = pd[2] else {
+        panic!("expected a product formation reference");
+    };
+    let mut fields = attrs(&doc, formation, "PRODUCT_DEFINITION_FORMATION").unwrap();
+    fields.push(A::Enum("NOT_KNOWN".into()));
+    let mut edit = Edit::new();
+    edit.replace(
+        formation,
+        p21::simple("PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE", fields),
+    );
+    let unknown = file(doc.apply(&edit).unwrap().bytes);
+    let plate = unknown.load(Some(0)).unwrap();
+    let analysis = api::analyse(&plate).unwrap();
+    let make_buy = analysis["table"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == "bom.make_buy")
+        .unwrap();
+    assert_eq!(make_buy["state"], "gap", "native .NOT_KNOWN. is a gap");
+    assert_eq!(make_buy["suggestion"], "made");
+    let with_stock = apply(
+        &plate,
+        json!({
+            "fill": {"bom.make_buy": "made"},
+            "accept_suggestions": ["bom.stock"]
+        }),
+    );
+    let with_stock = file(with_stock.bytes);
+    let filled = bom::read(&with_stock).unwrap();
+    assert_eq!(filled[0].make_buy.value, "made");
+    assert_eq!(filled[0].make_buy.source, "answered");
+    let plate = with_stock.load(Some(0)).unwrap();
+    let bought = apply(
+        &plate,
+        json!({
+            "change": {"bom.make_buy": {"to": "bought", "expect": "made"}}
+        }),
+    );
+    let old = file(bought.bytes);
+    let bought = bom::read(&old).unwrap();
+    assert_eq!(bought[0].make_buy.value, "bought");
+    assert_eq!(bought[0].stock.value, "from stock");
+    assert_eq!(bought[0].stock.source, "default");
+
+    let outcome = carry::carry(&old, &unknown).unwrap();
+    assert!(
+        outcome.report.refused.is_empty(),
+        "{:?}",
+        outcome.report.refused
+    );
+    let carried = bom::read_bytes(outcome.bytes.unwrap()).unwrap();
+    assert_eq!(carried[0].make_buy, bought[0].make_buy);
 }
 
 #[test]
@@ -1298,12 +1415,14 @@ fn an_assembly_parts_own_pmi_is_reported_not_carried() {
             );
         }
         for row in table["rows"].as_array().unwrap() {
-            if row["state"] == "stated" && row["id"] != "part.material" {
+            let id = row["id"].as_str().unwrap();
+            // BOM properties are carried separately from this part's PMI.
+            if row["state"] == "stated" && id != "part.material" && !id.starts_with("bom.") {
                 assert!(
                     report
                         .not_carried
                         .iter()
-                        .any(|n| n.id.as_deref() == row["id"].as_str()
+                        .any(|n| n.id.as_deref() == Some(id)
                             && n.part.as_deref() == Some(part.name.as_str())),
                     "{row}"
                 );

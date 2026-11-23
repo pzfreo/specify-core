@@ -1,5 +1,5 @@
 //! Revisions: what changed from one revision of a part to the next through quiddity's
-//! correspondence, and the requirements each file's PMI states (ADR P11: nothing else is read).
+//! correspondence, the requirements each file's PMI states, and the new gaps.
 
 mod common;
 
@@ -1000,6 +1000,28 @@ fn a_new_feature_with_nothing_stated_is_listed_as_information() {
         )),
         "{md}"
     );
+
+    // A saved decision on the same new hole keeps it out of the gap list, without adding PMI.
+    let id = format!("hole.position:{}", entry.feature);
+    let decided = common::apply_edits(&new, json!({"none": [&id]}));
+    let decided = specify_core::part::load_bytes("decided.step", decided.bytes).unwrap();
+    let analysis = specify_core::api::analyse(&decided).unwrap();
+    assert!(
+        analysis["table"]["decided_none"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(id)),
+        "{}",
+        analysis["resume"]
+    );
+    let decided = diff(&old, &decided).unwrap();
+    assert!(
+        decided.new_unstated.is_empty(),
+        "the new hole was decided none: {:?}",
+        decided.new_unstated
+    );
+    assert_eq!(decided.verdict, r.verdict);
+    assert!(decided.check.is_empty());
 }
 
 #[test]

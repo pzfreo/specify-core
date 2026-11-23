@@ -116,13 +116,24 @@ that would leave the reopened original unchanged refuses with “nothing to save
 The edit list is `{"fill": {id: value}, "change": {id: {"to", "expect"}}, "items": {"remove":
 ["#N"]}, "none": [id], "accept_suggestions": [id], "clear": [id]}`, as `specify-core write STEP
 EDITS.json` takes it; ids are the feature table's (`table` in the analysis resource), a choice
-with no row (`part.locating`), or an added requirement (`extra.<name>`). `clear` takes back a stored decision that leaves no PMI (a decided none, or a choice such as `part.locating`), so the feature-and-kind is a gap, or the choice unanswered, again; it never touches PMI (that is `change` and `items.remove`). A fill of `extra.<name>` with a requirement's spec (`{kind, faces, value, …}`, as an answer gave it) adds that requirement. `write_pmi`, which
+with no row (`part.locating`), or an added requirement (`extra.<name>`). `fill` fills gaps.
+An equal fill on a decided-none row is unchanged, including when both answers mean none.
+To replace a stored decision, send
+`{"clear":["part.coating"],"fill":{"part.coating":"Anodised"}}` as one edit list. The
+`clear` makes the row a gap again (or makes a stored choice unanswered) before the fill.
+Use `change` or `items.remove` to edit existing PMI. A fill of `extra.<name>` with a
+requirement's spec (`{kind, faces, value, …}`, as an answer gave it) adds that requirement.
+`write_pmi`, which
 wrote the whole intent of the answers to a path of the agent's choosing, is gone (ADR P11).
 
 An existing `answers_file` at `open` uses the same checks as `answer`. Refused entries
 stay in the source JSON on open, and their reasons appear in the open result and on the
-page. The preview keeps the file's stated values. An accepted or equal answer clears
+page. The preview keeps the file's stated values and stored decisions. An accepted or equal answer clears
 any earlier refusal for that row.
+
+`answer` refuses a value that would replace a stored decision unless its ID was explicitly
+cleared. For example, send `"clear":["part.coating"]` and `"set":{"part.coating":"Anodised"}`
+with the document handle. The staged edit uses both `clear` and `fill`.
 
 `answer` reads free text for a choice question as `serve`'s `interpret` does. `"M6"` on a hole
 becomes the matching `clearance:` or `tapped:` value, `"H7"` on a bore becomes a fit, and an
