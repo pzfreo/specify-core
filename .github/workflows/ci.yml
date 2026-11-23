@@ -15,6 +15,8 @@ permissions:
 # UI and the app run), the session contract (docs/open.md, docs/session.md), the app job's fixture and
 # the WASM crate. Pushes to main and manual runs run everything; releases run release.yml. A
 # skipped job is not a failure: `ci-ok` is the one check branch protection requires.
+# Job timeouts allow roughly twice the cold-cache duration. The 25-minute target
+# excludes full macOS runs, which use one runner to limit shared runner usage.
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -67,33 +69,7 @@ jobs:
   test:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Main run 45079277931 timings and local test lists put the Rust paths
-          # at about 19 min on Ubuntu and 25 min on macOS, excluding queues.
-          - os: ubuntu-latest
-            shards: '[1, 2, 3, 4]'
-            partition: hash
-            build-timeout: 18
-            shard-timeout: 24
-          - os: macos-latest
-            shards: '[1, 2, 3, 4, 5]'
-            partition: hash
-            build-timeout: 34
-            shard-timeout: 22
-    # Each OS consumes its own archive as soon as it is ready.
     uses: ./.github/workflows/ci-rust.yml
-    with:
-      os: ${{ matrix.os }}
-      shards: ${{ matrix.shards }}
-      partition: ${{ matrix.partition }}
-      build-timeout: ${{ matrix.build-timeout }}
-      shard-timeout: ${{ matrix.shard-timeout }}
-      # Normal macOS PRs run the floating-point binaries in the build job.
-      # Main, dispatch and release* PR heads retain the full suite.
-      full-suite: ${{ matrix.os != 'macos-latest' || github.event_name != 'pull_request' || startsWith(github.head_ref, 'release') }}
 
   # Browser jobs start as soon as the package is available.
   wasm-build:

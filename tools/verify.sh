@@ -10,7 +10,7 @@
 #   tools/verify.sh --dry-run   list the steps, run nothing (with --quick: the quick steps)
 #
 # It mirrors, step for step, the pull-request jobs of:
-#   ci.yml       test, wasm-build and wasm-checks, ui and its browser and package jobs,
+#   ci.yml       Linux's full Rust suite, wasm-build and wasm-checks, ui and its browser and package jobs,
 #                app-build and app (the jobs share this checkout's builds locally)
 #   bundle.yml   the lockstep version check and the bundle/ layout
 #   cli.yml      this machine's build: "Try it on a revision" and the open smoke (the app job's build)
@@ -51,7 +51,7 @@ failed=()
 
 # step NAME COMMAND...: run COMMAND (in a subshell from the repository root), log it, record the result.
 # Quick mode runs only the steps named in `quick_steps`.
-quick_steps='|ci test: fmt|ci test: clippy|ci test: build tests|ci wasm: Python version lockstep|ci wasm: wasm-pack|ci wasm: API snapshot|ci ui: npm ci|ci ui: fetch:wasm|ci ui: build|'
+quick_steps='|ci test: fmt|ci test: clippy|ci test: link workspace|ci test: build tests|ci wasm: Python version lockstep|ci wasm: wasm-pack|ci wasm: API snapshot|ci ui: npm ci|ci ui: fetch:wasm|ci ui: build|'
 step() {
   local name=$1; shift
   if [ "$quick" = 1 ] && [[ "$quick_steps" != *"|$name|"* ]]; then
@@ -81,6 +81,8 @@ step() {
 step "ci test: step-diff comment"     "bash step-diff/tests/comment.sh"
 step "ci test: fmt"                   "cargo fmt --all --check"
 step "ci test: clippy"                "cargo clippy --workspace --all-targets --release -- -D warnings"
+step "ci test: fetch dependencies"    "cargo fetch --locked"
+step "ci test: link workspace"        "cargo build --workspace --all-targets --release --locked"
 step "ci test: build tests"           "cargo nextest run --workspace --release --locked --no-run"
 step "ci test: full suite"            "cargo nextest run --workspace --release --locked --no-fail-fast"
 step "ci test: doctests"              "cargo test --doc --workspace --release --locked --no-fail-fast"

@@ -2,25 +2,6 @@ name: Rust CI
 
 on:
   workflow_call:
-    inputs:
-      os:
-        required: true
-        type: string
-      shards:
-        required: true
-        type: string
-      partition:
-        required: true
-        type: string
-      build-timeout:
-        required: true
-        type: number
-      shard-timeout:
-        required: true
-        type: number
-      full-suite:
-        required: true
-        type: boolean
 
 permissions:
   contents: read
@@ -33,11 +14,11 @@ env:
 
 jobs:
   build:
-    runs-on: ${{ inputs.os }}
-    # The previous macOS PR lane took about nine minutes on run 45095449286.
-    timeout-minutes: ${{ inputs.full-suite && inputs.build-timeout || 18 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - &checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       # Same corpus revision as pzfreo/quiddity. tests/common/corpus.rs selects the CI cases.
       - &corpus
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -48,33 +29,96 @@ jobs:
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: test # retain the original Rust job's cache
+          shared-key: linux-test-archive
       - &nextest
         uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
         with:
           tool: cargo-nextest@0.9.148
       - name: STEP diff comment regression
-        if: runner.os == 'Linux'
         run: bash step-diff/tests/comment.sh
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --release -- -D warnings
+      - &fmt
+        run: cargo fmt --all --check
+      - &clippy
+        run: cargo clippy --workspace --all-targets --release -- -D warnings
+      - name: Fetch dependencies for shard metadata checks
+        # The schema test resolves dependencies for all platforms, including wasm32.
+        run: cargo fetch --locked
+      - name: Link all workspace targets
+        # On every Rust PR, link the Python library and all test targets, including the WASM crate.
+        run: cargo build --workspace --all-targets --release --locked
       - name: Build and archive the workspace and every test
-        if: inputs.full-suite
         run: cargo nextest archive --workspace --release --locked --zstd-level 1 --archive-file tests.tar.zst
       - name: Upload test archive
-        if: inputs.full-suite
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: rust-tests-${{ inputs.os }}
+          name: rust-tests-ubuntu-latest
           path: tests.tar.zst
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
       - name: Doctests
-        if: inputs.full-suite
+        run: cargo test --doc --workspace --release --locked --no-fail-fast
+
+  shard:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - *checkout
+      - *corpus
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          # Match the build job's key and paths to restore its fetched sources.
+          shared-key: linux-test-archive
+          save-if: false
+      - *nextest
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rust-tests-ubuntu-latest
+      - name: Run the archived tests
+        # Restore target/ at the build's checkout path for the tests' compile-time paths.
+        env:
+          PARTITION: hash:${{ matrix.shard }}/${{ strategy.job-total }}
+        run: |
+          mkdir -p target/tmp
+          cargo nextest run --archive-file tests.tar.zst --extract-to . --extract-overwrite --no-fail-fast \
+            --partition "$PARTITION"
+
+  # Maintainer decision, 2026-10-26: macOS PRs build and run only float-sensitive
+  # expectations; five macOS runners are shared across repos, so reduce runner-minutes
+  # rather than add jobs/shards. Linux always runs everything. Main, dispatch and
+  # release* PR heads retain the full macOS suite.
+  # The 25-minute target excludes full macOS runs. One runner projects to 44–45 minutes
+  # (about 14 to build and 30 to run, based on main run 45079277931 and local timings).
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release') && 32 || 110 }}
+    env:
+      FULL_SUITE: ${{ github.event_name != 'pull_request' || startsWith(github.head_ref, 'release') }}
+    steps:
+      - *checkout
+      - *corpus
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: test # retain the original macOS job's cache
+      - *nextest
+      - *fmt
+      - *clippy
+      - name: Full suite
+        id: full-suite
+        if: env.FULL_SUITE == 'true'
+        run: cargo nextest run --workspace --release --locked --no-fail-fast
+      - name: Doctests
+        if: ${{ !cancelled() && (steps.full-suite.outcome == 'success' || steps.full-suite.outcome == 'failure') }}
         run: cargo test --doc --workspace --release --locked --no-fail-fast
       - name: macOS PR floating-point checks
-        if: ${{ !inputs.full-suite }}
+        if: env.FULL_SUITE == 'false'
         # features: libm-dependent frame/recognition and rounded face records.
         # mesh: acos/sin, UV refinement, triangle winding/area and rounded bounds.
         # anchors: geometric integration and six-decimal leader positions/directions.
@@ -87,36 +131,3 @@ jobs:
           cargo nextest run --release --locked --no-fail-fast
           --test features --test mesh --test anchors --test schema6
           --test resume --test revision --test pyfmt --test characteristic_numbers
-
-  shard:
-    needs: build
-    if: inputs.full-suite
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: ${{ fromJSON(inputs.shards) }}
-    runs-on: ${{ inputs.os }}
-    timeout-minutes: ${{ inputs.shard-timeout }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - *corpus
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          # Isolate the archive's target/ from the build job's Cargo cache.
-          key: test-shard
-          cache-targets: false
-          save-if: false
-      - *nextest
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: rust-tests-${{ inputs.os }}
-      - name: Run the archived tests
-        # Each runner of the same OS has the same checkout path. Restore target/ there for
-        # tests that use Cargo's compile-time paths to the CLI binary and scratch directory.
-        env:
-          PARTITION: ${{ inputs.partition }}:${{ matrix.shard }}/${{ strategy.job-total }}
-        run: |
-          mkdir -p target/tmp
-          cargo nextest run --archive-file tests.tar.zst --extract-to . --extract-overwrite --no-fail-fast \
-            --partition "$PARTITION"

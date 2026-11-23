@@ -8,9 +8,11 @@ ends with `VERIFY: PASS` or `VERIFY: FAIL (<steps>)`; paste that output in the p
 `tools/verify.sh --dry-run` lists the steps. It uses cargo-nextest for the Rust suite.
 Point `SPECIFY_CORPUS` at the [pzfreo/quiddity-corpus](https://github.com/pzfreo/quiddity-corpus)
 revision pinned in `.github/workflows/ci-rust.yml` (default `../quiddity/tests/corpus`).
-CI builds one test archive per OS and partitions the full suites. On ordinary PRs,
-macOS runs the floating-point test binaries in one job. Docs-only PRs skip Rust, WASM,
-UI and app jobs unless they touch a dependency listed in the workflow's path filter.
+Linux links every workspace target and builds one test archive for its four shards.
+macOS uses one job. It builds and runs the floating-point test binaries on ordinary
+PRs and runs the full suite on main, manual runs and PRs with `release*` heads.
+Full macOS runs are outside the 25-minute target. Docs-only PRs skip Rust, WASM, UI
+and app jobs unless they touch a dependency listed in the workflow's path filter.
 
 A change to the WASM API also needs its `api.d.ts` snapshot and a CHANGELOG `### WASM API` entry
 (`python3 tools/check_wasm_api.py --base-ref origin/main`). CI's `wasm-checks` job runs that and the
