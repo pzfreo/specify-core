@@ -209,6 +209,29 @@ try {
     assert.deepEqual((await calls(page)).slice(before), ['questions', 'preview', 'inspection', 'inspection'], 'only the requested workbook adds another inspection');
     await page.close();
   }
+  // A second answer given while the first is under review must win. Blur after Enter
+  // also used to submit the catalogue spelling of the second answer as a third edit.
+  {
+    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz', '#specify-panel .pmi-lab-row-head', '&keep=host');
+    const before = (await calls(page)).length;
+    await page.evaluate(() => { window.__questionReplies = []; });
+    const material = panel(page).locator('[data-question="part.material"] input');
+    await material.fill('Aluminium 6082-T6');
+    await material.press('Enter');
+    await material.fill('brass cw614n');
+    await material.press('Enter');
+    await panel(page).getByRole('tab', { name: /^Characteristics/ }).click();
+    assert.deepEqual((await calls(page)).slice(before), ['questions'], 'only the first answer is reviewed while its reply is held');
+    await page.evaluate(() => { window.__questionReplies.shift()(); });
+    await check.poll(async () => (await calls(page)).slice(before)).toEqual(['questions', 'preview', 'questions']);
+    await page.evaluate(() => { window.__questionReplies.shift()(); });
+    const table = panel(page).locator('.pmi-lab-table');
+    await check(table).toContainText('Material: brass cw614n');
+    assert.deepEqual((await calls(page)).slice(before), ['questions', 'preview', 'questions', 'preview']);
+    const csv = readFileSync(await inspectionDownload(page, 'Inspection list (CSV)'), 'utf8');
+    assert.deepEqual(csv.trimEnd().split('\n').slice(1), [',,Part,Material: brass cw614n,,,,,,']);
+    await page.close();
+  }
   // A host that keeps suggestions itself (the editor: onKeep, and kept for the ticks): Keep goes to
   // the host and nothing is answered; the question the host lists as kept is ticked in its row.
   {

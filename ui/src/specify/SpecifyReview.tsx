@@ -343,11 +343,14 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   }, [transparency, session]);
 
   const previewing = useRef(0);
+  const committedAnswers = useRef(answers);
+  const committing = useRef(Promise.resolve(false));
   const sessionId = useRef(session.sessionId);
   const live = useCallback(<T,>(call: (id: string) => Promise<T>): Promise<T> => call(sessionId.current), []);
   // Global project undo/redo and reopen feed the original UI's local review state.
   useEffect(() => {
     ++previewing.current; // An older preview must not overwrite a host undo/redo.
+    committedAnswers.current = externalAnswers;
     setAnswers(externalAnswers);
     setQuestions(externalReview.questions);
     setOpenIds(externalReview.open);
@@ -379,14 +382,17 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     if (readOnly) {
       // Nothing is asked: the answers it was saved with are only read, to judge what is set.
       setCurrent(null);
-      if (saved && Object.keys(saved).length > 0) setAnswers(saved);
+      if (saved && Object.keys(saved).length > 0) {
+        committedAnswers.current = saved;
+        setAnswers(saved);
+      }
       void start.relabel(saved ?? {});
       return;
     }
     if (saved && Object.keys(saved).length > 0) {
       // Said only of answers the STEP carries: a host's own (an agent's, the browser's) are not "saved with".
       setResumed(Object.keys(session.analysis.resume?.answers ?? {}).length > 0);
-      void start.commit(null, saved, (asked) =>
+      void start.commit(null, () => saved, (asked) =>
         nextNeeding(asked.filter((g) => g.key !== 'part'), saved));
       return;
     }
@@ -399,33 +405,44 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   // pmi-assist decides what follows from the answers, and may refuse them.
   // ``focus`` is the question to show afterwards; by default the one answered
   // stays open, so a choice is seen to have been made.
-  const commit = useCallback(async (
-    at: string | null, next: PmiAnswers, focus: (asked: QuestionGroup[]) => string | null,
+  const commit = useCallback((
+    at: string | null, update: (answers: PmiAnswers) => PmiAnswers,
+    focus: (asked: QuestionGroup[], next: PmiAnswers) => string | null,
   ) => {
-    if (readOnly) return false;
-    try {
-      const asked = await live((id) => engine.questions(id, next));
-      setError(null);
-      setAnswers(next);
-      setQuestions(asked.questions);
-      setOpenIds(asked.open);
-      setProblems(asked.problems ?? []);
-      setCurrent(focus(groupQuestions(asked.questions)));
-      void relabel(next);
-      return true;
-    } catch (failure) {
-      setError({ at, problem: asError(failure) });
-      return false;
-    }
-  }, [engine, relabel, live]);
+    if (readOnly) return Promise.resolve(false);
+    // A host can save answers in questions(). Review one change at a time, starting
+    // from the last accepted answers even when React has yet to render them.
+    const pending = committing.current.then(async () => {
+      try {
+        const next = update(committedAnswers.current);
+        const asked = await live((id) => engine.questions(id, next));
+        committedAnswers.current = next;
+        setError(null);
+        setAnswers(next);
+        setQuestions(asked.questions);
+        setOpenIds(asked.open);
+        setProblems(asked.problems ?? []);
+        setCurrent(focus(groupQuestions(asked.questions), next));
+        void relabel(next);
+        return true;
+      } catch (failure) {
+        setError({ at, problem: asError(failure) });
+        return false;
+      }
+    });
+    committing.current = pending;
+    return pending;
+  }, [engine, relabel, live, readOnly]);
   startWith.current = { commit, relabel };
 
   const answer = (q: PmiQuestion, value: unknown, remove = false) => {
     if (adding && q.id === adding.id) setAdding(null);
-    const next: Record<string, unknown> = { ...answers };
-    if (remove) delete next[q.id];
-    else next[q.id] = value;
-    return commit(q.id, next, (asked) => {
+    return commit(q.id, (latest) => {
+      const next = { ...latest };
+      if (remove) delete next[q.id];
+      else next[q.id] = value;
+      return next;
+    }, (asked, next) => {
       if (q.id.startsWith('part.')) return current;
       // A face pick takes the whole box; once used it closes, and what still
       // needs a person opens -- or nothing, and the row shrinks to its summary.
@@ -520,7 +537,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       ? { faces: [...g.faces], kind: 'size' as const, value }
       : { faces: [...g.faces], kind: 'distance' as const, value, reference };
     setNoteGeneral(null);
-    if (await commit(key, { ...answers, [key]: extra }, () => null)) {
+    if (await commit(key, (latest) => ({ ...latest, [key]: extra }), () => null)) {
       setNote(`Called out ${what} ${value}.`);
     } else {
       callOut(i, what, value);
@@ -549,15 +566,17 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     };
     // A new datum beyond C has no proposal: its question opens to pick it.
     const unpicked = (extra.datums ?? []).find((x) => !'ABC'.includes(x) && !chips.some((c) => c.letter === x));
-    void commit(draft.key, { ...answers, [draft.key]: extra }, () => {
+    void commit(draft.key, (latest) => ({ ...latest, [draft.key]: extra }), () => {
       setDraft(null);
       return unpicked ? `datum.${unpicked}` : null;
     });
   };
   const removeExtra = (key: string) => {
-    const next: Record<string, unknown> = { ...answers };
-    delete next[key];
-    void commit(key, next, () => { setDraft(null); return null; });
+    void commit(key, (latest) => {
+      const next = { ...latest };
+      delete next[key];
+      return next;
+    }, () => { setDraft(null); return null; });
   };
 
   // What pmi-assist chose, to keep (answered as it stands) or change (opened).
@@ -589,12 +608,14 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const keepChosen = (ids: readonly string[]) => {
     if (readOnly) return;
     if (onKeep) { onKeep(ids); return; }
-    const next: Record<string, unknown> = { ...answers };
-    for (const id of ids) {
-      const q = questions.find((x) => x.id === id);
-      if (q) next[id] = q.default;
-    }
-    void commit(ids[0] ?? null, next, (asked) => settled(ids, asked, next));
+    void commit(ids[0] ?? null, (latest) => {
+      const next = { ...latest };
+      for (const id of ids) {
+        const q = questions.find((x) => x.id === id);
+        if (q) next[id] = q.default;
+      }
+      return next;
+    }, (asked, next) => settled(ids, asked, next));
   };
   // After keeping or choosing: the open question stays open unless it was the
   // one settled, which folds, and what still needs a person opens.
@@ -602,8 +623,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     (current && ids.includes(current) ? nextNeeding(asked.filter((x) => x.key !== 'part'), next) : current);
   // Choosing an alternative answers it there and then; it leaves the list.
   const pickChosen = (id: string, value: string) => {
-    const next = { ...answers, [id]: value };
-    void commit(id, next, (asked) => settled([id], asked, next));
+    void commit(id, (latest) => ({ ...latest, [id]: value }), (asked, next) => settled([id], asked, next));
   };
   // Opens the question in full and brings it into view -- every time, even
   // when it is already the open one, or the tap would seem to do nothing.
@@ -627,17 +647,16 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   };
 
   const removeDatum = (letter: string) => {
-    const { answers: next, warning } = removal(letter, chips, answers, preview);
+    const { warning } = removal(letter, chips, answers, preview);
     if (warning && !window.confirm(`${warning}\n\nRemove datum ${letter}?`)) return;
-    void commit(`datum.${letter}`, next, (asked) =>
+    void commit(`datum.${letter}`, (latest) => removal(letter, chips, latest, preview).answers, (asked) =>
       (asked.some((g) => g.questions.some((x) => x.id === current)) ? current : null));
   };
 
   // "Looks right" on a row: its checks are accepted and the next row needing a person opens.
   const confirm = (g: QuestionGroup) => {
-    const next = confirmRow(g, answers);
     // Confirmed, the row folds; what still needs a person opens, if anything.
-    void commit(g.questions[0]?.id ?? null, next, (asked) =>
+    void commit(g.questions[0]?.id ?? null, (latest) => confirmRow(g, latest), (asked, next) =>
       nextNeeding(asked.filter((x) => x.key !== 'part'), next));
   };
 
