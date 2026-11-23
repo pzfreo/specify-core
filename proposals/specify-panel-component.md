@@ -63,6 +63,7 @@ All of the writing happens in the browser, through the engine 0.3.0 already ship
 3. **Saving runs in the browser by default.** The app can also pass its own save function and get the edit lists to apply elsewhere. `open` uses that to keep saving through its session.
 4. **The 3D view is the host's, if it wants** (Amy's requirement). `SpecifyPanel` takes the same optional `view: HostView` as StepDiff and SpecifyReview (ui/docs/host-view.md). Selecting a row shows, colours and frames its faces in that view, and a face picked there selects its row. With no view passed, the panel uses the package's default view. Drawn-PMI overlays over a host camera stay under "Later", as for `HostView`.
 5. **Restored as in 0.2:** one-click accept of a suggestion and its alternatives, general-dimension call-outs, and the CSV inclusion ticks. Datums are picked with the 0.2 chips, with pencil and bin on datums the file already states. "Added by you" is shown but disabled in rc.2, and enabled in 0.3.1 with `extra.*`.
+6. **Identical parts of an assembly** (Paul, 2026-11-23). An edit to one part applies automatically to every identical copy of that part, in the same all-or-nothing Save. The row says "applies to N identical parts", and one copy can be split off explicitly, after which its edits apply to it alone.
 
 ## How we'll know it works
 
