@@ -57,6 +57,10 @@ function titleOf(q: PmiQuestion): string {
 export const answerOf = (q: PmiQuestion, answers: PmiAnswers): unknown =>
   (q.id in answers ? answers[q.id] : q.default);
 
+/** Seed an empty host only on open. Later host maps can explicitly take an answer back. */
+export const editorReviewAnswers = (host: PmiAnswers, openingAnswers?: PmiAnswers): PmiAnswers =>
+  openingAnswers && Object.keys(host).length === 0 ? openingAnswers : host;
+
 /** Whether ``q`` still needs a person: unanswered and required, or an unconfirmed check. An
  * optional question is written with Specify's suggestion, so it asks for a check, not an answer. */
 export function needs(q: PmiQuestion, answers: PmiAnswers): 'required' | 'check' | null {

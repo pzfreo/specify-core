@@ -16,6 +16,7 @@ declare global {
     __questionAnswers: PmiAnswers[];
     __questionHostVersions: number[];
     __changeQuestionHost(): void;
+    __setSpecifyAnswers(answers: PmiAnswers): Promise<void>;
     /** When set, tests release each held questions reply by calling its function. */
     __questionReplies?: (() => void)[];
     __parts: (string | null)[];
@@ -82,6 +83,7 @@ function SpecifyHost() {
   // Made here, not at module level: the StepDiff page starts no extra worker.
   const worker = useMemo(() => createIntentEngine({ wasmUrl }), []);
   const [open, setOpen] = useState<{ session: any; review: any; engine: any; drawn: DrawnPmi | null } | null>(null);
+  const [external, setExternal] = useState<{ answers: PmiAnswers; review: any } | null>(null);
   const view = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const exports = useRef<HTMLDivElement>(null);
@@ -100,6 +102,8 @@ function SpecifyHost() {
     const snapshot: any = await worker.request('open', { name, bytes, sourceId });
     const review: any = await worker.request('review', { name, bytes, sourceId, answers: {} });
     const call = (operation: string, answers: unknown) => worker.request<any>(operation, { name, bytes, sourceId, answers });
+    setExternal(null);
+    window.__setSpecifyAnswers = async answers => setExternal({ answers, review: await call('review', answers) });
     const engine = {
       questions: async (_id: string, answers: PmiAnswers) => {
         window.__calls.push('questions');
@@ -136,7 +140,7 @@ function SpecifyHost() {
     <main className="diff-page">
       <input id="specify-file" type="file" onChange={event => { const chosen = event.target.files?.[0]; if (chosen) void pick(chosen); }} />
       <div id="specify-view" style={{ height: 520 }} ref={view} />
-      <div id="specify-panel" ref={panel} data-question-host={questionHost} />
+      <div id="specify-panel" ref={panel} data-question-host={questionHost} data-host-updated={Boolean(external)} />
       <div id="specify-actions">
         <div id="specify-exports" ref={exports} />
         {query.has('defer') && <button onClick={() => deferred.current.shift()?.()}>Resume download</button>}
@@ -144,7 +148,7 @@ function SpecifyHost() {
       {open && slots && (
         <SpecifyReview
           engine={engine} session={open.session} slots={slots} readOnly={readOnly} drawn={open.drawn}
-          externalAnswers={noAnswers} externalReview={open.review} disabled={false}
+          externalAnswers={external?.answers ?? noAnswers} externalReview={external?.review ?? open.review} disabled={false}
           onExport={action => { if (query.has('defer')) deferred.current.push(action); else action(); }} {...(hostKeeps ? { onKeep, kept } : {})}
         />
       )}

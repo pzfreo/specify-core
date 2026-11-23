@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
 // <SpecifyReview> in the harness page (test/harness, ?specify=1) on the spindle: editable, then readOnly.
 // The harness's engine records each call the component makes of it on window.__calls. Run by
@@ -14,7 +15,7 @@ const assertMaterialSequence = (received, versions) => {
 // Exercise the same queued calls when Chromium cannot start. The browser case below
 // also exercises controlled input, rerender, and inspection.
 if (process.argv.includes('--held-replies-only')) {
-  const { queueReview } = await import('../src/specify/review.ts');
+  const { editorReviewAnswers, queueReview } = await import('../src/specify/review.ts');
   const tail = { current: Promise.resolve(true) };
   const received = [];
   const versions = [];
@@ -35,6 +36,9 @@ if (process.argv.includes('--held-replies-only')) {
     await Promise.resolve();
   }
   assertMaterialSequence(received, versions);
+  const carried = { 'part.surface_finish': 'none' };
+  assert.deepEqual(editorReviewAnswers({}, carried), carried, 'the empty host seeds once from the file');
+  assert.deepEqual(editorReviewAnswers({}), {}, 'a later host removal stays removed');
   console.log('Held Material replies reached the latest host in order.');
   process.exit(0);
 }
@@ -291,6 +295,28 @@ try {
     const reverted = readFileSync(await inspectionDownload(page, 'Inspection list (CSV)'), 'utf8');
     assert.deepEqual(reverted.trimEnd().split('\n').slice(1), [',,Part,Material: Aluminium 6082-T6,,,,,,']);
     await page.close();
+
+    // The host can undo a decision carried from the STEP. The next edit sends the host's map.
+    const { IntentEngine } = await import('./engine-fixture.mjs');
+    const shaft = gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz'));
+    const engine = new IntentEngine('carried-decision.step', shaft);
+    const decision = 'part.surface_finish';
+    let saved;
+    try { saved = JSON.parse(engine.edit(JSON.stringify({ none: [decision] }))); }
+    finally { engine.free(); }
+    assert.ok(saved.written, JSON.stringify(saved.failures));
+    const reopened = await openPage(false, {
+      name: 'carried-decision.step', mimeType: 'application/octet-stream', buffer: Buffer.from(saved.bytes),
+    });
+    assert.match((await questionAnswers(reopened))[0][decision], /^none$/i, 'an empty host starts with the saved decision');
+    await reopened.evaluate(() => window.__setSpecifyAnswers({}));
+    await check(panel(reopened)).toHaveAttribute('data-host-updated', 'true');
+    const reopenedMaterial = panel(reopened).locator('[data-question="part.material"] input');
+    await reopenedMaterial.fill('aluminium 6082-t6');
+    await reopenedMaterial.press('Enter');
+    await check.poll(() => questionAnswers(reopened)).toHaveLength(2);
+    assert.deepEqual((await questionAnswers(reopened))[1], { 'part.material': 'Aluminium 6082-T6' }, 'host Undo keeps the decision removed');
+    await reopened.close();
   }
   // Two different edits given before the first reply must both survive, even when
   // the engine returns the replies in order. Keep accepts the tolerance shown on its card.

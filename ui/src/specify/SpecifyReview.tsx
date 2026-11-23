@@ -28,7 +28,7 @@ import type { PmiLabel } from './labels';
 import type { Picker } from './picker';
 import type { HostView } from './host-view';
 import { createReviewView } from './review-view';
-import { answerOf, confirmRow, display, groupQuestions, NONE_SUGGESTED, needs, nextNeeding, noneSuggested, questionForFace, queueReview, rowState, summary, type QuestionGroup } from './review';
+import { answerOf, confirmRow, display, editorReviewAnswers, groupQuestions, NONE_SUGGESTED, needs, nextNeeding, noneSuggested, questionForFace, queueReview, rowState, summary, type QuestionGroup } from './review';
 import { MODES, type PickMode } from './selection';
 import './PmiLab.css';
 export type SpecifyEngine = Pick<PmiLabEngine, 'questions' | 'interpret' | 'preview'> & {
@@ -113,7 +113,8 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const reopened = fileOptions && written?.from === fileOptions.file.sourceId ? written : null;
   const session = reopened?.session ?? openedSession;
   const fileReview = fileOptions && (reopened ? { ...fileOptions, file: reopened.file, parts: reopened.parts } : fileOptions);
-  const editingFile = Boolean(fileReview && !readOnly);
+  const fileBacked = Boolean(fileReview);
+  const editingFile = fileBacked && !readOnly;
   const focusId = useMemo(() => focusedRequirement(session.analysis, focusRequest), [session.analysis, focusRequest]);
   const isNoteField = (id: string) => NOTE_FIELDS.has(id) || (editingFile && id === 'part.notes');
   const [localEdits, setLocalEdits] = useState<PartQueue>(EMPTY_QUEUE);
@@ -147,8 +148,8 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const [askedQuestions, setQuestions] = useState<readonly PmiQuestion[]>(session.questions);
   // The engine's open questions: the Datums row is not answered while one of its own is open (specify-ui#14).
   const [openIds, setOpenIds] = useState<readonly string[]>(session.open);
-  const [answers, setAnswers] = useState<PmiAnswers>(() => editingFile
-    ? impliedAnswers(session.analysis, pending) : withStoredAnswers(session.analysis, { ...session.answers, ...externalAnswers }));
+  const [answers, setAnswers] = useState<PmiAnswers>(() => fileBacked
+    ? impliedAnswers(session.analysis, pending) : editorReviewAnswers(externalAnswers, withStoredAnswers(session.analysis, session.answers ?? {})));
   const [resumed, setResumed] = useState(false);
   const [current, setCurrent] = useState<string | null>(null);
   // A refusal is shown by what was refused: a question's id, or null for the panel.
@@ -408,24 +409,16 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const committedAnswers = useRef(answers);
   const committing = useRef(Promise.resolve(false));
   const sessionId = useRef(session.sessionId);
+  sessionId.current = session.sessionId;
   const live = useCallback(<T,>(call: (id: string) => Promise<T>): Promise<T> => call(sessionId.current), []);
   const displayReview = useCallback((given: PmiAnswers, review: IntentReview) => {
     committedAnswers.current = given;
     setAnswers(given);
     setQuestions(review.questions);
-    setOpenIds(review.open.filter(id => !Object.hasOwn(given, id)));
+    setOpenIds(review.open);
     setProblems(review.problems ?? []);
     setPreview(review.intent);
   }, []);
-
-  // Host undo/redo applies over file decisions, including when the host has no answers of its own.
-  useEffect(() => {
-    if (editingFile) return;
-    ++previewing.current;
-    const given = withStoredAnswers(session.analysis, externalAnswers);
-    displayReview(given, externalReview);
-    setTyped(typed => Object.fromEntries(Object.entries(typed).filter(([id, read]) => given[id] === read.value)));
-  }, [externalAnswers, externalReview, editingFile, session.analysis, displayReview]);
 
   const shownEdits = useRef<{ sourceId: string; pending: PendingEdits } | null>(null);
   useEffect(() => {
@@ -470,51 +463,56 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     }
   }, [live]);
 
-  // Once per part opened -- never again on a re-render, which would throw away
-  // what has been answered since. Reached through ``startWith``, set below.
   const startWith = useRef<{ commit: typeof commit; relabel: typeof relabel } | null>(null);
+  const hostPart = useRef<string | null>(null);
   useEffect(() => {
     const start = startWith.current;
     if (!start) return;
     if (editingFile) {
-      setError(null);
-      setAdding(null);
-      setDraft(null);
-      setTyped({});
-      setShowing(null);
-      setView('review');
-      setUnfolded(null);
-      const given = impliedAnswers(session.analysis, pending);
-      displayReview(given, externalReview);
-      const first = groupQuestions(session.questions).filter(g => g.key !== 'part');
-      setCurrent(focusId ?? nextNeeding(first, given));
-      if (session.questions.some(q => q.id === 'part.material' && needs(q, given) === 'required')) setUnfolded('part.material');
+      hostPart.current = null;
       return;
     }
-    // A STEP Specify wrote carries on from the answers it was written with.
-    const saved = withStoredAnswers(session.analysis, session.answers ?? {});
+    const opening = hostPart.current !== session.sessionId;
+    hostPart.current = session.sessionId;
+    const given = fileBacked ? impliedAnswers(session.analysis, EMPTY_PENDING) :
+      editorReviewAnswers(externalAnswers, opening ? withStoredAnswers(session.analysis, session.answers ?? {}) : undefined);
+    // A newer host map can arrive while the opening review is still pending.
+    const openingView = ++previewing.current;
+    displayReview(given, externalReview);
+    setTyped(typed => Object.fromEntries(Object.entries(typed).filter(([id, read]) => given[id] === read.value)));
+    if (!opening) return;
+
     if (readOnly) {
-      // Nothing is asked: the answers it was saved with are only read, to judge what is set.
       setCurrent(null);
-      const given = { ...saved, ...externalAnswers };
-      if (Object.keys(given).length > 0) {
-        committedAnswers.current = given;
-        setAnswers(given);
-      }
       void start.relabel(given);
       return;
     }
-    if (Object.keys(saved).length > 0) {
-      // Said only of answers the STEP carries: a host's own (an agent's, the browser's) are not "saved with".
-      setResumed(Object.keys(session.analysis.resume?.answers ?? {}).length > 0);
-      void start.commit(null, latest => ({ ...saved, ...latest }), (asked, given) =>
-        nextNeeding(asked.filter((g) => g.key !== 'part'), given));
+    const seeded = given !== externalAnswers && Object.keys(given).length > 0;
+    setResumed(seeded && Object.keys(session.analysis.resume?.answers ?? {}).length > 0);
+    if (seeded) {
+      void start.commit(null, () => given, (asked, next) =>
+        nextNeeding(asked.filter(g => g.key !== 'part'), next), openingView);
       return;
     }
-    // The part's own fields are always in view; start at the first thing on the part.
-    const first = groupQuestions(session.questions).filter((g) => g.key !== 'part');
-    setCurrent(nextNeeding(first, {}) ?? first[0]?.questions[0]?.id ?? null);
-    void start.relabel({});
+    const first = groupQuestions(externalReview.questions).filter(g => g.key !== 'part');
+    setCurrent(nextNeeding(first, given) ?? first[0]?.questions[0]?.id ?? null);
+    void start.relabel(given);
+  }, [session, externalAnswers, externalReview, editingFile, fileBacked, readOnly, displayReview]);
+
+  useEffect(() => {
+    if (!editingFile) return;
+    setError(null);
+    setAdding(null);
+    setDraft(null);
+    setTyped({});
+    setShowing(null);
+    setView('review');
+    setUnfolded(null);
+    const given = impliedAnswers(session.analysis, pending);
+    displayReview(given, externalReview);
+    const first = groupQuestions(session.questions).filter(g => g.key !== 'part');
+    setCurrent(focusId ?? nextNeeding(first, given));
+    if (session.questions.some(q => q.id === 'part.material' && needs(q, given) === 'required')) setUnfolded('part.material');
   }, [session]);
 
   const publishPending = (edits: PartQueue) => {
@@ -701,6 +699,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const commit = useCallback((
     at: string | null, update: (answers: PmiAnswers) => PmiAnswers,
     focus: (asked: QuestionGroup[], next: PmiAnswers) => string | null,
+    openingView?: number,
   ) => {
     if (host.current.readOnly) return Promise.resolve(false);
     // A host can save answers in questions(). Review one change at a time, starting
@@ -709,10 +708,11 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     // their timeouts: questions() has no cancellation, so skipping a pending call
     // could allow it to save over later answers.
     return queueReview(committing, () => host.current, async ({ engine, readOnly }) => {
-      if (readOnly) return false;
+      if (readOnly || (openingView !== undefined && openingView !== previewing.current)) return false;
       try {
         const next = update(committedAnswers.current);
         const asked = await live((id) => engine.questions(id, next));
+        if (openingView !== undefined && openingView !== previewing.current) return false;
         committedAnswers.current = next;
         setError(null);
         setAnswers(next);
@@ -723,7 +723,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         void relabel(next);
         return true;
       } catch (failure) {
-        setError({ at, problem: asError(failure) });
+        if (openingView === undefined || openingView === previewing.current) setError({ at, problem: asError(failure) });
         return false;
       }
     });
