@@ -9,8 +9,8 @@ on:
 permissions:
   contents: read
 
-# Path filters on pull requests (the `changes` job): a PR that changes only ui/ skips the Rust
-# jobs, and one that changes nothing in ui/ or the shared files skips the UI jobs. Shared files
+# Path filters on pull requests (the `changes` job): docs-only changes skip both suites, and a
+# ui-only change skips Rust. A PR with no ui/ or shared files skips the UI jobs. Shared files
 # run both: the workflows, the root manifests, the engine (all of src/, compiled into the WASM the
 # UI and the app run), the session contract (docs/open.md, docs/session.md), the app job's fixture and
 # the WASM crate. Pushes to main and manual runs run everything; releases run release.yml. A
@@ -18,6 +18,7 @@ permissions:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       ui: ${{ steps.filter.outputs.ui }}
@@ -40,8 +41,9 @@ jobs:
           rust=false
           ui=false
           # The files the PR changes (since it left its base).
-          files=$(git diff --name-only "$BASE...$HEAD")
-          while IFS= read -r file; do
+          files="$RUNNER_TEMP/changed-paths"
+          git diff --name-only --no-renames -z "$BASE...$HEAD" > "$files"
+          while IFS= read -r -d '' file; do
             case "$file" in
               '') ;;
               ui/*) ui=true ;;
@@ -49,9 +51,16 @@ jobs:
               # change is tested by the ui and app jobs too. Only a ui-only change skips Rust.
               .github/*|Cargo.toml|Cargo.lock|build.rs|tools/open_smoke.py|tests/fixtures/bundle/*|rust-toolchain.toml|docs/open.md|docs/session.md|src/*|tests/fixtures/thread-depth-alpha7.step.gz|crates/specify-core-wasm/*)
                 rust=true; ui=true ;;
+              # Packaging and the WASM API acknowledgement read the README and changelog.
+              # Rust checks these docs or exercises the contracts they describe.
+              README.md|CHANGELOG.md|docs/answers.md|docs/design.md|docs/face-names.md|docs/ids.md|docs/known-differences.md|docs/mcp.md|docs/process.md|docs/rule-sources.md)
+                rust=true ;;
+              docs/*|proposals/*) ;;
+              */*) rust=true ;;
+              *.md) ;;
               *) rust=true ;;
             esac
-          done <<< "$files"
+          done < "$files"
           echo "rust=$rust ui=$ui"
           printf 'rust=%s\nui=%s\n' "$rust" "$ui" >> "$GITHUB_OUTPUT"
 
@@ -61,56 +70,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    env:
-      CARGO_TERM_COLOR: always
-      QUIDDITY_CORPUS: ${{ github.workspace }}/quiddity-corpus
-      SPECIFY_CORPUS: ${{ github.workspace }}/quiddity-corpus
-      QUIDDITY_CORPUS_REQUIRED: "1"
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      # Same corpus repository and revision as pzfreo/quiddity's suite.yml (pzfreo/quiddity-corpus,
-      # split from the retired Python repository's tests/corpus; identical at 6d544e0).
-      # Tests select Specify's regressions from tests/common/corpus.rs; the full sweep
-      # is a local opt-in (SPECIFY_CORPUS_ALL=1), not a CI tier.
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          repository: pzfreo/quiddity-corpus
-          ref: 3ef06590a7a27ed65ca1f1a6e7f7ea4d5c328f1f
-          path: quiddity-corpus
-      # The toolchain comes from rust-toolchain.toml. pzfreo/quiddity is a public git dependency,
-      # pinned by Cargo.lock.
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - name: STEP diff comment regression
-        if: runner.os == 'Linux'
-        run: bash step-diff/tests/comment.sh
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --release -- -D warnings
-      # Maintainer decision, 2026-10-26: macOS PRs build and run only float-sensitive
-      # expectations; five macOS runners are shared across repos, so reduce runner-minutes
-      # rather than add jobs/shards. Linux always runs everything. Main, dispatch and
-      # release* PR heads retain the full macOS suite.
-      - name: Build the workspace and every test
-        run: cargo test --workspace --release --locked --no-run
-      - name: Full suite
-        if: runner.os != 'macOS' || github.event_name != 'pull_request' || startsWith(github.head_ref, 'release')
-        run: cargo test --workspace --release --locked --no-fail-fast
-      - name: macOS PR floating-point checks
-        if: runner.os == 'macOS' && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release')
-        # features: libm-dependent frame/recognition and rounded face records.
-        # mesh: acos/sin, UV refinement, triangle winding/area and rounded bounds.
-        # anchors: geometric integration and six-decimal leader positions/directions.
-        # schema6: rotated slot end planes, frame roll and PMI coordinates.
-        # resume: rounded centroids, signed zero and persisted fingerprint hashes.
-        # revision: geometric correspondence, rounded report measurements and PNG projection.
-        # characteristic_numbers: macOS-captured legacy serialization hashes.
-        # pyfmt: exact binary rounding/formatting used by all these expectations.
-        run: >-
-          cargo test --release --locked --no-fail-fast
-          --test features --test mesh --test anchors --test schema6
-          --test resume --test revision --test pyfmt --test characteristic_numbers
+        include:
+          - os: ubuntu-latest
+            shards: '[1, 2, 3, 4]'
+            build-timeout: 18
+            shard-timeout: 24
+          - os: macos-latest
+            shards: '[1, 2, 3]'
+            build-timeout: 34
+            shard-timeout: 22
+    # Each OS consumes its own archive as soon as it is ready.
+    uses: ./.github/workflows/ci-rust.yml
+    with:
+      os: ${{ matrix.os }}
+      shards: ${{ matrix.shards }}
+      build-timeout: ${{ matrix.build-timeout }}
+      shard-timeout: ${{ matrix.shard-timeout }}
+      # Normal macOS PRs run the floating-point binaries in the build job.
+      # Main, dispatch and release* PR heads retain the full suite.
+      full-suite: ${{ matrix.os != 'macos-latest' || github.event_name != 'pull_request' || startsWith(github.head_ref, 'release') }}
 
   # The engine. Its build also feeds the UI jobs, so it runs for either; its own checks (API
   # snapshot, size, parity, the npm pack) only when Rust-side files changed.
@@ -118,6 +96,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ui == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     env:
       CARGO_TERM_COLOR: always
       RUST_CHECKS: ${{ needs.changes.outputs.rust }}
@@ -179,7 +158,7 @@ jobs:
     needs: [changes, wasm]
     if: needs.changes.outputs.ui == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 55
     defaults:
       run:
         working-directory: ui
@@ -222,7 +201,7 @@ jobs:
     needs: [changes, wasm]
     if: needs.changes.outputs.ui == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 32
     env:
       CARGO_TERM_COLOR: always
     steps:
@@ -277,6 +256,7 @@ jobs:
     needs: [changes, test, wasm, ui, app]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     steps:
       - env:
           RESULTS: ${{ join(needs.*.result, ' ') }}

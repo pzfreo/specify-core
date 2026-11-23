@@ -5,9 +5,12 @@ Contributions are welcome: bug reports, fixes, features and documentation.
 Before review, run `tools/verify.sh`. It runs what CI runs on a pull request (the Rust suite, the WASM
 checks, the UI and app jobs against this checkout's build, the wheel's pytest and the crate package) and
 ends with `VERIFY: PASS` or `VERIFY: FAIL (<steps>)`; paste that output in the pull request. Commit first: its crate-package step refuses uncommitted changes, as CI's does.
-`tools/verify.sh --dry-run` lists the steps. The corpus is
-[pzfreo/quiddity-corpus](https://github.com/pzfreo/quiddity-corpus) at the revision `.github/workflows/ci.yml`
-pins; point `SPECIFY_CORPUS` at its checkout (default `../quiddity/tests/corpus`).
+`tools/verify.sh --dry-run` lists the steps. It uses cargo-nextest for the Rust suite.
+Point `SPECIFY_CORPUS` at the [pzfreo/quiddity-corpus](https://github.com/pzfreo/quiddity-corpus)
+revision pinned in `.github/workflows/ci-rust.yml` (default `../quiddity/tests/corpus`).
+CI builds one test archive per OS and partitions the full suites. On ordinary PRs,
+macOS runs the floating-point test binaries in one job. Docs-only PRs skip Rust, WASM,
+UI and app jobs unless they touch a dependency listed in the workflow's path filter.
 
 A change to the WASM API also needs its `api.d.ts` snapshot and a CHANGELOG `### WASM API` entry
 (`python3 tools/check_wasm_api.py --base-ref origin/main`). CI's `wasm` job runs that and the size and

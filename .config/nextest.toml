@@ -1,0 +1,26 @@
+[profile.default]
+retries = 0
+
+[[profile.default.overrides]]
+# Measured long corpus sweeps start before short tests, keeping the shard tail short.
+filter = '''
+    test(accepting_corpus_defaults_leaves_no_open_rows)
+    | test(=writes_match_the_oracle)
+    | test(=an_unchanged_round_trip_resumes_every_answer)
+    | test(=corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains)
+    | test(=corpus_feature_rows_that_can_write_pmi_have_faces)
+'''
+priority = 100
+
+[[profile.default.overrides]]
+filter = '''
+    test(=an_assembly_parts_requirements_carry_through_the_in_place_writer)
+    | test(=every_none_is_refused_or_reads_again)
+    | test(=gramil_acceptance)
+    | test(=faces_and_features_match_the_oracle)
+    | test(=ctc05_pattern_answers_are_stated_after_reopening)
+    | test(=ctc02_location_approval_is_not_stored_as_no_pmi)
+    | test(=modelled_thread_parts_still_analyse_interview_and_write)
+    | test(=twenty_named_corpus_parts_preserve_geometric_analysis_write_and_resume)
+'''
+priority = 50

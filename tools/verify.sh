@@ -10,7 +10,7 @@
 #   tools/verify.sh --dry-run   list the steps, run nothing (with --quick: the quick steps)
 #
 # It mirrors, step for step, the pull-request jobs of:
-#   ci.yml       test (the Linux "Full suite" form), wasm, ui, app
+#   ci.yml       test (the full Linux suite, combined locally), wasm, ui, app
 #   bundle.yml   the lockstep version check and the bundle/ layout
 #   cli.yml      this machine's build: "Try it on a revision" and the open smoke (the app job's build)
 #   python.yml   wheel and test (this machine's platform, Python 3.12), sdist
@@ -22,7 +22,7 @@
 #
 # When a workflow gains or loses a pull-request step, this script changes in the same PR.
 #
-# Needs: the Rust toolchain (rust-toolchain.toml) with wasm32-unknown-unknown, wasm-pack 0.15.0,
+# Needs: the Rust toolchain (rust-toolchain.toml) with wasm32-unknown-unknown, cargo-nextest, wasm-pack 0.15.0,
 # node 22 (the ui jobs; the wasm job uses 24), python3, uv, jq. Commit first: the crate package
 # refuses uncommitted changes, as CI's does. The quiddity corpus: SPECIFY_CORPUS (default ../quiddity/tests/corpus).
 
@@ -80,8 +80,9 @@ step() {
 step "ci test: step-diff comment"     "bash step-diff/tests/comment.sh"
 step "ci test: fmt"                   "cargo fmt --all --check"
 step "ci test: clippy"                "cargo clippy --workspace --all-targets --release -- -D warnings"
-step "ci test: build tests"           "cargo test --workspace --release --locked --no-run"
-step "ci test: full suite"            "cargo test --workspace --release --locked --no-fail-fast"
+step "ci test: build tests"           "cargo nextest run --workspace --release --locked --no-run"
+step "ci test: full suite"            "cargo nextest run --workspace --release --locked --no-fail-fast"
+step "ci test: doctests"              "cargo test --doc --workspace --release --locked --no-fail-fast"
 
 # --- ci.yml: wasm --------------------------------------------------------------------------------
 [ "$dry" = 1 ] || git fetch -q origin main || echo "warning: could not fetch origin/main; the API snapshot compares with the local copy"
