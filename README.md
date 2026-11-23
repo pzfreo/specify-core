@@ -103,8 +103,8 @@ echo '{"change":{"part.material":{"to":"7075-T6","expect":"6082-T6"}}}' > change
 specify-core write plate-pmi.step change.json -o plate-revised.step
 ```
 
-A fill on a decided-none row is refused unless its ID is also in `clear` in the same list.
-A fill meaning none on that row is unchanged.
+An equal fill on a decided-none row is unchanged. To replace its value, send `clear`
+and `fill` for its ID in the same list.
 
 Exit codes:
 - **0:** done.

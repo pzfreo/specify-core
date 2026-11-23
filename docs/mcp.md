@@ -117,7 +117,8 @@ The edit list is `{"fill": {id: value}, "change": {id: {"to", "expect"}}, "items
 ["#N"]}, "none": [id], "accept_suggestions": [id], "clear": [id]}`, as `specify-core write STEP
 EDITS.json` takes it; ids are the feature table's (`table` in the analysis resource), a choice
 with no row (`part.locating`), or an added requirement (`extra.<name>`). `fill` fills gaps.
-A fill meaning none on a decided-none row is unchanged. To replace a stored decision, send
+An equal fill on a decided-none row is unchanged, including when both answers mean none.
+To replace a stored decision, send
 `{"clear":["part.coating"],"fill":{"part.coating":"Anodised"}}` as one edit list. The
 `clear` makes the row a gap again (or makes a stored choice unanswered) before the fill.
 Use `change` or `items.remove` to edit existing PMI. A fill of `extra.<name>` with a

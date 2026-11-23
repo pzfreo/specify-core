@@ -354,8 +354,8 @@ Read first:
   shows native data and explicit STEP property overrides as stated, with default
   proposals left as gaps.
 - `fill` on a decided-none row was accepted; the 0.3.0 model treats it as a decision.
-  To replace it, send `clear` and `fill` for its ID in one edit list. A fill meaning none
-  is unchanged.
+  To replace it, send `clear` and `fill` for its ID in one edit list. An equal fill is
+  unchanged, including when both answers mean none.
 - `fill` could also overwrite a stored choice such as `part.locating`. Repeating the
   choice is unchanged. To replace it, send `clear` and `fill` for its ID in one list.
 - Diff and carry exclude features with a stored decision from `new_unstated`.

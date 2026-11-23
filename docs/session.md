@@ -64,8 +64,8 @@ or in `accept_suggestions` (ADR P9: "we shouldn't create the default, which then
 gospel"): the agent lists only what the person saw and confirmed. Anything the list does not
 name is left as it is, byte for byte, whoever wrote it.
 
-On a decided-none row, a `fill` with a value is refused and a `fill` meaning none is
-unchanged. To replace a stored decision, put its ID in both `clear` and `fill` in the same list.
+An equal `fill` on a decided-none row is unchanged. Two answers meaning none count as
+equal. To replace a stored decision, put its ID in both `clear` and `fill` in the same list.
 For example, `{"clear":["part.coating"],"fill":{"part.coating":"Anodised"}}` clears the
 decision first and fills the resulting gap.
 

@@ -321,9 +321,9 @@ pub fn is_none_answer(value: &Value) -> bool {
     }
 }
 
-/// Replaying the stored value or deciding nothing is needed leaves a decided row unchanged.
+/// An equal replay is unchanged. Two answers meaning none also compare equal.
 pub(crate) fn same_decided_none(id: &str, stored: &Value, given: &Value) -> bool {
-    is_none_answer(given) || same_for(id, stored, given)
+    same_for(id, stored, given) || (is_none_answer(stored) && is_none_answer(given))
 }
 
 // ----- parsing -----
@@ -1120,7 +1120,7 @@ pub fn json_schema() -> Value {
         "properties": {
             "fill": {
                 "type": "object",
-                "description": "Gaps to fill: {id: value}. An equal fill changes nothing, including a none value on a decided-none row. Replace stated PMI with change, and a stored decision with clear and fill in the same list.",
+                "description": "Gaps to fill: {id: value}. An equal fill changes nothing. For decided-none rows, two answers meaning none also compare equal. Replace stated PMI with change, and a stored decision with clear and fill in the same list.",
                 "additionalProperties": {"not": {"type": "null"}}
             },
             "change": {

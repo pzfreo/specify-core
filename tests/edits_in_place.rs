@@ -2164,9 +2164,15 @@ fn clear_takes_back_a_stored_decision_and_never_pmi() {
     assert!(unchanged.unchanged);
     assert_eq!(unchanged.bytes, saved.bytes);
 
-    let failures = refused(&reopened, json!({"fill": {id: "thread:M3"}}));
-    assert_eq!(failures.len(), 1);
-    assert!(failures[0].reason.contains("clear it first"));
+    for value in ["thread:M3", "none"] {
+        let list = edits::parse_value(json!({"fill": {id: value}})).unwrap();
+        let failures = apply(&reopened, &list).err().unwrap_or_else(|| {
+            panic!("fill {value:?} was accepted over the saved general approval")
+        });
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].entry, format!("fill[{}]", json!(id)));
+        assert!(failures[0].reason.contains("clear it first"));
+    }
 }
 
 /// A 0.2 answers file carries its face evidence: one saved on another revision of the part is
