@@ -19,6 +19,33 @@ fn part(stem: &str) -> PathBuf {
 }
 
 #[test]
+fn multipart_serve_write_keeps_a_stored_decision_when_taking_defaults() {
+    let dir = std::env::temp_dir().join(format!("serve-resume-parts-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let input = dir.join("decided.step");
+    let output = dir.join("written.step");
+    let source = specify_core::part::load(&part("assembly"), Some(0)).unwrap();
+    let saved = common::apply_edits(&source, json!({"none": ["part.general_tolerance"]}));
+    std::fs::write(&input, saved.bytes).unwrap();
+    let analysis = specify_core::api::analyse_file(&input, Some(0)).unwrap();
+    let result = Server::default().reply(&json!({
+        "id": 1, "op": "write", "step": input, "output": output,
+        "accept_defaults": true,
+        "parts": [{"analysis": analysis, "answers": {"part.material": "steel"}}],
+    }));
+    assert_eq!(result["ok"], true, "{result}");
+    let reopened = specify_core::api::analyse_file(&output, Some(0)).unwrap();
+    assert!(
+        reopened["table"]["decided_none"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("part.general_tolerance")),
+        "multipart serve replaced the saved general-tolerance decision"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn full_thread_depth_is_exposed_and_edited_over_serve() {
     let analysis = specify_core::api::analyse_file(&part("GRM-02_shaft"), None).unwrap();
     let mut child = Session::start();

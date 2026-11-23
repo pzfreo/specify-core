@@ -180,8 +180,10 @@ pub fn carry_bytes(
 /// A part's analysis and its feature table.
 fn analysed(part: &LoadedPart) -> Result<(Value, FeatureTable), Error> {
     let analysis = crate::api::analyse(part).map_err(|e| e.to_string())?;
-    let table = serde_json::from_value(analysis["table"].clone())
+    let mut table: FeatureTable = serde_json::from_value(analysis["table"].clone())
         .map_err(|e| format!("the feature table does not read: {e}"))?;
+    // Assembly BOM carry matches its own rows through the BOM history.
+    table.rows.retain(|row| !row.id.starts_with("bom."));
     Ok((analysis, table))
 }
 

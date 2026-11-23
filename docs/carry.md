@@ -56,7 +56,8 @@ requirements (`part.locating`) are not carried.
 General dimension rows carry a stated measurement when both of its face groups match a row in NEW.
 The row id is rebuilt with NEW's face indices. Suggestions left as gaps in OLD do not carry.
 
-New features in NEW that NEW states nothing on are listed as information (`new_unstated`,
+New features in NEW with neither PMI nor a stored decision on their faces are listed as
+information (`new_unstated`,
 "New in this revision with nothing stated: ...", as `diff` lists them).
 
 ## Numbers

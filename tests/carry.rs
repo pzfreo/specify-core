@@ -94,6 +94,37 @@ fn ids(rows: &[carry::Carried]) -> Vec<&str> {
     rows.iter().map(|c| c.new.as_str()).collect()
 }
 
+#[test]
+fn assembly_bom_carry_keeps_a_decided_none_material() {
+    let assembly = file("parts/assembly.step").load(Some(0)).unwrap();
+    let old = common::apply_edits(
+        &assembly,
+        json!({"fill": {"part.material": "Steel", "bom.description": "Plate"}}),
+    );
+    let new = common::apply_edits(&assembly, json!({"none": ["part.material"]}));
+    let outcome = carried(&of_bytes(old.bytes), &of_bytes(new.bytes));
+    assert!(
+        outcome.report.refused.is_empty(),
+        "{:?}",
+        outcome.report.refused
+    );
+    let output = of_bytes(outcome.bytes.unwrap()).load(Some(0)).unwrap();
+    assert_eq!(
+        row(&table(&output), "part.material")["state"],
+        "decided_none",
+        "assembly BOM carry overwrote NEW's material decision"
+    );
+    assert!(
+        outcome
+            .report
+            .kept
+            .iter()
+            .any(|item| item.new == "plate: part.material"),
+        "{:?}",
+        outcome.report.kept
+    );
+}
+
 /// Every entity's record text, by id.
 fn records(bytes: &[u8]) -> BTreeMap<u64, String> {
     let doc = Document::parse(bytes.to_vec()).unwrap();
@@ -1054,7 +1085,7 @@ fn assembly_with_suggestions(file: &File, parts: &[&str]) -> File {
             .map(|r| r["id"].as_str().unwrap().to_string())
             // A full-thread depth wants a datum the part does not have (as with_suggestions'
             // callers leave it out).
-            .filter(|id| !id.starts_with("hole.full_thread"))
+            .filter(|id| !id.starts_with("hole.full_thread") && !id.starts_with("bom."))
             .collect();
         let list = edits::parse_value(json!({ "accept_suggestions": ids })).unwrap();
         bytes = writer::apply::apply(&loaded, &list)
@@ -1064,7 +1095,7 @@ fn assembly_with_suggestions(file: &File, parts: &[&str]) -> File {
     of_bytes(bytes)
 }
 
-/// The stated rows of each part of `file`, by part name.
+/// The PMI and decision rows of each part of `file`, by part name.
 fn stated_by_part(file: &File) -> BTreeMap<String, Vec<(String, Value)>> {
     file.load_all()
         .unwrap()
@@ -1076,6 +1107,7 @@ fn stated_by_part(file: &File) -> BTreeMap<String, Vec<(String, Value)>> {
                 .iter()
                 .filter(|r| r["state"] != "gap")
                 .map(|r| (r["id"].as_str().unwrap().to_string(), r["value"].clone()))
+                .filter(|(id, _)| !id.starts_with("bom."))
                 .collect();
             (p.name.clone(), rows)
         })

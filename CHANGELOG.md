@@ -359,9 +359,22 @@ Read first:
 
 ### Fixed
 
+- Stated BOM values now require a guarded `change` in edit lists. The feature table
+  shows native data and explicit STEP property overrides as stated, with default
+  proposals left as gaps.
+- `fill` on a decided-none row was accepted; the 0.3.0 model treats it as a decision.
+  To replace it, send `clear` and `fill` for its ID in one edit list. An equal fill is
+  unchanged, including when both answers mean none.
+- `fill` could also overwrite a stored choice such as `part.locating`. Repeating the
+  choice is unchanged. To replace it, send `clear` and `fill` for its ID in one list.
+- Diff and carry exclude features with a stored decision from `new_unstated`.
+- Assembly carry preserves a decided-none material when copying the BOM.
+- Multipart `serve` writes and Python's analysis-based planning reuse saved decisions
+  when the caller omits those answers, including when taking defaults.
+- Writer refusals explain when a prerequisite such as the general tolerance needs both
+  `clear` and `fill` because it was decided none.
 - **Saved inspection downloads.** A decision-only save with zero characteristics can export CSV and
   AS9102 after the saved STEP loads. Queued review calls use the latest host adapter when each call begins.
-
 - `@draftwright/specify-ui`: confirming Material and then moving focus sends one answer, with the
   catalogue spelling for an exact case-insensitive match. Quick edits to different questions keep
   both answers when the first review is still pending.

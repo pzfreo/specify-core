@@ -99,6 +99,8 @@ The Python `ExistingPmi.limits` field is an optional `(lower, upper)` tuple;
 [answers.md](answers.md), "What the file states, read back whole"); `to_dict()` puts them beside
 the others, as the engine's `existing` records do. Stored answer strings resume
 unchanged. Python and WASM expose the same answer grammar and combined class choices.
+Python's analysis-based questions, previews, and default planning use the file's stored
+decisions for IDs omitted from the supplied answers.
 
 Specify began as a port of the Python [specify-core](https://github.com/pzfreo/specify-core), which
 runs on OpenCascade and Python's quiddity. The two engines share the command line, the JSON formats

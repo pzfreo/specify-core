@@ -964,6 +964,15 @@ fn accepting_specifys_own_suggestion_applies_or_is_refused_by_the_check_alike() 
     );
     let checked = specify_core::writer::apply::check(&part, &alone.to_string());
     assert_eq!(checked.failures, failures);
+    let declined = applied(&part, json!({"none": ["part.general_tolerance"]}));
+    let declined = reload(&declined.bytes);
+    let failures = refused(&declined, json!({"fill": {id: "general"}}));
+    assert!(
+        failures[0]
+            .reason
+            .contains(r#""clear": ["part.general_tolerance"]"#),
+        "the refusal must explain how to replace the stored decision: {failures:?}"
+    );
     let saved = applied(
         &part,
         json!({"accept_suggestions": [id, "part.general_tolerance"]}),
@@ -2071,6 +2080,43 @@ fn clear_takes_back_a_stored_decision_and_never_pmi() {
         stored_answers(&decided.bytes)["part.locating"],
         "± dimensions"
     );
+    let fill = json!({"fill": {"part.coating": "Anodised"}});
+    let result = apply(&after, &edits::parse_value(fill).unwrap());
+    assert!(result.is_err(), "fill overwrote a stored decided none");
+    let failures = result.unwrap_err();
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].entry, r#"fill["part.coating"]"#);
+    let reason = r#"part.coating is decided none; to give it a value, clear it first: "clear": ["part.coating"] with the fill in the same list"#;
+    assert_eq!(failures[0].reason, reason);
+    let failures = refused(
+        &after,
+        json!({"change": {"part.coating": {"to": "Anodised", "expect": "none"}}}),
+    );
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].entry, r#"change["part.coating"]"#);
+    assert_eq!(failures[0].reason, reason);
+
+    let same = json!({"fill": {"part.coating": " None (as machined) "}});
+    let check = specify_core::writer::apply::check(&after, &same.to_string());
+    assert!(check.applicable, "{}", check.message());
+    assert_eq!(check.unchanged, [r#"fill["part.coating"]"#]);
+    let unchanged = applied(&after, same);
+    assert!(unchanged.unchanged);
+    assert_eq!(unchanged.bytes, decided.bytes);
+
+    let replaced = applied(
+        &after,
+        json!({"clear": ["part.coating"], "fill": {"part.coating": "Anodised"}}),
+    );
+    let replacement = row(&table(&reload(&replaced.bytes)), "part.coating");
+    assert_eq!(replacement["state"], "stated");
+    assert_eq!(replacement["value"], "Anodised");
+    assert!(
+        stored_answers(&replaced.bytes)
+            .get("part.coating")
+            .is_none()
+    );
+
     let cleared = applied(&after, json!({"clear": ["part.coating", "part.locating"]}));
     let back = reload(&cleared.bytes);
     assert_eq!(row(&table(&back), "part.coating")["state"], "gap");
@@ -2100,6 +2146,32 @@ fn clear_takes_back_a_stored_decision_and_never_pmi() {
             failures.iter().any(|f| f.reason.contains(why)),
             "{bad}: {failures:?}"
         );
+    }
+
+    // A general size on a datum's own faces can be approved without writing PMI.
+    let id = "diameter.fit:turned_steps:6";
+    let spindle = fixture("spindle.step");
+    let approval = json!({"fill": {id: "general"}});
+    let saved = applied(&spindle, approval.clone());
+    let reopened = reload(&saved.bytes);
+    let size = row(&table(&reopened), id);
+    assert_eq!(size["state"], "decided_none");
+    assert_eq!(size["value"], "general");
+    let check = specify_core::writer::apply::check(&reopened, &approval.to_string());
+    assert!(check.applicable, "{}", check.message());
+    assert_eq!(check.unchanged, [format!("fill[{}]", json!(id))]);
+    let unchanged = applied(&reopened, approval);
+    assert!(unchanged.unchanged);
+    assert_eq!(unchanged.bytes, saved.bytes);
+
+    for value in ["thread:M3", "none"] {
+        let list = edits::parse_value(json!({"fill": {id: value}})).unwrap();
+        let failures = apply(&reopened, &list).err().unwrap_or_else(|| {
+            panic!("fill {value:?} was accepted over the saved general approval")
+        });
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].entry, format!("fill[{}]", json!(id)));
+        assert!(failures[0].reason.contains("clear it first"));
     }
 }
 

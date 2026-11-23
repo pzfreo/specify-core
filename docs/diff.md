@@ -87,7 +87,8 @@ remain alike after the motion is chosen are still `ambiguous`, as above.
   an unchanged feature whose faces are displaced in the parts' own frames is reported moved, its offset
   including any rigid motion of the part, as for faces below.
 - **New in this revision with nothing stated** is a line of information: the features new in
-  the new part (no counterpart in the old one) that the new file's PMI states nothing on, as
+  the new part (no counterpart in the old one) with neither PMI nor a stored decision on
+  their faces, as
   "What changed" names them ("New in this revision with nothing stated: 1.5 × 45° chamfer.").
   A feature has something stated when any requirement in the new file is on one of its faces or
   is measured from one (a datum reference aside); a part-level requirement, such as a general
