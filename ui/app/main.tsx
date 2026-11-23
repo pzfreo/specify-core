@@ -476,7 +476,8 @@ function App() {
   /** The short labels of questions ``ids`` (the part shown's; an id Specify does not ask here is kept as it is). */
   const prompts = (ids: string[], ...reviews: { questions: PmiQuestion[] }[]) => {
     const prompt = new Map(reviews.flatMap((r) => r.questions.map((q) => [q.id, q.label ?? q.prompt] as const)));
-    return ids.map((id) => prompt.get(id) || id);
+    // General dimensions are covered by the general tolerance, not questions to answer (change list item 1).
+    return ids.filter((id) => !isDimensionQuestion(id)).map((id) => prompt.get(id) || id);
   };
   // An agent's save says no more than where it wrote: what is still open is what the session's
   // answers for the part shown leave unanswered.

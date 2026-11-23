@@ -825,7 +825,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     <QuestionItem titled={titled}
       key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} active={q.id === current}
       selection={selection} mode={mode} error={errorAt(q.id)} typed={typed[q.id] ?? null}
-      locked={readOnly} onSpec={(text) => spec(q, text)}
+      locked={readOnly} onSpec={(text) => spec(q, text)} resettable={!statedOf(q.id)}
       onOpen={() => setCurrent(q.id)}
       onAnswer={(value) => answer(q, value)}
       onConfirm={() => confirm(g)}
@@ -1053,7 +1053,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
             </div>
           )}
           {readOnly && <p className="pmi-lab-note" role="status">Read only</p>}
-          {resumed && (
+          {resumed && !statedRows && (
             <p className="pmi-lab-resumed" role="status">
               Opened with the answers this STEP was saved with: change any of them below.
             </p>
@@ -1166,7 +1166,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
             <section className={`pmi-lab-row ${calledOut.size ? 'set' : 'ok'}`} data-row="dimensions">
               <button type="button" className="pmi-lab-row-head" aria-expanded={unfolded === 'dims'} onClick={() => toggle('dims')}>
                 <Chevron open={unfolded === 'dims'} />
-                <b>{generalDims.length} dimension{generalDims.length === 1 ? '' : 's'} under {preview?.part['general_tolerance'] || 'the general tolerance'}</b>
+                <b>{generalDims.length} dimension{generalDims.length === 1 ? '' : 's'} under {preview?.part['general_tolerance'] || (typeof statedRows?.values['part.general_tolerance'] === 'string' ? statedRows.values['part.general_tolerance'] as string : '') || 'the general tolerance'}</b>
                 <span className="sum">{calledOut.size ? `${calledOut.size} called out` : ''}</span>
               </button>
               {unfolded === 'dims' && (
@@ -1471,8 +1471,10 @@ function shortValue(q: PmiQuestion, value: unknown): string {
 
 function QuestionItem({
   q, answers, active, selection, mode, error, typed, onOpen, onAnswer, onSpec, onConfirm, onReset, onMode,
-  onDefaultSelection, titled = true, locked = false,
+  onDefaultSelection, titled = true, locked = false, resettable = true,
 }: {
+  /** "Reset to default" offered: not on what the file states, which has its pencil and bin instead. */
+  resettable?: boolean;
   /** Read only: the answer controls are shown disabled, the editing ones hidden. */
   locked?: boolean;
   /** Whether it shows its prompt: not under a queue row that already does. */
@@ -1504,7 +1506,7 @@ function QuestionItem({
     <div className={`pmi-lab-item on${need ? ` ${need}` : ''}`} data-question={q.id}>
       <div className="prompt">
         {titled && <>{q.prompt}{optional}</>}
-        {q.id in answers && q.default !== null && !locked && (
+        {q.id in answers && q.default !== null && !locked && resettable && (
           <button type="button" className="reset" onClick={onReset}>Reset to default</button>
         )}
       </div>
