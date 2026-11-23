@@ -200,7 +200,7 @@ are listed last under **Other PMI in the file**.
   The part's drawing notes also display one per line. It writes one line of text, the form
   the CLI and edit lists take: `.XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°` (inch places written `.XX`,
   millimetre places `X.XX`, no places `X` with its unit, `X ±.5 in`, as the engine spells them; a new block starts
-  in the file's length unit; `app/general-tolerance.ts`).
+  in the file's length unit; `src/specify/general-tolerance.ts`).
 - "Other PMI in the file" rows have the bin only: removed by number, or, without one, by the engine's id for the
   item (`{"id": "file_pmi:#<STEP entity>"}`, the table's `file_pmi[].id`). On any queued removal,
   **Undo** restores the row and takes the removal out of the bar.
@@ -214,7 +214,15 @@ are listed last under **Other PMI in the file**.
   The page session saves all of them together or reports the part and entry that prevented the
   save. Parts outside the edit lists keep their entity bytes. **Discard** drops every pending edit.
   With an empty bar Save says “Nothing to save.” Only unsaved edits are highlighted. After a save
-  the selected part opens from the saved file.
+  the selected part opens from the saved file. The bar also lists characteristic numbers retired by the save.
+- Page edits follow identical definitions reported by the engine. The row shows how many copies it covers.
+  **Split off this copy** makes subsequent edits to the selected definition independent for the current review.
+  Several placements of a single STEP definition share that definition's edit list.
+
+`SpecifyReview` owns the rows, validation, pending lists, and edit bar. The local app supplies the part picker,
+session state, agent drafts, and a save callback. A file host can also use the browser writer and receive the
+saved bytes. Engine and host callbacks may run back-to-back before a React render. Read current host state
+through refs in each callback.
 
 The page receives the agent's working edits through the session. They appear in the same
 pending bar with part names and are highlighted on their rows. **Save** writes the combined
@@ -225,7 +233,7 @@ can propose a savable change with MCP `check`, `stage: true` and an explicit
 `change` entry with `to` and `expect`.
 If you edit the same row, the bar says your edit replaces the agent's answer.
 The Characteristics tab and its CSV and AS9102 exports read the file's stored PMI. The inclusion ticks control
-which rows are exported. After edits the 3D view can preview the proposed requirements. Save writes the specified STEP
+which rows are exported. A saved file with no characteristics still has an exportable inspection list. After edits the 3D view can preview the proposed requirements. Save writes the specified STEP
 (beside it as `part.specified.step` by default, or over the input with `--in-place`). Save never refuses for questions
 still open (many AP242 files have no complete answer to everything): it writes the edits listed and says which
 questions are still open. Specify's suggestions are written only when the person adds them (ADR P9).

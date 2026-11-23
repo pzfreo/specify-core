@@ -109,22 +109,29 @@ export function withoutRequirements(analysis: PmiAnalysis, ids: readonly string[
   const part = { ...analysis.part };
   const hidden = new Set<number>();
   const targets = new Set(ids);
+  const hide = (requirement: TableRequirement) => {
+    const number = requirement.number;
+    const index = analysis.existing.findIndex((item, i) => !hidden.has(i) && (
+      number ? `#${item.number}` === number
+        : item.type === requirement.type && item.kind === requirement.kind &&
+          JSON.stringify(item.faces) === JSON.stringify(requirement.faces) &&
+          (!item.text || item.text === requirement.text)
+    ));
+    if (index >= 0) hidden.add(index);
+  };
   const rows = table.rows.map(row => {
     if (!targets.has(row.id) || row.state !== 'stated') return row;
     if (row.id.startsWith('part.')) delete part[row.id.slice(5)];
-    for (const requirement of row.requirements ?? []) {
-      const number = requirement.number;
-      const index = analysis.existing.findIndex((item, i) => !hidden.has(i) && (
-        number ? `#${item.number}` === number
-          : item.type === requirement.type && item.kind === requirement.kind &&
-            JSON.stringify(item.faces) === JSON.stringify(requirement.faces) &&
-            (!item.text || item.text === requirement.text)
-      ));
-      if (index >= 0) hidden.add(index);
-    }
+    for (const requirement of row.requirements ?? []) hide(requirement);
     return { ...row, state: 'gap' as const, value: undefined, requirements: [] };
   });
-  const given = { ...analysis, part, table: { ...table, rows }, existing: analysis.existing.filter((_, i) => !hidden.has(i)) };
+  const file_pmi = table.file_pmi.filter(item => {
+    const id = item.number ?? item.id;
+    if (!id || !targets.has(id)) return true;
+    hide(item);
+    return false;
+  });
+  const given = { ...analysis, part, table: { ...table, rows, file_pmi }, existing: analysis.existing.filter((_, i) => !hidden.has(i)) };
   if (targets.has('part.process')) Reflect.deleteProperty(given, 'process');
   return given;
 }

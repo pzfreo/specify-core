@@ -129,7 +129,8 @@ every mode, `diff` included:
 ### `save`
 
 The review checks each edit against the file before listing it. It uses the stored requirements and
-pending edits to update the preview and decide which questions apply. Save sends the combined
+pending edits to update the preview and decide which questions apply. The inspection downloads use
+the saved STEP even when it contains decisions and zero inspection characteristics. Save sends the combined
 edits to the command, which applies them all or nothing using the same writer as
 `specify-core write STEP EDITS.json` (ADR P11). The request carries the edit list and revision.
 
@@ -155,7 +156,9 @@ edits to the command, which applies them all or nothing using the same writer as
 
 For an assembly send `partEdits` in place of `edits`. It is a nonempty array with one
 `{part, edits}` object for each edited part. Use the distinct part's zero-based index as listed
-by `parts` or the page's part picker. A definition placed several times is edited once.
+by `parts` or the page's part picker. The review uses `parts`' copy groups and face maps to extend page
+edits to matching definitions. **Split off this copy** scopes subsequent edits to the selected
+definition for the current review. A definition placed several times is edited once.
 The lists apply in part-index order and each part's characteristic numbers stay local to it.
 The original request form stays supported under session API 2. MCP `save` and `check` also
 accept the `partEdits` form with an open document for the file.

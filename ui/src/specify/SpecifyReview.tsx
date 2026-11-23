@@ -28,7 +28,7 @@ import type { PmiLabel } from './labels';
 import type { Picker } from './picker';
 import type { HostView } from './host-view';
 import { createReviewView } from './review-view';
-import { answerOf, confirmRow, display, groupQuestions, NONE_SUGGESTED, needs, nextNeeding, noneSuggested, questionForFace, rowState, summary, type QuestionGroup } from './review';
+import { answerOf, confirmRow, display, groupQuestions, NONE_SUGGESTED, needs, nextNeeding, noneSuggested, questionForFace, queueReview, rowState, summary, type QuestionGroup } from './review';
 import { MODES, type PickMode } from './selection';
 import './PmiLab.css';
 export type SpecifyEngine = Pick<PmiLabEngine, 'questions' | 'interpret' | 'preview'> & {
@@ -263,7 +263,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     // Opened from the queue above, it is not followed down the list unless asked.
     quiet.current = focusRequest.scroll ? null : id;
     // A problem about an added requirement is not a question: it opens as the problem's line does.
-    if (!(editingFile ? session.questions : questions).some(question => question.id === id)
+    if (!questions.some(question => question.id === id) && !session.questions.some(question => question.id === id)
       && !tableOf(session.analysis).rows.some(row => row.id === id) && !otherRows(session.analysis).some(row => row.id === id)) {
       setView('review'); openProblem(id, focusRequest.faces ?? []); return;
     }
@@ -515,7 +515,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const publishPending = (edits: PartQueue) => {
     localQueue.current = edits;
     setLocalEdits(edits);
-    host.current.fileReview?.onPending?.(mergePending(edits, host.current.fileReview.staged));
+    host.current.fileReview?.onPending?.(edits);
   };
 
   const setBusy = (busy: boolean) => {
@@ -528,9 +528,8 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     at: string | null, update: (current: PendingEdits) => PendingEdits,
     focus?: (asked: QuestionGroup[], next: PmiAnswers) => string | null, bulk: boolean = false,
   ) => {
-    const operation = committing.current.then(async () => {
-      const opened = host.current.fileReview;
-      if (!opened || host.current.readOnly || host.current.writeFailedToReopen || activeOperation.current) return false;
+    return queueReview(committing, () => host.current, async ({ fileReview: opened, readOnly, writeFailedToReopen }) => {
+      if (!opened || readOnly || writeFailedToReopen || activeOperation.current) return false;
       if (opened.file.sourceId !== fileReview?.file.sourceId) return false;
       const latest = () => {
         const options = host.current.fileReview;
@@ -596,8 +595,6 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         setBusy(false);
       }
     });
-    committing.current = operation;
-    return operation;
   };
 
   const saveFileEdits = async () => {
@@ -686,10 +683,11 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     // WorkerClient rejects stalled requests and restarts its worker. Other hosts own
     // their timeouts: questions() has no cancellation, so skipping a pending call
     // could allow it to save over later answers.
-    const pending = committing.current.then(async () => {
+    return queueReview(committing, () => host.current, async ({ engine, readOnly }) => {
+      if (readOnly) return false;
       try {
         const next = update(committedAnswers.current);
-        const asked = await live((id) => host.current.engine.questions(id, next));
+        const asked = await live((id) => engine.questions(id, next));
         committedAnswers.current = next;
         setError(null);
         setAnswers(next);
@@ -704,8 +702,6 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         return false;
       }
     });
-    committing.current = pending;
-    return pending;
   }, [relabel, live]);
   startWith.current = { commit, relabel };
 

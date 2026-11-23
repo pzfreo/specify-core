@@ -14,6 +14,8 @@ declare global {
      * 'onKeep:<ids>' with &keep=host), when ?specify=1. */
     __calls: string[];
     __questionAnswers: PmiAnswers[];
+    __questionHostVersions: number[];
+    __changeQuestionHost(): void;
     /** When set, tests release each held questions reply by calling its function. */
     __questionReplies?: (() => void)[];
     __parts: (string | null)[];
@@ -25,6 +27,7 @@ window.__events = [];
 window.__parts = [];
 window.__calls = [];
 window.__questionAnswers = [];
+window.__questionHostVersions = [];
 
 function Slot({ label, file, pick }: { label: string; file: StepFile | null; pick: (file: StepFile) => void }) {
   return (
@@ -84,6 +87,8 @@ function SpecifyHost() {
   const exports = useRef<HTMLDivElement>(null);
   const [slots, setSlots] = useState<{ view: HTMLElement; panel: HTMLElement; exports: HTMLElement } | null>(null);
   useEffect(() => setSlots({ view: view.current!, panel: panel.current!, exports: exports.current! }), []);
+  const [questionHost, setQuestionHost] = useState(0);
+  useEffect(() => { window.__changeQuestionHost = () => setQuestionHost(n => n + 1); }, []);
   const [kept, setKept] = useState<readonly string[]>([]);
   // Sign-in gates can hold an export action while the person continues editing.
   const deferred = useRef<(() => void)[]>([]);
@@ -121,18 +126,24 @@ function SpecifyHost() {
     const shown = scene.ok ? withoutNotesBlock(scene.value) : null;
     setOpen({ session, review, engine, drawn: shown && hasGraphics(shown) ? shown : null });
   };
+  const engine = open && (query.has('heldHost') ? { ...open.engine,
+    questions: (id: string, answers: PmiAnswers) => {
+      window.__questionHostVersions.push(questionHost);
+      return open.engine.questions(id, answers);
+    },
+  } : open.engine);
   return (
     <main className="diff-page">
       <input id="specify-file" type="file" onChange={event => { const chosen = event.target.files?.[0]; if (chosen) void pick(chosen); }} />
       <div id="specify-view" style={{ height: 520 }} ref={view} />
-      <div id="specify-panel" ref={panel} />
+      <div id="specify-panel" ref={panel} data-question-host={questionHost} />
       <div id="specify-actions">
         <div id="specify-exports" ref={exports} />
         {query.has('defer') && <button onClick={() => deferred.current.shift()?.()}>Resume download</button>}
       </div>
       {open && slots && (
         <SpecifyReview
-          engine={open.engine} session={open.session} slots={slots} readOnly={readOnly} drawn={open.drawn}
+          engine={engine} session={open.session} slots={slots} readOnly={readOnly} drawn={open.drawn}
           externalAnswers={noAnswers} externalReview={open.review} disabled={false}
           onExport={action => { if (query.has('defer')) deferred.current.push(action); else action(); }} {...(hostKeeps ? { onKeep, kept } : {})}
         />

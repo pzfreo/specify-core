@@ -32,6 +32,7 @@ export interface FileReviewOptions {
   /** Edits or refusals supplied by the host, by part. Local edits to the same row take precedence. */
   staged?: ReadonlyMap<number, PendingEdits>;
   stagedReplacement?: string;
+  /** The review's own pending lists after a change, without host-supplied drafts. */
   onPending?: (pending: ReadonlyMap<number, PendingEdits>) => void;
   /** Optional host writer. Null keeps the edits staged. A result with failures leaves the file unchanged. */
   save?: (edits: SaveEdits) => Promise<ReviewSaveResult | null>;
@@ -106,7 +107,7 @@ export function impliedAnswers(analysis: PmiAnalysis, pending: PendingEdits): Pm
 }
 
 export function replacedRequirements(pending: PendingEdits): string[] {
-  return pending.values().filter(edit => edit.kind === 'remove' || edit.kind === 'change').map(edit => edit.id);
+  return pending.values().filter(edit => edit.kind === 'remove' || edit.kind === 'change' || (edit.kind === 'none' && edit.targets?.length)).map(edit => edit.id);
 }
 
 export function askFile(options: FileReviewOptions, answers: PmiAnswers, pending: PendingEdits): Promise<IntentReview> {

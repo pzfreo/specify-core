@@ -5,6 +5,40 @@ import { chromium, expect } from '@playwright/test';
 // <SpecifyReview> in the harness page (test/harness, ?specify=1) on the spindle: editable, then readOnly.
 // The harness's engine records each call the component makes of it on window.__calls. Run by
 // `npm run test:browser` (it builds the harness); `npm run fetch:wasm` first.
+const materialSequence = ['Aluminium 6082-T6', 'brass cw614n', 'Aluminium 6082-T6'];
+const assertMaterialSequence = (received, versions) => {
+  assert.deepEqual(received, materialSequence, 'the host receives all three Material answers in order');
+  assert.deepEqual(versions, [0, 1, 1], 'held replies use the latest host adapter');
+};
+
+// Exercise the same queued calls when Chromium cannot start. The browser case below
+// also exercises controlled input, rerender, and inspection.
+if (process.argv.includes('--held-replies-only')) {
+  const { queueReview } = await import('../src/specify/review.ts');
+  const tail = { current: Promise.resolve(true) };
+  const received = [];
+  const versions = [];
+  const releases = [];
+  const adapter = version => value => {
+    received.push(value);
+    versions.push(version);
+    return new Promise(resolve => releases.push(resolve));
+  };
+  let current = adapter(0);
+  const replies = materialSequence.map(value => queueReview(tail, () => current, call => call(value)));
+  await Promise.resolve();
+  assert.deepEqual(received, materialSequence.slice(0, 1));
+  current = adapter(1);
+  for (const reply of replies) {
+    releases.shift()(true);
+    await reply;
+    await Promise.resolve();
+  }
+  assertMaterialSequence(received, versions);
+  console.log('Held Material replies reached the latest host in order.');
+  process.exit(0);
+}
+
 const check = expect.configure({ timeout: 90000 });
 const base = process.env.BASE_URL ?? 'http://127.0.0.1:4291';
 const server = process.env.BASE_URL ? null : spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--config', 'vite.harness.config.ts', '--host', '127.0.0.1', '--port', '4291', '--strictPort'], { stdio: 'inherit' });
@@ -227,14 +261,16 @@ try {
   // Reviews run in submission order, so the first reply cannot overwrite the later
   // answer to the same question. Free text keeps its spelling.
   {
-    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz', '#specify-panel .pmi-lab-row-head', '&keep=host');
+    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz', '#specify-panel .pmi-lab-row-head', '&keep=host&heldHost=1');
     const before = (await calls(page)).length;
     await page.evaluate(() => { window.__questionReplies = []; });
     const material = panel(page).locator('[data-question="part.material"] input');
-    await material.fill('Aluminium 6082-T6');
-    await material.press('Enter');
-    await material.fill('brass cw614n');
-    await material.press('Enter');
+    for (const value of materialSequence) {
+      await material.fill(value);
+      await material.press('Enter');
+    }
+    await page.evaluate(() => window.__changeQuestionHost());
+    await check(panel(page)).toHaveAttribute('data-question-host', '1');
     await panel(page).getByRole('tab', { name: /^Characteristics/ }).click();
     assert.deepEqual((await calls(page)).slice(before), ['questions'], 'only the first answer is reviewed while its reply is held');
     await page.evaluate(() => { window.__questionReplies.shift()(); });
@@ -242,9 +278,16 @@ try {
     await page.evaluate(() => { window.__questionReplies.shift()(); });
     const table = panel(page).locator('.pmi-lab-table');
     await check(table).toContainText('Material: brass cw614n');
-    assert.deepEqual((await calls(page)).slice(before), ['questions', 'preview', 'questions', 'preview']);
+    assert.deepEqual((await calls(page)).slice(before, before + 4), ['questions', 'preview', 'questions', 'preview']);
     const csv = readFileSync(await inspectionDownload(page, 'Inspection list (CSV)'), 'utf8');
     assert.deepEqual(csv.trimEnd().split('\n').slice(1), [',,Part,Material: brass cw614n,,,,,,']);
+    await check.poll(async () => (await questionAnswers(page)).length).toBe(3);
+    await page.evaluate(() => { window.__questionReplies.shift()(); });
+    await check(table).toContainText('Material: Aluminium 6082-T6');
+    assertMaterialSequence((await questionAnswers(page)).map(given => given['part.material']),
+      await page.evaluate(() => window.__questionHostVersions));
+    const reverted = readFileSync(await inspectionDownload(page, 'Inspection list (CSV)'), 'utf8');
+    assert.deepEqual(reverted.trimEnd().split('\n').slice(1), [',,Part,Material: Aluminium 6082-T6,,,,,,']);
     await page.close();
   }
   // Two different edits given before the first reply must both survive, even when

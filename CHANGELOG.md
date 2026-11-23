@@ -146,7 +146,9 @@ Read first:
   pending edits. The engine re-asks what applies after each answer. Purpose and option chips,
   catalogue suggestions, typed specifications, datum picking, Holes located by and Parts list
   rows are available again. Save applies the checked list together. Characteristics, CSV and
-  AS9102 read the STEP's stored requirements and support inspection exclusions.
+  AS9102 read the STEP's stored requirements and support inspection exclusions. The same review owns
+  the general tolerance block, Other PMI, assembly edit lists, validation, and the Save bar. Edits follow
+  identical definitions through the engine's face maps. Split off a copy to edit it independently.
 
 - **Quiddity 0.5.5.** Published step levels on every part axis get plane-to-plane length rows.
   Independent plane lengths keep their rows. Stated locations on retired levels appear under
@@ -355,6 +357,9 @@ Read first:
   (ADR P11).
 
 ### Fixed
+
+- **Saved inspection downloads.** A decision-only save with zero characteristics can export CSV and
+  AS9102 after the saved STEP loads. Queued review calls use the latest host adapter when each call begins.
 
 - `@draftwright/specify-ui`: confirming Material and then moving focus sends one answer, with the
   catalogue spelling for an exact case-insensitive match. Quick edits to different questions keep

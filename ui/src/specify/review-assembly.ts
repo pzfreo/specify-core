@@ -46,7 +46,7 @@ function mapId(id: string, source: PmiAnalysis, target: PmiAnalysis, map: (face:
   const colon = id.indexOf(':');
   if (colon === -1) return id;
   const feature = source.features.find(feature => feature.id === id.slice(colon + 1));
-  if (!feature) return id;
+  if (!feature) throw new Error(`Cannot map ${id} to the matching part.`);
   const faces = feature.faces.map(map);
   const candidates = target.features.filter(other => other.family === feature.family && matchFaces(faces, other.faces));
   if (candidates.length !== 1) throw new Error(`Cannot identify the corresponding requirement for ${id}.`);
@@ -85,7 +85,13 @@ export function editForCopy(edit: Pending, source: PmiAnalysis, target: PmiAnaly
     return { id, edit: { ...editBase, kind: 'remove', targets, was: answerText(row.value) } };
   }
   if (edit.kind === 'clear') return { id, edit: row?.state === 'decided_none' || id in (target.resume?.answers ?? {}) ? { ...edit, id } : undefined };
-  if (edit.kind === 'none') return { id, edit: row?.state === 'decided_none' ? undefined : { ...edit, id } };
+  if (edit.kind === 'none') {
+    if (row?.state === 'decided_none') return { id };
+    // A copy can already state this requirement. Take it back and record None in the same list.
+    const targets = row?.state === 'stated'
+      ? removalTargets(row.requirements?.flatMap(item => item.number ? [item.number] : []) ?? [], id) : undefined;
+    return { id, edit: { ...editBase, kind: 'none', targets } };
+  }
   const value = mappedValue(edit.value, map);
   if (row?.state === 'stated') {
     if (JSON.stringify(value) === JSON.stringify(row.value)) return { id };

@@ -459,7 +459,7 @@ function App() {
     setDiscarding(true);
     try {
       if (target || Object.keys(session.draftSnapshot().drafts).length) {
-        const snapshot = await discardAnswers(session.rev(), target, session.signal);
+        const snapshot = await discardAnswers(Math.max(draftSnapshot.rev, lastSaveResponse.current), target, session.signal);
         session.receive({ ...snapshot, source: 'start' });
       }
       setAgent(null);

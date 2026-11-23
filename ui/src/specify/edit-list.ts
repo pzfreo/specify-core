@@ -37,7 +37,7 @@ type PendingEdit =
   /** A gap filled with the file's suggestion. The value shown is also used in the preview. */
   | { kind: 'accept'; id: string; name: string; value: unknown; text: string }
   /** A gap decided "none needed". */
-  | { kind: 'none'; id: string; name: string }
+  | { kind: 'none'; id: string; name: string; targets?: RemoveTarget[] }
   /** A stored "none needed" taken back (Undo): the row is a gap again. Never touches PMI. */
   | { kind: 'clear'; id: string; name: string }
   /** A host-supplied refusal, shown on its row until discarded. */
@@ -50,12 +50,13 @@ export function editList(pending: Iterable<Pending>): EditList {
     if (p.kind === 'fill') (out.fill ??= {})[p.id] = p.value;
     else if (p.kind === 'accept') (out.accept_suggestions ??= []).push(p.id);
     else if (p.kind === 'change') (out.change ??= {})[p.id] = { to: p.value, expect: p.expect };
-    else if (p.kind === 'remove') {
-      const list = ((out.items ??= {}).remove ??= []);
-      for (const t of p.targets) if (!list.some((x) => JSON.stringify(x) === JSON.stringify(t))) list.push(t);
-    }
     else if (p.kind === 'none') (out.none ??= []).push(p.id);
     else if (p.kind === 'clear') (out.clear ??= []).push(p.id);
+    const targets = p.kind === 'remove' || p.kind === 'none' ? p.targets : undefined;
+    if (targets?.length) {
+      const list = ((out.items ??= {}).remove ??= []);
+      for (const target of targets) if (!list.some(item => JSON.stringify(item) === JSON.stringify(target))) list.push(target);
+    }
   }
   return out;
 }

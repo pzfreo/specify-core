@@ -141,3 +141,12 @@ export function defaultsToWrite(questions: readonly PmiQuestion[], answers: PmiA
     .filter((q) => !(q.id in answers) && q.default !== undefined && q.default !== null)
     .map((q) => ({ id: q.id, prompt: q.prompt, value: display(q, q.default) || (typeof q.default === 'string' ? q.default : JSON.stringify(q.default)) }));
 }
+
+/** Run a review after the previous reply. Read the host when the queued call starts. */
+export function queueReview<Host>(
+  tail: { current: Promise<boolean> }, latest: () => Host, run: (host: Host) => Promise<boolean>,
+): Promise<boolean> {
+  const reply = tail.current.then(() => run(latest()));
+  tail.current = reply;
+  return reply;
+}

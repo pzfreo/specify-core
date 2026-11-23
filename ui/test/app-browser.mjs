@@ -26,6 +26,29 @@ import { characteristicHistory, validateOpening, wasmDirectory } from './engine-
 //   SPECIFY_APP_BUILT_IN=1  serve the app and engine built into SPECIFY_CORE (ADR P12) instead
 //                 of passing --app dist-app --wasm SPECIFY_WASM_DIR (the release's check).
 //   SHOTS         a directory to save screenshots in (optional).
+const copiesOnly = process.argv.includes('--copies-only');
+
+function identicalPins() {
+  const [header, data] = readFileSync('../tests/fixtures/parts/pin.step', 'utf8').split('DATA;\n');
+  const records = data.split('ENDSEC;')[0];
+  const copy = records.replace(/#(\d+)/g, (_, id) => `#${Number(id) + 1000}`)
+    .replaceAll("'COMPOUND'", "'pin copy'")
+    .replace(/CARTESIAN_POINT\('',\(([^,]+),/g, (_, x) => `CARTESIAN_POINT('',(${(Number(x) + 40).toPrecision(16)},`);
+  return Buffer.from(`${header}DATA;\n${records}${copy}ENDSEC;\nEND-ISO-10303-21;\n`);
+}
+
+async function verifyCopies(driver) {
+  await driver.edit(0, 'Steel', 2);
+  const both = await driver.save();
+  assert.deepEqual(both.parts, [0, 1], 'one Save sends a list for each identical definition');
+  assert.deepEqual(both.materials, ['Steel', 'Steel'], 'the edit is stored on both copies');
+  await driver.split(1);
+  await driver.edit(1, 'Bronze', 1);
+  const one = await driver.save();
+  assert.deepEqual(one.parts, [1], 'one Save sends only the split copy');
+  assert.deepEqual(one.materials, ['Steel', 'Bronze'], 'the unselected copy keeps its value');
+}
+
 const check = expect.configure({ timeout: 90000 });
 const cli = process.env.SPECIFY_CORE ?? 'specify-core';
 const app = resolve('dist-app');
@@ -37,7 +60,7 @@ const lengthIds = [
 ];
 if (shots) mkdirSync(shots, { recursive: true });
 const builtIn = process.env.SPECIFY_APP_BUILT_IN === '1';
-if (!builtIn) assert.ok(existsSync(join(app, 'index.html')), 'dist-app is built (npm run build:app)');
+if (!copiesOnly && !builtIn) assert.ok(existsSync(join(app, 'index.html')), 'dist-app is built (npm run build:app)');
 assert.ok(existsSync(join(wasm, 'specify_core_wasm.js')), 'the engine is fetched (npm run fetch:wasm)');
 /** The command's app and engine: its own, or dist-app and the engine directory. */
 const assetArgs = builtIn ? [] : ['--app', app, '--wasm', wasm];
@@ -72,6 +95,60 @@ async function open(file, ...flags) {
   const url = out.match(/http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{32}\//)?.[0];
   assert.ok(url, `specify-core open printed its address: ${out}`);
   return { url, origin: new URL(url).origin, output: () => out, stop: () => child.kill() };
+}
+
+if (copiesOnly) {
+  // Use the same copy and split assertions with the real engine and the review's queue
+  // when the host sandbox cannot start Chromium. The full scenario below covers HTTP.
+  const { IntentEngine } = await import('./engine-fixture.mjs');
+  const { linkedParts, queueCopies, EMPTY_PENDING } = await import('../src/specify/review-assembly.ts');
+  const { checkPending, partFile, savePending } = await import('../src/specify/file-review.ts');
+  let bytes = identicalPins();
+  let queued = new Map();
+  const splits = new Set();
+  let generation = 0;
+  const openPart = (bytes, part) => IntentEngine.openPart('copies.step', bytes, part);
+  const withEngine = (file, operation) => {
+    const engine = openPart(file.bytes, file.part);
+    try { return operation(engine); } finally { engine.free(); }
+  };
+  const read = file => withEngine(file, engine => JSON.parse(engine.snapshot()).analysis);
+  const worker = { async request(operation, input) {
+    if (operation === 'part-analysis') return { analysis: read(input) };
+    return withEngine(input, engine => {
+      const result = JSON.parse((operation === 'check-edits' ? engine.checkEdits : engine.edit).call(engine, JSON.stringify(input.edits)));
+      return result.written ? { ...result, bytes: Uint8Array.from(result.bytes) } : result;
+    });
+  } };
+  const options = part => ({ file: { name: 'copies.step', bytes, sourceId: String(generation), part }, worker });
+  await verifyCopies({
+    async edit(part, value) {
+      const list = JSON.parse(IntentEngine.parts('copies.step', bytes));
+      const group = linkedParts(list, part, splits);
+      const opts = options(part);
+      const analysis = read(opts.file);
+      const id = 'part.material';
+      const previous = analysis.table.rows.find(row => row.id === id)?.value;
+      const next = EMPTY_PENDING.with(previous == null
+        ? { kind: 'fill', id, name: 'Material', value, text: value }
+        : { kind: 'change', id, name: 'Material', value, text: value, expect: previous, was: previous });
+      queued = await queueCopies(() => opts, analysis, group, queued, EMPTY_PENDING, next);
+      for (const [index, edits] of queued) await checkPending({ ...opts, file: partFile(opts.file, index) }, edits);
+    },
+    async split(part) { splits.add(part); },
+    async save() {
+      const lists = [...queued].sort(([a], [b]) => a - b).map(([part, edits]) => ({ part, edits: edits.list() }));
+      const result = await savePending(() => options(0), lists);
+      assert.ok(result.bytes, JSON.stringify(result));
+      bytes = Uint8Array.from(result.bytes);
+      generation++;
+      queued = new Map();
+      const materials = [0, 1].map(part => read(options(part).file).table.rows.find(r => r.id === 'part.material').value);
+      return { parts: lists.map(list => list.part), materials };
+    },
+  });
+  console.log('The writer applies edits to both copies and respects a split.');
+  process.exit(0);
 }
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader'] });
@@ -403,6 +480,38 @@ try {
     onlyLocal(review.requests, reopened.origin);
     await review.context.close();
     reopened.stop();
+
+    // Separate STEP definitions that the engine identifies as copies follow each other
+    // until a copy is explicitly split off.
+    const copies = join(dir, 'identical-pins.step');
+    writeFileSync(copies, identicalPins());
+    const copyServer = await open(copies, '--in-place');
+    const copyReview = await load(copyServer);
+    let selected = 0;
+    let writes = 0;
+    await verifyCopies({
+      async edit(part, value, count) {
+        if (selected !== part) await choose(copyReview.page, part, 'Steel');
+        selected = part;
+        if (count > 1) await check(material(copyReview.page)).toContainText(`applies to ${count} identical parts`);
+        else await check(material(copyReview.page)).not.toContainText('identical parts');
+        if (writes) await change(copyReview.page, value);
+        else await add(copyReview.page, 'part.material', value);
+      },
+      async split(part) {
+        await choose(copyReview.page, part, 'Steel');
+        selected = part;
+        await copyReview.page.getByRole('button', { name: 'Split off this copy', exact: true }).click();
+      },
+      async save() {
+        const result = await save(copyReview.page, copyServer, ++writes);
+        return { parts: result.body.partEdits.map(list => list.part),
+          materials: [0, 1].map(index => table(copies, index)['part.material'].value) };
+      },
+    });
+    onlyLocal(copyReview.requests, copyServer.origin);
+    await copyReview.context.close();
+    copyServer.stop();
   }
   // Specify: the panel's edits, listed in the bar, written together by Save, read back.
   {
