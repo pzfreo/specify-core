@@ -418,7 +418,7 @@ fn write_parts(request: &Map<String, Value>) -> Handled {
             .and_then(|b| b.get("part"))
             .unwrap_or(&json!(0))
             .clone();
-        let answers = answers(p.get("answers"))?;
+        let answers = api::with_stored(analysis, &answers(p.get("answers"))?);
         let mut intent = api::apply(analysis, &answers, defaults).map_err(|e| match e {
             Error::Rules(rules::Error::Incomplete(mut e)) => {
                 e.part = Some(part.as_u64().unwrap_or(0) as usize);

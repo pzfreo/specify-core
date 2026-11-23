@@ -356,6 +356,8 @@ Read first:
 - `fill` could also overwrite a stored choice such as `part.locating`. Repeating the
   choice is unchanged. To replace it, send `clear` and `fill` for its ID in one list.
 - Diff and carry exclude features with a stored decision from `new_unstated`.
+- Multipart `serve` writes and Python's analysis-based planning reuse saved decisions
+  when the caller omits those answers, including when taking defaults.
 - `@draftwright/specify-ui`: confirming Material and then moving focus sends one answer, with the
   catalogue spelling for an exact case-insensitive match. Quick edits to different questions keep
   both answers when the first review is still pending.

@@ -70,6 +70,18 @@ def test_answers_left_open_are_an_incomplete_error(plate):
     assert isinstance(raised.value, ValueError)
 
 
+def test_defaults_preserve_saved_decisions(plate, tmp_path):
+    saved = tmp_path / "decided.step"
+    api.write(plate, {"none": ["part.general_tolerance"],
+                      "fill": {"part.locating": "± dimensions"}}, saved)
+    analysis = api.analyse(saved)
+    stored = analysis["resume"]["answers"]
+    defaults = with_all_defaults(analysis, STEEL)
+    assert defaults["part.general_tolerance"] == stored["part.general_tolerance"]
+    assert defaults["part.locating"] == stored["part.locating"]
+    assert "general_tolerance" not in api.apply(analysis, STEEL, accept_defaults=True).part
+
+
 def test_write_applies_an_edit_list_and_it_reads_back(plate, tmp_path):
     # Specify 0.3.0: write applies an edit list to the file (fill the material, accept every
     # suggestion), on a loaded part or a path alike.

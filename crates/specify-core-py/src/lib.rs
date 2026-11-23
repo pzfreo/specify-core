@@ -682,6 +682,7 @@ fn parse_both(analysis: &str, answers: &str) -> PyResult<(Value, Map<String, Val
     let Value::Object(answers) = parse("answers", answers)? else {
         return Err(PyValueError::new_err("Invalid answers: not an object"));
     };
+    let answers = api::with_stored(&analysis, &answers);
     Ok((analysis, answers))
 }
 
