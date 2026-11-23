@@ -6,6 +6,8 @@
 // the haecceity.pmi/1 document whose features give each item's faces, and Specify's overlay, which
 // gives each item's status and question.
 
+import type { LabelGroup } from './labels';
+
 export type DrawnPoint = readonly [number, number, number];
 
 /**
@@ -76,16 +78,34 @@ export interface Presentation {
   readonly views: readonly SavedView[];
 }
 
-export type DrawnStatus = 'answered' | 'default' | 'general' | 'existing';
+/**
+ * A scene item's status (ADR P11, D3): the feature table's state of the requirement it belongs
+ * to. The file states it, it is planned for an open gap (a preview), or it was decided none.
+ * Who wrote an item is never shown.
+ */
+export type DrawnStatus = 'stated' | 'gap' | 'decided_none';
 
 /**
  * What a semantic item is on, in the session's face numbering (`snapshot().mesh.faces`), and,
- * from Specify's overlay, its status and its question if Specify asks one.
+ * from Specify's overlay, its status, whether the general tolerance governs it, and its question
+ * if Specify asks one.
  */
 export interface DrawnLink {
   readonly faces: readonly number[];
   readonly question?: string;
   readonly status?: DrawnStatus;
+  readonly general?: true;
+}
+
+/**
+ * The label group an item is drawn and shown as: a general dimension's, else its status's (the
+ * file's PMI when stated, Specify's own when planned for a gap, a default when decided none).
+ * None for an item Specify has no status for.
+ */
+export function drawnGroup(link: Pick<DrawnLink, 'status' | 'general'> | undefined): LabelGroup | undefined {
+  if (link?.status === undefined) return undefined;
+  if (link.general) return 'general';
+  return ({ stated: 'existing', gap: 'answered', decided_none: 'default' } as const)[link.status];
 }
 
 /** What the Specify view draws as the file's own graphics: pmiScene's presentation and links. */
@@ -254,7 +274,7 @@ export function linksFromPmi(json: unknown, presentation: Presentation): Read<Re
   return { ok: true, value: links };
 }
 
-const STATUSES: readonly DrawnStatus[] = ['answered', 'default', 'general', 'existing'];
+const STATUSES: readonly DrawnStatus[] = ['stated', 'gap', 'decided_none'];
 
 /**
  * Specify's pmiScene (`{pmi, presentation, specify}`, specify-core 0.1.5) as the view draws it:
@@ -272,7 +292,8 @@ export function drawnFromScene(scene: unknown): Read<DrawnPmi> {
     const entry = overlay[id];
     const status = isObject(entry) && STATUSES.includes(entry['status'] as DrawnStatus) ? entry['status'] as DrawnStatus : undefined;
     const question = isObject(entry) && typeof entry['question'] === 'string' ? entry['question'] : undefined;
-    linked[id] = { ...link, ...(question ? { question } : {}), ...(status ? { status } : {}) };
+    const general = isObject(entry) && entry['general'] === true;
+    linked[id] = { ...link, ...(question ? { question } : {}), ...(status ? { status } : {}), ...(general ? { general } : {}) };
   }
   return { ok: true, value: { presentation: read.value, links: linked } };
 }
@@ -317,14 +338,14 @@ export interface DrawnShow {
 }
 
 /**
- * Whether a graphic is drawn under the Show menu: as a label is, by its item's status, and a
- * graphic the file draws counts as the file's PMI whatever its status. Answered items are
- * always drawn, as their labels are.
+ * Whether a graphic is drawn under the Show menu: as a label is, by its item's group
+ * ([`drawnGroup`]), and a graphic the file draws counts as the file's PMI whatever its group.
+ * Items planned for a gap are always drawn, as their labels are.
  */
-export function drawnShown(source: DrawnGraphic['source'], status: DrawnStatus | undefined, show: DrawnShow): boolean {
-  if (status === 'default' && !show.default) return false;
-  if (status === 'general' && !show.general) return false;
-  if ((status === 'existing' || source === 'file') && !show.existing) return false;
+export function drawnShown(source: DrawnGraphic['source'], group: LabelGroup | undefined, show: DrawnShow): boolean {
+  if (group === 'default' && !show.default) return false;
+  if (group === 'general' && !show.general) return false;
+  if ((group === 'existing' || source === 'file') && !show.existing) return false;
   return true;
 }
 
