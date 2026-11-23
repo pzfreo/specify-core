@@ -1,7 +1,7 @@
 // The package's public surface.
 export { default as StepDiff, type StepDiffProps } from './components/StepDiff';
 export { default as AssemblyDiffView, type AssemblyRow, type StepFile } from './components/AssemblyDiffView';
-export { SpecifyReview, type SpecifyEngine, type SpecifySlots } from './specify/SpecifyReview';
+export { SpecifyReview, type CalledOut, type SpecifyEngine, type SpecifySlots } from './specify/SpecifyReview';
 export {
   drawnFromScene, withoutNotesBlock, hasGraphics,
   type DrawnGraphic, type DrawnPlane, type DrawnPmi, type DrawnPoint, type DrawnStatus, type TextPlacement,

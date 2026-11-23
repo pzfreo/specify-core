@@ -109,7 +109,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
    * <general tolerance>", whose lines each have Call Out: a tolerance of its own, given here. False
    * when the host cannot call that dimension out. Without it, Call Out adds a requirement as before.
    */
-  callOutDimension?: (dimension: { nominal: number | null; faces: readonly number[] }, tolerance: string) => boolean;
+  callOutDimension?: (dimension: CalledOut, tolerance: string) => boolean;
 }) {
   const host = engine;
   const readOnlyHost = useMemo(() => readOnlyEngine(host), [host]);
@@ -1177,7 +1177,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                       startOpen={callingOut === r.id}
                       onSelect={() => showChar(r.id, r.faces)}
                       onCallOut={(tolerance) => {
-                        const ok = callOutDimension({ nominal: r.nominal, faces: r.faces }, tolerance);
+                        const g = preview?.general?.[Number(r.source.slice('general:'.length))];
+                        // As the editor's Call out: the dimension with its kind, faces and reference.
+                        const ok = callOutDimension({
+                          id: r.id, what: `${r.feature} ${r.text}`, kind: g?.kind === 'size' ? 'size' : 'distance', faces: g?.faces ?? r.faces,
+                          reference: Array.isArray(g?.['reference']) ? g['reference'] as number[] : [],
+                        }, tolerance);
                         if (ok) setCalledOut((m) => { const next = new Map(m); if (tolerance.trim()) next.set(r.id, tolerance.trim()); else next.delete(r.id); return next; });
                         return ok;
                       }}
@@ -1314,6 +1319,9 @@ function FoldedLine({ name, value, onOpen }: { name: string; value: string; onOp
     </button>
   );
 }
+
+/** A general dimension called out: which one, and what the requirement needs (added.ts's size or distance). */
+export interface CalledOut { id: string; what: string; kind: 'size' | 'distance'; faces: readonly number[]; reference: readonly number[] }
 
 /** One dimension the general tolerance covers: its feature, characteristic, nominal, ± and number,
  * and Call Out, which takes a tolerance of its own in place (change list item 1). */

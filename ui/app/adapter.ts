@@ -5,10 +5,11 @@
 // - what the file states is shown as answered rows, each with a pencil and a bin (item 2), and kept
 //   out of the engine's own review, which takes no answers to stated rows;
 // - general dimensions are not asked one by one (item 1): their questions are not shown, and
-//   Call Out on a dimension adds that dimension with the tolerance typed.
+//   Call Out on a dimension adds it with a tolerance of its own, as the editor's Call out does.
 import { answerText, isNoneValue, type FeatureTable, type TableRow } from './table.ts';
 import { removalTargets as targetsOf, type Pending } from './edits.ts';
 import type { IntentReview, PmiAnswers, PmiQuestion } from '../src/types/pmi.ts';
+import type { CalledOut } from '../src/specify/SpecifyReview.tsx';
 
 /** A general dimension's question (one per dimension under the general tolerance): not shown as a row. */
 export const isDimensionQuestion = (id: string) => id.startsWith('length:') || id.startsWith('location:');
@@ -79,20 +80,23 @@ export function removeEdit(row: TableRow, q: PmiQuestion | undefined, name: stri
 }
 
 /**
- * Call Out on a general dimension: its question (by the dimension's nominal and faces) answered
- * with ``tolerance`` in place of the general tolerance's, e.g. "100 ±0.3 from C" → "100 ±0.1 from C".
- * ``value`` null: the tolerance is empty, the call-out is taken back. Null when no question matches.
+ * Call Out on a general dimension (change list item 1): the dimension added with a tolerance of
+ * its own, as the editor's Call out has always written it: an "Added by you" size or distance on
+ * the dimension's faces (and, for a distance, its reference), under ``key`` (extra.N). Null when
+ * the tolerance is empty: the call-out taken back.
  */
-export function callOutAnswer(questions: readonly PmiQuestion[], dimension: { nominal: number | null; faces: readonly number[] }, tolerance: string):
-  { q: PmiQuestion; value: string | null } | null {
+export function callOutEdit(d: CalledOut, tolerance: string, key: string): Pending | null {
   const t = tolerance.trim().replace(/^±\s*/, '');
-  const nominal = dimension.nominal;
-  const q = questions.find((x) => isDimensionQuestion(x.id) && typeof x.default === 'string'
-    && (nominal === null || Number.parseFloat(x.default) === nominal)
-    && x.faces.every((f) => dimension.faces.includes(f)));
-  if (!q || typeof q.default !== 'string') return null;
-  // No tolerance: back to the general tolerance's (the call-out taken back).
-  if (!t) return { q, value: null };
-  const value = q.default.replace(/±\s*[^\s]+/, `±${t}`);
-  return value === q.default && !q.default.includes('±') ? null : { q, value };
+  if (!t) return null;
+  const value = d.kind === 'size'
+    ? { faces: [...d.faces], kind: 'size', value: `±${t}` }
+    : { faces: [...d.faces], kind: 'distance', value: `±${t}`, reference: [...d.reference] };
+  return { kind: 'fill', id: key, name: `Call out ${d.what}`, value, text: `±${t}` };
+}
+
+/** The next free "Added by you" key (extra.N) among ``ids``. */
+export function nextExtraKey(ids: Iterable<string>): string {
+  let n = 0;
+  for (const id of ids) { const m = /^extra\.(\d+)$/.exec(id); if (m) n = Math.max(n, Number(m[1])); }
+  return `extra.${n + 1}`;
 }

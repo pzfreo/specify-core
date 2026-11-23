@@ -18,7 +18,7 @@ import {
 import type { PmiAnalysis } from '../src/types/pmi';
 import { stepBytes } from '../src/model/diff';
 import { SessionApiMismatch } from './session-api';
-import { saveFile } from '../src/specify/SpecifyReview';
+import { saveFile, type CalledOut } from '../src/specify/SpecifyReview';
 import type { StoredInspection } from '../src/specify/saved-inspection';
 import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
@@ -26,7 +26,7 @@ import { discardAnswers, getAnswers, getConfig, getDiff, getFile, keepAlive, lis
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } from './save';
 import { PendingEdits, rejectedNoneByPart, withDrafts } from './edits';
 import { EditBar } from './EditBar';
-import { answerEdit, callOutAnswer, forEngine, forScreens, isDimensionQuestion, removeEdit, statedRows, type StatedRows } from './adapter';
+import { answerEdit, callOutEdit, forEngine, forScreens, isDimensionQuestion, nextExtraKey, removeEdit, statedRows, type StatedRows } from './adapter';
 import { answerText, bareAnalysis, fileLengthUnit, panelModel, tableOf, type FeatureTable, type PanelModel } from './table';
 
 declare const __APP_VERSION__: string;
@@ -244,6 +244,8 @@ function App() {
     });
     setSavedNote(null);
   };
+  // The "Added by you" key each called-out general dimension is written under, by characteristic.
+  const callOutKeys = useRef(new Map<string, string>());
   // A reset of the review to the file (Discard, or a save that reopened the part).
   const [reviewGeneration, setReviewGeneration] = useState(0);
 
@@ -760,12 +762,13 @@ function App() {
                 },
                 onRestore: (id: string) => editPending(partPending.without(id)),
               },
-              callOutDimension: (dimension: { nominal: number | null; faces: readonly number[] }, tolerance: string) => {
-                const call = callOutAnswer(opened.dimensions(), dimension, tolerance);
-                if (!call) return false;
-                const row = opened.table.rows.find((r) => r.id === call.q.id);
-                const edit = call.value === null ? null : answerEdit(call.q.id, call.value, row, call.q, `${call.q.title ?? 'Length'} ${call.q.default}`);
-                editPending(edit ? partPending.with(edit) : partPending.without(call.q.id));
+              callOutDimension: (dimension: CalledOut, tolerance: string) => {
+                // One key per dimension called out, kept while the part is shown (the same edit is replaced).
+                const keys = callOutKeys.current;
+                const key = keys.get(dimension.id) ?? nextExtraKey([...opened.table.rows.map((r) => r.id), ...partPending.values().map((e) => e.id), ...keys.values()]);
+                keys.set(dimension.id, key);
+                const edit = callOutEdit(dimension, tolerance, key);
+                editPending(edit ? partPending.with(edit) : partPending.without(key));
                 return true;
               },
             } : {})}
