@@ -440,6 +440,11 @@ fn ctc05_pattern_answers_are_stated_after_reopening() {
 
 // Keep all captures of the same input together, including its part-level captures.
 fn defaults_case_group(case: &common::Case) -> usize {
+    // cgb202 dominates group 2 on its own. Put it with the lightest group.
+    let input = case.meta["input"].as_str().expect("meta.input");
+    if input.strip_suffix(".gz").unwrap_or(input) == "cadgenbench_inputs/cgb202.step" {
+        return 3;
+    }
     let sha = case.meta["decompressed_sha256"]
         .as_str()
         .or_else(|| case.meta["input_sha256"].as_str())

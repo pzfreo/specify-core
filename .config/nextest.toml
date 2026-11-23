@@ -4,13 +4,18 @@ retries = 0
 [[profile.default.overrides]]
 # Measured long corpus sweeps start before short tests, keeping the shard tail short.
 filter = '''
-    test(accepting_corpus_defaults_leaves_no_open_rows)
-    | test(=writes_match_the_oracle)
+    test(=writes_match_the_oracle)
     | test(=an_unchanged_round_trip_resumes_every_answer)
     | test(=corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains)
-    | test(=corpus_feature_rows_that_can_write_pmi_have_faces)
 '''
 priority = 100
+
+[[profile.default.overrides]]
+filter = '''
+    test(accepting_corpus_defaults_leaves_no_open_rows)
+    | test(=corpus_feature_rows_that_can_write_pmi_have_faces)
+'''
+priority = 80
 
 [[profile.default.overrides]]
 filter = '''
