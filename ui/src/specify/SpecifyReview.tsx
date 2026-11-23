@@ -378,6 +378,11 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   }, [transparency, session]);
 
   const tableChars = editingFile ? savedInspection?.chars ?? [] : chars;
+  // A saved file can carry only decisions (for example heat treatment: none).
+  // Its header-only CSV and empty inspection form still describe that saved file.
+  const inspectionUnavailable = editingFile
+    ? savedInspection === null || Boolean(fileReview?.inspectionBlocked)
+    : !tableChars.length;
   const previewing = useRef(0);
   const committedAnswers = useRef(answers);
   const committing = useRef(Promise.resolve(false));
@@ -1541,7 +1546,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         </fieldset>
         {looseError && <footer><p role="alert" className="pmi-lab-error">{looseError.message}</p></footer>}
         {editingFile && view === 'table' && inspectionExports && !slots.exports && <footer>
-          <button type="button" disabled={!tableChars.length || Boolean(fileReview?.inspectionBlocked)} onClick={downloadFai}>AS9102 FAI (Excel)</button>
+          <button type="button" disabled={inspectionUnavailable} onClick={downloadFai}>AS9102 FAI (Excel)</button>
         </footer>}
         {editingFile && !fileReview?.renderBar && (
           <footer className="pmi-lab-edit-bar" role="region" aria-label="Changes to save">
@@ -1564,10 +1569,10 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         : questionItem(q, g, false)}</div>, slots.question);
     })()}
     {inspectionExports && !readOnly && slots.exports && <>
-      {createPortal(<button type="button" onClick={downloadCsv} disabled={!tableChars.length || Boolean(fileReview?.inspectionBlocked)} title={fileReview?.inspectionBlocked ?? 'Every dimension and tolerance, numbered, with its nominal and limits'}>
+      {createPortal(<button type="button" onClick={downloadCsv} disabled={inspectionUnavailable} title={fileReview?.inspectionBlocked ?? 'Every dimension and tolerance, numbered, with its nominal and limits'}>
         {gated ? 'Inspection list (CSV) · Sign in' : 'Inspection list (CSV)'}
       </button>, slots.exports)}
-      {createPortal(<button type="button" onClick={downloadFai} disabled={!tableChars.length || Boolean(fileReview?.inspectionBlocked)} title={fileReview?.inspectionBlocked ?? 'AS9102 first article inspection Forms 1–3 as an Excel workbook'}>
+      {createPortal(<button type="button" onClick={downloadFai} disabled={inspectionUnavailable} title={fileReview?.inspectionBlocked ?? 'AS9102 first article inspection Forms 1–3 as an Excel workbook'}>
         {gated ? 'AS9102 FAI (Excel) · Sign in' : 'AS9102 FAI (Excel)'}
       </button>, slots.more ?? slots.exports)}
     </>}
