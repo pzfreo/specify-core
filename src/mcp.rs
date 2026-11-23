@@ -1090,7 +1090,9 @@ impl Server {
             match try_answer(&analysis, &mut trial, id, given) {
                 Ok(entry) => changed.push(entry),
                 Err(e) => {
-                    if session::stated_row(&analysis, id).is_some() {
+                    if session::stated_row(&analysis, id).is_some()
+                        || stored_decision(&analysis, id).is_some()
+                    {
                         refused_drafts.insert(id.clone(), e.message.clone());
                     }
                     if !partial {
@@ -1745,6 +1747,24 @@ fn same_as_stated(value: &Value, given: &Value) -> bool {
     }
 }
 
+/// A stored decision and the state an equal answer reports.
+fn stored_decision<'a>(analysis: &'a Value, id: &str) -> Option<(&'a Value, &'static str)> {
+    let value = analysis["resume"]["answers"].get(id)?;
+    if analysis["table"]["decided_none"]
+        .as_array()
+        .is_some_and(|ids| ids.iter().any(|known| known == id))
+    {
+        Some((value, "decided_none"))
+    } else if !crate::feature_table::is_requirement(id)
+        && !id.starts_with('_')
+        && !id.starts_with("bom.")
+    {
+        Some((value, "answered"))
+    } else {
+        None
+    }
+}
+
 /// One answer of `answer`'s `set`, read against the answers before it (an earlier answer can
 /// ask a new question) and checked with them: its entry `{id, value, interpreted_from?}`, the
 /// answer kept in `trial`; refused, naming the question, with `trial` as it was. An answer
@@ -1770,6 +1790,27 @@ fn try_answer(
         }
         return Err(ToolError::invalid(format!(
             "the file states {value} for {id}. To change it, use change with \"to\": {given}, \"expect\": {expect}."
+        ))
+        .with("question", json!(id)));
+    }
+    if let Some((value, state)) = stored_decision(analysis, id)
+        && trial.get(id) == Some(value)
+    {
+        let (equal, decision) = if state == "decided_none" {
+            (crate::edits::is_none_answer(given), "is decided none")
+        } else {
+            (given == value, "has a stored choice")
+        };
+        if equal {
+            return Ok(Map::from_iter([
+                ("id".into(), json!(id)),
+                ("value".into(), value.clone()),
+                ("state".into(), json!(state)),
+            ]));
+        }
+        return Err(ToolError::invalid(format!(
+            "{}. With answer, send clear with set.",
+            crate::edits::clear_before_fill(id, decision)
         ))
         .with("question", json!(id)));
     }
@@ -1807,16 +1848,21 @@ fn try_answer(
     Ok(entry)
 }
 
-/// Read legacy file entries as individual answers. Preserve the file's bookkeeping keys.
+/// Read legacy file entries as individual answers on top of the STEP's stored decisions.
+/// Preserve the answers file's bookkeeping keys.
 fn import_answers(
     analysis: &Value,
     kept: &Map<String, Value>,
 ) -> (Map<String, Value>, BTreeMap<String, String>) {
-    let mut answers = kept
-        .iter()
-        .filter(|(id, _)| id.starts_with('_'))
-        .map(|(id, value)| (id.clone(), value.clone()))
-        .collect();
+    let mut answers = analysis["resume"]["answers"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    answers.extend(
+        kept.iter()
+            .filter(|(id, _)| id.starts_with('_'))
+            .map(|(id, value)| (id.clone(), value.clone())),
+    );
     let mut refused = BTreeMap::new();
     for (id, value) in kept.iter().filter(|(id, _)| !id.starts_with('_')) {
         if let Err(error) = try_answer(analysis, &mut answers, id, value) {
@@ -2121,7 +2167,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "answer",
             "title": "Answer questions",
-            "description": format!("Set or clear answers on the open document. set maps question id to answer: a choice question takes one of its options or free text Specify interprets (\"M6\" for a hole, \"H7\" for a bore, \"6061-T6\" for material); a faces question takes a list of face indices; text questions take text. Answers are applied in order and all-or-nothing: a refused answer is an error naming the question and no answer is stored. With partial: true (answer everything you know in one call), every valid answer is applied in one rev and outcomes gives each id {{stored, interpreted_from?, state}} or {{refused: reason}}. Give only what the person or the design intends: never a default as intent. The change goes to the session (rev goes up) and appears in the Specify page if it is shown. An answer equal to a stated value changes nothing. A different answer to a stated row is refused with the row ID and the explicit change to send. The page shows the refusal and it can be discarded. Use check with stage: true to propose an explicit guarded change for the page to save. The page or MCP save writes the working answers with the explicit edits. Use discard to drop drafts without writing. {MEMORY_RULE} An accepted or equal answer clears its earlier refusal. answers_file also saves them to that JSON file from now on."),
+            "description": format!("Set or clear answers on the open document. set maps question id to answer: a choice question takes one of its options or free text Specify interprets (\"M6\" for a hole, \"H7\" for a bore, \"6061-T6\" for material); a faces question takes a list of face indices; text questions take text. Answers are applied in order and all-or-nothing: a refused answer is an error naming the question and no answer is stored. With partial: true (answer everything you know in one call), every valid answer is applied in one rev and outcomes gives each id {{stored, interpreted_from?, state}} or {{refused: reason}}. Give only what the person or the design intends: never a default as intent. The change goes to the session (rev goes up) and appears in the Specify page if it is shown. An answer equal to a stated value changes nothing. A different answer to a stated row is refused with the row ID and the explicit change to send. To replace a stored decision, send its ID in clear and its new value in set. The page shows the refusal and it can be discarded. Use check with stage: true to propose an explicit guarded change for the page to save. The page or MCP save writes the working answers with the explicit edits. Use discard to drop drafts without writing. {MEMORY_RULE} An accepted or equal answer clears its earlier refusal. answers_file also saves them to that JSON file from now on."),
             "inputSchema": input(json!({
                 "doc": doc(),
                 "set": {"type": "object", "description": "Question id to answer.", "additionalProperties": true},
@@ -2270,7 +2316,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "save",
             "title": "Save an edit list into the STEP",
-            "description": format!("Apply an edit list to the opened file and write it as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; later saves update the copy this session wrote, and no other file is overwritten), or over it if it was opened in_place (the original kept once as .bak). edits: fill gaps {{id: value}}, change what the file states {{id: {{to, expect}}}} (expect: the value you saw), items.remove [\"#N\"] to remove a requirement by its characteristic number, none [id] to record that nothing is needed, accept_suggestions [id] to fill a gap with Specify's suggestion. Ids are the feature table's (the analysis resource's table). Anything not named is left as it is, byte for byte. Use edits for the opened part or partEdits for one or more part indices in the same file. The save is all or nothing: if any entry cannot be applied nothing is written, and the error (failures) names every failing entry and why. Fill or accept only what the person approved: never a suggestion as intent unasked. rev (optional): the session revision you last saw; a session that moved on is refused (stale). Save includes the session's agent drafts on all parts unless you discard them first. Saving the drafts counts as approving them. An explicit edit for the same question takes precedence. Use discard to drop the working answers without writing. Refused answers are left out. Returns the current feature table. check tests a list without writing. {MEMORY_RULE}"),
+            "description": format!("Apply an edit list to the opened file and write it as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; later saves update the copy this session wrote, and no other file is overwritten), or over it if it was opened in_place (the original kept once as .bak). edits: fill gaps {{id: value}}, change what the file states {{id: {{to, expect}}}} (expect: the value you saw), items.remove [\"#N\"] to remove a requirement by its characteristic number, none [id] to record that nothing is needed, accept_suggestions [id] to fill a gap with Specify's suggestion, clear [id] to take back a stored decision. To replace a stored decision, clear the ID alongside the fill in the same list. Ids are the feature table's (the analysis resource's table). Anything not named is left as it is, byte for byte. Use edits for the opened part or partEdits for one or more part indices in the same file. The save is all or nothing: if any entry cannot be applied nothing is written, and the error (failures) names every failing entry and why. Fill or accept only what the person approved: never a suggestion as intent unasked. rev (optional): the session revision you last saw; a session that moved on is refused (stale). Save includes the session's agent drafts on all parts unless you discard them first. Saving the drafts counts as approving them. An explicit edit for the same question takes precedence. Use discard to drop the working answers without writing. Refused answers are left out. Returns the current feature table. check tests a list without writing. {MEMORY_RULE}"),
             "inputSchema": edit_input(true),
             "outputSchema": output(json!({
                 "doc": {"type": "string"},

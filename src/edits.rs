@@ -240,6 +240,8 @@ pub enum KindState {
     Gap { suggestion: Option<Value> },
     /// Someone decided nothing is needed.
     DecidedNone,
+    /// The file stores a choice that leaves no PMI and has no feature-table row.
+    StoredChoice { value: Value },
 }
 
 /// One requirement in the file, found by its characteristic number.
@@ -338,6 +340,13 @@ fn failure(entry: impl Into<String>, reason: impl Into<String>) -> Failure {
 
 fn key(section: &str, id: &str) -> String {
     format!("{section}[{}]", Value::String(id.to_owned()))
+}
+
+pub(crate) fn clear_before_fill(id: &str, decision: &str) -> String {
+    format!(
+        "{id} {decision}; to give it a value, clear it first: \"clear\": [{}] with the fill in the same list",
+        json!(id)
+    )
 }
 
 /// Parses an edit list, or a 0.2 answers file (flat `{id: value}`, [`from_answers`]). A JSON
@@ -655,7 +664,19 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
                     ));
                 }
             }
-            Some(KindState::Gap { .. } | KindState::DecidedNone) => {}
+            Some(KindState::Gap { .. }) => {}
+            Some(KindState::DecidedNone | KindState::StoredChoice { .. })
+                if list.clear.contains(id) => {}
+            Some(KindState::DecidedNone) if is_none_answer(value) => unchanged.push(entry),
+            Some(KindState::StoredChoice { value: stored }) if stored == *value => {
+                unchanged.push(entry);
+            }
+            Some(KindState::DecidedNone) => {
+                failures.push(failure(entry, clear_before_fill(id, "is decided none")));
+            }
+            Some(KindState::StoredChoice { .. }) => {
+                failures.push(failure(entry, clear_before_fill(id, "has a stored choice")));
+            }
         }
     }
 
@@ -681,10 +702,12 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
                     "the file states nothing for {id}, so there is nothing to change; use fill"
                 ),
             )),
-            Some(KindState::DecidedNone) => failures.push(failure(
-                entry,
-                format!("{id} is decided none, so there is nothing to change; use fill"),
-            )),
+            Some(KindState::DecidedNone) => {
+                failures.push(failure(entry, clear_before_fill(id, "is decided none")))
+            }
+            Some(KindState::StoredChoice { .. }) => {
+                failures.push(failure(entry, clear_before_fill(id, "has a stored choice")))
+            }
         }
     }
 
@@ -749,6 +772,10 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
                 entry,
                 format!("{id} is decided none: the file states nothing for it to remove"),
             )),
+            Some(KindState::StoredChoice { .. }) => failures.push(failure(
+                entry,
+                format!("{id} is a stored choice; use clear to take it back"),
+            )),
         }
     }
 
@@ -770,7 +797,7 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
                 }
             }
             Some(KindState::DecidedNone) => unchanged.push(entry),
-            Some(KindState::Gap { .. }) => {}
+            Some(KindState::Gap { .. } | KindState::StoredChoice { .. }) => {}
         }
     }
 
@@ -792,10 +819,12 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
                      replace it, use change with \"expect\": {value}"
                 ),
             )),
-            Some(KindState::DecidedNone) => failures.push(failure(
-                entry,
-                format!("{id} is decided none and has no suggestion; give a value with fill"),
-            )),
+            Some(KindState::DecidedNone) => {
+                failures.push(failure(entry, clear_before_fill(id, "is decided none")))
+            }
+            Some(KindState::StoredChoice { .. }) => {
+                failures.push(failure(entry, clear_before_fill(id, "has a stored choice")))
+            }
         }
     }
 
@@ -803,7 +832,7 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
         let entry = key("clear", id);
         match state.kind(id) {
             None => failures.push(unknown_id(entry, id)),
-            Some(KindState::DecidedNone) => {}
+            Some(KindState::DecidedNone | KindState::StoredChoice { .. }) => {}
             Some(KindState::Gap { .. }) => failures.push(failure(
                 entry,
                 format!("nothing is stored for {id}, so there is nothing to clear"),
@@ -864,12 +893,11 @@ fn sections(list: &EditList) -> BTreeMap<&str, Vec<&'static str>> {
 }
 
 /// Entries that contradict each other without needing the file: one feature-and-kind in more
-/// than one of fill, change, none and accept_suggestions; one requirement both changed and
-/// removed.
+/// than one verb (except clear followed by fill); one requirement both changed and removed.
 fn contradictions(list: &EditList) -> Vec<Failure> {
     let mut out = Vec::new();
     for (id, verbs) in sections(list) {
-        if verbs.len() > 1 {
+        if verbs.len() > 1 && verbs != ["fill", "clear"] {
             let entries: Vec<String> = verbs.iter().map(|v| key(v, id)).collect();
             out.push(failure(
                 entries.join(" and "),
@@ -1066,7 +1094,7 @@ pub fn json_schema() -> Value {
         "properties": {
             "fill": {
                 "type": "object",
-                "description": "Gaps to fill: {id: value}. A fill equal to what the file states changes nothing; one that differs is refused (use change).",
+                "description": "Gaps to fill: {id: value}. An equal fill changes nothing, including a none value on a decided-none row. Replace stated PMI with change, and a stored decision with clear and fill in the same list.",
                 "additionalProperties": {"not": {"type": "null"}}
             },
             "change": {
@@ -1100,7 +1128,7 @@ pub fn json_schema() -> Value {
             },
             "none": ids("Feature-and-kinds decided none (nothing is needed)."),
             "accept_suggestions": ids("Gaps to fill with Specify's suggestion."),
-            "clear": ids("Stored decisions that leave no PMI to take back (a decided none, or a choice such as part.locating): the feature-and-kind is a gap, or the choice unanswered, again. Never touches PMI (use change or items.remove).")
+            "clear": ids("Stored decisions that leave no PMI to take back (a decided none, or a choice such as part.locating): the feature-and-kind is a gap, or the choice unanswered, again. Applied before fill. Never touches PMI (use change or items.remove).")
         },
         "additionalProperties": false
     })

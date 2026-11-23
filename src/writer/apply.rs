@@ -178,13 +178,22 @@ fn changes_plane_length(id: &str, value: &Json) -> bool {
             .is_some_and(|text| text.trim_start().starts_with('±'))
 }
 
-fn answers_refused(list: &EditList, table: &FeatureTable, analysis: &Json) -> Vec<Failure> {
+fn answers_refused(
+    list: &EditList,
+    table: &FeatureTable,
+    analysis: &Json,
+    unchanged: &[String],
+) -> Vec<Failure> {
     let bare = bare(analysis);
     let choices: Map<String, Json> = analysis["resume"]["answers"]
         .as_object()
         .into_iter()
         .flatten()
-        .filter(|(id, _)| !crate::feature_table::is_requirement(id) && !id.starts_with('_'))
+        .filter(|(id, _)| {
+            !crate::feature_table::is_requirement(id)
+                && !id.starts_with('_')
+                && !list.clear.contains(*id)
+        })
         .map(|(id, v)| (id.clone(), v.clone()))
         .collect();
     // As the writer stores it: a value meaning none is stored as the row's none.
@@ -233,6 +242,7 @@ fn answers_refused(list: &EditList, table: &FeatureTable, analysis: &Json) -> Ve
     }
     entries
         .into_iter()
+        .filter(|(entry, _, _)| !unchanged.contains(entry))
         .filter_map(|(entry, id, value)| {
             if list.change.contains_key(id) && changes_plane_length(id, &value) {
                 return plane_length_change(table, analysis, id, &value)
@@ -306,8 +316,12 @@ impl edits::FileState for WithChoices<'_> {
             return Some(edits::KindState::Gap { suggestion: None });
         }
         self.table.kind(id).or_else(|| {
-            if self.stored.contains_key(id) && is_choice(self.table, id) {
-                return Some(edits::KindState::DecidedNone);
+            if is_choice(self.table, id)
+                && let Some(value) = self.stored.get(id)
+            {
+                return Some(edits::KindState::StoredChoice {
+                    value: value.clone(),
+                });
             }
             self.choices
                 .get(id)
@@ -478,7 +492,11 @@ fn dependent_questions(
         .as_object()
         .into_iter()
         .flatten()
-        .filter(|(id, _)| !crate::feature_table::is_requirement(id) && !id.starts_with('_'))
+        .filter(|(id, _)| {
+            !crate::feature_table::is_requirement(id)
+                && !id.starts_with('_')
+                && !list.clear.contains(*id)
+        })
         .map(|(id, v)| (id.clone(), v.clone()))
         .collect();
     answers.extend(list.fill.iter().map(|(id, v)| (id.clone(), v.clone())));
@@ -526,7 +544,7 @@ fn validated(
         ));
     }
     if outcome.failures.is_empty() {
-        outcome.failures = answers_refused(&list, table, analysis);
+        outcome.failures = answers_refused(&list, table, analysis, &outcome.unchanged);
     }
     if outcome.failures.is_empty() {
         match extra_states(loaded, &list, analysis) {
@@ -810,12 +828,6 @@ fn shared_by_other_feature(
 /// for a datum, else `"none"`.
 fn none_answer(table: &FeatureTable, id: &str) -> Json {
     let row = table.row(id);
-    if let Some(value) = row
-        .filter(|r| r.state == State::DecidedNone)
-        .and_then(|r| r.value.clone())
-    {
-        return value;
-    }
     if let Some(s) = row
         .and_then(|r| r.suggestion.clone())
         .filter(crate::feature_table::is_none_value)
@@ -1404,7 +1416,7 @@ fn applied_pmi(
         chosen.insert(id.clone(), value.clone());
         false
     });
-    chosen.retain(|id, value| stored_choices.get(id) != Some(&*value));
+    chosen.retain(|id, value| list.clear.contains(id) || stored_choices.get(id) != Some(&*value));
     // A value that writes nothing ("none"; "general", a hole left to the general tolerance)
     // is a decision, stored as given.
     given.retain(|id, value| {
@@ -2077,7 +2089,11 @@ fn applied_pmi(
     let mut saved = choices;
     for id in &table.decided_none {
         if !given.contains_key(id) && !list.clear.contains(id) {
-            saved.insert(id.clone(), none_answer(&table, id));
+            let value = table
+                .row(id)
+                .and_then(|row| row.value.clone())
+                .unwrap_or_else(|| none_answer(&table, id));
+            saved.insert(id.clone(), value);
         }
     }
     // A none stored for a row that only requirements shared with other features state (a

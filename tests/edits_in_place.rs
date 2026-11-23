@@ -2071,6 +2071,43 @@ fn clear_takes_back_a_stored_decision_and_never_pmi() {
         stored_answers(&decided.bytes)["part.locating"],
         "± dimensions"
     );
+    let fill = json!({"fill": {"part.coating": "Anodised"}});
+    let result = apply(&after, &edits::parse_value(fill).unwrap());
+    assert!(result.is_err(), "fill overwrote a stored decided none");
+    let failures = result.unwrap_err();
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].entry, r#"fill["part.coating"]"#);
+    let reason = r#"part.coating is decided none; to give it a value, clear it first: "clear": ["part.coating"] with the fill in the same list"#;
+    assert_eq!(failures[0].reason, reason);
+    let failures = refused(
+        &after,
+        json!({"change": {"part.coating": {"to": "Anodised", "expect": "none"}}}),
+    );
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].entry, r#"change["part.coating"]"#);
+    assert_eq!(failures[0].reason, reason);
+
+    let same = json!({"fill": {"part.coating": " None (as machined) "}});
+    let check = specify_core::writer::apply::check(&after, &same.to_string());
+    assert!(check.applicable, "{}", check.message());
+    assert_eq!(check.unchanged, [r#"fill["part.coating"]"#]);
+    let unchanged = applied(&after, same);
+    assert!(unchanged.unchanged);
+    assert_eq!(unchanged.bytes, decided.bytes);
+
+    let replaced = applied(
+        &after,
+        json!({"clear": ["part.coating"], "fill": {"part.coating": "Anodised"}}),
+    );
+    let replacement = row(&table(&reload(&replaced.bytes)), "part.coating");
+    assert_eq!(replacement["state"], "stated");
+    assert_eq!(replacement["value"], "Anodised");
+    assert!(
+        stored_answers(&replaced.bytes)
+            .get("part.coating")
+            .is_none()
+    );
+
     let cleared = applied(&after, json!({"clear": ["part.coating", "part.locating"]}));
     let back = reload(&cleared.bytes);
     assert_eq!(row(&table(&back), "part.coating")["state"], "gap");

@@ -330,6 +330,10 @@ impl Session {
             } else if edits::is_none_answer(value) {
                 draft.none.insert(id.clone());
             } else {
+                // A replacement in working answers followed an explicit clear.
+                if saved.contains_key(id) {
+                    draft.clear.insert(id.clone());
+                }
                 draft.fill.insert(id.clone(), value.clone());
             }
         }
