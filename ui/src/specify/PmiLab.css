@@ -402,3 +402,30 @@ fieldset.pmi-lab-rows { min-width: 0; margin: 0; padding: 0; border: 0; }
 /* The viewer's toolbar and tools panel, folded away until "More view tools". */
 .cad-tools-hidden .tcv_cad_toolbar, .cad-tools-hidden .tcv_cad_navigation { display: none !important; }
 .pmi-lab-none { margin: 0; padding: 10px 12px; color: #5a626b; font-size: 12.5px; }
+
+/* 0.3 (change list item 2): what the file states, with its pencil and bin (uncoloured, the same
+   size); red only on the remove confirmation. */
+.pmi-lab .pmi-lab-stated { display: flex; align-items: center; gap: 6px; }
+.pmi-lab .pmi-lab-stated > .pmi-lab-item, .pmi-lab .pmi-lab-stated > .pmi-lab-line { flex: 1 1 auto; min-width: 0; }
+.pmi-lab-stated .value small { color: #8a929b; font-weight: 400; }
+.pmi-lab-stated.removed .value { color: #707880; }
+.pmi-lab .pmi-lab-stated-tools { display: inline-flex; gap: 4px; align-items: center; flex: none; font-size: 12px; }
+.pmi-lab .pmi-lab-stated-tools button { font-size: 12px; padding: 2px 7px; }
+.pmi-lab .pmi-lab-stated-tools button.icon { padding: 4px 5px; line-height: 0; color: #1a1d21; border: 1px solid #d9dee4; background: #fff; border-radius: 4px; }
+.pmi-lab .pmi-lab-stated-tools button.icon:hover { background: #f3f5f8; border-color: #707880; }
+.pmi-lab-stated-tools svg { width: 16px; height: 16px; display: block; }
+.pmi-lab .pmi-lab-stated-tools.asking { flex-wrap: wrap; color: #3a4450; }
+.pmi-lab .pmi-lab-stated-tools button.remove { color: #fff; background: #c0392b; border-color: #c0392b; }
+
+/* 0.3 (change list item 1): the general dimensions, one row; each line with Call Out. */
+.pmi-lab-dims { display: grid; gap: 2px; padding: 4px 0 6px; }
+.pmi-lab .pmi-lab-dim { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 2px 4px; border-radius: 3px; }
+.pmi-lab .pmi-lab-dim.on { background: #e9f3fb; }
+.pmi-lab .pmi-lab-dim.changed .tol { color: #2f6fb5; font-weight: 600; }
+.pmi-lab .pmi-lab-dim-line { flex: 1 1 220px; min-width: 0; display: grid; grid-template-columns: 3.2em minmax(0, 1fr) minmax(0, 1.3fr) auto;
+  gap: 6px; align-items: baseline; text-align: left; border: 0; background: none; padding: 2px 0; font-size: 12.5px; cursor: pointer; }
+.pmi-lab-dim-line .bal { font-variant-numeric: tabular-nums; color: #707880; }
+.pmi-lab-dim-line .tol { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pmi-lab .pmi-lab-dim button.call-out { border: 0; background: none; padding: 0 2px; font-size: 12px; color: #2f6fb5; cursor: pointer; white-space: nowrap; }
+.pmi-lab .pmi-lab-dim-edit { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12.5px; }
+.pmi-lab .pmi-lab-dim-edit input { width: 6em; font: inherit; padding: 3px 6px; }

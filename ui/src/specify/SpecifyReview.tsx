@@ -15,7 +15,7 @@ import { xlsx } from '../model/xlsx';
 import { readOnlyEngine } from './read-only';
 import { inspectionAnswers } from './inspection';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
-import type { PmiLabel } from './labels';
+import { fmt, type PmiLabel } from './labels';
 import type { Picker } from './picker';
 import type { HostView } from './host-view';
 import { createReviewView } from './review-view';
@@ -51,7 +51,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, view: hostView = null }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -93,6 +93,23 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   readOnly?: boolean;
   /** The host's own 3D view to draw the part in (docs/host-view.md); by default the package's. */
   view?: HostView | null;
+  /**
+   * 0.3 (ADR P11; change list item 2): what the file states, shown where its questions are, as their
+   * answers. Each such item has a pencil (open it to change) and a bin (remove); a removed one shows
+   * as removed, with Undo. ``values``: the file's value by question. Without it nothing is stated.
+   */
+  stated?: {
+    values: Readonly<PmiAnswers>; removed: ReadonlySet<string>;
+    onRemove(id: string): void; onRestore(id: string): void;
+  };
+  /** "Added by you" is shown (default). 0.3 hosts hide it until the engine saves free-form requirements. */
+  addedByYou?: boolean;
+  /**
+   * 0.3 (change list item 1): general dimensions are one row in the review, "N dimensions under
+   * <general tolerance>", whose lines each have Call Out: a tolerance of its own, given here. False
+   * when the host cannot call that dimension out. Without it, Call Out adds a requirement as before.
+   */
+  callOutDimension?: (dimension: { nominal: number | null; faces: readonly number[] }, tolerance: string) => boolean;
 }) {
   const host = engine;
   const readOnlyHost = useMemo(() => readOnlyEngine(host), [host]);
@@ -143,6 +160,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const [onlySuggestions, setOnlySuggestions] = useState(false);
   // The review, or every characteristic numbered as its balloon.
   const [view, setView] = useState<'review' | 'table'>('review');
+  // General dimensions called out (0.3, change list item 1), by characteristic, with the tolerance given.
+  const [calledOut, setCalledOut] = useState<ReadonlyMap<string, string>>(new Map());
+  const [callingOut, setCallingOut] = useState<string | null>(null);
   const [selectedChar, setSelectedChar] = useState<string | null>(null);
   // What is left out of the inspection list: the CSV's, not the PMI's.
   const [skipped, setSkipped] = useState<ReadonlySet<string>>(new Set());
@@ -156,7 +176,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const datumGroup = rows.find((g) => g.key === 'datums') ?? { key: 'datums', title: 'Datums', questions: [] };
   const featureRows = rows.filter((g) => g.key !== 'datums');
   // Settings the file already states are not asked; they are shown as read.
-  const stated = Object.entries(session.analysis.part ?? {});
+  const stated = Object.entries(session.analysis.part ?? {}).filter(([key]) => !statedRows || !(`part.${key}` in statedRows.values));
   const notes = partGroup?.questions.filter((q) => NOTE_FIELDS.has(q.id)) ?? [];
   const notesSummary = notes.map((q) => String(answerOf(q, answers) ?? ''))
     .filter((v) => v && !/^(none|no edge note)/i.test(v)).join(' · ');
@@ -728,6 +748,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       else setCurrent(id);
     };
   };
+  // What the general tolerance covers, one line per dimension (its first instance).
+  const generalDims = byBalloon(chars.filter((r) => r.source.startsWith('general:'))).flatMap((g) => g.slice(0, 1));
   // A characteristic chosen in the table is shown on the part.
   const showChar = (id: string, faces: readonly number[]) => {
     setSelectedChar(id);
@@ -775,8 +797,31 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     onSaved?.(`${stem}-AS9102.xlsx`);
   }, 'xlsx');
 
+  // What the file states (0.3, change list item 2): its own pencil and bin, or removed with Undo.
+  const statedOf = (id: string): StatedState | null => (statedRows && !readOnly && id in statedRows.values ? {
+    removed: statedRows.removed.has(id),
+    changed: JSON.stringify(answers[id]) !== JSON.stringify(statedRows.values[id]),
+    onRemove: () => statedRows.onRemove(id), onRestore: () => statedRows.onRestore(id),
+  } : null);
   // A row: its head and summary, a check to confirm, and when open its questions.
-  const questionItem = (q: PmiQuestion, g: QuestionGroup, titled = true) => (
+  const questionItem = (q: PmiQuestion, g: QuestionGroup, titled = true) => {
+    const st = statedOf(q.id);
+    if (st && q.id !== current) {
+      return (
+        <div key={q.id} className={`pmi-lab-stated${st.removed ? ' removed' : ''}`} data-question={q.id}>
+          {st.removed
+            ? <span className="pmi-lab-item"><span className="prompt">{q.label ?? q.prompt}</span><span className="value"><s>{shortValue(q, statedRows!.values[q.id])}</s> removed</span></span>
+            : <button type="button" className="pmi-lab-item" onClick={() => setCurrent(q.id)}>
+                <span className="prompt">{q.label ?? q.prompt}</span>
+                <span className="value">{shortValue(q, answerOf(q, answers))} <small>{st.changed ? '(changed)' : '(from the file)'}</small></span>
+              </button>}
+          <StatedTools name={q.label ?? q.prompt} state={st} onChange={() => setCurrent(q.id)} />
+        </div>
+      );
+    }
+    return questionItemOf(q, g, titled);
+  };
+  const questionItemOf = (q: PmiQuestion, g: QuestionGroup, titled = true) => (
     <QuestionItem titled={titled}
       key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} active={q.id === current}
       selection={selection} mode={mode} error={errorAt(q.id)} typed={typed[q.id] ?? null}
@@ -793,6 +838,20 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       }}
     />
   );
+  // A part setting folded to one line; what the file states with its pencil and bin.
+  const partLine = (q: PmiQuestion, onOpen: () => void) => {
+    const st = statedOf(q.id);
+    const name = PART_FIELD[q.id] ?? q.prompt;
+    if (!st) return <FoldedLine key={q.id} name={name} value={partValue(q, answers)} onOpen={onOpen} />;
+    return (
+      <div key={q.id} className={`pmi-lab-stated${st.removed ? ' removed' : ''}`} data-question={q.id}>
+        {st.removed
+          ? <span className="pmi-lab-line"><span className="name">{name}</span><span className="value"><s>{partValue(q, statedRows!.values)}</s> removed</span></span>
+          : <FoldedLine name={name} value={`${partValue(q, answers)} ${st.changed ? '(changed)' : '(from the file)'}`} onOpen={onOpen} />}
+        <StatedTools name={name} state={st} onChange={onOpen} />
+      </div>
+    );
+  };
   // ``extra`` goes under the head, open or not (the datums row's chips).
   // ``sum`` and ``onHead`` replace the row's own summary and open/close, for
   // rows that are more than their questions (the datums).
@@ -1045,9 +1104,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               exportable={inspectionExports}
               skipped={skipped} onSkip={skip} onEdit={readOnly ? () => null : editChar}
               onCallOut={(row) => (!readOnly && row.source.startsWith('general:')
-                ? () => callOut(Number(row.source.slice('general:'.length)), row.text) : null)}
+                ? (callOutDimension
+                  ? () => { switchView('review'); setUnfolded('dims'); setCallingOut(row.id); showChar(row.id, row.faces); }
+                  : () => callOut(Number(row.source.slice('general:'.length)), row.text))
+                : null)}
               generalTolerance={preview?.part['general_tolerance'] ?? ''}
-              calledOut={added.filter(([, extra]) => CALL_OUTS.includes(extra.kind)).length}
+              calledOut={callOutDimension ? calledOut.size : added.filter(([, extra]) => CALL_OUTS.includes(extra.kind)).length}
             />
           ) : (<>
           {(partGroup || stated.length > 0) && (
@@ -1072,7 +1134,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                 }
                 if (c && !readOnly) return card(c);
                 if (onlySuggestions) return null;
-                return <FoldedLine key={q.id} name={PART_FIELD[q.id] ?? q.prompt} value={partValue(q, answers)} onOpen={() => toggle(q.id)} />;
+                return partLine(q, () => toggle(q.id));
               })}
               {notes.length > 0 && (unfolded === 'notes' || unfolded?.startsWith('note:') ? (
                 <div className="pmi-lab-notes">
@@ -1085,10 +1147,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                       onAnswer={(value) => { setUnfolded('notes'); return answer(q, value); }}
                     />
                   ) : (
-                    <FoldedLine
-                      key={q.id} name={PART_FIELD[q.id] ?? q.prompt} value={partValue(q, answers)}
-                      onOpen={() => setUnfolded(`note:${q.id}`)}
-                    />
+                    partLine(q, () => setUnfolded(`note:${q.id}`))
                   )))}
                 </div>
               ) : (
@@ -1103,7 +1162,32 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
           )}
           <h2 className="pmi-lab-rows-title">On the part</h2>
           {featureRows.map((g) => renderRow(g))}
-          {(!onlySuggestions || draft || problemsIn('added').length > 0) && (
+          {callOutDimension && !readOnly && generalDims.length > 0 && (
+            <section className={`pmi-lab-row ${calledOut.size ? 'set' : 'ok'}`} data-row="dimensions">
+              <button type="button" className="pmi-lab-row-head" aria-expanded={unfolded === 'dims'} onClick={() => toggle('dims')}>
+                <Chevron open={unfolded === 'dims'} />
+                <b>{generalDims.length} dimension{generalDims.length === 1 ? '' : 's'} under {preview?.part['general_tolerance'] || 'the general tolerance'}</b>
+                <span className="sum">{calledOut.size ? `${calledOut.size} called out` : ''}</span>
+              </button>
+              {unfolded === 'dims' && (
+                <div className="pmi-lab-dims">
+                  {generalDims.map((r) => (
+                    <DimensionLine
+                      key={r.id} row={r} selected={selectedChar === r.id} calledOut={calledOut.get(r.id) ?? null}
+                      startOpen={callingOut === r.id}
+                      onSelect={() => showChar(r.id, r.faces)}
+                      onCallOut={(tolerance) => {
+                        const ok = callOutDimension({ nominal: r.nominal, faces: r.faces }, tolerance);
+                        if (ok) setCalledOut((m) => { const next = new Map(m); if (tolerance.trim()) next.set(r.id, tolerance.trim()); else next.delete(r.id); return next; });
+                        return ok;
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+          {addedByYou && (!onlySuggestions || draft || problemsIn('added').length > 0) && (
           <section className={`pmi-lab-row ${added.length ? 'set' : 'ok'}${draft ? ' current' : ''}`}>
             <button
               type="button" className="pmi-lab-row-head" aria-expanded={unfolded === 'added' || Boolean(draft)}
@@ -1228,6 +1312,74 @@ function FoldedLine({ name, value, onOpen }: { name: string; value: string; onOp
       <span className="name"><Chevron open={false} />{name}</span>
       <span className="value">{value}</span>
     </button>
+  );
+}
+
+/** One dimension the general tolerance covers: its feature, characteristic, nominal, ± and number,
+ * and Call Out, which takes a tolerance of its own in place (change list item 1). */
+function DimensionLine({ row, selected, calledOut, startOpen, onSelect, onCallOut }: {
+  row: Characteristic; selected: boolean; calledOut: string | null; startOpen: boolean;
+  onSelect: () => void; onCallOut: (tolerance: string) => boolean;
+}) {
+  const [open, setOpen] = useState(startOpen);
+  const [text, setText] = useState(calledOut ?? '');
+  const [problem, setProblem] = useState<string | null>(null);
+  const tol = row.upper !== null && row.lower !== null && row.upper === -row.lower ? `±${fmt(row.upper)}`
+    : [row.upper !== null ? `+${fmt(row.upper)}` : '', row.lower !== null ? fmt(row.lower) : ''].filter(Boolean).join(' ');
+  const use = () => {
+    if (!onCallOut(text)) { setProblem('This dimension cannot be called out here.'); return; }
+    setProblem(null); setOpen(false);
+  };
+  return (
+    <div className={`pmi-lab-dim${selected ? ' on' : ''}${calledOut ? ' changed' : ''}`} data-characteristic={row.id}>
+      <button type="button" className="pmi-lab-dim-line" onClick={onSelect}>
+        <span className="bal">{row.n ? row.id : '—'}</span>
+        <span className="feature">{row.feature}</span>
+        <span className="text">{row.text}</span>
+        <span className="tol">{calledOut ? <><s>{tol}</s> ±{calledOut.replace(/^±\s*/, '')}</> : tol}</span>
+      </button>
+      {!open && <button type="button" className="call-out" onClick={() => { setOpen(true); onSelect(); }}>{calledOut ? 'Change' : 'Call Out'}</button>}
+      {open && (
+        <span className="pmi-lab-dim-edit">
+          <label>± <input type="text" inputMode="decimal" value={text} autoFocus aria-label={`Tolerance for ${row.feature} ${row.text}`}
+            placeholder={tol.replace(/^±/, '')} onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') use(); if (e.key === 'Escape') setOpen(false); }} /></label>
+          <button type="button" onClick={use} disabled={!text.trim()}>Use</button>
+          {calledOut && <button type="button" onClick={() => { if (onCallOut('')) { setText(''); setOpen(false); } }}>Back to {tol}</button>}
+          <button type="button" onClick={() => { setOpen(false); setText(calledOut ?? ''); }}>Cancel</button>
+        </span>
+      )}
+      {problem && <p role="alert" className="pmi-lab-error">{problem}</p>}
+    </div>
+  );
+}
+
+/** What an item the file states can do: change (pencil) and remove (bin), or, removed, Undo. */
+interface StatedState { removed: boolean; changed: boolean; onRemove(): void; onRestore(): void }
+
+const PENCIL = <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M11 2.5l2.5 2.5L6 12.5l-3 .5.5-3z" /></svg>;
+const BIN = <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.5 8.5h6l.5-8.5M6.8 7v4M9.2 7v4" /></svg>;
+
+/** A stated item's pencil and bin: the same size and colour; the bin asks before it removes. */
+function StatedTools({ name, state, onChange }: { name: string; state: StatedState; onChange: () => void }) {
+  const [asking, setAsking] = useState(false);
+  if (state.removed) {
+    return <span className="pmi-lab-stated-tools"><button type="button" onClick={state.onRestore}>Undo</button></span>;
+  }
+  if (asking) {
+    return (
+      <span className="pmi-lab-stated-tools asking" role="group" aria-label={`Remove ${name}?`}>
+        <span>Remove from the file?</span>
+        <button type="button" className="remove" onClick={() => { setAsking(false); state.onRemove(); }}>Remove</button>
+        <button type="button" onClick={() => setAsking(false)}>Cancel</button>
+      </span>
+    );
+  }
+  return (
+    <span className="pmi-lab-stated-tools">
+      <button type="button" className="icon" title={`Change ${name}`} aria-label={`Change ${name}`} onClick={onChange}>{PENCIL}</button>
+      <button type="button" className="icon" title={`Remove ${name}`} aria-label={`Remove ${name}`} onClick={() => setAsking(true)}>{BIN}</button>
+    </span>
   );
 }
 

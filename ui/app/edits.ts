@@ -8,7 +8,8 @@ export type Pending = PendingEdit & { draft?: true };
 
 type PendingEdit =
   /** A gap given a value: Add. */
-  | { kind: 'fill'; id: string; name: string; value: unknown; text: string }
+  | { kind: 'fill'; id: string; name: string; value: unknown; text: string; clear?: true }
+  /* ``clear``: a stored "none needed" replaced by a value, one bar entry that sends clear + fill. */
   /** A stated row given a new value: Change. ``expect`` is the file's value the person saw. */
   | { kind: 'change'; id: string; name: string; value: unknown; text: string; expect: unknown; was: string }
   /** A stated row (or an item of "Other PMI") removed: what `items.remove` names (removalTargets). */
@@ -24,7 +25,10 @@ type PendingEdit =
 export function editList(pending: Iterable<Pending>): EditList {
   const out: EditList = {};
   for (const p of pending) {
-    if (p.kind === 'fill') (out.fill ??= {})[p.id] = p.value;
+    if (p.kind === 'fill') {
+      (out.fill ??= {})[p.id] = p.value;
+      if (p.clear) (out.clear ??= []).push(p.id);
+    }
     else if (p.kind === 'change') (out.change ??= {})[p.id] = { to: p.value, expect: p.expect };
     else if (p.kind === 'remove') {
       const list = ((out.items ??= {}).remove ??= []);
