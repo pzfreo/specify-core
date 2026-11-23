@@ -128,9 +128,10 @@ every mode, `diff` included:
 
 ### `save`
 
-The page collects the person's edits and sends them together; the command applies them to the
-file, all or nothing, with the same code as `specify-core write STEP EDITS.json` (ADR P11). The
-page sends no STEP bytes.
+The review checks each edit against the file before listing it. It uses the stored requirements and
+pending edits to update the preview and decide which questions apply. Save sends the combined
+edits to the command, which applies them all or nothing using the same writer as
+`specify-core write STEP EDITS.json` (ADR P11). The request carries the edit list and revision.
 
 `POST <token>/save` with a JSON body:
 

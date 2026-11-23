@@ -50,7 +50,7 @@ const PART_FIELD: Record<string, string> = {
 /** One name per question everywhere: the engine's label, else the short name, else its prompt. */
 const labelOf = (q: PmiQuestion) => q.label ?? PART_FIELD[q.id] ?? q.prompt;
 /** The part's notes, folded under "Finish and notes". */
-const NOTE_FIELDS = new Set(['part.surface_finish', 'part.coating', 'part.heat_treatment', 'part.edges', 'part.notes']);
+const NOTE_FIELDS = new Set(['part.surface_finish', 'part.coating', 'part.heat_treatment', 'part.edges']);
 const EMPTY_PENDING = new PendingEdits();
 const MODE_TEXT: Record<PickMode, string> = { face: 'Face', feature: 'Hole / feature', coplanar: 'Coplanar faces' };
 
@@ -109,6 +109,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const session = reopened?.session ?? openedSession;
   const fileReview = fileOptions && (reopened ? { ...fileOptions, file: reopened.file } : fileOptions);
   const editingFile = Boolean(fileReview && !readOnly);
+  const isNoteField = (id: string) => NOTE_FIELDS.has(id) || (editingFile && id === 'part.notes');
   const [localEdits, setLocalEdits] = useState<{ source: string; pending: PendingEdits } | null>(null);
   const pending = fileReview?.pending ?? (localEdits?.source === fileOptions?.file.sourceId ? localEdits?.pending : undefined) ?? EMPTY_PENDING;
   const transaction = useRef({ pending, seen: pending, options: fileReview });
@@ -202,7 +203,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
       .map((r) => [r.id.slice('part.'.length), r.value as string])),
     ...(session.analysis.part ?? {}),
   });
-  const notes = partGroup?.questions.filter((q) => NOTE_FIELDS.has(q.id)) ?? [];
+  const notes = partGroup?.questions.filter((q) => isNoteField(q.id)) ?? [];
   // A suggestion that states nothing is said as such, by its question (specify-ui#14).
   const notesSummary = notes.map((q) => (noneSuggested(q, answers) ? `${labelOf(q)}: ${NONE_SUGGESTED}` : String(answerOf(q, answers) ?? '')))
     .filter((v) => v && !/^(none|no edge note)/i.test(v)).join(' · ');
@@ -254,7 +255,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     // A problem about an added requirement is not a question: it opens as the problem's line does.
     if (!questions.some(question => question.id === id)) { setView('review'); openProblem(id, focusRequest.faces ?? []); return; }
     setView('review'); setOnlySuggestions(false); setCurrent(id);
-    setUnfolded(NOTE_FIELDS.has(id) ? `note:${id}` : id.startsWith('part.') ? id : id.startsWith('datum.') ? 'datums' : null);
+    setUnfolded(isNoteField(id) ? `note:${id}` : id.startsWith('part.') ? id : id.startsWith('datum.') ? 'datums' : null);
     // Brought into view only when asked: the queue that asked may be above it in the same column.
     if (focusRequest.scroll) window.setTimeout(() => {
       const field = rowsBox.current?.querySelector<HTMLElement>(`[data-question="${CSS.escape(id)}"]`);
@@ -847,7 +848,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const changeChosen = (id: string) => {
     if (id.startsWith('part.')) {
       if (editingFile) setCurrent(id);
-      setUnfolded(NOTE_FIELDS.has(id) ? `note:${id}` : id);
+      setUnfolded(isNoteField(id) ? `note:${id}` : id);
       rowsBox.current?.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
@@ -1052,7 +1053,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const openFileRow = (row: FileRow) => {
     const id = row.id;
     setCurrent(id);
-    if (id.startsWith('part.')) setUnfolded(NOTE_FIELDS.has(id) ? `note:${id}` : id);
+    if (id.startsWith('part.')) setUnfolded(isNoteField(id) ? `note:${id}` : id);
     else if (id.startsWith('datum.')) setUnfolded('datums');
     picker.current?.highlight(row.faces);
     if (row.faces.length) picker.current?.lookAt(row.faces);
@@ -1067,7 +1068,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     const label = labelOf(q);
     const onClose = () => {
       setCurrent(active => active === id ? null : active);
-      if (partField) setUnfolded(NOTE_FIELDS.has(id) ? 'notes' : null);
+      if (partField) setUnfolded(isNoteField(id) ? 'notes' : null);
       setError(null);
     };
     const undo = () => {
@@ -1090,8 +1091,8 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         <PartField key={`${id}:${JSON.stringify(answers[id])}`} q={q} answers={answers} error={null}
           file onAnswer={value => answer(q, value).then(ok => { if (ok) onClose(); return ok; })} />
         {q.kind === 'choice' && id === 'part.surface_finish' && <SpecBox q={q} codes={[]} onSpec={async text => {
-          await answer(q, text);
-          return null;
+          const why = await spec(q, text);
+          return why && `${text} is not an answer. ${why}`;
         }} />}
         <button type="button" onClick={onClose}>Cancel</button>
       </div> : <div className="pmi-lab-file-input">
@@ -1381,7 +1382,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
           ) : (<>
           {editingFile && partGroup && <section className="pmi-lab-fields" data-group="part">
             {problemLines('part')}
-            {partGroup.questions.filter(q => !NOTE_FIELDS.has(q.id) && (!onlySuggestions || needs(q, answers) || chosenById.has(q.id)))
+            {partGroup.questions.filter(q => !isNoteField(q.id) && (!onlySuggestions || needs(q, answers) || chosenById.has(q.id)))
               .map(q => renderFileRow(q, partGroup))}
             {notes.length > 0 && (!onlySuggestions || notes.some(q => chosenById.has(q.id))) && <details className="pmi-lab-notes"
               open={unfolded === 'notes' || unfolded?.startsWith('note:') || undefined}>
@@ -1398,7 +1399,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
                   <span className="value">{value}</span>
                 </div>
               ))}
-              {partGroup?.questions.filter((q) => !NOTE_FIELDS.has(q.id)).map((q) => {
+              {partGroup?.questions.filter((q) => !isNoteField(q.id)).map((q) => {
                 const c = chosenById.get(q.id);
                 // Shown in its queue row instead while it is being answered there.
                 if (slots.question && q.id === current) return null;
@@ -1659,7 +1660,7 @@ function PartField({ q, answers, error, onAnswer, locked = false, file = false }
   return (
     <label className={`pmi-lab-field${need ? ` ${need}` : ''}`} title={q.why} data-question={file ? undefined : q.id}>
       {name}
-      {lock(file && q.id === 'part.notes' ? <NotesInput onAnswer={onAnswer} /> : q.kind === 'choice' ? (
+      {lock(file && q.id === 'part.notes' ? <NotesInput value={value} onAnswer={onAnswer} /> : q.kind === 'choice' ? (
         <select value={typeof value === 'string' ? value : ''} onChange={(event) => onAnswer(event.target.value)}>
           {file && typeof value === 'string' && !q.options?.includes(value) && <option value={value}>{value}</option>}
           {(q.options ?? []).map((option) => (
@@ -1803,8 +1804,8 @@ function QuestionItem({
   );
 }
 
-function NotesInput({ onAnswer }: { onAnswer: (value: unknown) => Promise<boolean> }) {
-  const [text, setText] = useState('');
+function NotesInput({ value, onAnswer }: { value: unknown; onAnswer: (value: unknown) => Promise<boolean> }) {
+  const [text, setText] = useState(Array.isArray(value) ? value.join('\n') : '');
   const lines = () => text.split('\n').map(line => line.trim()).filter(Boolean);
   return <div className="pmi-lab-file-input">
     <textarea aria-label="Other notes" rows={3} value={text} onChange={e => setText(e.target.value)} />

@@ -56,6 +56,7 @@ export function FileRequirement({ row, name, pending, open, disabled, problem, c
               : row.state === 'stated' && !row.bom ? <>
                 <IconButton label={`Change ${name}`} icon="edit" disabled={disabled} onClick={() => { setRemoving(false); onOpen(); }} />
                 <IconButton label={`Remove ${name}`} icon="bin" disabled={disabled} onClick={() => { onClose(); setRemoving(true); }} />
+                {edit && <button type="button" onClick={onUndo}>Undo</button>}
               </> : <>
                 <button type="button" onClick={onOpen}>Edit</button>
                 {edit && <button type="button" onClick={onUndo}>Undo</button>}

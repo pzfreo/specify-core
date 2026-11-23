@@ -175,11 +175,12 @@ exported too; see `src/index.ts`.
 answers what it was told and calls `show`; by hand, `specify-core open part.step` (or `open --diff old.step
 new.step`) serves the same page.
 
-**The review panel** (`app/Panel.tsx`; draftwright-project proposals/specify-panel.md, accepted 2026-11-20) lists
-the part's features from the file's feature table (`analysis.table`; ADR P11), and under each feature each kind of
-requirement it can need, in one of three states: **stated** in the file (its value; the feature's balloon numbers
-beside its name), a **gap** ("not stated", with Specify's suggestion as a dashed chip, "suggested: h7"), or
-**none needed** (decided). Requirements on no recognised feature are listed last, as "Other PMI in the file".
+**The review panel** uses the original `SpecifyReview` controls with the 0.3 edit list. It shows each requirement
+as **stated** with its stored value and balloon numbers, a **gap** with its suggestion, or **none needed**.
+The engine reads stated requirements and decisions from the STEP. The review asks about Process first, then
+uses the file and the pending answers to ask which gaps apply after each edit. **Holes located by** and an
+assembly part's **Parts list** appear when the engine asks about them. Requirements on no recognised feature
+are listed last under **Other PMI in the file**.
 
 - A stated row has two matching, uncoloured icons: a pencil (change) and a bin (remove). Change opens one line
   under the row with the current value first ("Now: ⌖ 0.2 A") and a box for the new one; the line says that a change
@@ -187,11 +188,13 @@ beside its name), a **gap** ("not stated", with Specify's suggestion as a dashed
   in the panel: "Remove ⌖ 0.2 A? Number #4 is retired and never reused." Values read as a drawing writes them
   ("⌖ 0.2 A", "Ø3.3"), in the rows, the line and the bar. A removal names the requirement's characteristic numbers,
   or, for one without a number (the material, another tool's PMI), the row's or item's id:
-  `items.remove: ["#4", {"id": "part.material"}]` (`removalTargets` in `app/edits.ts`). Until the engine takes an
-  id there, its check refuses that removal, and the line says so.
-- A gap offers **Add** (its line pre-filled with the suggestion) and **None needed**. A decided none reads "none
-  needed", greyed, with **Undo**, which takes back the stored decision using the edit list's
-  `clear`. A refused None needed shows the reason on that row.
+  `items.remove: ["#4", {"id": "part.material"}]`.
+- A gap offers **Keep** for its suggestion and one-click alternatives. **Add** opens its controls for another
+  value. Use the choice chips, type a specification, or pick faces on the part. The material, coating and
+  heat-treatment catalogues support the arrow keys, Enter, Tab and Esc.
+- **None needed** records a decision. **Undo** takes back a pending edit or clears a stored decision. A refusal
+  shows the reason on the row. Use the Datum chips to pick or add datums. **Added by you** shows where free-form
+  requirements will go in the next release. The 3D view still offers call-outs for individual general dimensions.
 - The general tolerance's line is its own editor (#228): a class (ISO 2768-m and so on), or a block row by row
   (decimal places and their tolerance, Add row), an angles line and separate note fields.
   The part's drawing notes also display one per line. It writes one line of text, the form
@@ -221,7 +224,8 @@ refusal and the change needed. **Save** excludes it and **Discard** clears it. A
 can propose a savable change with MCP `check`, `stage: true` and an explicit
 `change` entry with `to` and `expect`.
 If you edit the same row, the bar says your edit replaces the agent's answer.
-The Characteristics tab and 3D view show the saved STEP. Save writes the specified STEP
+The Characteristics tab and its CSV and AS9102 exports read the file's stored PMI. The inclusion ticks control
+which rows are exported. After edits the 3D view can preview the proposed requirements. Save writes the specified STEP
 (beside it as `part.specified.step` by default, or over the input with `--in-place`). Save never refuses for questions
 still open (many AP242 files have no complete answer to everything): it writes the edits listed and says which
 questions are still open. Specify's suggestions are written only when the person adds them (ADR P9).

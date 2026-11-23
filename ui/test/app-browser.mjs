@@ -112,24 +112,46 @@ const material = page => row(page, 'part.material');
 /** The bar's entry for row ``id``. */
 const listedEdit = (page, id) => page.locator(`.spec-bar [data-pending="${id}"]`);
 /** Add on gap ``id``: its line opens pre-filled with the suggestion; ``value`` typed over it, if given. */
+const changedRows = page => page.locator('.pmi-lab-file-row.changed, .spec-row.changed');
+const rowValue = locator => locator.locator(':scope > .pmi-lab-line > .value, :scope > .v');
+const noteIds = new Set(['part.coating', 'part.heat_treatment', 'part.notes', 'part.surface_finish', 'part.edges']);
+async function showRow(page, id) {
+  if (noteIds.has(id)) {
+    const notes = page.locator('details.pmi-lab-notes');
+    if (await notes.count() && await notes.getAttribute('open') === null) await notes.locator('summary').click();
+  }
+  return row(page, id);
+}
+
 async function add(page, id, value) {
-  const r = row(page, id);
-  await r.locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
-  if (value !== undefined) await r.locator('.spec-edit input').first().fill(value);
-  await r.locator('.spec-edit').getByRole('button', { name: 'Add', exact: true }).click();
-  await check(r.locator('.spec-edit')).toHaveCount(0);
+  const r = await showRow(page, id);
+  if (id === 'part.general_tolerance') {
+    await r.locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
+    await r.locator('.spec-edit').getByRole('button', { name: 'Add', exact: true }).click();
+    await check(r.locator('.spec-edit')).toHaveCount(0);
+  } else if (value === undefined) {
+    await r.getByRole('button', { name: /^(Keep|Keep suggestion)$/ }).click();
+  } else {
+    await r.locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
+    const input = r.getByRole('combobox');
+    await input.fill(value);
+    await input.press('Enter');
+    await check(r.locator('.pmi-lab-file-input')).toHaveCount(0);
+  }
   await check(listedEdit(page, id)).toBeVisible();
 }
-/** None needed on gap ``id``. */
+
 async function noneNeeded(page, id) {
-  await row(page, id).getByRole('button', { name: 'None needed', exact: true }).click();
-  await check(row(page, id)).toHaveAttribute('data-state', 'decided_none');
+  const r = await showRow(page, id);
+  await r.getByRole('button', { name: 'None needed', exact: true }).click();
+  await check(listedEdit(page, id)).toBeVisible();
 }
+
 /** Every row's value fits its box and keeps clear of the row's icons and buttons. */
 async function assertValuesFit(page) {
-  const bad = await page.locator('.spec-rows .spec-row').evaluateAll(rows => rows.flatMap(row => {
-    const v = row.querySelector(':scope > .v');
-    const acts = row.querySelector(':scope > .acts');
+  const bad = await page.locator('.pmi-lab-file-row, .spec-rows .spec-row').evaluateAll(rows => rows.flatMap(row => {
+    const v = row.querySelector(':scope > .pmi-lab-line > .value, :scope > .v');
+    const acts = row.querySelector(':scope > .pmi-lab-line > .acts, :scope > .acts');
     if (!v || !v.getClientRects().length) return [];
     const box = v.getBoundingClientRect();
     const out = [];
@@ -266,7 +288,7 @@ try {
     const pinTable = table(asm, 1);
     const choose = async (page, part, value) => {
       await page.locator('.app-part select').selectOption(String(part));
-      await check(material(page).locator('.v')).toHaveText(value);
+      await check(rowValue(material(page))).toHaveText(value);
     };
     const change = async (page, value) => {
       const r = material(page);
@@ -274,7 +296,7 @@ try {
       await r.getByRole('textbox', { name: 'New value' }).fill(value);
       await r.getByRole('button', { name: 'Apply', exact: true }).click();
       await check(r.locator('.spec-edit')).toHaveCount(0);
-      await check(r.locator('.v')).toHaveText(value);
+      await check(rowValue(r)).toHaveText(value);
     };
     const pending = (page, part) => page.locator(`.spec-bar [data-part="${part}"][data-pending]`);
     const allPending = page => page.locator('.spec-bar [data-pending]');
@@ -317,13 +339,13 @@ try {
     const reopened = await open(asm, '--in-place');
     const review = await load(reopened);
     const main = review.page;
-    await check(material(main).locator('.v')).toHaveText('Aluminium 6082-T6');
+    await check(rowValue(material(main))).toHaveText('Aluminium 6082-T6');
     await check(row(main, 'part.general_tolerance')).toHaveAttribute('data-state', 'gap');
-    await check(row(main, 'part.coating').locator('.v')).toHaveText('Anodised');
-    await check(main.locator('.spec-row.changed')).toHaveCount(0);
+    await check(rowValue(row(main, 'part.coating'))).toHaveText('Anodised');
+    await check(changedRows(main)).toHaveCount(0);
     await noneNeeded(main, 'part.heat_treatment');
     await check(pending(main, 0)).toHaveText('plate · None needed: Heat treatment');
-    await row(main, 'part.heat_treatment').getByRole('button', { name: 'Undo', exact: true }).click();
+    await (await showRow(main, 'part.heat_treatment')).getByRole('button', { name: 'Undo', exact: true }).click();
     await check(allPending(main)).toHaveCount(0);
     await main.getByRole('button', { name: 'Add all suggestions', exact: true }).click();
     await check(pending(main, 0).filter({ hasText: 'plate · Add General tolerance' })).toBeVisible();
@@ -374,7 +396,7 @@ try {
     await check(allPending(main)).toHaveCount(2);
     await discard(main);
     await check(allPending(main)).toHaveCount(0);
-    await check(material(main).locator('.v')).toHaveText('Brass CW614N');
+    await check(rowValue(material(main))).toHaveText('Brass CW614N');
     await choose(main, 0, 'Steel 1.4301');
     problems.splice(beforeErrors, problems.length - beforeErrors,
       ...problems.slice(beforeErrors).filter(p => !/^console: .*422/.test(p)));
@@ -397,7 +419,7 @@ try {
     // nothing is highlighted before an edit (decision 6), and the bar says nothing is written until Save.
     await check(material(page)).toHaveAttribute('data-state', 'gap');
     await check(row(page, 'part.general_tolerance').locator('.sugg')).toHaveText('suggested: ISO 2768-m');
-    await check(page.locator('.spec-row.changed')).toHaveCount(0);
+    await check(changedRows(page)).toHaveCount(0);
     await check(page.locator('.spec-bar')).toContainText('No changes yet. Nothing is written until Save.');
     // Save with nothing edited writes nothing, and says so (the mock-up's "Nothing to save.").
     await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -430,7 +452,7 @@ try {
     await check(page.locator('.spec-bar li[data-pending]')).toHaveCount(0);
     await check(row(page, 'part.edges')).toHaveAttribute('data-state', 'gap');
     await check(row(page, 'part.surface_finish')).toHaveAttribute('data-state', 'gap');
-    await check(page.locator('.spec-row.changed')).toHaveCount(0);
+    await check(changedRows(page)).toHaveCount(0);
     await check(page.locator('.app-dirty')).toHaveCount(0);
     assert.deepEqual(readFileSync(specified), readFileSync(plainSave), 'Discard writes nothing');
     // Add, pre-filled with the suggestion (decision 5): the general tolerance in its editor, as a class.
@@ -461,17 +483,17 @@ try {
     await check(gt.locator('.spec-problem')).toHaveCount(0);
     await check(listedEdit(page, 'part.general_tolerance')).toHaveText(`Add General tolerance: ${block}`);
     await page.getByRole('button', { name: 'Discard', exact: true }).click();
-    const notes = row(page, 'part.notes');
+    const notes = await showRow(page, 'part.notes');
     await notes.locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
-    await notes.locator('.spec-edit textarea').fill('Deburr all edges\nMark lot');
-    await notes.locator('.spec-edit').getByRole('button', { name: 'Add', exact: true }).click();
+    await notes.getByRole('textbox', { name: 'Other notes' }).fill('Deburr all edges\nMark lot');
+    await notes.getByRole('button', { name: 'Add notes', exact: true }).click();
     await check(notes.locator('.spec-note')).toHaveText(['Deburr all edges', 'Mark lot']);
     await page.getByRole('button', { name: 'Discard', exact: true }).click();
     await add(page, 'part.material', 'Aluminium 6082-T6');
     // Each edit joins the bar only if the file takes it with those listed (the bar is always a list
     // Save can write): a hole's position before the datum it cites is refused, saying so.
     await row(page, 'hole.position:holes:13').locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
-    await row(page, 'hole.position:holes:13').locator('.spec-edit').getByRole('button', { name: 'Add', exact: true }).click();
+    await row(page, 'hole.position:holes:13').getByRole('button', { name: /^(Keep|Keep suggestion)$/ }).click();
     await check(row(page, 'hole.position:holes:13').locator('.spec-problem')).toContainText('fill datum.A');
     await row(page, 'hole.position:holes:13').getByRole('button', { name: 'Cancel', exact: true }).click();
     await add(page, 'datum.A');
@@ -486,7 +508,7 @@ try {
     // None needed records the decision; Undo of one made in this session drops it; None needed again.
     await noneNeeded(page, 'part.coating');
     await check(row(page, 'part.coating')).toContainText('none needed');
-    await row(page, 'part.coating').getByRole('button', { name: 'Undo', exact: true }).click();
+    await (await showRow(page, 'part.coating')).getByRole('button', { name: 'Undo', exact: true }).click();
     await check(row(page, 'part.coating')).toHaveAttribute('data-state', 'gap');
     await check(listedEdit(page, 'part.coating')).toHaveCount(0);
     await noneNeeded(page, 'part.coating');
@@ -502,14 +524,14 @@ try {
     problems.splice(beforeSave, problems.length - beforeSave,
       ...problems.slice(beforeSave).filter(p => !/^console: .*422/.test(p)));
     // A value the file cannot take is refused on its line, by the engine, and never joins the bar.
-    await row(page, 'part.surface_finish').locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
-    await row(page, 'part.surface_finish').locator('.spec-edit input').fill('shiny');
-    await row(page, 'part.surface_finish').locator('.spec-edit').getByRole('button', { name: 'Add', exact: true }).click();
-    await check(row(page, 'part.surface_finish').locator('.spec-problem')).toContainText('not an answer');
+    await (await showRow(page, 'part.surface_finish')).locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
+    await row(page, 'part.surface_finish').getByRole('textbox', { name: /^Type a spec/ }).fill('shiny');
+    await row(page, 'part.surface_finish').getByRole('button', { name: 'Use', exact: true }).click();
+    await check(row(page, 'part.surface_finish').getByRole('alert')).toContainText('not an answer');
     await row(page, 'part.surface_finish').getByRole('button', { name: 'Cancel', exact: true }).click();
     await check(listedEdit(page, 'part.surface_finish')).toHaveCount(0);
     // Only the unsaved edits are highlighted (decision 6).
-    await check(page.locator('.spec-row.changed')).toHaveCount(5);
+    await check(changedRows(page)).toHaveCount(5);
     await check(page.locator('.app-dirty')).toBeVisible();
     if (shots) await page.screenshot({ path: join(shots, 'panel-edits.png') });
     // The exports stay those of the file as saved, not the unsaved edits.
@@ -523,7 +545,7 @@ try {
     assert.equal(states['part.coating'].state, 'decided_none');
     assert.equal(states['part.edges'].state, 'gap', 'the discarded edit is not in the file');
     // After Save every requirement looks the same: nothing highlighted (decision 6), and the rows read the file.
-    await check(page.locator('.spec-row.changed')).toHaveCount(0);
+    await check(changedRows(page)).toHaveCount(0);
     await check(material(page)).toHaveAttribute('data-state', 'stated');
     await check(material(page)).toContainText('Aluminium 6082-T6');
     await check(page.locator('.app-dirty')).toHaveCount(0);
@@ -572,7 +594,7 @@ try {
     await check(listedEdit(page, 'part.material')).toHaveCount(0);
     await check(material(page)).not.toHaveClass(/removed/);
     // Undo on a decision the file stores takes it back (the edit list's clear): a gap again.
-    await row(page, 'part.coating').getByRole('button', { name: 'Undo', exact: true }).click();
+    await (await showRow(page, 'part.coating')).getByRole('button', { name: 'Undo', exact: true }).click();
     await check(row(page, 'part.coating')).toHaveAttribute('data-state', 'gap');
     await check(listedEdit(page, 'part.coating')).toHaveText('Undo none needed: Coating');
     if (shots) await page.screenshot({ path: join(shots, 'panel-pending.png') });
@@ -586,14 +608,14 @@ try {
     assert.ok(!(analyse(second).characteristics ?? []).some(c => `#${c.number}` === retired), `${retired} is retired`);
     assert.equal(after['part.coating'].state, 'gap', 'Undo took the stored decision back');
     assert.equal(after['part.material'].state, 'stated', 'what the list did not name is left as it is');
-    await check(page.locator('.spec-row.changed')).toHaveCount(0);
+    await check(changedRows(page)).toHaveCount(0);
     if (shots) await page.screenshot({ path: join(shots, 'panel-saved.png') });
     // Origin is never shown (decision 6): not in the panel, nor in its Characteristics tab.
-    await assertNoOrigin(page.locator('.spec-rows'));
+    await assertNoOrigin(page.locator('[data-row] > .pmi-lab-line, .spec-row > .v'));
     await page.getByRole('tab', { name: /^Characteristics/ }).click();
-    await check(page.locator('.spec-chars')).toBeVisible();
-    await assertNoOrigin(page.locator('.spec-chars'));
-    await page.getByRole('tab', { name: 'Review / Edit' }).click();
+    await check(page.locator('.pmi-lab-table')).toBeVisible();
+    await assertNoOrigin(page.locator('.pmi-lab-table'));
+    await page.getByRole('tab', { name: 'Review/Edit' }).click();
     onlyLocal(requests, server.origin);
     // Leaving the page (pagehide, not into the back/forward cache) sends `closed`: the command then
     // stops 90 s later (without it, after 30 minutes), checked at the end.
@@ -617,8 +639,8 @@ try {
     // ADR P11: the file states what was saved, and the panel shows it as stated, like any requirement.
     assert.equal(table(second)['part.material'].state, 'stated');
     await check(material(page)).toHaveAttribute('data-state', 'stated');
-    await check(page.locator('.spec-panel')).toContainText('6082');
-    await check(page.locator('.spec-row.changed')).toHaveCount(0);
+    await check(page.locator('.pmi-lab-panel')).toContainText('6082');
+    await check(changedRows(page)).toHaveCount(0);
     await check(page.locator('.app-dirty')).toHaveCount(0);
     // The heartbeat: `GET config` again within 30 s of the first.
     const configs = () => requests.filter(({ url, method }) => method === 'GET' && url === `${server.url}config`).length;
@@ -747,7 +769,7 @@ try {
     // 3. Discard after it writes nothing: the file is byte-identical, and no copy is made.
     await page.getByRole('button', { name: 'Discard', exact: true }).click();
     await check(page.locator('.spec-bar li[data-pending]')).toHaveCount(0);
-    await check(page.locator('.spec-row.changed')).toHaveCount(0);
+    await check(changedRows(page)).toHaveCount(0);
     await page.waitForTimeout(500);
     assert.deepEqual(readFileSync(file), original, 'Discard leaves the file byte-identical');
     assert.ok(!existsSync(join(copy, 'shaft.specified.step')), 'nothing written');
@@ -964,7 +986,7 @@ try {
     assert.deepEqual(own, given(analyse(newFile).resume?.answers ?? {}), 'the session starts from NEW\'s own answers');
     // It opens on what changed; the requirements are behind their tab.
     const { context, page, requests } = await load(server, '.diff-summary');
-    await check(page.locator('.spec-panel')).toBeAttached();
+    await check(page.locator('.pmi-lab-panel')).toBeAttached();
     await check(page).toHaveTitle(`${basename(newFile)} — Specify`);
     await check(page.locator('.app-path')).toHaveText(`${oldFile} → ${newFile}`);
     // What changed, first: the comparison drawn, its summary.
@@ -987,7 +1009,7 @@ try {
     await check(page.getByRole('radio', { name: 'Graphical' })).toBeChecked();
     if (shots) await page.screenshot({ path: join(shots, 'diff-decide.png') });
     // NEW decided coating none; Undo takes that back (the edit list's clear), and Save writes it.
-    await row(page, 'part.coating').getByRole('button', { name: 'Undo', exact: true }).click();
+    await (await showRow(page, 'part.coating')).getByRole('button', { name: 'Undo', exact: true }).click();
     await check(listedEdit(page, 'part.coating')).toBeVisible();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     const target = join(dir, `${basename(newFile).replace(/\.gz$/, '').replace(/\.(step|stp)$/, '')}.specified.step`);

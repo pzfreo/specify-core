@@ -68,13 +68,15 @@ const onlyLocal = (requests, url) => {
   const origin = new URL(url).origin;
   assert.deepEqual(requests.filter(u => !u.startsWith(`${origin}/`) && !/^(blob|data):/.test(u)), [], 'no request leaves 127.0.0.1');
 };
-const question = (page, id) => page.locator(`[data-question="${id}"]`);
+const question = (page, id) => page.locator(`[data-row="${id}"]`);
 /** None needed on the panel's gap ``id``. */
 async function noneNeeded(page, id) {
+  const notes = page.locator('details.pmi-lab-notes');
+  if (await notes.count() && await notes.getAttribute('open') === null) await notes.locator('summary').click();
   await question(page, id).getByRole('button', { name: 'None needed', exact: true }).click();
   await check(page.locator(`.spec-bar [data-pending="${id}"]`)).toBeVisible();
 }
-/** Add on the panel's gap ``id``, pre-filled with its suggestion. */
+/** Add on the general-tolerance gap, pre-filled with its suggestion. */
 async function add(page, id) {
   const row = question(page, id);
   await row.locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
@@ -109,9 +111,9 @@ try {
     await check(page.locator('.spec-bar [data-pending="part.general_tolerance"]')).toContainText('ISO 2768-f');
     await check(question(page, 'part.general_tolerance')).toHaveClass(/changed/);
     await page.getByRole('tab', { name: /^Characteristics/ }).click();
-    await check(page.locator('.spec-chars')).toBeVisible();
-    await check(page.locator('.spec-chars')).not.toContainText('2768-f');
-    await page.getByRole('tab', { name: 'Review / Edit' }).click();
+    await check(page.locator('.pmi-lab-table')).toBeVisible();
+    await check(page.locator('.pmi-lab-table')).not.toContainText('2768-f');
+    await page.getByRole('tab', { name: 'Review/Edit' }).click();
     await check(page.locator('.app-dirty')).toHaveText('Unsaved changes');
     if (shots) await page.screenshot({ path: join(shots, 'agent-update.png') });
     await page.locator('.app-agent').getByRole('button', { name: 'Dismiss' }).click();
@@ -170,7 +172,7 @@ try {
     await check(stopped).toHaveText(`Specify has stopped. Run specify-core open … again (or ask your agent to show it). Your saved file is at ${byAgent.path}.`, { timeout: 30_000 });
     await check(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
     await check(page.getByRole('button', { name: 'Answers (JSON)', exact: true })).toHaveCount(0);
-    await check(page.locator('.spec-panel')).toContainText('6061-T6');
+    await check(page.locator('.pmi-lab-panel')).toContainText('6061-T6');
     problems.splice(beforeStop, problems.length - beforeStop,
       ...problems.slice(beforeStop).filter(p => !/^console: .*net::ERR_CONNECTION_REFUSED$/.test(p)));
     onlyLocal(requests, shown.url);

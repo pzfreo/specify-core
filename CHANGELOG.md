@@ -142,6 +142,12 @@ Read first:
 
 ### Changed
 
+- **Local Specify review.** `open` uses the original SpecifyReview controls with 0.3 file rows and
+  pending edits. The engine re-asks what applies after each answer. Purpose and option chips,
+  catalogue suggestions, typed specifications, datum picking, Holes located by and Parts list
+  rows are available again. Save applies the checked list together. Characteristics, CSV and
+  AS9102 read the STEP's stored requirements and support inspection exclusions.
+
 - **Quiddity 0.5.5.** Published step levels on every part axis get plane-to-plane length rows.
   Independent plane lengths keep their rows. Stated locations on retired levels appear under
   **Other PMI in the file** when they match no measured row. A stated length on tilted planes
