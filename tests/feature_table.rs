@@ -438,9 +438,37 @@ fn ctc05_pattern_answers_are_stated_after_reopening() {
     std::fs::remove_dir_all(scratch).unwrap();
 }
 
+// Keep all captures of the same input together, including its part-level captures.
+fn defaults_case_group(case: &common::Case) -> usize {
+    let sha = case.meta["decompressed_sha256"]
+        .as_str()
+        .or_else(|| case.meta["input_sha256"].as_str())
+        .expect("input digest");
+    usize::from_str_radix(&sha[..2], 16).expect("hex input digest") % 4
+}
+
 #[test]
-fn accepting_corpus_defaults_leaves_no_open_rows() {
-    let scratch = scratch("corpus");
+fn accepting_corpus_defaults_leaves_no_open_rows_group_0() {
+    check_corpus_defaults(0);
+}
+
+#[test]
+fn accepting_corpus_defaults_leaves_no_open_rows_group_1() {
+    check_corpus_defaults(1);
+}
+
+#[test]
+fn accepting_corpus_defaults_leaves_no_open_rows_group_2() {
+    check_corpus_defaults(2);
+}
+
+#[test]
+fn accepting_corpus_defaults_leaves_no_open_rows_group_3() {
+    check_corpus_defaults(3);
+}
+
+fn check_corpus_defaults(group: usize) {
+    let scratch = scratch(&format!("corpus-{group}"));
     let corpus = common::corpus_dir();
     assert!(
         corpus.is_some()
@@ -452,7 +480,11 @@ fn accepting_corpus_defaults_leaves_no_open_rows() {
     let mut inputs = BTreeSet::new();
     let mut visited = BTreeSet::new();
     let mut gaps = Vec::new();
-    for (index, case) in common::cases().into_iter().enumerate() {
+    let cases = common::cases();
+    for (index, case) in cases.iter().enumerate() {
+        if defaults_case_group(case) != group {
+            continue;
+        }
         if case.kind() == "corpus" && corpus.is_none() {
             continue;
         }
@@ -530,22 +562,28 @@ fn accepting_corpus_defaults_leaves_no_open_rows() {
                 }
             }
         }
-        visited.insert(case.name);
+        visited.insert(case.name.as_str());
     }
-    for name in [
+    let fixtures = [
         "nist/nist_ctc_01_asme1_ap242",
         "nist/nist_ctc_05_asme1_ap242",
-    ] {
-        assert!(visited.contains(name), "did not visit {name}");
-    }
-    if corpus.is_some() {
-        for name in [
-            "corpus/nist/nist_ctc_01_asme1_rd",
-            "corpus/nist/nist_ctc_02_asme1_rc",
-            "corpus/nist/nist_ctc_04_asme1_rd",
-            "corpus/nist/nist_ctc_05_asme1_rd",
-            "corpus/gramel/GRM-05_depth_lock_bolt",
-        ] {
+    ];
+    let corpus_inputs = [
+        "corpus/nist/nist_ctc_01_asme1_rd",
+        "corpus/nist/nist_ctc_02_asme1_rc",
+        "corpus/nist/nist_ctc_04_asme1_rd",
+        "corpus/nist/nist_ctc_05_asme1_rd",
+        "corpus/gramel/GRM-05_depth_lock_bolt",
+    ];
+    for name in fixtures
+        .into_iter()
+        .chain(corpus_inputs.into_iter().filter(|_| corpus.is_some()))
+    {
+        let case = cases
+            .iter()
+            .find(|case| case.name == name)
+            .unwrap_or_else(|| panic!("missing selected case {name}"));
+        if defaults_case_group(case) == group {
             assert!(visited.contains(name), "did not visit {name}");
         }
     }
