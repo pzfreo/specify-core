@@ -181,10 +181,17 @@ try {
   {
     const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz', '#specify-panel .pmi-lab-row-head', '&keep=host');
     const before = (await calls(page)).length;
+    await page.evaluate(() => { window.__questionReplies = []; });
     const material = panel(page).locator('[data-question="part.material"] input');
     await material.fill('Aluminium 6082-T6');
     await material.press('Enter');
-    await panel(page).getByRole('tab', { name: /^Characteristics/ }).click();
+    assert.deepEqual((await calls(page)).slice(before), ['questions'], 'Enter requests a review');
+    await check(material).toBeFocused();
+    const characteristics = panel(page).getByRole('tab', { name: /^Characteristics/ });
+    await characteristics.click();
+    await check(characteristics).toBeFocused();
+    assert.deepEqual((await calls(page)).slice(before), ['questions'], 'blur during review must not submit Material again');
+    await page.evaluate(() => { window.__questionReplies.shift()(); });
     const row = panel(page).locator('.pmi-lab-table tr').filter({ hasText: 'Material: Aluminium 6082-T6' });
     // This expectation follows origin/main's display; export data no longer replaces preview.
     await check(row.getByRole('checkbox', { name: 'Inspect 12', exact: true })).toBeVisible();

@@ -13,6 +13,8 @@ declare global {
     /** The Specify host's calls from SpecifyReview ('questions' | 'interpret' | 'preview' | 'inspection', and
      * 'onKeep:<ids>' with &keep=host), when ?specify=1. */
     __calls: string[];
+    /** When set, tests release each held questions reply by calling its function. */
+    __questionReplies?: (() => void)[];
     __parts: (string | null)[];
     __setAnswers(answers: unknown): void;
     __setPart(name: string | null): void;
@@ -92,7 +94,16 @@ function SpecifyHost() {
     const review: any = await worker.request('review', { name, bytes, sourceId, answers: {} });
     const call = (operation: string, answers: unknown) => worker.request<any>(operation, { name, bytes, sourceId, answers });
     const engine = {
-      questions: async (_id: string, answers: unknown) => { window.__calls.push('questions'); return call('review', answers); },
+      questions: async (_id: string, answers: unknown) => {
+        window.__calls.push('questions');
+        const replies = window.__questionReplies;
+        if (replies) {
+          const release = new Promise<void>((resolve) => replies.push(resolve));
+          const [review] = await Promise.all([call('review', answers), release]);
+          return review;
+        }
+        return call('review', answers);
+      },
       interpret: async (_id: string, answers: unknown, question: string, text: string) => {
         window.__calls.push('interpret');
         return worker.request<any>('interpret', { analysis: snapshot.analysis, answers, question, text });
