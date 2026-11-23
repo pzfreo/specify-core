@@ -30,6 +30,9 @@ says why for each change. Don't weaken a test to make it pass.
 
 ## Cutting a pre-release
 
+Verify the registry settings in the [release checklist](RELEASING.md) before
+publishing any GitHub release or approving a rerun.
+
 1. For `0.3.0-rc.1`, set that version in the root, WASM and Python `Cargo.toml` files and
    the two exact `specify-core` dependencies (`=0.3.0-rc.1`). Refresh `Cargo.lock`.
    Set the same SemVer version in `ui/package.json` and `ui/package-lock.json`.
