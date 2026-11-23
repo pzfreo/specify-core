@@ -426,8 +426,9 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     if (!options || !editingFile) return;
     if (shownEdits.current?.sourceId === options.file.sourceId && shownEdits.current.pending === pending) return;
     const mine = ++previewing.current;
+    const request = new AbortController();
     const given = impliedAnswers(session.analysis, pending);
-    void askFile(options, given, pending).then(review => {
+    void askFile(options, given, pending, request.signal).then(review => {
       if (mine === previewing.current) {
         shownEdits.current = { sourceId: options.file.sourceId, pending };
         displayReview(given, review);
@@ -435,7 +436,10 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     }, failure => {
       if (mine === previewing.current) setError({ at: null, problem: asError(failure) });
     });
-    return () => { if (mine === previewing.current) ++previewing.current; };
+    return () => {
+      if (mine === previewing.current) ++previewing.current;
+      request.abort();
+    };
   }, [editingFile, fileReview?.file, pending, session.analysis, displayReview]);
 
   useEffect(() => {

@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { WorkerClient } from '../src/engine/rpc.ts';
 import { createSession, createSessionStore, reapply } from '../app/answers.ts';
 import { getDiff, Refused, save as postSave } from '../app/local.ts';
-import { EditsRefused, editsSaver, FileChanged, NotShown, Stale } from '../app/save.ts';
+import { EditsRefused, editsSaver, FileChanged, NotShown, shownReview, Stale } from '../app/save.ts';
 // The local app's answers store over the command's session (specify-core docs/open.md, session API 2):
 // the review panel's edits stay in the page until Save sends them as an edit list (`POST save {rev,
 // edits}`); events from others (an agent's answers) land in the session.
@@ -295,19 +296,51 @@ test('an unchanged save acknowledgment keeps a refused answer until discard', ()
 
 test('Save waits for a pending Undo review at the displayed draft revision', async () => {
   const material = { 'part.material': 'Brass CW614N' };
-  const store = createSessionStore(1, 3, { ...material, 'part.general_tolerance': 'ISO 2768-f' });
+  const withTolerance = { ...material, 'part.general_tolerance': 'ISO 2768-f' };
+  const store = createSessionStore(1, 3, withTolerance);
+  const shown = shownReview(withTolerance, store.session.signal);
   const { promise: reviewed, resolve: finishReview } = Promise.withResolvers();
   store.receive({ rev: 4, parts: { 0: { 'part.material': 'Steel' }, 1: material }, source: 'start' });
+  void shown.review(material, () => reviewed, () => {}, assert.fail);
   const { writes, write } = recorder();
-  const save = editsSaver(store, store.session, () => reviewed, write);
+  const save = editsSaver(store, store.session, shown.settled, write);
   const edits = [0, 1].map(part => ({ part, edits: { fill: { 'part.material': part === 0 ? 'Steel' : 'Brass CW614N' } } }));
 
   const saving = save.save(edits, 4);
   await Promise.resolve();
   assert.deepEqual(writes, [], 'Save has not sent the list while the Undo review is held');
-  finishReview(material);
+  finishReview();
   await saving;
   assert.deepEqual(writes, [[4, edits]], 'the original Save sends the list after review, without another click');
+
+  // The bar has the newer revision. Save starts before its review has replaced the old one.
+  const latest = { ...material, 'part.coating': 'Anodised' };
+  const latestEdits = [edits[0], { part: 1, edits: { fill: latest } }];
+  const replies = [];
+  const worker = {
+    postMessage: ({ id }) => replies.push(() => worker.onmessage({ data: { id, ok: true } })),
+    terminate() {},
+  };
+  const client = new WorkerClient(() => worker);
+  const ask = answers => signal => client.request('review-edits', { answers }, signal);
+  let obsoleteSettled = false;
+  const obsolete = shown.review(withTolerance, ask(withTolerance),
+    () => assert.fail('the superseded review was shown'), assert.fail).then(() => { obsoleteSettled = true; });
+  store.receive({ rev: 5, parts: { 0: { 'part.material': 'Steel' }, 1: latest }, source: 'start' });
+  const savingLatest = save.save(latestEdits, 5);
+  try {
+    const replacement = shown.review(latest, ask(latest), () => {}, assert.fail);
+    replies[1]();
+    await replacement;
+    // Drain promise continuations while the obsolete reply is still held.
+    await new Promise(setImmediate);
+    assert.deepEqual(writes, [[4, edits], [5, latestEdits]], 'Save follows the latest review even if the obsolete reply never arrives');
+    assert.ok(obsoleteSettled, 'the cancelled request settles without a reply');
+  } finally {
+    replies[0]();
+    await Promise.allSettled([savingLatest, obsolete]);
+    client.dispose();
+  }
 });
 
 test('Save at the displayed draft revision refuses a newer answer on another part', async () => {

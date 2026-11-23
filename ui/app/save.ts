@@ -24,6 +24,46 @@ export class EditsRefused extends Error {
 
 const given = (answers: PmiAnswers) => JSON.stringify(Object.entries(answers).filter(([id]) => !id.startsWith('_')).sort(([a], [b]) => (a < b ? -1 : 1)));
 
+/** Only the current review can mark session answers as shown. Save can outlive one request. */
+export function shownReview(answers: PmiAnswers, session: AbortSignal) {
+  let pending: { controller: AbortController; done: Promise<void> } | undefined;
+  let closed = false;
+  const supersede = () => {
+    const previous = pending;
+    pending = undefined;
+    previous?.controller.abort();
+  };
+  return {
+    get answers() { return answers; },
+    async settled() {
+      while (pending) await pending.done;
+      session.throwIfAborted();
+      if (closed) throw new NotShown('the displayed part changed');
+      return answers;
+    },
+    supersede,
+    close() { closed = true; supersede(); },
+    review<T>(next: PmiAnswers, ask: (signal: AbortSignal) => Promise<T>, show: (review: T) => void, failed: (error: unknown) => void) {
+      if (closed || session.aborted) return Promise.resolve();
+      supersede();
+      const controller = new AbortController();
+      const signal = AbortSignal.any([session, controller.signal]);
+      const request = async () => ask(signal);
+      const done = request().then(review => {
+        if (signal.aborted) return;
+        show(review);
+        answers = next;
+      }, error => {
+        if (!signal.aborted) failed(error);
+      }).finally(() => {
+        if (pending?.controller === controller) pending = undefined;
+      });
+      pending = { controller, done };
+      return done;
+    },
+  };
+}
+
 /** Saves at the revision the bar shows, after any in-flight review of the displayed part. */
 export function editsSaver(store: Pick<AnswersStore, 'settled' | 'get'>, session: Pick<AnswersSession, 'signal' | 'receiveSave'>, shown: () => PmiAnswers | Promise<PmiAnswers>, write = post): Saver {
   return {

@@ -141,8 +141,8 @@ export function replacedRequirements(pending: PendingEdits): string[] {
   return pending.values().filter(edit => edit.kind === 'remove' || edit.kind === 'change' || (edit.kind === 'none' && edit.targets?.length)).map(edit => edit.id);
 }
 
-export function askFile(options: FileReviewOptions, answers: PmiAnswers, pending: PendingEdits): Promise<IntentReview> {
-  return options.worker.request('review-edits', { ...options.file, answers, without: replacedRequirements(pending) });
+export function askFile(options: FileReviewOptions, answers: PmiAnswers, pending: PendingEdits, signal?: AbortSignal): Promise<IntentReview> {
+  return options.worker.request('review-edits', { ...options.file, answers, without: replacedRequirements(pending) }, signal);
 }
 
 /** Review determines which gaps apply. The table remains authoritative for saved PMI and decisions. */

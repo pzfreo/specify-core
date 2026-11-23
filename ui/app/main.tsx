@@ -23,7 +23,7 @@ import { EditBar } from '../src/specify/EditBar';
 import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
 import { discardAnswers, getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type SaveEdits, type LocalConfig, type AnswerDraft } from './local';
-import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } from './save';
+import { EditsRefused, editsSaver, FileChanged, NotShown, shownReview, Stale, type Saver } from './save';
 import { withDrafts } from './edits';
 
 declare const __APP_VERSION__: string;
@@ -49,9 +49,9 @@ interface Opened {
   /** Working answers used for agent notices and revision tracking. */
   external: { answers: PmiAnswers; review: IntentReview };
   /** The working answers processed by the page at the last shown session revision. */
-  shown: { answers: PmiAnswers; reviewing?: Promise<void> };
+  shown: ReturnType<typeof shownReview>;
   /** Specify's review of ``answers``, for answers that arrive from outside the page. */
-  reviewOf(answers: PmiAnswers): Promise<IntentReview>;
+  reviewOf(answers: PmiAnswers, signal?: AbortSignal): Promise<IntentReview>;
 }
 /** The revision comparison the command gave (``body``: WASM `diff()`'s, with the PMI scenes), drawn as it is. */
 interface Compared { old: { name: string; bytes: Uint8Array }; next: { name: string; bytes: Uint8Array }; body: DiffBody; decisions: Decision[]; verdict: string; summary: string }
@@ -61,16 +61,15 @@ interface Compared { old: { name: string; bytes: Uint8Array }; next: { name: str
 async function openPart(worker: WorkerClient, answersSession: AnswersSession, name: string, bytes: Uint8Array, at: { part: number; several: boolean }, readOnly: boolean, generation = 0): Promise<Opened> {
   const file = fileOf(name, bytes, at.part, at.several, generation);
   const { sourceId } = file;
-  const snapshot = await worker.request<{ analysis: PmiLabSession['analysis']; mesh: PmiLabSession['mesh']; provenance?: PmiLabSession['provenance'] }>('open', file);
+  const signal = answersSession.signal;
+  const snapshot = await worker.request<{ analysis: PmiLabSession['analysis']; mesh: PmiLabSession['mesh']; provenance?: PmiLabSession['provenance'] }>('open', file, signal);
   // The session's answers with the page's unsaved changes to this part (kept while another part was shown).
   const answers = answersSession.shown(at.part);
-  const reviewOf = (given: PmiAnswers) => worker.request<IntentReview>(
-    readOnly ? 'review-given' : 'review-edits', { ...file, answers: given, without: [] });
-  const review = await reviewOf(answers);
+  const reviewOf = (given: PmiAnswers, signal?: AbortSignal) => worker.request<IntentReview>(
+    readOnly ? 'review-given' : 'review-edits', { ...file, answers: given, without: [] }, signal);
+  const review = await reviewOf(answers, signal);
   const stored = snapshot.analysis.resume?.answers ?? {};
-  const fileReview = sameAnswers(stored, answers) ? review : await reviewOf(stored);
-  const store = answersSession.store(at.part, stored);
-  const shown: Opened['shown'] = { answers };
+  const fileReview = sameAnswers(stored, answers) ? review : await reviewOf(stored, signal);
   const engine: SpecifyEngine = {
     questions: (_id, given) => reviewOf(given),
     interpret: (_id, given, question, text) => worker.request('interpret', { analysis: snapshot.analysis, answers: given, question, text }),
@@ -81,16 +80,15 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
     ...(snapshot.provenance ? { provenance: snapshot.provenance } : {}),
     questions: fileReview.questions, open: fileReview.open, problems: fileReview.problems,
   };
-  const scene = drawnFromScene(await worker.request('scene', { ...file, state: { answers: stored } }));
+  const scene = drawnFromScene(await worker.request('scene', { ...file, state: { answers: stored } }, signal));
   const drawn = scene.ok ? withoutNotesBlock(scene.value) : null;
   // Every row named as Specify asks it of the bare part (the table's rows are those questions).
-  const bare = await worker.request<IntentReview>('review-analysis-given', { analysis: bareAnalysis(snapshot.analysis), answers: {} });
+  const bare = await worker.request<IntentReview>('review-analysis-given', { analysis: bareAnalysis(snapshot.analysis), answers: {} }, signal);
+  const store = answersSession.store(at.part, stored);
+  const shown = shownReview(answers, signal);
   return {
     ...at, generation, session, review: fileReview, engine, drawn: drawn && hasGraphics(drawn) ? drawn : null, bytes, file, labels: bare.questions, store, shown,
-    saver: editsSaver(store, answersSession, async () => {
-      await shown.reviewing;
-      return shown.answers;
-    }), external: { answers, review }, reviewOf,
+    saver: editsSaver(store, answersSession, shown.settled), external: { answers, review }, reviewOf,
   };
 }
 
@@ -220,6 +218,7 @@ function App() {
           const listed = shown.several ? await worker.current.request<PartRow[]>('review-parts', { name: first.name, bytes: written }) : null;
           if (drawn !== undefined) next = { ...next, drawn };
           if (ended || load !== inspectionLoad.current || shownRef.current?.store !== shown.store) { next.store.close(); return written; }
+          shown.shown.close();
           shown.store.close();
           shownRef.current = next;
           setOpened(next);
@@ -309,7 +308,6 @@ function App() {
 
   useEffect(() => {
     if (!opened) return;
-    shownRef.current = opened;
     opened.store.onProblem((error) => setProblem(`Your change did not reach the session: ${error.message}`));
   }, [opened?.store]);
 
@@ -333,6 +331,7 @@ function App() {
         const drawn = source ? await savedDrawn(worker.current, source.bytes, next) : undefined;
         if (source !== savedSource.current) { next.store.close(); continue; }
         if (drawn !== undefined) next = { ...next, drawn };
+        shownRef.current?.shown.close();
         shownRef.current?.store.close();
         shownRef.current = next;
         setOpened(next);
@@ -344,7 +343,6 @@ function App() {
     } finally { setSwitching(false); }
   };
 
-  const current = useRef(opened); current.current = opened;
   useEffect(() => {
     if (!opened) return undefined;
     const { store, shown } = opened;
@@ -354,15 +352,12 @@ function App() {
       if (source === 'mcp') for (const id of changedIds(previous, answers)) fromAgent.add(id);
       // The page's own change, as SpecifyReview already shows it (or answers back to what it shows).
       if (sameAnswers(answers, shown.answers)) {
-        shown.reviewing = undefined;
+        shown.supersede();
         setUnshown(null);
         return;
       }
       // Undo can update the draft bar before this review completes. Save waits for these answers.
-      shown.reviewing = opened.reviewOf(answers).then((review) => {
-        // Another part shown since, or a newer change on its way (shown when it lands).
-        if (current.current?.store !== store || !sameAnswers(store.get(), answers)) return;
-        shown.answers = answers;
+      void shown.review(answers, signal => opened.reviewOf(answers, signal), (review) => {
         setUnshown(null);
         setOpened((now) => (now?.store === store ? { ...now, external: { answers, review } } : now));
         const ids = [...fromAgent];
@@ -375,18 +370,17 @@ function App() {
         setFocus({ questionId: ids[0]!, faces, scroll: true, n });
         setLit({ faces, n });
       }, (error: unknown) => {
-        if (current.current?.store !== store || !sameAnswers(store.get(), answers)) return;
         // Not shown, so not saved: said, with a way to try again (a later change also tries again).
         setUnshown(message(error));
       });
     };
     // The session's answers, shown again if the page does not show them yet.
-    const again = () => { if (current.current?.store === store && !sameAnswers(store.get(), shown.answers)) show(store.get(), 'start', shown.answers); };
+    const again = () => { if (shownRef.current?.store === store && !sameAnswers(store.get(), shown.answers)) show(store.get(), 'start', shown.answers); };
     reshow.current = again;
     const unsubscribe = store.subscribe(show);
     // A change that landed while the part was opening, before this listened.
     again();
-    return () => { unsubscribe(); setUnshown(null); };
+    return () => { unsubscribe(); shown.supersede(); setUnshown(null); };
   }, [opened?.store]);
   // The questions the agent changed are marked in the panel while its note shows: marked now and
   // again whenever the panel re-renders (the review opens the question after this runs).
