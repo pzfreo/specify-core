@@ -5,13 +5,25 @@ Contributions are welcome: bug reports, fixes, features and documentation.
 Before review, run `tools/verify.sh`. It runs what CI runs on a pull request (the Rust suite, the WASM
 checks, the UI and app jobs against this checkout's build, the wheel's pytest and the crate package) and
 ends with `VERIFY: PASS` or `VERIFY: FAIL (<steps>)`; paste that output in the pull request. Commit first: its crate-package step refuses uncommitted changes, as CI's does.
-`tools/verify.sh --dry-run` lists the steps. The corpus is
-[pzfreo/quiddity-corpus](https://github.com/pzfreo/quiddity-corpus) at the revision `.github/workflows/ci.yml`
-pins; point `SPECIFY_CORPUS` at its checkout (default `../quiddity/tests/corpus`).
+`tools/verify.sh --dry-run` lists the steps. It uses cargo-nextest for the Rust suite.
+Point `SPECIFY_CORPUS` at the [pzfreo/quiddity-corpus](https://github.com/pzfreo/quiddity-corpus)
+revision pinned in `.github/workflows/ci-rust.yml` (default `../quiddity/tests/corpus`).
+Linux links every workspace target and builds one test archive for its five shards.
+The five long corpus sweeps run in eight input-file groups each. All parts from one file stay
+in the same group. The writer checks every group's differences against the full ledger and
+checks each entry for staleness in its case or witness group. A local verification run covers
+all groups.
+macOS uses one job. It builds and runs the floating-point test binaries on ordinary
+PRs and runs the full suite on main, manual runs and PRs with `release*` heads.
+Full macOS runs are outside the 25-minute target. Docs-only PRs skip Rust, WASM, UI
+and app jobs unless they touch a dependency listed in the workflow's path filter.
 
 A change to the WASM API also needs its `api.d.ts` snapshot and a CHANGELOG `### WASM API` entry
-(`python3 tools/check_wasm_api.py --base-ref origin/main`). CI's `wasm` job runs that and the size and
-parity checks; `.github/workflows/ci.yml` lists every step.
+(`python3 tools/check_wasm_api.py --base-ref origin/main`). CI's `wasm-checks` job runs that and the
+size and parity checks. The UI and app jobs can start as soon as `wasm-build` uploads the package.
+The UI browser suite and the packed-host suite run in parallel. All three packed-host jobs install
+the same tarball with different Three.js versions. The app browser and agent jobs share one bundled
+command. `tools/verify.sh` runs the same checks against this checkout's builds.
 
 A change that alters a recorded expectation (fixtures, oracle departures, known differences)
 says why for each change. Don't weaken a test to make it pass.

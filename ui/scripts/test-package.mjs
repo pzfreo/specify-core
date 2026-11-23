@@ -6,7 +6,8 @@
 // build (worker and .wasm emitted), and pass test/step-diff-browser.mjs served by `vite preview`.
 // The tarball is packed as release.yml packs it (scripts/pack.mjs: the engine dependency pinned to the
 // package's own version), and the host installs that engine from the in-repo WASM build.
-// Run from ui/ after `npm run build` and `npm run fetch:wasm`.
+// Run from ui/ after `npm run build` and `npm run fetch:wasm`. CI supplies one host
+// version (or "pinned") and the tarball already packed by the UI build.
 import { execFileSync, spawn } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -27,17 +28,25 @@ function fail(message) {
 }
 const run = (cmd, args, cwd, env) => execFileSync(cmd, args, { cwd, stdio: 'inherit', env: { ...process.env, ...env } });
 
-if (!existsSync(resolve(root, 'dist'))) fail('dist/ is missing; run `npm run build` first');
 const rootPkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
 
 const dev = rootPkg.devDependencies;
 const version = name => dev[name] ?? fail(`${name} is not in the root devDependencies`);
+const hostVersions = [version('three'), '0.186.1', '0.187.0'];
+const [variant, prepacked, ...extra] = process.argv.slice(2);
+const selectedVersion = variant === 'pinned' ? version('three') : variant;
+if (extra.length || (selectedVersion && !hostVersions.includes(selectedVersion))) {
+  fail(`usage: npm run test:package -- [pinned|${hostVersions.join('|')} [tarball]]`);
+}
 
-// Pack.
-rmSync(packDir, { recursive: true, force: true });
-mkdirSync(packDir, { recursive: true });
-const tarball = pack(packDir, root);
-if (!existsSync(tarball)) fail(`npm pack did not produce ${tarball}`);
+function packLocalBuild() {
+  if (!existsSync(resolve(root, 'dist'))) fail('dist/ is missing; run `npm run build` first');
+  rmSync(packDir, { recursive: true, force: true });
+  mkdirSync(packDir, { recursive: true });
+  return pack(packDir, root);
+}
+const tarball = prepacked ? resolve(root, prepacked) : packLocalBuild();
+if (!existsSync(tarball)) fail(`tarball is missing: ${tarball}`);
 
 // The peer range spans three 0.184 to 0.187. 0.184.0 is what three-cad-viewer pins and the repo
 // tests against; 0.186.1 is what the draftwright editor runs; 0.187.0 is the newest.
@@ -93,7 +102,8 @@ async function testHost(threeVersion) {
   console.log(`built assets: ${assets.filter(name => /intent\.worker|\.wasm$/.test(name)).join(', ')}`);
 
   // Serve and run the browser test against it.
-  const server = spawn(npx, ['vite', 'preview', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], { cwd: host, stdio: 'inherit' });
+  const vite = resolve(host, 'node_modules/vite/bin/vite.js');
+  const server = spawn(process.execPath, [vite, 'preview', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], { cwd: host, stdio: 'inherit' });
   let serverFailed = false;
   let stopping = false;
   server.on('exit', code => {
@@ -119,5 +129,5 @@ async function testHost(threeVersion) {
   stop();
 }
 
-for (const threeVersion of [version('three'), '0.186.1', '0.187.0']) await testHost(threeVersion);
+for (const threeVersion of selectedVersion ? [selectedVersion] : hostVersions) await testHost(threeVersion);
 console.log('test:package passed');

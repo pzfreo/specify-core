@@ -1,6 +1,7 @@
 [
  {
   "case": "*",
+  "witness": "parts/pin",
   "path": "existing[key=*].provenance",
   "pattern": "Specify-written requirements retain STEP-only authorship (issue #22)",
   "verdict": "rust-correct",
@@ -8,6 +9,7 @@
  },
  {
   "case": "scenarios/turned_*knurl*",
+  "witness": "scenarios/turned_a_straight_knurl_resumes",
   "path": "write.warnings[*knurl on *: the intent states no *]",
   "pattern": "a knurl from Python's intent, its turned_knurl parameters filled in from DIN 82",
   "verdict": "rust-correct",
@@ -81,6 +83,7 @@
  },
  {
   "case": "corpus/mfcadpp*",
+  "witness": "corpus/mfcadpp/1004",
   "path": "write",
   "pattern": "an intent item on no faces listed, the rest written where Python fails in OpenCascade",
   "verdict": "rust-correct",
@@ -102,6 +105,7 @@
  },
  {
   "case": "corpus/*",
+  "witness": "corpus/cadgenbench/flanged_spool_132",
   "path": "resume[python did not resume]",
   "pattern": "answers stored by Python that Python cannot resume",
   "verdict": "rust-correct",
@@ -109,6 +113,7 @@
  },
  {
   "case": "parts/*",
+  "witness": "parts/pin",
   "path": "python_written.resume",
   "pattern": "a Python-written (schema 1) file does not resume in the Rust engine",
   "verdict": "rust-correct",
@@ -200,6 +205,7 @@
  },
  {
   "case": "*",
+  "witness": "parts/pin",
   "path": "write.written[*under the general tolerance]",
   "pattern": "the report counts the dimensions written under the general tolerance (#63)",
   "verdict": "rust-correct",
@@ -7327,7 +7333,7 @@
   "verdict": "rust-correct",
   "evidence": "For nist/nist_ctc_03_asme1_ap242, the archived Python writer deliberately stored no Add-mode answers, so its frozen readback is null. The requested provenance-scoped Add implementation now stores exactly meta.answers, {\"part.material\":\"steel\"}, and native answers_for resumes that map. The independently recaptured cross_engine Python 3.12.13 readback of this exact updated Rust byte golden also resumes the same answers using the frozen cc341dd + 63e67bd + d97d030 reference (2cb6499). Dedicated NIST CTC/FTC regressions in tests/add_mode_answers.rs compare every original foreign entity span at its original id across write/resume/edited write; the characteristic number remains stable and the changed control appears once. This entry covers only this case and the newly available answer map. All archived Python-written inputs, answer expectations, semantic comparisons and other ledger entries remain unchanged."
  },
-{"case": "*", "path": "existing[key=dimension|*].basic", "pattern": "Basic dimensions are marked basic", "verdict": "rust-correct", "evidence": "Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics. Specify writes basic location dimensions for answered positions, so every written case with one reads basic: true on readback."},
+{"case": "*", "witness": "parts/plate", "path": "existing[key=dimension|*].basic", "pattern": "Basic dimensions are marked basic", "verdict": "rust-correct", "evidence": "Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics. Specify writes basic location dimensions for answered positions, so every written case with one reads basic: true on readback."},
  {"case": "corpus/mfcadpp/1000", "path": "resume.part.material", "pattern": "ADR P11: an answer that writes PMI is not stored; the file states it", "verdict": "rust-correct", "evidence": "ADR P11 rule 2 (src/feature_table.rs storable): a file stores only the answers that leave no PMI, and the file's PMI is the only copy of the rest. Python stores part.material = \"steel\" in its payload; that answer is a requirement whose value is not none, so the Rust writer writes it as PMI and does not store it: answers_for leaves it out. Its PMI is written: no other new writer-oracle difference for corpus/mfcadpp/1000 (its existing readback is Python's, apart from the entries already here). Only this exact case and path are covered.", "values": {"python": "steel"}},
  {"case": "corpus/mfcadpp/10033", "path": "resume.part.material", "pattern": "ADR P11: an answer that writes PMI is not stored; the file states it", "verdict": "rust-correct", "evidence": "ADR P11 rule 2 (src/feature_table.rs storable): a file stores only the answers that leave no PMI, and the file's PMI is the only copy of the rest. Python stores part.material = \"steel\" in its payload; that answer is a requirement whose value is not none, so the Rust writer writes it as PMI and does not store it: answers_for leaves it out. Its PMI is written: no other new writer-oracle difference for corpus/mfcadpp/10033 (its existing readback is Python's, apart from the entries already here). Only this exact case and path are covered.", "values": {"python": "steel"}},
  {"case": "corpus/mfcadpp/10047", "path": "resume.part.material", "pattern": "ADR P11: an answer that writes PMI is not stored; the file states it", "verdict": "rust-correct", "evidence": "ADR P11 rule 2 (src/feature_table.rs storable): a file stores only the answers that leave no PMI, and the file's PMI is the only copy of the rest. Python stores part.material = \"steel\" in its payload; that answer is a requirement whose value is not none, so the Rust writer writes it as PMI and does not store it: answers_for leaves it out. Its PMI is written: no other new writer-oracle difference for corpus/mfcadpp/10047 (its existing readback is Python's, apart from the entries already here). Only this exact case and path are covered.", "values": {"python": "steel"}},

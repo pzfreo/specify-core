@@ -1,6 +1,6 @@
 # 0.3.1: the review panel as a component other apps can embed
 
-**Agreed by Paul, 2026-11-23.** Planned for 0.3.1. It's built after the CI-speed work and once 0.3.0-rc.1 has published, alongside the other 0.3.1 items. Tests may not be weakened, and it needs an independent review before it's ready.
+**Agreed by Paul, 2026-11-23.** Planned for 0.3.1. Paul set its scope on 2026-11-23 as everything the editor needs to switch to Specify 0.3: this panel, hand-picked datums, free-form `extra.*` requirements, and BOM editing with CSV row exclusions. The grouped fillet rows move to 0.3.2, on quiddity 0.5.6. Work order: the Enter/lost-update fix, then the npm release guard, then 0.3.1. Tests may not be weakened, and it needs an independent review before it's ready.
 
 ## What you'll get
 
@@ -29,11 +29,16 @@ The panel never saves on its own and never touches the page around it. It doesn'
 - the file's bytes and name;
 - where the WASM engine is (`wasmUrl`), or an engine it already made;
 - for an assembly, which part to show. The app switches parts; the panel shows one part at a time and keeps every part's pending edits.
+- optionally, its own 3D view as a `view: HostView`, the same option StepDiff and SpecifyReview take (see [ui/docs/host-view.md](../ui/docs/host-view.md)). With no view passed, the panel uses the package's default view.
+
+**The 3D view and the panel stay in step, through `HostView`:**
+- selecting a row asks the view to show, colour and frame that row's faces;
+- a face picked in the view selects its row;
+- drawn-PMI overlays over a host-owned camera stay under "Later", as they do for `HostView` itself.
 
 **The panel tells the app:**
 - what's pending: the edit lists, per part;
 - whether it's busy (checking an edit) and whether there's anything to save;
-- for highlighting on the app's own 3D view, if it has one: which faces a row is about, when you click its label.
 
 **The app asks the panel:**
 - **save**: the panel applies all pending edits in the browser, all or nothing. It gives back the new file's bytes, or the refused entries with their reasons. Those reasons show on their rows, as they do today.
@@ -45,7 +50,7 @@ All of the writing happens in the browser, through the engine 0.3.0 already ship
 ## What stays the same
 
 - `specify-core open` keeps its page. That page becomes one user of the component: its Save posts to the local session exactly as today, so agents, `rev` and refusals are unchanged.
-- `SpecifyReview` stays exported and unchanged in 0.3.1, so existing users don't break. The changelog marks it as the old review.
+- `SpecifyReview` stays exported with the same props in 0.3.1, so existing users don't break. The changelog marks it as the old review.
 - The browser engine's worker can check an edit list today but can't apply one. Adding `edit` to the worker is part of this work.
 - The edit list is the same everywhere: command line, MCP, Python, WASM and now the component.
 
@@ -54,6 +59,7 @@ All of the writing happens in the browser, through the engine 0.3.0 already ship
 1. **Name:** `SpecifyPanel`.
 2. **Agent drafts and the Characteristics tab** stay out of the component for 0.3.1. They depend on the local session (agents) and on the 3D review. The `open` page keeps both.
 3. **Saving runs in the browser by default.** The app can also pass its own save function and get the edit lists to apply elsewhere. `open` uses that to keep saving through its session.
+4. **The 3D view is the host's, if it wants** (Amy's requirement). `SpecifyPanel` takes the same optional `view: HostView` as StepDiff and SpecifyReview (ui/docs/host-view.md). Selecting a row shows, colours and frames its faces in that view, and a face picked there selects its row. With no view passed, the panel uses the package's default view. Drawn-PMI overlays over a host camera stay under "Later", as for `HostView`.
 
 ## How we'll know it works
 

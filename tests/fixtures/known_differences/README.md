@@ -46,11 +46,18 @@ property path. Use `$` for the root. `SPECIFY_DUMP` also writes these candidate 
 
 ## The rule
 
-- **Each area's full oracle sweep is one test function that calls `check_known(area, &diffs)`
-  once, for its own area.** It fails listing every difference no entry matches, and every entry
+- **Each area's full oracle sweep checks its own ledger.**
+  It fails listing every difference no entry matches, and every entry
   that matched no difference (stale: the difference was fixed, or the entry is too narrow), and
   otherwise prints a tally of the differences by verdict. The first matching entry supplies
   the verdict for a difference.
+- The writer sweeps by input file group and applies the full ledger in order in each group.
+  Literal entries are checked for staleness in the group that runs their case. Each active
+  case glob in the writer ledger has a `witness`, a literal case covered by the glob.
+  That case's input determines which group checks the glob for staleness. The glob must
+  explain at least one difference in that group and can still explain differences in any
+  group. With `SPECIFY_DUMP`, the writer's output is named `writer-group-N.json` and
+  `writer-group-N.exact.json` for each group.
 - **Other areas' files are consulted only through `explained(&[areas], &diffs)`**, which returns
   the differences none of their entries match and asserts nothing (no stale check, no tally).
   A sweep that crosses areas (the CLI's, which runs features, rules and the writer together)

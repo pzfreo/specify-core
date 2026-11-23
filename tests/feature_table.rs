@@ -438,9 +438,19 @@ fn ctc05_pattern_answers_are_stated_after_reopening() {
     std::fs::remove_dir_all(scratch).unwrap();
 }
 
-#[test]
-fn accepting_corpus_defaults_leaves_no_open_rows() {
-    let scratch = scratch("corpus");
+common::case_group_tests!(check_corpus_defaults;
+    0 => accepting_corpus_defaults_leaves_no_open_rows_group_0,
+    1 => accepting_corpus_defaults_leaves_no_open_rows_group_1,
+    2 => accepting_corpus_defaults_leaves_no_open_rows_group_2,
+    3 => accepting_corpus_defaults_leaves_no_open_rows_group_3,
+    4 => accepting_corpus_defaults_leaves_no_open_rows_group_4,
+    5 => accepting_corpus_defaults_leaves_no_open_rows_group_5,
+    6 => accepting_corpus_defaults_leaves_no_open_rows_group_6,
+    7 => accepting_corpus_defaults_leaves_no_open_rows_group_7,
+);
+
+fn check_corpus_defaults(group: usize) {
+    let scratch = scratch(&format!("corpus-{group}"));
     let corpus = common::corpus_dir();
     assert!(
         corpus.is_some()
@@ -449,11 +459,12 @@ fn accepting_corpus_defaults_leaves_no_open_rows() {
                 .all(|key| std::env::var_os(key).is_none()),
         "configured corpus directory is missing"
     );
+    let cases = common::cases();
     let mut inputs = BTreeSet::new();
     let mut visited = BTreeSet::new();
     let mut gaps = Vec::new();
-    for (index, case) in common::cases().into_iter().enumerate() {
-        if case.kind() == "corpus" && corpus.is_none() {
+    for (index, case) in cases.iter().enumerate() {
+        if case.group() != group || (case.kind() == "corpus" && corpus.is_none()) {
             continue;
         }
         let input = case
@@ -530,22 +541,28 @@ fn accepting_corpus_defaults_leaves_no_open_rows() {
                 }
             }
         }
-        visited.insert(case.name);
+        visited.insert(case.name.as_str());
     }
-    for name in [
+    let fixtures = [
         "nist/nist_ctc_01_asme1_ap242",
         "nist/nist_ctc_05_asme1_ap242",
-    ] {
-        assert!(visited.contains(name), "did not visit {name}");
-    }
-    if corpus.is_some() {
-        for name in [
-            "corpus/nist/nist_ctc_01_asme1_rd",
-            "corpus/nist/nist_ctc_02_asme1_rc",
-            "corpus/nist/nist_ctc_04_asme1_rd",
-            "corpus/nist/nist_ctc_05_asme1_rd",
-            "corpus/gramel/GRM-05_depth_lock_bolt",
-        ] {
+    ];
+    let corpus_cases = [
+        "corpus/nist/nist_ctc_01_asme1_rd",
+        "corpus/nist/nist_ctc_02_asme1_rc",
+        "corpus/nist/nist_ctc_04_asme1_rd",
+        "corpus/nist/nist_ctc_05_asme1_rd",
+        "corpus/gramel/GRM-05_depth_lock_bolt",
+    ];
+    for name in fixtures
+        .into_iter()
+        .chain(corpus_cases.into_iter().filter(|_| corpus.is_some()))
+    {
+        let case = cases
+            .iter()
+            .find(|case| case.name == name)
+            .unwrap_or_else(|| panic!("missing selected case {name}"));
+        if case.group() == group {
             assert!(visited.contains(name), "did not visit {name}");
         }
     }
@@ -628,9 +645,22 @@ fn ctc05_depths_read_back_on_the_hole_function_rows() {
     std::fs::remove_dir_all(scratch).unwrap();
 }
 
-#[test]
-fn corpus_feature_rows_that_can_write_pmi_have_faces() {
-    for case in common::cases() {
+common::case_group_tests!(check_corpus_feature_rows;
+    0 => corpus_feature_rows_that_can_write_pmi_have_faces_group_0,
+    1 => corpus_feature_rows_that_can_write_pmi_have_faces_group_1,
+    2 => corpus_feature_rows_that_can_write_pmi_have_faces_group_2,
+    3 => corpus_feature_rows_that_can_write_pmi_have_faces_group_3,
+    4 => corpus_feature_rows_that_can_write_pmi_have_faces_group_4,
+    5 => corpus_feature_rows_that_can_write_pmi_have_faces_group_5,
+    6 => corpus_feature_rows_that_can_write_pmi_have_faces_group_6,
+    7 => corpus_feature_rows_that_can_write_pmi_have_faces_group_7,
+);
+
+fn check_corpus_feature_rows(group: usize) {
+    for case in common::cases()
+        .into_iter()
+        .filter(|case| case.group() == group)
+    {
         let Some(input) = case.input() else { continue };
         let Ok(part) = load(&input, case.part()) else {
             continue;

@@ -121,13 +121,28 @@ fn regenerate_the_edited_plate() {
     std::fs::write(path, gz.finish().unwrap()).unwrap();
 }
 
-/// An unchanged round trip resumes every answer with no conflict, across the corpus parts the
-/// write oracle writes (with QUIDDITY_CORPUS or SPECIFY_CORPUS; the fixtures otherwise).
-#[test]
-fn an_unchanged_round_trip_resumes_every_answer() {
+// An unchanged round trip resumes every answer with no conflict, across the corpus parts the
+// write oracle writes (with QUIDDITY_CORPUS or SPECIFY_CORPUS; the fixtures otherwise).
+common::case_group_tests!(check_unchanged_round_trips;
+    0 => an_unchanged_round_trip_resumes_every_answer_group_0,
+    1 => an_unchanged_round_trip_resumes_every_answer_group_1,
+    2 => an_unchanged_round_trip_resumes_every_answer_group_2,
+    3 => an_unchanged_round_trip_resumes_every_answer_group_3,
+    4 => an_unchanged_round_trip_resumes_every_answer_group_4,
+    5 => an_unchanged_round_trip_resumes_every_answer_group_5,
+    6 => an_unchanged_round_trip_resumes_every_answer_group_6,
+    7 => an_unchanged_round_trip_resumes_every_answer_group_7,
+);
+
+fn check_unchanged_round_trips(group: usize) {
+    let plate = common::case("parts/plate");
+    let mut visited_plate = false;
     let mut parts = 0;
     let mut failures = Vec::new();
-    for c in common::cases() {
+    for c in common::cases()
+        .into_iter()
+        .filter(|case| case.group() == group)
+    {
         if c.part().is_some() || c.meta["parts"].as_u64().unwrap_or(1) != 1 {
             continue;
         }
@@ -153,6 +168,7 @@ fn an_unchanged_round_trip_resumes_every_answer() {
             continue;
         };
         parts += 1;
+        visited_plate |= c.name == plate.name;
         let again = api::analyse(&back).unwrap();
         if again["resume"].get("conflicts").is_some()
             || again["resume"]["answers"] != Value::Object(expected)
@@ -164,6 +180,10 @@ fn an_unchanged_round_trip_resumes_every_answer() {
         "unchanged round trips: {parts} parts, {} with conflicts",
         failures.len()
     );
-    assert!(parts > 0);
+    // The original sweep required at least one successful round trip. This
+    // committed fixture must contribute one even when the corpus is absent.
+    if plate.group() == group {
+        assert!(visited_plate, "the plate must reach the round-trip check");
+    }
     assert!(failures.is_empty(), "{failures:#?}");
 }
