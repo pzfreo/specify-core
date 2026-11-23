@@ -2,6 +2,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { IntentReview, PartTint, PmiAnswers, PmiIntent, PmiInterpretation, PmiLabError, PmiLabSession, PmiQuestion, PmiLabEngine } from '../types/pmi';
+import { FileRequirement } from './FileRequirement';
+import { askFile, checkPending, datumId, fileRows, impliedAnswers, queueValue, rowText, savePending, type FileReviewOptions, type FileRow } from './file-review';
+import { describeEdit, PendingEdits, removalTargets } from './edit-list';
+import { answerText, isNoneValue } from './feature-table';
+import type { StoredInspection } from './saved-inspection';
 import { editorDefault } from '../model/intent';
 import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from './added';
 import { codeOf } from './choose';
@@ -40,12 +45,13 @@ const STATE_TEXT = { required: 'needs an answer', check: 'please check', set: 'a
 const PART_FIELD: Record<string, string> = {
   'part.material': 'Material', 'part.process': 'Process', 'part.general_tolerance': 'General tolerance', 'part.locating': 'Holes located by',
   'part.surface_finish': 'Surface finish', 'part.coating': 'Coating',
-  'part.heat_treatment': 'Heat treatment', 'part.edges': 'Edges',
+  'part.heat_treatment': 'Heat treatment', 'part.edges': 'Edges', 'part.notes': 'Other notes',
 };
 /** One name per question everywhere: the engine's label, else the short name, else its prompt. */
 const labelOf = (q: PmiQuestion) => q.label ?? PART_FIELD[q.id] ?? q.prompt;
 /** The part's notes, folded under "Finish and notes". */
-const NOTE_FIELDS = new Set(['part.surface_finish', 'part.coating', 'part.heat_treatment', 'part.edges']);
+const NOTE_FIELDS = new Set(['part.surface_finish', 'part.coating', 'part.heat_treatment', 'part.edges', 'part.notes']);
+const EMPTY_PENDING = new PendingEdits();
 const MODE_TEXT: Record<PickMode, string> = { face: 'Face', feature: 'Hole / feature', coplanar: 'Coplanar faces' };
 
 function asError(error: unknown): PmiLabError {
@@ -53,8 +59,10 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, view: hostView = null }: {
+export function SpecifyReview({ engine, session: openedSession, fileReview: fileOptions, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, view: hostView = null }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
+  /** Edit a 0.3 file with the same review controls. The answer-shaped host contract still works. */
+  fileReview?: FileReviewOptions;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
   /** A file handed to the browser to save, by name. */
@@ -96,13 +104,32 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   /** The host's own 3D view to draw the part in (docs/host-view.md); by default the package's. */
   view?: HostView | null;
 }) {
+  const [written, setWritten] = useState<{ from: string; file: FileReviewOptions['file']; session: PmiLabSession } | null>(null);
+  const reopened = fileOptions && written?.from === fileOptions.file.sourceId ? written : null;
+  const session = reopened?.session ?? openedSession;
+  const fileReview = fileOptions && (reopened ? { ...fileOptions, file: reopened.file } : fileOptions);
+  const editingFile = Boolean(fileReview && !readOnly);
+  const [localEdits, setLocalEdits] = useState<{ source: string; pending: PendingEdits } | null>(null);
+  const pending = fileReview?.pending ?? (localEdits?.source === fileOptions?.file.sourceId ? localEdits?.pending : undefined) ?? EMPTY_PENDING;
+  const transaction = useRef({ pending, seen: pending, options: fileReview });
+  if (transaction.current.seen !== pending) {
+    transaction.current.seen = pending;
+    transaction.current.pending = pending;
+  }
+  transaction.current.options = fileReview;
+  const [editBusy, setEditBusy] = useState(false);
+  const [savedInspection, setSavedInspection] = useState<StoredInspection | null>(null);
+  const [savedStatus, setSavedStatus] = useState('');
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  const writeFailedToReopen = failedSource === fileOptions?.file.sourceId;
+  const activeOperation = useRef(false);
   const host = engine;
   const readOnlyHost = useMemo(() => readOnlyEngine(host), [host]);
   engine = readOnly ? readOnlyHost : host;
   const stage = useRef<HTMLDivElement>(null);
   const picker = useRef<Picker | null>(null);
   const [moreTools, setMoreTools] = useState(false);
-  const [questions, setQuestions] = useState<readonly PmiQuestion[]>(session.questions);
+  const [askedQuestions, setQuestions] = useState<readonly PmiQuestion[]>(session.questions);
   // The engine's open questions: the Datums row is not answered while one of its own is open (specify-ui#14).
   const [openIds, setOpenIds] = useState<readonly string[]>(session.open);
   const [answers, setAnswers] = useState<PmiAnswers>(session.answers ?? {});
@@ -153,7 +180,13 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const toggle = (key: string) => setUnfolded((open) => (open === key ? null : key));
   const rowsBox = useRef<HTMLFieldSetElement>(null);
   const turned = useRef(false);
-  const groups = useMemo(() => groupQuestions(questions), [questions]);
+  const fileRowList = useMemo(() => editingFile
+    ? fileRows(session.analysis, askedQuestions, fileOptions?.questionLabels ?? [], fileOptions?.hostRows ?? []) : [],
+  [editingFile, session.analysis, askedQuestions, fileOptions?.questionLabels, fileOptions?.hostRows]);
+  const fileRowsById = useMemo(() => new Map(fileRowList.map(row => [row.id, row])), [fileRowList]);
+  const questions = useMemo(() => editingFile ? fileRowList.map(row => row.question) : askedQuestions,
+    [editingFile, fileRowList, askedQuestions]);
+  const groups = useMemo(() => groupQuestions(questions, editingFile), [questions, editingFile]);
   const partGroup = groups.find((g) => g.key === 'part');
   const rows = groups.filter((g) => g !== partGroup);
   // The datums row is always shown, last: it can be added to when nothing needs one.
@@ -342,6 +375,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     picker.current?.setTransparency(transparency / 100);
   }, [transparency, session]);
 
+  const tableChars = editingFile ? savedInspection?.chars ?? [] : chars;
   const previewing = useRef(0);
   const committedAnswers = useRef(answers);
   const committing = useRef(Promise.resolve(false));
@@ -349,6 +383,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const live = useCallback(<T,>(call: (id: string) => Promise<T>): Promise<T> => call(sessionId.current), []);
   // Global project undo/redo and reopen feed the original UI's local review state.
   useEffect(() => {
+    if (editingFile) return;
     ++previewing.current; // An older preview must not overwrite a host undo/redo.
     committedAnswers.current = externalAnswers;
     setAnswers(externalAnswers);
@@ -357,7 +392,48 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     setProblems(externalReview.problems);
     setPreview(externalReview.intent);
     setTyped((typed) => Object.fromEntries(Object.entries(typed).filter(([id, read]) => externalAnswers[id] === read.value)));
-  }, [externalAnswers, externalReview]);
+  }, [externalAnswers, externalReview, editingFile]);
+
+  const displayReview = useCallback((given: PmiAnswers, review: IntentReview) => {
+    committedAnswers.current = given;
+    setAnswers(given);
+    setQuestions(review.questions);
+    setOpenIds(review.open);
+    setProblems(review.problems ?? []);
+    setPreview(review.intent);
+  }, []);
+
+  const shownEdits = useRef<{ sourceId: string; pending: PendingEdits } | null>(null);
+  useEffect(() => {
+    const options = transaction.current.options;
+    if (!options || !editingFile) return;
+    if (shownEdits.current?.sourceId === options.file.sourceId && shownEdits.current.pending === pending) return;
+    const mine = ++previewing.current;
+    const given = impliedAnswers(session.analysis, pending);
+    void askFile(options, given, pending).then(review => {
+      if (mine === previewing.current) {
+        shownEdits.current = { sourceId: options.file.sourceId, pending };
+        displayReview(given, review);
+      }
+    }, failure => {
+      if (mine === previewing.current) setError({ at: null, problem: asError(failure) });
+    });
+    return () => { if (mine === previewing.current) ++previewing.current; };
+  }, [editingFile, fileReview?.file, pending, session.analysis, displayReview]);
+
+  useEffect(() => {
+    const options = transaction.current.options;
+    if (!options || !editingFile) return;
+    let stale = false;
+    setSavedInspection(null);
+    setSkipped(new Set());
+    void options.worker.request<StoredInspection>('file-inspection', options.file).then(data => {
+      if (!stale) setSavedInspection(data);
+    }, failure => {
+      if (!stale) setError({ at: null, problem: asError(failure) });
+    });
+    return () => { stale = true; };
+  }, [editingFile, fileReview?.file]);
 
   // Previews answer in any order; only the latest asked for is shown.
   const relabel = useCallback(async (next: PmiAnswers) => {
@@ -377,6 +453,13 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   useEffect(() => {
     const start = startWith.current;
     if (!start) return;
+    if (editingFile) {
+      const first = groupQuestions(session.questions).filter(g => g.key !== 'part');
+      const given = impliedAnswers(session.analysis, pending);
+      setCurrent(nextNeeding(first, given));
+      if (session.questions.some(q => q.id === 'part.material' && needs(q, given) === 'required')) setUnfolded('part.material');
+      return;
+    }
     // A STEP Specify wrote carries on from the answers it was written with.
     const saved = session.answers ?? session.analysis.resume?.answers;
     if (readOnly) {
@@ -401,6 +484,94 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     setCurrent(nextNeeding(first, {}) ?? first[0]?.questions[0]?.id ?? null);
     void start.relabel({});
   }, [session]);
+
+  const publishPending = (edits: PendingEdits) => {
+    transaction.current.pending = edits;
+    const options = transaction.current.options;
+    if (fileOptions && options?.pending === undefined) setLocalEdits({ source: fileOptions.file.sourceId, pending: edits });
+    options?.onPending?.(edits);
+  };
+
+  const setBusy = (busy: boolean) => {
+    activeOperation.current = busy;
+    setEditBusy(busy);
+    transaction.current.options?.onBusy?.(busy);
+  };
+
+  const commitFile = (
+    at: string | null, update: (current: PendingEdits) => PendingEdits,
+    focus?: (asked: QuestionGroup[], next: PmiAnswers) => string | null,
+  ) => {
+    const operation = committing.current.then(async () => {
+      const options = transaction.current.options;
+      if (!options || readOnly || writeFailedToReopen) return false;
+      if (options.file.sourceId !== fileReview?.file.sourceId) return false;
+      setBusy(true);
+      try {
+        let base = transaction.current.pending;
+        let next: PendingEdits;
+        let given: PmiAnswers;
+        let asked: IntentReview;
+        // If a host publishes new edits while the check is running, validate the merged
+        // list before publishing it. The engine worker processes requests in order.
+        do {
+          base = transaction.current.pending;
+          next = update(base);
+          if (next === base) return true;
+          if (Object.keys(next.list()).length) await checkPending(options, next);
+          given = impliedAnswers(session.analysis, next);
+          asked = await askFile(options, given, next);
+          if (transaction.current.options?.file.sourceId !== options.file.sourceId) return false;
+        } while (base !== transaction.current.pending);
+        ++previewing.current;
+        shownEdits.current = { sourceId: options.file.sourceId, pending: next };
+        displayReview(given, asked);
+        publishPending(next);
+        setError(null);
+        setSavedStatus('');
+        if (focus) setCurrent(focus(groupQuestions(asked.questions), given));
+        return true;
+      } catch (failure) {
+        setError({ at, problem: asError(failure) });
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    });
+    committing.current = operation;
+    return operation;
+  };
+
+  const saveFileEdits = async () => {
+    const options = transaction.current.options;
+    if (!options || activeOperation.current || readOnly || writeFailedToReopen) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const bytes = await savePending(options, transaction.current.pending);
+      if (!bytes) return;
+      if ((!options.save || options.pending === undefined) && transaction.current.options?.file.sourceId === options.file.sourceId) {
+        const file = { ...options.file, bytes, sourceId: `${options.file.sourceId}@saved` };
+        try {
+          const snapshot = await options.worker.request<Pick<PmiLabSession, 'analysis' | 'mesh' | 'provenance'>>('open', file);
+          const given = impliedAnswers(snapshot.analysis, new PendingEdits());
+          const asked = await askFile({ ...options, file }, given, new PendingEdits());
+          setWritten({ from: fileOptions!.file.sourceId, file, session: { ...session, ...snapshot, ...asked, sessionId: file.sourceId } });
+          displayReview(given, asked);
+        } catch (failure) {
+          setFailedSource(fileOptions!.file.sourceId);
+          setError({ at: null, problem: asError(failure) });
+        }
+        if (transaction.current.options?.file.sourceId === options.file.sourceId) publishPending(EMPTY_PENDING);
+      }
+      setSavedStatus('Saved.');
+      options.onSaved?.(bytes);
+    } catch (failure) {
+      setError({ at: null, problem: asError(failure) });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // pmi-assist decides what follows from the answers, and may refuse them.
   // ``focus`` is the question to show afterwards; by default the one answered
@@ -438,7 +609,20 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   }, [engine, relabel, live, readOnly]);
   startWith.current = { commit, relabel };
 
+  const nextGap = (asked: QuestionGroup[], next: PmiAnswers) =>
+    nextNeeding(asked.filter(g => g.key !== 'part'), next)
+    ?? asked.flatMap(g => g.key === 'part' ? [] : g.questions).find(q => !(q.id in next))?.id ?? null;
+  const answerFile = (q: PmiQuestion, value: unknown, suggested = false) =>
+    commitFile(q.id, list => queueValue(fileRowsById.get(q.id), q, list, value, suggested), (asked, next) =>
+      q.id.startsWith('part.') || q.id.startsWith('bom.') ? null : nextGap(asked, next));
   const answer = (q: PmiQuestion, value: unknown, remove = false) => {
+    if (editingFile) {
+      if (remove) return commitFile(q.id, list => list.without(q.id));
+      return answerFile(q, value).then(ok => {
+        if (ok && adding?.id === q.id) setAdding(null);
+        return ok;
+      });
+    }
     if (adding && q.id === adding.id) setAdding(null);
     return commit(q.id, (latest) => {
       const next = { ...latest };
@@ -459,9 +643,16 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const spec = async (q: PmiQuestion, text: string): Promise<string | null> => {
     if (readOnly) return null;
     try {
-      const read = await live((id) => engine.interpret(id, answers, q.id, text));
-      setTyped((t) => ({ ...t, [q.id]: read }));
-      answer(q, read.value);
+      const read = fileReview && editingFile
+        ? await fileReview.worker.request<PmiInterpretation>('interpret', { analysis: session.analysis, answers, question: q.id, text })
+        : await live((id) => engine.interpret(id, answers, q.id, text));
+      if (editingFile) {
+        // Give typed callouts a chance to show if that question is opened again.
+        if (await answer(q, read.value)) setTyped(t => ({ ...t, [q.id]: read }));
+      } else {
+        setTyped((t) => ({ ...t, [q.id]: read }));
+        void answer(q, read.value);
+      }
       return null;
     } catch (failure) {
       return asError(failure).message;
@@ -540,7 +731,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       ? { faces: [...g.faces], kind: 'size' as const, value }
       : { faces: [...g.faces], kind: 'distance' as const, value, reference };
     setNoteGeneral(null);
-    if (await commit(key, (latest) => ({ ...latest, [key]: extra }), () => null)) {
+    const accepted = editingFile
+      ? await commitFile(key, list => list.with({ kind: 'fill', id: key, name: what, value: extra, text: value }))
+      : await commit(key, (latest) => ({ ...latest, [key]: extra }), () => null);
+    if (accepted) {
       setNote(`Called out ${what} ${value}.`);
     } else {
       callOut(i, what, value);
@@ -569,6 +763,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     };
     // A new datum beyond C has no proposal: its question opens to pick it.
     const unpicked = (extra.datums ?? []).find((x) => !'ABC'.includes(x) && !chips.some((c) => c.letter === x));
+    if (editingFile) {
+      if (draft.callOut) void commitFile(draft.key, list => list.with({
+        kind: 'fill', id: draft.key, name: draft.callOut!, value: extra, text: extra.value,
+      })).then(ok => { if (ok) { setDraft(null); setCurrent(null); } });
+      return;
+    }
     void commit(draft.key, (latest) => ({ ...latest, [draft.key]: extra }), () => {
       setDraft(null);
       return unpicked ? `datum.${unpicked}` : null;
@@ -611,6 +811,13 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const keepChosen = (ids: readonly string[]) => {
     if (readOnly) return;
     if (onKeep) { onKeep(ids); return; }
+    if (editingFile) {
+      void commitFile(ids[0] ?? null, list => ids.reduce((next, id) => {
+        const q = questions.find(x => x.id === id);
+        return q ? queueValue(fileRowsById.get(id), q, next, q.default, true) : next;
+      }, list), (asked, next) => settled(ids, asked, next));
+      return;
+    }
     // Capture the defaults the user saw and apply them to the answers accepted when this runs.
     const keptAnswers: Record<string, unknown> = {};
     for (const id of ids) {
@@ -625,12 +832,18 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     (current && ids.includes(current) ? nextNeeding(asked.filter((x) => x.key !== 'part'), next) : current);
   // Choosing an alternative answers it there and then; it leaves the list.
   const pickChosen = (id: string, value: string) => {
+    if (editingFile) {
+      const q = questions.find(x => x.id === id);
+      if (q) void answerFile(q, value);
+      return;
+    }
     void commit(id, (latest) => ({ ...latest, [id]: value }), (asked, next) => settled([id], asked, next));
   };
   // Opens the question in full and brings it into view -- every time, even
   // when it is already the open one, or the tap would seem to do nothing.
   const changeChosen = (id: string) => {
     if (id.startsWith('part.')) {
+      if (editingFile) setCurrent(id);
       setUnfolded(NOTE_FIELDS.has(id) ? `note:${id}` : id);
       rowsBox.current?.scrollTo({ top: 0, behavior: 'smooth' });
       return;
@@ -651,6 +864,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const removeDatum = (letter: string) => {
     const { warning } = removal(letter, chips, answers, preview);
     if (warning && !window.confirm(`${warning}\n\nRemove datum ${letter}?`)) return;
+    if (editingFile) {
+      void commitFile(`datum.${letter}`, list => Object.entries(removal(letter, chips, answers, preview).answers)
+        .filter(([id, value]) => answers[id] !== value)
+        .reduce((next, [id]) => next.with({ kind: 'none', id, name: `Datum ${id.slice(6)}` }), list));
+      return;
+    }
     void commit(`datum.${letter}`, (latest) => removal(letter, chips, latest, preview).answers, (asked) =>
       (asked.some((g) => g.questions.some((x) => x.id === current)) ? current : null));
   };
@@ -681,7 +900,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       setPeek(id ? null : face);
       setNote('');
       setNoteGeneral(null);
-      if (id) setCurrent(id);
+      if (id) { setView('review'); setCurrent(id); }
       onPick?.([face]);
     },
     // A label opens its question, which turns to it; one already open, or the
@@ -766,8 +985,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     if (next === 'review') picker.current?.highlight(currentQuestion?.faces ?? []);
   };
   // Read when the file is written: an export resumed after sign-in carries edits made meanwhile.
-  const exportRows = { chars, skipped, titles, answers, questions, kept, toReview,
-    notes: noteStatements(preview, session.analysis) };
+  const exportRows = { chars: tableChars, skipped, titles, answers, questions, kept, toReview,
+    notes: savedInspection?.notes ?? noteStatements(preview, session.analysis) };
   const csvRows = useRef(exportRows);
   csvRows.current = exportRows;
   const inspection = async () => {
@@ -775,6 +994,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     try {
       // Match the original three-method host: read the latest displayed rows AND notes
       // when a deferred download runs, including edits made while signing in.
+      if (editingFile) return { chars, skipped, notes };
       let intent: PmiIntent | null;
       if (inspectionIntent) intent = await inspectionIntent();
       else if (engine.inspection) intent = await engine.inspection(session.sessionId, inspectionAnswers(answers, questions, kept, toReview));
@@ -788,7 +1008,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const downloadCsv = () => onExport(async () => {
     const data = await inspection();
     if (!data) return;
-    const stem = session.filename.replace(/\.(step|stp|p21)$/i, '');
+    const stem = (fileReview?.inspectionName ?? session.filename).replace(/(?:\.(step|stp|p21))(?:\.gz)?$/i, '');
     saveFile(new File([toCsv(data.chars, data.skipped)], `${stem}-characteristics.csv`, { type: 'text/csv' }));
     onSaved?.(`${stem}-characteristics.csv`);
   });
@@ -796,7 +1016,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const downloadFai = () => onExport(async () => {
     const data = await inspection();
     if (!data) return;
-    const stem = session.filename.replace(/\.(step|stp|p21)$/i, '');
+    const stem = (fileReview?.inspectionName ?? session.filename).replace(/(?:\.(step|stp|p21))(?:\.gz)?$/i, '');
     const book = xlsx(as9102({ name: stem }, data.chars, data.skipped, data.notes));
     saveFile(new File([book as BlobPart], `${stem}-AS9102.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
     onSaved?.(`${stem}-AS9102.xlsx`);
@@ -808,8 +1028,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const questionItem = (q: PmiQuestion, g: QuestionGroup, titled = true) => (
     <QuestionItem titled={titled} kept={isKept(q)}
       key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} active={q.id === current}
-      selection={selection} mode={mode} error={errorAt(q.id)} typed={typed[q.id] ?? null}
-      locked={readOnly} onSpec={(text) => spec(q, text)}
+      selection={selection} mode={mode} error={editingFile ? null : errorAt(q.id)} typed={typed[q.id] ?? null}
+      locked={readOnly} file={editingFile} onSpec={(text) => spec(q, text)}
       onOpen={() => setCurrent(q.id)}
       onAnswer={(value) => answer(q, value)}
       onConfirm={() => confirm(g)}
@@ -822,6 +1042,65 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       }}
     />
   );
+  const openFileRow = (row: FileRow) => {
+    const id = row.id;
+    setCurrent(id);
+    if (id.startsWith('part.')) setUnfolded(NOTE_FIELDS.has(id) ? `note:${id}` : id);
+    else if (id.startsWith('datum.')) setUnfolded('datums');
+    picker.current?.highlight(row.faces);
+    if (row.faces.length) picker.current?.lookAt(row.faces);
+  };
+  const renderFileRow = (q: PmiQuestion, g: QuestionGroup) => {
+    const row = fileRowsById.get(q.id);
+    if (!row) return null;
+    const id = row.id;
+    const edit = pending.get(id);
+    const partField = id.startsWith('part.') || g.key === 'bom';
+    const open = id === current || (partField && unfolded === id);
+    const label = labelOf(q);
+    const onClose = () => {
+      if (current === id) setCurrent(null);
+      if (partField) setUnfolded(NOTE_FIELDS.has(id) ? 'notes' : null);
+      setError(null);
+    };
+    const undo = () => {
+      if (edit?.draft) { fileReview?.onUndo?.(id); return; }
+      void commitFile(id, list => edit ? list.without(id) : list.with({ kind: 'clear', id, name: label }));
+    };
+    const remove = () => row.decision
+      ? commitFile(id, list => list.with({ kind: 'clear', id, name: label }))
+      : commitFile(id, list => list.with({
+        kind: 'remove', id, name: label, was: rowText(row),
+        targets: removalTargets(row.requirements?.flatMap(requirement => requirement.number ? [requirement.number] : []) ?? [], id),
+      }));
+    const stated = row.state === 'stated';
+    const proposed = chosenById.get(id);
+    const refusal = errorAt(id)?.message ?? fileReview?.failures?.get(id) ?? (edit?.kind === 'refused' ? edit.reason : undefined);
+    const input = stated && q.kind !== 'faces'
+      ? <StatedField key={id} row={row} given={(edit?.kind === 'change' || (row.bom && edit?.kind === 'fill')) ? edit.value : row.value}
+        onApply={value => answerFile(q, value).then(ok => { if (ok) onClose(); return ok; })} onCancel={onClose} />
+      : partField ? <div className="pmi-lab-file-input">
+        <PartField key={`${id}:${JSON.stringify(answers[id])}`} q={q} answers={answers} error={null}
+          file onAnswer={value => answer(q, value).then(ok => { if (ok) onClose(); return ok; })} />
+        {q.kind === 'choice' && id === 'part.surface_finish' && <SpecBox q={q} codes={[]} onSpec={async text => {
+          await answer(q, text);
+          return null;
+        }} />}
+        <button type="button" onClick={onClose}>Cancel</button>
+      </div> : <div className="pmi-lab-file-input">
+        {questionItem(q, g)}
+        <button type="button" onClick={onClose}>Cancel</button>
+      </div>;
+    return <FileRequirement key={id} row={row} name={label} pending={edit} open={open && !(slots.question && id === current)}
+      disabled={disabled || editBusy} problem={refusal} card={proposed ? card(proposed) : undefined}
+      onOpen={() => openFileRow(row)} onClose={onClose} onKeep={() => keepChosen([id])}
+      onNone={() => void (edit?.kind === 'clear' && !edit.draft ? commitFile(id, list => list.without(id))
+        : commitFile(id, list => list.with({ kind: 'none', id, name: label }), (asked, next) => settled([id], asked, next)))}
+      onUndo={undo} onRemove={remove}
+      removalWarning={datumId(id) ? removal(id.slice(6), chips, answers, preview).warning : undefined}>
+      {input}
+    </FileRequirement>;
+  };
   // ``extra`` goes under the head, open or not (the datums row's chips).
   // ``sum`` and ``onHead`` replace the row's own summary and open/close, for
   // rows that are more than their questions (the datums).
@@ -835,9 +1114,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     const expanded = open || unfoldedHere;
     const firstOpen = () => (g.questions.find((q) => needs(q, answers)) ?? g.questions[0])?.id ?? null;
     // Folded, a row shows its choices still standing as cards, to keep or change.
-    const cards = open || readOnly ? [] : g.questions.flatMap((q) => chosenById.get(q.id) ?? []);
+    const cards = open || readOnly || editingFile ? [] : g.questions.flatMap((q) => chosenById.get(q.id) ?? []);
     const rowProblems = problemLines(g.key);
-    if (onlySuggestions && !open && !cards.length && !rowProblems.length && state !== 'required') return null;
+    if (onlySuggestions && !open && !cards.length && !rowProblems.length && state !== 'required'
+      && !(editingFile && g.questions.some(q => chosenById.has(q.id)))) return null;
     return (
       <section key={g.key} className={`pmi-lab-row ${state}${open ? ' current' : ''}`}>
         <button
@@ -848,7 +1128,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
           }}
         >
           {/* Only what needs a person, or was changed, is marked. */}
-          {state !== 'ok' && <span className="st">{STATE_TEXT[state]}</span>}
+          {state !== 'ok' && !(editingFile && state === 'set') && <span className="st">{STATE_TEXT[state]}</span>}
           <Chevron open={expanded} />
           <b>{g.title}</b>
           {rowBalloons(g)}
@@ -858,7 +1138,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
         {extra}
         {cards.length > 0 && <div className="pmi-lab-cards">{cards.map(card)}</div>}
         {/* Not twice: the current question shown in its queue row is answered there. */}
-        {open && g.questions.filter((q) => !(slots.question && q.id === current)).map((q) => questionItem(q, g))}
+        {editingFile ? g.questions.filter(q => !onlySuggestions || open || needs(q, answers) || chosenById.has(q.id)
+          || problems.some(p => p.about === q.id)).map(q => renderFileRow(q, g))
+          : open && g.questions.filter(q => !(slots.question && q.id === current)).map(q => questionItem(q, g))}
         {g.key === 'datums' && adding && (
           <>
             <QuestionItem
@@ -1039,7 +1321,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               type="button" role="tab" aria-selected={view === 'table'} className={view === 'table' ? 'on' : ''}
               onClick={() => switchView('table')}
             >
-              Characteristics ({byBalloon(chars).length})
+              Characteristics ({byBalloon(tableChars).length})
             </button>
           </div>
           {view === 'review' && (chosen.length > 0 || problems.length > 0) && (
@@ -1047,7 +1329,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               {chosen.length > 0 && !readOnly && (
                 <span>{chosen.length} suggestion{chosen.length === 1 ? '' : 's'}</span>
               )}
-              {chosen.length > 1 && !readOnly && !keepingAll && (
+              {!editingFile && chosen.length > 1 && !readOnly && !keepingAll && (
                 <button type="button" className="ok" onClick={() => setKeepingAll(true)}>
                   Keep all
                 </button>
@@ -1078,19 +1360,29 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
             </div>
           )}
         </header>
-        <fieldset className="pmi-lab-rows" ref={rowsBox} disabled={disabled}>
+        <fieldset className="pmi-lab-rows" ref={rowsBox} disabled={disabled || editBusy || writeFailedToReopen}>
           {view === 'table' ? (
             <CharacteristicsTable
-              rows={chars} selected={selectedChar} onSelect={showChar} onDownload={downloadCsv}
-              exportable={inspectionExports}
+              rows={tableChars} selected={selectedChar} onSelect={showChar} onDownload={downloadCsv}
+              exportable={inspectionExports && !fileReview?.inspectionBlocked}
               skipped={skipped} onSkip={skip} onEdit={readOnly ? () => null : editChar}
               onCallOut={(row) => (!readOnly && row.source.startsWith('general:')
                 ? () => callOut(Number(row.source.slice('general:'.length)), row.text) : null)}
-              generalTolerance={preview?.part['general_tolerance'] ?? session.analysis.part?.['general_tolerance'] ?? ''}
+              generalTolerance={editingFile ? '' : preview?.part['general_tolerance'] ?? session.analysis.part?.['general_tolerance'] ?? ''}
               calledOut={added.filter(([, extra]) => CALL_OUTS.includes(extra.kind)).length}
             />
           ) : (<>
-          {(partGroup || stated.length > 0) && (
+          {editingFile && partGroup && <section className="pmi-lab-fields" data-group="part">
+            {problemLines('part')}
+            {partGroup.questions.filter(q => !NOTE_FIELDS.has(q.id) && (!onlySuggestions || needs(q, answers) || chosenById.has(q.id)))
+              .map(q => renderFileRow(q, partGroup))}
+            {notes.length > 0 && (!onlySuggestions || notes.some(q => chosenById.has(q.id))) && <details className="pmi-lab-notes"
+              open={unfolded === 'notes' || unfolded?.startsWith('note:') || undefined}>
+              <summary>Finish and notes</summary>
+              {notes.map(q => renderFileRow(q, partGroup))}
+            </details>}
+          </section>}
+          {!editingFile && (partGroup || stated.length > 0) && (
             <section className="pmi-lab-fields">
               {stated.map(([key, value]) => (
                 <div key={key} className="pmi-lab-line stated">
@@ -1143,7 +1435,11 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
           )}
           <h2 className="pmi-lab-rows-title">On the part</h2>
           {featureRows.map((g) => renderRow(g))}
-          {(!onlySuggestions || draft || problemsIn('added').length > 0) && (
+          {editingFile && !draft && !onlySuggestions && <section className="pmi-lab-row">
+            <div className="pmi-lab-row-head"><b>Added by you</b><span className="sum">Available in the next release.</span></div>
+            <button type="button" className="add" disabled>+ Add a requirement</button>
+          </section>}
+          {(!editingFile || draft?.callOut) && (!onlySuggestions || draft || problemsIn('added').length > 0) && (
           <section className={`pmi-lab-row ${added.length ? 'set' : 'ok'}${draft ? ' current' : ''}`}>
             <button
               type="button" className="pmi-lab-row-head" aria-expanded={unfolded === 'added' || Boolean(draft)}
@@ -1225,7 +1521,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
             ? [...chips.map((c) => `${c.letter} ${c.text}`), ...noneDatums.map((letter) => `${letter} ${NONE_SUGGESTED}`)].join(' · ')
             : 'none needed', () => toggle('datums'),
           unfolded === 'datums' || Boolean(adding))}
-          {applied.length > 0 && (
+          {!editingFile && applied.length > 0 && (
             <div className="pmi-lab-rules">
               <b>Applied by rule</b>
               {applied.map((line) => <div key={line}>{line}</div>)}
@@ -1235,8 +1531,16 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
           </>)}
         </fieldset>
         {looseError && <footer><p role="alert" className="pmi-lab-error">{looseError.message}</p></footer>}
+        {editingFile && !fileReview?.renderBar && (
+          <footer className="pmi-lab-edit-bar" role="region" aria-label="Changes to save">
+            {pending.size ? <ul>{pending.values().map(edit => <li key={edit.id}>{describeEdit(edit)}</li>)}</ul> : <span role="status">{savedStatus}</span>}
+            <button type="button" disabled={!pending.size || editBusy || disabled} onClick={() => void commitFile(null, () => new PendingEdits())}>Discard</button>
+            <button type="button" disabled={!pending.size || editBusy || disabled || writeFailedToReopen} onClick={() => void saveFileEdits()}>Save</button>
+          </footer>
+        )}
       </aside>
     </div>), slots.panel)}
+    {editingFile && fileReview?.renderBar?.(() => void saveFileEdits())}
     {/* The current question again in the selected queue row, so it is answered where it is listed. */}
     {!readOnly && slots.question && (() => {
       const g = groups.find((x) => x.questions.some((q) => q.id === current));
@@ -1248,10 +1552,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
         : questionItem(q, g, false)}</div>, slots.question);
     })()}
     {inspectionExports && !readOnly && slots.exports && <>
-      {createPortal(<button type="button" onClick={downloadCsv} disabled={!chars.length} title="Every dimension and tolerance, numbered, with its nominal and limits">
+      {createPortal(<button type="button" onClick={downloadCsv} disabled={!tableChars.length || Boolean(fileReview?.inspectionBlocked)} title={fileReview?.inspectionBlocked ?? 'Every dimension and tolerance, numbered, with its nominal and limits'}>
         {gated ? 'Inspection list (CSV) · Sign in' : 'Inspection list (CSV)'}
       </button>, slots.exports)}
-      {createPortal(<button type="button" onClick={downloadFai} disabled={!chars.length} title="AS9102 first article inspection Forms 1–3 as an Excel workbook: the part, its materials and processes, and each characteristic with its requirement, for the results">
+      {createPortal(<button type="button" onClick={downloadFai} disabled={!tableChars.length || Boolean(fileReview?.inspectionBlocked)} title={fileReview?.inspectionBlocked ?? 'AS9102 first article inspection Forms 1–3 as an Excel workbook'}>
         {gated ? 'AS9102 FAI (Excel) · Sign in' : 'AS9102 FAI (Excel)'}
       </button>, slots.more ?? slots.exports)}
     </>}
@@ -1301,9 +1605,10 @@ function partValue(q: PmiQuestion, answers: PmiAnswers): string {
 }
 
 /** One of the part's own settings, unfolded: a text box, suggesting if it can, or a list. */
-function PartField({ q, answers, error, onAnswer, locked = false }: {
+function PartField({ q, answers, error, onAnswer, locked = false, file = false }: {
   /** Read only: the control is shown disabled. */
   locked?: boolean;
+  file?: boolean;
   q: PmiQuestion; answers: PmiAnswers; error: PmiLabError | null; onAnswer: (value: unknown) => Promise<boolean>;
 }) {
   const need = needs(q, answers);
@@ -1329,7 +1634,7 @@ function PartField({ q, answers, error, onAnswer, locked = false }: {
   // focus the box again and reopen the list.
   if (q.kind === 'text' && q.suggestions?.length) {
     return (
-      <div className={`pmi-lab-field${need ? ` ${need}` : ''}`} title={q.why} role="group" aria-label={label} data-question={q.id}>
+      <div className={`pmi-lab-field${need ? ` ${need}` : ''}`} title={q.why} role="group" aria-label={label} data-question={file ? undefined : q.id}>
         {name}
         {lock(<SuggestBox
           label={label} value={typeof answers[q.id] === 'string' ? answers[q.id] as string : ''}
@@ -1341,10 +1646,11 @@ function PartField({ q, answers, error, onAnswer, locked = false }: {
     );
   }
   return (
-    <label className={`pmi-lab-field${need ? ` ${need}` : ''}`} title={q.why} data-question={q.id}>
+    <label className={`pmi-lab-field${need ? ` ${need}` : ''}`} title={q.why} data-question={file ? undefined : q.id}>
       {name}
-      {lock(q.kind === 'choice' ? (
+      {lock(file && q.id === 'part.notes' ? <NotesInput onAnswer={onAnswer} /> : q.kind === 'choice' ? (
         <select value={typeof value === 'string' ? value : ''} onChange={(event) => onAnswer(event.target.value)}>
+          {file && typeof value === 'string' && !q.options?.includes(value) && <option value={value}>{value}</option>}
           {(q.options ?? []).map((option) => (
             <option key={option} value={option}>{option}{option === editorDefault(q) ? ' (default)' : ''}</option>
           ))}
@@ -1377,12 +1683,13 @@ function shortValue(q: PmiQuestion, value: unknown): string {
 
 function QuestionItem({
   q, answers, active, selection, mode, error, typed, onOpen, onAnswer, onSpec, onConfirm, onReset, onMode,
-  onDefaultSelection, titled = true, kept = false, locked = false,
+  onDefaultSelection, titled = true, kept = false, locked = false, file = false,
 }: {
   /** Read only: the answer controls are shown disabled, the editing ones hidden. */
   locked?: boolean;
   /** Answered, or kept as suggested: ticked. */
   kept?: boolean;
+  file?: boolean;
   /** Whether it shows its prompt: not under a queue row that already does. */
   titled?: boolean;
   q: PmiQuestion; answers: PmiAnswers; active: boolean; selection: number[]; mode: PickMode;
@@ -1402,25 +1709,25 @@ function QuestionItem({
     ?? (typed && typed.value === chosen ? typed.callout : undefined);
   if (!active) {
     return (
-      <button type="button" className={`pmi-lab-item${need ? ` ${need}` : ''}`} onClick={onOpen} data-question={q.id}>
+      <button type="button" className={`pmi-lab-item${need ? ` ${need}` : ''}`} onClick={onOpen} data-question={file ? undefined : q.id}>
         <span className="prompt">{q.prompt}{optional}</span>
         <span className="value">{kept && <Tick />}{shortValue(q, answerOf(q, answers))} ›</span>
       </button>
     );
   }
   return (
-    <div className={`pmi-lab-item on${need ? ` ${need}` : ''}`} data-question={q.id}>
+    <div className={`pmi-lab-item on${need ? ` ${need}` : ''}`} data-question={file ? undefined : q.id}>
       <div className="prompt">
         {titled && <>{q.prompt}{optional}</>}
         {kept && <Tick />}
-        {q.id in answers && q.default !== null && !locked && (
+        {!file && q.id in answers && q.default !== null && !locked && (
           <button type="button" className="reset" onClick={onReset}>Reset to default</button>
         )}
       </div>
       {q.reason && need === 'check' && (
         <div className="reason">
           {q.reason}{' '}
-          {!locked && <button type="button" className="ok" onClick={onConfirm}>Looks right</button>}
+          {!file && !locked && <button type="button" className="ok" onClick={onConfirm}>Looks right</button>}
         </div>
       )}
       <div className="why">{q.why}</div>
@@ -1445,6 +1752,11 @@ function QuestionItem({
           )}
           {callout && <div className="callout"><span>On the drawing</span> {callout}</div>}
           {hint && <div className="hint"><b>{codeOf(q, hintFor)}</b> {hint}</div>}
+          {file && /^(length:|location:)/.test(q.id) && <div className="pmi-lab-quick" aria-label="Tolerance quick picks">
+            {TOLERANCE_PICKS.filter(value => value.startsWith('±')).map(value => (
+              <button type="button" key={value} onClick={() => void onSpec(value)}>{value}</button>
+            ))}
+          </div>}
           <SpecBox q={q} codes={(q.choices ?? []).map((c) => c.code)} onSpec={onSpec} />
         </>
       )}
@@ -1477,5 +1789,44 @@ function QuestionItem({
       </>, locked)}
       {error && <p role="alert" className="pmi-lab-error">{error.message}</p>}
     </div>
+  );
+}
+
+function NotesInput({ onAnswer }: { onAnswer: (value: unknown) => Promise<boolean> }) {
+  const [text, setText] = useState('');
+  const lines = () => text.split('\n').map(line => line.trim()).filter(Boolean);
+  return <div className="pmi-lab-file-input">
+    <textarea aria-label="Other notes" rows={3} value={text} onChange={e => setText(e.target.value)} />
+    <button type="button" disabled={!text.trim()} onClick={() => void onAnswer(lines())}>Add notes</button>
+  </div>;
+}
+
+function StatedField({ row, given, onApply, onCancel }: {
+  row: FileRow; given: unknown; onApply(value: unknown): Promise<boolean>; onCancel(): void;
+}) {
+  const q = row.question;
+  const notes = row.id === 'part.notes';
+  const now = rowText(row);
+  const initial = Array.isArray(given) ? given.join(notes ? '\n' : ', ') : answerText(given);
+  const magnitude = q.options?.length && q.options.every(option => /^(none|[\d.]+)$/.test(option));
+  const [text, setText] = useState(() => magnitude ? /\d+(?:\.\d+)?/.exec(initial)?.[0] ?? initial : initial);
+  const numbers = row.requirements?.flatMap(r => r.number ? [r.number] : []).join(', ');
+  return (
+    <form className="spec-edit" onSubmit={event => {
+      event.preventDefault();
+      const value = notes ? text.split('\n').map(line => line.trim()).filter(Boolean) : text.trim();
+      if (!text.trim()) return;
+      if (JSON.stringify(value) === JSON.stringify(given)) onCancel();
+      else void onApply(value);
+    }}>
+      <div className="now">Now: <b>{now}</b></div>
+      {notes ? <textarea aria-label="New value" rows={3} value={text} onChange={event => setText(event.target.value)} />
+        : <input type="text" aria-label="New value" value={text} onChange={event => setText(event.target.value)} autoFocus />}
+      <div className="foot">
+        <button type="submit" disabled={!text.trim()}>Apply</button>
+        <button type="button" onClick={onCancel}>Cancel</button>
+      </div>
+      {numbers && <div className="muted">Keeps {numbers} if only the limits change. A different measurement gets a new number and {numbers} is retired.</div>}
+    </form>
   );
 }

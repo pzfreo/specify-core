@@ -4,6 +4,7 @@
 // needed"; a decided none offers Undo. Every edit is held in the page (the bar at the bottom lists
 // them) until Save writes them together. Who wrote a requirement is never shown: only the page's
 // unsaved edits are highlighted.
+import { IconButton, RemoveLine } from '../src/specify/row-actions.tsx';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { AnswerDraft, EditFailure, EditList } from './local.ts';
 import { describe, removalTargets, type Pending, type PendingEdits } from './edits.ts';
@@ -13,16 +14,6 @@ import { compose, emptyBlock, parse, placesText, type GeneralTolerance, type Uni
 export { describe };
 
 const GENERAL_TOLERANCE = 'part.general_tolerance';
-
-const ICON = {
-  edit: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M11 2.5l2.5 2.5L6 12.5l-3 .5.5-3z" /></svg>,
-  bin: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.5 8.5h6l.5-8.5M6.8 7v4M9.2 7v4" /></svg>,
-};
-
-/** An icon button: a pencil or a bin, the same size and colour (decision 1). */
-const IconButton = ({ label, icon, onClick, disabled }: { label: string; icon: keyof typeof ICON; onClick: () => void; disabled?: boolean }) => (
-  <button type="button" className="spec-icon" title={label} aria-label={label} onClick={onClick} disabled={disabled}>{ICON[icon]}</button>
-);
 
 /** What the person types, as the answer the edit list sends: faces as numbers, a list one per line. */
 function valueOf(row: PanelRow, text: string): unknown {
@@ -53,6 +44,7 @@ interface Editing { id: string; mode: 'add' | 'change' | 'remove' }
 
 export interface PanelProps {
   filename: string;
+  rowsOnly?: boolean;
   model: PanelModel;
   pending: PendingEdits;
   onPending(next: PendingEdits): void;
@@ -66,7 +58,7 @@ export interface PanelProps {
   /** The file's length unit, for a new general tolerance block. */
   units: Units;
   /** The characteristics table, rendered by the review into this element. */
-  characteristics: { element: HTMLElement; count: number } | null;
+  characteristics?: { element: HTMLElement; count: number } | null;
   /** Light ``faces`` on the part. */
   onFaces(faces: readonly number[]): void;
   /** Turn to row ``id`` (a decision picked in the diff); a new ``n`` each time. */
@@ -120,12 +112,12 @@ export function Panel(props: PanelProps) {
 
   const row = (r: PanelRow) => {
     const p = pending.get(r.id);
-    const shown = p?.kind === 'fill' || p?.kind === 'change' ? p.text
+    const shown = p?.kind === 'fill' || p?.kind === 'change' || p?.kind === 'accept' ? p.text
       : p?.kind === 'none' ? 'none needed' : p?.kind === 'clear' ? 'not stated' : r.value;
     // The row is the file's requirement with the person's queued edit laid over it.
-    const state = p?.kind === 'fill' || p?.kind === 'change' ? 'stated' : p?.kind === 'none' ? 'decided_none'
+    const state = p?.kind === 'fill' || p?.kind === 'change' || p?.kind === 'accept' ? 'stated' : p?.kind === 'none' ? 'decided_none'
       : p?.kind === 'clear' ? 'gap' : r.state;
-    const notes = r.id === 'part.notes' && (p?.kind === 'fill' || p?.kind === 'change') && Array.isArray(p.value)
+    const notes = r.id === 'part.notes' && (p?.kind === 'fill' || p?.kind === 'change' || p?.kind === 'accept') && Array.isArray(p.value)
       ? p.value : r.notes;
     const cls = ['spec-row', state === 'stated' ? 'stated' : state === 'gap' ? 'gap' : 'nonerow',
       p ? 'changed' : '', p?.kind === 'remove' ? 'removed' : ''].filter(Boolean).join(' ');
@@ -218,7 +210,7 @@ export function Panel(props: PanelProps) {
   };
 
   const group = (g: PanelGroup | null, heading?: string) => g && g.rows.length > 0 && (
-    <div className="spec-feat" key={g.key} data-group={g.key}>
+    <div className="spec-feat" key={g.key} data-group={!props.rowsOnly || g.key !== 'part' ? g.key : undefined}>
       {heading === undefined ? null : <div className="name">{heading}{balloon(g)}</div>}
       {g.rows.map(row)}
     </div>
@@ -228,6 +220,20 @@ export function Panel(props: PanelProps) {
     return text ? <span className="balloon">{text}</span> : null;
   };
 
+  const requirements = (<>
+          {model.part && model.part.rows.length > 0 && (<>
+            <div className="spec-group">The part</div>
+            {group(model.part)}
+          </>)}
+          {model.features.length > 0 && <div className="spec-group">On the part</div>}
+          {model.features.map((g) => group(g, g.title))}
+          {model.datums && (<><div className="spec-group">Datums</div>{group(model.datums)}</>)}
+          {model.other.length > 0 && (<>
+            <div className="spec-group">Other PMI in the file</div>
+            <div className="spec-feat" data-group="other">{model.other.map(other)}</div>
+          </>)}
+  </>);
+  if (props.rowsOnly) return <div className="spec-rows" ref={body}>{requirements}</div>;
   return (
     <div className="pmi-lab pmi-lab-pane">
       <aside className="pmi-lab-panel spec-panel">
@@ -244,17 +250,7 @@ export function Panel(props: PanelProps) {
         </header>
         <div className="spec-chars" ref={chars} hidden={tab !== 'table'} />
         <div className="spec-rows" ref={body} hidden={tab !== 'review'}>
-          {model.part && model.part.rows.length > 0 && (<>
-            <div className="spec-group">The part</div>
-            {group(model.part)}
-          </>)}
-          {model.features.length > 0 && <div className="spec-group">On the part</div>}
-          {model.features.map((g) => group(g, g.title))}
-          {model.datums && (<><div className="spec-group">Datums</div>{group(model.datums)}</>)}
-          {model.other.length > 0 && (<>
-            <div className="spec-group">Other PMI in the file</div>
-            <div className="spec-feat" data-group="other">{model.other.map(other)}</div>
-          </>)}
+          {requirements}
         </div>
       </aside>
     </div>
@@ -266,7 +262,7 @@ function EditLine({ row, mode, pending, units, checking, problem, onApply, onCan
   row: PanelRow; mode: 'add' | 'change'; pending: Pending | undefined; units: Units; checking: boolean; problem: string | null;
   onApply(value: unknown, text: string): void; onCancel(): void;
 }) {
-  const start = pending?.kind === 'fill' || pending?.kind === 'change' ? inputOf(row, pending.value)
+  const start = pending?.kind === 'fill' || pending?.kind === 'change' || pending?.kind === 'accept' ? inputOf(row, pending.value)
     : mode === 'add' ? inputOf(row, row.suggestion) : changeStart(row);
   const [text, setText] = useState(start);
   const gt = row.id === GENERAL_TOLERANCE;
@@ -300,23 +296,6 @@ function EditLine({ row, mode, pending, units, checking, problem, onApply, onCan
       {mode === 'change' && number && (
         <div className="muted">Keeps {number} if only the limits change. A different measurement gets a new number and {number} is retired.</div>
       )}
-    </div>
-  );
-}
-
-/** The one-line remove confirmation: the only red in the panel (decision 1). */
-function RemoveLine({ what, numbers, checking, problem, onRemove, onCancel }: {
-  what: string; numbers: readonly string[]; checking: boolean; problem: string | null; onRemove(): void; onCancel(): void;
-}) {
-  const n = numbers.join(', ');
-  return (
-    <div className="spec-edit rm">
-      <div className="now">Remove <b>{what}</b>?{n ? ` Number ${n} ${numbers.length > 1 ? 'are' : 'is'} retired and never reused.` : ''}</div>
-      {problem && <div className="spec-problem" role="alert">{problem}</div>}
-      <div className="foot">
-        <button type="button" className="danger" disabled={checking} onClick={onRemove}>Remove</button>
-        <button type="button" onClick={onCancel}>Cancel</button>
-      </div>
     </div>
   );
 }

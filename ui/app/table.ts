@@ -1,6 +1,6 @@
 import type { PmiFeature, PmiQuestion } from '../src/types/pmi.ts';
 import { answerText, capital, displayText, isNoneValue, kindWord, type FeatureTable, type RowState } from '../src/specify/feature-table.ts';
-export { answerText, bareAnalysis, balloonText, changedText, isNoneValue, tableOf } from '../src/specify/feature-table.ts';
+export { answerText, bareAnalysis, balloonText, changedText, displayText, isNoneValue, tableOf } from '../src/specify/feature-table.ts';
 export type { FeatureTable, RowState, TableRequirement, TableRow } from '../src/specify/feature-table.ts';
 
 /** A row as the panel shows it. */

@@ -20,7 +20,7 @@ export type RowState = 'required' | 'check' | 'set' | 'ok';
 
 /** Rows: the part, its parts-list row (an assembly part's), one per feature in question order,
  * then the datums they are measured from. */
-export function groupQuestions(questions: readonly PmiQuestion[]): QuestionGroup[] {
+export function groupQuestions(questions: readonly PmiQuestion[], planeLengthsOnPart = false): QuestionGroup[] {
   const groups = new Map<string, QuestionGroup>();
   const add = (key: string, title: string, q: PmiQuestion) => {
     const group = groups.get(key) ?? { key, title, questions: [] };
@@ -28,7 +28,7 @@ export function groupQuestions(questions: readonly PmiQuestion[]): QuestionGroup
     groups.set(key, group);
   };
   for (const q of questions) {
-    if (q.id.startsWith('part.')) add('part', 'Part', q);
+    if (q.id.startsWith('part.') || (planeLengthsOnPart && q.id.startsWith('length:planes:'))) add('part', 'Part', q);
     else if (q.id.startsWith('bom.')) add('bom', 'Parts list', q);
     else if (q.id.startsWith('datum.')) add('datums', 'Datums', q);
     else add(q.feature ?? q.id, titleOf(q), q);

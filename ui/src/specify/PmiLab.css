@@ -409,3 +409,23 @@ fieldset.pmi-lab-rows { min-width: 0; margin: 0; padding: 0; border: 0; }
 .pmi-lab-keep-all { margin-top: 6px; padding: 6px 8px; border: 1px solid #c9dccf; border-radius: 4px; background: #f3f9f5; font-size: 12px; }
 .pmi-lab-keep-all p { margin: 0 0 4px; }
 .pmi-lab-keep-all ul { margin: 0 0 6px; padding-left: 18px; max-height: 180px; overflow: auto; }
+
+/* File-backed requirements use the original review groups and input controls. */
+.pmi-lab-file-row { padding: 2px 0; border-bottom: 1px solid #e6e9ed; }
+.pmi-lab-file-row > .pmi-lab-line { box-sizing: border-box; flex-wrap: wrap; }
+.pmi-lab-file-row .name { text-align: left; }
+.pmi-lab-file-row .value { flex: 1 1 7em; white-space: normal; overflow-wrap: anywhere; }
+.pmi-lab-file-row .value .bal { margin-left: 6px; }
+.pmi-lab-file-row .acts { display: inline-flex; gap: 5px; align-items: center; }
+.pmi-lab-file-row .acts .spec-icon { padding: 4px 5px; line-height: 0; color: #1a1d21; }
+.pmi-lab-file-row .spec-icon svg { width: 16px; height: 16px; display: block; }
+.pmi-lab-file-row .sugg { border: 1px dashed #8a5a00; border-radius: 10px; padding: 0 6px; color: #8a5a00; }
+.pmi-lab-file-row.decided_none .value { color: #6b7482; font-style: italic; }
+.pmi-lab-file-row.changed { box-shadow: inset 3px 0 #2f6fb5; padding-left: 6px; }
+.pmi-lab-file-row.removed .value { text-decoration: line-through; }
+.pmi-lab-file-row .spec-edit { padding: 7px 9px; border-radius: 6px; background: #e6edf9; }
+.pmi-lab-file-row .spec-edit.rm { background: #fbe9e8; }
+.pmi-lab-file-row .spec-edit .danger { color: #a8322d; }
+.pmi-lab-file-row .foot, .pmi-lab-edit-bar { display: flex; gap: 6px; align-items: center; }
+.pmi-lab-file-row .spec-note { display: block; }
+.pmi-lab-edit-bar ul { flex: 1; max-height: 8em; overflow: auto; }

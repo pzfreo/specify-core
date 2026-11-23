@@ -85,15 +85,17 @@ export function fileRows(
     const q = asked.get(id);
     const row = table.get(id);
     if (!q && (!row || row.state === 'gap')) continue;
-    const [...kindParts] = id.split(':');
-    const kind = kindParts.shift()!;
-    const feature = row?.feature ?? q?.feature ?? kindParts.join(':') ?? id;
+    const [kind, ...kindParts] = id.split(':');
+    const feature = row?.feature ?? q?.feature ?? (kindParts.join(':') || id);
     const fallback = kindWord(kind);
-    const question: PmiQuestion = q ?? named.get(id) ?? {
+    const described: PmiQuestion = q ?? named.get(id) ?? {
       id, kind: datumId(id) ? 'faces' : 'text', feature: feature || id, label: fallback, prompt: fallback,
       faces: row?.faces ?? [], attention: 'routine', default: null, why: '',
       title: analysis.features.find(f => f.id === feature)?.family.replace(/_/g, ' '),
     };
+    const question = row?.state === 'stated' ? {
+      ...described, faces: row.faces, ...(datumId(id) ? { default: row.faces, kind: 'faces' as const } : {}),
+    } : described;
     const decision = id === 'part.locating';
     const bom = id.startsWith('bom.');
     const storedDecision = decision ? stored[id] : undefined;
