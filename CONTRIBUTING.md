@@ -17,6 +17,8 @@ macOS uses one job. It builds and runs the floating-point test binaries on ordin
 PRs and runs the full suite on main, manual runs and PRs with `release*` heads.
 Full macOS runs are outside the 25-minute target. Docs-only PRs skip Rust, WASM, UI
 and app jobs unless they touch a dependency listed in the workflow's path filter.
+A new CI run for a pull request cancels the previous run for that PR. Main pushes and
+manual runs each use their own group.
 
 A change to the WASM API also needs its `api.d.ts` snapshot and a CHANGELOG `### WASM API` entry
 (`python3 tools/check_wasm_api.py --base-ref origin/main`). CI's `wasm-checks` job runs that and the
