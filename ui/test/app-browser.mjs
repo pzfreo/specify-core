@@ -283,6 +283,7 @@ async function add(page, id, value) {
 async function noneNeeded(page, id) {
   const r = await showRow(page, id);
   await r.getByRole('button', { name: 'None needed', exact: true }).click();
+  await check(r).toHaveAttribute('data-state', 'decided_none');
   await check(listedEdit(page, id)).toBeVisible();
 }
 
@@ -306,7 +307,11 @@ async function assertValuesFit(page) {
 }
 /** No wording in ``box`` says who wrote a requirement (decision 6). */
 async function assertNoOrigin(box) {
-  const text = await box.evaluateAll(elements => elements.map(element => element.innerText).join('\n'));
+  const text = await box.evaluate(element => {
+    // Decision 5 keeps the 0.2 "Added by you" heading for the disabled ExtraEditor in rc.2.
+    const heading = [...element.querySelectorAll('.pmi-lab-row-head > b')].find(title => title.innerText === 'Added by you');
+    return heading ? element.innerText.replace(heading.innerText, '') : element.innerText;
+  });
   assert.ok(text.trim().length > 0, 'there is text to check');
   assert.doesNotMatch(text, /from the file|answered|\bdefaults?\b|Specify|written by|\bby you\b|another tool/i, `no origin wording: ${text}`);
 }
@@ -740,8 +745,11 @@ try {
     // A value the file cannot take is refused on its line, by the engine, and never joins the bar.
     await (await showRow(page, 'part.surface_finish')).locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
     await row(page, 'part.surface_finish').getByRole('textbox', { name: /^Type a spec/ }).fill('shiny');
+    const beforeTyped = await page.evaluate(() => window.__engineOps.length);
     await row(page, 'part.surface_finish').getByRole('button', { name: 'Use', exact: true }).click();
     await check(row(page, 'part.surface_finish').getByRole('alert')).toContainText('not an answer');
+    assert.ok((await page.evaluate(from => window.__engineOps.slice(from), beforeTyped)).includes('check-edits'),
+      'the engine checks the proposed fill against the file');
     await row(page, 'part.surface_finish').getByRole('button', { name: 'Cancel', exact: true }).click();
     await check(listedEdit(page, 'part.surface_finish')).toHaveCount(0);
     // Only the unsaved edits are highlighted (decision 6).
@@ -825,7 +833,7 @@ try {
     await check(changedRows(page)).toHaveCount(0);
     if (shots) await page.screenshot({ path: join(shots, 'panel-saved.png') });
     // Origin is never shown (decision 6): not in the panel, nor in its Characteristics tab.
-    await assertNoOrigin(page.locator('[data-row] > .pmi-lab-line, .spec-row > .v'));
+    await assertNoOrigin(page.locator('.pmi-lab-panel .pmi-lab-rows'));
     await page.getByRole('tab', { name: /^Characteristics/ }).click();
     await check(page.locator('.pmi-lab-table')).toBeVisible();
     await assertNoOrigin(page.locator('.pmi-lab-table'));

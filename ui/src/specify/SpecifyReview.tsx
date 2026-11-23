@@ -1217,10 +1217,9 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
       : partField ? <div className="pmi-lab-file-input">
         <PartField key={`${id}:${JSON.stringify(answers[id])}`} q={q} answers={answers} error={null}
           file onAnswer={value => answer(q, value).then(ok => { if (ok) onClose(); return ok; })} />
-        {q.kind === 'choice' && id === 'part.surface_finish' && <SpecBox q={q} codes={[]} onSpec={async text => {
-          const why = await spec(q, text);
-          return why && `${text} is not an answer. ${why}`;
-        }} />}
+        {/* Keep the 0.2 part-settings dropdown and the file panel's typed Add.
+            The writer checks typed part settings as answers. Feature specs go through interpret. */}
+        {q.kind === 'choice' && <SpecBox q={q} codes={[]} onSpec={async text => await apply(text) ? null : false} />}
         <button type="button" onClick={onClose}>Cancel</button>
       </div> : <div className="pmi-lab-file-input">
         {questionItem(q, g)}

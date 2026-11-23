@@ -63,9 +63,9 @@ export function PurposeChoice({ q, value, onAnswer, onPoint }: {
   );
 }
 
-/** A spec typed for ``q``, read by pmi-assist; ``onSpec`` resolves to why it was refused, or null. */
+/** A typed spec. Return null on acceptance, a refusal message, or false if the row shows the refusal. */
 export function SpecBox({ q, codes, onSpec }: {
-  q: PmiQuestion; codes: readonly string[]; onSpec: (text: string) => Promise<string | null>;
+  q: PmiQuestion; codes: readonly string[]; onSpec: (text: string) => Promise<string | null | false>;
 }) {
   const [text, setText] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
@@ -78,8 +78,8 @@ export function SpecBox({ q, codes, onSpec }: {
     setBusy(true);
     const refused = await onSpec(typed);
     setBusy(false);
-    setProblem(refused);
-    if (!refused) setText('');
+    setProblem(refused || null);
+    if (refused === null) setText('');
   };
   return (
     <form className="pmi-lab-spec" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
