@@ -412,6 +412,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     if (readOnly) return Promise.resolve(false);
     // A host can save answers in questions(). Review one change at a time, starting
     // from the last accepted answers even when React has yet to render them.
+    // WorkerClient rejects stalled requests and restarts its worker. Other hosts own
+    // their timeouts: questions() has no cancellation, so skipping a pending call
+    // could allow it to save over later answers.
     const pending = committing.current.then(async () => {
       try {
         const next = update(committedAnswers.current);
@@ -608,14 +611,13 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const keepChosen = (ids: readonly string[]) => {
     if (readOnly) return;
     if (onKeep) { onKeep(ids); return; }
-    void commit(ids[0] ?? null, (latest) => {
-      const next = { ...latest };
-      for (const id of ids) {
-        const q = questions.find((x) => x.id === id);
-        if (q) next[id] = q.default;
-      }
-      return next;
-    }, (asked, next) => settled(ids, asked, next));
+    // Capture the defaults the user saw and apply them to the answers accepted when this runs.
+    const keptAnswers: Record<string, unknown> = {};
+    for (const id of ids) {
+      const q = questions.find((x) => x.id === id);
+      if (q) keptAnswers[id] = q.default;
+    }
+    void commit(ids[0] ?? null, (latest) => ({ ...latest, ...keptAnswers }), (asked, next) => settled(ids, asked, next));
   };
   // After keeping or choosing: the open question stays open unless it was the
   // one settled, which folds, and what still needs a person opens.

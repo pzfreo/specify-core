@@ -3,7 +3,7 @@
 import { createRoot } from 'react-dom/client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  createIntentEngine, drawnFromScene, hasGraphics, SpecifyReview, StepDiff, withoutNotesBlock, type DrawnPmi, type StepFile,
+  createIntentEngine, drawnFromScene, hasGraphics, SpecifyReview, StepDiff, withoutNotesBlock, type DrawnPmi, type PmiAnswers, type StepFile,
 } from '../../src/index';
 import { stepBytes } from '../../src/model/diff';
 
@@ -13,6 +13,7 @@ declare global {
     /** The Specify host's calls from SpecifyReview ('questions' | 'interpret' | 'preview' | 'inspection', and
      * 'onKeep:<ids>' with &keep=host), when ?specify=1. */
     __calls: string[];
+    __questionAnswers: PmiAnswers[];
     /** When set, tests release each held questions reply by calling its function. */
     __questionReplies?: (() => void)[];
     __parts: (string | null)[];
@@ -23,6 +24,7 @@ declare global {
 window.__events = [];
 window.__parts = [];
 window.__calls = [];
+window.__questionAnswers = [];
 
 function Slot({ label, file, pick }: { label: string; file: StepFile | null; pick: (file: StepFile) => void }) {
   return (
@@ -94,8 +96,9 @@ function SpecifyHost() {
     const review: any = await worker.request('review', { name, bytes, sourceId, answers: {} });
     const call = (operation: string, answers: unknown) => worker.request<any>(operation, { name, bytes, sourceId, answers });
     const engine = {
-      questions: async (_id: string, answers: unknown) => {
+      questions: async (_id: string, answers: PmiAnswers) => {
         window.__calls.push('questions');
+        window.__questionAnswers.push(answers);
         const replies = window.__questionReplies;
         if (replies) {
           const release = new Promise<void>((resolve) => replies.push(resolve));

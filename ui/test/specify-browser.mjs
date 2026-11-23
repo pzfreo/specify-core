@@ -23,6 +23,7 @@ async function openPage(readOnly, file = 'test/fixtures/spindle_pmi_before.step.
   return page;
 }
 const calls = page => page.evaluate(() => [...window.__calls]);
+const questionAnswers = page => page.evaluate(() => window.__questionAnswers);
 // The first hole row, opened (it may already be: the first thing needing a person opens at the start).
 const openHoleRow = async page => {
   const head = page.locator('#specify-panel .pmi-lab-row-head', { hasText: /hole/i }).first();
@@ -195,7 +196,9 @@ try {
     const row = panel(page).locator('.pmi-lab-table tr').filter({ hasText: 'Material: Aluminium 6082-T6' });
     // This expectation follows origin/main's display; export data no longer replaces preview.
     await check(row.getByRole('checkbox', { name: 'Inspect 12', exact: true })).toBeVisible();
-    await check.poll(async () => (await calls(page)).slice(before)).toEqual(['questions', 'preview']);
+    // By the time the first preview is visible, a duplicate queued before release would
+    // already have started its review.
+    assert.deepEqual((await calls(page)).slice(before), ['questions', 'preview'], 'blur must not queue a second Material review');
     const download = (name) => inspectionDownload(page, name);
     const csv = readFileSync(await download('Inspection list (CSV)'), 'utf8');
     assert.deepEqual(csv.trimEnd().split('\n').slice(1), [',,Part,Material: Aluminium 6082-T6,,,,,,']);
@@ -209,8 +212,20 @@ try {
     assert.deepEqual((await calls(page)).slice(before), ['questions', 'preview', 'inspection', 'inspection'], 'only the requested workbook adds another inspection');
     await page.close();
   }
-  // A second answer given while the first is under review must win. Blur after Enter
-  // also used to submit the catalogue spelling of the second answer as a third edit.
+  // Enter sends one answer, using the catalogue spelling for an exact match in another case.
+  {
+    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz');
+    await page.evaluate(() => { window.__questionReplies = []; });
+    const material = panel(page).locator('[data-question="part.material"] input');
+    await material.fill('aluminium 6082-t6');
+    await material.press('Enter');
+    assert.deepEqual(await questionAnswers(page), [{ 'part.material': 'Aluminium 6082-T6' }],
+      'Enter submits the catalogue spelling once');
+    await page.evaluate(() => { window.__questionReplies.shift()(); });
+    await page.close();
+  }
+  // Reviews run in submission order, so the first reply cannot overwrite the later
+  // answer to the same question. Free text keeps its spelling.
   {
     const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz', '#specify-panel .pmi-lab-row-head', '&keep=host');
     const before = (await calls(page)).length;
@@ -230,6 +245,29 @@ try {
     assert.deepEqual((await calls(page)).slice(before), ['questions', 'preview', 'questions', 'preview']);
     const csv = readFileSync(await inspectionDownload(page, 'Inspection list (CSV)'), 'utf8');
     assert.deepEqual(csv.trimEnd().split('\n').slice(1), [',,Part,Material: brass cw614n,,,,,,']);
+    await page.close();
+  }
+  // Two different edits given before the first reply must both survive, even when
+  // the engine returns the replies in order. Keep accepts the tolerance shown on its card.
+  {
+    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz');
+    const before = (await calls(page)).length;
+    const previews = async () => (await calls(page)).slice(before).filter(call => call === 'preview').length;
+    await page.evaluate(() => { window.__questionReplies = []; });
+    const material = panel(page).locator('[data-question="part.material"] input');
+    await material.fill('brass cw614n');
+    await material.press('Enter');
+    const tolerance = panel(page).locator('.pmi-lab-suggestion:has([data-suggestion="part.general_tolerance"])');
+    await tolerance.getByRole('button', { name: 'Keep', exact: true }).click();
+    await page.evaluate(() => { window.__questionReplies.shift()(); });
+    await check.poll(previews).toBe(1);
+    await check.poll(async () => (await questionAnswers(page)).length).toBe(2);
+    await page.evaluate(() => { window.__questionReplies.shift()(); });
+    await check.poll(previews).toBe(2);
+    await panel(page).getByRole('tab', { name: /^Characteristics/ }).click();
+    const csv = readFileSync(await inspectionDownload(page, 'Inspection list (CSV)'), 'utf8');
+    assert.match(csv, /,Part,Material: brass cw614n,/, 'the second edit retains the first answer');
+    assert.match(csv, /,Part,General tolerance: ISO 2768-m,/, 'the second answer is kept too');
     await page.close();
   }
   // A host that keeps suggestions itself (the editor: onKeep, and kept for the ticks): Keep goes to
