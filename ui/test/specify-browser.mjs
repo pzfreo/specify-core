@@ -278,7 +278,7 @@ try {
     await page.evaluate(() => { window.__questionReplies.shift()(); });
     const table = panel(page).locator('.pmi-lab-table');
     await check(table).toContainText('Material: brass cw614n');
-    assert.deepEqual((await calls(page)).slice(before, before + 4), ['questions', 'preview', 'questions', 'preview']);
+    await check.poll(async () => (await calls(page)).slice(before)).toEqual(['questions', 'preview', 'questions', 'preview', 'questions']);
     const csv = readFileSync(await inspectionDownload(page, 'Inspection list (CSV)'), 'utf8');
     assert.deepEqual(csv.trimEnd().split('\n').slice(1), [',,Part,Material: brass cw614n,,,,,,']);
     await check.poll(async () => (await questionAnswers(page)).length).toBe(3);
@@ -286,6 +286,8 @@ try {
     await check(table).toContainText('Material: Aluminium 6082-T6');
     assertMaterialSequence((await questionAnswers(page)).map(given => given['part.material']),
       await page.evaluate(() => window.__questionHostVersions));
+    assert.deepEqual((await calls(page)).slice(before).filter(call => call === 'questions' || call === 'preview'),
+      ['questions', 'preview', 'questions', 'preview', 'questions', 'preview']);
     const reverted = readFileSync(await inspectionDownload(page, 'Inspection list (CSV)'), 'utf8');
     assert.deepEqual(reverted.trimEnd().split('\n').slice(1), [',,Part,Material: Aluminium 6082-T6,,,,,,']);
     await page.close();
