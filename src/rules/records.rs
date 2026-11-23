@@ -482,6 +482,8 @@ impl<'a> Ctx<'a> {
             .flatten()
             .filter(|r| r["state"] == "stated")
             .filter_map(|r| r["id"].as_str())
+            // The optional BOM interview can still show the source of a stated value.
+            .filter(|id| !id.starts_with("bom."))
             .collect()
     }
 

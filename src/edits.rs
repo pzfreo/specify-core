@@ -338,7 +338,7 @@ fn failure(entry: impl Into<String>, reason: impl Into<String>) -> Failure {
     }
 }
 
-fn key(section: &str, id: &str) -> String {
+pub(crate) fn key(section: &str, id: &str) -> String {
     format!("{section}[{}]", Value::String(id.to_owned()))
 }
 
@@ -761,6 +761,10 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
         }
         match state.kind(id) {
             None => failures.push(unknown_id(entry, id)),
+            Some(_) if id.starts_with("bom.") => failures.push(failure(
+                entry,
+                format!("{id} is a BOM field; use change to replace the file's value"),
+            )),
             Some(KindState::Stated { .. }) => {
                 removed_rows.insert(id.clone());
             }
@@ -783,6 +787,10 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
         let entry = key("none", id);
         match state.kind(id) {
             None => failures.push(unknown_id(entry, id)),
+            Some(_) if id.starts_with("bom.") => failures.push(failure(
+                entry,
+                format!("{id} is a BOM field; use fill for a gap or change for a stated value"),
+            )),
             Some(KindState::Stated { value }) => {
                 if is_none_answer(&value) {
                     unchanged.push(entry);
@@ -836,6 +844,10 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
             Some(KindState::Gap { .. }) => failures.push(failure(
                 entry,
                 format!("nothing is stored for {id}, so there is nothing to clear"),
+            )),
+            Some(KindState::Stated { value }) if id.starts_with("bom.") => failures.push(failure(
+                entry,
+                format!("the file states {value} for {id}; use change with \"expect\": {value}"),
             )),
             Some(KindState::Stated { value }) => failures.push(failure(
                 entry,

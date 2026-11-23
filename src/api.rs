@@ -534,6 +534,7 @@ fn analyse_with(
     let numbers = crate::characteristics::read(loaded).map_err(Error::Analysis)?;
     crate::feature_table::add_numbered(&mut table, &numbers);
     crate::feature_table::name_file_pmi(&mut table, &reading.located());
+    table.rows.extend(crate::bom::edit_rows(&analysis));
     analysis.insert(
         "table".into(),
         serde_json::to_value(&table).map_err(|e| refused(&e))?,

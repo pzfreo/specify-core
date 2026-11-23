@@ -100,9 +100,18 @@ only of a part of a file the BOM can be written into (`bom::assembly_shape`): an
 product definition with a shape, and an assembly occurrence of every part. A file of several
 products with no `NEXT_ASSEMBLY_USAGE_OCCURRENCE` is not asked them (#149).
 
-An edit list opts in through `fill` for explicit `bom.*` values or through
-`accept_suggestions` for the specific BOM fields the caller approves. For example,
-save `{"fill":{"bom.part_number":"GRM-02"},"accept_suggestions":["bom.description"]}`
+Editable BOM fields appear in `analysis.table.rows` under their `bom.*` IDs. Native
+data (`source: "file"`) and explicit STEP property overrides (`source: "answered"`)
+are `stated`. Replace either with `change`, using the row's `value` as `expect`.
+Specify appends the override and preserves the existing STEP records. For example,
+`{"change":{"bom.description":{"to":"Revised plate","expect":"Mounting plate"}}}`.
+A different `fill` and a `clear` both direct the caller to `change`. An equal
+`fill` is unchanged. The table uses `"yes"` and `"no"` for `bom.optional`.
+
+Missing values and suggestions (`source: "default"`) are `gap` rows. A recorded
+`default.<field>` marks a suggestion, and native data can still supersede it. Use
+`fill` or `accept_suggestions` on these rows. For example,
+save `{"fill":{"bom.revision":"B"},"accept_suggestions":["bom.description"]}`
 as `edits.json`, then run `specify-core write asm.step edits.json --part 0 -o out.step`.
 Use `specify-core parts asm.step` to find the index. Apply another list to the output to
 edit another part. Opening a part with WASM `IntentEngine.openPart` or selecting a part
@@ -170,8 +179,9 @@ number and BOM answers, and the old history's retired numbers stay retired.
 BOM matching uses geometry independently of the existing assembly PMI name-pairing rule.
 
 BOM updates append their complete current overrides and leave earlier UDA records
-intact. Omitting a BOM answer preserves its earlier explicit value; use `no` or `not known`
-to change enum values. Empty text is ignored. Only explicit fields, never suggestions,
+intact. Omitting a BOM field preserves its earlier explicit value. Use `change` with
+the appropriate enum value, such as `"no"` or `"not known"`. A replacement text
+value must be non-empty. Only explicit fields, never suggestions,
 are carried in history to later revisions. A write without BOM intent adds no BOM/history records and takes
 the previous PMI path. An identical resumed write is byte-identical. The BOM append
 verifies every original candidate record and reads back every field and history before

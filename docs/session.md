@@ -69,6 +69,11 @@ unchanged. To replace a stored decision, put its ID in both `clear` and `fill` i
 For example, `{"clear":["part.coating"],"fill":{"part.coating":"Anodised"}}` clears the
 decision first and fills the resulting gap.
 
+For an editable BOM row, `stated` covers both native product data and an explicit
+override written as a STEP property. Use `change` with `to` and the row's `value`
+as `expect`. A different `fill` or a `clear` is refused with that guidance. BOM
+proposals with source `default` remain gaps and take `fill` or `accept_suggestions`.
+
 Working answers become fills, decisions of none, or clears of stored decisions. A different
 answer for a stated row is refused with the value the file states and the guarded change to
 make. To stage the change explicitly for the panel, use MCP `check` with `stage: true` and a

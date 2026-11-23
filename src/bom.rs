@@ -789,6 +789,55 @@ pub const KEYS: &[&str] = &[
     "name",
 ];
 
+/// Editable BOM values use the same row states as other file data. A default is a proposal,
+/// even when its provenance was recorded in a UDA.
+pub(crate) fn edit_rows(analysis: &Map<String, Value>) -> Vec<crate::feature_table::Row> {
+    use crate::feature_table::{Row, Scope, State};
+
+    let Some(bom) = analysis.get("bom").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    let proposals: BTreeMap<_, _> = questions(analysis)
+        .into_iter()
+        .filter_map(|q| Some((q.id, q.suggestions.into_iter().next()?)))
+        .collect();
+    KEYS.iter()
+        .map(|key| {
+            let field = &bom[*key];
+            let mut value = field["value"].clone();
+            let stated =
+                !value.is_null() && matches!(field["source"].as_str(), Some("file" | "answered"));
+            let id = format!("bom.{key}");
+            let suggestion = if stated {
+                None
+            } else if *key == "stock" {
+                (!value.is_null()).then(|| value.clone())
+            } else {
+                proposals.get(&id).cloned()
+            };
+            if *key == "optional"
+                && let Some(optional) = value.as_bool()
+            {
+                value = json!(if optional { "yes" } else { "no" });
+            }
+            Row {
+                kind: id.clone(),
+                id,
+                feature: "part".into(),
+                scope: Scope::Part,
+                faces: Vec::new(),
+                state: if stated { State::Stated } else { State::Gap },
+                value: stated.then_some(value),
+                requirements: Vec::new(),
+                suggestion,
+                missing: Vec::new(),
+                located: Vec::new(),
+                open: false,
+            }
+        })
+        .collect()
+}
+
 pub(crate) fn validate(key: &str, value: &Value) -> Result<(), String> {
     let ok = KEYS.contains(&key)
         && match key {
@@ -1271,7 +1320,10 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
             {
                 continue;
             }
-            if value[key]["value"] != *expected {
+            let stock = (key == "stock" && values.get("default.stock") == Some(&json!(true)))
+                .then(|| stock_for(&value["make_buy"]["value"]))
+                .filter(|stock| !stock.is_null());
+            if value[key]["value"] != *stock.as_ref().unwrap_or(expected) {
                 return Err(format!("BOM part {i} {key} did not read back"));
             }
         }

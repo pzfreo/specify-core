@@ -350,6 +350,9 @@ Read first:
 
 ### Fixed
 
+- Stated BOM values now require a guarded `change` in edit lists. The feature table
+  shows native data and explicit STEP property overrides as stated, with default
+  proposals left as gaps.
 - `fill` on a decided-none row was accepted; the 0.3.0 model treats it as a decision.
   To replace it, send `clear` and `fill` for its ID in one edit list. A fill meaning none
   is unchanged.

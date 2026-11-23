@@ -1085,7 +1085,7 @@ fn assembly_with_suggestions(file: &File, parts: &[&str]) -> File {
             .map(|r| r["id"].as_str().unwrap().to_string())
             // A full-thread depth wants a datum the part does not have (as with_suggestions'
             // callers leave it out).
-            .filter(|id| !id.starts_with("hole.full_thread"))
+            .filter(|id| !id.starts_with("hole.full_thread") && !id.starts_with("bom."))
             .collect();
         let list = edits::parse_value(json!({ "accept_suggestions": ids })).unwrap();
         bytes = writer::apply::apply(&loaded, &list)
@@ -1095,7 +1095,7 @@ fn assembly_with_suggestions(file: &File, parts: &[&str]) -> File {
     of_bytes(bytes)
 }
 
-/// The stated rows of each part of `file`, by part name.
+/// The PMI and decision rows of each part of `file`, by part name.
 fn stated_by_part(file: &File) -> BTreeMap<String, Vec<(String, Value)>> {
     file.load_all()
         .unwrap()
@@ -1107,6 +1107,7 @@ fn stated_by_part(file: &File) -> BTreeMap<String, Vec<(String, Value)>> {
                 .iter()
                 .filter(|r| r["state"] != "gap")
                 .map(|r| (r["id"].as_str().unwrap().to_string(), r["value"].clone()))
+                .filter(|(id, _)| !id.starts_with("bom."))
                 .collect();
             (p.name.clone(), rows)
         })
