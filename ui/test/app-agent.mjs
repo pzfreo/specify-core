@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
+import { throttleAppPage } from './app-test-page.mjs';
 import { mcp } from './mcp-client.mjs';
 // The local app as an agent uses it (specify-core docs/session.md): `specify-core mcp` over stdio,
 // started as an AI client starts it. The agent opens a part and calls `show {browser: false}`; an
@@ -65,6 +66,7 @@ async function load(url, ready = '.pmi-lab-panel') {
     };
   });
   const page = await context.newPage();
+  await throttleAppPage(page);
   page.on('pageerror', error => problems.push(String(error)));
   page.on('console', message => { if (message.type() === 'error') problems.push(`console: ${message.text()}`); });
   await page.goto(url);

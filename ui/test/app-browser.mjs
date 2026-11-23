@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
+import { throttleAppPage } from './app-test-page.mjs';
 import { characteristicHistory, validateOpening, wasmDirectory } from './engine-fixture.mjs';
 // The local app (dist-app, `npm run build:app`) served by the real `specify-core open`, the manual
 // way in (no agent; test/app-agent.mjs is the agent's): on a part it loads, is titled for the file,
@@ -256,6 +257,7 @@ async function load(server, ready = '.pmi-lab-panel') {
     };
   });
   const page = await context.newPage();
+  await throttleAppPage(page);
   page.on('pageerror', error => problems.push(String(error)));
   page.on('console', message => { if (message.type() === 'error') problems.push(`console: ${message.text()}`); });
   await page.goto(server.url);
@@ -464,7 +466,11 @@ try {
     assert.ok(pinRecords.size > entities(fixture).size, 'the unedited pin carries PMI');
     const pinTable = table(asm, 1);
     const choose = async (page, part, value) => {
-      await page.locator('.app-part select').selectOption(String(part));
+      const picker = page.locator('.app-part select');
+      await picker.selectOption(String(part));
+      // Identical material on the old part can already satisfy the value check.
+      await check(picker).toBeEnabled();
+      await check(picker).toHaveValue(String(part));
       await check(rowValue(material(page))).toHaveText(value);
     };
     const change = async (page, value) => {
