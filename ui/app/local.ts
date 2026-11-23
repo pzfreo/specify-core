@@ -1,6 +1,8 @@
 // The page's side of the `specify-core open` contract (specify-core docs/open.md): the page server
 // started by `specify-core open` or by the MCP server's `show`. Every URL is relative: the app is
 // served under `http://127.0.0.1:<port>/<token>/`, never at `/`.
+import type { EditList, SaveEdits } from '../src/specify/edit-list.ts';
+export type { EditList, RemoveTarget, PartEdits, SaveEdits, EditFailure } from '../src/specify/edit-list.ts';
 import type { PmiAnswers } from '../src/types/pmi';
 import { requireSessionApi } from './session-api.ts';
 
@@ -79,32 +81,6 @@ export async function getFile(rev: 'old' | 'new' | 'saved' = 'new'): Promise<Blo
 }
 
 export const getAnswers = () => json<SessionAnswers>(fetch('answers', { cache: 'no-store' }));
-
-/** An edit list (specify-core docs/session.md, the 0.3.0 edit list): ``fill`` gaps with a value (a
- * value meaning none records "decided: none"), ``change`` what the file states (``expect``: the value
- * seen), ``items`` by characteristic number, ``none`` decided none, ``accept_suggestions``, ``clear``
- * a stored decision. */
-export interface EditList {
-  fill?: Record<string, unknown>;
-  change?: Record<string, { to: unknown; expect: unknown }>;
-  items?: { change?: Record<string, { tolerance: string; expect: string }>; remove?: RemoveTarget[] };
-  none?: string[];
-  accept_suggestions?: string[];
-  /** Stored decisions that leave no PMI to take back (a decided none, a choice such as how holes
-   * are located): a gap, or unanswered, again. Never PMI. */
-  clear?: string[];
-}
-
-/** What `items.remove` names: a characteristic number ("#4"), or, for a requirement without one, the
- * stated row's id or the existing-PMI item's id (`{"id": …}`; the engine route for these is being added). */
-export type RemoveTarget = string | { id: string };
-
-/** An edit list scoped to a distinct part index from the file's part picker. */
-export interface PartEdits { part: number; edits: EditList }
-export type SaveEdits = EditList | PartEdits[];
-
-/** One entry of an edit list that cannot be applied, and why. */
-export interface EditFailure { entry: string; reason: string; part?: number; editEntry?: string }
 
 /** The command applies the edit list or part lists ``edits`` to the file and writes it, if the session is still at
  * ``rev``: all or nothing. 409 when the session moved on, or (--in-place) the file changed on disk;

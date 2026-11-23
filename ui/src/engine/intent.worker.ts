@@ -20,7 +20,8 @@ interface IntentModule {
   };
 }
 interface IntentInstance { free(): void; snapshot(): string; review(answers: string): string; settle(state: string): string;
-    evidence(): string; payload(name: string): string | undefined; original(): Uint8Array | undefined; pmiScene(state: string): string; checkEdits(edits: string): string }
+    evidence(): string; payload(name: string): string | undefined; original(): Uint8Array | undefined; pmiScene(state: string): string;
+    checkEdits(edits: string): string; edit(edits: string): string }
 
 let engine: IntentInstance | undefined;
 // The open engine's analysis as JSON, for the free acceptDefaults (made once per engine).
@@ -30,9 +31,8 @@ let sourceId = '';
 let part: number | undefined;
 
 // 'review' previews defaults as suggestions, marking unanswered intent items as defaults and keeping
-// their questions open; nothing is written. 'review-given' and 'review-analysis-given' review only
-// the answers supplied. Writing is an edit list applied by specify-core (its session's Save, or the
-// engine's `edit`), never here.
+// their questions open. 'review-given' and 'review-analysis-given' review only the answers supplied.
+// 'review-edits' asks with just the given answers and uses defaults for its visual preview.
 // The loaded engine module, for its free functions.
 let globalModule: IntentModule | undefined;
 const analysisOf = () => (analysisJson ??= JSON.stringify(JSON.parse(engine!.snapshot()).analysis));
@@ -40,6 +40,32 @@ const accepted = (answers: unknown) => globalModule!.acceptDefaults(analysisOf()
 function reviewed(answers: Record<string, unknown>) {
   const review = markDefaults(JSON.parse(engine!.review(accepted(answers))), answers);
   return { ...review, open: JSON.parse(engine!.review(JSON.stringify(answers))).open };
+}
+function editReview(answers: Record<string, unknown>, without: string[]): IntentReview {
+  // Normally the open analysis already knows the file's process. Taking that PMI back needs
+  // an analysis without the process so the engine asks about it again.
+  const analysis = without.length ? JSON.parse(analysisOf()) : null;
+  if (analysis) {
+    for (const id of without) {
+      if (id.startsWith('part.')) delete analysis.part?.[id.slice(5)];
+      if (id === 'part.process') delete analysis.process;
+      const row = analysis.table?.rows.find((row: { id: string }) => row.id === id);
+      if (row) row.state = 'gap';
+    }
+    analysis.existing = analysis.existing.filter((item: { kind: string; type: string }) =>
+      item.kind !== 'datum' || !without.includes(`datum.${item.type}`));
+  }
+  const json = analysis ? JSON.stringify(analysis) : analysisOf();
+  const ask = (given: string) => JSON.parse(analysis ? globalModule!.review(json, given) : engine!.review(given)) as IntentReview;
+  const given = JSON.stringify(answers);
+  const raw = ask(given);
+  try {
+    const preview = ask(globalModule!.acceptDefaults(json, given));
+    return { ...raw, intent: markDefaults(preview, answers).intent };
+  } catch {
+    // A file setting can constrain what defaults can be accepted. The given review is still valid.
+    return raw;
+  }
 }
 function inspectionReview(answers: Record<string, unknown>): IntentReview {
   const review = JSON.parse(engine!.review(JSON.stringify(answers))) as IntentReview;
@@ -94,7 +120,7 @@ self.onmessage = ({ data }) => {
           const { analysis } = JSON.parse(file.snapshot());
           result = inspectionFromStep(analysis, JSON.parse(module.pmiScene(args.bytes, args.part)));
         } finally { file.free(); }
-      } else if (operation === 'open' || operation === 'review' || operation === 'review-given' || operation === 'settle' || operation === 'scene' || operation === 'check-edits') {
+      } else if (operation === 'open' || operation === 'review' || operation === 'review-given' || operation === 'review-edits' || operation === 'settle' || operation === 'scene' || operation === 'check-edits' || operation === 'edit') {
         if (!engine || sourceId !== args.sourceId || part !== args.part || operation === 'open') {
           engine?.free(); engine = undefined; analysisJson = undefined;
           engine = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
@@ -114,9 +140,14 @@ self.onmessage = ({ data }) => {
           const answers = JSON.parse(accepted(args.state.answers)) as Record<string, unknown>;
           const auto = [...new Set([...args.state.auto ?? [], ...Object.keys(answers).filter(id => !(id in args.state.answers))])];
           result = JSON.parse(engine.pmiScene(JSON.stringify({ ...args.state, answers, auto })));
+        } else if (operation === 'review-edits') {
+          result = editReview(args.answers, args.without);
         } else if (operation === 'check-edits') {
           // An edit list checked against the file, all or nothing (WASM checkEdits): writes nothing.
           result = JSON.parse(engine.checkEdits(JSON.stringify(args.edits)));
+        } else if (operation === 'edit') {
+          const edited = JSON.parse(engine.edit(JSON.stringify(args.edits)));
+          result = edited.written ? { ...edited, bytes: Uint8Array.from(edited.bytes) } : edited;
         } else if (operation === 'open') {
           const snapshot = JSON.parse(engine.snapshot());
           analysisJson = JSON.stringify(snapshot.analysis);
