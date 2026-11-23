@@ -107,6 +107,7 @@ Specify appends the override and preserves the existing STEP records. For exampl
 `{"change":{"bom.description":{"to":"Revised plate","expect":"Mounting plate"}}}`.
 A different `fill` and a `clear` both direct the caller to `change`. An equal
 `fill` is unchanged. The table uses `"yes"` and `"no"` for `bom.optional`.
+Native `.NOT_KNOWN.` on a specified-source formation is stated as `"not known"`, so changing “Made or bought?” uses `change` with `"expect": "not known"`.
 
 Missing values and suggestions (`source: "default"`) are `gap` rows. A recorded
 `default.<field>` marks a suggestion, and native data can still supersede it. Use

@@ -1797,7 +1797,10 @@ fn try_answer(
         && trial.get(id) == Some(value)
     {
         let (equal, decision) = if state == "decided_none" {
-            (crate::edits::is_none_answer(given), "is decided none")
+            (
+                crate::edits::same_decided_none(id, value, given),
+                "is decided none",
+            )
         } else {
             (given == value, "has a stored choice")
         };

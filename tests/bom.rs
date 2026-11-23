@@ -597,7 +597,7 @@ fn pmi_and_bom_share_one_verified_write_and_partial_edits_keep_other_rows() {
         (
             json!({"clear": ["bom.description"]}),
             r#"clear["bom.description"]"#,
-            r#"the file states "Plate with datum A" for bom.description; use change with "expect": "Plate with datum A""#,
+            r#"the file states "Plate with datum A" for bom.description; use change with {"to": "<new value>", "expect": "Plate with datum A"}"#,
         ),
         (
             json!({"fill": {"bom.description": "Revised plate"}}),

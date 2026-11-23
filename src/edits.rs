@@ -238,8 +238,8 @@ pub enum KindState {
     Stated { value: Value },
     /// Nothing is there yet; Specify's suggestion, if it has one.
     Gap { suggestion: Option<Value> },
-    /// Someone decided nothing is needed.
-    DecidedNone,
+    /// A stored decision or approval that did not write PMI.
+    DecidedNone { value: Value },
     /// The file stores a choice that leaves no PMI and has no feature-table row.
     StoredChoice { value: Value },
 }
@@ -319,6 +319,11 @@ pub fn is_none_answer(value: &Value) -> bool {
         Value::Array(items) => items.is_empty(),
         _ => false,
     }
+}
+
+/// Replaying the stored value or deciding nothing is needed leaves a decided row unchanged.
+pub(crate) fn same_decided_none(id: &str, stored: &Value, given: &Value) -> bool {
+    is_none_answer(given) || same_for(id, stored, given)
 }
 
 // ----- parsing -----
@@ -665,13 +670,17 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
                 }
             }
             Some(KindState::Gap { .. }) => {}
-            Some(KindState::DecidedNone | KindState::StoredChoice { .. })
+            Some(KindState::DecidedNone { .. } | KindState::StoredChoice { .. })
                 if list.clear.contains(id) => {}
-            Some(KindState::DecidedNone) if is_none_answer(value) => unchanged.push(entry),
+            Some(KindState::DecidedNone { value: stored })
+                if same_decided_none(id, &stored, value) =>
+            {
+                unchanged.push(entry);
+            }
             Some(KindState::StoredChoice { value: stored }) if stored == *value => {
                 unchanged.push(entry);
             }
-            Some(KindState::DecidedNone) => {
+            Some(KindState::DecidedNone { .. }) => {
                 failures.push(failure(entry, clear_before_fill(id, "is decided none")));
             }
             Some(KindState::StoredChoice { .. }) => {
@@ -702,7 +711,7 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
                     "the file states nothing for {id}, so there is nothing to change; use fill"
                 ),
             )),
-            Some(KindState::DecidedNone) => {
+            Some(KindState::DecidedNone { .. }) => {
                 failures.push(failure(entry, clear_before_fill(id, "is decided none")))
             }
             Some(KindState::StoredChoice { .. }) => {
@@ -772,7 +781,7 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
                 entry,
                 format!("the file states nothing for {id}, so there is nothing to remove"),
             )),
-            Some(KindState::DecidedNone) => failures.push(failure(
+            Some(KindState::DecidedNone { .. }) => failures.push(failure(
                 entry,
                 format!("{id} is decided none: the file states nothing for it to remove"),
             )),
@@ -804,7 +813,7 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
                     ));
                 }
             }
-            Some(KindState::DecidedNone) => unchanged.push(entry),
+            Some(KindState::DecidedNone { .. }) => unchanged.push(entry),
             Some(KindState::Gap { .. } | KindState::StoredChoice { .. }) => {}
         }
     }
@@ -827,7 +836,7 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
                      replace it, use change with \"expect\": {value}"
                 ),
             )),
-            Some(KindState::DecidedNone) => {
+            Some(KindState::DecidedNone { .. }) => {
                 failures.push(failure(entry, clear_before_fill(id, "is decided none")))
             }
             Some(KindState::StoredChoice { .. }) => {
@@ -840,14 +849,17 @@ pub fn validate(list: &EditList, state: &dyn FileState) -> Outcome {
         let entry = key("clear", id);
         match state.kind(id) {
             None => failures.push(unknown_id(entry, id)),
-            Some(KindState::DecidedNone | KindState::StoredChoice { .. }) => {}
+            Some(KindState::DecidedNone { .. } | KindState::StoredChoice { .. }) => {}
             Some(KindState::Gap { .. }) => failures.push(failure(
                 entry,
                 format!("nothing is stored for {id}, so there is nothing to clear"),
             )),
             Some(KindState::Stated { value }) if id.starts_with("bom.") => failures.push(failure(
                 entry,
-                format!("the file states {value} for {id}; use change with \"expect\": {value}"),
+                format!(
+                    "the file states {value} for {id}; use change with \
+                     {{\"to\": \"<new value>\", \"expect\": {value}}}"
+                ),
             )),
             Some(KindState::Stated { value }) => failures.push(failure(
                 entry,
@@ -1039,7 +1051,9 @@ impl FileState for crate::feature_table::FeatureTable {
             State::Gap => KindState::Gap {
                 suggestion: row.suggestion.clone().filter(|v| !v.is_null()),
             },
-            State::DecidedNone => KindState::DecidedNone,
+            State::DecidedNone => KindState::DecidedNone {
+                value: row.value.clone().unwrap_or(Value::Null),
+            },
         })
     }
 

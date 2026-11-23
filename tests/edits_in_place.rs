@@ -2147,6 +2147,26 @@ fn clear_takes_back_a_stored_decision_and_never_pmi() {
             "{bad}: {failures:?}"
         );
     }
+
+    // A general size on a datum's own faces can be approved without writing PMI.
+    let id = "diameter.fit:turned_steps:6";
+    let spindle = fixture("spindle.step");
+    let approval = json!({"fill": {id: "general"}});
+    let saved = applied(&spindle, approval.clone());
+    let reopened = reload(&saved.bytes);
+    let size = row(&table(&reopened), id);
+    assert_eq!(size["state"], "decided_none");
+    assert_eq!(size["value"], "general");
+    let check = specify_core::writer::apply::check(&reopened, &approval.to_string());
+    assert!(check.applicable, "{}", check.message());
+    assert_eq!(check.unchanged, [format!("fill[{}]", json!(id))]);
+    let unchanged = applied(&reopened, approval);
+    assert!(unchanged.unchanged);
+    assert_eq!(unchanged.bytes, saved.bytes);
+
+    let failures = refused(&reopened, json!({"fill": {id: "thread:M3"}}));
+    assert_eq!(failures.len(), 1);
+    assert!(failures[0].reason.contains("clear it first"));
 }
 
 /// A 0.2 answers file carries its face evidence: one saved on another revision of the part is
