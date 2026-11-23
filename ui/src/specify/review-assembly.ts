@@ -27,11 +27,20 @@ export function faceMap(from: ReviewPart, to: ReviewPart): (face: number) => num
   };
 }
 
-function statedPmi(analysis: PmiAnalysis, map: (face: number) => number): string {
+const stable = (value: unknown) => JSON.stringify(value, (_, item) =>
+  item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item);
+
+function storedRequirements(analysis: PmiAnalysis, anchor: PmiAnalysis, map: (face: number) => number): string | undefined {
+  const resume = analysis.resume;
+  if (!analysis.table?.rows.length || resume?.unverified || resume?.unresolved?.length || resume?.dropped_answers?.length) return;
+  const { _specify, ...answers } = resume?.answers ?? {};
+  const meta = _specify as { evidence?: unknown; no_pmi?: readonly string[]; unresolved?: Record<string, string> } | undefined;
+  if (meta && (Object.keys(meta.unresolved ?? {}).length ||
+    Object.keys(meta).some(key => !['evidence', 'no_pmi', 'unresolved'].includes(key)))) return;
+
+  const idOf = (id: string) => mapId(id, analysis, anchor, map);
   const faces = (ids: readonly number[] = []) => ids.map(map).sort((a, b) => a - b);
-  const stable = (value: unknown) => JSON.stringify(value, (_, item) =>
-    item && typeof item === 'object' && !Array.isArray(item)
-      ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item);
   const table = tableOf(analysis);
   const existing = analysis.existing.map((item: PmiExisting & {
     provenance?: unknown; origin?: unknown; source?: unknown; question?: string;
@@ -40,15 +49,37 @@ function statedPmi(analysis: PmiAnalysis, map: (face: number) => number): string
     return stable({ ...requirement, faces: faces(from), faces2: faces(to) });
   });
   const other = table.file_pmi.map(item => stable([item.kind, item.type, item.text, faces(item.faces)]));
-  const part = table.rows.filter(row => row.state === 'stated' && /^(part|bom)\./.test(row.id))
-    .map(row => stable([row.id, row.value]));
-  return stable([analysis.part, existing.sort(), other.sort(), part.sort()]);
+  const rows = table.rows.filter(row => row.state !== 'gap')
+    .map(row => stable([idOf(row.id), row.state, mappedValue(row.value, map)]));
+  const saved = Object.entries(answers).map(([id, value]) => stable([idOf(id), mappedValue(value, map)]));
+  const itemNumber = analysis.bom?.item_number;
+  const numberedBom = typeof itemNumber === 'object' && itemNumber?.value != null;
+  const bom = Object.entries(analysis.bom ?? {}).flatMap(([name, field]) => {
+    if (typeof field !== 'object' || !field) return [];
+    if (field.source === 'answered') return [[name, field]];
+    // After a BOM is numbered, these defaults can also be saved suggestions.
+    if (numberedBom && field.source === 'default' && !['item_number', 'name', 'quantity'].includes(name)) return [[name, field]];
+    return [];
+  });
+  return stable({
+    part: analysis.part, process: analysis.process,
+    existing: existing.sort(), other: other.sort(), rows: rows.sort(), saved: saved.sort(), bom: Object.fromEntries(bom),
+    none: table.decided_none.map(idOf).sort(),
+    noPmi: meta?.no_pmi?.map(idOf).sort() ?? [],
+    automatic: resume?.automatic?.map(idOf).sort() ?? [],
+  });
 }
 
-/** Refine the engine's proven copy families by the requirements each definition actually states. */
-export function reviewParts<T extends ReviewPart>(parts: readonly T[], read: (part: number) => PmiAnalysis): T[] {
+/** Refine the engine's proven copy families by each definition's stated PMI and saved decisions. */
+export function reviewParts<T extends ReviewPart & { written?: boolean }>(parts: readonly T[], read: (part: number) => PmiAnalysis): T[] {
   const anchors = new Map(parts.map(part => [part.part, part]));
   const related = new Set(parts.flatMap(part => part.same_as == null ? [] : [part.same_as]));
+  const analyses = new Map<number, PmiAnalysis>();
+  const analysisOf = (part: number) => {
+    const analysis = analyses.get(part) ?? read(part);
+    analyses.set(part, analysis);
+    return analysis;
+  };
   const groups = new Map<string, T>();
   return parts.map(part => {
     const first = part.same_as ?? part.part;
@@ -56,14 +87,24 @@ export function reviewParts<T extends ReviewPart>(parts: readonly T[], read: (pa
     if (!related.has(first)) return part;
     const separate = { ...part, same_as: null, faces_of_first: null };
     if (!anchor) return separate;
-    const key = JSON.stringify([first, statedPmi(read(part.part), faceMap(part, anchor))]);
-    const match = groups.get(key);
-    if (!match) {
-      groups.set(key, part);
+    try {
+      const analysis = analysisOf(part.part);
+      if (part.written && !analysis.resume) return separate;
+      const stored = storedRequirements(analysis, analysisOf(anchor.part), faceMap(part, anchor));
+      if (stored === undefined) return separate;
+      const key = JSON.stringify([first, stored]);
+      const match = groups.get(key);
+      if (!match) {
+        groups.set(key, part);
+        return separate;
+      }
+      const map = faceMap(part, match);
+      return { ...part, same_as: match.part, faces_of_first: (part.faces_of_first ?? match.faces_of_first)?.map((_, face) => map(face)) };
+    } catch (error) {
+      // A candidate whose saved state cannot be read or mapped is its own group.
+      if (error instanceof WebAssembly.RuntimeError) throw error;
       return separate;
     }
-    const map = faceMap(part, match);
-    return { ...part, same_as: match.part, faces_of_first: (part.faces_of_first ?? match.faces_of_first)?.map((_, face) => map(face)) };
   });
 }
 

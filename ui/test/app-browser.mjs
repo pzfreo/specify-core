@@ -45,11 +45,41 @@ async function verifyCopies(driver) {
   assert.deepEqual(both.parts, [0, 1], 'one Save sends a list for each identical definition');
   assert.deepEqual(both.materials, ['Steel', 'Steel'], 'the edit is stored on both copies');
   await driver.split(1);
+  await driver.none(1, 'part.coating');
+  const none = await driver.save();
+  assert.deepEqual(none.parts, [1], 'only the split copy gets the decision');
+  assert.deepEqual(none.coatings, ['gap', 'decided_none']);
+  await driver.reopen();
+  await driver.separate(0);
+  await driver.separate(1);
+  await driver.addCoating(0);
+  const coating = await driver.save();
+  assert.deepEqual(coating.parts, [0], 'adding coating does not overwrite the other copy’s decision');
+  assert.deepEqual(coating.coatings, ['stated', 'decided_none']);
+
+  // The native part list also compares part.* answers. A feature-level None is
+  // how this fixture exposes a saved decision that only the review can compare.
+  await driver.reopen(both.bytes);
+  await driver.split(1);
+  await driver.none(1, 'datum.C');
+  const featureNone = await driver.save();
+  assert.deepEqual(featureNone.parts, [1]);
+  assert.deepEqual(featureNone.datumC, ['gap', 'decided_none']);
+  await driver.reopen(undefined, true);
+  await driver.separate(0);
+  await driver.separate(1);
+  await driver.addCoating(0);
+  const afterFeatureNone = await driver.save();
+  assert.deepEqual(afterFeatureNone.parts, [0]);
+  assert.deepEqual(afterFeatureNone.datumC, ['gap', 'decided_none']);
+
+  await driver.reopen(both.bytes);
+  await driver.split(1);
   await driver.addDatum(1);
   const datum = await driver.save();
   assert.deepEqual(datum.parts, [1], 'one Save sends only the split copy');
   assert.deepEqual(datum.datums, ['gap', 'stated'], 'only the split copy has datum A');
-  await driver.reopen();
+  await driver.reopen(undefined, true);
   await driver.separate(0);
   await driver.separate(1);
   await driver.edit(1, 'Bronze', 1);
@@ -134,17 +164,19 @@ if (copiesOnly) {
   const groupFor = part => linkedParts(reviewParts(nativeParts(), index => read(options(index).file)), part, splits);
   const tableFor = part => read(options(part).file).table.rows;
   const rowFor = (part, id) => tableFor(part).find(row => row.id === id);
-  const edit = async (part, id, name, value, count) => {
+  const stage = async (part, pending, count) => {
     const opts = options(part);
     const analysis = read(opts.file);
-    const previous = rowFor(part, id).value;
-    const next = EMPTY_PENDING.with(previous == null
-      ? { kind: 'fill', id, name, value, text: String(value) }
-      : { kind: 'change', id, name, value, text: String(value), expect: previous, was: previous });
-    queued = await queueCopies(() => opts, analysis, groupFor(part), queued, EMPTY_PENDING, next);
+    queued = await queueCopies(() => opts, analysis, groupFor(part), queued, EMPTY_PENDING, EMPTY_PENDING.with(pending));
     for (const [index, edits] of queued) await checkPending({ ...opts, file: partFile(opts.file, index) }, edits);
     assert.deepEqual(pendingActions(queued).map(action => [action.part, action.edit.id, action.targets.length]),
-      [[part, id, count]], 'the bar shows the originating edit once');
+      [[part, pending.id, count]], 'the bar shows the originating edit once');
+  };
+  const edit = (part, id, name, value, count) => {
+    const previous = rowFor(part, id).value;
+    return stage(part, previous == null
+      ? { kind: 'fill', id, name, value, text: String(value) }
+      : { kind: 'change', id, name, value, text: String(value), expect: previous, was: previous }, count);
   };
   await verifyCopies({
     async edit(part, value, count) { await edit(part, 'part.material', 'Material', value, count); },
@@ -154,12 +186,15 @@ if (copiesOnly) {
       assert.equal(queued.size, 0, 'undo takes the edit out of every part list');
     },
     async split(part) { splits.add(part); },
+    async none(part, id) { await stage(part, { kind: 'none', id, name: id }, 1); },
+    async addCoating(part) { await edit(part, 'part.coating', 'Coating', 'Anodised', 1); },
     async addDatum(part) { await edit(part, 'datum.A', 'Datum A', rowFor(part, 'datum.A').suggestion, 1); },
-    async reopen() {
+    async reopen(snapshot, checkNative = false) {
+      if (snapshot) bytes = snapshot;
       splits.clear();
-      assert.equal(nativeParts()[1].same_as, 0, 'the engine still identifies the definitions as geometrically identical');
+      if (checkNative) assert.equal(nativeParts()[1].same_as, 0, 'the engine still identifies the definitions as geometrically identical');
     },
-    async separate(part) { assert.deepEqual(groupFor(part).map(row => row.part), [part], 'saved PMI separates the copy on reopen'); },
+    async separate(part) { assert.deepEqual(groupFor(part).map(row => row.part), [part], 'saved requirements separate the copy on reopen'); },
     async save() {
       const lists = [...queued].sort(([a], [b]) => a - b).map(([part, edits]) => ({ part, edits: edits.list() }));
       const result = await savePending(() => options(0), lists);
@@ -169,7 +204,9 @@ if (copiesOnly) {
       queued = new Map();
       const materials = [0, 1].map(part => rowFor(part, 'part.material').value);
       const datums = [0, 1].map(part => rowFor(part, 'datum.A').state);
-      return { parts: lists.map(list => list.part), materials, datums };
+      const coatings = [0, 1].map(part => rowFor(part, 'part.coating').state);
+      const datumC = [0, 1].map(part => rowFor(part, 'datum.C').state);
+      return { parts: lists.map(list => list.part), materials, datums, coatings, datumC, bytes };
     },
   });
   console.log('The writer applies edits to both copies and respects a split.');
@@ -544,11 +581,18 @@ try {
         selected = part;
         await copyReview.page.getByRole('button', { name: 'Split off this copy', exact: true }).click();
       },
+      async none(_part, id) { await noneNeeded(copyReview.page, id); },
+      async addCoating(part) {
+        if (selected !== part) await choose(copyReview.page, part, 'Steel');
+        selected = part;
+        await add(copyReview.page, 'part.coating', 'Anodised');
+      },
       async addDatum() { await add(copyReview.page, 'datum.A'); },
-      async reopen() {
+      async reopen(snapshot) {
         onlyLocal(copyReview.requests, copyServer.origin);
         await copyReview.context.close();
         copyServer.stop();
+        if (snapshot) writeFileSync(copies, snapshot);
         copyServer = await open(copies, '--in-place');
         copyReview = await load(copyServer);
         writes = 0;
@@ -561,9 +605,13 @@ try {
       },
       async save() {
         const result = await save(copyReview.page, copyServer, ++writes);
+        const tables = [0, 1].map(index => table(copies, index));
         return { parts: result.body.partEdits.map(list => list.part),
-          materials: [0, 1].map(index => table(copies, index)['part.material'].value),
-          datums: [0, 1].map(index => table(copies, index)['datum.A'].state) };
+          materials: tables.map(rows => rows['part.material'].value),
+          datums: tables.map(rows => rows['datum.A'].state),
+          coatings: tables.map(rows => rows['part.coating'].state),
+          datumC: tables.map(rows => rows['datum.C'].state),
+          bytes: readFileSync(copies) };
       },
     });
     onlyLocal(copyReview.requests, copyServer.origin);

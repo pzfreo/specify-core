@@ -101,12 +101,10 @@ export const rowText = (row: FileRow): string => displayText(
 );
 
 const BOM_FIELDS = ['make_buy', 'description', 'part_number', 'revision', 'optional'];
-type BomField = { source: string; value: unknown };
 const storedBomValues = (analysis: PmiAnalysis): Map<string, unknown> => {
-  const bom = (analysis as PmiAnalysis & { bom?: Record<string, BomField> }).bom;
   return new Map(BOM_FIELDS.flatMap(key => {
-    const field = bom?.[key];
-    if (!field || !['answered', 'file'].includes(field.source) || field.value == null || field.value === '') return [];
+    const field = analysis.bom?.[key];
+    if (!field || typeof field !== 'object' || !['answered', 'file'].includes(field.source) || field.value == null || field.value === '') return [];
     return [[`bom.${key}`, key === 'optional' ? (field.value ? 'yes' : 'no') : field.value] as const];
   }));
 };
@@ -206,6 +204,8 @@ export function queueValue(row: FileRow | undefined, question: PmiQuestion, pend
   const { id } = question;
   const name = requirementName(question);
   const text = answerText(value, question);
+  // The writer treats part.locating as a stored choice and processes BOM fills separately.
+  // Neither is a stated requirement to which it can apply a guarded change.
   if (row?.state === 'stated' && !row.decision && !row.bom) {
     const was = rowText(row);
     return pending.with({ kind: 'change', id, name, value, text: changedText(was, value, question), expect: row.value, was });

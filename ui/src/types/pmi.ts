@@ -71,6 +71,10 @@ export interface PmiAnalysis {
   readonly existing: readonly PmiExisting[];
   /** The material and general tolerance the file already states; not asked again. */
   readonly part?: Readonly<Record<string, string>>;
+  /** A manufacturing process recorded in the file, including an accepted suggestion. */
+  readonly process?: { readonly source: string; readonly value: unknown };
+  /** Parts-list fields, including their source. The numeric part index is present alongside them. */
+  readonly bom?: Readonly<Record<string, number | { readonly source: string; readonly value: unknown }>>;
   /**
    * A STEP Specify wrote, opened again: the answers it was written from, to carry
    * on editing. Its PMI is theirs, so it is not shown as the file's own.
@@ -81,6 +85,8 @@ export interface PmiAnalysis {
     readonly unresolved?: readonly { readonly id: string; readonly feature?: string | null; readonly answer: unknown; readonly reason: string }[];
     /** Specify alpha.8+: why the answers were matched by feature ID, without checking the faces (a pre-alpha file). */
     readonly unverified?: string;
+    /** Stored answers added by accepting a suggestion. */
+    readonly automatic?: readonly string[];
     /** 0.3.0 (D11): stored answers left out on reopening, reported once, and not stored again. */
     readonly dropped_answers?: readonly { readonly id: string; readonly value: unknown; readonly reason: string }[];
   };
