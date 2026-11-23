@@ -438,18 +438,18 @@ fn ctc05_pattern_answers_are_stated_after_reopening() {
     std::fs::remove_dir_all(scratch).unwrap();
 }
 
-// Balance the expensive inputs across three workers. The old groups 0 and 2
-// together take about as long as the other batches after placing cgb202 separately.
+// Pair the old groups 0 and 3, and 1 and 2, to balance two workers. Put
+// cgb202 in the first batch, as it was in group 3 after timing the sweep.
 fn defaults_case_batch(case: &common::Case) -> usize {
     let input = case.meta["input"].as_str().expect("meta.input");
     if input.strip_suffix(".gz").unwrap_or(input) == "cadgenbench_inputs/cgb202.step" {
-        return 2;
+        return 0;
     }
     let sha = case.meta["decompressed_sha256"]
         .as_str()
         .or_else(|| case.meta["input_sha256"].as_str())
         .expect("input digest");
-    [0, 1, 0, 2][usize::from_str_radix(&sha[..2], 16).expect("hex input digest") % 4]
+    [0, 1, 1, 0][usize::from_str_radix(&sha[..2], 16).expect("hex input digest") % 4]
 }
 
 #[test]
@@ -465,7 +465,7 @@ fn accepting_corpus_defaults_leaves_no_open_rows() {
     );
     let cases = common::cases();
     let mut inputs = BTreeSet::new();
-    let mut batches = [Vec::new(), Vec::new(), Vec::new()];
+    let mut batches = [Vec::new(), Vec::new()];
     for (index, case) in cases.iter().enumerate() {
         if case.kind() == "corpus" && corpus.is_none() {
             continue;

@@ -74,13 +74,13 @@ jobs:
           # Main run 45079277931 timings and local test lists put the Rust paths
           # at about 19 min on Ubuntu and 25 min on macOS, excluding queues.
           - os: ubuntu-latest
-            shards: '[1, 2, 3]'
+            shards: '[1, 2, 3, 4]'
             partition: hash
             build-timeout: 18
             shard-timeout: 24
           - os: macos-latest
             shards: '[1, 2, 3, 4, 5]'
-            partition: count
+            partition: hash
             build-timeout: 34
             shard-timeout: 22
     # Each OS consumes its own archive as soon as it is ready.

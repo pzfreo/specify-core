@@ -15,10 +15,10 @@ filter = 'test(=corpus_feature_rows_that_can_write_pmi_have_faces)'
 priority = 80
 
 [[profile.default.overrides]]
-# The defaults sweep checks results together after three workers finish.
+# The defaults sweep checks results together after two workers finish.
 filter = 'test(=accepting_corpus_defaults_leaves_no_open_rows)'
 priority = 100
-threads-required = 3
+threads-required = 2
 
 [[profile.default.overrides]]
 filter = '''
