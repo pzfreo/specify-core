@@ -293,6 +293,23 @@ test('an unchanged save acknowledgment keeps a refused answer until discard', ()
   assert.deepEqual(session.draftSnapshot(), { rev: 4, drafts: {} });
 });
 
+test('Save waits for a pending Undo review at the displayed draft revision', async () => {
+  const material = { 'part.material': 'Brass CW614N' };
+  const store = createSessionStore(1, 3, { ...material, 'part.general_tolerance': 'ISO 2768-f' });
+  const { promise: reviewed, resolve: finishReview } = Promise.withResolvers();
+  store.receive({ rev: 4, parts: { 0: { 'part.material': 'Steel' }, 1: material }, source: 'start' });
+  const { writes, write } = recorder();
+  const save = editsSaver(store, store.session, () => reviewed, write);
+  const edits = [0, 1].map(part => ({ part, edits: { fill: { 'part.material': part === 0 ? 'Steel' : 'Brass CW614N' } } }));
+
+  const saving = save.save(edits, 4);
+  await Promise.resolve();
+  assert.deepEqual(writes, [], 'Save has not sent the list while the Undo review is held');
+  finishReview(material);
+  await saving;
+  assert.deepEqual(writes, [[4, edits]], 'the original Save sends the list after review, without another click');
+});
+
 test('Save at the displayed draft revision refuses a newer answer on another part', async () => {
   const session = createSession(1, { '0': {}, '1': {} });
   const store = session.store(0);

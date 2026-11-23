@@ -54,6 +54,13 @@ async function load(url, ready = '.pmi-lab-panel') {
     const post = Worker.prototype.postMessage;
     Worker.prototype.postMessage = function (message, ...rest) {
       if (message && typeof message.operation === 'string') window.__engineOps.push(message.operation);
+      const answers = message?.args?.answers;
+      if (window.__holdUndoReview && message?.operation === 'review-edits' &&
+        answers?.['part.material'] === 'Brass CW614N' && !Object.hasOwn(answers, 'part.general_tolerance')) {
+        window.__holdUndoReview = false;
+        window.__releaseUndoReview = () => post.call(this, message, ...rest);
+        return;
+      }
       return post.call(this, message, ...rest);
     };
   });
@@ -203,9 +210,10 @@ try {
       await check(picker).toBeEnabled();
       await check(picker).toHaveValue(String(part));
     };
-    const pageSave = async () => {
+    const pageSave = async afterClick => {
       const response = page.waitForResponse(r => r.url() === `${shown.url}save` && r.request().method() === 'POST');
       await page.getByRole('button', { name: 'Save', exact: true }).click();
+      if (afterClick) await afterClick();
       const saved = await response;
       assert.equal(saved.status(), 200, await saved.text());
       return saved;
@@ -222,11 +230,21 @@ try {
     await page.getByRole('button', { name: 'Show it' }).click();
     await check(picker).toHaveValue(String(b));
     await check(pending(b, 'part.general_tolerance')).toContainText('ISO 2768-f');
+    await page.evaluate(() => { window.__holdUndoReview = true; });
     await question(page, 'part.general_tolerance').getByRole('button', { name: 'Undo', exact: true }).click();
     await check(pending(b, 'part.general_tolerance')).toHaveCount(0);
     await check(question(page, 'part.general_tolerance')).toHaveAttribute('data-state', 'gap');
     await check(allPending).toHaveCount(2);
-    const first = await pageSave();
+    await expect.poll(() => page.evaluate(() => Boolean(window.__releaseUndoReview))).toBe(true);
+    const savesBeforeUndoReview = requests.filter(url => url === `${shown.url}save`).length;
+    const first = await pageSave(async () => {
+      try {
+        await expect(page.getByRole('button', { name: 'Saving…', exact: true })).toBeDisabled();
+        assert.equal(requests.filter(url => url === `${shown.url}save`).length, savesBeforeUndoReview);
+      } finally {
+        await page.evaluate(() => window.__releaseUndoReview());
+      }
+    });
     const sent = first.request().postDataJSON();
     assert.deepEqual(sent.partEdits.map(({ part }) => part).sort(), [a, b]);
     const saved = (await first.json()).path;

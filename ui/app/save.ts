@@ -24,15 +24,15 @@ export class EditsRefused extends Error {
 
 const given = (answers: PmiAnswers) => JSON.stringify(Object.entries(answers).filter(([id]) => !id.startsWith('_')).sort(([a], [b]) => (a < b ? -1 : 1)));
 
-/** Saves the panel's edit list at the revision the page shows. ``shown()``: the session's answers as
- * the page shows them, so a save never goes ahead over answers the person has not seen. */
-export function editsSaver(store: Pick<AnswersStore, 'settled' | 'get'>, session: Pick<AnswersSession, 'signal' | 'receiveSave'>, shown: () => PmiAnswers, write = post): Saver {
+/** Saves at the revision the bar shows, after any in-flight review of the displayed part. */
+export function editsSaver(store: Pick<AnswersStore, 'settled' | 'get'>, session: Pick<AnswersSession, 'signal' | 'receiveSave'>, shown: () => PmiAnswers | Promise<PmiAnswers>, write = post): Saver {
   return {
     async save(edits, displayedRev) {
       session.signal.throwIfAborted();
+      const reviewed = await shown();
       const rev = await store.settled();
       session.signal.throwIfAborted();
-      if ((displayedRev !== undefined && displayedRev !== rev) || given(store.get()) !== given(shown())) throw new NotShown('the answers changed just now');
+      if ((displayedRev !== undefined && displayedRev !== rev) || given(store.get()) !== given(reviewed)) throw new NotShown('the answers changed just now');
       try {
         const saved = await write(rev, edits, session.signal);
         session.receiveSave(saved);

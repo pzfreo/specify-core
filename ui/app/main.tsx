@@ -49,7 +49,7 @@ interface Opened {
   /** Working answers used for agent notices and revision tracking. */
   external: { answers: PmiAnswers; review: IntentReview };
   /** The working answers processed by the page at the last shown session revision. */
-  shown: { answers: PmiAnswers };
+  shown: { answers: PmiAnswers; reviewing?: Promise<void> };
   /** Specify's review of ``answers``, for answers that arrive from outside the page. */
   reviewOf(answers: PmiAnswers): Promise<IntentReview>;
 }
@@ -70,7 +70,7 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   const stored = snapshot.analysis.resume?.answers ?? {};
   const fileReview = sameAnswers(stored, answers) ? review : await reviewOf(stored);
   const store = answersSession.store(at.part, stored);
-  const shown = { answers };
+  const shown: Opened['shown'] = { answers };
   const engine: SpecifyEngine = {
     questions: (_id, given) => reviewOf(given),
     interpret: (_id, given, question, text) => worker.request('interpret', { analysis: snapshot.analysis, answers: given, question, text }),
@@ -87,7 +87,10 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   const bare = await worker.request<IntentReview>('review-analysis-given', { analysis: bareAnalysis(snapshot.analysis), answers: {} });
   return {
     ...at, generation, session, review: fileReview, engine, drawn: drawn && hasGraphics(drawn) ? drawn : null, bytes, file, labels: bare.questions, store, shown,
-    saver: editsSaver(store, answersSession, () => shown.answers), external: { answers, review }, reviewOf,
+    saver: editsSaver(store, answersSession, async () => {
+      await shown.reviewing;
+      return shown.answers;
+    }), external: { answers, review }, reviewOf,
   };
 }
 
@@ -350,8 +353,13 @@ function App() {
     const show = (answers: PmiAnswers, source: string, previous: PmiAnswers) => {
       if (source === 'mcp') for (const id of changedIds(previous, answers)) fromAgent.add(id);
       // The page's own change, as SpecifyReview already shows it (or answers back to what it shows).
-      if (sameAnswers(answers, shown.answers)) { setUnshown(null); return; }
-      void opened.reviewOf(answers).then((review) => {
+      if (sameAnswers(answers, shown.answers)) {
+        shown.reviewing = undefined;
+        setUnshown(null);
+        return;
+      }
+      // Undo can update the draft bar before this review completes. Save waits for these answers.
+      shown.reviewing = opened.reviewOf(answers).then((review) => {
         // Another part shown since, or a newer change on its way (shown when it lands).
         if (current.current?.store !== store || !sameAnswers(store.get(), answers)) return;
         shown.answers = answers;
