@@ -2,9 +2,11 @@
 
 **Agreed by Paul, 2026-11-23.** Planned for 0.3.1. Paul set its scope on 2026-11-23 as everything the editor needs to switch to Specify 0.3: this panel, hand-picked datums, free-form `extra.*` requirements, and BOM editing with CSV row exclusions. The grouped fillet rows move to 0.3.2, on quiddity 0.5.6. Work order: the Enter/lost-update fix, then the npm release guard, then 0.3.1. Tests may not be weakened, and it needs an independent review before it's ready.
 
+**One review component (Paul, 2026-11-23).** "I asked to PORT the old UI to a standalone package, not to rewrite it." `SpecifyPanel` is the 0.2 `SpecifyReview` ported to the 0.3 engine, and exported. Its screens, inputs, question order and keyboard are kept. Only the engine layer changes: answers become pending edits, rows are stated, gap or decided none, and Save writes the edits together. The same component serves three hosts: `specify-core open` (from 0.3.0-rc.2), the package export (0.3.1) and the editor (0.3.1). There is no second panel; `ui/app/Panel.tsx` is removed in rc.2.
+
 ## What you'll get
 
-Another app, such as the editor, can show Specify's 0.3.0 review panel inside its own page. That's the panel `specify-core open` shows today.
+Another app, such as the editor, can show Specify's review inside its own page. That's the ported 0.2 review that `specify-core open` shows from rc.2.
 
 - The app gives the panel a STEP file.
 - You review and edit requirements exactly as in Specify:
@@ -50,15 +52,16 @@ All of the writing happens in the browser, through the engine 0.3.0 already ship
 ## What stays the same
 
 - `specify-core open` keeps its page. That page becomes one user of the component: its Save posts to the local session exactly as today, so agents, `rev` and refusals are unchanged.
-- `SpecifyReview` stays exported with the same props in 0.3.1, so existing users don't break. The changelog marks it as the old review.
+- `SpecifyReview` keeps its props: the ported component is `SpecifyReview` itself, exported as `SpecifyPanel`, so the editor's props (slots, focusRequest, toReview, onKeep, tints, onPick and so on) keep working.
 - The browser engine's worker can check an edit list today but can't apply one. Adding `edit` to the worker is part of this work.
 - The edit list is the same everywhere: command line, MCP, Python, WASM and now the component.
 
 ## Decisions (Paul, 2026-11-23)
 
 1. **Name:** `SpecifyPanel`.
-2. **Agent drafts and the Characteristics tab** stay out of the component for 0.3.1. They depend on the local session (agents) and on the 3D review. The `open` page keeps both.
+2. **The Characteristics tab and the CSV/AS9102 exports stay in the component** (Paul, 2026-11-23; this reverses the morning's decision, because the editor needs them). They are built from the file's PMI. **Agent drafts** stay in `specify-core open` only; the component shows host-supplied pending edits through a generic prop.
 3. **Saving runs in the browser by default.** The app can also pass its own save function and get the edit lists to apply elsewhere. `open` uses that to keep saving through its session.
+5. **Restored as in 0.2:** one-click accept of a suggestion and its alternatives, general-dimension call-outs, and the CSV inclusion ticks. Datums are picked with the 0.2 chips, with pencil and bin on datums the file already states. "Added by you" is shown but disabled in rc.2, and enabled in 0.3.1 with `extra.*`.
 4. **The 3D view is the host's, if it wants** (Amy's requirement). `SpecifyPanel` takes the same optional `view: HostView` as StepDiff and SpecifyReview (ui/docs/host-view.md). Selecting a row shows, colours and frames its faces in that view, and a face picked there selects its row. With no view passed, the panel uses the package's default view. Drawn-PMI overlays over a host camera stay under "Later", as for `HostView`.
 
 ## How we'll know it works
