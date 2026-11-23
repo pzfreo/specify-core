@@ -94,6 +94,37 @@ fn ids(rows: &[carry::Carried]) -> Vec<&str> {
     rows.iter().map(|c| c.new.as_str()).collect()
 }
 
+#[test]
+fn assembly_bom_carry_keeps_a_decided_none_material() {
+    let assembly = file("parts/assembly.step").load(Some(0)).unwrap();
+    let old = common::apply_edits(
+        &assembly,
+        json!({"fill": {"part.material": "Steel", "bom.description": "Plate"}}),
+    );
+    let new = common::apply_edits(&assembly, json!({"none": ["part.material"]}));
+    let outcome = carried(&of_bytes(old.bytes), &of_bytes(new.bytes));
+    assert!(
+        outcome.report.refused.is_empty(),
+        "{:?}",
+        outcome.report.refused
+    );
+    let output = of_bytes(outcome.bytes.unwrap()).load(Some(0)).unwrap();
+    assert_eq!(
+        row(&table(&output), "part.material")["state"],
+        "decided_none",
+        "assembly BOM carry overwrote NEW's material decision"
+    );
+    assert!(
+        outcome
+            .report
+            .kept
+            .iter()
+            .any(|item| item.new == "plate: part.material"),
+        "{:?}",
+        outcome.report.kept
+    );
+}
+
 /// Every entity's record text, by id.
 fn records(bytes: &[u8]) -> BTreeMap<u64, String> {
     let doc = Document::parse(bytes.to_vec()).unwrap();

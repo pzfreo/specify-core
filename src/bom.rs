@@ -1548,9 +1548,18 @@ pub(crate) fn carry_assembly(
             .clone()
             .or_else(|| old_row.and_then(|r| r.material.value.as_str().map(str::to_owned)));
         if let Some(material) = material {
-            match stated("material") {
-                Some(now) => keep("part.material".into(), json!(material), now),
-                None => materials.push((i, material)),
+            if let Some(now) = stated("material") {
+                keep("part.material".into(), json!(material), now);
+            } else {
+                // The BOM reads stated material only. A stored decision also closes the gap.
+                let decided = crate::resume::answers_for(&new[i])
+                    .map_err(|e| e.to_string())?
+                    .is_some_and(|answers| {
+                        crate::feature_table::storable(&answers).contains_key("part.material")
+                    });
+                if !decided {
+                    materials.push((i, material));
+                }
             }
         }
         if own_numbers && let Some(now) = stated("item_number") {

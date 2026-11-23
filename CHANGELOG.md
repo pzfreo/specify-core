@@ -356,6 +356,7 @@ Read first:
 - `fill` could also overwrite a stored choice such as `part.locating`. Repeating the
   choice is unchanged. To replace it, send `clear` and `fill` for its ID in one list.
 - Diff and carry exclude features with a stored decision from `new_unstated`.
+- Assembly carry preserves a decided-none material when copying the BOM.
 - Multipart `serve` writes and Python's analysis-based planning reuse saved decisions
   when the caller omits those answers, including when taking defaults.
 - Writer refusals explain when a prerequisite such as the general tolerance needs both
