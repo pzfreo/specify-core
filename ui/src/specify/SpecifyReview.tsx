@@ -425,7 +425,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     const next: Record<string, unknown> = { ...answers };
     if (remove) delete next[q.id];
     else next[q.id] = value;
-    void commit(q.id, next, (asked) => {
+    return commit(q.id, next, (asked) => {
       if (q.id.startsWith('part.')) return current;
       // A face pick takes the whole box; once used it closes, and what still
       // needs a person opens -- or nothing, and the row shrinks to its summary.
@@ -1085,7 +1085,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                   return (
                     <PartField locked={readOnly}
                       key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)}
-                      onAnswer={(value) => { setUnfolded(null); answer(q, value); }}
+                      onAnswer={(value) => { setUnfolded(null); return answer(q, value); }}
                     />
                   );
                 }
@@ -1101,7 +1101,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                   {notes.filter((q) => !(slots.question && q.id === current)).map((q) => (unfolded === `note:${q.id}` ? (
                     <PartField locked={readOnly}
                       key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)}
-                      onAnswer={(value) => { setUnfolded('notes'); answer(q, value); }}
+                      onAnswer={(value) => { setUnfolded('notes'); return answer(q, value); }}
                     />
                   ) : (
                     <FoldedLine
@@ -1283,7 +1283,7 @@ function partValue(q: PmiQuestion, answers: PmiAnswers): string {
 function PartField({ q, answers, error, onAnswer, locked = false }: {
   /** Read only: the control is shown disabled. */
   locked?: boolean;
-  q: PmiQuestion; answers: PmiAnswers; error: PmiLabError | null; onAnswer: (value: unknown) => void;
+  q: PmiQuestion; answers: PmiAnswers; error: PmiLabError | null; onAnswer: (value: unknown) => Promise<boolean>;
 }) {
   const need = needs(q, answers);
   const label = labelOf(q);

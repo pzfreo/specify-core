@@ -350,6 +350,8 @@ Read first:
 
 ### Fixed
 
+- `@draftwright/specify-ui`: entering Material once sends one answer even if focus moves while
+  Specify is reviewing it.
 - Changing or removing a requirement on a shared feature preserves its other requirements,
   including thread manufacturing data. Scoped saves replace the previous caller project.
 - Carry verifies that numbered requirements are present in its output and reports omissions.
