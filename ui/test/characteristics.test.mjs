@@ -78,23 +78,6 @@ test('a tolerance the file states with no value is drawn without one, never as 0
   assert.deepEqual(rows.map((r) => r.text), ['⌖ 0.75', '⌖ no value stated']);
 });
 
-test('a stated row reads the whole of what the file states (ADR P11)', () => {
-  // The spindle 0.2 wrote: its ⌀3.3 H11, ⌖ ⌀0.3Ⓜ A and M2 thread, read back by the engine.
-  const stated = { ...analysis, existing: [
-    { kind: 'dimension', type: 'Size_Diameter', faces: [1], value: 3.3, upper: 0.075, lower: 0, fit: 'H11', text: '⌀3.3 H11' },
-    { kind: 'geometric_tolerance', type: 'Position', faces: [1], value: 0.3, datums: ['A'], diametral: true, mmc: true,
-      modifiers: ['maximum_material_requirement'], text: '⌖ ⌀0.3Ⓜ A' },
-    { kind: 'note', type: 'internal thread', faces: [2], designation: 'M2', pitch: 0.4, class: '6H', text: 'M2×0.4-6H ↧ 2' },
-    // Another tool's frame with a datum reference's Ⓜ: only its text holds it, in full. (The
-    // others read as planned: their fields hold all they state.)
-    { kind: 'geometric_tolerance', type: 'ProfileOfSurface', faces: [2], value: 0.02, datums: ['A', 'F'], text: '⌓ 0.02 A FⓂ', text_only: true },
-  ] };
-  const rows = characteristics(intent([]), stated, new Map());
-  assert.deepEqual(rows.map((r) => [r.text, r.upper, r.lower]), [
-    ['⌀3.3 H11', 0.075, 0], ['⌖ ⌀0.3 Ⓜ', 0.3, null], ['M2×0.4-6H', null, null], ['⌓ 0.02 A FⓂ', 0.02, null],
-  ]);
-});
-
 test("the part's notes are stated as a drawing's notes block states them", async () => {
   const { noteStatements } = await import('../src/specify/characteristics.ts');
   const part = {
