@@ -1918,7 +1918,7 @@ fn applied_pmi(
                     "accept_suggestions"
                 };
                 // Usually a frame that cites datums the file does not state yet.
-                let datums: Vec<&str> = table
+                let datums: Vec<_> = table
                     .rows
                     .iter()
                     .filter(|r| {
@@ -1928,24 +1928,36 @@ fn applied_pmi(
                                 .is_some_and(|l| !l.contains('.'))
                             && !given.contains_key(&r.id)
                     })
-                    .map(|r| r.id.as_str())
                     .collect();
-                let general = given[id] == "general"
-                    && table
-                        .row("part.general_tolerance")
-                        .is_some_and(|r| r.state != State::Stated)
-                    && !given.contains_key("part.general_tolerance");
-                let why = if general {
-                    ": a hole left to the general tolerance needs one; fill \
-                     part.general_tolerance in the same list"
-                        .to_string()
+                let general = table.row("part.general_tolerance").filter(|row| {
+                    given[id] == "general"
+                        && row.state != State::Stated
+                        && !given.contains_key(&row.id)
+                });
+                let fill = |rows: &[&crate::feature_table::Row]| {
+                    let ids: Vec<_> = rows.iter().map(|row| row.id.as_str()).collect();
+                    let clear: Vec<_> = rows
+                        .iter()
+                        .filter(|row| row.state == State::DecidedNone)
+                        .map(|row| row.id.as_str())
+                        .collect();
+                    let mut instruction = format!("fill {} in the same list", ids.join(", "));
+                    if !clear.is_empty() {
+                        instruction.push_str(&format!(" with \"clear\": {}", Json::from(clear)));
+                    }
+                    instruction
+                };
+                let why = if let Some(row) = general {
+                    format!(
+                        ": a hole left to the general tolerance needs one; {}",
+                        fill(&[row])
+                    )
                 } else if datums.is_empty() {
                     String::new()
                 } else {
                     format!(
-                        ": the datums it would cite are not in the file; fill {} in the same \
-                         list",
-                        datums.join(", ")
+                        ": the datums it would cite are not in the file; {}",
+                        fill(&datums)
                     )
                 };
                 entry_failure(

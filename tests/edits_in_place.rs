@@ -964,6 +964,15 @@ fn accepting_specifys_own_suggestion_applies_or_is_refused_by_the_check_alike() 
     );
     let checked = specify_core::writer::apply::check(&part, &alone.to_string());
     assert_eq!(checked.failures, failures);
+    let declined = applied(&part, json!({"none": ["part.general_tolerance"]}));
+    let declined = reload(&declined.bytes);
+    let failures = refused(&declined, json!({"fill": {id: "general"}}));
+    assert!(
+        failures[0]
+            .reason
+            .contains(r#""clear": ["part.general_tolerance"]"#),
+        "the refusal must explain how to replace the stored decision: {failures:?}"
+    );
     let saved = applied(
         &part,
         json!({"accept_suggestions": [id, "part.general_tolerance"]}),
