@@ -101,6 +101,8 @@ A pre-release such as `0.3.0-rc.1` requires a GitHub release marked pre-release 
 under `next`. A final version older than npm's `latest` goes under `release-<version>`.
 A manual run of `release.yml` with a `tag` applies the same rules to the existing release's
 archive. See [Cutting a pre-release](../CONTRIBUTING.md#cutting-a-pre-release).
+The `ui-npm` job checks for the exact WASM version on npm before it publishes the UI.
+It retries about every 10 seconds for up to five minutes to allow for registry lag.
 
 npm adds a trusted publisher from the package's settings, so the package's first version
 (0.1.17) was published with a short-lived token. From 0.1.18 the job passes no token: it

@@ -356,7 +356,21 @@ jobs:
           engine=$(tar -xOzf "$file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).dependencies['@draftwright/specify-core-wasm']")
           [ "$TAG" = "v$version" ] || { echo "::error::Tag $TAG does not match the tarball version $version."; exit 1; }
           [ "$engine" = "$version" ] || { echo "::error::The tarball depends on @draftwright/specify-core-wasm $engine, not $version."; exit 1; }
-          published=$(npm view "@draftwright/specify-core-wasm@$engine" version 2>/dev/null || true)
+          # npm can take a few minutes to serve a version after publish succeeds.
+          engine_package="@draftwright/specify-core-wasm@$engine"
+          deadline=$((SECONDS + 300))
+          attempt=0
+          published=
+          while (( (remaining = deadline - SECONDS) > 0 )); do
+            attempt=$((attempt + 1))
+            echo "Checking npm for $engine_package (attempt $attempt)."
+            lookup_timeout=$((remaining < 10 ? remaining : 10))
+            published=$(timeout -k 1s "${lookup_timeout}s" npm view --prefer-online --fetch-retries=0 \
+              "$engine_package" version 2>/dev/null || true)
+            [ "$published" = "$engine" ] && break
+            (( deadline - SECONDS > 10 )) || break
+            sleep 10
+          done
           [ "$published" = "$engine" ] || { echo "::error::@draftwright/specify-core-wasm@$engine is not on npm."; exit 1; }
           status=404
           latest=
