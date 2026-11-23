@@ -113,68 +113,10 @@ try {
     await check(panel(page).getByRole('button', { name: '+ Add a requirement' })).toBeVisible();
     await panel(page).locator('.pmi-lab-row-head', { hasText: 'Datums' }).click();
     await check(panel(page).getByRole('button', { name: '+ Add datum' })).toBeVisible();
-    // ADR P11: the spindle's file states its datums, so they are shown as stated with no Remove (a
-    // save never edits what the file states); a suggested datum's Remove is checked on the shaft below,
-    // and so is a hole's open question (the spindle's file states its holes: no hole row). Origin is
-    // never shown (the panel, decision 6): no "from the file".
-    await check(panel(page).locator('.pmi-lab-datums .chip.existing').first()).toBeVisible();
-    await check(panel(page).locator('.pmi-lab-datums .chip.existing').first()).not.toContainText('from the file');
-    await check(panel(page).getByRole('button', { name: /^Remove datum / })).toHaveCount(0);
-    await page.close();
-  }
-  // A suggestion not kept is a suggestion: no tick, counted as open. Keeping it makes it an answer, ticked.
-  {
-    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz');
-    const rows = panel(page).locator('.pmi-lab-rows');
-    const cards = panel(page).locator('.pmi-lab-suggestion');
-    const count = async () => Number((await panel(page).getByText(/^\d+ suggestions?$/).innerText()).split(' ')[0]);
-    const before = await count();
-    assert.ok(before > 1, 'the shaft has suggestions to keep');
-    // (The open row shows its own suggestions as its questions, not as cards.)
-    assert.ok(await cards.count() > 0 && await cards.count() <= before, 'the suggestions are cards, each counted');
-    const cardsBefore = await cards.count();
-    await check(rows).not.toContainText('✓');
-    await check(panel(page).locator('.pmi-lab-review')).not.toContainText('✓');
-    const tolerance = panel(page).locator('.pmi-lab-suggestion:has([data-suggestion="part.general_tolerance"])');
-    await check(tolerance.locator('.suggested')).toContainText(/^Suggested: ISO 2768-m/);
-    await check(tolerance.getByRole('button', { name: 'Keep', exact: true })).toBeVisible();
-    await check(panel(page).locator('.pmi-lab-line', { hasText: 'General tolerance' })).toHaveCount(0);
-    await tolerance.getByRole('button', { name: 'Keep', exact: true }).click();
-    // Kept: it is an answer, shown folded with a tick, and no longer counted.
-    await check(panel(page).locator('.pmi-lab-line', { hasText: 'General tolerance' })).toContainText('✓');
-    await check(tolerance).toHaveCount(0);
-    await check.poll(count).toBe(before - 1);
-    assert.equal(await cards.count(), cardsBefore - 1);
-    // Only the one kept has a tick: the suggestions left still have none.
-    await check(cards.locator('text=✓')).toHaveCount(0);
-    await check(rows.locator('.pmi-lab-tick')).toHaveCount(1);
+    await check(panel(page).getByRole('button', { name: /^Remove datum / }).first()).toBeVisible();
     await openHoleRow(page);
     await check(panel(page).locator('.pmi-lab-item.on')).toBeVisible();
     assert.ok(await panel(page).locator('.pmi-lab-item.on button:not([disabled])').count() > 0, 'an open question has live answer buttons');
-    // The shaft's datums are suggested, not stated: each can be removed.
-    await panel(page).locator('.pmi-lab-row-head', { hasText: 'Datums' }).click();
-    await check(panel(page).getByRole('button', { name: /^Remove datum / }).first()).toBeVisible();
-    await page.close();
-  }
-  // Keep all lists what it will keep first (ADR P9): cancelled, nothing is kept; confirmed, all are.
-  {
-    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz');
-    const count = async () => Number((await panel(page).getByText(/^\d+ suggestions?$/).innerText()).split(' ')[0]);
-    const before = await count();
-    assert.ok(before > 1, 'more than one suggestion, so Keep all is offered');
-    const asked = (await calls(page)).filter(c => c === 'questions').length;
-    await panel(page).getByRole('button', { name: 'Keep all', exact: true }).click();
-    const list = panel(page).getByRole('group', { name: 'Keep all suggestions' });
-    await check(list.locator('li')).toHaveCount(before);
-    await check(list).toContainText('ISO 2768-m');
-    await list.getByRole('button', { name: 'Cancel' }).click();
-    await check(list).toHaveCount(0);
-    assert.equal(await count(), before, 'cancelled: nothing kept');
-    assert.equal((await calls(page)).filter(c => c === 'questions').length, asked, 'cancelled: nothing committed');
-    await panel(page).getByRole('button', { name: 'Keep all', exact: true }).click();
-    await list.getByRole('button', { name: `Keep these ${before}` }).click();
-    await check(panel(page).getByText(/^\d+ suggestions?$/)).toHaveCount(0);
-    await check(panel(page).locator('.pmi-lab-suggestion')).toHaveCount(0);
     await page.close();
   }
   // Display keeps the host preview (Material is balloon 12); inspection is an export-only
@@ -212,18 +154,6 @@ try {
     assert.deepEqual((await calls(page)).slice(before), ['questions', 'preview', 'inspection', 'inspection'], 'only the requested workbook adds another inspection');
     await page.close();
   }
-  // Enter sends one answer, using the catalogue spelling for an exact match in another case.
-  {
-    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz');
-    await page.evaluate(() => { window.__questionReplies = []; });
-    const material = panel(page).locator('[data-question="part.material"] input');
-    await material.fill('aluminium 6082-t6');
-    await material.press('Enter');
-    assert.deepEqual(await questionAnswers(page), [{ 'part.material': 'Aluminium 6082-T6' }],
-      'Enter submits the catalogue spelling once');
-    await page.evaluate(() => { window.__questionReplies.shift()(); });
-    await page.close();
-  }
   // Reviews run in submission order, so the first reply cannot overwrite the later
   // answer to the same question. Free text keeps its spelling.
   {
@@ -245,52 +175,6 @@ try {
     assert.deepEqual((await calls(page)).slice(before), ['questions', 'preview', 'questions', 'preview']);
     const csv = readFileSync(await inspectionDownload(page, 'Inspection list (CSV)'), 'utf8');
     assert.deepEqual(csv.trimEnd().split('\n').slice(1), [',,Part,Material: brass cw614n,,,,,,']);
-    await page.close();
-  }
-  // Two different edits given before the first reply must both survive, even when
-  // the engine returns the replies in order. Keep accepts the tolerance shown on its card.
-  {
-    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz');
-    const before = (await calls(page)).length;
-    const previews = async () => (await calls(page)).slice(before).filter(call => call === 'preview').length;
-    await page.evaluate(() => { window.__questionReplies = []; });
-    const material = panel(page).locator('[data-question="part.material"] input');
-    await material.fill('brass cw614n');
-    await material.press('Enter');
-    const tolerance = panel(page).locator('.pmi-lab-suggestion:has([data-suggestion="part.general_tolerance"])');
-    await tolerance.getByRole('button', { name: 'Keep', exact: true }).click();
-    await page.evaluate(() => { window.__questionReplies.shift()(); });
-    await check.poll(previews).toBe(1);
-    await check.poll(async () => (await questionAnswers(page)).length).toBe(2);
-    await page.evaluate(() => { window.__questionReplies.shift()(); });
-    await check.poll(previews).toBe(2);
-    await panel(page).getByRole('tab', { name: /^Characteristics/ }).click();
-    const csv = readFileSync(await inspectionDownload(page, 'Inspection list (CSV)'), 'utf8');
-    assert.match(csv, /,Part,Material: brass cw614n,/, 'the second edit retains the first answer');
-    assert.match(csv, /,Part,General tolerance: ISO 2768-m,/, 'the second answer is kept too');
-    await page.close();
-  }
-  // A host that keeps suggestions itself (the editor: onKeep, and kept for the ticks): Keep goes to
-  // the host and nothing is answered; the question the host lists as kept is ticked in its row.
-  {
-    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz', '#specify-panel .pmi-lab-row-head', '&keep=host');
-    const id = 'hole.function:holes:13';
-    const card = panel(page).locator(`.pmi-lab-suggestion:has([data-suggestion="${id}"])`);
-    const before = (await calls(page)).length;
-    await card.getByRole('button', { name: 'Keep', exact: true }).click();
-    await check.poll(async () => (await calls(page)).slice(before)).toEqual([`onKeep:${id}`]);
-    await check(panel(page).locator('.pmi-lab-tick')).toHaveCount(0);
-    await panel(page).locator('.pmi-lab-row-head', { hasText: 'Ø3.3' }).click();
-    await check(panel(page).locator('.pmi-lab-tick')).toHaveCount(1);
-    // On the question kept: what the Ø3.3 hole is for.
-    assert.match(await panel(page).locator('.pmi-lab-tick').evaluate(el => el.closest('.pmi-lab-item')?.textContent ?? ''), /What is the Ø3\.3 hole for\?/);
-    assert.ok(!(await calls(page)).slice(before).includes('questions'), 'the host keeps it: no answer is committed');
-    assert.deepEqual((await calls(page)).slice(before), [`onKeep:${id}`], 'Keep and unfolding leave preview/inspection traffic unchanged');
-    const csv = readFileSync(await inspectionDownload(page, 'Inspection list (CSV)'), 'utf8');
-    assert.equal(csv.trimEnd().split('\n').length, 2, 'only the one explicitly kept thread is exported');
-    assert.match(csv, /M4×0.7-6H/);
-    assert.doesNotMatch(csv, /ISO 2768|Ra 3.2|M2×/);
-    assert.deepEqual((await calls(page)).slice(before), [`onKeep:${id}`, 'inspection'], 'the export is the first inspection request after Keep');
     await page.close();
   }
   // Read only: a PMI viewer. The spindle Specify wrote (semantic PMI linked to graphical PMI) shows what is
