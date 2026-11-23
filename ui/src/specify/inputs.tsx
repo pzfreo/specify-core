@@ -103,11 +103,17 @@ export function SpecBox({ q, codes, onSpec }: {
  */
 export function SuggestBox({ label, value, suggestions, placeholder, invalid, onAnswer }: {
   label: string; value: string; suggestions: readonly PmiSuggestion[]; placeholder: string; invalid: boolean;
-  onAnswer: (value: string) => void;
+  onAnswer: (value: string) => Promise<boolean>;
 }) {
   const [text, setText] = useState(value);
+  const submitted = useRef<{ text: string } | null>(null);
+  const draftSubmitted = useRef(false);
   // The host project can change the value through undo/redo.
-  useEffect(() => setText(value), [value]);
+  useEffect(() => {
+    submitted.current = null;
+    draftSubmitted.current = false;
+    setText(value);
+  }, [value]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const list = useId();
@@ -116,12 +122,23 @@ export function SuggestBox({ label, value, suggestions, placeholder, invalid, on
     () => matchSuggestions(suggestions, text === value ? '' : text),
     [suggestions, text, value],
   );
+  const catalogueValue = (typed: string) => {
+    const lower = typed.toLowerCase();
+    return suggestions.find((s) => s.value.toLowerCase() === lower)?.value;
+  };
   const commit = (chosen: string) => {
     const typed = chosen.trim();
-    setText(typed);
+    const answerText = catalogueValue(typed) ?? typed;
+    draftSubmitted.current = true;
+    setText(answerText);
     setOpen(false);
     setActive(-1);
-    if (typed && typed !== value) onAnswer(typed);
+    if (!answerText || answerText === (submitted.current?.text ?? value)) return;
+    const answer = { text: answerText };
+    submitted.current = answer;
+    void onAnswer(answerText).then((accepted) => {
+      if (!accepted && submitted.current === answer) submitted.current = null;
+    });
   };
   const move = (step: number) => {
     setOpen(true);
@@ -136,18 +153,26 @@ export function SuggestBox({ label, value, suggestions, placeholder, invalid, on
         aria-expanded={open && matches.length > 0} aria-controls={list} aria-autocomplete="list"
         aria-activedescendant={active >= 0 ? `${list}-${active}` : undefined}
         onFocus={() => setOpen(true)}
-        onChange={(event) => { setText(event.target.value); setOpen(true); setActive(-1); }}
+        onChange={(event) => {
+          draftSubmitted.current = false;
+          setText(event.target.value); setOpen(true); setActive(-1);
+        }}
         // Leaving the box keeps a catalogue choice; anything else typed waits for Enter, so a
         // half-typed "alu" is not taken as the answer.
         onBlur={() => {
-          const typed = text.trim();
-          if (suggestions.some((s) => s.value.toLowerCase() === typed.toLowerCase())) commit(suggestions.find((s) => s.value.toLowerCase() === typed.toLowerCase())!.value);
+          // Enter, Tab or a suggestion click may have already submitted the draft.
+          const suggestion = draftSubmitted.current ? undefined : catalogueValue(text.trim());
+          if (suggestion) commit(suggestion);
           else setOpen(false);
         }}
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown') { event.preventDefault(); move(1); }
           else if (event.key === 'ArrowUp') { event.preventDefault(); move(-1); }
-          else if (event.key === 'Escape') { setText(value); setOpen(false); setActive(-1); }
+          else if (event.key === 'Escape') {
+            // Restoring the acknowledged value must not submit it over a review in progress.
+            draftSubmitted.current = true;
+            setText(value); setOpen(false); setActive(-1);
+          }
           else if (event.key === 'Enter' || event.key === 'Tab') {
             // Enter and Tab both mean "done here": Tab then moves on as usual.
             if (event.key === 'Enter') event.preventDefault();

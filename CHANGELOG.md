@@ -350,6 +350,9 @@ Read first:
 
 ### Fixed
 
+- `@draftwright/specify-ui`: confirming Material and then moving focus sends one answer, with the
+  catalogue spelling for an exact case-insensitive match. Quick edits to different questions keep
+  both answers when the first review is still pending.
 - Changing or removing a requirement on a shared feature preserves its other requirements,
   including thread manufacturing data. Scoped saves replace the previous caller project.
 - Carry verifies that numbered requirements are present in its output and reports omissions.
