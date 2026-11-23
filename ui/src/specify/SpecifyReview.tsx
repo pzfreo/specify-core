@@ -7,7 +7,7 @@ import { GeneralToleranceEditor } from './GeneralToleranceEditor';
 import { fileLengthUnit, type Units } from './general-tolerance';
 import { EMPTY_PENDING, EMPTY_QUEUE, linkedParts, mergePending, pendingActions, queueCopies, withoutPendingAction, type PartQueue } from './review-assembly';
 import { FileRequirement } from './FileRequirement';
-import { askFile, checkPending, CheckRefused, datumId, fileRows, focusedRequirement, impliedAnswers, otherRows, partFile, queueValue, replacedRequirements, requirementName, retiredNumbers, rowSuggestion, rowSuggestionText, rowText, savePending, withStoredAnswers, type FileReviewOptions, type FileRow, type ReviewFocus } from './file-review';
+import { askFile, checkPending, CheckRefused, datumId, fileRows, focusedRequirement, impliedAnswers, noneEdit, otherRows, partFile, queueValue, replacedRequirements, requirementName, retiredNumbers, rowSuggestion, rowSuggestionText, rowText, savePending, withStoredAnswers, type FileReviewOptions, type FileRow, type ReviewFocus } from './file-review';
 import { PendingEdits, failedEdit, rejectedNoneByPart, removalTargets, suggestionEdits, type EditFailure } from './edit-list';
 import { answerText, isNoneValue, tableOf, withoutRequirements } from './feature-table';
 import type { StoredInspection } from './saved-inspection';
@@ -1226,8 +1226,10 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     return <FileRequirement key={id} row={row} name={label} pending={edit} open={open && !(slots.question && id === current)}
       disabled={disabled || editBusy} problem={refusal} copies={copyCount} card={proposed ? card(proposed) : undefined}
       onOpen={() => openFileRow(row)} onClose={onClose} onKeep={() => keepChosen([id])}
-      onNone={() => void (edit?.kind === 'clear' && !edit.draft ? commitFile(id, list => list.without(id))
-        : commitFile(id, list => list.with({ kind: 'none', id, name: label }), (asked, next) => settled([id], asked, next)))}
+      onNone={() => void commitFile(id, list => {
+        const none = noneEdit(row, id, label);
+        return none ? list.with(none) : list.get(id) ? list.without(id) : list;
+      }, (asked, next) => settled([id], asked, next))}
       onUndo={undo} onRemove={remove}
       removalWarning={datumId(id) ? removal(id.slice(6), chips, answers, preview).warning : undefined}>
       {input}

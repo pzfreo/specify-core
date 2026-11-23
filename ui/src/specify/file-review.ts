@@ -1,7 +1,7 @@
 import type { IntentReview, PmiAnalysis, PmiAnswers, PmiQuestion } from '../types/pmi.ts';
 import type { WorkerClient } from '../engine/rpc.ts';
 import { answerText, capital, changedText, displayText, isNoneValue, kindWord, tableOf, type TableRequirement, type TableRow } from './feature-table.ts';
-import { PendingEdits, type EditFailure, type Pending, type SaveEdits } from './edit-list.ts';
+import { PendingEdits, removalTargets, type EditFailure, type Pending, type SaveEdits } from './edit-list.ts';
 
 export interface ReviewFile {
   name: string;
@@ -205,13 +205,22 @@ export function rowSuggestionText(row: FileRow): string | undefined {
 export function valueEdit(row: TableRow | undefined, id: string, name: string, value: unknown, question?: PmiQuestion): Pending | undefined {
   const text = answerText(value, question);
   if (row && row.state !== 'gap') {
-    if (JSON.stringify(value) === JSON.stringify(row.value) || (row.state === 'decided_none' && isNoneValue(value))) return;
+    if (JSON.stringify(value) === JSON.stringify(row.value) ||
+      (row.state === 'decided_none' && isNoneValue(row.value) && isNoneValue(value))) return;
     const was = row.state === 'decided_none' && isNoneValue(row.value) ? 'none needed' : rowText(row);
     if (row.state === 'decided_none' || id === 'part.locating') return { kind: 'replace', id, name, value, text, was };
     return { kind: 'change', id, name, value, text: changedText(was, value, question), expect: row.value, was };
   }
   if (value !== undefined && isNoneValue(value) && !id.startsWith('bom.')) return { kind: 'none', id, name };
   return { kind: 'fill', id, name, value, text };
+}
+
+/** Decide None from this part's saved row, removing a requirement only when it states PMI. */
+export function noneEdit(row: TableRow | undefined, id: string, name: string): Pending | undefined {
+  if (row?.state === 'decided_none' || id === 'part.locating') return valueEdit(row, id, name, 'none');
+  const targets = row?.state === 'stated'
+    ? removalTargets(row.requirements?.flatMap(item => item.number ? [item.number] : []) ?? [], id) : undefined;
+  return { kind: 'none', id, name, targets };
 }
 
 export function queueValue(row: FileRow | undefined, question: PmiQuestion, pending: PendingEdits, value: unknown): PendingEdits {

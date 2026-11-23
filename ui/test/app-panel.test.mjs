@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { balloonText, bareAnalysis, changedText, displayText, isNoneValue, tableOf } from '../src/specify/feature-table.ts';
 import { describe, withDrafts } from '../app/edits.ts';
 import { editList, PendingEdits, rejectedNoneByPart, removalTargets, suggestionEdits } from '../src/specify/edit-list.ts';
-import { fileRows, otherRows, requirementLabel, requirementName, rowSuggestion, rowSuggestionText, rowText } from '../src/specify/file-review.ts';
+import { fileRows, otherRows, queueValue, requirementLabel, requirementName, rowSuggestion, rowSuggestionText, rowText } from '../src/specify/file-review.ts';
 import { groupQuestions } from '../src/specify/review.ts';
+import { editForCopy } from '../src/specify/review-assembly.ts';
 import { compose, emptyBlock, parse } from '../src/specify/general-tolerance.ts';
 // The review panel's pieces that are not drawn (specify-panel.md): its reading of the engine's feature
 // table, the pending edits as an edit list, and the general tolerance's text (#228).
@@ -132,6 +133,25 @@ test('the pending edits are one edit list, one edit per row, in the bar\'s words
   assert.deepEqual(again.list().fill, { 'part.material': 'Brass' });
   assert.equal(again.without('part.material').list().fill, undefined);
   assert.deepEqual(editList([]), {}, 'no edits: an empty list (Save writes the file as it is)');
+  const id = 'hole.function:holes:14.15';
+  const approval = { ...table.rows.find(row => row.id === id), state: 'decided_none', value: 'general' };
+  const [approved] = view({ ...table, rows: [approval] }).rows;
+  const replacement = { clear: [id], fill: { [id]: 'none' } };
+  const none = queueValue(approved, approved.question, new PendingEdits(), 'none');
+  assert.deepEqual(none.list(), replacement, 'None replaces a saved approval in one edit');
+  assert.equal(none.size, 1);
+  assert.deepEqual(queueValue({ ...approved, value: 'none' }, approved.question, new PendingEdits(), 'None').list(), {});
+
+  const part = { table: { ...table, rows: [approval] }, features: [{ id: approval.feature, family: 'holes', faces: approval.faces }] };
+  const forCopy = (analysis, id) => {
+    const { edit } = editForCopy({ kind: 'none', id, name: id }, analysis, analysis, face => face);
+    return editList(edit ? [edit] : []);
+  };
+  assert.deepEqual(forCopy(part, id), replacement, 'Each copy replaces its own approval');
+  const locating = 'part.locating';
+  assert.deepEqual(forCopy({ ...part, resume: { answers: { [locating]: 'position tolerances' } } }, locating),
+    { clear: [locating], fill: { [locating]: 'none' } }, 'A stored choice has no PMI to remove');
+
   // Two removes of the same number send it once.
   assert.deepEqual(editList([{ kind: 'remove', id: 'a', targets: ['#6'] }, { kind: 'remove', id: 'b', targets: ['#6', '#7'] }]).items.remove, ['#6', '#7']);
 });

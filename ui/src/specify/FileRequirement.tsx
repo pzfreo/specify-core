@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { IconButton, RemoveLine } from './row-actions';
 import { requirementLabel, rowSuggestionText, rowText, type FileRow } from './file-review';
+import { isNoneValue } from './feature-table';
 import type { Pending } from './edit-list';
 
 interface Props {
@@ -30,10 +31,11 @@ export function FileRequirement({ row, name, pending, open, disabled, problem, c
   const edit = pending?.kind === 'refused' ? undefined : pending;
   const removed = edit?.kind === 'remove';
   const entered = edit?.kind === 'fill' || edit?.kind === 'replace' || edit?.kind === 'change' || edit?.kind === 'accept' ? edit : undefined;
+  const decidedNone = edit?.kind === 'none' || (entered ? isNoneValue(entered.value) : isNoneValue(row.value));
   const state = edit?.kind === 'clear' ? 'gap'
-    : edit?.kind === 'none' ? 'decided_none'
+    : edit?.kind === 'none' || (edit?.kind === 'replace' && decidedNone) ? 'decided_none'
       : entered ? 'stated' : row.state;
-  const value = state === 'decided_none' ? 'none needed' : entered?.text ?? rowText(row);
+  const value = state === 'decided_none' && decidedNone ? 'none needed' : entered?.text ?? rowText(row);
   const suggested = rowSuggestionText(row);
   const notes = row.id === 'part.notes' ? entered?.value ?? row.value : null;
   return (
@@ -56,6 +58,7 @@ export function FileRequirement({ row, name, pending, open, disabled, problem, c
               {edit && <button type="button" onClick={onUndo}>Undo</button>}
             </> : state === 'decided_none' ? <>
               <button type="button" aria-expanded={open} onClick={onOpen}>Add</button>
+              {!decidedNone && <button type="button" onClick={onNone}>None needed</button>}
               <button type="button" onClick={onUndo}>Undo</button>
             </>
               : row.state === 'stated' && !row.bom ? <>

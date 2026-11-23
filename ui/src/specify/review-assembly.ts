@@ -1,7 +1,7 @@
 import type { PmiAnalysis, PmiExisting } from '../types/pmi.ts';
 import { PendingEdits, removalTargets, type CopyEditOrigin, type Pending } from './edit-list.ts';
-import { answerText, tableOf } from './feature-table.ts';
-import { otherRows, partFile, rowText, storedChoiceRow, valueEdit, type FileReviewOptions, type ReviewPart } from './file-review.ts';
+import { answerText, isNoneValue, tableOf } from './feature-table.ts';
+import { noneEdit, otherRows, partFile, rowText, storedChoiceRow, valueEdit, type FileReviewOptions, type ReviewPart } from './file-review.ts';
 
 export type PartQueue = ReadonlyMap<number, PendingEdits>;
 
@@ -35,6 +35,8 @@ function storedRequirements(analysis: PmiAnalysis, anchor: PmiAnalysis, map: (fa
   const resume = analysis.resume;
   if (!analysis.table?.rows.length || resume?.unverified || resume?.unresolved?.length || resume?.dropped_answers?.length) return;
   const { _specify, ...answers } = resume?.answers ?? {};
+  // Evidence binds an answer map to one part's indexing. The engine verifies it on load,
+  // and this key compares the resulting decisions through the engine's face correspondence.
   const meta = _specify as { evidence?: unknown; no_pmi?: readonly string[]; unresolved?: Record<string, string> } | undefined;
   if (meta && (Object.keys(meta.unresolved ?? {}).length ||
     Object.keys(meta).some(key => !['evidence', 'no_pmi', 'unresolved'].includes(key)))) return;
@@ -166,12 +168,8 @@ export function editForCopy(edit: Pending, source: PmiAnalysis, target: PmiAnaly
     return { id, edit: { ...editBase, kind: 'remove', targets, was: answerText(row.value) } };
   }
   if (edit.kind === 'clear') return { id, edit: row?.state === 'decided_none' || id in (target.resume?.answers ?? {}) ? { ...edit, id } : undefined };
-  if (edit.kind === 'none') {
-    if (row?.state === 'decided_none') return { id };
-    // A copy can already state this requirement. Take it back and record None in the same list.
-    const targets = row?.state === 'stated'
-      ? removalTargets(row.requirements?.flatMap(item => item.number ? [item.number] : []) ?? [], id) : undefined;
-    return { id, edit: { ...editBase, kind: 'none', targets } };
+  if (edit.kind === 'none' || (edit.kind === 'replace' && isNoneValue(edit.value))) {
+    return { id, edit: noneEdit(row, id, edit.name) };
   }
   const value = mappedValue(edit.value, map);
   return { id, edit: valueEdit(row, id, edit.name, value) };
