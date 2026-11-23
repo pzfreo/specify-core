@@ -176,7 +176,11 @@ export function fileRows(
     // BOM questions carry proposal strings in suggestions instead of ordinary defaults.
     const question = row?.state === 'stated' ? {
       ...described, faces: row.faces, ...(datumId(id) ? { default: row.faces, kind: 'faces' as const } : {}),
-    } : bom ? { ...described, default: described.default ?? described.suggestions?.find(value => typeof value === 'string') } : described;
+    } : bom ? {
+      ...described,
+      default: described.default ?? described.suggestions?.find(value => typeof value === 'string'),
+      basis: described.basis || described.why,
+    } : described;
     rows.push({
       id, kind, faces: question.faces.slice(), open: false, state: 'gap',
       ...row, feature, question: owner ? { ...question, feature, title: labels.find(q => q.feature === feature)?.title ?? question.title } : question, decision, bom,

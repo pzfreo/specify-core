@@ -283,7 +283,7 @@ const row = (page, id) => page.locator(`[data-row="${id}"]`);
 const material = page => row(page, 'part.material');
 /** The bar's entry for row ``id``. */
 const listedEdit = (page, id) => page.locator(`.spec-bar [data-pending="${id}"]`);
-/** Add on gap ``id``: its line opens pre-filled with the suggestion; ``value`` typed over it, if given. */
+/** Keep a gap's suggestion or type a value in its catalogue box. */
 const changedRows = page => page.locator('.pmi-lab-file-row.changed, .spec-row.changed');
 const rowValue = locator => locator.locator(':scope > .pmi-lab-line > .value, :scope > .v');
 const noteIds = new Set(['part.coating', 'part.heat_treatment', 'part.notes', 'part.surface_finish', 'part.edges']);
@@ -297,25 +297,22 @@ async function showRow(page, id) {
 
 async function add(page, id, value) {
   const r = await showRow(page, id);
-  if (id === 'part.general_tolerance') {
-    await r.locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
-    await r.locator('.spec-edit').getByRole('button', { name: 'Add', exact: true }).click();
-    await check(r.locator('.spec-edit')).toHaveCount(0);
-  } else if (value === undefined) {
-    await r.getByRole('button', { name: /^(Keep|Keep suggestion)$/ }).click();
+  if (value === undefined) {
+    await r.getByRole('button', { name: 'Keep', exact: true }).click();
   } else {
-    await r.locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
     const input = r.getByRole('combobox');
     await input.fill(value);
     await input.press('Enter');
-    await check(r.locator('.pmi-lab-file-input')).toHaveCount(0);
+    await check(input).toHaveCount(0);
   }
   await check(listedEdit(page, id)).toBeVisible();
 }
 
 async function noneNeeded(page, id) {
   const r = await showRow(page, id);
-  await r.getByRole('button', { name: 'None needed', exact: true }).click();
+  const none = r.getByRole('button', { name: /^None(?: needed)?$/i });
+  if (id.startsWith('datum.') && !await none.count()) await r.locator('.pmi-lab-line > .name').click();
+  await none.click();
   await check(r).toHaveAttribute('data-state', 'decided_none');
   await check(listedEdit(page, id)).toBeVisible();
 }
@@ -325,8 +322,7 @@ async function saveWhileNotesAreReopened(page) {
   const notes = page.locator('details.pmi-lab-notes');
   const summary = notes.locator('summary');
   const coating = row(page, 'part.coating');
-  const addCoating = coating.locator('.acts').getByRole('button', { name: 'Add', exact: true });
-  await addCoating.click(); // Programmatic unfolding used to own the disclosure.
+  await coating.getByRole('button', { name: 'Coating', exact: true }).click();
   await summary.click();
   await check(notes).toHaveJSProperty('open', false);
 
@@ -345,9 +341,9 @@ async function saveWhileNotesAreReopened(page) {
     });
   }
   await check(save).toBeEnabled();
-  await check(coating.locator('.pmi-lab-file-input')).toHaveCount(0); // Reopened from the saved review.
+  await check(listedEdit(page, 'part.heat_treatment')).toHaveCount(0); // Reopened from the saved review.
   assert.equal(await notes.evaluate(details => details.open), true, 'Finish and notes stays open when the held review lands');
-  await addCoating.click({ trial: true });
+  await coating.getByRole('combobox', { name: 'Coating', exact: true }).click({ trial: true });
 }
 
 /** Every row's value fits its box and keeps clear of the row's icons and buttons. */
@@ -751,7 +747,7 @@ try {
     // A bare part: every feature-and-kind is a gap, with Specify's suggestion as a chip (decision 5);
     // nothing is highlighted before an edit (decision 6), and the bar says nothing is written until Save.
     await check(material(page)).toHaveAttribute('data-state', 'gap');
-    await check(row(page, 'part.general_tolerance').locator('.sugg')).toHaveText('suggested: ISO 2768-m');
+    await check(row(page, 'part.general_tolerance').locator('.suggested')).toContainText('Suggested: ISO 2768-m');
     await check(changedRows(page)).toHaveCount(0);
     await check(page.locator('.spec-bar')).toContainText('No changes yet. Nothing is written until Save.');
     // Save with nothing edited writes nothing, and says so (the mock-up's "Nothing to save.").
@@ -787,13 +783,11 @@ try {
     await check(changedRows(page)).toHaveCount(0);
     await check(page.locator('.app-dirty')).toHaveCount(0);
     assert.deepEqual(readFileSync(specified), readFileSync(plainSave), 'Discard writes nothing');
-    // Add, pre-filled with the suggestion (decision 5): the general tolerance in its editor, as a class.
-    // (It is saved in the refusal case below: on this base it also writes the dimensions it covers.)
-    await row(page, 'part.general_tolerance').locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
+    // More opens the general tolerance's class chips and custom block.
     const gt = row(page, 'part.general_tolerance');
-    await check(gt.getByRole('combobox', { name: 'General tolerance class' })).toHaveValue('ISO 2768-m');
     // Or a block, row by row (#228 decision 2): the half-shell's title block, entered line by line,
     // is the one line of text the edit list carries.
+    await gt.getByRole('button', { name: 'More…', exact: true }).click();
     await gt.getByRole('radio', { name: 'A block, row by row' }).check();
     await gt.getByRole('combobox', { name: 'Units' }).selectOption('in');
     await gt.getByRole('combobox', { name: 'Row 1 decimal places' }).selectOption('2');
@@ -810,13 +804,12 @@ try {
     await gt.getByRole('textbox', { name: 'Angles' }).fill('±1°');
     const block = '.XX ±.01, .XXX ±.005, fractions ±1/64, angles ±1°';
     await check(gt.locator('.spec-gt-text code')).toHaveText(block);
-    await gt.locator('.spec-edit').getByRole('button', { name: 'Add', exact: true }).click();
+    await gt.getByRole('button', { name: 'Keep tolerance', exact: true }).click();
     // The engine takes the block (#228): its check passes and the bar shows it as entered.
     await check(gt.locator('.spec-problem')).toHaveCount(0);
     await check(listedEdit(page, 'part.general_tolerance')).toHaveText(`Add General tolerance: ${block}`);
     await page.getByRole('button', { name: 'Discard', exact: true }).click();
     const notes = await showRow(page, 'part.notes');
-    await notes.locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
     await notes.getByRole('textbox', { name: 'Other notes' }).fill('Deburr all edges\nMark lot');
     await notes.getByRole('button', { name: 'Add notes', exact: true }).click();
     await check(notes.locator('.spec-note')).toHaveText(['Deburr all edges', 'Mark lot']);
@@ -824,17 +817,17 @@ try {
     await add(page, 'part.material', 'Aluminium 6082-T6');
     // Each edit joins the bar only if the file takes it with those listed (the bar is always a list
     // Save can write): a hole's position before the datum it cites is refused, saying so.
-    await row(page, 'hole.position:holes:13').locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
-    await row(page, 'hole.position:holes:13').getByRole('button', { name: /^(Keep|Keep suggestion)$/ }).click();
+    await row(page, 'hole.position:holes:13').getByRole('button', { name: 'Keep', exact: true }).click();
     await check(row(page, 'hole.position:holes:13').locator('.spec-problem')).toContainText('fill datum.A');
-    await row(page, 'hole.position:holes:13').getByRole('button', { name: 'Cancel', exact: true }).click();
     await add(page, 'datum.A');
     await add(page, 'hole.position:holes:14.15');
     await add(page, 'hole.position:holes:13');
-    // A choice with no none option stays a gap and explains the refusal on its own row.
+    // Process offers its suggestion and choices without the old Add editor or an invalid None.
     const processRow = row(page, 'part.process');
-    await processRow.getByRole('button', { name: 'None needed', exact: true }).click();
-    await check(processRow.getByRole('alert')).toContainText("'none' is not an answer");
+    await processRow.getByRole('button', { name: 'More…', exact: true }).click();
+    await check(processRow.getByRole('button', { name: /^(Add|None(?: needed)?)$/i })
+      .or(processRow.locator('select, [placeholder="Or type a value"], [role="alert"]'))).toHaveCount(0);
+    await processRow.locator('.pmi-lab-line > .name').click();
     await check(processRow).toHaveAttribute('data-state', 'gap');
     await check(listedEdit(page, 'part.process')).toHaveCount(0);
     // None needed records the decision; Undo of one made in this session drops it; None needed again.
@@ -856,14 +849,14 @@ try {
     problems.splice(beforeSave, problems.length - beforeSave,
       ...problems.slice(beforeSave).filter(p => !/^console: .*422/.test(p)));
     // A value the file cannot take is refused on its line, by the engine, and never joins the bar.
-    await (await showRow(page, 'part.surface_finish')).locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
+    await (await showRow(page, 'part.surface_finish')).getByRole('button', { name: 'More…', exact: true }).click();
     await row(page, 'part.surface_finish').getByRole('textbox', { name: /^Type a spec/ }).fill('shiny');
     const beforeTyped = await page.evaluate(() => window.__engineOps.length);
     await row(page, 'part.surface_finish').getByRole('button', { name: 'Use', exact: true }).click();
     await check(row(page, 'part.surface_finish').getByRole('alert')).toContainText('not an answer');
     assert.ok((await page.evaluate(from => window.__engineOps.slice(from), beforeTyped)).includes('check-edits'),
       'the engine checks the proposed fill against the file');
-    await row(page, 'part.surface_finish').getByRole('button', { name: 'Cancel', exact: true }).click();
+    await row(page, 'part.surface_finish').getByRole('button', { name: 'Surface finish', exact: true }).click();
     await check(listedEdit(page, 'part.surface_finish')).toHaveCount(0);
     // Only the unsaved edits are highlighted (decision 6).
     await check(changedRows(page)).toHaveCount(5);

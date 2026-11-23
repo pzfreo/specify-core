@@ -119,7 +119,7 @@ export interface PmiQuestion {
   readonly diameter?: number;
   readonly depth?: number;
   readonly id: string;
-  readonly kind: 'choice' | 'text' | 'faces';
+  readonly kind: 'choice' | 'text' | 'text_list' | 'faces';
   readonly prompt: string;
   readonly faces: readonly number[];
   readonly default: unknown;

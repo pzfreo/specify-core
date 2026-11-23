@@ -82,14 +82,13 @@ const question = (page, id) => page.locator(`[data-row="${id}"]`);
 async function noneNeeded(page, id) {
   const notes = page.locator('details.pmi-lab-notes');
   if (await notes.count() && await notes.getAttribute('open') === null) await notes.locator('summary').click();
-  await question(page, id).getByRole('button', { name: 'None needed', exact: true }).click();
+  await question(page, id).getByRole('button', { name: 'None', exact: true }).click();
   await check(page.locator(`.spec-bar [data-pending="${id}"]`)).toBeVisible();
 }
-/** Add on the general-tolerance gap, pre-filled with its suggestion. */
+/** Keep the general tolerance's suggestion. */
 async function add(page, id) {
   const row = question(page, id);
-  await row.locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
-  await row.locator('.spec-edit').getByRole('button', { name: 'Add', exact: true }).click();
+  await row.getByRole('button', { name: 'Keep', exact: true }).click();
   await check(page.locator(`.spec-bar [data-pending="${id}"]`)).toBeVisible();
 }
 const agents = [];
@@ -345,7 +344,7 @@ try {
     // The joined part opens with the same review actions as a part already in the session.
     await page.getByRole('button', { name: 'Show it' }).click();
     await check(page.locator('.app-part select')).toHaveValue(String(b));
-    await check(question(page, 'part.material').getByRole('button', { name: 'Add', exact: true })).toBeEnabled();
+    await check(question(page, 'part.material').getByRole('combobox', { name: 'Material', exact: true })).toBeEnabled();
     void docB;
     await context.close();
     agent.stop();

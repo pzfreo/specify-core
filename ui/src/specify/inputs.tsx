@@ -12,6 +12,7 @@ import { fmt } from './labels';
 import { codeOf, matchSuggestions, purposeOf, purposes } from './choose';
 
 const SPEC_EXAMPLE: readonly (readonly [string, string])[] = [
+  ['part.surface_finish', 'e.g. Ra 3.2'],
   ['hole.function:', 'e.g. H7, M5, clearance M6'],
   ['diameter.fit:', 'e.g. g6, M10, diamond knurl'],
   ['hole.position:', 'e.g. 0.15'],
@@ -64,8 +65,9 @@ export function PurposeChoice({ q, value, onAnswer, onPoint }: {
 }
 
 /** A typed spec. Return null on acceptance, a refusal message, or false if the row shows the refusal. */
-export function SpecBox({ q, codes, onSpec }: {
+export function SpecBox({ q, codes, onSpec, placeholder = 'Or type a value' }: {
   q: PmiQuestion; codes: readonly string[]; onSpec: (text: string) => Promise<string | null | false>;
+  placeholder?: string;
 }) {
   const [text, setText] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
@@ -85,7 +87,7 @@ export function SpecBox({ q, codes, onSpec }: {
     <form className="pmi-lab-spec" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
       <div className="row">
         <input
-          type="text" value={text} list={codes.length ? list : undefined} placeholder={example || 'Or type a value'}
+          type="text" value={text} list={codes.length ? list : undefined} placeholder={example || placeholder}
           aria-label={`Type a spec: ${q.prompt}`} autoCapitalize="off" autoCorrect="off" spellCheck={false}
           onChange={(event) => { setText(event.target.value); setProblem(null); }}
         />
@@ -376,8 +378,9 @@ export function ExtraEditor({
  * choice ticked beside a few alternatives -- one tap keeps or changes it --
  * and why it was chosen, or why it is doubted.
  */
-export function SuggestionCard({ c, onKeep, onPick, onMore }: {
+export function SuggestionCard({ c, onKeep, onPick, onMore, more, children }: {
   c: Chosen; onKeep: () => void; onPick: (value: string) => void; onMore: () => void;
+  more?: string; children?: ReactNode;
 }) {
   return (
     <div className={`pmi-lab-suggestion${c.check ? ' check' : ''}`}>
@@ -387,19 +390,17 @@ export function SuggestionCard({ c, onKeep, onPick, onMore }: {
         <span>Suggested: <b>{c.what.split(': ').slice(1).join(': ') || c.options[0]?.label || c.what}</b></span>
         <button type="button" className="keep" title="Keep this suggestion as the answer" onClick={onKeep}>Keep</button>
       </div>
-      <div className="btns">
-        {c.options.length ? (
-          <>
-            {c.options.slice(1).map((o) => (
-              <button key={o.value} type="button" title={`Choose ${o.label} instead`} onClick={() => onPick(o.value)}>{o.label}</button>
-            ))}
-            {c.more && <button type="button" className="more" onClick={onMore}>More…</button>}
-          </>
-        ) : (
-          <button type="button" className="more" onClick={onMore}>Pick on the part…</button>
-        )}
-      </div>
-      {c.why && <div className="why">{c.why}</div>}
+      {children ?? <>
+        <div className="btns">
+          {c.options.slice(1).map((o) => (
+            <button key={o.value} type="button" title={`Choose ${o.label} instead`} onClick={() => onPick(o.value)}>{o.label}</button>
+          ))}
+          {(more || c.more || !c.options.length) && (
+            <button type="button" className="more" onClick={onMore}>{more ?? (c.options.length ? 'More…' : 'Pick on the part…')}</button>
+          )}
+        </div>
+        {c.why && <div className="why">{c.why}</div>}
+      </>}
     </div>
   );
 }

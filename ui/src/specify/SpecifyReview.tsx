@@ -6,8 +6,8 @@ import { EditBar } from './EditBar';
 import { GeneralToleranceEditor } from './GeneralToleranceEditor';
 import { fileLengthUnit, type Units } from './general-tolerance';
 import { EMPTY_PENDING, EMPTY_QUEUE, linkedParts, mergePending, pendingActions, queueCopies, withoutPendingAction, type PartQueue } from './review-assembly';
-import { FileRequirement } from './FileRequirement';
-import { askFile, checkPending, CheckRefused, datumId, fileRows, focusedRequirement, impliedAnswers, noneEdit, otherRows, partFile, queueValue, replacedRequirements, requirementName, retiredNumbers, rowSuggestion, rowSuggestionText, rowText, savePending, withStoredAnswers, type FileReviewOptions, type FileRow, type ReviewFocus } from './file-review';
+import { FileRequirement, fileRequirementState } from './FileRequirement';
+import { askFile, checkPending, CheckRefused, datumId, fileRows, focusedRequirement, impliedAnswers, otherRows, partFile, queueValue, replacedRequirements, requirementName, retiredNumbers, rowSuggestion, rowSuggestionText, rowText, savePending, withStoredAnswers, type FileReviewOptions, type FileRow, type ReviewFocus } from './file-review';
 import { PendingEdits, failedEdit, rejectedNoneByPart, removalTargets, suggestionEdits, type EditFailure } from './edit-list';
 import { answerText, isNoneValue, tableOf, withoutRequirements } from './feature-table';
 import type { StoredInspection } from './saved-inspection';
@@ -53,6 +53,11 @@ const PART_FIELD: Record<string, string> = {
 };
 /** One name per question everywhere: the engine's label, else the short name, else its prompt. */
 const labelOf = (q: PmiQuestion) => q.label ?? PART_FIELD[q.id] ?? q.prompt;
+const rowChoiceOnly = (q: PmiQuestion) => q.id === 'part.process' || q.id === 'part.locating'
+  || q.id === 'part.edges' || q.id.startsWith('bom.');
+const offersNone = (q: PmiQuestion) => q.kind === 'choice' ? q.options?.some(isNoneValue)
+  : q.kind === 'faces' ? datumId(q.id)
+  : q.kind === 'text_list' || (!q.id.startsWith('bom.') && q.suggestions?.some(option => isNoneValue(option.value)));
 /** The part's notes, folded under "Finish and notes". */
 const NOTE_FIELDS = new Set(['part.surface_finish', 'part.coating', 'part.heat_treatment', 'part.edges']);
 const GENERAL_TOLERANCE = 'part.general_tolerance';
@@ -614,7 +619,10 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         setSaveFailures([]);
         setError(skipped.length ? { at, problem: asError(new Error(`Not added: ${skipped.join(' · ')}`)) } : null);
         setSavedStatus(null);
-        if (focus) setCurrent(focus(groupQuestions(asked.questions), given));
+        if (focus) {
+          setUnfolded(row => row === at || row === `note:${at}` ? null : row);
+          setCurrent(focus(groupQuestions(asked.questions), given));
+        }
         return true;
       } catch (failure) {
         setError({ at, problem: asError(failure) });
@@ -925,11 +933,11 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   // Keep all asked for: its list is shown until it is confirmed or cancelled.
   const [keepingAll, setKeepingAll] = useState(false);
   const applied = appliedByRule(preview);
-  const card = (c: Chosen) => (
+  const card = (c: Chosen, more?: string, children?: ReactNode) => (
     <SuggestionCard
       key={c.id} c={c} onKeep={() => keepChosen([c.id])} onPick={(value) => pickChosen(c.id, value)}
-      onMore={() => changeChosen(c.id)}
-    />
+      onMore={() => changeChosen(c.id)} more={more}
+    >{children}</SuggestionCard>
   );
   // Each problem shown in the row it is about.
   const rowOf = (about: string) => (about.startsWith('extra.') ? 'added'
@@ -1167,11 +1175,17 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   // A row: its head and summary, a check to confirm, and when open its questions.
   // A tick is for what the person (or their agent) answered or kept; a suggestion not yet kept has none.
   const isKept = (q: PmiQuestion) => q.id in answers || Boolean(kept?.includes(q.id));
-  const questionItem = (q: PmiQuestion, g: QuestionGroup, titled = true) => (
+  const specInput = (q: PmiQuestion) => {
+    if (editingFile && (rowChoiceOnly(q) || q.id === GENERAL_TOLERANCE)) return undefined;
+    // Part finish takes a literal value checked against the file. Feature specs are interpreted.
+    if (editingFile && q.id === 'part.surface_finish') return async (text: string) => await answer(q, text) ? null : false as const;
+    return (text: string) => spec(q, text);
+  };
+  const questionItem = (q: PmiQuestion, g: QuestionGroup, titled = true, active = q.id === current) => (
     <QuestionItem titled={titled} kept={isKept(q)}
-      key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} active={q.id === current}
+      key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} active={active}
       selection={selection} mode={mode} error={editingFile ? null : errorAt(q.id)} typed={typed[q.id] ?? null}
-      locked={readOnly} file={editingFile} onSpec={(text) => spec(q, text)}
+      locked={readOnly} file={editingFile} onSpec={specInput(q)}
       onOpen={() => setCurrent(q.id)}
       onAnswer={(value) => answer(q, value)}
       onConfirm={() => confirm(g)}
@@ -1199,6 +1213,8 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     const edit = pending.get(id);
     const partField = id.startsWith('part.');
     const open = id === current || (partField && unfolded === id);
+    const here = open && !(slots.question && id === current);
+    const slotOwnsQuestion = Boolean(slots.question && id === current);
     const label = requirementName(q);
     const onClose = () => {
       setCurrent(active => active === id ? null : active);
@@ -1216,36 +1232,32 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         targets: removalTargets(row.requirements?.flatMap(requirement => requirement.number ? [requirement.number] : []) ?? [], id),
       }));
     const stated = row.state === 'stated' && edit?.kind !== 'clear';
-    const proposed = chosenById.get(id);
+    const state = fileRequirementState(row, edit);
+    const proposed = state === 'gap' ? chosenById.get(id) : undefined;
     const refusal = errorAt(id)?.message ?? refusedNone.get(activePart)?.get(id) ?? (edit?.kind === 'refused' ? edit.reason : undefined);
     const given = edit?.kind === 'change' || edit?.kind === 'replace' || edit?.kind === 'fill' || edit?.kind === 'accept' ? edit.value : row.value;
     const apply = (value: unknown) => answerFile(q, value).then(ok => { if (ok) onClose(); return ok; });
+    const textField = (partField || row.bom) && q.kind !== 'choice';
     const input = id === GENERAL_TOLERANCE
       ? <ToleranceField row={row} value={given ?? q.default} units={units} changing={stated} onApply={apply} onCancel={onClose} />
-      : stated && q.kind !== 'faces'
+      : stated && q.kind !== 'faces' && !row.decision
       ? <StatedField key={id} row={row} given={given}
         onApply={apply} onCancel={onClose} />
-      : partField ? <div className="pmi-lab-file-input">
-        <PartField key={`${id}:${JSON.stringify(answers[id])}`} q={q} answers={answers} error={null}
-          file onAnswer={value => answer(q, value).then(ok => { if (ok) onClose(); return ok; })} />
-        {/* Keep the 0.2 part-settings dropdown and the file panel's typed Add.
-            The writer checks typed part settings as answers. Feature specs go through interpret. */}
-        {q.kind === 'choice' && <SpecBox q={q} codes={[]} onSpec={async text => await apply(text) ? null : false} />}
-        <button type="button" onClick={onClose}>Cancel</button>
-      </div> : <div className="pmi-lab-file-input">
-        {questionItem(q, g)}
-        <button type="button" onClick={onClose}>Cancel</button>
-      </div>;
-    return <FileRequirement key={id} row={row} name={label} pending={edit} open={open && !(slots.question && id === current)}
-      disabled={disabled || editBusy} problem={refusal} copies={copyCount} card={proposed ? card(proposed) : undefined}
-      onOpen={() => openFileRow(row)} onClose={onClose} onKeep={() => keepChosen([id])}
-      onNone={() => void commitFile(id, list => {
-        const none = noneEdit(row, id, label);
-        return none ? list.with(none) : list.get(id) ? list.without(id) : list;
-      }, (asked, next) => settled([id], asked, next))}
+      : textField
+      ? <PartField key={`${id}:${JSON.stringify(answers[id])}`} q={q} answers={answers} error={null} file onAnswer={apply} />
+      : questionItem(q, g, true, true);
+    // More expands the suggestion itself. Saved and pending values stay folded until selected.
+    const more = q.kind === 'faces' ? 'Pick on the part…'
+      : q.kind === 'choice' && rowChoiceOnly(q) ? undefined : 'More…';
+    const controls = slotOwnsQuestion ? null : proposed
+      ? card(proposed, more, here ? input : undefined)
+      : here || (state !== 'stated' && q.kind !== 'faces') ? input : null;
+    return <FileRequirement key={id} row={row} name={label} pending={edit} open={here}
+      disabled={disabled || editBusy} problem={refusal} copies={copyCount}
+      onOpen={() => openFileRow(row)} onClose={onClose}
       onUndo={undo} onRemove={remove}
       removalWarning={datumId(id) ? removal(id.slice(6), chips, answers, preview).warning : undefined}>
-      {input}
+      {controls}
     </FileRequirement>;
   };
   const renderOther = (row: FileRow) => {
@@ -1254,7 +1266,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     return <FileRequirement key={row.id} row={row} name={name} pending={pending.get(row.id)} open={false}
       disabled={disabled || editBusy} copies={copyCount} problem={errorAt(row.id)?.message}
       onOpen={() => { picker.current?.highlight(row.faces); if (row.faces.length) picker.current?.lookAt(row.faces); }}
-      onClose={() => setError(null)} onNone={() => {}} onKeep={() => {}}
+      onClose={() => setError(null)}
       onUndo={() => void commitFile(row.id, list => list.without(row.id))}
       onRemove={() => commitFile(row.id, list => list.with({
         kind: 'remove', id: row.id, name, was: rowText(row), targets: removalTargets(item.number ? [item.number] : [], item.id),
@@ -1315,7 +1327,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         </button>
         {rowProblems}
         {extra}
-        {cards.length > 0 && <div className="pmi-lab-cards">{cards.map(card)}</div>}
+        {cards.length > 0 && <div className="pmi-lab-cards">{cards.map(c => card(c))}</div>}
         {/* Not twice: the current question shown in its queue row is answered there. */}
         {editingFile ? g.questions.filter(q => !onlySuggestions || open || needs(q, answers) || chosenById.has(q.id)
           || problems.some(p => p.about === q.id)).map(q => renderFileRow(q, g))
@@ -1611,7 +1623,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
                   {!onlySuggestions && (
                     <FoldedLine name="Finish and notes" value={notesSummary || 'none'} onOpen={() => setUnfolded('notes')} />
                   )}
-                  {!readOnly && notes.flatMap((q) => chosenById.get(q.id) ?? []).map(card)}
+                  {!readOnly && notes.flatMap((q) => chosenById.get(q.id) ?? []).map(c => card(c))}
                 </>
               ))}
             </section>
@@ -1805,26 +1817,40 @@ function PartField({ q, answers, error, onAnswer, locked = false, file = false }
       {need === 'required' && <em> required</em>}
     </span>
   );
+  const entered = answers[q.id];
+  const text = typeof entered === 'string' && (!file || !isNoneValue(entered)) ? entered : '';
+  const none = file && offersNone(q) && (entered === undefined || !isNoneValue(entered))
+    ? <button type="button" onClick={() => void onAnswer(q.id === 'part.notes' ? [] : 'none')}>None</button>
+    : null;
   const rest = (
     <>
-      {need === 'required' && <span className="why">{q.why}</span>}
+      {(file || need === 'required') && <span className="why">{q.why}</span>}
       {q.kind === 'choice' && typeof value === 'string' && optionHint(q, value) && (
         <span className="why">{optionHint(q, value)}</span>
       )}
       {error && <span role="alert" className="pmi-lab-error">{error.message}</span>}
     </>
   );
+  if (file && q.id === 'part.notes') {
+    return <div className="pmi-lab-field">
+      {name}
+      <NotesInput value={value} onAnswer={onAnswer} />
+      {none}
+      {rest}
+    </div>;
+  }
   // A suggesting box is not wrapped in a label: a click on a suggestion would
   // focus the box again and reopen the list.
-  if (q.kind === 'text' && q.suggestions?.length) {
+  if (q.kind === 'text' && q.suggestions?.length && !q.id.startsWith('bom.')) {
     return (
       <div className={`pmi-lab-field${need ? ` ${need}` : ''}`} title={q.why} role="group" aria-label={label} data-question={file ? undefined : q.id}>
         {name}
         {lock(<SuggestBox
-          label={label} value={typeof answers[q.id] === 'string' ? answers[q.id] as string : ''}
+          label={label} value={text}
           suggestions={q.suggestions} placeholder={placeholder} invalid={need === 'required'}
           onAnswer={onAnswer}
         />, locked)}
+        {none}
         {rest}
       </div>
     );
@@ -1832,16 +1858,15 @@ function PartField({ q, answers, error, onAnswer, locked = false, file = false }
   return (
     <label className={`pmi-lab-field${need ? ` ${need}` : ''}`} title={q.why} data-question={file ? undefined : q.id}>
       {name}
-      {lock(file && q.id === 'part.notes' ? <NotesInput value={value} onAnswer={onAnswer} /> : q.kind === 'choice' ? (
+      {lock(q.kind === 'choice' ? (
         <select value={typeof value === 'string' ? value : ''} onChange={(event) => onAnswer(event.target.value)}>
-          {file && typeof value === 'string' && !q.options?.includes(value) && <option value={value}>{value}</option>}
           {(q.options ?? []).map((option) => (
             <option key={option} value={option}>{option}{option === editorDefault(q) ? ' (default)' : ''}</option>
           ))}
         </select>
       ) : (
         <input
-          type="text" defaultValue={typeof answers[q.id] === 'string' ? answers[q.id] as string : ''}
+          type="text" defaultValue={text}
           placeholder={placeholder}
           onBlur={(event) => {
             const typedText = event.target.value.trim();
@@ -1878,7 +1903,7 @@ function QuestionItem({
   titled?: boolean;
   q: PmiQuestion; answers: PmiAnswers; active: boolean; selection: number[]; mode: PickMode;
   error: PmiLabError | null; typed: PmiInterpretation | null; onOpen: () => void; onAnswer: (value: unknown) => void;
-  onSpec: (text: string) => Promise<string | null>; onConfirm: () => void;
+  onSpec?: (text: string) => Promise<string | null | false>; onConfirm: () => void;
   onReset: () => void; onMode: (mode: PickMode) => void; onDefaultSelection: () => void;
 }) {
   const need = needs(q, answers);
@@ -1936,12 +1961,13 @@ function QuestionItem({
           )}
           {callout && <div className="callout"><span>On the drawing</span> {callout}</div>}
           {hint && <div className="hint"><b>{codeOf(q, hintFor)}</b> {hint}</div>}
-          {file && /^(length:|location:)/.test(q.id) && <div className="pmi-lab-quick" aria-label="Tolerance quick picks">
+          {onSpec && file && /^(length:|location:)/.test(q.id) && <div className="pmi-lab-quick" aria-label="Tolerance quick picks">
             {TOLERANCE_PICKS.filter(value => value.startsWith('±')).map(value => (
               <button type="button" key={value} onClick={() => void onSpec(value)}>{value}</button>
             ))}
           </div>}
-          <SpecBox q={q} codes={(q.choices ?? []).map((c) => c.code)} onSpec={onSpec} />
+          {onSpec && <SpecBox q={q} codes={(q.choices ?? []).map((c) => c.code)} onSpec={onSpec}
+            placeholder={file ? 'Type a spec' : undefined} />}
         </>
       )}
       {q.kind === 'text' && (
@@ -1963,8 +1989,8 @@ function QuestionItem({
           </div>
           <div className="faces">{selection.length ? `faces ${selection.join(', ')}` : 'nothing selected'}</div>
           <div className="opts">
-            <button type="button" onClick={() => onAnswer(selection)}>Use selection</button>
-            <button type="button" onClick={() => onAnswer([])}>None</button>
+            <button type="button" disabled={file && !selection.length} onClick={() => onAnswer(selection)}>Use selection</button>
+            {(!file || offersNone(q)) && <button type="button" onClick={() => onAnswer([])}>None</button>}
             <button type="button" onClick={onDefaultSelection}>Default</button>
           </div>
           <div className="why">Click to select, shift-click to add. Drag to turn the part.</div>
@@ -2020,15 +2046,18 @@ function ToleranceField({ row, value, units, changing, onApply, onCancel }: {
   onApply(value: unknown): Promise<boolean>; onCancel(): void;
 }) {
   const [text, setText] = useState(answerText(value));
+  const [block, setBlock] = useState(false);
   return <form className="spec-edit" onSubmit={event => {
     event.preventDefault();
-    if (text.trim()) void onApply(text.trim());
+    if ((changing || block) && text.trim()) void onApply(text.trim());
   }}>
-    <div className="now">{changing ? <>Now: <b>{rowText(row)}</b></> : 'Nothing stated yet.'}</div>
-    <GeneralToleranceEditor text={text} units={units} classes={row.question.options ?? []} onChange={setText} />
-    <div className="foot">
-      <button type="submit" className="primary" disabled={!text.trim()}>{changing ? 'Apply' : 'Add'}</button>
-      <button type="button" onClick={onCancel}>Cancel</button>
-    </div>
+    {changing && <div className="now">Now: <b>{rowText(row)}</b></div>}
+    <GeneralToleranceEditor text={text} units={units} classes={row.question.options ?? []}
+      onChange={(next, form) => { setText(next); setBlock(form === 'block'); }}
+      onClass={changing ? undefined : value => { void onApply(value); }} />
+    {(changing || block) && <div className="foot">
+      <button type="submit" className="primary" disabled={!text.trim()}>{changing ? 'Apply' : 'Keep tolerance'}</button>
+      {changing && <button type="button" onClick={onCancel}>Cancel</button>}
+    </div>}
   </form>;
 }
