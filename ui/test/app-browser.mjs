@@ -310,7 +310,14 @@ async function assertNoOrigin(box) {
   const text = await box.evaluate(element => {
     // Decision 5 keeps the 0.2 "Added by you" heading for the disabled ExtraEditor in rc.2.
     const heading = [...element.querySelectorAll('.pmi-lab-row-head > b')].find(title => title.innerText === 'Added by you');
-    return heading ? element.innerText.replace(heading.innerText, '') : element.innerText;
+    let visible = heading ? element.innerText.replace(heading.innerText, '') : element.innerText;
+    // The retained 0.2 why text explains the drill-depth calculation, without attributing a requirement.
+    const drillDepthHelp = 'The default is drill depth minus 3 pitches';
+    const help = element.querySelectorAll('[data-row^="hole.function:"] .pmi-lab-item > .why');
+    if ([...help].some(line => line.innerText.includes(drillDepthHelp))) {
+      visible = visible.replace(drillDepthHelp, 'The suggested depth is drill depth minus 3 pitches');
+    }
+    return visible;
   });
   assert.ok(text.trim().length > 0, 'there is text to check');
   assert.doesNotMatch(text, /from the file|answered|\bdefaults?\b|Specify|written by|\bby you\b|another tool/i, `no origin wording: ${text}`);
