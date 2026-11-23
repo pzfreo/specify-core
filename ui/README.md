@@ -215,10 +215,11 @@ are listed last under **Other PMI in the file**.
   save. Parts outside the edit lists keep their entity bytes. **Discard** drops every pending edit.
   With an empty bar Save says “Nothing to save.” Only unsaved edits are highlighted. After a save
   the selected part opens from the saved file. The bar also lists characteristic numbers retired by the save.
-- Page edits follow engine-proven identical definitions with matching stated PMI. The row shows how many copies it covers.
+- Page edits follow engine-proven identical definitions with matching stated PMI and saved decisions.
+  The row shows how many copies it covers.
   The bar lists the originating edit once with its copy count. Undo drops that edit from every affected list.
   **Split off this copy** makes subsequent edits to the selected definition independent until Save.
-  Saved differences in PMI keep the definitions separate on reopen.
+  Differences in saved PMI or decisions keep the definitions separate on reopen.
   Several placements of a single STEP definition share that definition's edit list.
 
 `SpecifyReview` owns the rows, validation, pending lists, and edit bar. The local app supplies the part picker,
