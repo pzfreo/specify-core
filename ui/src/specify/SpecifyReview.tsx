@@ -7,7 +7,7 @@ import { GeneralToleranceEditor } from './GeneralToleranceEditor';
 import { fileLengthUnit, type Units } from './general-tolerance';
 import { EMPTY_PENDING, EMPTY_QUEUE, linkedParts, mergePending, pendingActions, queueCopies, withoutPendingAction, type PartQueue } from './review-assembly';
 import { FileRequirement } from './FileRequirement';
-import { askFile, checkPending, CheckRefused, datumId, fileRows, focusedRequirement, impliedAnswers, otherRows, partFile, queueValue, replacedRequirements, requirementName, retiredNumbers, rowSuggestion, rowSuggestionText, rowText, savePending, type FileReviewOptions, type FileRow, type ReviewFocus } from './file-review';
+import { askFile, checkPending, CheckRefused, datumId, fileRows, focusedRequirement, impliedAnswers, otherRows, partFile, queueValue, replacedRequirements, requirementName, retiredNumbers, rowSuggestion, rowSuggestionText, rowText, savePending, withStoredAnswers, type FileReviewOptions, type FileRow, type ReviewFocus } from './file-review';
 import { PendingEdits, failedEdit, rejectedNoneByPart, removalTargets, suggestionEdits, type EditFailure } from './edit-list';
 import { answerText, isNoneValue, tableOf, withoutRequirements } from './feature-table';
 import type { StoredInspection } from './saved-inspection';
@@ -147,7 +147,8 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const [askedQuestions, setQuestions] = useState<readonly PmiQuestion[]>(session.questions);
   // The engine's open questions: the Datums row is not answered while one of its own is open (specify-ui#14).
   const [openIds, setOpenIds] = useState<readonly string[]>(session.open);
-  const [answers, setAnswers] = useState<PmiAnswers>(session.answers ?? {});
+  const [answers, setAnswers] = useState<PmiAnswers>(() => editingFile
+    ? impliedAnswers(session.analysis, pending) : withStoredAnswers(session.analysis, { ...session.answers, ...externalAnswers }));
   const [resumed, setResumed] = useState(false);
   const [current, setCurrent] = useState<string | null>(null);
   // A refusal is shown by what was refused: a question's id, or null for the panel.
@@ -408,27 +409,23 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const committing = useRef(Promise.resolve(false));
   const sessionId = useRef(session.sessionId);
   const live = useCallback(<T,>(call: (id: string) => Promise<T>): Promise<T> => call(sessionId.current), []);
-  // Global project undo/redo and reopen feed the original UI's local review state.
-  useEffect(() => {
-    if (editingFile) return;
-    ++previewing.current; // An older preview must not overwrite a host undo/redo.
-    committedAnswers.current = externalAnswers;
-    setAnswers(externalAnswers);
-    setQuestions(externalReview.questions);
-    setOpenIds(externalReview.open);
-    setProblems(externalReview.problems);
-    setPreview(externalReview.intent);
-    setTyped((typed) => Object.fromEntries(Object.entries(typed).filter(([id, read]) => externalAnswers[id] === read.value)));
-  }, [externalAnswers, externalReview, editingFile]);
-
   const displayReview = useCallback((given: PmiAnswers, review: IntentReview) => {
     committedAnswers.current = given;
     setAnswers(given);
     setQuestions(review.questions);
-    setOpenIds(review.open);
+    setOpenIds(review.open.filter(id => !Object.hasOwn(given, id)));
     setProblems(review.problems ?? []);
     setPreview(review.intent);
   }, []);
+
+  // Host undo/redo applies over file decisions, including when the host has no answers of its own.
+  useEffect(() => {
+    if (editingFile) return;
+    ++previewing.current;
+    const given = withStoredAnswers(session.analysis, externalAnswers);
+    displayReview(given, externalReview);
+    setTyped(typed => Object.fromEntries(Object.entries(typed).filter(([id, read]) => given[id] === read.value)));
+  }, [externalAnswers, externalReview, editingFile, session.analysis, displayReview]);
 
   const shownEdits = useRef<{ sourceId: string; pending: PendingEdits } | null>(null);
   useEffect(() => {
@@ -487,30 +484,31 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
       setShowing(null);
       setView('review');
       setUnfolded(null);
-      displayReview(session.answers ?? {}, externalReview);
-      const first = groupQuestions(session.questions).filter(g => g.key !== 'part');
       const given = impliedAnswers(session.analysis, pending);
+      displayReview(given, externalReview);
+      const first = groupQuestions(session.questions).filter(g => g.key !== 'part');
       setCurrent(focusId ?? nextNeeding(first, given));
       if (session.questions.some(q => q.id === 'part.material' && needs(q, given) === 'required')) setUnfolded('part.material');
       return;
     }
     // A STEP Specify wrote carries on from the answers it was written with.
-    const saved = session.answers ?? session.analysis.resume?.answers;
+    const saved = withStoredAnswers(session.analysis, session.answers ?? {});
     if (readOnly) {
       // Nothing is asked: the answers it was saved with are only read, to judge what is set.
       setCurrent(null);
-      if (saved && Object.keys(saved).length > 0) {
-        committedAnswers.current = saved;
-        setAnswers(saved);
+      const given = { ...saved, ...externalAnswers };
+      if (Object.keys(given).length > 0) {
+        committedAnswers.current = given;
+        setAnswers(given);
       }
-      void start.relabel(saved ?? {});
+      void start.relabel(given);
       return;
     }
-    if (saved && Object.keys(saved).length > 0) {
+    if (Object.keys(saved).length > 0) {
       // Said only of answers the STEP carries: a host's own (an agent's, the browser's) are not "saved with".
       setResumed(Object.keys(session.analysis.resume?.answers ?? {}).length > 0);
-      void start.commit(null, () => saved, (asked) =>
-        nextNeeding(asked.filter((g) => g.key !== 'part'), saved));
+      void start.commit(null, latest => ({ ...saved, ...latest }), (asked, given) =>
+        nextNeeding(asked.filter((g) => g.key !== 'part'), given));
       return;
     }
     // The part's own fields are always in view; start at the first thing on the part.
@@ -735,8 +733,8 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const nextGap = (asked: QuestionGroup[], next: PmiAnswers) =>
     nextNeeding(asked.filter(g => g.key !== 'part'), next)
     ?? asked.flatMap(g => g.key === 'part' ? [] : g.questions).find(q => !(q.id in next))?.id ?? null;
-  const answerFile = (q: PmiQuestion, value: unknown, suggested = false) =>
-    commitFile(q.id, list => queueValue(fileRowsById.get(q.id), q, list, value, suggested), (asked, next) =>
+  const answerFile = (q: PmiQuestion, value: unknown) =>
+    commitFile(q.id, list => queueValue(fileRowsById.get(q.id), q, list, value), (asked, next) =>
       q.id.startsWith('part.') && current && current !== q.id ? current : nextGap(asked, next));
   const answer = (q: PmiQuestion, value: unknown, remove = false) => {
     if (editingFile) {
@@ -940,7 +938,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
       void commitFile(ids[0] ?? null, list => ids.reduce((next, id) => {
         const q = questions.find(x => x.id === id);
         const row = fileRowsById.get(id);
-        return q ? queueValue(row, q, next, row ? rowSuggestion(row) : q.default, true) : next;
+        return q ? queueValue(row, q, next, row ? rowSuggestion(row) : q.default) : next;
       }, list), (asked, next) => settled(ids, asked, next)).then(ok => { if (ok) host.current.onKeep?.(ids); });
       return;
     }

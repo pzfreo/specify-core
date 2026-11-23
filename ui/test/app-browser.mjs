@@ -57,7 +57,7 @@ async function verifyCopies(driver) {
   assert.deepEqual(coating.parts, [0], 'adding coating does not overwrite the other copy’s decision');
   assert.deepEqual(coating.coatings, ['stated', 'decided_none']);
   await driver.replaceCoating(1);
-  const replacement = await driver.save(true);
+  const replacement = await driver.save();
   assert.deepEqual(replacement.sent, [{ part: 1, edits: { clear: ['part.coating'], fill: { 'part.coating': 'Anodised' } } }],
     'one answer explicitly replaces the stored decision with clear and fill in the same list');
   assert.deepEqual(replacement.parts, [1]);
@@ -147,7 +147,7 @@ if (copiesOnly) {
   // when the host sandbox cannot start Chromium. The full scenario below covers HTTP.
   const { IntentEngine } = await import('./engine-fixture.mjs');
   const { linkedParts, pendingActions, queueCopies, reviewParts, withoutPendingAction, EMPTY_PENDING } = await import('../src/specify/review-assembly.ts');
-  const { checkPending, fileRows, partFile, queueValue, savePending } = await import('../src/specify/file-review.ts');
+  const { checkPending, fileRows, partFile, queueValue, savePending, withStoredAnswers } = await import('../src/specify/file-review.ts');
   let bytes = identicalPins();
   let queued = new Map();
   const splits = new Set();
@@ -197,9 +197,12 @@ if (copiesOnly) {
     async replaceCoating(part) {
       const file = options(part).file;
       const questions = withEngine(file, engine => JSON.parse(engine.review('{}')).questions);
-      const row = fileRows(read(file), questions, questions).find(row => row.id === 'part.coating');
-      const replacement = queueValue(row, row.question, EMPTY_PENDING, 'Anodised', false);
-      assert.deepEqual(replacement.list(), { clear: [row.id], fill: { [row.id]: 'Anodised' } });
+      const analysis = read(file);
+      const row = fileRows(analysis, questions, questions).find(row => row.id === 'part.coating');
+      assert.equal(withStoredAnswers(analysis, {})[row.id], row.value, 'empty host answers preserve the saved decision');
+      const cleared = EMPTY_PENDING.with({ kind: 'clear', id: row.id, name: 'Coating' });
+      const replacement = queueValue(row, row.question, cleared, 'Anodised');
+      assert.deepEqual(replacement.list(), { clear: [row.id], fill: { [row.id]: 'Anodised' } }, 'Undo then Add keeps the clear');
       await stage(part, replacement.get(row.id), 1);
     },
     async addDatum(part) { await edit(part, 'datum.A', 'Datum A', rowFor(part, 'datum.A').suggestion, 1); },
@@ -223,6 +226,15 @@ if (copiesOnly) {
       return { parts: lists.map(list => list.part), materials, datums, coatings, datumC, bytes, sent: lists };
     },
   });
+  const assembly = { name: 'assembly.step', bytes: readFileSync('../tests/fixtures/parts/assembly.step'), sourceId: 'bom', part: 0 };
+  const bom = fileRows(read(assembly), [], []).find(row => row.id === 'bom.part_number');
+  assert.equal(bom?.state, 'stated', 'the paired engine exposes native BOM values as stated rows');
+  const pendingBom = queueValue(bom, bom.question, EMPTY_PENDING, 'GRM-PLATE-01');
+  assert.deepEqual(pendingBom.list(), { change: { [bom.id]: { to: 'GRM-PLATE-01', expect: 'plate' } } });
+  await checkPending({ file: assembly, worker }, pendingBom);
+  const savedBom = await savePending(() => ({ file: assembly, worker }), pendingBom.list());
+  assert.ok(savedBom.bytes, JSON.stringify(savedBom));
+  assert.equal(read({ ...assembly, bytes: savedBom.bytes }).table.rows.find(row => row.id === bom.id).value, 'GRM-PLATE-01');
   console.log('The writer applies edits to both copies and respects a split.');
   process.exit(0);
 }
@@ -337,30 +349,20 @@ async function assertNoOrigin(box) {
   assert.doesNotMatch(text, /from the file|answered|\bdefaults?\b|Specify|written by|\bby you\b|another tool/i, `no origin wording: ${text}`);
 }
 /** Save and check the acknowledgement and the page's confirmation. The summary can repeat. */
-async function save(page, server, n, replacingDecision = false) {
-  const isSave = response => response.url() === `${server.url}save` && response.request().method() === 'POST';
-  const reply = page.waitForResponse(isSave, { timeout: 90000 });
-  const success = replacingDecision ? page.waitForResponse(response => isSave(response) && response.ok(), { timeout: 90000 }) : reply;
-  const before = problems.length;
+async function save(page, server, n) {
+  const reply = page.waitForResponse(
+    response => response.url() === `${server.url}save` && response.request().method() === 'POST',
+    { timeout: 90000 },
+  );
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  const first = await reply;
-  if (replacingDecision && !first.ok()) {
-    assert.equal(first.status(), 422);
-    const { failures } = await first.json();
-    assert.deepEqual(failures.map(failure => failure.edit_entry), ['fill["part.coating"] and clear["part.coating"]']);
-  }
-  const response = await success;
+  const response = await reply;
   const saved = await response.json();
   assert.equal(response.status(), 200, JSON.stringify(saved));
   await check(page.locator('.app-saved code')).toHaveText(saved.path);
   await check.poll(() => (server.output().match(/Saved /g) ?? []).length).toBe(n);
   await check(page.locator('.spec-bar')).toContainText('written, all together');
-  if (response !== first) {
-    const refusal = problems.findIndex((problem, i) => i >= before && /^console: .*422/.test(problem));
-    if (refusal !== -1) problems.splice(refusal, 1);
-  }
   const body = response.request().postDataJSON();
-  return { rev: saved.rev, requestedRev: body.rev, body, firstBody: first.request().postDataJSON() };
+  return { rev: saved.rev, requestedRev: body.rev, body };
 }
 let first = null;
 /** The feature-and-kinds the first two saves list: each is in the file after it, stated or decided none. */
@@ -536,9 +538,21 @@ try {
     await check(material(main)).toHaveClass(/changed/);
     await check(pending(main, 0)).toHaveText('plate · Change Material: Aluminium 6082-T6 → Steel 1.4301');
     await check(pending(main, 1)).toHaveText('pin · Change Material: Bronze → Brass CW614N');
+    const bom = row(main, 'bom.part_number');
+    assert.equal(table(asm, 0)['bom.part_number']?.state, 'stated', 'the paired engine exposes native BOM values as stated rows');
+    await check(bom).toHaveAttribute('data-state', 'stated');
+    await check(rowValue(bom)).toHaveText('plate');
+    await bom.getByRole('button', { name: 'Edit', exact: true }).click();
+    await bom.getByRole('textbox', { name: 'New value' }).fill('GRM-PLATE-01');
+    await bom.getByRole('button', { name: 'Apply', exact: true }).click();
+    await check(listedEdit(main, 'bom.part_number')).toHaveText('plate · Change Part number: plate → GRM-PLATE-01');
     await choose(main, 1, 'Brass CW614N');
     const both = await save(main, reopened, 1);
     assert.deepEqual(both.body.partEdits.map(p => p.part).sort(), [0, 1]);
+    const plateEdits = both.body.partEdits.find(p => p.part === 0).edits;
+    assert.deepEqual(plateEdits.change['bom.part_number'], { to: 'GRM-PLATE-01', expect: 'plate' });
+    assert.ok(!plateEdits.clear?.includes('bom.part_number') && !Object.hasOwn(plateEdits.fill ?? {}, 'bom.part_number'));
+    assert.equal(table(asm, 0)['bom.part_number'].value, 'GRM-PLATE-01');
     assert.equal(table(asm, 0)['part.material'].value, 'Steel 1.4301');
     assert.equal(table(asm, 1)['part.material'].value, 'Brass CW614N');
     await check(material(main)).not.toHaveClass(/changed/);
@@ -630,8 +644,12 @@ try {
         await check(pending).toContainText('Coating: Anodised (was none needed)');
         await pending.getByRole('button', { name: /^Undo / }).click();
         await check(pending).toHaveCount(0);
-        await check(row(copyReview.page, 'part.coating')).toHaveAttribute('data-state', 'decided_none');
+        const coating = await showRow(copyReview.page, 'part.coating');
+        await check(coating).toHaveAttribute('data-state', 'decided_none');
+        await coating.getByRole('button', { name: 'Undo', exact: true }).click();
+        await check(coating).toHaveAttribute('data-state', 'gap');
         await this.addCoating(part);
+        await check(pending).toHaveCount(1);
       },
       async addDatum() { await add(copyReview.page, 'datum.A'); },
       async reopen(snapshot) {
@@ -649,15 +667,15 @@ try {
         selected = part;
         await check(material(copyReview.page)).not.toContainText('identical parts');
       },
-      async save(replacement = false) {
-        const result = await save(copyReview.page, copyServer, ++writes, replacement);
+      async save() {
+        const result = await save(copyReview.page, copyServer, ++writes);
         const tables = [0, 1].map(index => table(copies, index));
         return { parts: result.body.partEdits.map(list => list.part),
           materials: tables.map(rows => rows['part.material'].value),
           datums: tables.map(rows => rows['datum.A'].state),
           coatings: tables.map(rows => rows['part.coating'].state),
           datumC: tables.map(rows => rows['datum.C'].state),
-          bytes: readFileSync(copies), sent: result.firstBody.partEdits };
+          bytes: readFileSync(copies), sent: result.body.partEdits };
       },
     });
     onlyLocal(copyReview.requests, copyServer.origin);

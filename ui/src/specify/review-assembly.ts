@@ -1,7 +1,7 @@
 import type { PmiAnalysis, PmiExisting } from '../types/pmi.ts';
 import { PendingEdits, removalTargets, type CopyEditOrigin, type Pending } from './edit-list.ts';
-import { answerText, isNoneValue, tableOf } from './feature-table.ts';
-import { decisionText, otherRows, partFile, rowText, storedChoice, type FileReviewOptions, type ReviewPart } from './file-review.ts';
+import { answerText, tableOf } from './feature-table.ts';
+import { otherRows, partFile, rowText, storedChoiceRow, valueEdit, type FileReviewOptions, type ReviewPart } from './file-review.ts';
 
 export type PartQueue = ReadonlyMap<number, PendingEdits>;
 
@@ -157,7 +157,7 @@ export function editForCopy(edit: Pending, source: PmiAnalysis, target: PmiAnaly
   }
 
   const id = mapId(edit.id, source, target, map);
-  const row = tableOf(target).rows.find(row => row.id === id);
+  const row = tableOf(target).rows.find(row => row.id === id) ?? storedChoiceRow(target, id);
   const editBase = { id, name: edit.name };
   if (edit.kind === 'refused') return { id };
   if (edit.kind === 'remove') {
@@ -174,16 +174,7 @@ export function editForCopy(edit: Pending, source: PmiAnalysis, target: PmiAnaly
     return { id, edit: { ...editBase, kind: 'none', targets } };
   }
   const value = mappedValue(edit.value, map);
-  const choice = row?.state === 'decided_none' ? row.value : row?.state !== 'stated' ? storedChoice(target, id) : undefined;
-  if (row?.state === 'decided_none' || choice !== undefined) {
-    if ((row?.state === 'decided_none' && isNoneValue(value)) || JSON.stringify(value) === JSON.stringify(choice)) return { id };
-    return { id, edit: { ...editBase, kind: 'replace', value, text: answerText(value), was: decisionText(row?.state, choice) } };
-  }
-  if (row?.state === 'stated') {
-    if (JSON.stringify(value) === JSON.stringify(row.value)) return { id };
-    return { id, edit: { ...editBase, kind: 'change', value, text: answerText(value), expect: row.value, was: answerText(row.value) } };
-  }
-  return { id, edit: { ...editBase, kind: 'fill', value, text: answerText(value) } };
+  return { id, edit: valueEdit(row, id, edit.name, value) };
 }
 
 export function mergePending(local: PartQueue, staged?: PartQueue): PartQueue {

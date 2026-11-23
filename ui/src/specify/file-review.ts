@@ -1,7 +1,7 @@
 import type { IntentReview, PmiAnalysis, PmiAnswers, PmiQuestion } from '../types/pmi.ts';
 import type { WorkerClient } from '../engine/rpc.ts';
-import { answerText, capital, changedText, displayText, isNoneValue, kindWord, tableOf, type RowState, type TableRequirement, type TableRow } from './feature-table.ts';
-import { PendingEdits, type EditFailure, type EditList, type SaveEdits } from './edit-list.ts';
+import { answerText, capital, changedText, displayText, isNoneValue, kindWord, tableOf, type TableRequirement, type TableRow } from './feature-table.ts';
+import { PendingEdits, type EditFailure, type Pending, type SaveEdits } from './edit-list.ts';
 
 export interface ReviewFile {
   name: string;
@@ -96,33 +96,26 @@ export function requirementName(q: PmiQuestion): string {
 }
 
 
-export const rowText = (row: FileRow): string => displayText(
+export const rowText = (row: TableRow): string => displayText(
   answerText(row.value) || row.requirements?.map(r => r.text).join('; ') || '',
 );
 
-const BOM_FIELDS = ['make_buy', 'description', 'part_number', 'revision', 'optional'];
-const storedBomValues = (analysis: PmiAnalysis): Map<string, unknown> => {
-  return new Map(BOM_FIELDS.flatMap(key => {
-    const field = analysis.bom?.[key];
-    if (!field || typeof field !== 'object' || !['answered', 'file'].includes(field.source) || field.value == null || field.value === '') return [];
-    return [[`bom.${key}`, key === 'optional' ? (field.value ? 'yes' : 'no') : field.value] as const];
-  }));
-};
-
-const storedAnswers = (analysis: PmiAnalysis): PmiAnswers => analysis.resume?.answers ?? {};
-
-/** Choices outside the requirements table can still have a value written in the file. */
-export function storedChoice(analysis: PmiAnalysis, id: string): unknown {
-  return id.startsWith('bom.') ? storedBomValues(analysis).get(id) : storedAnswers(analysis)[id];
+/** Holes located by is a stored choice outside the feature table. */
+export function storedChoiceRow(analysis: PmiAnalysis, id: string): TableRow | undefined {
+  if (id !== 'part.locating') return;
+  const value = analysis.resume?.answers[id];
+  if (value === undefined) return;
+  return { id, kind: id, feature: 'part', faces: [], open: false, state: isNoneValue(value) ? 'decided_none' : 'stated', value };
 }
 
-export function decisionText(state: RowState | undefined, value: unknown): string {
-  return state === 'decided_none' && isNoneValue(value) ? 'none needed' : answerText(value);
+/** A host can omit the file's decisions from its own answer map. */
+export function withStoredAnswers(analysis: PmiAnalysis, given: PmiAnswers): PmiAnswers {
+  return { ...analysis.resume?.answers, ...given };
 }
 
 /** Stored decisions and edits become given answers. Existing PMI is read by the engine from the file. */
 export function impliedAnswers(analysis: PmiAnalysis, pending: PendingEdits): PmiAnswers {
-  const answers = { ...storedAnswers(analysis) };
+  const answers = { ...analysis.resume?.answers };
   const rows = new Map(tableOf(analysis).rows.map(row => [row.id, row]));
   for (const edit of pending.values()) {
     switch (edit.kind) {
@@ -156,16 +149,16 @@ export function askFile(options: FileReviewOptions, answers: PmiAnswers, pending
 export function fileRows(
   analysis: PmiAnalysis, questions: readonly PmiQuestion[], labels: readonly PmiQuestion[],
 ): FileRow[] {
-  const stored = storedAnswers(analysis);
   const table = new Map(tableOf(analysis).rows.map(row => [row.id, row]));
+  const locating = storedChoiceRow(analysis, 'part.locating');
+  if (locating && !table.has(locating.id)) table.set(locating.id, locating);
   const asked = new Map(questions.map(q => [q.id, q]));
   const named = new Map(labels.map(q => [q.id, q]));
-  const bomValues = storedBomValues(analysis);
   const rows: FileRow[] = [];
-  for (const id of new Set([...asked.keys(), ...table.keys(), ...bomValues.keys()])) {
+  for (const id of new Set([...asked.keys(), ...table.keys()])) {
     const q = asked.get(id);
     const row = table.get(id);
-    if (!q && !bomValues.has(id) && (!row || row.state === 'gap')) continue;
+    if (!q && (!row || (row.state === 'gap' && !id.startsWith('bom.')))) continue;
     const faces = row?.faces ?? q?.faces ?? [];
     const [kind, ...kindParts] = id.split(':');
     const owner = id.startsWith('location:holes:') && faces.length
@@ -180,14 +173,12 @@ export function fileRows(
     };
     const decision = id === 'part.locating';
     const bom = id.startsWith('bom.');
-    const storedDecision = decision ? stored[id] : bomValues.get(id);
     // BOM questions carry proposal strings in suggestions instead of ordinary defaults.
     const question = row?.state === 'stated' ? {
       ...described, faces: row.faces, ...(datumId(id) ? { default: row.faces, kind: 'faces' as const } : {}),
     } : bom ? { ...described, default: described.default ?? described.suggestions?.find(value => typeof value === 'string') } : described;
     rows.push({
       id, kind, faces: question.faces.slice(), open: false, state: 'gap',
-      ...(storedDecision === undefined ? {} : { state: isNoneValue(storedDecision) ? 'decided_none' : 'stated', value: storedDecision }),
       ...row, feature, question: owner ? { ...question, feature, title: labels.find(q => q.feature === feature)?.title ?? question.title } : question, decision, bom,
     });
   }
@@ -210,24 +201,23 @@ export function rowSuggestionText(row: FileRow): string | undefined {
   return suggestion === undefined ? undefined : isNoneValue(suggestion) ? 'none' : answerText(suggestion, row.question);
 }
 
-export function queueValue(row: FileRow | undefined, question: PmiQuestion, pending: PendingEdits, value: unknown, suggested: boolean): PendingEdits {
-  const { id } = question;
-  const name = requirementName(question);
+/** Build from the file's row, even when a pending clear makes it appear to be a gap. */
+export function valueEdit(row: TableRow | undefined, id: string, name: string, value: unknown, question?: PmiQuestion): Pending | undefined {
   const text = answerText(value, question);
-  if (row?.state === 'decided_none' || (row?.state === 'stated' && (row.decision || row.bom))) {
-    const unchanged = (row.state === 'decided_none' && isNoneValue(value)) || JSON.stringify(value) === JSON.stringify(row.value);
-    if (unchanged) return pending.get(id) ? pending.without(id) : pending;
-    return pending.with({ kind: 'replace', id, name, value, text, was: decisionText(row.state, row.value) });
+  if (row && row.state !== 'gap') {
+    if (JSON.stringify(value) === JSON.stringify(row.value) || (row.state === 'decided_none' && isNoneValue(value))) return;
+    const was = row.state === 'decided_none' && isNoneValue(row.value) ? 'none needed' : rowText(row);
+    if (row.state === 'decided_none' || id === 'part.locating') return { kind: 'replace', id, name, value, text, was };
+    return { kind: 'change', id, name, value, text: changedText(was, value, question), expect: row.value, was };
   }
-  if (row?.state === 'stated' && !row.decision && !row.bom) {
-    const was = rowText(row);
-    return pending.with({ kind: 'change', id, name, value, text: changedText(was, value, question), expect: row.value, was });
-  }
-  if (value !== undefined && isNoneValue(value) && !row?.bom) return pending.with({ kind: 'none', id, name });
-  // The writer resolves accept_suggestions on the stored file. A new suggestion due to
-  // earlier pending answers must instead be pinned to exactly what the person saw.
-  const accept = suggested && row && ((row.bom && row.state === 'gap') || JSON.stringify(row.suggestion) === JSON.stringify(value));
-  return pending.with({ kind: accept ? 'accept' : 'fill', id, name, value, text });
+  if (value !== undefined && isNoneValue(value) && !id.startsWith('bom.')) return { kind: 'none', id, name };
+  return { kind: 'fill', id, name, value, text };
+}
+
+export function queueValue(row: FileRow | undefined, question: PmiQuestion, pending: PendingEdits, value: unknown): PendingEdits {
+  const edit = valueEdit(row, question.id, requirementName(question), value, question);
+  if (edit) return pending.with(edit);
+  return pending.get(question.id) ? pending.without(question.id) : pending;
 }
 
 export class CheckRefused extends Error {
@@ -238,45 +228,10 @@ export class CheckRefused extends Error {
   }
 }
 
-/** Retry only when every refusal names a clear that this engine cannot pair with its fill.
- * Older engines call the pair contradictory. The BOM writer still handles its fill separately. */
-async function withDecisionCompatibility<T>(
-  edits: SaveEdits, send: (edits: SaveEdits) => Promise<T>, failuresOf: (result: T) => readonly EditFailure[] | undefined,
-): Promise<T> {
-  const result = await send(edits);
-  const failures = failuresOf(result);
-  if (!failures?.length) return result;
-  const unsupported = new Map<EditList, Set<string>>();
-  for (const failure of failures) {
-    const list = Array.isArray(edits) ? edits.find(item => item.part === failure.part)?.edits : edits;
-    const entry = failure.editEntry ?? failure.entry;
-    const id = list?.clear?.find(id => {
-      if (!Object.hasOwn(list.fill ?? {}, id)) return false;
-      const key = JSON.stringify(id);
-      return (entry === `fill[${key}] and clear[${key}]` &&
-        failure.reason === `the list says fill and clear for the same feature-and-kind ${key}; keep one of them`)
-        || (id.startsWith('bom.') && entry === `clear[${key}]` &&
-          failure.reason === `nothing is stored for ${id}, so there is nothing to clear`);
-    });
-    if (!list || !id) return result;
-    const ids = unsupported.get(list) ?? new Set<string>();
-    ids.add(id);
-    unsupported.set(list, ids);
-  }
-  const retry = (list: EditList) => {
-    const ids = unsupported.get(list);
-    if (!ids) return list;
-    const { clear, ...rest } = list;
-    const remaining = clear?.filter(id => !ids.has(id));
-    return remaining?.length ? { ...rest, clear: remaining } : rest;
-  };
-  return send(Array.isArray(edits) ? edits.map(list => ({ ...list, edits: retry(list.edits) })) : retry(edits));
-}
-
 export async function checkPending(options: FileReviewOptions, pending: PendingEdits): Promise<void> {
-  const result = await withDecisionCompatibility(pending.list(), edits =>
-    options.worker.request<{ applicable: boolean; message?: string; failures?: EditFailure[] }>('check-edits', { ...options.file, edits }),
-  result => result.applicable ? undefined : result.failures);
+  const result = await options.worker.request<{ applicable: boolean; message?: string; failures?: EditFailure[] }>(
+    'check-edits', { ...options.file, edits: pending.list() },
+  );
   if (!result.applicable) throw new CheckRefused(result.failures?.length ? result.failures :
     [{ entry: '', reason: result.message || 'The edits cannot be applied.' }]);
 }
@@ -287,18 +242,15 @@ export function partFile(file: ReviewFile, part: number): ReviewFile {
 
 export async function savePending(options: () => FileReviewOptions, edits: SaveEdits): Promise<ReviewSaveResult | null> {
   const host = options();
-  if (host.save) return withDecisionCompatibility(edits, async list => {
-    const latest = options();
-    return latest.file.sourceId === host.file.sourceId ? await latest.save?.(list) ?? null : null;
-  }, result => result && 'failures' in result ? result.failures : undefined);
+  if (host.save) return host.save(edits);
   const lists = Array.isArray(edits) ? edits : [{ part: host.file.part, edits }];
   let bytes = host.file.bytes;
   const reports: unknown[] = [];
   for (const [i, { part, edits }] of lists.entries()) {
     const file = { ...host.file, part, bytes, sourceId: `${host.file.sourceId}:write:${i}` };
-    const result = await withDecisionCompatibility(edits, list => options().worker.request<
+    const result = await options().worker.request<
       { written: true; bytes: Uint8Array; report: unknown } | { written: false; message: string; failures: EditFailure[] }
-    >('edit', { ...file, edits: list }), result => result.written ? undefined : result.failures);
+    >('edit', { ...file, edits });
     if (!result.written) return { failures: result.failures.map(failure => ({ ...failure, part })) };
     bytes = result.bytes;
     reports.push(part === undefined ? result.report : { part, report: result.report });
