@@ -438,42 +438,23 @@ fn ctc05_pattern_answers_are_stated_after_reopening() {
     std::fs::remove_dir_all(scratch).unwrap();
 }
 
-// Keep all captures of the same input together, including its part-level captures.
-fn defaults_case_group(case: &common::Case) -> usize {
-    // cgb202 dominates group 2 on its own. Put it with the lightest group.
+// Balance the expensive inputs across three workers. The old groups 0 and 2
+// together take about as long as the other batches after placing cgb202 separately.
+fn defaults_case_batch(case: &common::Case) -> usize {
     let input = case.meta["input"].as_str().expect("meta.input");
     if input.strip_suffix(".gz").unwrap_or(input) == "cadgenbench_inputs/cgb202.step" {
-        return 3;
+        return 2;
     }
     let sha = case.meta["decompressed_sha256"]
         .as_str()
         .or_else(|| case.meta["input_sha256"].as_str())
         .expect("input digest");
-    usize::from_str_radix(&sha[..2], 16).expect("hex input digest") % 4
+    [0, 1, 0, 2][usize::from_str_radix(&sha[..2], 16).expect("hex input digest") % 4]
 }
 
 #[test]
-fn accepting_corpus_defaults_leaves_no_open_rows_group_0() {
-    check_corpus_defaults(0);
-}
-
-#[test]
-fn accepting_corpus_defaults_leaves_no_open_rows_group_1() {
-    check_corpus_defaults(1);
-}
-
-#[test]
-fn accepting_corpus_defaults_leaves_no_open_rows_group_2() {
-    check_corpus_defaults(2);
-}
-
-#[test]
-fn accepting_corpus_defaults_leaves_no_open_rows_group_3() {
-    check_corpus_defaults(3);
-}
-
-fn check_corpus_defaults(group: usize) {
-    let scratch = scratch(&format!("corpus-{group}"));
+fn accepting_corpus_defaults_leaves_no_open_rows() {
+    let scratch = scratch("corpus");
     let corpus = common::corpus_dir();
     assert!(
         corpus.is_some()
@@ -482,23 +463,69 @@ fn check_corpus_defaults(group: usize) {
                 .all(|key| std::env::var_os(key).is_none()),
         "configured corpus directory is missing"
     );
-    let mut inputs = BTreeSet::new();
-    let mut visited = BTreeSet::new();
-    let mut gaps = Vec::new();
     let cases = common::cases();
+    let mut inputs = BTreeSet::new();
+    let mut batches = [Vec::new(), Vec::new(), Vec::new()];
     for (index, case) in cases.iter().enumerate() {
-        if defaults_case_group(case) != group {
-            continue;
-        }
         if case.kind() == "corpus" && corpus.is_none() {
             continue;
         }
         let input = case
             .input()
             .unwrap_or_else(|| panic!("missing selected case {}", case.name));
-        if !inputs.insert(input.clone()) {
-            continue;
+        if inputs.insert(input.clone()) {
+            batches[defaults_case_batch(case)].push((index, case, input));
         }
+    }
+
+    // Deduplicate paths before assigning work and check the finished results as one sweep.
+    let scratch_path = scratch.as_path();
+    let mut completed = std::thread::scope(|scope| {
+        let workers =
+            batches.map(|batch| scope.spawn(move || check_corpus_defaults(batch, scratch_path)));
+        workers
+            .into_iter()
+            .flat_map(|worker| worker.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    completed.sort_by_key(|(index, _)| *index);
+    let visited: BTreeSet<_> = completed
+        .iter()
+        .map(|(index, _)| cases[*index].name.as_str())
+        .collect();
+    for name in [
+        "nist/nist_ctc_01_asme1_ap242",
+        "nist/nist_ctc_05_asme1_ap242",
+    ] {
+        assert!(visited.contains(name), "did not visit {name}");
+    }
+    if corpus.is_some() {
+        for name in [
+            "corpus/nist/nist_ctc_01_asme1_rd",
+            "corpus/nist/nist_ctc_02_asme1_rc",
+            "corpus/nist/nist_ctc_04_asme1_rd",
+            "corpus/nist/nist_ctc_05_asme1_rd",
+            "corpus/gramel/GRM-05_depth_lock_bolt",
+        ] {
+            assert!(visited.contains(name), "did not visit {name}");
+        }
+    }
+    let gaps: Vec<_> = completed.into_iter().flat_map(|(_, gaps)| gaps).collect();
+    assert!(
+        gaps.is_empty(),
+        "corpus rows left open:\n{}",
+        gaps.join("\n")
+    );
+    std::fs::remove_dir_all(scratch).unwrap();
+}
+
+fn check_corpus_defaults(
+    batch: Vec<(usize, &common::Case, PathBuf)>,
+    scratch: &Path,
+) -> Vec<(usize, Vec<String>)> {
+    let mut completed = Vec::new();
+    for (index, case, input) in batch {
+        let mut gaps = Vec::new();
         // The native loader has one part per product. Python captures also number
         // surface representations separately, so enumerate native parts by file.
         let file =
@@ -567,37 +594,9 @@ fn check_corpus_defaults(group: usize) {
                 }
             }
         }
-        visited.insert(case.name.as_str());
+        completed.push((index, gaps));
     }
-    let fixtures = [
-        "nist/nist_ctc_01_asme1_ap242",
-        "nist/nist_ctc_05_asme1_ap242",
-    ];
-    let corpus_inputs = [
-        "corpus/nist/nist_ctc_01_asme1_rd",
-        "corpus/nist/nist_ctc_02_asme1_rc",
-        "corpus/nist/nist_ctc_04_asme1_rd",
-        "corpus/nist/nist_ctc_05_asme1_rd",
-        "corpus/gramel/GRM-05_depth_lock_bolt",
-    ];
-    for name in fixtures
-        .into_iter()
-        .chain(corpus_inputs.into_iter().filter(|_| corpus.is_some()))
-    {
-        let case = cases
-            .iter()
-            .find(|case| case.name == name)
-            .unwrap_or_else(|| panic!("missing selected case {name}"));
-        if defaults_case_group(case) == group {
-            assert!(visited.contains(name), "did not visit {name}");
-        }
-    }
-    assert!(
-        gaps.is_empty(),
-        "corpus rows left open:\n{}",
-        gaps.join("\n")
-    );
-    std::fs::remove_dir_all(scratch).unwrap();
+    completed
 }
 
 #[test]

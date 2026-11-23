@@ -11,11 +11,14 @@ filter = '''
 priority = 100
 
 [[profile.default.overrides]]
-filter = '''
-    test(accepting_corpus_defaults_leaves_no_open_rows)
-    | test(=corpus_feature_rows_that_can_write_pmi_have_faces)
-'''
+filter = 'test(=corpus_feature_rows_that_can_write_pmi_have_faces)'
 priority = 80
+
+[[profile.default.overrides]]
+# The defaults sweep checks results together after three workers finish.
+filter = 'test(=accepting_corpus_defaults_leaves_no_open_rows)'
+priority = 100
+threads-required = 3
 
 [[profile.default.overrides]]
 filter = '''
