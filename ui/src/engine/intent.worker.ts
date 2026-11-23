@@ -1,6 +1,7 @@
 import { readCarried } from './carried';
 import { withCharacteristicNumbers, type NumberScene } from './characteristic-numbers';
-import type { IntentReview } from '../types/pmi';
+import { withoutRequirements } from '../specify/feature-table';
+import type { IntentReview, PmiAnalysis } from '../types/pmi';
 import { inspectionFromStep } from '../specify/saved-inspection';
 
 interface IntentModule {
@@ -42,21 +43,11 @@ function reviewed(answers: Record<string, unknown>) {
   return { ...review, open: JSON.parse(engine!.review(JSON.stringify(answers))).open };
 }
 function editReview(answers: Record<string, unknown>, without: string[]): IntentReview {
-  // Normally the open analysis already knows the file's process. Taking that PMI back needs
-  // an analysis without the process so the engine asks about it again.
-  const analysis = without.length ? JSON.parse(analysisOf()) : null;
-  if (analysis) {
-    for (const id of without) {
-      if (id.startsWith('part.')) delete analysis.part?.[id.slice(5)];
-      if (id === 'part.process') delete analysis.process;
-      const row = analysis.table?.rows.find((row: { id: string }) => row.id === id);
-      if (row) row.state = 'gap';
-    }
-    analysis.existing = analysis.existing.filter((item: { kind: string; type: string }) =>
-      item.kind !== 'datum' || !without.includes(`datum.${item.type}`));
-  }
-  const json = analysis ? JSON.stringify(analysis) : analysisOf();
-  const ask = (given: string) => JSON.parse(analysis ? globalModule!.review(json, given) : engine!.review(given)) as IntentReview;
+  // File PMI normally stands. Remove only the requirements a pending edit is replacing
+  // from the analysis passed to this review, then let the rules plan from the given answers.
+  const changed = without.length ? withoutRequirements(JSON.parse(analysisOf()) as PmiAnalysis, without) : null;
+  const json = changed ? JSON.stringify(changed) : analysisOf();
+  const ask = (given: string) => JSON.parse(changed ? globalModule!.review(json, given) : engine!.review(given)) as IntentReview;
   const given = JSON.stringify(answers);
   const raw = ask(given);
   try {

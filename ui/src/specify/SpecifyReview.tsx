@@ -3,9 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from 'react-dom';
 import type { IntentReview, PartTint, PmiAnswers, PmiIntent, PmiInterpretation, PmiLabError, PmiLabSession, PmiQuestion, PmiLabEngine } from '../types/pmi';
 import { FileRequirement } from './FileRequirement';
-import { askFile, checkPending, datumId, fileRows, impliedAnswers, queueValue, rowText, savePending, type FileReviewOptions, type FileRow } from './file-review';
+import { askFile, checkPending, datumId, fileRows, impliedAnswers, queueValue, replacedRequirements, rowText, savePending, type FileReviewOptions, type FileRow } from './file-review';
 import { describeEdit, PendingEdits, removalTargets } from './edit-list';
-import { answerText, isNoneValue } from './feature-table';
+import { answerText, isNoneValue, withoutRequirements } from './feature-table';
 import type { StoredInspection } from './saved-inspection';
 import { editorDefault } from '../model/intent';
 import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from './added';
@@ -153,7 +153,8 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   // 'drawn'), or both. Until one is chosen, Graphical when the file has its own graphical PMI
   // (a file Specify wrote included), Semantic otherwise. The choice lasts while the part is open; it is not saved.
   const [chosenShowing, setShowing] = useState<'semantic' | 'drawn' | 'both' | null>(null);
-  const showing = chosenShowing ?? defaultShowing(drawnPmi, Boolean(session.analysis.resume));
+  const showing = chosenShowing ?? (editingFile && pending.values().some(edit => edit.kind !== 'refused')
+    ? 'semantic' : defaultShowing(drawnPmi, Boolean(session.analysis.resume)));
   // A face clicked that no question is about shows what the general tolerance says of it.
   const [peek, setPeek] = useState<number | null>(null);
   // Set by a label clicked: the question it opens is turned to without moving the view.
@@ -614,7 +615,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     ?? asked.flatMap(g => g.key === 'part' ? [] : g.questions).find(q => !(q.id in next))?.id ?? null;
   const answerFile = (q: PmiQuestion, value: unknown, suggested = false) =>
     commitFile(q.id, list => queueValue(fileRowsById.get(q.id), q, list, value, suggested), (asked, next) =>
-      q.id.startsWith('part.') || q.id.startsWith('bom.') ? null : nextGap(asked, next));
+      q.id.startsWith('part.') && current && current !== q.id ? current : nextGap(asked, next));
   const answer = (q: PmiQuestion, value: unknown, remove = false) => {
     if (editingFile) {
       if (remove) return commitFile(q.id, list => list.without(q.id));
@@ -644,7 +645,9 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     if (readOnly) return null;
     try {
       const read = fileReview && editingFile
-        ? await fileReview.worker.request<PmiInterpretation>('interpret', { analysis: session.analysis, answers, question: q.id, text })
+        ? await fileReview.worker.request<PmiInterpretation>('interpret', {
+          analysis: withoutRequirements(session.analysis, replacedRequirements(pending)), answers, question: q.id, text,
+        })
         : await live((id) => engine.interpret(id, answers, q.id, text));
       if (editingFile) {
         // Give typed callouts a chance to show if that question is opened again.
@@ -896,7 +899,8 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         setDraft(null);
         setCurrent(null);
       } else if (currentQuestion?.kind === 'faces') return;
-      const id = questionForFace(groups, face);
+      const id = questionForFace(groups, face)
+        ?? (editingFile ? partGroup?.questions.find(q => q.faces.includes(face))?.id ?? null : null);
       setPeek(id ? null : face);
       setNote('');
       setNoteGeneral(null);
@@ -966,11 +970,14 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   // Where a characteristic's PMI is changed: its question, or for a part's
   // note, the part's. What the general tolerance covers has none of its own.
   const editChar = (row: Characteristic) => {
-    const id = row.question ?? (row.source.startsWith('part:') ? `part.${row.source.slice(5)}` : null);
+    const fileRow = editingFile && row.n
+      ? fileRowList.find(r => r.requirements?.some(requirement => Number(requirement.number?.replace(/^#/, '')) === row.n)) : undefined;
+    const id = fileRow?.id ?? row.question ?? (row.source.startsWith('part:') ? `part.${row.source.slice(5)}` : null);
     if (!id || !(id.startsWith('extra.') || questions.some((q) => q.id === id))) return null;
     return () => {
       switchView('review');
       if (id.startsWith('extra.')) editExtra(id);
+      else if (fileRow) openFileRow(fileRow);
       else setCurrent(id);
     };
   };
@@ -1055,11 +1062,11 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     if (!row) return null;
     const id = row.id;
     const edit = pending.get(id);
-    const partField = id.startsWith('part.') || g.key === 'bom';
+    const partField = id.startsWith('part.');
     const open = id === current || (partField && unfolded === id);
     const label = labelOf(q);
     const onClose = () => {
-      if (current === id) setCurrent(null);
+      setCurrent(active => active === id ? null : active);
       if (partField) setUnfolded(NOTE_FIELDS.has(id) ? 'notes' : null);
       setError(null);
     };
@@ -1073,7 +1080,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         kind: 'remove', id, name: label, was: rowText(row),
         targets: removalTargets(row.requirements?.flatMap(requirement => requirement.number ? [requirement.number] : []) ?? [], id),
       }));
-    const stated = row.state === 'stated';
+    const stated = row.state === 'stated' && edit?.kind !== 'clear';
     const proposed = chosenById.get(id);
     const refusal = errorAt(id)?.message ?? fileReview?.failures?.get(id) ?? (edit?.kind === 'refused' ? edit.reason : undefined);
     const input = stated && q.kind !== 'faces'
@@ -1364,7 +1371,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
           {view === 'table' ? (
             <CharacteristicsTable
               rows={tableChars} selected={selectedChar} onSelect={showChar} onDownload={downloadCsv}
-              exportable={inspectionExports && !fileReview?.inspectionBlocked}
+              exportable={inspectionExports} downloadDisabled={Boolean(fileReview?.inspectionBlocked)}
               skipped={skipped} onSkip={skip} onEdit={readOnly ? () => null : editChar}
               onCallOut={(row) => (!readOnly && row.source.startsWith('general:')
                 ? () => callOut(Number(row.source.slice('general:'.length)), row.text) : null)}
@@ -1378,7 +1385,8 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
               .map(q => renderFileRow(q, partGroup))}
             {notes.length > 0 && (!onlySuggestions || notes.some(q => chosenById.has(q.id))) && <details className="pmi-lab-notes"
               open={unfolded === 'notes' || unfolded?.startsWith('note:') || undefined}>
-              <summary>Finish and notes</summary>
+              <summary className="pmi-lab-line"><span className="name">Finish and notes</span>
+                <span className="value">{notesSummary || 'none'}</span></summary>
               {notes.map(q => renderFileRow(q, partGroup))}
             </details>}
           </section>}
@@ -1531,6 +1539,9 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
           </>)}
         </fieldset>
         {looseError && <footer><p role="alert" className="pmi-lab-error">{looseError.message}</p></footer>}
+        {editingFile && view === 'table' && inspectionExports && !slots.exports && <footer>
+          <button type="button" disabled={!tableChars.length || Boolean(fileReview?.inspectionBlocked)} onClick={downloadFai}>AS9102 FAI (Excel)</button>
+        </footer>}
         {editingFile && !fileReview?.renderBar && (
           <footer className="pmi-lab-edit-bar" role="region" aria-label="Changes to save">
             {pending.size ? <ul>{pending.values().map(edit => <li key={edit.id}>{describeEdit(edit)}</li>)}</ul> : <span role="status">{savedStatus}</span>}

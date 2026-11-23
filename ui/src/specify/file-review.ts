@@ -1,4 +1,5 @@
 import type { IntentReview, PmiAnalysis, PmiAnswers, PmiQuestion } from '../types/pmi.ts';
+import type { ReactNode } from 'react';
 import type { WorkerClient } from '../engine/rpc.ts';
 import { answerText, changedText, displayText, isNoneValue, kindWord, tableOf, type TableRow } from './feature-table.ts';
 import { PendingEdits, type EditFailure, type EditList } from './edit-list.ts';
@@ -23,7 +24,7 @@ export interface FileReviewOptions {
   onBusy?: (busy: boolean) => void;
   onSaved?: (bytes: Uint8Array) => void;
   /** Used by a host which puts Save and Discard in its own workspace. */
-  renderBar?: (save: () => void) => React.ReactNode;
+  renderBar?: (save: () => void) => ReactNode;
   onUndo?: (id: string) => void;
   /** Rows still rendered by a host during migration. */
   hostRows?: readonly string[];
@@ -39,6 +40,17 @@ export const datumId = (id: string) => /^datum\.[A-H]$/.test(id);
 export const rowText = (row: FileRow): string => displayText(
   answerText(row.value) || row.requirements?.map(r => r.text).join('; ') || '',
 );
+
+const BOM_FIELDS = ['make_buy', 'description', 'part_number', 'revision', 'optional'];
+type BomField = { source: string; value: unknown };
+const storedBomValues = (analysis: PmiAnalysis): Map<string, unknown> => {
+  const bom = (analysis as PmiAnalysis & { bom?: Record<string, BomField> }).bom;
+  return new Map(BOM_FIELDS.flatMap(key => {
+    const field = bom?.[key];
+    if (!field || !['answered', 'file'].includes(field.source) || field.value == null || field.value === '') return [];
+    return [[`bom.${key}`, key === 'optional' ? (field.value ? 'yes' : 'no') : field.value] as const];
+  }));
+};
 
 const storedAnswers = (analysis: PmiAnalysis): PmiAnswers => analysis.resume?.answers ?? {};
 
@@ -65,10 +77,12 @@ export function impliedAnswers(analysis: PmiAnalysis, pending: PendingEdits): Pm
   return answers;
 }
 
+export function replacedRequirements(pending: PendingEdits): string[] {
+  return pending.values().filter(edit => edit.kind === 'remove' || edit.kind === 'change').map(edit => edit.id);
+}
+
 export function askFile(options: FileReviewOptions, answers: PmiAnswers, pending: PendingEdits): Promise<IntentReview> {
-  const without = pending.values().filter(edit => edit.kind === 'remove' || (edit.kind === 'change' && datumId(edit.id)))
-    .map(edit => edit.id);
-  return options.worker.request('review-edits', { ...options.file, answers, without });
+  return options.worker.request('review-edits', { ...options.file, answers, without: replacedRequirements(pending) });
 }
 
 /** Review determines which gaps apply. The table remains authoritative for saved PMI and decisions. */
@@ -79,12 +93,13 @@ export function fileRows(
   const table = new Map(tableOf(analysis).rows.map(row => [row.id, row]));
   const asked = new Map(questions.map(q => [q.id, q]));
   const named = new Map(labels.map(q => [q.id, q]));
+  const bomValues = storedBomValues(analysis);
   const rows: FileRow[] = [];
-  for (const id of new Set([...asked.keys(), ...table.keys()])) {
+  for (const id of new Set([...asked.keys(), ...table.keys(), ...bomValues.keys()])) {
     if (hostRows.includes(id)) continue;
     const q = asked.get(id);
     const row = table.get(id);
-    if (!q && (!row || row.state === 'gap')) continue;
+    if (!q && !bomValues.has(id) && (!row || row.state === 'gap')) continue;
     const [kind, ...kindParts] = id.split(':');
     const feature = row?.feature ?? q?.feature ?? (kindParts.join(':') || id);
     const fallback = kindWord(kind);
@@ -93,12 +108,13 @@ export function fileRows(
       faces: row?.faces ?? [], attention: 'routine', default: null, why: '',
       title: analysis.features.find(f => f.id === feature)?.family.replace(/_/g, ' '),
     };
-    const question = row?.state === 'stated' ? {
-      ...described, faces: row.faces, ...(datumId(id) ? { default: row.faces, kind: 'faces' as const } : {}),
-    } : described;
     const decision = id === 'part.locating';
     const bom = id.startsWith('bom.');
-    const storedDecision = decision ? stored[id] : undefined;
+    const storedDecision = decision ? stored[id] : bomValues.get(id);
+    // BOM questions carry proposal strings in suggestions instead of ordinary defaults.
+    const question = row?.state === 'stated' ? {
+      ...described, faces: row.faces, ...(datumId(id) ? { default: row.faces, kind: 'faces' as const } : {}),
+    } : bom ? { ...described, default: described.default ?? described.suggestions?.find(value => typeof value === 'string') } : described;
     rows.push({
       id, kind, feature, faces: question.faces.slice(), open: false, state: 'gap',
       ...(storedDecision === undefined ? {} : { state: isNoneValue(storedDecision) ? 'decided_none' : 'stated', value: storedDecision }),
@@ -116,10 +132,10 @@ export function queueValue(row: FileRow | undefined, question: PmiQuestion, pend
     const was = rowText(row);
     return pending.with({ kind: 'change', id, name, value, text: changedText(was, value, question), expect: row.value, was });
   }
-  if (isNoneValue(value) && !row?.bom) return pending.with({ kind: 'none', id, name });
+  if (value !== undefined && isNoneValue(value) && !row?.bom) return pending.with({ kind: 'none', id, name });
   // The writer resolves accept_suggestions on the stored file. A new suggestion due to
   // earlier pending answers must instead be pinned to exactly what the person saw.
-  const accept = suggested && row && JSON.stringify(row.suggestion) === JSON.stringify(value);
+  const accept = suggested && row && ((row.bom && row.state === 'gap') || JSON.stringify(row.suggestion) === JSON.stringify(value));
   return pending.with({ kind: accept ? 'accept' : 'fill', id, name, value, text });
 }
 

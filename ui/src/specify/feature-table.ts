@@ -102,3 +102,29 @@ export function balloonText(numbers: readonly string[]): string {
   return runs.join(', ');
 }
 
+
+/** A review with selected stated PMI taken out of the analysis so the pending edit can replace it. */
+export function withoutRequirements(analysis: PmiAnalysis, ids: readonly string[]): PmiAnalysis {
+  const table = tableOf(analysis);
+  const part = { ...analysis.part };
+  const hidden = new Set<number>();
+  const targets = new Set(ids);
+  const rows = table.rows.map(row => {
+    if (!targets.has(row.id) || row.state !== 'stated') return row;
+    if (row.id.startsWith('part.')) delete part[row.id.slice(5)];
+    for (const requirement of row.requirements ?? []) {
+      const number = requirement.number;
+      const index = analysis.existing.findIndex((item, i) => !hidden.has(i) && (
+        number ? `#${item.number}` === number
+          : item.type === requirement.type && item.kind === requirement.kind &&
+            JSON.stringify(item.faces) === JSON.stringify(requirement.faces) &&
+            (!item.text || item.text === requirement.text)
+      ));
+      if (index >= 0) hidden.add(index);
+    }
+    return { ...row, state: 'gap' as const, value: undefined, requirements: [] };
+  });
+  const given = { ...analysis, part, table: { ...table, rows }, existing: analysis.existing.filter((_, i) => !hidden.has(i)) };
+  if (targets.has('part.process')) Reflect.deleteProperty(given, 'process');
+  return given;
+}

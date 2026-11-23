@@ -86,7 +86,7 @@ body { background: #fff; color: #1a1d21; font: 13px/1.45 ui-sans-serif, -apple-s
 .spec-row.nonerow > .v { color: var(--spec-none); font-style: italic; }
 .spec-row.changed > .v { color: var(--spec-accent); font-weight: 600; }
 .spec-row.changed { box-shadow: inset 3px 0 0 var(--spec-accent); padding-left: 6px; }
-.spec-row.removed > .v { text-decoration: line-through; color: var(--spec-danger); }
+.spec-row.removed > .v { text-decoration: line-through; }
 .spec-edit { flex-basis: 100%; background: var(--spec-accent-soft); border-radius: 6px; padding: 7px 9px; display: grid; gap: 6px; }
 .spec-edit.rm { background: var(--spec-danger-soft); }
 .spec-edit input, .spec-edit textarea, .spec-edit select { font: inherit; padding: 3px 7px; border: 1px solid var(--spec-line); border-radius: 4px; background: #fff; max-width: 100%; }
