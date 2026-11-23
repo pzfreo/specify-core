@@ -9,6 +9,9 @@ on:
       shards:
         required: true
         type: string
+      partition:
+        required: true
+        type: string
       build-timeout:
         required: true
         type: number
@@ -31,7 +34,8 @@ env:
 jobs:
   build:
     runs-on: ${{ inputs.os }}
-    timeout-minutes: ${{ inputs.build-timeout }}
+    # The previous macOS PR lane took about nine minutes on run 45095449286.
+    timeout-minutes: ${{ inputs.full-suite && inputs.build-timeout || 18 }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       # Same corpus revision as pzfreo/quiddity. tests/common/corpus.rs selects the CI cases.
@@ -108,7 +112,9 @@ jobs:
       - name: Run the archived tests
         # Each runner of the same OS has the same checkout path. Restore target/ there for
         # tests that use Cargo's compile-time paths to the CLI binary and scratch directory.
+        env:
+          PARTITION: ${{ inputs.partition }}:${{ matrix.shard }}/${{ strategy.job-total }}
         run: |
           mkdir -p target/tmp
           cargo nextest run --archive-file tests.tar.zst --extract-to . --extract-overwrite --no-fail-fast \
-            --partition hash:${{ matrix.shard }}/${{ strategy.job-total }}
+            --partition "$PARTITION"
