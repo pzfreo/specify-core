@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
-import { throttleAppPage } from './app-test-page.mjs';
+import { pageSaveResponse, throttleAppPage, watchSaveTraffic } from './app-test-page.mjs';
 import { mcp } from './mcp-client.mjs';
 // The local app as an agent uses it (specify-core docs/session.md): `specify-core mcp` over stdio,
 // started as an AI client starts it. The agent opens a part and calls `show {browser: false}`; an
@@ -56,10 +56,9 @@ async function load(url, ready = '.pmi-lab-panel') {
     Worker.prototype.postMessage = function (message, ...rest) {
       if (message && typeof message.operation === 'string') window.__engineOps.push(message.operation);
       const answers = message?.args?.answers;
-      if (window.__holdUndoReview && message?.operation === 'review-edits' &&
+      if (window.__heldUndoReviews && message?.operation === 'review-edits' &&
         answers?.['part.material'] === 'Brass CW614N' && !Object.hasOwn(answers, 'part.general_tolerance')) {
-        window.__holdUndoReview = false;
-        window.__releaseUndoReview = () => post.call(this, message, ...rest);
+        window.__heldUndoReviews.push(() => post.call(this, message, ...rest));
         return;
       }
       return post.call(this, message, ...rest);
@@ -67,6 +66,7 @@ async function load(url, ready = '.pmi-lab-panel') {
   });
   const page = await context.newPage();
   await throttleAppPage(page);
+  watchSaveTraffic(page);
   page.on('pageerror', error => problems.push(String(error)));
   page.on('console', message => { if (message.type() === 'error') problems.push(`console: ${message.text()}`); });
   await page.goto(url);
@@ -212,10 +212,7 @@ try {
       await check(picker).toHaveValue(String(part));
     };
     const pageSave = async afterClick => {
-      const response = page.waitForResponse(r => r.url() === `${shown.url}save` && r.request().method() === 'POST');
-      await page.getByRole('button', { name: 'Save', exact: true }).click();
-      if (afterClick) await afterClick();
-      const saved = await response;
+      const saved = await pageSaveResponse(page, shown.url, agent.stderr, afterClick);
       assert.equal(saved.status(), 200, await saved.text());
       return saved;
     };
@@ -231,22 +228,50 @@ try {
     await page.getByRole('button', { name: 'Show it' }).click();
     await check(picker).toHaveValue(String(b));
     await check(pending(b, 'part.general_tolerance')).toContainText('ISO 2768-f');
-    await page.evaluate(() => { window.__holdUndoReview = true; });
+    // SSE can update the bar before Undo's HTTP reply. Hold that reply and the visual review
+    // independently, so Save has to wait for the mutation but can proceed without the preview.
+    const undoReply = Promise.withResolvers();
+    const saveRequest = Promise.withResolvers();
+    let undoRev;
+    await page.route('**/discard', async route => {
+      const response = await route.fetch();
+      undoRev = (await response.json()).rev;
+      await undoReply.promise;
+      await route.fulfill({ response });
+    }, { times: 1 });
+    await page.route('**/save', async route => {
+      await saveRequest.promise;
+      await route.continue();
+    }, { times: 1 });
+    await page.evaluate(() => { window.__heldUndoReviews = []; });
     await question(page, 'part.general_tolerance').getByRole('button', { name: 'Undo', exact: true }).click();
     await check(pending(b, 'part.general_tolerance')).toHaveCount(0);
     await check(question(page, 'part.general_tolerance')).toHaveAttribute('data-state', 'gap');
     await check(allPending).toHaveCount(2);
-    await expect.poll(() => page.evaluate(() => Boolean(window.__releaseUndoReview))).toBe(true);
-    const savesBeforeUndoReview = requests.filter(url => url === `${shown.url}save`).length;
-    const first = await pageSave(async () => {
-      try {
-        await expect(page.getByRole('button', { name: 'Saving…', exact: true })).toBeDisabled();
-        assert.equal(requests.filter(url => url === `${shown.url}save`).length, savesBeforeUndoReview);
-      } finally {
-        await page.evaluate(() => window.__releaseUndoReview());
-      }
+    await check.poll(() => page.evaluate(() => window.__heldUndoReviews.length)).toBeGreaterThan(0);
+    const savesBeforeUndo = requests.filter(url => url === `${shown.url}save`).length;
+    const saving = pageSave(async () => {
+      await expect(page.getByRole('button', { name: 'Saving…', exact: true })).toBeDisabled();
+      saveRequest.resolve();
     });
+    let first;
+    try {
+      await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+      assert.equal(requests.filter(url => url === `${shown.url}save`).length, savesBeforeUndo);
+      undoReply.resolve();
+      first = await saving;
+    } finally {
+      undoReply.resolve();
+      saveRequest.resolve();
+      await page.evaluate(() => {
+        const held = window.__heldUndoReviews;
+        delete window.__heldUndoReviews;
+        held.forEach(release => release());
+      });
+      await saving.catch(() => {});
+    }
     const sent = first.request().postDataJSON();
+    assert.equal(sent.rev, undoRev, 'Save uses the revision acknowledged by Undo');
     assert.deepEqual(sent.partEdits.map(({ part }) => part).sort(), [a, b]);
     const saved = (await first.json()).path;
     assert.equal(table(saved, a)['part.material'].value, 'Steel 1.4301');

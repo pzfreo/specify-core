@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
-import { throttleAppPage } from './app-test-page.mjs';
+import { pageSaveResponse, throttleAppPage, watchSaveTraffic } from './app-test-page.mjs';
 import { characteristicHistory, validateOpening, wasmDirectory } from './engine-fixture.mjs';
 // The local app (dist-app, `npm run build:app`) served by the real `specify-core open`, the manual
 // way in (no agent; test/app-agent.mjs is the agent's): on a part it loads, is titled for the file,
@@ -132,16 +132,16 @@ const servers = [];
 async function open(file, ...flags) {
   const child = spawn(cli, ['open', ...assetArgs, '--no-browser', ...flags, ...[file].flat()], { env: assetEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   servers.push(child);
-  let out = '';
+  let out = '', stderr = '';
   child.stdout.on('data', chunk => { out += chunk; });
-  child.stderr.on('data', chunk => { out += chunk; });
+  child.stderr.on('data', chunk => { out += chunk; stderr += chunk; });
   for (let n = 0; n < 200 && !/http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{32}\//.test(out); n++) {
     if (child.exitCode !== null) break;
     await new Promise(r => setTimeout(r, 50));
   }
   const url = out.match(/http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{32}\//)?.[0];
   assert.ok(url, `specify-core open printed its address: ${out}`);
-  return { url, origin: new URL(url).origin, output: () => out, stop: () => child.kill() };
+  return { url, origin: new URL(url).origin, output: () => out, stderr: () => stderr, stop: () => child.kill() };
 }
 
 if (copiesOnly) {
@@ -263,6 +263,7 @@ async function load(server, ready = '.pmi-lab-panel') {
   });
   const page = await context.newPage();
   await throttleAppPage(page);
+  watchSaveTraffic(page);
   page.on('pageerror', error => problems.push(String(error)));
   page.on('console', message => { if (message.type() === 'error') problems.push(`console: ${message.text()}`); });
   await page.goto(server.url);
@@ -383,12 +384,7 @@ async function assertNoOrigin(box) {
 }
 /** Save and check the acknowledgement and the page's confirmation. The summary can repeat. */
 async function save(page, server, n) {
-  const reply = page.waitForResponse(
-    response => response.url() === `${server.url}save` && response.request().method() === 'POST',
-    { timeout: 90000 },
-  );
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
-  const response = await reply;
+  const response = await pageSaveResponse(page, server.url, server.stderr, undefined, { timeout: 90000 });
   const saved = await response.json();
   assert.equal(response.status(), 200, JSON.stringify(saved));
   await check(page.locator('.app-saved code')).toHaveText(saved.path);

@@ -23,7 +23,7 @@ import { EditBar } from '../src/specify/EditBar';
 import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
 import { discardAnswers, getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type SaveEdits, type LocalConfig, type AnswerDraft } from './local';
-import { EditsRefused, editsSaver, FileChanged, NotShown, shownReview, Stale, type Saver } from './save';
+import { EditsRefused, editsSaver, FileChanged, NotShown, shownReview, Stale } from './save';
 import { withDrafts } from './edits';
 
 declare const __APP_VERSION__: string;
@@ -45,7 +45,7 @@ interface Opened {
   /** How many saves ``bytes`` are on from the file as opened. */
   generation: number;
   session: PmiLabSession & { answers: PmiAnswers }; review: IntentReview; engine: SpecifyEngine; drawn: DrawnPmi | null;
-  bytes: Uint8Array; file: ReviewFile; labels: PmiQuestion[]; store: AnswersStore; saver: Saver;
+  bytes: Uint8Array; file: ReviewFile; labels: PmiQuestion[]; store: AnswersStore;
   /** Working answers used for agent notices and revision tracking. */
   external: { answers: PmiAnswers; review: IntentReview };
   /** The working answers processed by the page at the last shown session revision. */
@@ -88,7 +88,7 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   const shown = shownReview(answers, signal);
   return {
     ...at, generation, session, review: fileReview, engine, drawn: drawn && hasGraphics(drawn) ? drawn : null, bytes, file, labels: bare.questions, store, shown,
-    saver: editsSaver(store, answersSession, shown.settled), external: { answers, review }, reviewOf,
+    external: { answers, review }, reviewOf,
   };
 }
 
@@ -138,8 +138,7 @@ function App() {
   const [discarding, setDiscarding] = useState(false);
   const [checking, setChecking] = useState(false);
   const [reopening, setReopening] = useState(false);
-  // Answers that arrived from outside the page but could not be shown (their review failed): Save
-  // is refused until they are, so the page offers to show them again.
+  // A failed visual review can be retried independently of the session's draft list.
   const [unshown, setUnshown] = useState<string | null>(null);
   const reshow = useRef<() => void>(() => {});
   const refreshConfig = useRef<() => void>(() => {});
@@ -356,7 +355,7 @@ function App() {
         setUnshown(null);
         return;
       }
-      // Undo can update the draft bar before this review completes. Save waits for these answers.
+      // Undo updates the authoritative draft list independently of this visual review.
       void shown.review(answers, signal => opened.reviewOf(answers, signal), (review) => {
         setUnshown(null);
         setOpened((now) => (now?.store === store ? { ...now, external: { answers, review } } : now));
@@ -419,13 +418,18 @@ function App() {
     if (review) setSaved((saved) => saved === line ? { ...line, open: prompts(review.open, review) } : saved);
   };
 
-  // Save sends every part's list in one request, applied to the file all or nothing, whatever is
-  // still open, and says what is.
+  // The list and revision come from the same render. Undo keeps Save disabled until its HTTP
+  // response. Its WASM review only updates the display and agent notice, and may still be pending.
+  const displayedAnswers = opened?.store.get() ?? {};
   const onSave = async (edits: SaveEdits): Promise<ReviewSaveResult | null> => {
-    if (switching || reopening || discarding || stopped || !opened) return null;
+    const session = sessionRef.current;
+    if (switching || reopening || discarding || stopped || !opened || !session) {
+      setProblem('Not saved: the session is busy or unavailable.');
+      return null;
+    }
     setProblem(null);
     try {
-      const result = await opened.saver.save(edits, Math.max(displayedRevision.current, lastSaveResponse.current));
+      const result = await editsSaver(opened.store, session, () => displayedAnswers).save(edits, draftSnapshot.rev);
       lastSaveResponse.current = result.rev;
       // Reuse an SSE reload if it beat the response. The command advances the revision on every write.
       const loading = heardSaves.current.has(`${result.rev}:${result.path}`)
@@ -434,10 +438,9 @@ function App() {
       refreshConfig.current();
       return { bytes: await loading, name: inspectionName(result.path), report: result.report };
     } catch (error) {
-      if (sessionRef.current?.signal.aborted) return null;
-      if (error instanceof Stale) {
-        const now = await getAnswers().catch(() => null);
-        if (now) sessionRef.current?.receive({ ...now, source: 'start' });
+      if (session.signal.aborted) {
+        setProblem('Not saved: the session has closed.');
+        return null;
       }
       if (error instanceof FileChanged) {
         setFileChanged(true);
@@ -445,12 +448,13 @@ function App() {
           + 'Your changes are still listed below; open the file again to make them.');
       } else if (error instanceof EditsRefused) {
         return { failures: error.failures };
-      } else if (error instanceof NotShown && unshown) {
-        setProblem('Not saved: the latest answers in the session are not shown yet (see below). Trying to show them again.');
-        reshow.current();
       } else if (error instanceof Stale || error instanceof NotShown) {
-        reshow.current();
         setProblem('Not saved: the session changed while you saved (your agent answered). What is now shown is the latest; check it and Save again.');
+        if (error instanceof Stale) {
+          const now = await getAnswers().catch(() => null);
+          if (now) session.receive({ ...now, source: 'start' });
+        }
+        reshow.current();
       } else setProblem(`Not saved: ${message(error)}`);
       return null;
     }
@@ -470,9 +474,9 @@ function App() {
       return true;
     } catch (error) {
       if (!session.signal.aborted) {
+        setProblem(`Could not discard: ${message(error)}`);
         const latest = await getAnswers().catch(() => null);
         if (latest) session.receive({ ...latest, source: 'start' });
-        setProblem(`Could not discard: ${message(error)}`);
       }
       return false;
     } finally { setDiscarding(false); }
@@ -554,8 +558,7 @@ function App() {
       {problem && <p className="app-problem" role="alert">{problem}</p>}
       {unshown && (
         <p className="app-problem app-unshown" role="alert">
-          The latest answers in the session (from your agent or another window) could not be shown, so Save
-          waits until they are: {unshown}{' '}
+          The preview could not show the latest answers in the session: {unshown}{' '}
           <button type="button" onClick={() => reshow.current()}>Show the latest answers</button>
         </p>
       )}

@@ -635,7 +635,11 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
 
   const saveFileEdits = async () => {
     const opened = host.current.fileReview;
-    if (!opened || activeOperation.current || host.current.readOnly || host.current.writeFailedToReopen || opened.saveBlocked) return;
+    if (!opened || host.current.readOnly || host.current.writeFailedToReopen || opened.saveBlocked) return;
+    if (activeOperation.current) {
+      setError({ at: null, problem: asError(new Error('Not saved: wait for the current edit to finish.')) });
+      return;
+    }
     const queue = mergePending(localQueue.current, opened.staged);
     const lists = [...queue].sort(([a], [b]) => a - b).map(([part, entries]) => ({ part, edits: entries.list() }))
       .filter(({ edits }) => Object.keys(edits).length);

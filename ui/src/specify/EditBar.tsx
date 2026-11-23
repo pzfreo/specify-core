@@ -7,7 +7,7 @@ export function EditBar({ items, saving, busy, blocked, savedNote, onSave, onDis
   onSave(): void; onDiscard(): void; onAddAll(): void; onUndo(part: number, id: string, draft: boolean): void;
 }) {
   return (
-    <div className="spec-bar" role="region" aria-label="Changes to save">
+    <div className="spec-bar" role="region" aria-label="Changes to save" aria-busy={busy}>
       <ul>
         {items.length ? items.map(({ part, name, edit, suffix, target }) => (
           <li key={`${target?.part ?? part}:${target?.id ?? edit.id}`} data-part={part} data-pending={edit.id}>

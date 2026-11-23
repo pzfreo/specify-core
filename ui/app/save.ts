@@ -24,7 +24,7 @@ export class EditsRefused extends Error {
 
 const given = (answers: PmiAnswers) => JSON.stringify(Object.entries(answers).filter(([id]) => !id.startsWith('_')).sort(([a], [b]) => (a < b ? -1 : 1)));
 
-/** Only the current review can mark session answers as shown. Save can outlive one request. */
+/** Only the current review can mark session answers as shown. */
 export function shownReview(answers: PmiAnswers, session: AbortSignal) {
   let pending: { controller: AbortController; done: Promise<void> } | undefined;
   let closed = false;
@@ -64,7 +64,7 @@ export function shownReview(answers: PmiAnswers, session: AbortSignal) {
   };
 }
 
-/** Saves at the revision the bar shows, after any in-flight review of the displayed part. */
+/** Saves at the revision the bar shows, once the caller supplies the rendered answers. */
 export function editsSaver(store: Pick<AnswersStore, 'settled' | 'get'>, session: Pick<AnswersSession, 'signal' | 'receiveSave'>, shown: () => PmiAnswers | Promise<PmiAnswers>, write = post): Saver {
   return {
     async save(edits, displayedRev) {
