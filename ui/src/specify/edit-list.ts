@@ -99,4 +99,3 @@ export class PendingEdits {
   without(id: string): PendingEdits { return new PendingEdits(this.values().filter((q) => q.id !== id)); }
   list(): EditList { return editList(this.values()); }
 }
-

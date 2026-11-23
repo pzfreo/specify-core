@@ -24,4 +24,3 @@ export function RemoveLine({ what, numbers, checking, problem, onRemove, onCance
     </div>
   );
 }
-

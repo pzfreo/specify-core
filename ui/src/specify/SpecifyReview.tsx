@@ -814,12 +814,12 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   ));
   const keepChosen = (ids: readonly string[]) => {
     if (readOnly) return;
-    if (onKeep) { onKeep(ids); return; }
+    if (onKeep && !editingFile) { onKeep(ids); return; }
     if (editingFile) {
       void commitFile(ids[0] ?? null, list => ids.reduce((next, id) => {
         const q = questions.find(x => x.id === id);
         return q ? queueValue(fileRowsById.get(id), q, next, q.default, true) : next;
-      }, list), (asked, next) => settled(ids, asked, next));
+      }, list), (asked, next) => settled(ids, asked, next)).then(ok => { if (ok) onKeep?.(ids); });
       return;
     }
     // Capture the defaults the user saw and apply them to the answers accepted when this runs.
