@@ -51,7 +51,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension, otherPmi }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -110,6 +110,14 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
    * when the host cannot call that dimension out. Without it, Call Out adds a requirement as before.
    */
   callOutDimension?: (dimension: CalledOut, tolerance: string) => boolean;
+  /**
+   * 0.3: requirements the file states on no feature Specify asks about ("Other PMI in the file"):
+   * each with its bin (remove, confirmed; Undo). The engine cannot change them in place.
+   */
+  otherPmi?: {
+    items: readonly { key: string; label: string; value: string; faces: readonly number[] }[];
+    removed: ReadonlySet<string>; onRemove(key: string): void; onRestore(key: string): void;
+  };
 }) {
   const host = engine;
   const readOnlyHost = useMemo(() => readOnlyEngine(host), [host]);
@@ -1192,6 +1200,27 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               )}
             </section>
           )}
+          {otherPmi && !readOnly && otherPmi.items.length > 0 && !onlySuggestions && (
+            <section className="pmi-lab-row ok" data-row="other-pmi">
+              <button type="button" className="pmi-lab-row-head" aria-expanded={unfolded === 'other'} onClick={() => toggle('other')}>
+                <Chevron open={unfolded === 'other'} />
+                <b>Other PMI in the file</b>
+                <span className="sum">{otherPmi.items.map((i) => i.value).join(' · ')}</span>
+              </button>
+              {unfolded === 'other' && otherPmi.items.map((item) => {
+                const removed = otherPmi.removed.has(item.key);
+                return (
+                  <div key={item.key} className={`pmi-lab-stated${removed ? ' removed' : ''}`} data-other={item.key}>
+                    <button type="button" className="pmi-lab-item" onClick={() => { picker.current?.highlight(item.faces); picker.current?.lookAt(item.faces); }}>
+                      <span className="prompt">{item.label}</span>
+                      <span className="value">{removed ? <><s>{item.value}</s> removed</> : <>{item.value} <small>(from the file)</small></>}</span>
+                    </button>
+                    <StatedTools name={`${item.label} ${item.value}`} state={{ removed, changed: false, onRemove: () => otherPmi.onRemove(item.key), onRestore: () => otherPmi.onRestore(item.key) }} />
+                  </div>
+                );
+              })}
+            </section>
+          )}
           {addedByYou && (!onlySuggestions || draft || problemsIn('added').length > 0) && (
           <section className={`pmi-lab-row ${added.length ? 'set' : 'ok'}${draft ? ' current' : ''}`}>
             <button
@@ -1369,7 +1398,7 @@ const PENCIL = <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke
 const BIN = <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.5 8.5h6l.5-8.5M6.8 7v4M9.2 7v4" /></svg>;
 
 /** A stated item's pencil and bin: the same size and colour; the bin asks before it removes. */
-function StatedTools({ name, state, onChange }: { name: string; state: StatedState; onChange: () => void }) {
+function StatedTools({ name, state, onChange }: { name: string; state: StatedState; onChange?: () => void }) {
   const [asking, setAsking] = useState(false);
   if (state.removed) {
     return <span className="pmi-lab-stated-tools"><button type="button" onClick={state.onRestore}>Undo</button></span>;
@@ -1385,7 +1414,7 @@ function StatedTools({ name, state, onChange }: { name: string; state: StatedSta
   }
   return (
     <span className="pmi-lab-stated-tools">
-      <button type="button" className="icon" title={`Change ${name}`} aria-label={`Change ${name}`} onClick={onChange}>{PENCIL}</button>
+      {onChange && <button type="button" className="icon" title={`Change ${name}`} aria-label={`Change ${name}`} onClick={onChange}>{PENCIL}</button>}
       <button type="button" className="icon" title={`Remove ${name}`} aria-label={`Remove ${name}`} onClick={() => setAsking(true)}>{BIN}</button>
     </span>
   );

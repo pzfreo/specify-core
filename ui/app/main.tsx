@@ -15,16 +15,17 @@ import {
   as9102, createIntentEngine, drawnFromScene, hasGraphics, SpecifyReview, StepDiff, toCsv, withoutNotesBlock, xlsx,
   type DrawnPmi, type IntentReview, type PmiAnswers, type PmiLabSession, type PmiQuestion, type SpecifyEngine, type SpecifySlots, type WorkerClient,
 } from '../src/index';
-import type { PmiAnalysis } from '../src/types/pmi';
+import type { PmiAnalysis, PmiExtra } from '../src/types/pmi';
 import { stepBytes } from '../src/model/diff';
 import { SessionApiMismatch } from './session-api';
 import { saveFile, type CalledOut } from '../src/specify/SpecifyReview';
+import { describe as describeExtra } from '../src/specify/added';
 import type { StoredInspection } from '../src/specify/saved-inspection';
 import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
 import { discardAnswers, getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type EditFailure, type EditList, type LocalConfig, type AnswerDraft } from './local';
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } from './save';
-import { PendingEdits, rejectedNoneByPart, withDrafts } from './edits';
+import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts } from './edits';
 import { EditBar } from './EditBar';
 import { answerEdit, callOutEdit, forEngine, forScreens, isDimensionQuestion, nextExtraKey, removeEdit, statedRows, type StatedRows } from './adapter';
 import { answerText, bareAnalysis, fileLengthUnit, panelModel, tableOf, type FeatureTable, type PanelModel } from './table';
@@ -233,8 +234,11 @@ function App() {
     if (!now || now.part !== part) return;
     const row = now.table.rows.find((r) => r.id === id);
     const q = now.bare.find((x) => x.id === id) ?? now.review.questions.find((x) => x.id === id);
-    const name = rowName(now, id);
+    // "Added by you": named and worded as the review lists it ("Flatness 0.05" on its faces).
+    const added = id.startsWith('extra.') && value && typeof value === 'object' ? value as PmiExtra : null;
+    const name = added ? 'Added by you' : rowName(now, id);
     const edit = answerEdit(id, value, row, q, name);
+    if (edit?.kind === 'fill' && added) edit.text = describeExtra(added);
     setPending((all) => {
       const updated = new Map(all);
       const list = updated.get(part) ?? new PendingEdits();
@@ -752,7 +756,20 @@ function App() {
             focusRequest={focus} showFaces={lit}
             onExport={(_action, format) => { if (format === 'xlsx') downloadFai(); else downloadCsv(); }}
             {...(editing ? {
-              addedByYou: false,
+              otherPmi: {
+                // Named as the file names it ("Flatness"), else by its kind.
+                items: opened.model.other.map((o) => {
+                  const item = opened.table.file_pmi.find((r) => (o.number && r.number === o.number) || (o.id && r.id === o.id));
+                  const label = item?.type ? item.type.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ') : o.label;
+                  return { key: o.key, label: label.charAt(0).toUpperCase() + label.slice(1).toLowerCase(), value: o.value, faces: o.faces };
+                }),
+                removed: new Set(partPending.values().filter((e) => e.kind === 'remove').map((e) => e.id)),
+                onRemove: (key: string) => {
+                  const o = opened.model.other.find((x) => x.key === key);
+                  if (o) editPending(partPending.with({ kind: 'remove', id: key, name: o.label, targets: removalTargets(o.number ? [o.number] : [], o.id), was: o.value }));
+                },
+                onRestore: (key: string) => editPending(partPending.without(key)),
+              },
               stated: {
                 values: opened.stated.values,
                 removed: new Set(partPending.values().filter((e) => e.kind === 'remove').map((e) => e.id)),
