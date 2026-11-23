@@ -5,7 +5,7 @@
 //! classifies each recognised feature and face as carried, adapted, ambiguous, orphaned or new.
 //!
 //! The requirements are read only from the PMI in the two files (ADR P11: the file's PMI is the
-//! only copy), whoever wrote it; stored answers are never read. Each old requirement is paired
+//! only copy), whoever wrote it. Stored decisions only inform the list of new gaps. Each old requirement is paired
 //! with a new one through the face matching and its kind, by characteristic number where the new
 //! file continues the old file's number history: a change of limits keeps its number and reads
 //! `changed`; a different measurement is one removed and another added. A requirement the new
@@ -67,7 +67,7 @@ pub struct Revised {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frame_tie: Option<FrameTie>,
     /// Information only: the features new in this revision (no counterpart in the old part) that
-    /// the new file's PMI states nothing on. It never changes the verdict or `check`.
+    /// have neither PMI nor a stored decision. It never changes the verdict or `check`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub new_unstated: Vec<Unstated>,
     /// Each new face's class (`changed` or `new`; faces carried unchanged are left out), and the
@@ -1384,7 +1384,7 @@ pub fn compare(
 }
 
 /// What changed from *old* to *new*: the geometry, matched face by face, and the requirements
-/// each file's PMI states (ADR P11: the file's PMI is the only copy; no stored answers are read).
+/// each file's PMI states (ADR P11). Saved decisions only inform the list of new gaps.
 pub fn diff(old: &LoadedPart, new: &LoadedPart) -> Result<Revised> {
     diff_with_options(old, new, DiffOptions::default())
 }
@@ -1711,12 +1711,21 @@ pub fn diff_with_options(
         }
     }
     let mut check = pmi::checks(&changed_features, &new_features, &new_file);
-    // Information only: the new features the new file states nothing on.
-    let stated = pmi::stated_faces(&new_file);
+    // Information only: new features with neither PMI nor a stored decision on their faces.
+    let mut covered = pmi::stated_faces(&new_file);
+    covered.extend(
+        new_analysis["table"]["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|row| row["state"] == "decided_none")
+            .flat_map(|row| row["faces"].as_array().into_iter().flatten())
+            .filter_map(|face| usize::try_from(face.as_u64()?).ok()),
+    );
     let new_unstated: Vec<Unstated> = feature_changes
         .iter()
         .filter(|c| c.class == "new")
-        .filter(|c| !c.new_faces.iter().any(|f| stated.contains(f)))
+        .filter(|c| !c.new_faces.iter().any(|f| covered.contains(f)))
         .filter_map(|c| {
             Some(Unstated {
                 feature: c.new.clone()?,

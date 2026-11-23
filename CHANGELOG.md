@@ -142,10 +142,6 @@ Read first:
 
 ### Changed
 
-- A fill on a decided-none row is refused unless the same list explicitly clears the
-  decision first. A fill meaning none on that row is unchanged. Use `clear` and `fill`
-  together to replace a stored decision, including a choice such as `part.locating`.
-
 - **Quiddity 0.5.5.** Published step levels on every part axis get plane-to-plane length rows.
   Independent plane lengths keep their rows. Stated locations on retired levels appear under
   **Other PMI in the file** when they match no measured row. A stated length on tilted planes
@@ -354,6 +350,12 @@ Read first:
 
 ### Fixed
 
+- `fill` on a decided-none row was accepted; the 0.3.0 model treats it as a decision.
+  To replace it, send `clear` and `fill` for its ID in one edit list. A fill meaning none
+  is unchanged.
+- `fill` could also overwrite a stored choice such as `part.locating`. Repeating the
+  choice is unchanged. To replace it, send `clear` and `fill` for its ID in one list.
+- Diff and carry exclude features with a stored decision from `new_unstated`.
 - `@draftwright/specify-ui`: confirming Material and then moving focus sends one answer, with the
   catalogue spelling for an exact case-insensitive match. Quick edits to different questions keep
   both answers when the first review is still pending.
