@@ -16,7 +16,7 @@ import {
 } from '../src/index';
 import { stepBytes } from '../src/model/diff';
 import { SessionApiMismatch } from './session-api';
-import { fileRows, requirementName, type ReviewFile, type ReviewPart, type ReviewSaveResult } from '../src/specify/file-review';
+import { fileRows, requirementName, type ReviewFile, type ReviewFocus, type ReviewPart, type ReviewSaveResult } from '../src/specify/file-review';
 import { answerText, bareAnalysis } from '../src/specify/feature-table';
 import { EMPTY_QUEUE } from '../src/specify/review-assembly';
 import { EditBar } from '../src/specify/EditBar';
@@ -132,6 +132,8 @@ function App() {
   const [fileChanged, setFileChanged] = useState(false);
   const [editsPending, setEditsPending] = useState(false);
   const [draftSnapshot, setDraftSnapshot] = useState<{ rev: number; drafts: Record<string, AnswerDraft> }>({ rev: 0, drafts: {} });
+  const displayedRevision = useRef(draftSnapshot.rev);
+  displayedRevision.current = draftSnapshot.rev;
   const [discarding, setDiscarding] = useState(false);
   const [checking, setChecking] = useState(false);
   const [reopening, setReopening] = useState(false);
@@ -163,7 +165,7 @@ function App() {
   // agent changes something else.
   const [agent, setAgent] = useState<{ ids: string[]; n: number } | null>(null);
   const [other, setOther] = useState<{ name: string; part: number; n: number; joined: boolean } | null>(null);
-  const [focus, setFocus] = useState<{ questionId: string; faces?: readonly number[]; scroll?: boolean; n?: number } | null>(null);
+  const [focus, setFocus] = useState<ReviewFocus & { n?: number } | null>(null);
   const [lit, setLit] = useState<{ faces: readonly number[]; n: number } | undefined>(undefined);
   const edited = () => setAgent(null);
 
@@ -391,11 +393,11 @@ function App() {
     return () => { observer.disconnect(); root.querySelectorAll('.app-agent-lit').forEach((el) => el.classList.remove('app-agent-lit')); };
   }, [agent]);
   useEffect(() => {
-    if (!dirty) return;
+    if (!dirty && !editsPending) return;
     const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); };
     window.addEventListener('beforeunload', guard);
     return () => window.removeEventListener('beforeunload', guard);
-  }, [dirty]);
+  }, [dirty, editsPending]);
 
   const mode = config?.mode;
   const readOnly = !config || config.readOnly;
@@ -421,7 +423,7 @@ function App() {
     if (switching || reopening || discarding || stopped || !opened) return null;
     setProblem(null);
     try {
-      const result = await opened.saver.save(edits, Math.max(draftSnapshot.rev, lastSaveResponse.current));
+      const result = await opened.saver.save(edits, Math.max(displayedRevision.current, lastSaveResponse.current));
       lastSaveResponse.current = result.rev;
       // Reuse an SSE reload if it beat the response. The command advances the revision on every write.
       const loading = heardSaves.current.has(`${result.rev}:${result.path}`)
@@ -459,7 +461,7 @@ function App() {
     setDiscarding(true);
     try {
       if (target || Object.keys(session.draftSnapshot().drafts).length) {
-        const snapshot = await discardAnswers(Math.max(draftSnapshot.rev, lastSaveResponse.current), target, session.signal);
+        const snapshot = await discardAnswers(Math.max(displayedRevision.current, lastSaveResponse.current), target, session.signal);
         session.receive({ ...snapshot, source: 'start' });
       }
       setAgent(null);
@@ -479,7 +481,7 @@ function App() {
   /** A decision picked in the diff: its question, in the answers. */
   const decide = (d: Decision) => {
     setTab('answers');
-    if (d.question) setFocus({ questionId: d.question, scroll: true, n: Date.now() });
+    setFocus({ questionId: d.question, number: d.number, feature: d.feature, requirement: d.requirement, scroll: true, n: Date.now() });
   };
 
   const showingChanges = mode === 'diff' && tab === 'changes';

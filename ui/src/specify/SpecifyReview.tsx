@@ -7,7 +7,7 @@ import { GeneralToleranceEditor } from './GeneralToleranceEditor';
 import { fileLengthUnit, type Units } from './general-tolerance';
 import { EMPTY_PENDING, EMPTY_QUEUE, linkedParts, mergePending, queueCopies, type PartQueue } from './review-assembly';
 import { FileRequirement } from './FileRequirement';
-import { askFile, checkPending, CheckRefused, datumId, fileRows, impliedAnswers, otherRows, partFile, queueValue, replacedRequirements, requirementName, retiredNumbers, rowSuggestion, rowSuggestionText, rowText, savePending, type FileReviewOptions, type FileRow } from './file-review';
+import { askFile, checkPending, CheckRefused, datumId, fileRows, focusedRequirement, impliedAnswers, otherRows, partFile, queueValue, replacedRequirements, requirementName, retiredNumbers, rowSuggestion, rowSuggestionText, rowText, savePending, type FileReviewOptions, type FileRow, type ReviewFocus } from './file-review';
 import { PendingEdits, rejectedNoneByPart, removalTargets, suggestionEdits, type EditFailure } from './edit-list';
 import { answerText, isNoneValue, tableOf, withoutRequirements } from './feature-table';
 import type { StoredInspection } from './saved-inspection';
@@ -89,7 +89,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   showFaces?: { faces: readonly number[]; n: number };
   /** The queue's state on the part, by face; a new map when it changes. */
   tints?: ReadonlyMap<number, PartTint>;
-  externalAnswers: PmiAnswers; externalReview: IntentReview; disabled: boolean; focusRequest?: { questionId: string; faces?: readonly number[]; scroll?: boolean; focusInput?: boolean } | null;
+  externalAnswers: PmiAnswers; externalReview: IntentReview; disabled: boolean; focusRequest?: ReviewFocus | null;
   /** The editor's decisions to review, by question: the suggestions are exactly these (agreed 2026-10-16). */
   toReview?: readonly string[];
   /** Keeps suggestions as they stand, the editor's way: accepted, as in its list, not answered. */
@@ -114,6 +114,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const session = reopened?.session ?? openedSession;
   const fileReview = fileOptions && (reopened ? { ...fileOptions, file: reopened.file } : fileOptions);
   const editingFile = Boolean(fileReview && !readOnly);
+  const focusId = useMemo(() => focusedRequirement(session.analysis, focusRequest), [session.analysis, focusRequest]);
   const isNoteField = (id: string) => NOTE_FIELDS.has(id) || (editingFile && id === 'part.notes');
   const [localEdits, setLocalEdits] = useState<PartQueue>(EMPTY_QUEUE);
   const localQueue = useRef(localEdits);
@@ -252,30 +253,33 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
 
   // Only a banner or blank-cell request moves focus off the drawing into its answer input.
   useEffect(() => {
-    if (readOnly || !focusRequest?.focusInput || focusRequest.questionId !== slotQuestion || !slots.question) return;
+    if (readOnly || !focusRequest?.focusInput || focusId !== slotQuestion || !slots.question) return;
     const timer = window.setTimeout(() => slots.question?.querySelector<HTMLElement>('input, select, button')?.focus({ preventScroll: true }), 50);
     return () => window.clearTimeout(timer);
-  }, [slots.question, slotQuestion, focusRequest]);
+  }, [slots.question, slotQuestion, focusRequest, focusId]);
 
   useEffect(() => {
-    const id = focusRequest?.questionId;
+    const id = focusId;
     if (readOnly || !id) return;
     // Opened from the queue above, it is not followed down the list unless asked.
-    quiet.current = focusRequest.scroll ? null : id;
+    quiet.current = focusRequest?.scroll ? null : id;
     // A problem about an added requirement is not a question: it opens as the problem's line does.
     if (!questions.some(question => question.id === id) && !session.questions.some(question => question.id === id)
       && !tableOf(session.analysis).rows.some(row => row.id === id) && !otherRows(session.analysis).some(row => row.id === id)) {
-      setView('review'); openProblem(id, focusRequest.faces ?? []); return;
+      setView('review'); openProblem(id, focusRequest?.faces ?? []); return;
     }
     setView('review'); setOnlySuggestions(false); setCurrent(id);
     setUnfolded(isNoteField(id) ? `note:${id}` : id.startsWith('part.') ? id : id.startsWith('datum.') ? 'datums' : null);
     // Brought into view only when asked: the queue that asked may be above it in the same column.
-    if (focusRequest.scroll) window.setTimeout(() => {
+    if (!focusRequest?.scroll) return;
+    const timer = window.setTimeout(() => {
       const field = rowsBox.current?.querySelector<HTMLElement>(`[data-question="${CSS.escape(id)}"]`);
       field?.scrollIntoView({ block: 'center' });
-      field?.querySelector<HTMLElement>('input, select')?.focus({ preventScroll: true });
+      const input = field?.querySelector<HTMLElement>('input, select') ?? field?.querySelector<HTMLElement>('button');
+      input?.focus({ preventScroll: true });
     }, 50);
-  }, [focusRequest, session.sessionId]);
+    return () => window.clearTimeout(timer);
+  }, [focusRequest, focusId, session.sessionId]);
 
   // The picker lives as long as the session; React state reaches it through refs.
   const handlers = useRef({ face: (_face: number) => {}, label: (_label: PmiLabel) => {} });
@@ -483,7 +487,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
       displayReview(session.answers ?? {}, externalReview);
       const first = groupQuestions(session.questions).filter(g => g.key !== 'part');
       const given = impliedAnswers(session.analysis, pending);
-      setCurrent(focusRequest?.questionId ?? nextNeeding(first, given));
+      setCurrent(focusId ?? nextNeeding(first, given));
       if (session.questions.some(q => q.id === 'part.material' && needs(q, given) === 'required')) setUnfolded('part.material');
       return;
     }
@@ -658,6 +662,8 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
       setSaveFailures([]);
       setError(null);
       setSavedStatus(null);
+    } catch (failure) {
+      setError({ at: null, problem: asError(failure) });
     } finally { setBusy(false); }
   };
 
@@ -1112,7 +1118,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const downloadCsv = () => host.current.onExport(async () => {
     const data = await inspection();
     if (!data) return;
-    const stem = (fileReview?.inspectionName ?? session.filename).replace(/(?:\.(step|stp|p21))(?:\.gz)?$/i, '');
+    const stem = (host.current.fileReview?.inspectionName ?? host.current.session.filename).replace(/(?:\.(step|stp|p21))(?:\.gz)?$/i, '');
     saveFile(new File([toCsv(data.chars, data.skipped)], `${stem}-characteristics.csv`, { type: 'text/csv' }));
     host.current.onSaved?.(`${stem}-characteristics.csv`);
   });
@@ -1120,7 +1126,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const downloadFai = () => host.current.onExport(async () => {
     const data = await inspection();
     if (!data) return;
-    const stem = (fileReview?.inspectionName ?? session.filename).replace(/(?:\.(step|stp|p21))(?:\.gz)?$/i, '');
+    const stem = (host.current.fileReview?.inspectionName ?? host.current.session.filename).replace(/(?:\.(step|stp|p21))(?:\.gz)?$/i, '');
     const book = xlsx(as9102({ name: stem }, data.chars, data.skipped, data.notes));
     saveFile(new File([book as BlobPart], `${stem}-AS9102.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
     host.current.onSaved?.(`${stem}-AS9102.xlsx`);

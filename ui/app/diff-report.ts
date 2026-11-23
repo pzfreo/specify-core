@@ -7,6 +7,9 @@ export interface Decision {
   kind: 'unresolved' | 'check' | 'specify';
   /** The question it is about, when the report names one. */
   question: string | null;
+  number?: number;
+  feature?: string;
+  requirement?: string;
   /** A short label, and why it needs a decision. */
   what: string;
   why: string;
@@ -27,6 +30,8 @@ export function decisions(report: unknown): Decision[] {
     })),
     ...rows(r.check).map((row): Decision => ({
       kind: 'check', question: null,
+      ...(typeof row.number === 'number' ? { number: row.number } : {}),
+      feature: text(row.feature) || undefined, requirement: text(row.requirement) || undefined,
       what: `Check: ${text(row.requirement) || text(row.id)}`,
       why: 'Its feature moved or changed size, so it may no longer fit.',
     })),

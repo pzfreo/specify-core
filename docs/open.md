@@ -318,7 +318,8 @@ assembly, each compared part's `parts[i].report.pmi.scenes`. (Contract addition,
 `GET diff` includes the PMI scenes, as `diff()` with `scenes` true.) The page's StepDiff
 draws from it without comparing again. (Contract change, 2026-11-18: `GET diff` was
 report.json; it is now `{report, markdown, view}` (assembly `{report, markdown, parts}`), as
-WASM `diff()`.) A save changes `NEW`, and the report is not recomputed. Save applies its edit
+WASM `diff()`.) Selecting a check opens its requirement in the review when the saved PMI identifies it.
+A save changes `NEW`, and the report is not recomputed. Save applies its edit
 list to `NEW` and writes it (beside it, or over it with `--in-place`).
 
 ## The agent's side

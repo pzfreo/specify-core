@@ -58,6 +58,36 @@ export function otherRows(analysis: PmiAnalysis): FileRow[] {
   });
 }
 
+export interface ReviewFocus {
+  questionId?: string | null;
+  number?: number;
+  feature?: string;
+  requirement?: string;
+  faces?: readonly number[];
+  scroll?: boolean;
+  focusInput?: boolean;
+}
+
+/** An older diff names a question. Current reports identify the stored PMI. */
+export function focusedRequirement(analysis: PmiAnalysis, request?: ReviewFocus | null): string | undefined {
+  if (!request) return undefined;
+  if (request.questionId) return request.questionId;
+  const table = tableOf(analysis);
+  const items = [...table.rows.filter(row => row.state === 'stated'), ...otherRows(analysis)];
+  if (request.number !== undefined) {
+    const number = `#${request.number}`;
+    const match = items.find(row => row.requirements?.some(item => item.number === number));
+    if (match) return match.id;
+  }
+  const faceIds = analysis.features.find(feature => feature.id === request.feature)?.faces ?? [];
+  const candidates = items.filter(row => !request.feature || row.feature === request.feature ||
+    (row.feature === 'other' && row.faces.some(face => faceIds.includes(face))));
+  const text = request.requirement;
+  const matches = text ? candidates.filter(row => row.requirements?.some(item =>
+    item.text === text || displayText(item.text) === displayText(text))) : [];
+  return matches.length === 1 ? matches[0]?.id : candidates.length === 1 ? candidates[0]?.id : undefined;
+}
+
 export function requirementName(q: PmiQuestion): string {
   if (q.id.startsWith('length:planes:')) return 'Length';
   if (q.id.startsWith('location:holes:')) return 'Location';
@@ -220,7 +250,7 @@ export async function savePending(options: () => FileReviewOptions, edits: SaveE
     >('edit', { ...file, edits });
     if (!result.written) return { failures: result.failures.map(failure => ({ ...failure, part })) };
     bytes = result.bytes;
-    reports.push(result.report);
+    reports.push(part === undefined ? result.report : { part, report: result.report });
   }
   return { bytes, report: reports };
 }
