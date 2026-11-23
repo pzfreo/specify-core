@@ -14,7 +14,11 @@ export default defineConfig({
   worker: { format: 'es', rollupOptions: { external, output: { entryFileNames: 'assets/[name].js' } } },
   build: {
     target: 'es2023',
-    lib: { entry: 'src/index.ts', formats: ['es'], fileName: () => 'specify-ui.js' },
+    // Two entries: the components, and the DOM-free helpers (no three, no CSS) for a host's Node code.
+    lib: {
+      entry: { 'specify-ui': 'src/index.ts', helpers: 'src/helpers.ts' }, formats: ['es'],
+      fileName: (_format, name) => `${name}.js`, cssFileName: 'specify-ui',
+    },
     rollupOptions: { external },
   },
 });

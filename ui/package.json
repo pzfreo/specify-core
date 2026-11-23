@@ -39,6 +39,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/specify-ui.js"
     },
+    "./helpers": {
+      "types": "./dist/helpers.d.ts",
+      "import": "./dist/helpers.js"
+    },
     "./style.css": "./dist/specify-ui.css",
     "./package.json": "./package.json"
   },
