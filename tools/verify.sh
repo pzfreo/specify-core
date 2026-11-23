@@ -84,6 +84,7 @@ step "ci test: clippy"                "cargo clippy --workspace --all-targets --
 step "ci test: fetch dependencies"    "cargo fetch --locked"
 step "ci test: link workspace"        "cargo build --workspace --all-targets --release --locked"
 step "ci test: build tests"           "cargo nextest run --workspace --release --locked --no-run"
+# One local nextest run covers every Linux shard, including all corpus input groups.
 step "ci test: full suite"            "cargo nextest run --workspace --release --locked --no-fail-fast"
 step "ci test: doctests"              "cargo test --doc --workspace --release --locked --no-fail-fast"
 

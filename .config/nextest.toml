@@ -2,25 +2,19 @@
 retries = 0
 
 [[profile.default.overrides]]
-# Measured long corpus sweeps start before short tests, keeping the shard tail short.
+# The file that dominates several sweeps has its own group. Start it first to
+# leave time for the other groups to finish on the remaining runner cores.
 filter = '''
-    test(=writes_match_the_oracle)
-    | test(=an_unchanged_round_trip_resumes_every_answer)
-    | test(=corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains)
+    test(=accepting_corpus_defaults_leaves_no_open_rows_group_0)
+    | test(=writes_match_the_oracle_group_0)
+    | test(=an_unchanged_round_trip_resumes_every_answer_group_0)
+    | test(=corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains_group_0)
+    | test(=corpus_feature_rows_that_can_write_pmi_have_faces_group_0)
 '''
 priority = 100
 
 [[profile.default.overrides]]
-filter = 'test(=corpus_feature_rows_that_can_write_pmi_have_faces)'
-priority = 80
-
-[[profile.default.overrides]]
-# The defaults sweep checks results together after two workers finish.
-filter = 'test(=accepting_corpus_defaults_leaves_no_open_rows)'
-priority = 100
-threads-required = 2
-
-[[profile.default.overrides]]
+# Start the remaining measured long tests and split groups ahead of short tests.
 filter = '''
     test(=an_assembly_parts_requirements_carry_through_the_in_place_writer)
     | test(=every_none_is_refused_or_reads_again)
@@ -30,5 +24,6 @@ filter = '''
     | test(=ctc02_location_approval_is_not_stored_as_no_pmi)
     | test(=modelled_thread_parts_still_analyse_interview_and_write)
     | test(=twenty_named_corpus_parts_preserve_geometric_analysis_write_and_resume)
+    | test(/^(accepting_corpus_defaults_leaves_no_open_rows|writes_match_the_oracle|an_unchanged_round_trip_resumes_every_answer|corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains|corpus_feature_rows_that_can_write_pmi_have_faces)_group_[1-7]$/)
 '''
 priority = 50

@@ -64,7 +64,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        # Run 45116003511 and local split timings project an 11–12 minute tail
+        # with five hash shards. Four project over 13 minutes including setup.
+        shard: [1, 2, 3, 4, 5]
     runs-on: ubuntu-latest
     timeout-minutes: 28
     steps:
