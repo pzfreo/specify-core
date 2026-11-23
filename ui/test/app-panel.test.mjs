@@ -1,8 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { balloonText, bareAnalysis, changedText, displayText, isNoneValue, panelModel, tableOf } from '../app/table.ts';
-import { describe, editList, PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, suggestionEdits } from '../app/edits.ts';
-import { compose, emptyBlock, parse } from '../app/general-tolerance.ts';
+import { balloonText, bareAnalysis, changedText, displayText, isNoneValue, tableOf } from '../src/specify/feature-table.ts';
+import { describe, withDrafts } from '../app/edits.ts';
+import { editList, PendingEdits, rejectedNoneByPart, removalTargets, suggestionEdits } from '../src/specify/edit-list.ts';
+import { fileRows, otherRows, requirementLabel, requirementName, rowSuggestion, rowSuggestionText, rowText } from '../src/specify/file-review.ts';
+import { groupQuestions } from '../src/specify/review.ts';
+import { compose, emptyBlock, parse } from '../src/specify/general-tolerance.ts';
 // The review panel's pieces that are not drawn (specify-panel.md): its reading of the engine's feature
 // table, the pending edits as an edit list, and the general tolerance's text (#228).
 
@@ -25,40 +28,57 @@ const table = {
   ],
   decided_none: ['part.coating'],
 };
-const questions = [
-  { id: 'part.material', label: 'Material', kind: 'text' },
-  { id: 'hole.function:holes:14.15', label: 'Ø1.6 hole', title: 'Ø1.6 hole', kind: 'choice', options: ['general', 'tapped:M2'] },
-  { id: 'hole.position:holes:14.15', label: 'Ø1.6 hole position', title: 'Ø1.6 hole', kind: 'choice', options: ['none', '0.1', '0.2'] },
-  { id: 'datum.A', label: 'Datum A', kind: 'faces' },
+const labels = [
+  { id: 'part.material', label: 'Material', kind: 'text', faces: [] },
+  { id: 'hole.function:holes:14.15', label: 'Ø1.6 hole', title: 'Ø1.6 hole', feature: 'holes:14.15', faces: [14], kind: 'choice', options: ['general', 'tapped:M2'] },
+  { id: 'hole.position:holes:14.15', label: 'Ø1.6 hole position', title: 'Ø1.6 hole', feature: 'holes:14.15', faces: [14], kind: 'choice', options: ['none', '0.1', '0.2'] },
+  { id: 'datum.A', label: 'Datum A', kind: 'faces', faces: [0] },
 ];
 
-test('the panel reads the feature table: features with each kind stated, gap or decided none', () => {
-  const model = panelModel(tableOf({ table }), questions);
-  assert.deepEqual(model.part.rows.map(r => [r.id, r.state, r.value]), [
+// Gaps are returned as questions by review. Labels from the bare part also name stored rows.
+function view(table, features = []) {
+  const asked = table.rows.filter(r => r.state === 'gap').map(r => ({
+    id: r.id, faces: r.faces, feature: r.feature, default: r.suggestion,
+    ...labels.find(q => q.id === r.id),
+  }));
+  const analysis = { table, features };
+  const rows = fileRows(analysis, asked, labels);
+  const groups = groupQuestions(rows.map(row => row.question), true);
+  return { rows, groups, other: otherRows(analysis) };
+}
+
+test('the review reads the feature table: features with each kind stated, gap or decided none', () => {
+  const model = view(table);
+  const part = model.groups.find(g => g.key === 'part').questions.map(q => model.rows.find(r => r.id === q.id));
+  assert.deepEqual(['part.material', 'part.general_tolerance', 'part.coating', 'part.heat_treatment'].map(id => {
+    const r = part.find(one => one.id === id);
+    return [r.id, r.state, r.state === 'gap' ? 'not stated' : r.state === 'decided_none' ? 'none needed' : rowText(r)];
+  }), [
     ['part.material', 'stated', 'Brass CZ121'],
     ['part.general_tolerance', 'gap', 'not stated'],
     ['part.coating', 'decided_none', 'none needed'],
     ['part.heat_treatment', 'gap', 'not stated'],
   ]);
-  // A gap carries its suggestion as it reads (a choice by its code); a "none" suggestion reads "none".
-  const gt = model.part.rows[1];
-  assert.equal(gt.suggestion, 'ISO 2768-m');
-  assert.equal(gt.suggestionText, 'ISO 2768-m');
-  assert.equal(model.part.rows[3].suggestionText, 'none');
-  assert.equal(model.part.rows[3].open, false, 'a none suggestion is not open');
-  // A feature's rows under its title, each by its own word; a stated row keeps its numbers.
-  assert.deepEqual(model.features.map(g => g.title), ['Ø1.6 hole']);
-  assert.deepEqual(model.features[0].rows.map(r => [r.label, r.state, r.numbers]), [['Function', 'gap', []], ['Position', 'stated', ['#2']]]);
-  assert.equal(model.features[0].rows[0].suggestionText, 'M2 tapped');
-  assert.equal(model.features[0].rows[0].name, 'Ø1.6 hole function', 'a row is named with its feature and its kind');
-  assert.equal(model.features[0].rows[1].expect, 'Position 0.2 | A', 'a change expects the value the file states');
-  assert.equal(model.features[0].rows[1].value, '⌖ 0.2 A', 'and shows it as a drawing writes it');
-  assert.deepEqual(model.datums.rows.map(r => r.label), ['Datum A']);
-  // "Other PMI in the file": by number when it has one.
-  // The engine's ids (`file_pmi:#<entity>`) name each item; one it cannot name has none.
-  assert.deepEqual(model.other.map(o => [o.key, o.id, o.number, o.value]), [['#3', 'file_pmi:#1401', '#3', '37.6'], ['file_pmi:#24', 'file_pmi:#24', undefined, 'Linear distance'], ['item:2', undefined, undefined, 'Deburr']]);
-  assert.deepEqual(model.other.map(o => removalTargets(o.number ? [o.number] : [], o.id)), [['#3'], [{ id: 'file_pmi:#24' }], []]);
-  // Nothing in the model says who wrote a requirement (decision 6).
+  const gt = part.find(r => r.id === 'part.general_tolerance');
+  assert.equal(rowSuggestion(gt), 'ISO 2768-m');
+  assert.equal(rowSuggestionText(gt), 'ISO 2768-m');
+  const heat = part.find(r => r.id === 'part.heat_treatment');
+  assert.equal(rowSuggestionText(heat), 'none');
+  assert.equal(heat.open, false, 'a none suggestion is not open');
+  const features = model.groups.filter(g => g.key !== 'part' && g.key !== 'datums');
+  assert.deepEqual(features.map(g => g.title), ['Ø1.6 hole']);
+  const hole = features[0].questions.map(q => model.rows.find(r => r.id === q.id));
+  assert.deepEqual(hole.map(r => [requirementLabel(r.question), r.state, r.requirements?.flatMap(p => p.number ?? []) ?? []]),
+    [['Function', 'gap', []], ['Position', 'stated', ['#2']]]);
+  assert.equal(rowSuggestionText(hole[0]), 'M2 tapped');
+  assert.equal(requirementName(hole[0].question), 'Ø1.6 hole function', 'a row is named with its feature and its kind');
+  assert.equal(hole[1].value, 'Position 0.2 | A', 'a change expects the value the file states');
+  assert.equal(rowText(hole[1]), '⌖ 0.2 A', 'and shows it as a drawing writes it');
+  assert.deepEqual(model.groups.find(g => g.key === 'datums').questions.map(requirementLabel), ['Datum A']);
+  assert.deepEqual(model.other.map(r => [r.id, r.other.id, r.other.number, rowText(r)]), [
+    ['#3', 'file_pmi:#1401', '#3', '37.6'], ['file_pmi:#24', 'file_pmi:#24', undefined, 'Linear distance'], ['item:2', undefined, undefined, 'Deburr'],
+  ]);
+  assert.deepEqual(model.other.map(({ other }) => removalTargets(other.number ? [other.number] : [], other.id)), [['#3'], [{ id: 'file_pmi:#24' }], []]);
   assert.doesNotMatch(JSON.stringify(model), /origin|provenance|from the file|written by/);
 });
 
@@ -69,8 +89,7 @@ test('a table with no rows reads as empty, and the bare analysis sets the file\'
 });
 
 test('Add all suggestions: a value suggested is a fill, none is a none; no suggestion or an edit already there, left alone', () => {
-  const model = panelModel(tableOf({ table }), questions);
-  const rows = [...model.part.rows, ...model.features.flatMap(g => g.rows)];
+  const rows = view(table).rows.map(row => ({ ...row, suggestion: rowSuggestion(row), suggestionText: rowSuggestionText(row) }));
   const pending = new PendingEdits().with({ kind: 'fill', id: 'hole.function:holes:14.15', name: 'f', value: 'general', text: 'general' });
   const isNone = v => v === null || (Array.isArray(v) ? !v.length : /^none\b/i.test(String(v)));
   assert.deepEqual(suggestionEdits(rows, pending, isNone).map(p => [p.kind, p.id, p.value]), [
@@ -183,24 +202,25 @@ test('plane lengths appear under The part and hole locations under their feature
     { id: length, kind: 'length', feature: 'planes:2-3', faces: [3], state: 'gap', suggestion: '14 ±0.2 from B', open: false },
     { id: location, kind: 'location', feature: 'holes:2-14', faces: [14], state: 'gap', suggestion: '15 ±0.2 from B', open: false },
   ];
-  const model = panelModel({ ...table, rows: [...table.rows, ...generalRows] }, questions, [
+  const model = view({ ...table, rows: [...table.rows, ...generalRows] }, [
     { id: 'holes:14.15', family: 'holes', faces: [14, 15], record: {} },
   ]);
-  assert.equal(model.part.rows.find(r => r.id === length)?.label, 'Length');
-  const hole = model.features.find(g => g.key === 'feature:holes:14.15');
-  assert.equal(hole.rows.find(r => r.id === location)?.label, 'Location');
-  const rows = [...model.part.rows, ...hole.rows];
+  const part = model.groups.find(g => g.key === 'part');
+  assert.equal(requirementLabel(part.questions.find(q => q.id === length)), 'Length');
+  const hole = model.groups.find(g => g.key === 'holes:14.15');
+  assert.equal(requirementLabel(hole.questions.find(q => q.id === location)), 'Location');
+  const rows = model.rows.map(row => ({ ...row, suggestion: rowSuggestion(row), suggestionText: rowSuggestionText(row) }));
   const pending = new PendingEdits().with({ kind: 'none', id: length, name: 'Length' });
   const all = suggestionEdits(rows, pending, isNoneValue);
   assert.equal(all.find(p => p.id === location)?.value, '15 ±0.2 from B');
   assert.ok(!all.some(p => p.id === length));
 });
 
-test('the panel omits BOM rows even when input includes a parts-list field', () => {
+test('a BOM field uses Parts list, outside the part requirements', () => {
   const bom = { id: 'bom.make_buy', feature: 'part', kind: 'bom.make_buy', state: 'stated', value: 'Buy', faces: [] };
-  const model = panelModel({ ...table, rows: [...table.rows, bom] }, questions);
-  assert.equal(model.part.rows.some(r => r.id.startsWith('bom.')), false);
-  assert.equal('bom' in model, false);
+  const model = view({ ...table, rows: [...table.rows, bom] });
+  assert.equal(model.groups.find(g => g.key === 'part').questions.some(q => q.id.startsWith('bom.')), false);
+  assert.deepEqual(model.groups.find(g => g.key === 'bom').questions.map(q => q.id), [bom.id]);
 });
 
 test('save matches a None needed refusal only to the affected part and queued row', () => {
@@ -218,8 +238,8 @@ test('save matches a None needed refusal only to the affected part and queued ro
 
 test('the model keeps individual drawing notes in order', () => {
   const notes = { id: 'part.notes', feature: 'part', kind: 'part.notes', state: 'stated', value: ['Deburr; check edges', 'Mark lot'], faces: [] };
-  const model = panelModel({ ...table, rows: [...table.rows, notes] }, questions);
-  assert.deepEqual(model.part.rows.find(r => r.id === notes.id).notes, notes.value);
+  const model = view({ ...table, rows: [...table.rows, notes] });
+  assert.deepEqual(model.rows.find(r => r.id === notes.id).value, notes.value);
 });
 
 test('working answers share the pending bar and edit lists across parts, with local edits taking precedence', () => {

@@ -99,3 +99,30 @@ export class PendingEdits {
   without(id: string): PendingEdits { return new PendingEdits(this.values().filter((q) => q.id !== id)); }
   list(): EditList { return editList(this.values()); }
 }
+
+/** "Add all suggestions": every gap of ``rows`` with a suggestion and no edit yet, as the edit Add or
+ * None needed would make: a value suggested is a fill of it, a suggestion of none is a none. */
+export function suggestionEdits(rows: readonly { id: string; name: string; state: string; suggestion?: unknown; suggestionText?: string }[],
+  pending: PendingEdits, isNone: (value: unknown) => boolean): Pending[] {
+  return rows.filter((r) => r.state === 'gap' && r.suggestion !== undefined && !pending.get(r.id))
+    .map((r): Pending => (isNone(r.suggestion) ? { kind: 'none', id: r.id, name: r.name }
+      : { kind: 'fill', id: r.id, name: r.name, value: r.suggestion, text: r.suggestionText ?? String(r.suggestion) }));
+}
+
+/** Matches save refusals to the queued None needed on the part they identify. */
+export function rejectedNoneByPart(pending: ReadonlyMap<number, PendingEdits>, failures: readonly EditFailure[], assembly: boolean) {
+  const rejected = new Map<number, Map<string, string>>();
+  for (const [part, list] of pending) {
+    const rows = new Map<string, string>();
+    for (const edit of list.values()) {
+      if (edit.kind !== 'none') continue;
+      const entry = `none[${JSON.stringify(edit.id)}]`;
+      const reasons = failures.filter((failure) =>
+        (failure.part === part || (!assembly && failure.part === undefined))
+        && (failure.editEntry ?? failure.entry) === entry);
+      if (reasons.length) rows.set(edit.id, reasons.map((f) => f.reason).join('; '));
+    }
+    if (rows.size) rejected.set(part, rows);
+  }
+  return rejected;
+}

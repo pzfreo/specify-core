@@ -150,10 +150,13 @@ self.onmessage = ({ data }) => {
         result = JSON.parse(module.review(JSON.stringify(args.analysis), JSON.stringify(args.answers)));
       } else if (operation === 'parts') {
         result = JSON.parse(module.IntentEngine.parts(args.name, args.bytes));
-      } else if (operation === 'part-mesh') {
+      } else if (operation === 'part-mesh' || operation === 'part-analysis') {
         // One part's mesh for the assembly's view, on an engine of its own: the open part's is kept.
         const one = module.IntentEngine.openPart(args.name, args.bytes, args.part);
-        try { result = JSON.parse(one.snapshot()).mesh; } finally { one.free(); }
+        try {
+          const snapshot = JSON.parse(one.snapshot());
+          result = operation === 'part-mesh' ? snapshot.mesh : { analysis: snapshot.analysis };
+        } finally { one.free(); }
       } else if (operation === 'carried') {
         // What a STEP carries, read on an engine of its own: the open part's is kept.
         result = readCarried(module, args.name, args.bytes, args.payload, args.part);

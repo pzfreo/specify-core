@@ -76,3 +76,11 @@ export const emptyBlock = (units: Units): GeneralTolerance => ({
   form: 'block', units, rows: units === 'in' ? [{ places: 2, tolerance: '' }, { places: 3, tolerance: '' }]
     : [{ places: 0, tolerance: '' }, { places: 1, tolerance: '' }], angles: '', notes: [],
 });
+
+/** The file's length unit, as its STEP declares it (an inch file names `CONVERSION_BASED_UNIT('INCH', …)`
+ * for its lengths); millimetres otherwise. Read from the bytes until the analysis carries the unit the
+ * engine reads (`declared_length_unit`). */
+export function fileLengthUnit(bytes: Uint8Array): 'in' | 'mm' {
+  const text = new TextDecoder('latin1').decode(bytes);
+  return /CONVERSION_BASED_UNIT\s*\(\s*'INCH(ES)?'/i.test(text) ? 'in' : 'mm';
+}

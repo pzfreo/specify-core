@@ -2,10 +2,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { IntentReview, PartTint, PmiAnswers, PmiIntent, PmiInterpretation, PmiLabError, PmiLabSession, PmiQuestion, PmiLabEngine } from '../types/pmi';
+import { EditBar } from './EditBar';
+import { GeneralToleranceEditor } from './GeneralToleranceEditor';
+import { fileLengthUnit, type Units } from './general-tolerance';
+import { EMPTY_PENDING, EMPTY_QUEUE, linkedParts, mergePending, queueCopies, type PartQueue } from './review-assembly';
 import { FileRequirement } from './FileRequirement';
-import { askFile, checkPending, datumId, fileRows, impliedAnswers, queueValue, replacedRequirements, rowText, savePending, type FileReviewOptions, type FileRow } from './file-review';
-import { describeEdit, PendingEdits, removalTargets } from './edit-list';
-import { answerText, isNoneValue, withoutRequirements } from './feature-table';
+import { askFile, checkPending, CheckRefused, datumId, fileRows, impliedAnswers, otherRows, partFile, queueValue, replacedRequirements, requirementName, retiredNumbers, rowSuggestion, rowSuggestionText, rowText, savePending, type FileReviewOptions, type FileRow } from './file-review';
+import { PendingEdits, rejectedNoneByPart, removalTargets, suggestionEdits, type EditFailure } from './edit-list';
+import { answerText, isNoneValue, tableOf, withoutRequirements } from './feature-table';
 import type { StoredInspection } from './saved-inspection';
 import { editorDefault } from '../model/intent';
 import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from './added';
@@ -51,7 +55,7 @@ const PART_FIELD: Record<string, string> = {
 const labelOf = (q: PmiQuestion) => q.label ?? PART_FIELD[q.id] ?? q.prompt;
 /** The part's notes, folded under "Finish and notes". */
 const NOTE_FIELDS = new Set(['part.surface_finish', 'part.coating', 'part.heat_treatment', 'part.edges']);
-const EMPTY_PENDING = new PendingEdits();
+const GENERAL_TOLERANCE = 'part.general_tolerance';
 const MODE_TEXT: Record<PickMode, string> = { face: 'Face', feature: 'Hole / feature', coplanar: 'Coplanar faces' };
 
 function asError(error: unknown): PmiLabError {
@@ -60,6 +64,7 @@ function asError(error: unknown): PmiLabError {
 }
 
 export function SpecifyReview({ engine, session: openedSession, fileReview: fileOptions, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, view: hostView = null }: {
+  /** Calls can run back-to-back before a render. Read host state from refs in this adapter and in all callbacks. */
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** Edit a 0.3 file with the same review controls. The answer-shaped host contract still works. */
   fileReview?: FileReviewOptions;
@@ -110,23 +115,28 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const fileReview = fileOptions && (reopened ? { ...fileOptions, file: reopened.file } : fileOptions);
   const editingFile = Boolean(fileReview && !readOnly);
   const isNoteField = (id: string) => NOTE_FIELDS.has(id) || (editingFile && id === 'part.notes');
-  const [localEdits, setLocalEdits] = useState<{ source: string; pending: PendingEdits } | null>(null);
-  const pending = fileReview?.pending ?? (localEdits?.source === fileOptions?.file.sourceId ? localEdits?.pending : undefined) ?? EMPTY_PENDING;
-  const transaction = useRef({ pending, seen: pending, options: fileReview });
-  if (transaction.current.seen !== pending) {
-    transaction.current.seen = pending;
-    transaction.current.pending = pending;
-  }
-  transaction.current.options = fileReview;
+  const [localEdits, setLocalEdits] = useState<PartQueue>(EMPTY_QUEUE);
+  const localQueue = useRef(localEdits);
+  const combined = useMemo(() => mergePending(localEdits, fileReview?.staged), [localEdits, fileReview?.staged]);
+  const activePart = fileReview?.file.part ?? 0;
+  const pending = combined.get(activePart) ?? EMPTY_PENDING;
+  const [split, setSplit] = useState<ReadonlySet<number>>(() => new Set());
+  const group = linkedParts(fileReview?.parts ?? [], activePart, split);
+  const copyCount = group.reduce((count, part) => count + part.instances, 0);
+  const [saveFailures, setSaveFailures] = useState<readonly EditFailure[]>([]);
+  const refusedNone = useMemo(() => rejectedNoneByPart(combined, saveFailures, fileReview?.file.part !== undefined), [combined, saveFailures, fileReview?.file.part]);
   const [editBusy, setEditBusy] = useState(false);
-  const [savedInspection, setSavedInspection] = useState<StoredInspection | null>(null);
-  const [savedStatus, setSavedStatus] = useState('');
+  const [savingEdits, setSavingEdits] = useState(false);
+  const [loadedInspection, setLoadedInspection] = useState<{ sourceId: string; data: StoredInspection } | null>(null);
+  const savedInspection = loadedInspection?.sourceId === fileReview?.file.sourceId ? loadedInspection?.data ?? null : null;
+  const [savedStatus, setSavedStatus] = useState<string | null>(null);
   const [failedSource, setFailedSource] = useState<string | null>(null);
   const writeFailedToReopen = failedSource === fileOptions?.file.sourceId;
   const activeOperation = useRef(false);
-  const host = engine;
-  const readOnlyHost = useMemo(() => readOnlyEngine(host), [host]);
-  engine = readOnly ? readOnlyHost : host;
+  const readOnlyHost = useMemo(() => readOnlyEngine(engine), [engine]);
+  const host = useRef({ engine, readOnly, fileReview, session, onSaved, onExport, inspectionIntent, onPick, onKeep, writeFailedToReopen });
+  host.current = { engine: readOnly ? readOnlyHost : engine, readOnly, fileReview, session, onSaved, onExport, inspectionIntent, onPick, onKeep, writeFailedToReopen };
+  const units = useMemo(() => fileReview ? fileLengthUnit(fileReview.file.bytes) : 'mm', [fileReview?.file.bytes]);
   const stage = useRef<HTMLDivElement>(null);
   const picker = useRef<Picker | null>(null);
   const [moreTools, setMoreTools] = useState(false);
@@ -183,8 +193,8 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const rowsBox = useRef<HTMLFieldSetElement>(null);
   const turned = useRef(false);
   const fileRowList = useMemo(() => editingFile
-    ? fileRows(session.analysis, askedQuestions, fileOptions?.questionLabels ?? [], fileOptions?.hostRows ?? []) : [],
-  [editingFile, session.analysis, askedQuestions, fileOptions?.questionLabels, fileOptions?.hostRows]);
+    ? fileRows(session.analysis, askedQuestions, fileOptions?.questionLabels ?? []) : [],
+  [editingFile, session.analysis, askedQuestions, fileOptions?.questionLabels]);
   const fileRowsById = useMemo(() => new Map(fileRowList.map(row => [row.id, row])), [fileRowList]);
   const questions = useMemo(() => editingFile ? fileRowList.map(row => row.question) : askedQuestions,
     [editingFile, fileRowList, askedQuestions]);
@@ -253,7 +263,10 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     // Opened from the queue above, it is not followed down the list unless asked.
     quiet.current = focusRequest.scroll ? null : id;
     // A problem about an added requirement is not a question: it opens as the problem's line does.
-    if (!questions.some(question => question.id === id)) { setView('review'); openProblem(id, focusRequest.faces ?? []); return; }
+    if (!(editingFile ? session.questions : questions).some(question => question.id === id)
+      && !tableOf(session.analysis).rows.some(row => row.id === id) && !otherRows(session.analysis).some(row => row.id === id)) {
+      setView('review'); openProblem(id, focusRequest.faces ?? []); return;
+    }
     setView('review'); setOnlySuggestions(false); setCurrent(id);
     setUnfolded(isNoteField(id) ? `note:${id}` : id.startsWith('part.') ? id : id.startsWith('datum.') ? 'datums' : null);
     // Brought into view only when asked: the queue that asked may be above it in the same column.
@@ -262,7 +275,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
       field?.scrollIntoView({ block: 'center' });
       field?.querySelector<HTMLElement>('input, select')?.focus({ preventScroll: true });
     }, 50);
-  }, [focusRequest]);
+  }, [focusRequest, session.sessionId]);
 
   // The picker lives as long as the session; React state reaches it through refs.
   const handlers = useRef({ face: (_face: number) => {}, label: (_label: PmiLabel) => {} });
@@ -377,10 +390,10 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     picker.current?.setTransparency(transparency / 100);
   }, [transparency, session]);
 
-  const tableChars = editingFile ? savedInspection?.chars ?? [] : chars;
+  const tableChars = fileReview ? savedInspection?.chars ?? [] : chars;
   // A saved file can carry only decisions (for example heat treatment: none).
   // Its header-only CSV and empty inspection form still describe that saved file.
-  const inspectionUnavailable = editingFile
+  const inspectionUnavailable = fileReview
     ? savedInspection === null || Boolean(fileReview?.inspectionBlocked)
     : !tableChars.length;
   const previewing = useRef(0);
@@ -412,7 +425,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
 
   const shownEdits = useRef<{ sourceId: string; pending: PendingEdits } | null>(null);
   useEffect(() => {
-    const options = transaction.current.options;
+    const options = host.current.fileReview;
     if (!options || !editingFile) return;
     if (shownEdits.current?.sourceId === options.file.sourceId && shownEdits.current.pending === pending) return;
     const mine = ++previewing.current;
@@ -429,30 +442,29 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   }, [editingFile, fileReview?.file, pending, session.analysis, displayReview]);
 
   useEffect(() => {
-    const options = transaction.current.options;
-    if (!options || !editingFile) return;
+    const options = host.current.fileReview;
+    if (!options) return;
     let stale = false;
-    setSavedInspection(null);
     setSkipped(new Set());
     void options.worker.request<StoredInspection>('file-inspection', options.file).then(data => {
-      if (!stale) setSavedInspection(data);
+      if (!stale) setLoadedInspection({ sourceId: options.file.sourceId, data });
     }, failure => {
       if (!stale) setError({ at: null, problem: asError(failure) });
     });
     return () => { stale = true; };
-  }, [editingFile, fileReview?.file]);
+  }, [fileReview?.file]);
 
   // Previews answer in any order; only the latest asked for is shown.
   const relabel = useCallback(async (next: PmiAnswers) => {
     const mine = ++previewing.current;
     try {
       // Keep display traffic on the original preview contract. Inspection is lazy below.
-      const shown = await live((id) => engine.preview(id, next));
+      const shown = await live((id) => host.current.engine.preview(id, next));
       if (mine === previewing.current) setPreview(shown);
     } catch {
       // Labels are a view: a failed refresh keeps the last ones.
     }
-  }, [engine, live]);
+  }, [live]);
 
   // Once per part opened -- never again on a re-render, which would throw away
   // what has been answered since. Reached through ``startWith``, set below.
@@ -461,9 +473,17 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     const start = startWith.current;
     if (!start) return;
     if (editingFile) {
+      setError(null);
+      setAdding(null);
+      setDraft(null);
+      setTyped({});
+      setShowing(null);
+      setView('review');
+      setUnfolded(null);
+      displayReview(session.answers ?? {}, externalReview);
       const first = groupQuestions(session.questions).filter(g => g.key !== 'part');
       const given = impliedAnswers(session.analysis, pending);
-      setCurrent(nextNeeding(first, given));
+      setCurrent(focusRequest?.questionId ?? nextNeeding(first, given));
       if (session.questions.some(q => q.id === 'part.material' && needs(q, given) === 'required')) setUnfolded('part.material');
       return;
     }
@@ -492,50 +512,81 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     void start.relabel({});
   }, [session]);
 
-  const publishPending = (edits: PendingEdits) => {
-    transaction.current.pending = edits;
-    const options = transaction.current.options;
-    if (fileOptions && options?.pending === undefined) setLocalEdits({ source: fileOptions.file.sourceId, pending: edits });
-    options?.onPending?.(edits);
+  const publishPending = (edits: PartQueue) => {
+    localQueue.current = edits;
+    setLocalEdits(edits);
+    host.current.fileReview?.onPending?.(mergePending(edits, host.current.fileReview.staged));
   };
 
   const setBusy = (busy: boolean) => {
     activeOperation.current = busy;
     setEditBusy(busy);
-    transaction.current.options?.onBusy?.(busy);
+    host.current.fileReview?.onBusy?.(busy);
   };
 
   const commitFile = (
     at: string | null, update: (current: PendingEdits) => PendingEdits,
-    focus?: (asked: QuestionGroup[], next: PmiAnswers) => string | null,
+    focus?: (asked: QuestionGroup[], next: PmiAnswers) => string | null, bulk: boolean = false,
   ) => {
     const operation = committing.current.then(async () => {
-      const options = transaction.current.options;
-      if (!options || readOnly || writeFailedToReopen) return false;
-      if (options.file.sourceId !== fileReview?.file.sourceId) return false;
+      const opened = host.current.fileReview;
+      if (!opened || host.current.readOnly || host.current.writeFailedToReopen || activeOperation.current) return false;
+      if (opened.file.sourceId !== fileReview?.file.sourceId) return false;
+      const latest = () => {
+        const options = host.current.fileReview;
+        if (!options || options.file.sourceId !== opened.file.sourceId) throw new Error('The displayed part changed.');
+        return options;
+      };
       setBusy(true);
       try {
-        let base = transaction.current.pending;
-        let next: PendingEdits;
+        let base: PartQueue;
+        let staged: PartQueue | undefined;
+        let next: PartQueue;
+        let byPart: PartQueue;
         let given: PmiAnswers;
         let asked: IntentReview;
-        // If a host publishes new edits while the check is running, validate the merged
-        // list before publishing it. The engine worker processes requests in order.
+        let skipped: string[] = [];
         do {
-          base = transaction.current.pending;
-          next = update(base);
-          if (next === base) return true;
-          if (Object.keys(next.list()).length) await checkPending(options, next);
-          given = impliedAnswers(session.analysis, next);
-          asked = await askFile(options, given, next);
-          if (transaction.current.options?.file.sourceId !== options.file.sourceId) return false;
-        } while (base !== transaction.current.pending);
+          base = localQueue.current;
+          staged = latest().staged;
+          const before = mergePending(base, staged).get(activePart) ?? EMPTY_PENDING;
+          const after = update(before);
+          if (after === before) return true;
+          const previousLocal = base.get(activePart) ?? EMPTY_PENDING;
+          let proposed = new PendingEdits(after.values().filter(edit => !edit.draft));
+          skipped = [];
+          for (;;) {
+            next = await queueCopies(latest, host.current.session.analysis, group, base, previousLocal, proposed);
+            byPart = mergePending(next, staged);
+            try {
+              // The shown part and copies are validated together before anything is published.
+              for (const part of new Set([activePart, ...group.map(copy => copy.part)])) {
+                const list = byPart.get(part);
+                if (!list || !Object.keys(list.list()).length) continue;
+                const options = latest();
+                await checkPending({ ...options, file: part === activePart ? options.file : partFile(options.file, part) }, list);
+              }
+              break;
+            } catch (failure) {
+              if (!bulk || !(failure instanceof CheckRefused)) throw failure;
+              const bad = proposed.values().filter(edit => !before.get(edit.id) &&
+                failure.failures.some(item => item.entry.includes(JSON.stringify(edit.id))));
+              if (!bad.length) throw failure;
+              skipped.push(...failure.failures.map(item => item.reason));
+              for (const edit of bad) proposed = proposed.without(edit.id);
+            }
+          }
+          const list = byPart.get(activePart) ?? EMPTY_PENDING;
+          given = impliedAnswers(host.current.session.analysis, list);
+          asked = await askFile(latest(), given, list);
+        } while (base !== localQueue.current || staged !== latest().staged);
         ++previewing.current;
-        shownEdits.current = { sourceId: options.file.sourceId, pending: next };
+        shownEdits.current = { sourceId: opened.file.sourceId, pending: byPart.get(activePart) ?? EMPTY_PENDING };
         displayReview(given, asked);
         publishPending(next);
-        setError(null);
-        setSavedStatus('');
+        setSaveFailures([]);
+        setError(skipped.length ? { at, problem: asError(new Error(`Not added: ${skipped.join(' · ')}`)) } : null);
+        setSavedStatus(null);
         if (focus) setCurrent(focus(groupQuestions(asked.questions), given));
         return true;
       } catch (failure) {
@@ -550,35 +601,77 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   };
 
   const saveFileEdits = async () => {
-    const options = transaction.current.options;
-    if (!options || activeOperation.current || readOnly || writeFailedToReopen) return;
+    const opened = host.current.fileReview;
+    if (!opened || activeOperation.current || host.current.readOnly || host.current.writeFailedToReopen || opened.saveBlocked) return;
+    const queue = mergePending(localQueue.current, opened.staged);
+    const lists = [...queue].sort(([a], [b]) => a - b).map(([part, entries]) => ({ part, edits: entries.list() }))
+      .filter(({ edits }) => Object.keys(edits).length);
+    if (!lists.length) { setSavedStatus('Nothing to save.'); return; }
+    const count = [...queue.values()].flatMap(list => list.values()).filter(edit => edit.kind !== 'refused').length;
+    const latest = () => host.current.fileReview ?? opened;
     setBusy(true);
+    setSavingEdits(true);
     setError(null);
+    setSaveFailures([]);
     try {
-      const bytes = await savePending(options, transaction.current.pending);
-      if (!bytes) return;
-      if ((!options.save || options.pending === undefined) && transaction.current.options?.file.sourceId === options.file.sourceId) {
-        const file = { ...options.file, bytes, sourceId: `${options.file.sourceId}@saved` };
+      const result = await savePending(latest, opened.file.part === undefined ? lists[0]!.edits : lists);
+      if (!result) return;
+      if ('failures' in result) {
+        setSaveFailures(result.failures);
+        setError({ at: null, problem: asError(new Error(`Not saved: nothing was written. ${result.failures.map(f => `${f.entry}: ${f.reason}`).join(' · ')}`)) });
+        return;
+      }
+      const bytes = result.bytes;
+      if (!opened.save && bytes && latest().file.sourceId === opened.file.sourceId) {
+        const file = { ...opened.file, bytes, sourceId: `${opened.file.sourceId}@saved` };
         try {
-          const snapshot = await options.worker.request<Pick<PmiLabSession, 'analysis' | 'mesh' | 'provenance'>>('open', file);
-          const given = impliedAnswers(snapshot.analysis, new PendingEdits());
-          const asked = await askFile({ ...options, file }, given, new PendingEdits());
-          setWritten({ from: fileOptions!.file.sourceId, file, session: { ...session, ...snapshot, ...asked, sessionId: file.sourceId } });
-          displayReview(given, asked);
+          const snapshot = await latest().worker.request<Pick<PmiLabSession, 'analysis' | 'mesh' | 'provenance'>>('open', file);
+          const given = impliedAnswers(snapshot.analysis, EMPTY_PENDING);
+          const asked = await askFile({ ...latest(), file }, given, EMPTY_PENDING);
+          if (latest().file.sourceId === opened.file.sourceId) {
+            setWritten({ from: fileOptions!.file.sourceId, file, session: { ...session, ...snapshot, ...asked, sessionId: file.sourceId } });
+            displayReview(given, asked);
+          }
         } catch (failure) {
           setFailedSource(fileOptions!.file.sourceId);
           setError({ at: null, problem: asError(failure) });
         }
-        if (transaction.current.options?.file.sourceId === options.file.sourceId) publishPending(EMPTY_PENDING);
       }
-      setSavedStatus('Saved.');
-      options.onSaved?.(bytes);
+      publishPending(EMPTY_QUEUE);
+      const retired = retiredNumbers(result.report);
+      setSavedStatus(`Saved${result.name ? ` ${result.name}` : ''} · ${count} change${count === 1 ? '' : 's'} written, all together.`
+        + (retired.length ? ` Retired numbers: ${retired.join(', ')}.` : ''));
+      if (bytes) host.current.fileReview?.onSaved?.(bytes);
     } catch (failure) {
       setError({ at: null, problem: asError(failure) });
     } finally {
+      setSavingEdits(false);
       setBusy(false);
     }
   };
+
+  const discardEdits = async (target?: { part: number; id: string }) => {
+    if (activeOperation.current) return;
+    setBusy(true);
+    try {
+      const notify = host.current.fileReview?.onDiscard;
+      if (notify && !(await notify(target))) return;
+      if (!target) publishPending(EMPTY_QUEUE);
+      setCurrent(null);
+      setSaveFailures([]);
+      setError(null);
+      setSavedStatus(null);
+    } finally { setBusy(false); }
+  };
+
+  // Bulk approval uses the suggestions currently offered on file rows (including
+  // the general tolerance and measurement rows). Choices without file rows stay explicit.
+  const addAll = () => void commitFile(null, list => {
+    const suggestions = suggestionEdits(fileRowList.filter(row => !row.bom && !row.decision).map(row => ({
+      ...row, name: requirementName(row.question), suggestion: rowSuggestion(row), suggestionText: rowSuggestionText(row),
+    })), list, isNoneValue);
+    return suggestions.reduce((next, edit) => next.with(edit), list);
+  }, undefined, true);
 
   // pmi-assist decides what follows from the answers, and may refuse them.
   // ``focus`` is the question to show afterwards; by default the one answered
@@ -587,7 +680,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     at: string | null, update: (answers: PmiAnswers) => PmiAnswers,
     focus: (asked: QuestionGroup[], next: PmiAnswers) => string | null,
   ) => {
-    if (readOnly) return Promise.resolve(false);
+    if (host.current.readOnly) return Promise.resolve(false);
     // A host can save answers in questions(). Review one change at a time, starting
     // from the last accepted answers even when React has yet to render them.
     // WorkerClient rejects stalled requests and restarts its worker. Other hosts own
@@ -596,7 +689,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     const pending = committing.current.then(async () => {
       try {
         const next = update(committedAnswers.current);
-        const asked = await live((id) => engine.questions(id, next));
+        const asked = await live((id) => host.current.engine.questions(id, next));
         committedAnswers.current = next;
         setError(null);
         setAnswers(next);
@@ -613,7 +706,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     });
     committing.current = pending;
     return pending;
-  }, [engine, relabel, live, readOnly]);
+  }, [relabel, live]);
   startWith.current = { commit, relabel };
 
   const nextGap = (asked: QuestionGroup[], next: PmiAnswers) =>
@@ -651,10 +744,10 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     if (readOnly) return null;
     try {
       const read = fileReview && editingFile
-        ? await fileReview.worker.request<PmiInterpretation>('interpret', {
+        ? await host.current.fileReview!.worker.request<PmiInterpretation>('interpret', {
           analysis: withoutRequirements(session.analysis, replacedRequirements(pending)), answers, question: q.id, text,
         })
-        : await live((id) => engine.interpret(id, answers, q.id, text));
+        : await live((id) => host.current.engine.interpret(id, answers, q.id, text));
       if (editingFile) {
         // Give typed callouts a chance to show if that question is opened again.
         if (await answer(q, read.value)) setTyped(t => ({ ...t, [q.id]: read }));
@@ -819,12 +912,13 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   ));
   const keepChosen = (ids: readonly string[]) => {
     if (readOnly) return;
-    if (onKeep && !editingFile) { onKeep(ids); return; }
+    if (host.current.onKeep && !editingFile) { host.current.onKeep(ids); return; }
     if (editingFile) {
       void commitFile(ids[0] ?? null, list => ids.reduce((next, id) => {
         const q = questions.find(x => x.id === id);
-        return q ? queueValue(fileRowsById.get(id), q, next, q.default, true) : next;
-      }, list), (asked, next) => settled(ids, asked, next)).then(ok => { if (ok) onKeep?.(ids); });
+        const row = fileRowsById.get(id);
+        return q ? queueValue(row, q, next, row ? rowSuggestion(row) : q.default, true) : next;
+      }, list), (asked, next) => settled(ids, asked, next)).then(ok => { if (ok) host.current.onKeep?.(ids); });
       return;
     }
     // Capture the defaults the user saw and apply them to the answers accepted when this runs.
@@ -897,7 +991,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         const row = setRows.find((r) => r.faces.includes(face));
         setSelectedDatum(null);
         setSelectedChar(row ? (row.n ? `${row.n}` : row.id) : null);
-        onPick?.([face]);
+        host.current.onPick?.([face]);
         return;
       }
       // A call-out not yet given a tolerance gives way to whatever is clicked next.
@@ -911,7 +1005,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
       setNote('');
       setNoteGeneral(null);
       if (id) { setView('review'); setCurrent(id); }
-      onPick?.([face]);
+      host.current.onPick?.([face]);
     },
     // A label opens its question, which turns to it; one already open, or the
     // file's own PMI, which no question is about, is turned to here.
@@ -922,7 +1016,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     // on -- for a dimension, both ends -- is lit.
     label: (label) => {
       picker.current?.highlight([...label.faces, ...(label.span?.reference ?? [])]);
-      onPick?.(label.faces);
+      host.current.onPick?.(label.faces);
       stayPut.current = view !== 'table' && !readOnly && Boolean(label.question) && label.question !== current;
       if (view === 'table' || readOnly) {
         const source = label.id.split(':').slice(0, 2).join(':');
@@ -943,7 +1037,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
 
   const here = rows.find((g) => g.questions.some((q) => q.id === current));
   const errorAt = (id: string) => (error?.at === id ? error.problem : null);
-  const shown = new Set(questions.map((q) => q.id));
+  const shown = new Set([...questions.map(q => q.id), ...(editingFile ? otherRows(session.analysis).map(row => row.id) : [])]);
   const looseError = error && (error.at === null || !shown.has(error.at)) ? error.problem : null;
 
   // Keep the open row in view as it moves -- but not at the start, when the
@@ -1007,8 +1101,9 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     try {
       // Match the original three-method host: read the latest displayed rows AND notes
       // when a deferred download runs, including edits made while signing in.
-      if (editingFile) return { chars, skipped, notes };
+      if (host.current.fileReview) return { chars, skipped, notes };
       let intent: PmiIntent | null;
+      const { engine, inspectionIntent, session } = host.current;
       if (inspectionIntent) intent = await inspectionIntent();
       else if (engine.inspection) intent = await engine.inspection(session.sessionId, inspectionAnswers(answers, questions, kept, toReview));
       else return { chars, skipped, notes };
@@ -1018,21 +1113,21 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
       return null;
     }
   };
-  const downloadCsv = () => onExport(async () => {
+  const downloadCsv = () => host.current.onExport(async () => {
     const data = await inspection();
     if (!data) return;
     const stem = (fileReview?.inspectionName ?? session.filename).replace(/(?:\.(step|stp|p21))(?:\.gz)?$/i, '');
     saveFile(new File([toCsv(data.chars, data.skipped)], `${stem}-characteristics.csv`, { type: 'text/csv' }));
-    onSaved?.(`${stem}-characteristics.csv`);
+    host.current.onSaved?.(`${stem}-characteristics.csv`);
   });
   // The same list as AS9102's Forms 1–3, for a first article inspection report.
-  const downloadFai = () => onExport(async () => {
+  const downloadFai = () => host.current.onExport(async () => {
     const data = await inspection();
     if (!data) return;
     const stem = (fileReview?.inspectionName ?? session.filename).replace(/(?:\.(step|stp|p21))(?:\.gz)?$/i, '');
     const book = xlsx(as9102({ name: stem }, data.chars, data.skipped, data.notes));
     saveFile(new File([book as BlobPart], `${stem}-AS9102.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-    onSaved?.(`${stem}-AS9102.xlsx`);
+    host.current.onSaved?.(`${stem}-AS9102.xlsx`);
   }, 'xlsx');
 
   // A row: its head and summary, a check to confirm, and when open its questions.
@@ -1070,14 +1165,14 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     const edit = pending.get(id);
     const partField = id.startsWith('part.');
     const open = id === current || (partField && unfolded === id);
-    const label = labelOf(q);
+    const label = requirementName(q);
     const onClose = () => {
       setCurrent(active => active === id ? null : active);
       if (partField) setUnfolded(isNoteField(id) ? 'notes' : null);
       setError(null);
     };
     const undo = () => {
-      if (edit?.draft) { fileReview?.onUndo?.(id); return; }
+      if (edit?.draft) { void discardEdits({ part: activePart, id }); return; }
       void commitFile(id, list => edit ? list.without(id) : list.with({ kind: 'clear', id, name: label }));
     };
     const remove = () => row.decision
@@ -1088,10 +1183,14 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
       }));
     const stated = row.state === 'stated' && edit?.kind !== 'clear';
     const proposed = chosenById.get(id);
-    const refusal = errorAt(id)?.message ?? fileReview?.failures?.get(id) ?? (edit?.kind === 'refused' ? edit.reason : undefined);
-    const input = stated && q.kind !== 'faces'
+    const refusal = errorAt(id)?.message ?? refusedNone.get(activePart)?.get(id) ?? (edit?.kind === 'refused' ? edit.reason : undefined);
+    const given = edit?.kind === 'change' || edit?.kind === 'fill' || edit?.kind === 'accept' ? edit.value : row.value;
+    const apply = (value: unknown) => answerFile(q, value).then(ok => { if (ok) onClose(); return ok; });
+    const input = id === GENERAL_TOLERANCE
+      ? <ToleranceField row={row} value={given ?? q.default} units={units} changing={stated} onApply={apply} onCancel={onClose} />
+      : stated && q.kind !== 'faces'
       ? <StatedField key={id} row={row} given={(edit?.kind === 'change' || (row.bom && edit?.kind === 'fill')) ? edit.value : row.value}
-        onApply={value => answerFile(q, value).then(ok => { if (ok) onClose(); return ok; })} onCancel={onClose} />
+        onApply={apply} onCancel={onClose} />
       : partField ? <div className="pmi-lab-file-input">
         <PartField key={`${id}:${JSON.stringify(answers[id])}`} q={q} answers={answers} error={null}
           file onAnswer={value => answer(q, value).then(ok => { if (ok) onClose(); return ok; })} />
@@ -1105,7 +1204,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         <button type="button" onClick={onClose}>Cancel</button>
       </div>;
     return <FileRequirement key={id} row={row} name={label} pending={edit} open={open && !(slots.question && id === current)}
-      disabled={disabled || editBusy} problem={refusal} card={proposed ? card(proposed) : undefined}
+      disabled={disabled || editBusy} problem={refusal} copies={copyCount} card={proposed ? card(proposed) : undefined}
       onOpen={() => openFileRow(row)} onClose={onClose} onKeep={() => keepChosen([id])}
       onNone={() => void (edit?.kind === 'clear' && !edit.draft ? commitFile(id, list => list.without(id))
         : commitFile(id, list => list.with({ kind: 'none', id, name: label }), (asked, next) => settled([id], asked, next)))}
@@ -1114,6 +1213,26 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
       {input}
     </FileRequirement>;
   };
+  const renderOther = (row: FileRow) => {
+    const item = row.other!;
+    const name = requirementName(row.question);
+    return <FileRequirement key={row.id} row={row} name={name} pending={pending.get(row.id)} open={false}
+      disabled={disabled || editBusy} copies={copyCount} problem={errorAt(row.id)?.message}
+      onOpen={() => { picker.current?.highlight(row.faces); if (row.faces.length) picker.current?.lookAt(row.faces); }}
+      onClose={() => setError(null)} onNone={() => {}} onKeep={() => {}}
+      onUndo={() => void commitFile(row.id, list => list.without(row.id))}
+      onRemove={() => commitFile(row.id, list => list.with({
+        kind: 'remove', id: row.id, name, was: rowText(row), targets: removalTargets(item.number ? [item.number] : [], item.id),
+      }))} />;
+  };
+  const bar = editingFile ? <EditBar items={[...combined].flatMap(([part, list]) => list.values().map(edit => ({
+    part, edit, name: fileReview?.file.part !== undefined || edit.draft ? fileReview?.parts?.find(row => row.part === part)?.name ?? `Part ${part}` : undefined,
+    suffix: !edit.draft && fileReview?.staged?.get(part)?.get(edit.id)?.kind !== 'refused' &&
+      fileReview?.staged?.get(part)?.get(edit.id) && fileReview.stagedReplacement ? ` (${fileReview.stagedReplacement})` : undefined,
+  })))}
+    saving={savingEdits} busy={disabled || editBusy} blocked={fileReview?.saveBlocked ?? (writeFailedToReopen ? 'Open the saved STEP to edit again.' : undefined)}
+    savedNote={savedStatus} onSave={() => void saveFileEdits()} onAddAll={addAll}
+    onDiscard={() => void discardEdits()} onUndoDraft={(part, id) => void discardEdits({ part, id })} /> : null;
   // ``extra`` goes under the head, open or not (the datums row's chips).
   // ``sum`` and ``onHead`` replace the row's own summary and open/close, for
   // rows that are more than their questions (the datums).
@@ -1385,6 +1504,9 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
               calledOut={added.filter(([, extra]) => CALL_OUTS.includes(extra.kind)).length}
             />
           ) : (<>
+          {editingFile && group.length > 1 && <p className="pmi-lab-copy-controls">
+            <button type="button" onClick={() => setSplit(previous => new Set([...previous, activePart]))}>Split off this copy</button>
+          </p>}
           {editingFile && partGroup && <section className="pmi-lab-fields" data-group="part">
             {problemLines('part')}
             {partGroup.questions.filter(q => !isNoteField(q.id) && (!onlySuggestions || needs(q, answers) || chosenById.has(q.id)))
@@ -1541,6 +1663,10 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
               {applied.map((line) => <div key={line}>{line}</div>)}
             </div>
           )}
+          {editingFile && tableOf(session.analysis).file_pmi.length > 0 && <>
+            <h2 className="pmi-lab-rows-title">Other PMI in the file</h2>
+            <section className="pmi-lab-row" data-group="other">{otherRows(session.analysis).map(renderOther)}</section>
+          </>}
           {after}
           </>)}
         </fieldset>
@@ -1548,16 +1674,10 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         {editingFile && view === 'table' && inspectionExports && !slots.exports && <footer>
           <button type="button" disabled={inspectionUnavailable} onClick={downloadFai}>AS9102 FAI (Excel)</button>
         </footer>}
-        {editingFile && !fileReview?.renderBar && (
-          <footer className="pmi-lab-edit-bar" role="region" aria-label="Changes to save">
-            {pending.size ? <ul>{pending.values().map(edit => <li key={edit.id}>{describeEdit(edit)}</li>)}</ul> : <span role="status">{savedStatus}</span>}
-            <button type="button" disabled={!pending.size || editBusy || disabled} onClick={() => void commitFile(null, () => new PendingEdits())}>Discard</button>
-            <button type="button" disabled={!pending.size || editBusy || disabled || writeFailedToReopen} onClick={() => void saveFileEdits()}>Save</button>
-          </footer>
-        )}
+        {bar && !fileReview?.bar && bar}
       </aside>
     </div>), slots.panel)}
-    {editingFile && fileReview?.renderBar?.(() => void saveFileEdits())}
+    {bar && fileReview?.bar && createPortal(bar, fileReview.bar)}
     {/* The current question again in the selected queue row, so it is answered where it is listed. */}
     {!readOnly && slots.question && (() => {
       const g = groups.find((x) => x.questions.some((q) => q.id === current));
@@ -1568,7 +1688,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         ? <PartField locked={readOnly} key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)} onAnswer={(value) => answer(q, value)} />
         : questionItem(q, g, false)}</div>, slots.question);
     })()}
-    {inspectionExports && !readOnly && slots.exports && <>
+    {inspectionExports && (!readOnly || fileReview) && slots.exports && <>
       {createPortal(<button type="button" onClick={downloadCsv} disabled={inspectionUnavailable} title={fileReview?.inspectionBlocked ?? 'Every dimension and tolerance, numbered, with its nominal and limits'}>
         {gated ? 'Inspection list (CSV) · Sign in' : 'Inspection list (CSV)'}
       </button>, slots.exports)}
@@ -1846,4 +1966,22 @@ function StatedField({ row, given, onApply, onCancel }: {
       {numbers && <div className="muted">Keeps {numbers} if only the limits change. A different measurement gets a new number and {numbers} is retired.</div>}
     </form>
   );
+}
+
+function ToleranceField({ row, value, units, changing, onApply, onCancel }: {
+  row: FileRow; value: unknown; units: Units; changing: boolean;
+  onApply(value: unknown): Promise<boolean>; onCancel(): void;
+}) {
+  const [text, setText] = useState(answerText(value));
+  return <form className="spec-edit" onSubmit={event => {
+    event.preventDefault();
+    if (text.trim()) void onApply(text.trim());
+  }}>
+    <div className="now">{changing ? <>Now: <b>{rowText(row)}</b></> : 'Nothing stated yet.'}</div>
+    <GeneralToleranceEditor text={text} units={units} classes={row.question.options ?? []} onChange={setText} />
+    <div className="foot">
+      <button type="submit" className="primary" disabled={!text.trim()}>{changing ? 'Apply' : 'Add'}</button>
+      <button type="button" onClick={onCancel}>Cancel</button>
+    </div>
+  </form>;
 }

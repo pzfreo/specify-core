@@ -429,3 +429,34 @@ fieldset.pmi-lab-rows { min-width: 0; margin: 0; padding: 0; border: 0; }
 .pmi-lab-file-row .foot, .pmi-lab-edit-bar { display: flex; gap: 6px; align-items: center; }
 .pmi-lab-file-row .spec-note { display: block; }
 .pmi-lab-edit-bar ul { flex: 1; max-height: 8em; overflow: auto; }
+
+/* File review inputs and the bar, which can be portalled outside the review. */
+.pmi-lab, .spec-bar { --spec-accent: #2f5fb3; --spec-accent-soft: #e6edf9; --spec-danger: #a8322d; --spec-danger-soft: #fbe9e8; --spec-line: #d9dee4; }
+.spec-edit { flex-basis: 100%; background: var(--spec-accent-soft); border-radius: 6px; padding: 7px 9px; display: grid; gap: 6px; }
+.spec-edit.rm { background: var(--spec-danger-soft); }
+.spec-edit input, .spec-edit textarea, .spec-edit select { font: inherit; padding: 3px 7px; border: 1px solid var(--spec-line); border-radius: 4px; background: #fff; max-width: 100%; }
+.spec-edit > input, .spec-edit > textarea { width: 100%; box-sizing: border-box; }
+.spec-edit .now { font-size: 12.5px; }
+.spec-edit .foot { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.pmi-lab .spec-edit button.primary { background: var(--spec-accent); border-color: var(--spec-accent); color: #fff; font-weight: 600; }
+.pmi-lab .spec-edit button.danger { color: var(--spec-danger); border-color: var(--spec-danger); }
+.spec-edit .muted, .spec-bar .muted { color: #707880; font-size: 12px; }
+.spec-note { display: block; }
+.spec-row-problem { flex-basis: 100%; }
+.spec-problem { color: #b3261e; font-size: 12px; white-space: pre-wrap; }
+.spec-gt { display: grid; gap: 5px; }
+.spec-gt-form { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12.5px; }
+.spec-gt-row { display: flex; gap: 5px; align-items: center; }
+.spec-gt-row input { flex: 1; min-width: 0; }
+.pmi-lab .spec-gt-row button { padding: 1px 7px; }
+.pmi-lab .spec-gt-add { justify-self: start; padding: 2px 9px; font-size: 12.5px; }
+.spec-gt-line, .spec-gt-units { display: flex; gap: 6px; align-items: center; font-size: 12.5px; }
+.spec-gt-line input { flex: 1; min-width: 0; }
+.spec-gt-text code { font-family: var(--specify-mono-font); }
+.spec-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 14px; border-top: 1px solid var(--spec-line); background: #fff; }
+.spec-bar ul { margin: 0; padding: 0; list-style: none; display: flex; gap: 4px 14px; flex-wrap: wrap; flex: 1 1 240px; min-width: 0; font-size: 12.5px; }
+.spec-bar li { overflow-wrap: anywhere; }
+.pmi-lab-copy-count, .pmi-lab-copy-controls { padding: 4px 10px; color: #606b77; }
+.spec-bar button { font: inherit; padding: 5px 10px; border: 1px solid #c4ccd6; border-radius: 4px; background: #fff; cursor: pointer; }
+.spec-bar .app-save { background: #2f6fb5; color: #fff; font-weight: 600; }
+.spec-bar button:disabled { opacity: .5; cursor: default; }

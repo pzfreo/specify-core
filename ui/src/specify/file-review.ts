@@ -1,8 +1,7 @@
 import type { IntentReview, PmiAnalysis, PmiAnswers, PmiQuestion } from '../types/pmi.ts';
-import type { ReactNode } from 'react';
 import type { WorkerClient } from '../engine/rpc.ts';
-import { answerText, changedText, displayText, isNoneValue, kindWord, tableOf, type TableRow } from './feature-table.ts';
-import { PendingEdits, type EditFailure, type EditList } from './edit-list.ts';
+import { answerText, capital, changedText, displayText, isNoneValue, kindWord, tableOf, type TableRequirement, type TableRow } from './feature-table.ts';
+import { PendingEdits, type EditFailure, type SaveEdits } from './edit-list.ts';
 
 export interface ReviewFile {
   name: string;
@@ -11,31 +10,60 @@ export interface ReviewFile {
   part?: number;
 }
 
+export interface ReviewPart {
+  part: number;
+  name: string;
+  instances: number;
+  same_as?: number | null;
+  /** For each face on this definition, the corresponding face on the first definition. */
+  faces_of_first?: readonly number[] | null;
+}
+
+export type ReviewSaveResult =
+  | { bytes: Uint8Array | null; name?: string; report?: unknown }
+  | { failures: readonly EditFailure[] };
+
+/** Callbacks can run back-to-back before React renders. Hosts should read their own live state through refs. */
 export interface FileReviewOptions {
   file: ReviewFile;
   worker: Pick<WorkerClient, 'request'>;
-  /** Labels for stated requirements whose question the engine no longer asks. */
   questionLabels?: readonly PmiQuestion[];
-  /** Optional host-owned pending list. Refusals can be supplied as entries in this list. */
-  pending?: PendingEdits;
-  onPending?: (pending: PendingEdits) => void;
-  /** Optional host writer. A null result leaves the edits staged. */
-  save?: (edits: EditList) => Promise<Uint8Array | null>;
+  parts?: readonly ReviewPart[];
+  /** Edits or refusals supplied by the host, by part. Local edits to the same row take precedence. */
+  staged?: ReadonlyMap<number, PendingEdits>;
+  stagedReplacement?: string;
+  onPending?: (pending: ReadonlyMap<number, PendingEdits>) => void;
+  /** Optional host writer. Null keeps the edits staged. A result with failures leaves the file unchanged. */
+  save?: (edits: SaveEdits) => Promise<ReviewSaveResult | null>;
   onBusy?: (busy: boolean) => void;
   onSaved?: (bytes: Uint8Array) => void;
-  /** Used by a host which puts Save and Discard in its own workspace. */
-  renderBar?: (save: () => void) => ReactNode;
-  onUndo?: (id: string) => void;
-  /** Rows still rendered by a host during migration. */
-  hostRows?: readonly string[];
-  /** The name on the stored file used for the inspection downloads. */
+  onDiscard?: (target?: { part: number; id: string }) => Promise<boolean>;
+  bar?: HTMLElement | null;
+  saveBlocked?: string;
   inspectionName?: string;
   inspectionBlocked?: string;
-  failures?: ReadonlyMap<string, string>;
 }
 
-export type FileRow = TableRow & { question: PmiQuestion; decision?: boolean; bom?: boolean };
+export type FileRow = TableRow & { question: PmiQuestion; decision?: boolean; bom?: boolean; other?: TableRequirement };
 export const datumId = (id: string) => /^datum\.[A-H]$/.test(id);
+
+export function otherRows(analysis: PmiAnalysis): FileRow[] {
+  return tableOf(analysis).file_pmi.map((item, i) => {
+    const id = item.number ?? item.id ?? `item:${i}`;
+    const label = capital(item.kind.replace(/_/g, ' '));
+    const question: PmiQuestion = { id, label, prompt: label, kind: 'text', faces: item.faces, default: null, attention: 'routine', why: '' };
+    return { id, state: 'stated', value: item.text, kind: item.kind, feature: 'other', faces: item.faces,
+      requirements: [item], open: false, question, other: item };
+  });
+}
+
+export function requirementName(q: PmiQuestion): string {
+  if (q.id.startsWith('length:planes:')) return 'Length';
+  if (q.id.startsWith('location:holes:')) return 'Location';
+  const name = q.label ?? q.title ?? q.prompt;
+  return q.feature && name === q.title ? `${name} ${kindWord(q.id.split(':')[0]!).toLowerCase()}` : name;
+}
+
 
 export const rowText = (row: FileRow): string => displayText(
   answerText(row.value) || row.requirements?.map(r => r.text).join('; ') || '',
@@ -87,7 +115,7 @@ export function askFile(options: FileReviewOptions, answers: PmiAnswers, pending
 
 /** Review determines which gaps apply. The table remains authoritative for saved PMI and decisions. */
 export function fileRows(
-  analysis: PmiAnalysis, questions: readonly PmiQuestion[], labels: readonly PmiQuestion[], hostRows: readonly string[],
+  analysis: PmiAnalysis, questions: readonly PmiQuestion[], labels: readonly PmiQuestion[],
 ): FileRow[] {
   const stored = storedAnswers(analysis);
   const table = new Map(tableOf(analysis).rows.map(row => [row.id, row]));
@@ -96,12 +124,15 @@ export function fileRows(
   const bomValues = storedBomValues(analysis);
   const rows: FileRow[] = [];
   for (const id of new Set([...asked.keys(), ...table.keys(), ...bomValues.keys()])) {
-    if (hostRows.includes(id)) continue;
     const q = asked.get(id);
     const row = table.get(id);
     if (!q && !bomValues.has(id) && (!row || row.state === 'gap')) continue;
+    const faces = row?.faces ?? q?.faces ?? [];
     const [kind, ...kindParts] = id.split(':');
-    const feature = row?.feature ?? q?.feature ?? (kindParts.join(':') || id);
+    const owner = id.startsWith('location:holes:') && faces.length
+      ? analysis.features.filter(f => (f.family === 'holes' || f.family.startsWith('hole_patterns')) && faces.every(face => f.faces.includes(face)))
+        .sort((a, b) => a.faces.length - b.faces.length)[0] : undefined;
+    const feature = owner?.id ?? row?.feature ?? q?.feature ?? (kindParts.join(':') || id);
     const fallback = kindWord(kind);
     const described: PmiQuestion = q ?? named.get(id) ?? {
       id, kind: datumId(id) ? 'faces' : 'text', feature: feature || id, label: fallback, prompt: fallback,
@@ -116,17 +147,33 @@ export function fileRows(
       ...described, faces: row.faces, ...(datumId(id) ? { default: row.faces, kind: 'faces' as const } : {}),
     } : bom ? { ...described, default: described.default ?? described.suggestions?.find(value => typeof value === 'string') } : described;
     rows.push({
-      id, kind, feature, faces: question.faces.slice(), open: false, state: 'gap',
+      id, kind, faces: question.faces.slice(), open: false, state: 'gap',
       ...(storedDecision === undefined ? {} : { state: isNoneValue(storedDecision) ? 'decided_none' : 'stated', value: storedDecision }),
-      ...row, question, decision, bom,
+      ...row, feature, question: owner ? { ...question, feature, title: labels.find(q => q.feature === feature)?.title ?? question.title } : question, decision, bom,
     });
   }
   return rows;
 }
 
+export function requirementLabel(q: PmiQuestion): string {
+  const name = requirementName(q);
+  if (!q.title || !name.startsWith(q.title)) return name;
+  const short = name.slice(q.title.length).trim();
+  return short ? capital(short) : kindWord(q.id.split(':')[0]!);
+}
+
+export function rowSuggestion(row: FileRow): unknown {
+  return row.question.default ?? row.suggestion ?? undefined;
+}
+
+export function rowSuggestionText(row: FileRow): string | undefined {
+  const suggestion = rowSuggestion(row);
+  return suggestion === undefined ? undefined : isNoneValue(suggestion) ? 'none' : answerText(suggestion, row.question);
+}
+
 export function queueValue(row: FileRow | undefined, question: PmiQuestion, pending: PendingEdits, value: unknown, suggested: boolean): PendingEdits {
   const { id } = question;
-  const name = question.label ?? question.title ?? question.prompt;
+  const name = requirementName(question);
   const text = answerText(value, question);
   if (row?.state === 'stated' && !row.decision && !row.bom) {
     const was = rowText(row);
@@ -139,20 +186,49 @@ export function queueValue(row: FileRow | undefined, question: PmiQuestion, pend
   return pending.with({ kind: accept ? 'accept' : 'fill', id, name, value, text });
 }
 
+export class CheckRefused extends Error {
+  readonly failures: readonly EditFailure[];
+  constructor(failures: readonly EditFailure[]) {
+    super(failures.map(f => f.reason).join('\n'));
+    this.failures = failures;
+  }
+}
+
 export async function checkPending(options: FileReviewOptions, pending: PendingEdits): Promise<void> {
   const result = await options.worker.request<{ applicable: boolean; message?: string; failures?: EditFailure[] }>(
     'check-edits', { ...options.file, edits: pending.list() },
   );
-  if (!result.applicable) throw new Error(result.failures?.map(f => f.reason).join('\n') || result.message || 'The edits cannot be applied.');
+  if (!result.applicable) throw new CheckRefused(result.failures?.length ? result.failures :
+    [{ entry: '', reason: result.message || 'The edits cannot be applied.' }]);
 }
 
-export async function savePending(options: FileReviewOptions, pending: PendingEdits): Promise<Uint8Array | null> {
-  const edits = pending.list();
-  if (options.save) return options.save(edits);
-  if (!Object.keys(edits).length) return null;
-  const result = await options.worker.request<
-    { written: true; bytes: Uint8Array } | { written: false; message: string }
-  >('edit', { ...options.file, edits });
-  if (!result.written) throw new Error(result.message);
-  return result.bytes;
+export function partFile(file: ReviewFile, part: number): ReviewFile {
+  return file.part === part ? file : { ...file, part, sourceId: `${file.sourceId}:part:${part}` };
+}
+
+export async function savePending(options: () => FileReviewOptions, edits: SaveEdits): Promise<ReviewSaveResult | null> {
+  const host = options();
+  if (host.save) return host.save(edits);
+  const lists = Array.isArray(edits) ? edits : [{ part: host.file.part, edits }];
+  let bytes = host.file.bytes;
+  const reports: unknown[] = [];
+  for (const [i, { part, edits }] of lists.entries()) {
+    const file = { ...host.file, part, bytes, sourceId: `${host.file.sourceId}:write:${i}` };
+    const result = await options().worker.request<
+      { written: true; bytes: Uint8Array; report: unknown } | { written: false; message: string; failures: EditFailure[] }
+    >('edit', { ...file, edits });
+    if (!result.written) return { failures: result.failures.map(failure => ({ ...failure, part })) };
+    bytes = result.bytes;
+    reports.push(result.report);
+  }
+  return { bytes, report: reports };
+}
+
+export function retiredNumbers(report: unknown): string[] {
+  if (Array.isArray(report)) return report.flatMap(retiredNumbers);
+  if (!report || typeof report !== 'object') return [];
+  const fields = report as { retired?: unknown; parts?: unknown; report?: unknown; part?: unknown; name?: unknown };
+  const name = typeof fields.name === 'string' ? fields.name : typeof fields.part === 'number' ? `Part ${fields.part}` : '';
+  const numbers = Array.isArray(fields.retired) ? fields.retired.map(value => `#${value}`) : retiredNumbers(fields.report);
+  return [...numbers.map(number => name ? `${name} ${number}` : number), ...retiredNumbers(fields.parts)];
 }
