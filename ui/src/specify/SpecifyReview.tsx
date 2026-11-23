@@ -1207,12 +1207,12 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     const stated = row.state === 'stated' && edit?.kind !== 'clear';
     const proposed = chosenById.get(id);
     const refusal = errorAt(id)?.message ?? refusedNone.get(activePart)?.get(id) ?? (edit?.kind === 'refused' ? edit.reason : undefined);
-    const given = edit?.kind === 'change' || edit?.kind === 'fill' || edit?.kind === 'accept' ? edit.value : row.value;
+    const given = edit?.kind === 'change' || edit?.kind === 'replace' || edit?.kind === 'fill' || edit?.kind === 'accept' ? edit.value : row.value;
     const apply = (value: unknown) => answerFile(q, value).then(ok => { if (ok) onClose(); return ok; });
     const input = id === GENERAL_TOLERANCE
       ? <ToleranceField row={row} value={given ?? q.default} units={units} changing={stated} onApply={apply} onCancel={onClose} />
       : stated && q.kind !== 'faces'
-      ? <StatedField key={id} row={row} given={(edit?.kind === 'change' || (row.bom && edit?.kind === 'fill')) ? edit.value : row.value}
+      ? <StatedField key={id} row={row} given={given}
         onApply={apply} onCancel={onClose} />
       : partField ? <div className="pmi-lab-file-input">
         <PartField key={`${id}:${JSON.stringify(answers[id])}`} q={q} answers={answers} error={null}

@@ -1,7 +1,7 @@
 import type { IntentReview, PmiAnalysis, PmiAnswers, PmiQuestion } from '../types/pmi.ts';
 import type { WorkerClient } from '../engine/rpc.ts';
-import { answerText, capital, changedText, displayText, isNoneValue, kindWord, tableOf, type TableRequirement, type TableRow } from './feature-table.ts';
-import { PendingEdits, type EditFailure, type SaveEdits } from './edit-list.ts';
+import { answerText, capital, changedText, displayText, isNoneValue, kindWord, tableOf, type RowState, type TableRequirement, type TableRow } from './feature-table.ts';
+import { PendingEdits, type EditFailure, type EditList, type SaveEdits } from './edit-list.ts';
 
 export interface ReviewFile {
   name: string;
@@ -111,6 +111,15 @@ const storedBomValues = (analysis: PmiAnalysis): Map<string, unknown> => {
 
 const storedAnswers = (analysis: PmiAnalysis): PmiAnswers => analysis.resume?.answers ?? {};
 
+/** Choices outside the requirements table can still have a value written in the file. */
+export function storedChoice(analysis: PmiAnalysis, id: string): unknown {
+  return id.startsWith('bom.') ? storedBomValues(analysis).get(id) : storedAnswers(analysis)[id];
+}
+
+export function decisionText(state: RowState | undefined, value: unknown): string {
+  return state === 'decided_none' && isNoneValue(value) ? 'none needed' : answerText(value);
+}
+
 /** Stored decisions and edits become given answers. Existing PMI is read by the engine from the file. */
 export function impliedAnswers(analysis: PmiAnalysis, pending: PendingEdits): PmiAnswers {
   const answers = { ...storedAnswers(analysis) };
@@ -119,6 +128,7 @@ export function impliedAnswers(analysis: PmiAnalysis, pending: PendingEdits): Pm
     switch (edit.kind) {
       case 'accept':
       case 'fill':
+      case 'replace':
       case 'change': answers[edit.id] = edit.value; break;
       case 'remove':
       case 'clear': delete answers[edit.id]; break;
@@ -204,8 +214,11 @@ export function queueValue(row: FileRow | undefined, question: PmiQuestion, pend
   const { id } = question;
   const name = requirementName(question);
   const text = answerText(value, question);
-  // The writer treats part.locating as a stored choice and processes BOM fills separately.
-  // Neither is a stated requirement to which it can apply a guarded change.
+  if (row?.state === 'decided_none' || (row?.state === 'stated' && (row.decision || row.bom))) {
+    const unchanged = (row.state === 'decided_none' && isNoneValue(value)) || JSON.stringify(value) === JSON.stringify(row.value);
+    if (unchanged) return pending.get(id) ? pending.without(id) : pending;
+    return pending.with({ kind: 'replace', id, name, value, text, was: decisionText(row.state, row.value) });
+  }
   if (row?.state === 'stated' && !row.decision && !row.bom) {
     const was = rowText(row);
     return pending.with({ kind: 'change', id, name, value, text: changedText(was, value, question), expect: row.value, was });
@@ -225,10 +238,45 @@ export class CheckRefused extends Error {
   }
 }
 
+/** Retry only when every refusal names a clear that this engine cannot pair with its fill.
+ * Older engines call the pair contradictory. The BOM writer still handles its fill separately. */
+async function withDecisionCompatibility<T>(
+  edits: SaveEdits, send: (edits: SaveEdits) => Promise<T>, failuresOf: (result: T) => readonly EditFailure[] | undefined,
+): Promise<T> {
+  const result = await send(edits);
+  const failures = failuresOf(result);
+  if (!failures?.length) return result;
+  const unsupported = new Map<EditList, Set<string>>();
+  for (const failure of failures) {
+    const list = Array.isArray(edits) ? edits.find(item => item.part === failure.part)?.edits : edits;
+    const entry = failure.editEntry ?? failure.entry;
+    const id = list?.clear?.find(id => {
+      if (!Object.hasOwn(list.fill ?? {}, id)) return false;
+      const key = JSON.stringify(id);
+      return (entry === `fill[${key}] and clear[${key}]` &&
+        failure.reason === `the list says fill and clear for the same feature-and-kind ${key}; keep one of them`)
+        || (id.startsWith('bom.') && entry === `clear[${key}]` &&
+          failure.reason === `nothing is stored for ${id}, so there is nothing to clear`);
+    });
+    if (!list || !id) return result;
+    const ids = unsupported.get(list) ?? new Set<string>();
+    ids.add(id);
+    unsupported.set(list, ids);
+  }
+  const retry = (list: EditList) => {
+    const ids = unsupported.get(list);
+    if (!ids) return list;
+    const { clear, ...rest } = list;
+    const remaining = clear?.filter(id => !ids.has(id));
+    return remaining?.length ? { ...rest, clear: remaining } : rest;
+  };
+  return send(Array.isArray(edits) ? edits.map(list => ({ ...list, edits: retry(list.edits) })) : retry(edits));
+}
+
 export async function checkPending(options: FileReviewOptions, pending: PendingEdits): Promise<void> {
-  const result = await options.worker.request<{ applicable: boolean; message?: string; failures?: EditFailure[] }>(
-    'check-edits', { ...options.file, edits: pending.list() },
-  );
+  const result = await withDecisionCompatibility(pending.list(), edits =>
+    options.worker.request<{ applicable: boolean; message?: string; failures?: EditFailure[] }>('check-edits', { ...options.file, edits }),
+  result => result.applicable ? undefined : result.failures);
   if (!result.applicable) throw new CheckRefused(result.failures?.length ? result.failures :
     [{ entry: '', reason: result.message || 'The edits cannot be applied.' }]);
 }
@@ -239,15 +287,18 @@ export function partFile(file: ReviewFile, part: number): ReviewFile {
 
 export async function savePending(options: () => FileReviewOptions, edits: SaveEdits): Promise<ReviewSaveResult | null> {
   const host = options();
-  if (host.save) return host.save(edits);
+  if (host.save) return withDecisionCompatibility(edits, async list => {
+    const latest = options();
+    return latest.file.sourceId === host.file.sourceId ? await latest.save?.(list) ?? null : null;
+  }, result => result && 'failures' in result ? result.failures : undefined);
   const lists = Array.isArray(edits) ? edits : [{ part: host.file.part, edits }];
   let bytes = host.file.bytes;
   const reports: unknown[] = [];
   for (const [i, { part, edits }] of lists.entries()) {
     const file = { ...host.file, part, bytes, sourceId: `${host.file.sourceId}:write:${i}` };
-    const result = await options().worker.request<
+    const result = await withDecisionCompatibility(edits, list => options().worker.request<
       { written: true; bytes: Uint8Array; report: unknown } | { written: false; message: string; failures: EditFailure[] }
-    >('edit', { ...file, edits });
+    >('edit', { ...file, edits: list }), result => result.written ? undefined : result.failures);
     if (!result.written) return { failures: result.failures.map(failure => ({ ...failure, part })) };
     bytes = result.bytes;
     reports.push(part === undefined ? result.report : { part, report: result.report });

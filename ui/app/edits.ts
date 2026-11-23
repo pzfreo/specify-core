@@ -30,14 +30,16 @@ export function withDrafts(
         kind: 'refused', id, name: describeRow(part, id).name, reason, draft: true,
       })),
       ...Object.entries(list.fill ?? {}).map(([id, value]): Pending => ({
-        kind: 'fill', id, value, ...describeRow(part, id, value), draft: true,
+        ...(list.clear?.includes(id) ? { kind: 'replace', was: 'a stored decision' } : { kind: 'fill' }),
+        id, value, ...describeRow(part, id, value), draft: true,
       })),
       ...Object.entries(list.change ?? {}).map(([id, { to, expect }]): Pending => ({
         kind: 'change', id, value: to, expect, was: describeRow(part, id, expect).text,
         ...describeRow(part, id, to), draft: true,
       })),
       ...(list.none ?? []).map((id): Pending => ({ kind: 'none', id, name: describeRow(part, id).name, draft: true })),
-      ...(list.clear ?? []).map((id): Pending => ({ kind: 'clear', id, name: describeRow(part, id).name, draft: true })),
+      ...(list.clear ?? []).filter(id => !Object.hasOwn(list.fill ?? {}, id))
+        .map((id): Pending => ({ kind: 'clear', id, name: describeRow(part, id).name, draft: true })),
     ];
     pending.set(part, new PendingEdits([...staged, ...(local.get(part)?.values() ?? [])]));
   }

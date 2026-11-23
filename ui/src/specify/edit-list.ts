@@ -33,6 +33,8 @@ export interface CopyEditOrigin { part: number; edit: PendingEdit }
 type PendingEdit =
   /** A gap given a value: Add. */
   | { kind: 'fill'; id: string; name: string; value: unknown; text: string }
+  /** A stored decision replaced with one atomic clear and fill. */
+  | { kind: 'replace'; id: string; name: string; value: unknown; text: string; was: string }
   /** A stated row given a new value: Change. ``expect`` is the file's value the person saw. */
   | { kind: 'change'; id: string; name: string; value: unknown; text: string; expect: unknown; was: string }
   /** A stated row (or an item of "Other PMI") removed: what `items.remove` names (removalTargets). */
@@ -50,11 +52,11 @@ type PendingEdit =
 export function editList(pending: Iterable<Pending>): EditList {
   const out: EditList = {};
   for (const p of pending) {
-    if (p.kind === 'fill') (out.fill ??= {})[p.id] = p.value;
+    if (p.kind === 'fill' || p.kind === 'replace') (out.fill ??= {})[p.id] = p.value;
     else if (p.kind === 'accept') (out.accept_suggestions ??= []).push(p.id);
     else if (p.kind === 'change') (out.change ??= {})[p.id] = { to: p.value, expect: p.expect };
     else if (p.kind === 'none') (out.none ??= []).push(p.id);
-    else if (p.kind === 'clear') (out.clear ??= []).push(p.id);
+    if (p.kind === 'clear' || p.kind === 'replace') (out.clear ??= []).push(p.id);
     const targets = p.kind === 'remove' || p.kind === 'none' ? p.targets : undefined;
     if (targets?.length) {
       const list = ((out.items ??= {}).remove ??= []);
@@ -75,6 +77,7 @@ export function describeEdit(p: Pending): string {
   switch (p.kind) {
     case 'accept':
     case 'fill': return `Add ${p.name}: ${p.text}`;
+    case 'replace': return `${p.name}: ${p.text} (was ${p.was})`;
     case 'change': return `Change ${p.name}: ${p.was} → ${p.text}`;
     case 'remove': {
       const numbers = p.targets.filter((t): t is string => typeof t === 'string');
@@ -118,6 +121,10 @@ export function failedEdit(list: PendingEdits, failure: EditFailure): Pending | 
   const entry = failure.editEntry ?? failure.entry;
   return list.values().find(edit => {
     if (edit.kind === 'refused') return false;
+    if (edit.kind === 'replace') {
+      const id = JSON.stringify(edit.id);
+      return [`fill[${id}]`, `clear[${id}]`, `fill[${id}] and clear[${id}]`].includes(entry);
+    }
     const verb = edit.kind === 'accept' ? 'accept_suggestions' : edit.kind;
     if (entry === `${verb}[${JSON.stringify(edit.id)}]`) return true;
     return (edit.kind === 'remove' || edit.kind === 'none') && edit.targets?.some(target => {

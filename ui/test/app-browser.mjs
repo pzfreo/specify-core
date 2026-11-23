@@ -56,6 +56,12 @@ async function verifyCopies(driver) {
   const coating = await driver.save();
   assert.deepEqual(coating.parts, [0], 'adding coating does not overwrite the other copy’s decision');
   assert.deepEqual(coating.coatings, ['stated', 'decided_none']);
+  await driver.replaceCoating(1);
+  const replacement = await driver.save(true);
+  assert.deepEqual(replacement.sent, [{ part: 1, edits: { clear: ['part.coating'], fill: { 'part.coating': 'Anodised' } } }],
+    'one answer explicitly replaces the stored decision with clear and fill in the same list');
+  assert.deepEqual(replacement.parts, [1]);
+  assert.deepEqual(replacement.coatings, ['stated', 'stated']);
 
   // The native part list also compares part.* answers. A feature-level None is
   // how this fixture exposes a saved decision that only the review can compare.
@@ -141,7 +147,7 @@ if (copiesOnly) {
   // when the host sandbox cannot start Chromium. The full scenario below covers HTTP.
   const { IntentEngine } = await import('./engine-fixture.mjs');
   const { linkedParts, pendingActions, queueCopies, reviewParts, withoutPendingAction, EMPTY_PENDING } = await import('../src/specify/review-assembly.ts');
-  const { checkPending, partFile, savePending } = await import('../src/specify/file-review.ts');
+  const { checkPending, fileRows, partFile, queueValue, savePending } = await import('../src/specify/file-review.ts');
   let bytes = identicalPins();
   let queued = new Map();
   const splits = new Set();
@@ -188,6 +194,14 @@ if (copiesOnly) {
     async split(part) { splits.add(part); },
     async none(part, id) { await stage(part, { kind: 'none', id, name: id }, 1); },
     async addCoating(part) { await edit(part, 'part.coating', 'Coating', 'Anodised', 1); },
+    async replaceCoating(part) {
+      const file = options(part).file;
+      const questions = withEngine(file, engine => JSON.parse(engine.review('{}')).questions);
+      const row = fileRows(read(file), questions, questions).find(row => row.id === 'part.coating');
+      const replacement = queueValue(row, row.question, EMPTY_PENDING, 'Anodised', false);
+      assert.deepEqual(replacement.list(), { clear: [row.id], fill: { [row.id]: 'Anodised' } });
+      await stage(part, replacement.get(row.id), 1);
+    },
     async addDatum(part) { await edit(part, 'datum.A', 'Datum A', rowFor(part, 'datum.A').suggestion, 1); },
     async reopen(snapshot, checkNative = false) {
       if (snapshot) bytes = snapshot;
@@ -206,7 +220,7 @@ if (copiesOnly) {
       const datums = [0, 1].map(part => rowFor(part, 'datum.A').state);
       const coatings = [0, 1].map(part => rowFor(part, 'part.coating').state);
       const datumC = [0, 1].map(part => rowFor(part, 'datum.C').state);
-      return { parts: lists.map(list => list.part), materials, datums, coatings, datumC, bytes };
+      return { parts: lists.map(list => list.part), materials, datums, coatings, datumC, bytes, sent: lists };
     },
   });
   console.log('The writer applies edits to both copies and respects a split.');
@@ -323,20 +337,30 @@ async function assertNoOrigin(box) {
   assert.doesNotMatch(text, /from the file|answered|\bdefaults?\b|Specify|written by|\bby you\b|another tool/i, `no origin wording: ${text}`);
 }
 /** Save and check the acknowledgement and the page's confirmation. The summary can repeat. */
-async function save(page, server, n) {
-  const reply = page.waitForResponse(
-    response => response.url() === `${server.url}save` && response.request().method() === 'POST',
-    { timeout: 90000 },
-  );
+async function save(page, server, n, replacingDecision = false) {
+  const isSave = response => response.url() === `${server.url}save` && response.request().method() === 'POST';
+  const reply = page.waitForResponse(isSave, { timeout: 90000 });
+  const success = replacingDecision ? page.waitForResponse(response => isSave(response) && response.ok(), { timeout: 90000 }) : reply;
+  const before = problems.length;
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  const response = await reply;
+  const first = await reply;
+  if (replacingDecision && !first.ok()) {
+    assert.equal(first.status(), 422);
+    const { failures } = await first.json();
+    assert.deepEqual(failures.map(failure => failure.edit_entry), ['fill["part.coating"] and clear["part.coating"]']);
+  }
+  const response = await success;
   const saved = await response.json();
   assert.equal(response.status(), 200, JSON.stringify(saved));
   await check(page.locator('.app-saved code')).toHaveText(saved.path);
   await check.poll(() => (server.output().match(/Saved /g) ?? []).length).toBe(n);
   await check(page.locator('.spec-bar')).toContainText('written, all together');
+  if (response !== first) {
+    const refusal = problems.findIndex((problem, i) => i >= before && /^console: .*422/.test(problem));
+    if (refusal !== -1) problems.splice(refusal, 1);
+  }
   const body = response.request().postDataJSON();
-  return { rev: saved.rev, requestedRev: body.rev, body };
+  return { rev: saved.rev, requestedRev: body.rev, body, firstBody: first.request().postDataJSON() };
 }
 let first = null;
 /** The feature-and-kinds the first two saves list: each is in the file after it, stated or decided none. */
@@ -599,6 +623,16 @@ try {
         selected = part;
         await add(copyReview.page, 'part.coating', 'Anodised');
       },
+      async replaceCoating(part) {
+        await this.addCoating(part);
+        const pending = listedEdit(copyReview.page, 'part.coating');
+        await check(pending).toHaveCount(1);
+        await check(pending).toContainText('Coating: Anodised (was none needed)');
+        await pending.getByRole('button', { name: /^Undo / }).click();
+        await check(pending).toHaveCount(0);
+        await check(row(copyReview.page, 'part.coating')).toHaveAttribute('data-state', 'decided_none');
+        await this.addCoating(part);
+      },
       async addDatum() { await add(copyReview.page, 'datum.A'); },
       async reopen(snapshot) {
         onlyLocal(copyReview.requests, copyServer.origin);
@@ -615,15 +649,15 @@ try {
         selected = part;
         await check(material(copyReview.page)).not.toContainText('identical parts');
       },
-      async save() {
-        const result = await save(copyReview.page, copyServer, ++writes);
+      async save(replacement = false) {
+        const result = await save(copyReview.page, copyServer, ++writes, replacement);
         const tables = [0, 1].map(index => table(copies, index));
         return { parts: result.body.partEdits.map(list => list.part),
           materials: tables.map(rows => rows['part.material'].value),
           datums: tables.map(rows => rows['datum.A'].state),
           coatings: tables.map(rows => rows['part.coating'].state),
           datumC: tables.map(rows => rows['datum.C'].state),
-          bytes: readFileSync(copies) };
+          bytes: readFileSync(copies), sent: result.firstBody.partEdits };
       },
     });
     onlyLocal(copyReview.requests, copyServer.origin);

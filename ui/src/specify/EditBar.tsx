@@ -12,7 +12,7 @@ export function EditBar({ items, saving, busy, blocked, savedNote, onSave, onDis
         {items.length ? items.map(({ part, name, edit, suffix, target }) => (
           <li key={`${target?.part ?? part}:${target?.id ?? edit.id}`} data-part={part} data-pending={edit.id}>
             {name ? `${name} · ` : ''}{describeEdit(edit)}{suffix}
-            {(edit.draft || target) && <>{' '}<button type="button" disabled={busy || Boolean(blocked)}
+            {(edit.draft || target || edit.kind === 'replace') && <>{' '}<button type="button" disabled={busy || Boolean(blocked)}
               aria-label={`Undo ${name ?? ''} ${edit.name}`.replace(/ +/g, ' ')} onClick={() => onUndo(target?.part ?? part, target?.id ?? edit.id, Boolean(edit.draft))}>Undo</button></>}
           </li>
         )) : <li className="muted">{savedNote ?? 'No changes yet. Nothing is written until Save.'}</li>}

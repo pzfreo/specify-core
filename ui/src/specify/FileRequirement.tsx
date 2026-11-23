@@ -29,7 +29,7 @@ export function FileRequirement({ row, name, pending, open, disabled, problem, c
   const numbers = row.requirements?.flatMap(r => r.number ? [r.number] : []) ?? [];
   const edit = pending?.kind === 'refused' ? undefined : pending;
   const removed = edit?.kind === 'remove';
-  const entered = edit?.kind === 'fill' || edit?.kind === 'change' || edit?.kind === 'accept' ? edit : undefined;
+  const entered = edit?.kind === 'fill' || edit?.kind === 'replace' || edit?.kind === 'change' || edit?.kind === 'accept' ? edit : undefined;
   const state = edit?.kind === 'clear' ? 'gap'
     : edit?.kind === 'none' ? 'decided_none'
       : entered ? 'stated' : row.state;
@@ -54,7 +54,10 @@ export function FileRequirement({ row, name, pending, open, disabled, problem, c
               <button type="button" aria-expanded={open} onClick={onOpen}>Add</button>
               <button type="button" onClick={onNone}>None needed</button>
               {edit && <button type="button" onClick={onUndo}>Undo</button>}
-            </> : state === 'decided_none' ? <button type="button" onClick={onUndo}>Undo</button>
+            </> : state === 'decided_none' ? <>
+              <button type="button" aria-expanded={open} onClick={onOpen}>Add</button>
+              <button type="button" onClick={onUndo}>Undo</button>
+            </>
               : row.state === 'stated' && !row.bom ? <>
                 <IconButton label={`Change ${name}`} icon="edit" disabled={disabled} onClick={() => { setRemoving(false); onOpen(); }} />
                 <IconButton label={`Remove ${name}`} icon="bin" disabled={disabled} onClick={() => { onClose(); setRemoving(true); }} />
@@ -66,7 +69,7 @@ export function FileRequirement({ row, name, pending, open, disabled, problem, c
         </span>
       </div>
       {copies !== undefined && copies > 1 && <small className="pmi-lab-copy-count">applies to {copies} identical parts</small>}
-      {state === 'gap' && (card ?? (suggested && (
+      {(state === 'gap' || (state === 'decided_none' && suggested && suggested !== 'none')) && (card ?? (suggested && (
         <button type="button" className="pmi-lab-keep" onClick={onKeep}>Keep suggestion</button>
       )))}
       {problem && !removing && <div className="pmi-lab-error spec-problem" role="alert">{problem}</div>}
