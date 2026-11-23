@@ -216,6 +216,7 @@ are listed last under **Other PMI in the file**.
   With an empty bar Save says “Nothing to save.” Only unsaved edits are highlighted. After a save
   the selected part opens from the saved file. The bar also lists characteristic numbers retired by the save.
 - Page edits follow identical definitions reported by the engine. The row shows how many copies it covers.
+  The bar lists the originating edit once with its copy count. Undo drops that edit from every affected list.
   **Split off this copy** makes subsequent edits to the selected definition independent for the current review.
   Several placements of a single STEP definition share that definition's edit list.
 

@@ -5,10 +5,10 @@ import type { IntentReview, PartTint, PmiAnswers, PmiIntent, PmiInterpretation, 
 import { EditBar } from './EditBar';
 import { GeneralToleranceEditor } from './GeneralToleranceEditor';
 import { fileLengthUnit, type Units } from './general-tolerance';
-import { EMPTY_PENDING, EMPTY_QUEUE, linkedParts, mergePending, queueCopies, type PartQueue } from './review-assembly';
+import { EMPTY_PENDING, EMPTY_QUEUE, linkedParts, mergePending, pendingActions, queueCopies, withoutPendingAction, type PartQueue } from './review-assembly';
 import { FileRequirement } from './FileRequirement';
 import { askFile, checkPending, CheckRefused, datumId, fileRows, focusedRequirement, impliedAnswers, otherRows, partFile, queueValue, replacedRequirements, requirementName, retiredNumbers, rowSuggestion, rowSuggestionText, rowText, savePending, type FileReviewOptions, type FileRow, type ReviewFocus } from './file-review';
-import { PendingEdits, rejectedNoneByPart, removalTargets, suggestionEdits, type EditFailure } from './edit-list';
+import { PendingEdits, failedEdit, rejectedNoneByPart, removalTargets, suggestionEdits, type EditFailure } from './edit-list';
 import { answerText, isNoneValue, tableOf, withoutRequirements } from './feature-table';
 import type { StoredInspection } from './saved-inspection';
 import { editorDefault } from '../model/intent';
@@ -125,7 +125,8 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const group = linkedParts(fileReview?.parts ?? [], activePart, split);
   const copyCount = group.reduce((count, part) => count + part.instances, 0);
   const [saveFailures, setSaveFailures] = useState<readonly EditFailure[]>([]);
-  const refusedNone = useMemo(() => rejectedNoneByPart(combined, saveFailures, fileReview?.file.part !== undefined), [combined, saveFailures, fileReview?.file.part]);
+  const partName = (part: number) => fileReview?.parts?.find(row => row.part === part)?.name ?? `Part ${part}`;
+  const refusedNone = rejectedNoneByPart(combined, saveFailures, fileReview?.file.part !== undefined, partName);
   const [editBusy, setEditBusy] = useState(false);
   const [savingEdits, setSavingEdits] = useState(false);
   const [loadedInspection, setLoadedInspection] = useState<{ sourceId: string; data: StoredInspection } | null>(null);
@@ -531,6 +532,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const commitFile = (
     at: string | null, update: (current: PendingEdits) => PendingEdits,
     focus?: (asked: QuestionGroup[], next: PmiAnswers) => string | null, bulk: boolean = false,
+    undo?: { part: number; id: string },
   ) => {
     return queueReview(committing, () => host.current, async ({ fileReview: opened, readOnly, writeFailedToReopen }) => {
       if (!opened || readOnly || writeFailedToReopen || activeOperation.current) return false;
@@ -554,28 +556,39 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
           staged = latest().staged;
           const before = mergePending(base, staged).get(activePart) ?? EMPTY_PENDING;
           const after = update(before);
-          if (after === before) return true;
+          if (after === before && !undo) return true;
           const previousLocal = base.get(activePart) ?? EMPTY_PENDING;
           let proposed = new PendingEdits(after.values().filter(edit => !edit.draft));
           skipped = [];
           for (;;) {
-            next = await queueCopies(latest, host.current.session.analysis, group, base, previousLocal, proposed);
+            next = undo ? withoutPendingAction(base, undo)
+              : await queueCopies(latest, host.current.session.analysis, group, base, previousLocal, proposed);
             byPart = mergePending(next, staged);
+            const affected = new Set([...base.keys(), ...next.keys()]);
+            let checkingPart = activePart;
             try {
-              // The shown part and copies are validated together before anything is published.
-              for (const part of new Set([activePart, ...group.map(copy => copy.part)])) {
+              // Validate each changed list using its own part's row IDs and expectations.
+              for (const part of affected) {
+                if (base.get(part) === next.get(part)) continue;
                 const list = byPart.get(part);
                 if (!list || !Object.keys(list.list()).length) continue;
+                checkingPart = part;
                 const options = latest();
                 await checkPending({ ...options, file: part === activePart ? options.file : partFile(options.file, part) }, list);
               }
               break;
             } catch (failure) {
-              if (!bulk || !(failure instanceof CheckRefused)) throw failure;
-              const bad = proposed.values().filter(edit => !before.get(edit.id) &&
-                failure.failures.some(item => item.entry.includes(JSON.stringify(edit.id))));
-              if (!bad.length) throw failure;
-              skipped.push(...failure.failures.map(item => item.reason));
+              const prefix = checkingPart === activePart ? '' : `${partName(checkingPart)}: `;
+              if (!(failure instanceof CheckRefused)) throw new Error(prefix + asError(failure).message);
+              const reasons = failure.failures.map(item => prefix + item.reason);
+              const failing = byPart.get(checkingPart)!;
+              const refused = new Set(failure.failures.map(item => {
+                const edit = failedEdit(failing, item);
+                return edit?.copyOrigin?.edit.id ?? (checkingPart === activePart ? edit?.id : undefined);
+              }));
+              const bad = bulk ? proposed.values().filter(edit => !before.get(edit.id) && refused.has(edit.id)) : [];
+              if (!bad.length) throw new Error(reasons.join('\n'));
+              skipped.push(...reasons);
               for (const edit of bad) proposed = proposed.without(edit.id);
             }
           }
@@ -608,7 +621,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
     const lists = [...queue].sort(([a], [b]) => a - b).map(([part, entries]) => ({ part, edits: entries.list() }))
       .filter(({ edits }) => Object.keys(edits).length);
     if (!lists.length) { setSavedStatus('Nothing to save.'); return; }
-    const count = [...queue.values()].flatMap(list => list.values()).filter(edit => edit.kind !== 'refused').length;
+    const count = pendingActions(queue).filter(({ edit }) => edit.kind !== 'refused').length;
     const latest = () => host.current.fileReview ?? opened;
     setBusy(true);
     setSavingEdits(true);
@@ -619,7 +632,11 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
       if (!result) return;
       if ('failures' in result) {
         setSaveFailures(result.failures);
-        setError({ at: null, problem: asError(new Error(`Not saved: nothing was written. ${result.failures.map(f => `${f.entry}: ${f.reason}`).join(' · ')}`)) });
+        const reasons = result.failures.map(f => {
+          const part = f.part === undefined || (f.editEntry !== undefined && f.editEntry !== f.entry) ? '' : `${partName(f.part)}: `;
+          return `${part}${f.entry}: ${f.reason}`;
+        });
+        setError({ at: null, problem: asError(new Error(`Not saved: nothing was written. ${reasons.join(' · ')}`)) });
         return;
       }
       const bytes = result.bytes;
@@ -1227,14 +1244,26 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         kind: 'remove', id: row.id, name, was: rowText(row), targets: removalTargets(item.number ? [item.number] : [], item.id),
       }))} />;
   };
-  const bar = editingFile ? <EditBar items={[...combined].flatMap(([part, list]) => list.values().map(edit => ({
-    part, edit, name: fileReview?.file.part !== undefined || edit.draft ? fileReview?.parts?.find(row => row.part === part)?.name ?? `Part ${part}` : undefined,
-    suffix: !edit.draft && fileReview?.staged?.get(part)?.get(edit.id)?.kind !== 'refused' &&
-      fileReview?.staged?.get(part)?.get(edit.id) && fileReview.stagedReplacement ? ` (${fileReview.stagedReplacement})` : undefined,
-  })))}
+  const bar = editingFile ? <EditBar items={pendingActions(combined).map(({ part, edit, targets, propagated }) => {
+    const identical = targets.filter(target => target.part !== part).length;
+    const originIncluded = identical !== targets.length;
+    const copies = identical ? ` (${originIncluded ? '+' : ''}${identical} identical)` : '';
+    const replaced = !edit.draft && targets.some(target => {
+      const draft = fileReview?.staged?.get(target.part)?.get(target.id);
+      return draft && draft.kind !== 'refused';
+    });
+    return {
+      part, edit, name: fileReview?.file.part !== undefined || edit.draft ? partName(part) + copies : undefined,
+      suffix: replaced && fileReview?.stagedReplacement ? ` (${fileReview.stagedReplacement})` : undefined,
+      target: propagated ? targets[0] : undefined,
+    };
+  })}
     saving={savingEdits} busy={disabled || editBusy} blocked={fileReview?.saveBlocked ?? (writeFailedToReopen ? 'Open the saved STEP to edit again.' : undefined)}
     savedNote={savedStatus} onSave={() => void saveFileEdits()} onAddAll={addAll}
-    onDiscard={() => void discardEdits()} onUndoDraft={(part, id) => void discardEdits({ part, id })} /> : null;
+    onDiscard={() => void discardEdits()} onUndo={(part, id, draft) => {
+      if (draft) void discardEdits({ part, id });
+      else void commitFile(null, list => list, undefined, false, { part, id });
+    }} /> : null;
   // ``extra`` goes under the head, open or not (the datums row's chips).
   // ``sum`` and ``onHead`` replace the row's own summary and open/close, for
   // rows that are more than their questions (the datums).

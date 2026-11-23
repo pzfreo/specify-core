@@ -39,6 +39,8 @@ function identicalPins() {
 
 async function verifyCopies(driver) {
   await driver.edit(0, 'Steel', 2);
+  await driver.undo();
+  await driver.edit(0, 'Steel', 2);
   const both = await driver.save();
   assert.deepEqual(both.parts, [0, 1], 'one Save sends a list for each identical definition');
   assert.deepEqual(both.materials, ['Steel', 'Steel'], 'the edit is stored on both copies');
@@ -101,7 +103,7 @@ if (copiesOnly) {
   // Use the same copy and split assertions with the real engine and the review's queue
   // when the host sandbox cannot start Chromium. The full scenario below covers HTTP.
   const { IntentEngine } = await import('./engine-fixture.mjs');
-  const { linkedParts, queueCopies, EMPTY_PENDING } = await import('../src/specify/review-assembly.ts');
+  const { linkedParts, pendingActions, queueCopies, withoutPendingAction, EMPTY_PENDING } = await import('../src/specify/review-assembly.ts');
   const { checkPending, partFile, savePending } = await import('../src/specify/file-review.ts');
   let bytes = identicalPins();
   let queued = new Map();
@@ -122,7 +124,7 @@ if (copiesOnly) {
   } };
   const options = part => ({ file: { name: 'copies.step', bytes, sourceId: String(generation), part }, worker });
   await verifyCopies({
-    async edit(part, value) {
+    async edit(part, value, count) {
       const list = JSON.parse(IntentEngine.parts('copies.step', bytes));
       const group = linkedParts(list, part, splits);
       const opts = options(part);
@@ -134,6 +136,13 @@ if (copiesOnly) {
         : { kind: 'change', id, name: 'Material', value, text: value, expect: previous, was: previous });
       queued = await queueCopies(() => opts, analysis, group, queued, EMPTY_PENDING, next);
       for (const [index, edits] of queued) await checkPending({ ...opts, file: partFile(opts.file, index) }, edits);
+      assert.deepEqual(pendingActions(queued).map(action => [action.part, action.edit.id, action.targets.length]),
+        [[part, id, count]], 'the bar shows the originating edit once');
+    },
+    async undo() {
+      const [action] = pendingActions(queued);
+      queued = withoutPendingAction(queued, action.targets[0]);
+      assert.equal(queued.size, 0, 'undo takes the edit out of every part list');
     },
     async split(part) { splits.add(part); },
     async save() {
@@ -497,6 +506,22 @@ try {
         else await check(material(copyReview.page)).not.toContainText('identical parts');
         if (writes) await change(copyReview.page, value);
         else await add(copyReview.page, 'part.material', value);
+        const entry = listedEdit(copyReview.page, 'part.material');
+        await check(entry).toHaveCount(1);
+        await check(entry).toHaveAttribute('data-part', String(part));
+        if (count > 1) await check(entry).toContainText('COMPOUND (+1 identical) · Add Material: Steel');
+      },
+      async undo() {
+        const page = copyReview.page;
+        await listedEdit(page, 'part.material').getByRole('button', { name: /^Undo / }).click();
+        await check(listedEdit(page, 'part.material')).toHaveCount(0);
+        const picker = page.locator('.app-part select');
+        for (const part of ['1', '0']) {
+          await picker.selectOption(part);
+          await check(picker).toBeEnabled();
+          await check(picker).toHaveValue(part);
+          await check(material(page)).toHaveAttribute('data-state', 'gap');
+        }
       },
       async split(part) {
         await choose(copyReview.page, part, 'Steel');

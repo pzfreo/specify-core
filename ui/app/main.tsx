@@ -624,7 +624,7 @@ function App() {
       </main>
       <div ref={editBar}>{editing && (!opened || !slots) && <EditBar items={[]} saving={false}
         busy={false} blocked={saveBlocked ?? 'Opening…'} savedNote={null}
-        onSave={() => {}} onDiscard={() => {}} onAddAll={() => {}} onUndoDraft={() => {}} />}</div>
+        onSave={() => {}} onDiscard={() => {}} onAddAll={() => {}} onUndo={() => {}} />}</div>
       <footer className="app-about">
         Specify {config?.specifyCore ?? ''} · app {__APP_VERSION__} · runs on this computer; the file is not uploaded ·{' '}
         <a href={DOCS} target="_blank" rel="noreferrer">Docs</a> ·{' '}

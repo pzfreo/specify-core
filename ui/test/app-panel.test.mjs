@@ -234,6 +234,18 @@ test('save matches a None needed refusal only to the affected part and queued ro
   assert.deepEqual([...rejectedNoneByPart(new Map([[0, coating]]), failure('none["part.coating"]'), false)],
     [[0, new Map([['part.coating', refusal]])]]);
   assert.equal(rejectedNoneByPart(pending, [{ ...scoped, editEntry: 'fill["part.coating"]' }], true).size, 0);
+
+  const edit = { kind: 'none', id: 'hole.position:holes:14.15', name: 'Position' };
+  const copyOrigin = { part: 0, edit };
+  const copyId = 'hole.position:holes:1.2';
+  const copies = new Map([
+    [0, new PendingEdits([{ ...edit, copyOrigin }])],
+    [1, new PendingEdits([{ ...edit, id: copyId, copyOrigin, targets: ['#4'] }])],
+  ]);
+  assert.deepEqual([...rejectedNoneByPart(copies, [{ ...scoped, editEntry: 'items.remove["#4"]' }], true, () => 'Pin copy')], [
+    [1, new Map([[copyId, refusal]])],
+    [0, new Map([[edit.id, `Pin copy: ${refusal}`]])],
+  ]);
 });
 
 test('the model keeps individual drawing notes in order', () => {

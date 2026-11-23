@@ -25,7 +25,10 @@ export type SaveEdits = EditList | PartEdits[];
 export interface EditFailure { entry: string; reason: string; part?: number; editEntry?: string }
 
 /** One pending edit, by the row it is on (a feature-and-kind id, or an item's `#N` in "Other PMI"). */
-export type Pending = PendingEdit & { draft?: true };
+export type Pending = PendingEdit & { draft?: true; copyOrigin?: CopyEditOrigin };
+
+/** The same object identifies the originating action on every affected definition. */
+export interface CopyEditOrigin { part: number; edit: PendingEdit }
 
 type PendingEdit =
   /** A gap given a value: Add. */
@@ -110,20 +113,42 @@ export function suggestionEdits(rows: readonly { id: string; name: string; state
       : { kind: 'fill', id: r.id, name: r.name, value: r.suggestion, text: r.suggestionText ?? String(r.suggestion) }));
 }
 
-/** Matches save refusals to the queued None needed on the part they identify. */
-export function rejectedNoneByPart(pending: ReadonlyMap<number, PendingEdits>, failures: readonly EditFailure[], assembly: boolean) {
+/** Find the edit named by an engine failure, using the IDs and guards of the failing part. */
+export function failedEdit(list: PendingEdits, failure: EditFailure): Pending | undefined {
+  const entry = failure.editEntry ?? failure.entry;
+  return list.values().find(edit => {
+    if (edit.kind === 'refused') return false;
+    const verb = edit.kind === 'accept' ? 'accept_suggestions' : edit.kind;
+    if (entry === `${verb}[${JSON.stringify(edit.id)}]`) return true;
+    return (edit.kind === 'remove' || edit.kind === 'none') && edit.targets?.some(target => {
+      if (typeof target !== 'string') return entry === `items.remove[${JSON.stringify(target)}]`;
+      return [target, target.replace(/^#/, '')].some(number => entry === `items.remove[${JSON.stringify(number)}]`);
+    });
+  });
+}
+
+/** Matches save refusals to the queued None needed. A propagated refusal also appears at its origin. */
+export function rejectedNoneByPart(pending: ReadonlyMap<number, PendingEdits>, failures: readonly EditFailure[], assembly: boolean,
+  partName?: (part: number) => string) {
   const rejected = new Map<number, Map<string, string>>();
-  for (const [part, list] of pending) {
-    const rows = new Map<string, string>();
-    for (const edit of list.values()) {
-      if (edit.kind !== 'none') continue;
-      const entry = `none[${JSON.stringify(edit.id)}]`;
-      const reasons = failures.filter((failure) =>
-        (failure.part === part || (!assembly && failure.part === undefined))
-        && (failure.editEntry ?? failure.entry) === entry);
-      if (reasons.length) rows.set(edit.id, reasons.map((f) => f.reason).join('; '));
+  const record = (part: number, id: string, reason: string) => {
+    const rows = rejected.get(part) ?? new Map<string, string>();
+    const previous = rows.get(id);
+    rows.set(id, previous ? `${previous}; ${reason}` : reason);
+    rejected.set(part, rows);
+  };
+  for (const failure of failures) {
+    const parts = failure.part === undefined ? (assembly ? [] : [...pending.keys()]) : [failure.part];
+    for (const part of parts) {
+      const list = pending.get(part);
+      const edit = list && failedEdit(list, failure);
+      if (edit?.kind !== 'none') continue;
+      record(part, edit.id, failure.reason);
+      const origin = edit.copyOrigin;
+      if (origin && origin.part !== part && pending.get(origin.part)?.get(origin.edit.id)?.copyOrigin === origin) {
+        record(origin.part, origin.edit.id, `${partName?.(part) ?? `Part ${part}`}: ${failure.reason}`);
+      }
     }
-    if (rows.size) rejected.set(part, rows);
   }
   return rejected;
 }
