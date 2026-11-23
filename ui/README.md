@@ -98,7 +98,7 @@ part opened: its analysis, mesh, questions and answers.
 
 ```tsx
 import { SpecifyReview, type SpecifyEngine, type SpecifySlots } from '@draftwright/specify-ui';
-import '@draftwright/specify-ui/style.css';
+import '@draftwright/specify-ui/style.css'; // or, without the diff components, '@draftwright/specify-ui/review.css'
 
 const slots: SpecifySlots = { view: viewElement, panel: panelElement, exports: exportsElement };
 

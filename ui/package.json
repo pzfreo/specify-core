@@ -44,6 +44,7 @@
       "import": "./dist/helpers.js"
     },
     "./style.css": "./dist/specify-ui.css",
+    "./review.css": "./dist/review.css",
     "./package.json": "./package.json"
   },
   "sideEffects": [
@@ -55,7 +56,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "npm run typecheck && vite build && node scripts/worker-url.mjs && tsc -p tsconfig.build.json && node scripts/rewrite-dts-imports.mjs",
+    "build": "npm run typecheck && vite build && node scripts/worker-url.mjs && tsc -p tsconfig.build.json && node scripts/rewrite-dts-imports.mjs && node scripts/review-css.mjs",
     "pretest": "node test/engine-path.mjs",
     "test": "node --experimental-strip-types --test test/question-focus.test.mjs test/characteristics.test.mjs test/inspection.test.mjs test/as9102.test.mjs test/specify-presentation.test.mjs test/graphical-pmi.test.mjs test/diff.test.mjs test/read-only.test.mjs test/app-session.test.mjs test/app-panel.test.mjs test/app-local.test.mjs test/app-engine.test.mjs test/app-build.test.mjs test/host-view.test.mjs",
     "test:browser": "vite build --config vite.harness.config.ts && node test/step-diff-browser.mjs && WASM_URL=/wasm/intent/specify_core_wasm.js node test/step-diff-browser.mjs && node test/specify-browser.mjs",
