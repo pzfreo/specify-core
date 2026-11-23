@@ -1,6 +1,7 @@
 import { readCarried } from './carried';
 import { withCharacteristicNumbers, type NumberScene } from './characteristic-numbers';
 import { withoutRequirements } from '../specify/feature-table';
+import { reviewParts } from '../specify/review-assembly';
 import type { IntentReview, PmiAnalysis } from '../types/pmi';
 import { inspectionFromStep } from '../specify/saved-inspection';
 
@@ -148,8 +149,12 @@ self.onmessage = ({ data }) => {
         // Pure analysis-only review, without allocation geometry. Inspection hosts use
         // review-given with STEP bytes to obtain the writer's stable characteristic numbers.
         result = JSON.parse(module.review(JSON.stringify(args.analysis), JSON.stringify(args.answers)));
-      } else if (operation === 'parts') {
-        result = JSON.parse(module.IntentEngine.parts(args.name, args.bytes));
+      } else if (operation === 'parts' || operation === 'review-parts') {
+        const parts = JSON.parse(module.IntentEngine.parts(args.name, args.bytes));
+        result = operation === 'parts' ? parts : reviewParts(parts, part => {
+          const one = module.IntentEngine.openPart(args.name, args.bytes, part);
+          try { return JSON.parse(one.snapshot()).analysis; } finally { one.free(); }
+        });
       } else if (operation === 'part-mesh' || operation === 'part-analysis') {
         // One part's mesh for the assembly's view, on an engine of its own: the open part's is kept.
         const one = module.IntentEngine.openPart(args.name, args.bytes, args.part);

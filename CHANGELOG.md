@@ -148,7 +148,8 @@ Read first:
   rows are available again. Save applies the checked list together. Characteristics, CSV and
   AS9102 read the STEP's stored requirements and support inspection exclusions. The same review owns
   the general tolerance block, Other PMI, assembly edit lists, validation, and the Save bar. Edits follow
-  identical definitions through the engine's face maps. Split off a copy to edit it independently.
+  identical definitions with matching stated PMI through the engine's face maps. Split off a copy
+  to edit it independently. Saving different PMI keeps the copies separate on reopen.
 
 - **Quiddity 0.5.5.** Published step levels on every part axis get plane-to-plane length rows.
   Independent plane lengths keep their rows. Stated locations on retired levels appear under

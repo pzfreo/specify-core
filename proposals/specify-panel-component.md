@@ -60,6 +60,7 @@ All of the writing happens in the browser, through the engine 0.3.0 already ship
 2. **Agent drafts and the Characteristics tab** stay out of the component for 0.3.1. They depend on the local session (agents) and on the 3D review. The `open` page keeps both.
 3. **Saving runs in the browser by default.** The app can also pass its own save function and get the edit lists to apply elsewhere. `open` uses that to keep saving through its session.
 4. **The 3D view is the host's, if it wants** (Amy's requirement). `SpecifyPanel` takes the same optional `view: HostView` as StepDiff and SpecifyReview (ui/docs/host-view.md). Selecting a row shows, colours and frames its faces in that view, and a face picked there selects its row. With no view passed, the panel uses the package's default view. Drawn-PMI overlays over a host camera stay under "Later", as for `HostView`.
+6. **Identical copies.** The engine must prove the definitions have identical geometry, and the stated PMI must match on corresponding faces. An edit applies to every copy in the group. The row says how many copies it covers, the bar shows the edit once, and Save writes all affected definitions together. **Split off this copy** makes subsequent edits on that copy independent until Save. If the saved requirements differ, the copies stay separate when reopened. Splitting leaves the STEP assembly structure as it was.
 
 ## How we'll know it works
 

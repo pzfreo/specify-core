@@ -45,9 +45,16 @@ async function verifyCopies(driver) {
   assert.deepEqual(both.parts, [0, 1], 'one Save sends a list for each identical definition');
   assert.deepEqual(both.materials, ['Steel', 'Steel'], 'the edit is stored on both copies');
   await driver.split(1);
+  await driver.addDatum(1);
+  const datum = await driver.save();
+  assert.deepEqual(datum.parts, [1], 'one Save sends only the split copy');
+  assert.deepEqual(datum.datums, ['gap', 'stated'], 'only the split copy has datum A');
+  await driver.reopen();
+  await driver.separate(0);
+  await driver.separate(1);
   await driver.edit(1, 'Bronze', 1);
   const one = await driver.save();
-  assert.deepEqual(one.parts, [1], 'one Save sends only the split copy');
+  assert.deepEqual(one.parts, [1], 'after reopen, editing one group still sends only that part');
   assert.deepEqual(one.materials, ['Steel', 'Bronze'], 'the unselected copy keeps its value');
 }
 
@@ -103,7 +110,7 @@ if (copiesOnly) {
   // Use the same copy and split assertions with the real engine and the review's queue
   // when the host sandbox cannot start Chromium. The full scenario below covers HTTP.
   const { IntentEngine } = await import('./engine-fixture.mjs');
-  const { linkedParts, pendingActions, queueCopies, withoutPendingAction, EMPTY_PENDING } = await import('../src/specify/review-assembly.ts');
+  const { linkedParts, pendingActions, queueCopies, reviewParts, withoutPendingAction, EMPTY_PENDING } = await import('../src/specify/review-assembly.ts');
   const { checkPending, partFile, savePending } = await import('../src/specify/file-review.ts');
   let bytes = identicalPins();
   let queued = new Map();
@@ -123,28 +130,36 @@ if (copiesOnly) {
     });
   } };
   const options = part => ({ file: { name: 'copies.step', bytes, sourceId: String(generation), part }, worker });
+  const nativeParts = () => JSON.parse(IntentEngine.parts('copies.step', bytes));
+  const groupFor = part => linkedParts(reviewParts(nativeParts(), index => read(options(index).file)), part, splits);
+  const tableFor = part => read(options(part).file).table.rows;
+  const rowFor = (part, id) => tableFor(part).find(row => row.id === id);
+  const edit = async (part, id, name, value, count) => {
+    const opts = options(part);
+    const analysis = read(opts.file);
+    const previous = rowFor(part, id).value;
+    const next = EMPTY_PENDING.with(previous == null
+      ? { kind: 'fill', id, name, value, text: String(value) }
+      : { kind: 'change', id, name, value, text: String(value), expect: previous, was: previous });
+    queued = await queueCopies(() => opts, analysis, groupFor(part), queued, EMPTY_PENDING, next);
+    for (const [index, edits] of queued) await checkPending({ ...opts, file: partFile(opts.file, index) }, edits);
+    assert.deepEqual(pendingActions(queued).map(action => [action.part, action.edit.id, action.targets.length]),
+      [[part, id, count]], 'the bar shows the originating edit once');
+  };
   await verifyCopies({
-    async edit(part, value, count) {
-      const list = JSON.parse(IntentEngine.parts('copies.step', bytes));
-      const group = linkedParts(list, part, splits);
-      const opts = options(part);
-      const analysis = read(opts.file);
-      const id = 'part.material';
-      const previous = analysis.table.rows.find(row => row.id === id)?.value;
-      const next = EMPTY_PENDING.with(previous == null
-        ? { kind: 'fill', id, name: 'Material', value, text: value }
-        : { kind: 'change', id, name: 'Material', value, text: value, expect: previous, was: previous });
-      queued = await queueCopies(() => opts, analysis, group, queued, EMPTY_PENDING, next);
-      for (const [index, edits] of queued) await checkPending({ ...opts, file: partFile(opts.file, index) }, edits);
-      assert.deepEqual(pendingActions(queued).map(action => [action.part, action.edit.id, action.targets.length]),
-        [[part, id, count]], 'the bar shows the originating edit once');
-    },
+    async edit(part, value, count) { await edit(part, 'part.material', 'Material', value, count); },
     async undo() {
       const [action] = pendingActions(queued);
       queued = withoutPendingAction(queued, action.targets[0]);
       assert.equal(queued.size, 0, 'undo takes the edit out of every part list');
     },
     async split(part) { splits.add(part); },
+    async addDatum(part) { await edit(part, 'datum.A', 'Datum A', rowFor(part, 'datum.A').suggestion, 1); },
+    async reopen() {
+      splits.clear();
+      assert.equal(nativeParts()[1].same_as, 0, 'the engine still identifies the definitions as geometrically identical');
+    },
+    async separate(part) { assert.deepEqual(groupFor(part).map(row => row.part), [part], 'saved PMI separates the copy on reopen'); },
     async save() {
       const lists = [...queued].sort(([a], [b]) => a - b).map(([part, edits]) => ({ part, edits: edits.list() }));
       const result = await savePending(() => options(0), lists);
@@ -152,8 +167,9 @@ if (copiesOnly) {
       bytes = Uint8Array.from(result.bytes);
       generation++;
       queued = new Map();
-      const materials = [0, 1].map(part => read(options(part).file).table.rows.find(r => r.id === 'part.material').value);
-      return { parts: lists.map(list => list.part), materials };
+      const materials = [0, 1].map(part => rowFor(part, 'part.material').value);
+      const datums = [0, 1].map(part => rowFor(part, 'datum.A').state);
+      return { parts: lists.map(list => list.part), materials, datums };
     },
   });
   console.log('The writer applies edits to both copies and respects a split.');
@@ -494,8 +510,8 @@ try {
     // until a copy is explicitly split off.
     const copies = join(dir, 'identical-pins.step');
     writeFileSync(copies, identicalPins());
-    const copyServer = await open(copies, '--in-place');
-    const copyReview = await load(copyServer);
+    let copyServer = await open(copies, '--in-place');
+    let copyReview = await load(copyServer);
     let selected = 0;
     let writes = 0;
     await verifyCopies({
@@ -504,7 +520,7 @@ try {
         selected = part;
         if (count > 1) await check(material(copyReview.page)).toContainText(`applies to ${count} identical parts`);
         else await check(material(copyReview.page)).not.toContainText('identical parts');
-        if (writes) await change(copyReview.page, value);
+        if (value === 'Bronze') await change(copyReview.page, value);
         else await add(copyReview.page, 'part.material', value);
         const entry = listedEdit(copyReview.page, 'part.material');
         await check(entry).toHaveCount(1);
@@ -528,10 +544,26 @@ try {
         selected = part;
         await copyReview.page.getByRole('button', { name: 'Split off this copy', exact: true }).click();
       },
+      async addDatum() { await add(copyReview.page, 'datum.A'); },
+      async reopen() {
+        onlyLocal(copyReview.requests, copyServer.origin);
+        await copyReview.context.close();
+        copyServer.stop();
+        copyServer = await open(copies, '--in-place');
+        copyReview = await load(copyServer);
+        writes = 0;
+        selected = Number(await copyReview.page.locator('.app-part select').inputValue());
+      },
+      async separate(part) {
+        if (selected !== part) await choose(copyReview.page, part, 'Steel');
+        selected = part;
+        await check(material(copyReview.page)).not.toContainText('identical parts');
+      },
       async save() {
         const result = await save(copyReview.page, copyServer, ++writes);
         return { parts: result.body.partEdits.map(list => list.part),
-          materials: [0, 1].map(index => table(copies, index)['part.material'].value) };
+          materials: [0, 1].map(index => table(copies, index)['part.material'].value),
+          datums: [0, 1].map(index => table(copies, index)['datum.A'].state) };
       },
     });
     onlyLocal(copyReview.requests, copyServer.origin);

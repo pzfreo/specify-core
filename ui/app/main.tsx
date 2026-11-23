@@ -214,7 +214,7 @@ function App() {
           if (!shown || !worker.current) return written;
           let next = await openPart(worker.current, answersSession, first.name, written, { part: shown.part, several: shown.several }, first.readOnly, load);
           const drawn = await savedDrawn(worker.current, written, next);
-          const listed = shown.several ? await worker.current.request<PartRow[]>('parts', { name: first.name, bytes: written }) : null;
+          const listed = shown.several ? await worker.current.request<PartRow[]>('review-parts', { name: first.name, bytes: written }) : null;
           if (drawn !== undefined) next = { ...next, drawn };
           if (ended || load !== inspectionLoad.current || shownRef.current?.store !== shown.store) { next.store.close(); return written; }
           shown.store.close();
@@ -240,7 +240,7 @@ function App() {
       unwatch = answersSession.subscribe(showDrafts);
       showDrafts();
       // An assembly's parts: the page shows one at a time, first the first the session has answers for.
-      const listed = await worker.current.request<PartRow[]>('parts', { name: first.name, bytes });
+      const listed = await worker.current.request<PartRow[]>('review-parts', { name: first.name, bytes });
       const several = listed.length > 1 || listed[0]?.instances > 1;
       let rows = listed;
       const withAnswers = rows.find((row) => Object.keys(answers.parts[String(row.part)] ?? {}).some((id) => !id.startsWith('_')));

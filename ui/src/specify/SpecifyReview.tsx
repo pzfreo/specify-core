@@ -109,10 +109,10 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   /** The host's own 3D view to draw the part in (docs/host-view.md); by default the package's. */
   view?: HostView | null;
 }) {
-  const [written, setWritten] = useState<{ from: string; file: FileReviewOptions['file']; session: PmiLabSession } | null>(null);
+  const [written, setWritten] = useState<{ from: string; file: FileReviewOptions['file']; parts: FileReviewOptions['parts']; session: PmiLabSession } | null>(null);
   const reopened = fileOptions && written?.from === fileOptions.file.sourceId ? written : null;
   const session = reopened?.session ?? openedSession;
-  const fileReview = fileOptions && (reopened ? { ...fileOptions, file: reopened.file } : fileOptions);
+  const fileReview = fileOptions && (reopened ? { ...fileOptions, file: reopened.file, parts: reopened.parts } : fileOptions);
   const editingFile = Boolean(fileReview && !readOnly);
   const focusId = useMemo(() => focusedRequirement(session.analysis, focusRequest), [session.analysis, focusRequest]);
   const isNoteField = (id: string) => NOTE_FIELDS.has(id) || (editingFile && id === 'part.notes');
@@ -121,8 +121,10 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
   const combined = useMemo(() => mergePending(localEdits, fileReview?.staged), [localEdits, fileReview?.staged]);
   const activePart = fileReview?.file.part ?? 0;
   const pending = combined.get(activePart) ?? EMPTY_PENDING;
-  const [split, setSplit] = useState<ReadonlySet<number>>(() => new Set());
-  const group = linkedParts(fileReview?.parts ?? [], activePart, split);
+  const [split, setSplit] = useState<{ bytes: Uint8Array; parts: ReadonlySet<number> } | null>(null);
+  const fileBytes = fileReview?.file.bytes;
+  const splitParts = split && split.bytes === fileBytes ? split.parts : undefined;
+  const group = linkedParts(fileReview?.parts ?? [], activePart, splitParts);
   const copyCount = group.reduce((count, part) => count + part.instances, 0);
   const [saveFailures, setSaveFailures] = useState<readonly EditFailure[]>([]);
   const partName = (part: number) => fileReview?.parts?.find(row => row.part === part)?.name ?? `Part ${part}`;
@@ -646,8 +648,9 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
           const snapshot = await latest().worker.request<Pick<PmiLabSession, 'analysis' | 'mesh' | 'provenance'>>('open', file);
           const given = impliedAnswers(snapshot.analysis, EMPTY_PENDING);
           const asked = await askFile({ ...latest(), file }, given, EMPTY_PENDING);
+          const parts = opened.parts && await latest().worker.request<FileReviewOptions['parts']>('review-parts', file);
           if (latest().file.sourceId === opened.file.sourceId) {
-            setWritten({ from: fileOptions!.file.sourceId, file, session: { ...session, ...snapshot, ...asked, sessionId: file.sourceId } });
+            setWritten({ from: fileOptions!.file.sourceId, file, parts, session: { ...session, ...snapshot, ...asked, sessionId: file.sourceId } });
             displayReview(given, asked);
           }
         } catch (failure) {
@@ -656,6 +659,7 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
         }
       }
       publishPending(EMPTY_QUEUE);
+      setSplit(null);
       const retired = retiredNumbers(result.report);
       setSavedStatus(`Saved${result.name ? ` ${result.name}` : ''} · ${count} change${count === 1 ? '' : 's'} written, all together.`
         + (retired.length ? ` Retired numbers: ${retired.join(', ')}.` : ''));
@@ -1535,8 +1539,8 @@ export function SpecifyReview({ engine, session: openedSession, fileReview: file
               calledOut={added.filter(([, extra]) => CALL_OUTS.includes(extra.kind)).length}
             />
           ) : (<>
-          {editingFile && group.length > 1 && <p className="pmi-lab-copy-controls">
-            <button type="button" onClick={() => setSplit(previous => new Set([...previous, activePart]))}>Split off this copy</button>
+          {editingFile && fileBytes && group.length > 1 && <p className="pmi-lab-copy-controls">
+            <button type="button" onClick={() => setSplit({ bytes: fileBytes, parts: new Set([...splitParts ?? [], activePart]) })}>Split off this copy</button>
           </p>}
           {editingFile && partGroup && <section className="pmi-lab-fields" data-group="part">
             {problemLines('part')}

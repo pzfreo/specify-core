@@ -1,4 +1,4 @@
-import type { PmiAnalysis } from '../types/pmi.ts';
+import type { PmiAnalysis, PmiExisting } from '../types/pmi.ts';
 import { PendingEdits, removalTargets, type CopyEditOrigin, type Pending } from './edit-list.ts';
 import { answerText, tableOf } from './feature-table.ts';
 import { otherRows, partFile, rowText, type FileReviewOptions, type ReviewPart } from './file-review.ts';
@@ -9,12 +9,12 @@ export const EMPTY_PENDING = new PendingEdits();
 export const EMPTY_QUEUE: PartQueue = new Map();
 
 /** Open returns one index per definition. Multiple placements of that definition share its edits. */
-export function linkedParts(parts: readonly ReviewPart[], part: number, split: ReadonlySet<number>): ReviewPart[] {
+export function linkedParts(parts: readonly ReviewPart[], part: number, split?: ReadonlySet<number>): ReviewPart[] {
   const selected = parts.find(one => one.part === part);
   if (!selected) return [];
-  if (split.has(part)) return [selected];
+  if (split?.has(part)) return [selected];
   const first = selected.same_as ?? selected.part;
-  return parts.filter(one => (one.same_as ?? one.part) === first && !split.has(one.part));
+  return parts.filter(one => (one.same_as ?? one.part) === first && !split?.has(one.part));
 }
 
 export function faceMap(from: ReviewPart, to: ReviewPart): (face: number) => number {
@@ -25,6 +25,46 @@ export function faceMap(from: ReviewPart, to: ReviewPart): (face: number) => num
     if (target === undefined) throw new Error(`There is no corresponding face ${face} on ${to.name}.`);
     return target;
   };
+}
+
+function statedPmi(analysis: PmiAnalysis, map: (face: number) => number): string {
+  const faces = (ids: readonly number[] = []) => ids.map(map).sort((a, b) => a - b);
+  const stable = (value: unknown) => JSON.stringify(value, (_, item) =>
+    item && typeof item === 'object' && !Array.isArray(item)
+      ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item);
+  const table = tableOf(analysis);
+  const existing = analysis.existing.map((item: PmiExisting & {
+    provenance?: unknown; origin?: unknown; source?: unknown; question?: string;
+  }) => {
+    const { number, provenance, origin, source, question, faces: from, faces2: to, ...requirement } = item;
+    return stable({ ...requirement, faces: faces(from), faces2: faces(to) });
+  });
+  const other = table.file_pmi.map(item => stable([item.kind, item.type, item.text, faces(item.faces)]));
+  const part = table.rows.filter(row => row.state === 'stated' && /^(part|bom)\./.test(row.id))
+    .map(row => stable([row.id, row.value]));
+  return stable([analysis.part, existing.sort(), other.sort(), part.sort()]);
+}
+
+/** Refine the engine's proven copy families by the requirements each definition actually states. */
+export function reviewParts<T extends ReviewPart>(parts: readonly T[], read: (part: number) => PmiAnalysis): T[] {
+  const anchors = new Map(parts.map(part => [part.part, part]));
+  const related = new Set(parts.flatMap(part => part.same_as == null ? [] : [part.same_as]));
+  const groups = new Map<string, T>();
+  return parts.map(part => {
+    const first = part.same_as ?? part.part;
+    const anchor = anchors.get(first);
+    if (!related.has(first)) return part;
+    const separate = { ...part, same_as: null, faces_of_first: null };
+    if (!anchor) return separate;
+    const key = JSON.stringify([first, statedPmi(read(part.part), faceMap(part, anchor))]);
+    const match = groups.get(key);
+    if (!match) {
+      groups.set(key, part);
+      return separate;
+    }
+    const map = faceMap(part, match);
+    return { ...part, same_as: match.part, faces_of_first: (part.faces_of_first ?? match.faces_of_first)?.map((_, face) => map(face)) };
+  });
 }
 
 const signature = (faces: readonly number[]) => [...faces].sort((a, b) => a - b).join('.');
