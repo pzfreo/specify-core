@@ -253,7 +253,7 @@ async function assertValuesFit(page) {
 }
 /** No wording in ``box`` says who wrote a requirement (decision 6). */
 async function assertNoOrigin(box) {
-  const text = await box.innerText();
+  const text = await box.evaluateAll(elements => elements.map(element => element.innerText).join('\n'));
   assert.ok(text.trim().length > 0, 'there is text to check');
   assert.doesNotMatch(text, /from the file|answered|\bdefaults?\b|Specify|written by|\bby you\b|another tool/i, `no origin wording: ${text}`);
 }

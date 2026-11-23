@@ -42,7 +42,7 @@ export function FileRequirement({ row, name, pending, open, disabled, problem, c
       <div className="pmi-lab-line">
         <button type="button" className="name" onClick={onOpen}>{requirementLabel(question)}</button>
         <span className="value">
-          {state === 'gap' ? (suggested && <span className="sugg">suggested: {suggested}</span>)
+          {state === 'gap' ? (suggested ? <span className="sugg">suggested: {suggested}</span> : 'not stated')
             : Array.isArray(notes) ? notes.map((note, i) => <span className="spec-note" key={i}>{String(note)}</span>) : value}
           {state === 'stated' && numbers.length > 0 && <span className="bal" title="Balloon numbers">{numbers.join(', ')}</span>}
         </span>

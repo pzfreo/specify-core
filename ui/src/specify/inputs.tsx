@@ -85,13 +85,13 @@ export function SpecBox({ q, codes, onSpec }: {
     <form className="pmi-lab-spec" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
       <div className="row">
         <input
-          type="text" value={text} list={list} placeholder={example || 'Or type a value'}
+          type="text" value={text} list={codes.length ? list : undefined} placeholder={example || 'Or type a value'}
           aria-label={`Type a spec: ${q.prompt}`} autoCapitalize="off" autoCorrect="off" spellCheck={false}
           onChange={(event) => { setText(event.target.value); setProblem(null); }}
         />
         <button type="submit" disabled={!text.trim() || busy}>{busy ? '…' : 'Use'}</button>
       </div>
-      <datalist id={list}>{codes.map((code) => <option key={code} value={code} />)}</datalist>
+      {codes.length > 0 && <datalist id={list}>{codes.map((code) => <option key={code} value={code} />)}</datalist>}
       {problem && <p role="alert" className="pmi-lab-error">{problem}</p>}
     </form>
   );
