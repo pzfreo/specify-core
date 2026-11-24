@@ -105,9 +105,15 @@ export function answerEdit(id: string, value: unknown, row: TableRow | undefined
 }
 
 /** Remove a stated row: its requirements by characteristic number, else by its id. */
-export function removeEdit(row: TableRow, q: PmiQuestion | undefined, name: string): Pending {
+export function removeEdit(row: TableRow, q: PmiQuestion | undefined, name: string, analysis?: PmiAnalysis): Pending {
   const numbers = (row.requirements ?? []).flatMap((r) => (r.number ? [r.number] : []));
-  return { kind: 'remove', id: row.id, name, targets: targetsOf(numbers, row.id), was: answerText(row.value, q) || (row.requirements ?? []).map((r) => r.text).join('; ') };
+  return { kind: 'remove', id: row.id, name, targets: targetsOf(numbers, row.id), was: statedText(row, q, analysis) };
+}
+
+/** A value as the bar says it: faces by what they are ("bottom face"), never by their numbers. */
+export function valueText(value: unknown, q: PmiQuestion | undefined, analysis?: PmiAnalysis): string {
+  if (analysis && Array.isArray(value) && value.length && value.every((f) => typeof f === 'number')) return describeFaces(value as number[], analysis);
+  return answerText(value, q);
 }
 
 /**

@@ -184,7 +184,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const [calledOutHere, setCalledOut] = useState<ReadonlyMap<string, string>>(new Map());
   const calledOut = calledOutDimensions ?? calledOutHere;
   // A new "Added by you" key, past any the host holds (a call-out held in the bar, say).
-  const freeKey = () => nextKey({ ...answers, ...Object.fromEntries((takenKeys ?? []).map((k) => [k, true])) });
+  const freeKey = () => nextKey(answers, takenKeys);
   const [callingOut, setCallingOut] = useState<string | null>(null);
   const [selectedChar, setSelectedChar] = useState<string | null>(null);
   // What is left out of the inspection list: the CSV's, not the PMI's.

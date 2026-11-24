@@ -28,7 +28,7 @@ import { discardAnswers, getAnswers, getConfig, getDiff, getFile, keepAlive, lis
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } from './save';
 import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, type Pending } from './edits';
 import { EditBar } from './EditBar';
-import { answerEdit, asEngineTakes, callOutEdit, forEngine, forScreens, isDimensionQuestion, nextExtraKey, removeEdit, statedRows, type StatedRows } from './adapter';
+import { answerEdit, asEngineTakes, valueText, callOutEdit, forEngine, forScreens, isDimensionQuestion, nextExtraKey, removeEdit, statedRows, type StatedRows } from './adapter';
 import { answerText, bareAnalysis, fileLengthUnit, panelModel, tableOf, type FeatureTable, type PanelModel } from './table';
 
 declare const __APP_VERSION__: string;
@@ -646,7 +646,7 @@ function App() {
     return withDrafts(localPending, draftSnapshot.drafts, (part, id, value) => {
       const row = part === opened?.part ? rows.find((row) => row.id === id) : undefined;
       const words = id.startsWith('part.') ? id.slice(5).replace(/_/g, ' ') : id;
-      return { name: row?.name ?? words.charAt(0).toUpperCase() + words.slice(1), text: answerText(value, row?.question) };
+      return { name: row?.name ?? words.charAt(0).toUpperCase() + words.slice(1), text: valueText(value, row?.question, opened?.session.analysis as PmiAnalysis | undefined) };
     });
   }, [localPending, draftSnapshot.drafts, opened?.model, opened?.part]);
   const partPending = pending.get(opened?.part ?? 0) ?? NO_EDITS;
@@ -842,7 +842,7 @@ function App() {
                   // A stored "none needed" taken back: the item is open again (clear); a stated one removed.
                   editPending(partPending.with(row.state === 'decided_none'
                     ? { kind: 'clear', id, name: rowName(opened, id) }
-                    : removeEdit(row, opened.bare.find((q) => q.id === id), rowName(opened, id))));
+                    : removeEdit(row, opened.bare.find((q) => q.id === id), rowName(opened, id), opened.session.analysis as PmiAnalysis)));
                 },
                 onRestore: (id: string) => {
                   const before = displaced.current.get(`${opened.part}:${id}`);
