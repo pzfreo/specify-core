@@ -429,3 +429,13 @@ fieldset.pmi-lab-rows { min-width: 0; margin: 0; padding: 0; border: 0; }
 .pmi-lab .pmi-lab-dim button.call-out { border: 0; background: none; padding: 0 2px; font-size: 12px; color: #2f6fb5; cursor: pointer; white-space: nowrap; }
 .pmi-lab .pmi-lab-dim-edit { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12.5px; }
 .pmi-lab .pmi-lab-dim-edit input { width: 6em; font: inherit; padding: 3px 6px; }
+
+/* The general tolerance by decimal places (#228): its rows under the field. */
+.pmi-lab .pmi-lab-gt { display: grid; gap: 5px; margin: 6px 0 2px; padding: 7px 8px; border: 1px solid #d9dee4; border-radius: 4px; background: #fafbfc; font-size: 12.5px; }
+.pmi-lab .pmi-lab-gt-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pmi-lab .pmi-lab-gt input { width: 8em; font: inherit; padding: 3px 6px; }
+.pmi-lab .pmi-lab-gt-text { color: #5c6873; }
+.pmi-lab .pmi-lab-gt-text code { font-family: var(--specify-mono-font, 'IBM Plex Mono', ui-monospace, monospace); }
+.pmi-lab .pmi-lab-gt select, .pmi-lab .pmi-lab-gt button { width: auto; justify-self: start; }
+.pmi-lab .pmi-lab-gt-line { flex-wrap: nowrap; }
+.pmi-lab .pmi-lab-gt-line select { flex: none; }

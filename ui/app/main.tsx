@@ -756,6 +756,7 @@ function App() {
             focusRequest={focus} showFaces={lit}
             onExport={(_action, format) => { if (format === 'xlsx') downloadFai(); else downloadCsv(); }}
             {...(editing ? {
+              lengthUnit: opened.units,
               otherPmi: {
                 // Named as the file names it ("Flatness"), else by its kind.
                 items: opened.model.other.map((o) => {

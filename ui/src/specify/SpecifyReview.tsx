@@ -16,6 +16,7 @@ import { readOnlyEngine } from './read-only';
 import { inspectionAnswers } from './inspection';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
 import { fmt, type PmiLabel } from './labels';
+import { compose, emptyBlock, parse, placesText, type GeneralTolerance, type Units } from './general-tolerance';
 import type { Picker } from './picker';
 import type { HostView } from './host-view';
 import { createReviewView } from './review-view';
@@ -51,7 +52,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension, otherPmi }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension, otherPmi, lengthUnit = 'mm' }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -114,6 +115,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
    * 0.3: requirements the file states on no feature Specify asks about ("Other PMI in the file"):
    * each with its bin (remove, confirmed; Undo). The engine cannot change them in place.
    */
+  /** The file's length unit: the units a general tolerance by decimal places starts in (#228). */
+  lengthUnit?: Units;
   otherPmi?: {
     items: readonly { key: string; label: string; value: string; faces: readonly number[] }[];
     removed: ReadonlySet<string>; onRemove(key: string): void; onRestore(key: string): void;
@@ -816,7 +819,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     const st = statedOf(q.id);
     if (st && q.id !== current) {
       return (
-        <div key={q.id} className={`pmi-lab-stated${st.removed ? ' removed' : ''}`} data-question={q.id}>
+        <div key={q.id} className={`pmi-lab-stated${st.removed ? ' removed' : ''}`} data-question={q.id} data-state={st.removed ? 'removed' : st.changed ? 'changed' : 'stated'}>
           {st.removed
             ? <span className="pmi-lab-item"><span className="prompt">{q.label ?? q.prompt}</span><span className="value"><s>{shortValue(q, statedRows!.values[q.id])}</s> removed</span></span>
             : <button type="button" className="pmi-lab-item" onClick={() => setCurrent(q.id)}>
@@ -850,9 +853,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const partLine = (q: PmiQuestion, onOpen: () => void) => {
     const st = statedOf(q.id);
     const name = PART_FIELD[q.id] ?? q.prompt;
-    if (!st) return <FoldedLine key={q.id} name={name} value={partValue(q, answers)} onOpen={onOpen} />;
+    if (!st) return <FoldedLine key={q.id} name={name} value={partValue(q, answers)} onOpen={onOpen} question={q.id} />;
     return (
-      <div key={q.id} className={`pmi-lab-stated${st.removed ? ' removed' : ''}`} data-question={q.id}>
+      <div key={q.id} className={`pmi-lab-stated${st.removed ? ' removed' : ''}`} data-question={q.id} data-state={st.removed ? 'removed' : st.changed ? 'changed' : 'stated'}>
         {st.removed
           ? <span className="pmi-lab-line"><span className="name">{name}</span><span className="value"><s>{partValue(q, statedRows!.values)}</s> removed</span></span>
           : <FoldedLine name={name} value={`${partValue(q, answers)} ${st.changed ? '(changed)' : '(from the file)'}`} onOpen={onOpen} />}
@@ -879,7 +882,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     return (
       <section key={g.key} className={`pmi-lab-row ${state}${open ? ' current' : ''}`}>
         <button
-          type="button" className="pmi-lab-row-head" aria-expanded={expanded}
+          type="button" className="pmi-lab-row-head" aria-expanded={expanded} data-questions={g.questions.map((q) => q.id).join(' ')}
           onClick={() => {
             if (!onHead) setCurrent(open ? null : firstOpen());
             else { if (open) setCurrent(null); onHead(); }
@@ -1134,7 +1137,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                 if (slots.question && q.id === current) return null;
                 if (needs(q, answers) === 'required' || unfolded === q.id) {
                   return (
-                    <PartField locked={readOnly}
+                    <PartField locked={readOnly} units={lengthUnit}
                       key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)}
                       onAnswer={(value) => { setUnfolded(null); return answer(q, value); }}
                     />
@@ -1150,7 +1153,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                     <span className="name"><Chevron open />Finish and notes</span><span className="value">fold</span>
                   </button>
                   {notes.filter((q) => !(slots.question && q.id === current)).map((q) => (unfolded === `note:${q.id}` ? (
-                    <PartField locked={readOnly}
+                    <PartField locked={readOnly} units={lengthUnit}
                       key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)}
                       onAnswer={(value) => { setUnfolded('notes'); return answer(q, value); }}
                     />
@@ -1161,7 +1164,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               ) : (
                 <>
                   {!onlySuggestions && (
-                    <FoldedLine name="Finish and notes" value={notesSummary || 'none'} onOpen={() => setUnfolded('notes')} />
+                    <FoldedLine name="Finish and notes" value={notesSummary || 'none'} onOpen={() => setUnfolded('notes')} questions={notes.map((q) => q.id)} />
                   )}
                   {!readOnly && notes.flatMap((q) => chosenById.get(q.id) ?? []).map(card)}
                 </>
@@ -1312,7 +1315,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       // The part's own fields (material, tolerance, finish and notes) in the same box as in
       // the list, with its suggestions; a feature's question as its chips.
       return g && q && createPortal(<div className="pmi-lab pmi-lab-inline">{g === partGroup
-        ? <PartField locked={readOnly} key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)} onAnswer={(value) => answer(q, value)} />
+        ? <PartField locked={readOnly} units={lengthUnit} key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)} onAnswer={(value) => answer(q, value)} />
         : questionItem(q, g, false)}</div>, slots.question);
     })()}
     {inspectionExports && !readOnly && slots.exports && <>
@@ -1340,9 +1343,13 @@ export function saveFile(file: File): void {
 }
 
 /** A setting folded to one line: its name and value; a tap unfolds it. */
-function FoldedLine({ name, value, onOpen }: { name: string; value: string; onOpen: () => void }) {
+function FoldedLine({ name, value, onOpen, question, questions }: {
+  name: string; value: string; onOpen: () => void;
+  /** Test hooks: the question it is, or the questions folded under it. */
+  question?: string; questions?: readonly string[];
+}) {
   return (
-    <button type="button" className="pmi-lab-line" aria-expanded={false} onClick={onOpen}>
+    <button type="button" className="pmi-lab-line" aria-expanded={false} onClick={onOpen} data-question={question} data-questions={questions?.join(' ')}>
       <span className="name"><Chevron open={false} />{name}</span>
       <span className="value">{value}</span>
     </button>
@@ -1432,9 +1439,11 @@ function partValue(q: PmiQuestion, answers: PmiAnswers): string {
 }
 
 /** One of the part's own settings, unfolded: a text box, suggesting if it can, or a list. */
-function PartField({ q, answers, error, onAnswer, locked = false }: {
+function PartField({ q, answers, error, onAnswer, locked = false, units = 'mm' }: {
   /** Read only: the control is shown disabled. */
   locked?: boolean;
+  /** The file's length unit, for a general tolerance by decimal places. */
+  units?: Units;
   q: PmiQuestion; answers: PmiAnswers; error: PmiLabError | null; onAnswer: (value: unknown) => Promise<boolean>;
 }) {
   const need = needs(q, answers);
@@ -1471,6 +1480,12 @@ function PartField({ q, answers, error, onAnswer, locked = false }: {
       </div>
     );
   }
+  // The general tolerance can also be a title block by decimal places (#228, Paul 24 Nov): one
+  // more choice, which opens its rows under the field.
+  if (q.id === 'part.general_tolerance' && q.kind === 'choice') {
+    return <GeneralToleranceField q={q} value={typeof value === 'string' ? value : ''} name={name} rest={rest} need={need}
+      locked={locked} units={units} onAnswer={onAnswer} />;
+  }
   return (
     <label className={`pmi-lab-field${need ? ` ${need}` : ''}`} title={q.why} data-question={q.id}>
       {name}
@@ -1493,6 +1508,85 @@ function PartField({ q, answers, error, onAnswer, locked = false }: {
       ), locked)}
       {rest}
     </label>
+  );
+}
+
+const BY_PLACES = 'By decimal places…';
+
+/** The general tolerance: the editor's list of classes, plus a title block by decimal places
+ * (".XX ±.01, .XXX ±.005, angles ±1°"), entered row by row under the field and written as one line. */
+function GeneralToleranceField({ q, value, name, rest, need, locked, units, onAnswer }: {
+  q: PmiQuestion; value: string; name: ReactNode; rest: ReactNode; need: string | null; locked: boolean; units: Units;
+  onAnswer: (value: unknown) => Promise<boolean>;
+}) {
+  const options = q.options ?? [];
+  const isBlock = Boolean(value) && !options.includes(value);
+  const [editing, setEditing] = useState<GeneralTolerance | null>(null);
+  const start = () => setEditing(isBlock ? parse(value, units) : emptyBlock(units));
+  return (
+    <div className={`pmi-lab-field${need ? ` ${need}` : ''}`} title={q.why} role="group" aria-label={PART_FIELD[q.id] ?? q.prompt} data-question={q.id}>
+      {name}
+      {lock(
+        <select aria-label="General tolerance" value={editing ? BY_PLACES : value}
+          onChange={(event) => { if (event.target.value === BY_PLACES) start(); else { setEditing(null); void onAnswer(event.target.value); } }}>
+          {isBlock && <option value={value}>{value}</option>}
+          {options.map((option) => (
+            <option key={option} value={option}>{option}{option === editorDefault(q) ? ' (default)' : ''}</option>
+          ))}
+          <option value={BY_PLACES}>{BY_PLACES}</option>
+        </select>, locked)}
+      {editing?.form === 'block' && (
+        <DecimalPlaces block={editing} onChange={setEditing} onCancel={() => setEditing(null)}
+          onUse={(text) => { void onAnswer(text).then((ok) => { if (ok) setEditing(null); }); }} />
+      )}
+      {rest}
+    </div>
+  );
+}
+
+/** A general tolerance by decimal places: units, a tolerance per number of places, angles and notes. */
+function DecimalPlaces({ block, onChange, onUse, onCancel }: {
+  block: Extract<GeneralTolerance, { form: 'block' }>; onChange(next: GeneralTolerance): void; onUse(text: string): void; onCancel(): void;
+}) {
+  const notes = block.notes.length ? block.notes : [''];
+  const text = compose(block, block.units);
+  return (
+    <div className="pmi-lab-gt" role="group" aria-label="General tolerance by decimal places">
+      <label className="pmi-lab-gt-line">Units{' '}
+        <select aria-label="Units" value={block.units} onChange={(e) => onChange({ ...block, units: e.target.value as Units })}>
+          <option value="mm">mm</option><option value="in">in</option>
+        </select>
+      </label>
+      {block.rows.map((r, i) => (
+        <div key={i} className="pmi-lab-gt-line" data-gt-row={i}>
+          <select aria-label={`Row ${i + 1} decimal places`} value={r.places}
+            onChange={(e) => onChange({ ...block, rows: block.rows.map((x, j) => (j === i ? { ...x, places: Number(e.target.value) } : x)) })}>
+            {[0, 1, 2, 3, 4].map((n) => <option key={n} value={n}>{placesText(n, block.units)}</option>)}
+          </select>
+          <input aria-label={`Row ${i + 1} tolerance`} placeholder={block.units === 'in' ? '±.005' : '±0.1'} value={r.tolerance}
+            onChange={(e) => onChange({ ...block, rows: block.rows.map((x, j) => (j === i ? { ...x, tolerance: e.target.value } : x)) })} />
+          <button type="button" aria-label={`Remove row ${i + 1}`} onClick={() => onChange({ ...block, rows: block.rows.filter((_, j) => j !== i) })}>✕</button>
+        </div>
+      ))}
+      <button type="button" onClick={() => {
+        const last = block.rows.at(-1)?.places ?? -1;
+        onChange({ ...block, rows: [...block.rows, { places: Math.min(4, last + 1), tolerance: '' }] });
+      }}>Add row</button>
+      <label className="pmi-lab-gt-line">Angles <input aria-label="Angles" placeholder="±1°" value={block.angles} onChange={(e) => onChange({ ...block, angles: e.target.value })} /></label>
+      {notes.map((note, i) => (
+        <div key={i} className="pmi-lab-gt-line">
+          <input aria-label={`Note ${i + 1}`} placeholder="fractions ±1/64" value={note}
+            onChange={(e) => onChange({ ...block, notes: notes.map((n, j) => (j === i ? e.target.value : n)) })} />
+          <button type="button" aria-label={`Remove note ${i + 1}`} onClick={() => onChange({ ...block, notes: notes.filter((_, j) => j !== i) })}>✕</button>
+        </div>
+      ))}
+      <button type="button" onClick={() => onChange({ ...block, notes: [...notes, ''] })}>Add note</button>
+      <div className="pmi-lab-gt-text">Written as: <code>{text || '…'}</code></div>
+      <div className="pmi-lab-gt-line">
+        <button type="button" className="ok" disabled={!text} onClick={() => onUse(text)}>Use</button>
+        <button type="button" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
   );
 }
 
