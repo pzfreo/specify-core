@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,4 +19,7 @@ test('the app build has index.html and the versioned session API manifest at its
   // specify-core's build.rs builds in a dist-app with exactly these at its root, of its own version.
   assert.deepEqual(JSON.parse(readFileSync(join(app, 'specify-ui-app.json'), 'utf8')), expected);
   assert.ok(existsSync(join(app, 'index.html')));
+  // Nothing it ships names the viewer's lighting host.
+  const naming = readdirSync(join(app, 'assets')).filter(f => readFileSync(join(app, 'assets', f)).includes('polyhaven.org'));
+  assert.deepEqual(naming, []);
 });

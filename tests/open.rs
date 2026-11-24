@@ -1817,6 +1817,57 @@ fn heartbeats_keep_an_idle_server_running() {
     );
 }
 
+/// Asks with a wrong token, then with a wrong `Host`, both refused, until the server stops.
+fn strangers_until_stopped(served: &Served, within: Duration) {
+    let deadline = Instant::now() + within;
+    let host = served.page().host();
+    while !served.thread.is_finished() {
+        assert!(
+            Instant::now() < deadline,
+            "refused requests kept the server running"
+        );
+        for (path, host) in [
+            (
+                "/0123456789abcdef0123456789abcdef/config".to_string(),
+                host.as_str(),
+            ),
+            (format!("{}config", served.prefix), "example.com"),
+        ] {
+            // Plainly written: the server may stop between two of these.
+            if let Ok(mut stream) = TcpStream::connect(("127.0.0.1", served.port)) {
+                let _ = write!(stream, "GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n");
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+                let mut answer = Vec::new();
+                let _ = stream.read_to_end(&mut answer);
+                assert!(!answer.starts_with(b"HTTP/1.1 200"), "refused");
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn requests_without_the_token_or_the_address_do_not_count_as_activity() {
+    // They do not keep a forgotten server running.
+    let scratch = Scratch::new("strangers-idle");
+    let idle = Duration::from_millis(1000);
+    let served = Served::start(&scratch, Duration::from_secs(600), idle);
+    strangers_until_stopped(&served, Duration::from_secs(30));
+    let notices = served.stopped(Duration::from_secs(5));
+    assert!(
+        notices[0].starts_with("Stopped: no request for"),
+        "{notices:?}"
+    );
+
+    // Nor cancel a close.
+    let scratch = Scratch::new("strangers-close");
+    let delay = Duration::from_millis(1000);
+    let served = Served::start(&scratch, delay, Duration::from_secs(600));
+    assert_eq!(served.closed().status, 204);
+    strangers_until_stopped(&served, Duration::from_secs(30));
+    assert_eq!(served.stopped(Duration::from_secs(5)), ["Closed."]);
+}
+
 #[test]
 fn a_server_without_requests_stops_after_its_idle_time() {
     let scratch = Scratch::new("idle");
