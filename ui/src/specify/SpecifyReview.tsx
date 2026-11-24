@@ -101,6 +101,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
    */
   stated?: {
     values: Readonly<PmiAnswers>; removed: ReadonlySet<string>;
+    /** How each reads, as the file states it (the 0.3 engine's text, not an answer to format). */
+    texts?: Readonly<Record<string, string>>;
+    /** Which are a stored "none needed" (shown as decided; the bin takes the decision back). */
+    decided?: ReadonlySet<string>;
     onRemove(id: string): void; onRestore(id: string): void;
   };
   /** "Added by you" is shown (default). 0.3 hosts hide it until the engine saves free-form requirements. */
@@ -813,18 +817,29 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     removed: statedRows.removed.has(id),
     changed: JSON.stringify(answers[id]) !== JSON.stringify(statedRows.values[id]),
     onRemove: () => statedRows.onRemove(id), onRestore: () => statedRows.onRestore(id),
+    decided: Boolean(statedRows.decided?.has(id)),
   } : null);
+  // A row with something the file states: each stated item as the file states it, the rest as
+  // the row's summary would say them; null when nothing in it is stated (the usual summary).
+  const statedSummary = (g: QuestionGroup): string | null => {
+    if (!statedRows?.texts || !g.questions.some((q) => q.id in statedRows.values)) return null;
+    return g.questions.flatMap((q) => {
+      if (statedRows.removed.has(q.id)) return [];
+      if (q.id in statedRows.values && JSON.stringify(answers[q.id]) === JSON.stringify(statedRows.values[q.id])) return [statedRows.texts?.[q.id] ?? ''];
+      return q.id in answers ? [shortValue(q, answerOf(q, answers))] : [];
+    }).filter(Boolean).join(' · ');
+  };
   // A row: its head and summary, a check to confirm, and when open its questions.
   const questionItem = (q: PmiQuestion, g: QuestionGroup, titled = true) => {
     const st = statedOf(q.id);
     if (st && q.id !== current) {
       return (
-        <div key={q.id} className={`pmi-lab-stated${st.removed ? ' removed' : ''}`} data-question={q.id} data-state={st.removed ? 'removed' : st.changed ? 'changed' : 'stated'}>
+        <div key={q.id} className={`pmi-lab-stated${st.removed ? ' removed' : ''}`} data-question={q.id} data-state={st.removed ? 'removed' : st.changed ? 'changed' : statedRows?.decided?.has(q.id) ? 'decided_none' : 'stated'}>
           {st.removed
-            ? <span className="pmi-lab-item"><span className="prompt">{q.label ?? q.prompt}</span><span className="value"><s>{shortValue(q, statedRows!.values[q.id])}</s> removed</span></span>
+            ? <span className="pmi-lab-item"><span className="prompt">{q.label ?? q.prompt}</span><span className="value"><s>{statedRows?.texts?.[q.id] ?? shortValue(q, statedRows!.values[q.id])}</s> removed</span></span>
             : <button type="button" className="pmi-lab-item" onClick={() => setCurrent(q.id)}>
                 <span className="prompt">{q.label ?? q.prompt}</span>
-                <span className="value">{shortValue(q, answerOf(q, answers))} <small>{st.changed ? '(changed)' : '(from the file)'}</small></span>
+                <span className="value">{st.changed ? shortValue(q, answerOf(q, answers)) : statedRows?.texts?.[q.id] ?? shortValue(q, answerOf(q, answers))} <small>{st.changed ? '(changed)' : statedRows?.decided?.has(q.id) ? '(decided)' : '(from the file)'}</small></span>
               </button>}
           <StatedTools name={q.label ?? q.prompt} state={st} onChange={() => setCurrent(q.id)} />
         </div>
@@ -855,10 +870,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     const name = PART_FIELD[q.id] ?? q.prompt;
     if (!st) return <FoldedLine key={q.id} name={name} value={partValue(q, answers)} onOpen={onOpen} question={q.id} />;
     return (
-      <div key={q.id} className={`pmi-lab-stated${st.removed ? ' removed' : ''}`} data-question={q.id} data-state={st.removed ? 'removed' : st.changed ? 'changed' : 'stated'}>
+      <div key={q.id} className={`pmi-lab-stated${st.removed ? ' removed' : ''}`} data-question={q.id} data-state={st.removed ? 'removed' : st.changed ? 'changed' : statedRows?.decided?.has(q.id) ? 'decided_none' : 'stated'}>
         {st.removed
           ? <span className="pmi-lab-line"><span className="name">{name}</span><span className="value"><s>{partValue(q, statedRows!.values)}</s> removed</span></span>
-          : <FoldedLine name={name} value={`${partValue(q, answers)} ${st.changed ? '(changed)' : '(from the file)'}`} onOpen={onOpen} />}
+          : <FoldedLine name={name} value={`${st.changed || !statedRows?.decided?.has(q.id) ? partValue(q, answers) : statedRows.texts?.[q.id] ?? partValue(q, answers)} ${st.changed ? '(changed)' : statedRows?.decided?.has(q.id) ? '(decided)' : '(from the file)'}`} onOpen={onOpen} />}
         <StatedTools name={name} state={st} onChange={onOpen} />
       </div>
     );
@@ -893,7 +908,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
           <Chevron open={expanded} />
           <b>{g.title}</b>
           {rowBalloons(g)}
-          <span className="sum">{sum ?? summary(g, answers)}</span>
+          <span className="sum">{sum ?? statedSummary(g) ?? summary(g, answers)}</span>
         </button>
         {rowProblems}
         {extra}
@@ -1401,7 +1416,7 @@ function DimensionLine({ row, selected, calledOut, startOpen, canCallOut = true,
 }
 
 /** What an item the file states can do: change (pencil) and remove (bin), or, removed, Undo. */
-interface StatedState { removed: boolean; changed: boolean; onRemove(): void; onRestore(): void }
+interface StatedState { removed: boolean; changed: boolean; onRemove(): void; onRestore(): void; decided?: boolean }
 
 const PENCIL = <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M11 2.5l2.5 2.5L6 12.5l-3 .5.5-3z" /></svg>;
 const BIN = <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.5 8.5h6l.5-8.5M6.8 7v4M9.2 7v4" /></svg>;
@@ -1415,8 +1430,8 @@ function StatedTools({ name, state, onChange }: { name: string; state: StatedSta
   if (asking) {
     return (
       <span className="pmi-lab-stated-tools asking" role="group" aria-label={`Remove ${name}?`}>
-        <span>Remove from the file?</span>
-        <button type="button" className="remove" onClick={() => { setAsking(false); state.onRemove(); }}>Remove</button>
+        <span>{state.decided ? 'Take back "none needed"?' : 'Remove from the file?'}</span>
+        <button type="button" className="remove" onClick={() => { setAsking(false); state.onRemove(); }}>{state.decided ? 'Take back' : 'Remove'}</button>
         <button type="button" onClick={() => setAsking(false)}>Cancel</button>
       </span>
     );
@@ -1424,7 +1439,7 @@ function StatedTools({ name, state, onChange }: { name: string; state: StatedSta
   return (
     <span className="pmi-lab-stated-tools">
       {onChange && <button type="button" className="icon" title={`Change ${name}`} aria-label={`Change ${name}`} onClick={onChange}>{PENCIL}</button>}
-      <button type="button" className="icon" title={`Remove ${name}`} aria-label={`Remove ${name}`} onClick={() => setAsking(true)}>{BIN}</button>
+      <button type="button" className="icon" title={state.decided ? `Take back "none needed" for ${name}` : `Remove ${name}`} aria-label={`Remove ${name}`} onClick={() => setAsking(true)}>{BIN}</button>
     </span>
   );
 }

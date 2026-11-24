@@ -22,11 +22,25 @@ export interface StatedRows {
   values: Readonly<PmiAnswers>;
   /** Each stated row's question, asked of the bare part (its label, feature title and choices). */
   questions: readonly PmiQuestion[];
+  /** How each reads: what the file states, once ("⌖ ⌀2Ⓜ A B C"), without its basic dimensions or counts. */
+  texts: Readonly<Record<string, string>>;
+  /** Which of them are a stored "none needed". */
+  decided: ReadonlySet<string>;
+}
+
+/** What a stated row reads as: its requirements' own text, less basic dimensions ("60 (basic)")
+ * and bare counts ("(4)"), which the Characteristics list carries. */
+function statedText(row: TableRow, q: PmiQuestion | undefined): string {
+  if (row.state === 'decided_none') return 'none needed';
+  const own = (row.requirements ?? []).map((r) => r.text).filter((t) => t && !/\(basic\)\s*$/.test(t) && !/^\(\d+\)$/.test(t.trim()));
+  return own.length ? own.join(' · ') : answerText(row.value, q);
 }
 
 /** The stated rows of ``table``, with their questions from ``bare`` (the bare part's questions). */
 export function statedRows(table: FeatureTable, bare: readonly PmiQuestion[]): StatedRows {
-  const rows = table.rows.filter((r) => r.state === 'stated' && !r.id.startsWith('bom.') && !isDimensionQuestion(r.id));
+  // What the file states, and what it has decided none needed (a stored decision is an item too:
+  // its pencil gives it a value, its bin takes the decision back).
+  const rows = table.rows.filter((r) => (r.state === 'stated' || r.state === 'decided_none') && !r.id.startsWith('bom.') && !isDimensionQuestion(r.id));
   const byId = new Map(bare.map((q) => [q.id, q]));
   const questions = rows.flatMap((r) => byId.get(r.id) ?? []);
   const asked = new Set(questions.map((q) => q.id));
@@ -34,7 +48,17 @@ export function statedRows(table: FeatureTable, bare: readonly PmiQuestion[]): S
     ids: new Set(rows.map((r) => r.id)),
     values: Object.fromEntries(rows.filter((r) => asked.has(r.id)).map((r) => [r.id, r.value])),
     questions,
+    texts: Object.fromEntries(rows.filter((r) => asked.has(r.id)).map((r) => [r.id, statedText(r, byId.get(r.id))])),
+    decided: new Set(rows.filter((r) => r.state === 'decided_none' && asked.has(r.id)).map((r) => r.id)),
   };
+}
+
+/** ``answers`` in the shapes the 0.3 engine takes: the part's notes as a list of lines (the
+ * editor's field gives one text). */
+export function asEngineTakes(answers: PmiAnswers): PmiAnswers {
+  const notes = answers['part.notes'];
+  if (typeof notes !== 'string') return answers;
+  return { ...answers, 'part.notes': notes.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) };
 }
 
 /** ``answers`` as the engine's review takes them: without the stated rows' values. */

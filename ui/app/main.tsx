@@ -27,7 +27,7 @@ import { discardAnswers, getAnswers, getConfig, getDiff, getFile, keepAlive, lis
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } from './save';
 import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts } from './edits';
 import { EditBar } from './EditBar';
-import { answerEdit, callOutEdit, forEngine, forScreens, isDimensionQuestion, nextExtraKey, removeEdit, statedRows, type StatedRows } from './adapter';
+import { answerEdit, asEngineTakes, callOutEdit, forEngine, forScreens, isDimensionQuestion, nextExtraKey, removeEdit, statedRows, type StatedRows } from './adapter';
 import { answerText, bareAnalysis, fileLengthUnit, panelModel, tableOf, type FeatureTable, type PanelModel } from './table';
 
 declare const __APP_VERSION__: string;
@@ -102,7 +102,8 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
     // Each commit of the page's answers comes through here: what the session gets once Specify
     // accepts them. The change is the one from the answers the page showed when it was made, so an
     // agent's answer that arrived while Specify reviewed it is kept.
-    questions: async (_id, shownAnswers) => {
+    questions: async (_id, typed) => {
+      const shownAnswers = asEngineTakes(typed);
       const given = forEngine(shownAnswers, stated);
       const base = shown.answers;
       const asked = screened(await worker.request<IntentReview>('review', { ...file, answers: given }));
@@ -117,8 +118,8 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
       if (!sameAnswers(given, base)) edited();
       return asked;
     },
-    interpret: (_id, given, question, text) => worker.request('interpret', { analysis: snapshot.analysis, answers: forEngine(given, stated), question, text }),
-    preview: async (_id, given) => (await reviewOf(given)).intent,
+    interpret: (_id, given, question, text) => worker.request('interpret', { analysis: snapshot.analysis, answers: forEngine(asEngineTakes(given), stated), question, text }),
+    preview: async (_id, given) => (await reviewOf(asEngineTakes(given))).intent,
   };
   const session: Opened['session'] = {
     sessionId: sourceId, filename: name, analysis: snapshot.analysis, mesh: snapshot.mesh, answers: { ...stated.values, ...stored },
@@ -302,6 +303,12 @@ function App() {
           if (drawn !== undefined) next = { ...next, drawn };
           if (ended || load !== inspectionLoad.current || shownRef.current?.store !== shown.store) { next.store.close(); return; }
           shown.store.close();
+          // What was saved is what the file now holds, as the engine wrote it (a "None" written as
+          // "None (as machined)", say): the session takes the file's answers for this part.
+          const fileAnswers = forEngine(next.session.answers, next.stated);
+          next.store.set(fileAnswers, next.shown.answers);
+          next.shown.answers = fileAnswers;
+          next = { ...next, external: { answers: fileAnswers, review: next.review } };
           shownRef.current = next;
           setOpened(next);
         })().catch((error: unknown) => {
@@ -552,7 +559,18 @@ function App() {
         const snapshot = await discardAnswers(draftSnapshot.rev, target, session.signal);
         session.receive({ ...snapshot, source: 'start' });
       }
-      if (!target) { setPending(new Map()); setReviewGeneration((n) => n + 1); }
+      if (!target) {
+        setPending(new Map());
+        // The review starts again from the file: its answers, and what the page last showed.
+        const now = shownRef.current;
+        if (now) {
+          const file = forEngine(now.session.answers, now.stated);
+          now.store.set(file, now.shown.answers);
+          now.shown.answers = file;
+          now.external = { answers: file, review: now.review };
+        }
+        setReviewGeneration((n) => n + 1);
+      }
       setRejectedNone(new Map());
       setAgent(null);
     } catch (error) {
@@ -609,6 +627,14 @@ function App() {
     });
   }, [localPending, draftSnapshot.drafts, opened?.model, opened?.part]);
   const partPending = pending.get(opened?.part ?? 0) ?? NO_EDITS;
+  // What the review opens on: what the file states, the session's answers (an agent's too) and the
+  // page's held changes to stated items, which the engine's answers leave out (adapter.ts).
+  const shownSession = useMemo(() => {
+    if (!opened) return null;
+    const changed = Object.fromEntries(partPending.values().filter((e) => e.kind === 'change').map((e) => [e.id, (e as { value: unknown }).value]));
+    return { ...opened.session, answers: { ...opened.stated.values, ...opened.external.answers, ...changed } };
+    // Only when the part, its answers from outside or the review's start change: not on each edit.
+  }, [opened?.session, opened?.external, reviewGeneration]);
   const items = [...pending].flatMap(([part, list]) => list.values().map((edit) => {
     const name = opened?.several || edit.draft ? parts.find((row) => row.part === part)?.name || `Part ${part}` : undefined;
     return { part, ...(name ? { name } : {}), edit };
@@ -744,15 +770,15 @@ function App() {
         )}
         <div className={`app-slot app-view${showingChanges ? ' app-under' : ''}`} ref={view} />
         <div className={`app-slot app-panel${showingChanges ? ' app-under' : ''}`} ref={panel} />
-        {opened && slots && (
+        {opened && slots && shownSession && (
           // The editor's review screens: the 3D view, the questions and the characteristics. On the
           // 0.3 engine through adapter.ts: what the file states has a pencil and a bin; changes are
           // held in the bar below until Save writes them together.
           <SpecifyReview
             key={`${opened.session.sessionId}:${reviewGeneration}`}
-            engine={opened.engine} session={opened.session} readOnly={!editing} drawn={opened.drawn} slots={slots}
+            engine={opened.engine} session={shownSession} readOnly={!editing} drawn={opened.drawn} slots={slots}
             inspectionExports={false}
-            externalAnswers={opened.session.answers} externalReview={opened.review} disabled={saving || stopped}
+            externalAnswers={shownSession.answers} externalReview={opened.external.review} disabled={saving || stopped}
             focusRequest={focus} showFaces={lit}
             onExport={(_action, format) => { if (format === 'xlsx') downloadFai(); else downloadCsv(); }}
             {...(editing ? {
@@ -772,11 +798,15 @@ function App() {
                 onRestore: (key: string) => editPending(partPending.without(key)),
               },
               stated: {
-                values: opened.stated.values,
-                removed: new Set(partPending.values().filter((e) => e.kind === 'remove').map((e) => e.id)),
+                values: opened.stated.values, texts: opened.stated.texts, decided: opened.stated.decided,
+                removed: new Set(partPending.values().filter((e) => e.kind === 'remove' || e.kind === 'clear').map((e) => e.id)),
                 onRemove: (id: string) => {
                   const row = opened.table.rows.find((r) => r.id === id);
-                  if (row) editPending(partPending.with(removeEdit(row, opened.bare.find((q) => q.id === id), rowName(opened, id))));
+                  if (!row) return;
+                  // A stored "none needed" taken back: the item is open again (clear); a stated one removed.
+                  editPending(partPending.with(row.state === 'decided_none'
+                    ? { kind: 'clear', id, name: rowName(opened, id) }
+                    : removeEdit(row, opened.bare.find((q) => q.id === id), rowName(opened, id))));
                 },
                 onRestore: (id: string) => editPending(partPending.without(id)),
               },
