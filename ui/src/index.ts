@@ -6,13 +6,10 @@ export {
   drawnFromScene, withoutNotesBlock, hasGraphics,
   type DrawnGraphic, type DrawnPlane, type DrawnPmi, type DrawnPoint, type DrawnStatus, type TextPlacement,
 } from './specify/drawn';
-// Helpers the editor uses outside the review (the editor imports them from the package).
+// Helpers the editor uses outside the review (the editor imports them from the package); the 3D
+// view's are in '@draftwright/specify-ui/view' (src/view.ts).
 export { needs } from './specify/review';
 export { chosenForYou } from './specify/chosen';
-export { createCadView, pathOf, type CadNode, type CadView } from './specify/cad-view';
-export { createPicker, type Picker } from './specify/picker';
-export { createLook, type LookAt } from './specify/look';
-export { createDiffDrawn, PMI_COLOUR, type DiffDrawn } from './specify/diff-drawn';
 export { CHARACTERISTIC } from './specify/labels';
 export { sameBinding } from './specify/selection';
 export { readOnlyEngine } from './specify/read-only';

@@ -16,7 +16,7 @@ export default defineConfig({
     target: 'es2023',
     // Two entries: the components, and the DOM-free helpers (no three, no CSS) for a host's Node code.
     lib: {
-      entry: { 'specify-ui': 'src/index.ts', helpers: 'src/helpers.ts' }, formats: ['es'],
+      entry: { 'specify-ui': 'src/index.ts', helpers: 'src/helpers.ts', view: 'src/view.ts' }, formats: ['es'],
       fileName: (_format, name) => `${name}.js`, cssFileName: 'specify-ui',
     },
     rollupOptions: { external },

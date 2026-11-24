@@ -39,6 +39,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/specify-ui.js"
     },
+    "./view": {
+      "types": "./dist/view.d.ts",
+      "import": "./dist/view.js"
+    },
     "./helpers": {
       "types": "./dist/helpers.d.ts",
       "import": "./dist/helpers.js"
