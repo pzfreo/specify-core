@@ -113,10 +113,11 @@ try {
     await check(panel(page).getByRole('button', { name: '+ Add a requirement' })).toBeVisible();
     await panel(page).locator('.pmi-lab-row-head', { hasText: 'Datums' }).click();
     await check(panel(page).getByRole('button', { name: '+ Add datum' })).toBeVisible();
-    await check(panel(page).getByRole('button', { name: /^Remove datum / }).first()).toBeVisible();
-    await openHoleRow(page);
-    await check(panel(page).locator('.pmi-lab-item.on')).toBeVisible();
-    assert.ok(await panel(page).locator('.pmi-lab-item.on button:not([disabled])').count() > 0, 'an open question has live answer buttons');
+    // ADR P11: the spindle's file states its datums, so they read "from the file" with no Remove (a
+    // save never edits what the file states); a suggested datum's Remove is checked on the shaft below,
+    // and so is a hole's open question (the spindle's file states its holes: no hole row).
+    await check(panel(page).locator('.pmi-lab-datums .chip.existing').first()).toContainText('from the file');
+    await check(panel(page).getByRole('button', { name: /^Remove datum / })).toHaveCount(0);
     await page.close();
   }
   // Display keeps the host preview (Material is balloon 12); inspection is an export-only
@@ -175,6 +176,17 @@ try {
     assert.deepEqual((await calls(page)).slice(before), ['questions', 'preview', 'questions', 'preview']);
     const csv = readFileSync(await inspectionDownload(page, 'Inspection list (CSV)'), 'utf8');
     assert.deepEqual(csv.trimEnd().split('\n').slice(1), [',,Part,Material: brass cw614n,,,,,,']);
+    await page.close();
+  }
+  // The shaft's datums are suggested, not stated: each can be removed (moved here with b0a828d7's
+  // spindle check above; the block it sat in tests a left-out change).
+  {
+    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz');
+    await panel(page).locator('.pmi-lab-row-head', { hasText: 'Datums' }).click();
+    await check(panel(page).getByRole('button', { name: /^Remove datum / }).first()).toBeVisible();
+    await openHoleRow(page);
+    await check(panel(page).locator('.pmi-lab-item.on')).toBeVisible();
+    assert.ok(await panel(page).locator('.pmi-lab-item.on button:not([disabled])').count() > 0, 'an open question has live answer buttons');
     await page.close();
   }
   // Read only: a PMI viewer. The spindle Specify wrote (semantic PMI linked to graphical PMI) shows what is
