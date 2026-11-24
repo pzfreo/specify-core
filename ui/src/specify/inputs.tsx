@@ -379,7 +379,7 @@ export function SuggestionCard({ c, onKeep, onPick, onMore }: {
   c: Chosen; onKeep: () => void; onPick: (value: string) => void; onMore: () => void;
 }) {
   return (
-    <div className={`pmi-lab-suggestion${c.check ? ' check' : ''}`}>
+    <div className={`pmi-lab-suggestion${c.check ? ' check' : ''}`} data-suggestion={c.id}>
       <div className="field">{c.field}{c.check && <em> · please check</em>}</div>
       <div className="btns">
         {c.options.length ? (
