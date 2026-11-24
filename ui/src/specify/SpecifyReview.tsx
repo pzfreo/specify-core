@@ -1038,7 +1038,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               readOnly rows={setRows} selected={selectedChar}
               onSelect={(id, at) => { setSelectedDatum(null); showChar(id, at); }}
               onDownload={() => {}} skipped={skipped} onSkip={() => {}} onEdit={() => null} onCallOut={() => null}
-              generalTolerance={preview?.part['general_tolerance'] ?? ''} calledOut={0}
+              generalTolerance={preview?.part['general_tolerance'] ?? session.analysis.part?.['general_tolerance'] ?? ''} calledOut={0}
             />
           )}
           {setChips.length === 0 && setRows.length === 0 && <p className="pmi-lab-none">No PMI is set on this part.</p>}
@@ -1119,7 +1119,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                   ? () => { switchView('review'); setUnfolded('dims'); setCallingOut(row.id); showChar(row.id, row.faces); }
                   : () => callOut(Number(row.source.slice('general:'.length)), row.text))
                 : null)}
-              generalTolerance={preview?.part['general_tolerance'] ?? ''}
+              generalTolerance={preview?.part['general_tolerance'] ?? session.analysis.part?.['general_tolerance'] ?? ''}
               calledOut={callOutDimension ? calledOut.size : added.filter(([, extra]) => CALL_OUTS.includes(extra.kind)).length}
             />
           ) : (<>
@@ -1185,7 +1185,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                   {generalDims.map((r) => (
                     <DimensionLine
                       key={r.id} row={r} selected={selectedChar === r.id} calledOut={calledOut.get(r.id) ?? null}
-                      startOpen={callingOut === r.id}
+                      startOpen={callingOut === r.id} canCallOut={!r.source.startsWith('general:existing:')}
                       onSelect={() => showChar(r.id, r.faces)}
                       onCallOut={(tolerance) => {
                         const g = preview?.general?.[Number(r.source.slice('general:'.length))];
@@ -1361,8 +1361,10 @@ export interface CalledOut { id: string; what: string; kind: 'size' | 'distance'
 
 /** One dimension the general tolerance covers: its feature, characteristic, nominal, ± and number,
  * and Call Out, which takes a tolerance of its own in place (change list item 1). */
-function DimensionLine({ row, selected, calledOut, startOpen, onSelect, onCallOut }: {
+function DimensionLine({ row, selected, calledOut, startOpen, canCallOut = true, onSelect, onCallOut }: {
   row: Characteristic; selected: boolean; calledOut: string | null; startOpen: boolean;
+  /** False for a dimension the file states with its nominal alone (not yet called out on 0.3). */
+  canCallOut?: boolean;
   onSelect: () => void; onCallOut: (tolerance: string) => boolean;
 }) {
   const [open, setOpen] = useState(startOpen);
@@ -1382,7 +1384,7 @@ function DimensionLine({ row, selected, calledOut, startOpen, onSelect, onCallOu
         <span className="text">{row.text}</span>
         <span className="tol">{calledOut ? <><s>{tol}</s> ±{calledOut.replace(/^±\s*/, '')}</> : tol}</span>
       </button>
-      {!open && <button type="button" className="call-out" onClick={() => { setOpen(true); onSelect(); }}>{calledOut ? 'Change' : 'Call Out'}</button>}
+      {!open && canCallOut && <button type="button" className="call-out" onClick={() => { setOpen(true); onSelect(); }}>{calledOut ? 'Change' : 'Call Out'}</button>}
       {open && (
         <span className="pmi-lab-dim-edit">
           <label>± <input type="text" inputMode="decimal" value={text} autoFocus aria-label={`Tolerance for ${row.feature} ${row.text}`}

@@ -164,7 +164,9 @@ export function characteristics(
       };
     } else if (r.kind === 'thread') {
       const spec = str(r, 'designation') ? `${str(r, 'designation')}×${fmt(num(r, 'pitch') ?? 0)}` : str(r, 'spec');
-      what = { text: `${spec}-${str(r, 'class')}`, nominal: null, upper: null, lower: null, datums: '', basic: false };
+      // A left-hand thread says so; the depth is the drawing's, not the inspection list's.
+      const hand = str(r, 'hand') === 'LH' ? ' LH' : '';
+      what = { text: `${spec}-${str(r, 'class')}${hand}`, nominal: null, upper: null, lower: null, datums: '', basic: false };
     } else if (r.kind === 'knurl') {
       what = { text: `${str(r, 'pattern')} knurl`, nominal: null, upper: null, lower: null, datums: '', basic: false };
     } else if (r.kind === 'finish') {
@@ -212,13 +214,18 @@ export function characteristics(
     }
   });
 
+  const part = { ...analysis.part, ...intent?.part };
   // What the file already states, after what is specified here.
   const existingDatums = new Set<string>();
   analysis.existing.forEach((e, i) => {
     const faces = e.faces ?? [];
     if (!faces.length) return;
     const feature = describeFaces(faces, analysis);
-    const source = `existing:${i}`;
+    // A dimension the file states with its nominal alone is one the general tolerance covers
+    // (as Specify writes them, #63): it folds under the general tolerance, as a planned one does.
+    const general = e.kind === 'dimension' && e.value != null && e.upper == null && e.lower == null
+      && !e.basic && !e.fit && !e.limits && !e.text_only && Boolean(part.general_tolerance);
+    const source = general ? `general:existing:${i}` : `existing:${i}`;
     // A characteristic the file states without a value (CTC-01's presentation-only
     // dimensions) is listed as such, never as 0.
     if (e.kind === 'datum') {
@@ -242,22 +249,29 @@ export function characteristics(
         upper: e.upper ?? null, lower: e.lower ?? null, datums: '', basic: Boolean(e.basic),
       });
     } else if (e.kind === 'geometric_tolerance') {
-      // The whole frame as the engine states it (⌖ ⌀0.3Ⓜ A, with every modifier, zone and
-      // datum reference); the datums also have their column.
+      // As planned ("⌖ ⌀0.3 Ⓜ"; the datums have their column) when its fields hold all it
+      // states; otherwise its whole frame as the engine states it (every modifier, zone and
+      // datum reference: "⌓ 0.02 A FⓂ").
       const symbol = CHARACTERISTIC[e.type] ?? e.type;
+      const planned = !e.text_only && (e.modifiers ?? []).every((m) => m === 'maximum_material_requirement');
+      const text = e.value == null ? `${symbol} ${NO_VALUE}`
+        : planned || !e.text ? `${symbol} ${e.diametral ? '⌀' : ''}${fmt(e.value)}${e.mmc ? ' Ⓜ' : ''}` : e.text;
       rows.push({
         feature, faces, source, number: e.number,
-        text: e.value == null ? `${symbol} ${NO_VALUE}` : e.text ?? `${symbol} ${fmt(e.value)}`,
+        text,
         nominal: null, upper: e.value ?? null, lower: null, datums: (e.datums ?? []).join('|'), basic: false,
       });
     } else {
-      // A thread, knurl, finish or note: its full notation ("M2×0.4-6H ↧ 2"), else its kind.
-      rows.push({ feature, faces, source, number: e.number, text: e.text ?? e.type, nominal: null, upper: null, lower: null, datums: '', basic: false });
+      // A thread reads as planned ("M2×0.4-6H", "M8×1.25-6g LH"), so a reopened file's list
+      // matches its preview; one stating more than its fields (text only) reads its whole
+      // text. A knurl, finish or note: its full notation, else its kind.
+      const thread = e.designation && e.class && e.pitch != null && !e.text_only
+        ? `${e.designation}×${fmt(e.pitch)}-${e.class}${e.hand === 'LH' ? ' LH' : ''}` : null;
+      rows.push({ feature, faces, source, number: e.number, text: thread ?? e.text ?? e.type, nominal: null, upper: null, lower: null, datums: '', basic: false });
     }
   });
 
   // The part's notes, as given here or as the file states them.
-  const part = { ...analysis.part, ...intent?.part };
   for (const [key, name] of PART_NOTES) {
     const value = part[key];
     if (!value) continue;
