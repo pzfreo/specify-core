@@ -141,6 +141,17 @@ async function partField(page, id) {
   return field;
 }
 /** Part setting ``id`` answered ``value`` in its field (a list, or a box typed and Enter): listed in the bar. */
+/** A stored "none needed" taken back with its bin: the decision is listed to undo. */
+async function takeBack(page, id) {
+  await panelReady(page);
+  if (!await question(page, id).count()) await page.locator(`[data-questions~="${id}"]`).click();
+  const item = question(page, id);
+  await check(item).toHaveAttribute('data-state', 'decided_none');
+  await item.getByRole('button', { name: /^Remove / }).click();
+  await check(item.locator('.pmi-lab-stated-tools.asking')).toContainText('Take back "none needed"?');
+  await item.locator('.pmi-lab-stated-tools.asking button.remove').click();
+  await check(item).toHaveAttribute('data-state', 'removed');
+}
 async function answerPart(page, id, value) {
   const field = await partField(page, id);
   const select = field.locator('select').first();
@@ -419,10 +430,10 @@ try {
     await change(main, 'Steel 1.4301');
     await choose(main, 1, 'Bronze');
     await change(main, 'Brass CW614N');
-    // Back on the plate, its change is still held (the bar), the pin's beside it. (rc.1 also showed
-    // the changed value on the row; the review shows the file's value after a part switch, as the
-    // adapter keeps stated values out of the part's working answers: a product gap, reported.)
+    // Back on the plate, its change is still held and shown on its row; the pin's is beside it in the bar.
     await switchPart(main, 0);
+    await check(material(main)).toHaveAttribute('data-state', 'changed');
+    await check(material(main)).toContainText('Steel 1.4301');
     await check(pending(main, 0)).toHaveText('plate · Change Material: Aluminium 6082-T6 → Steel 1.4301');
     await check(pending(main, 1)).toHaveText('pin · Change Material: Bronze → Brass CW614N');
     await switchPart(main, 1);
@@ -548,9 +559,11 @@ try {
     await check(page.getByRole('alert')).toHaveCount(0);
     await page.getByRole('button', { name: 'Discard', exact: true }).click();
     await check(allListed(page)).toHaveCount(0);
-    // NOT PORTED: rc.1 entered the part's notes line by line and showed each. The review's notes
-    // field takes a note typed and Enter, then folds with nothing listed and no message (a product
-    // gap, reported), so there is nothing here yet to check.
+    // The part's notes: a note typed in the field is listed (the 0.3 engine takes notes as a list).
+    await answerPart(page, 'part.notes', 'Deburr all edges');
+    await check(listedEdit(page, 'part.notes')).toContainText('Deburr all edges');
+    await page.getByRole('button', { name: 'Discard', exact: true }).click();
+    await check(allListed(page)).toHaveCount(0);
     await answerPart(page, 'part.material', 'Aluminium 6082-T6');
     // The bar is not checked edit by edit; Save checks the whole list, all or nothing: a hole's
     // position before the datum it cites is refused at Save, saying so, and nothing is written.
@@ -643,10 +656,10 @@ try {
     await material(page).getByRole('button', { name: 'Cancel', exact: true }).click();
     await check(listedEdit(page, 'part.material')).toHaveCount(0);
     await check(material(page)).toHaveAttribute('data-state', 'stated');
-    // The decision the file stores (coating: none needed) taken back by giving it a value: one bar
-    // entry (clear + fill). The review has no Undo that leaves it a gap (see the commit message).
-    await answerPart(page, 'part.coating', 'Anodised');
-    await check(listedEdit(page, 'part.coating')).toHaveText('Add Coating: Anodised');
+    // The decision the file stores (coating: none needed) is an item with its bin, which takes it
+    // back (the edit list's clear): the item is open again.
+    await takeBack(page, 'part.coating');
+    await check(listedEdit(page, 'part.coating')).toHaveText('Undo none needed: Coating');
     if (shots) await page.screenshot({ path: join(shots, 'panel-pending.png') });
     await save(page, server, 3);
     copyFileSync(specified, second);
@@ -656,8 +669,7 @@ try {
     assert.equal(after[position].requirements[0].number, number, 'a change of limits keeps its number');
     assert.equal(after[removed].state, 'gap', 'the removed requirement is gone: a gap again');
     assert.ok(!(analyse(second).characteristics ?? []).some(c => `#${c.number}` === retired), `${retired} is retired`);
-    assert.equal(after['part.coating'].state, 'stated', 'the stored decision was taken back');
-    assert.match(JSON.stringify(after['part.coating'].value), /Anodised/);
+    assert.equal(after['part.coating'].state, 'gap', 'Undo took the stored decision back');
     assert.equal(after['part.material'].state, 'stated', 'what the list did not name is left as it is');
     await check(allListed(page)).toHaveCount(0);
     if (shots) await page.screenshot({ path: join(shots, 'panel-saved.png') });

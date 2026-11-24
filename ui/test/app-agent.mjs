@@ -141,7 +141,9 @@ try {
     await check(page.locator('.spec-bar [data-pending="part.general_tolerance"]')).toContainText('ISO 2768-f');
     await page.getByRole('tab', { name: /^Characteristics/ }).click();
     await check(page.locator('.pmi-lab-table')).toBeVisible();
-    await check(page.locator('.pmi-lab-table')).not.toContainText('2768-f');
+    // The Characteristics tab shows what the review specifies, an agent's unsaved answer included,
+    // as the editor's does (rc.1 showed only the file there); the exports stay the saved file's.
+    await check(page.locator('.pmi-lab-table')).toContainText('2768-f');
     await page.getByRole('tab', { name: 'Review/Edit' }).click();
     await check(page.locator('.app-dirty')).toHaveText('Unsaved changes');
     if (shots) await page.screenshot({ path: join(shots, 'agent-update.png') });
@@ -244,9 +246,9 @@ try {
     await check(pending(a, 'part.material')).toContainText(`${partA.name} · Add Material: Steel 1.4301`);
     await check(pending(b, 'part.material')).toContainText(`${partB.name} · Add Material: Brass CW614N`);
     await switchTo(a);
-    // The agent's answer for the part shown is held in the bar. (rc.1 also showed it on the row; the
-    // review shows the file's answers, not the session's held ones: a product gap, reported.)
+    // The agent's answer for the part shown is held in the bar and shown on its question.
     await check(pending(a, 'part.material')).toContainText('Steel 1.4301');
+    await check(question(page, 'part.material')).toContainText('1.4301');
     await agent.call('answer', { doc: docB, set: { 'part.general_tolerance': 'ISO 2768-f' } });
     await check(page.locator('.app-agent')).toContainText(`Updated by your agent: ${partB.name}`);
     await page.getByRole('button', { name: 'Show it' }).click();
