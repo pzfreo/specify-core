@@ -439,3 +439,12 @@ fieldset.pmi-lab-rows { min-width: 0; margin: 0; padding: 0; border: 0; }
 .pmi-lab .pmi-lab-gt select, .pmi-lab .pmi-lab-gt button { width: auto; justify-self: start; }
 .pmi-lab .pmi-lab-gt-line { flex-wrap: nowrap; }
 .pmi-lab .pmi-lab-gt-line select { flex: none; }
+
+/* 0.3: the panel never scrolls sideways. Its column is the panel's width, and a question's title
+   longer than the line (0.3's "What other notes apply to making the part, in order?") wraps
+   instead of widening it; a short title stays on one line beside its value, as before. */
+.pmi-lab-fields { grid-template-columns: minmax(0, 1fr); }
+.pmi-lab .pmi-lab-line { flex-wrap: wrap; }
+.pmi-lab-line .name { white-space: normal; flex: none; max-width: 100%; }
+/* An item's width counts its padding and border (the editor sets this for every element; a host may not). */
+.pmi-lab .pmi-lab-item { box-sizing: border-box; }

@@ -612,6 +612,9 @@ try {
     await typedAt.locator('.pmi-lab-spec input').fill('shiny');
     await typedAt.getByRole('button', { name: 'Use', exact: true }).click();
     await check(typedAt.locator('.pmi-lab-spec').getByRole('alert')).toBeVisible();
+    // The panel never scrolls sideways: not with a question open, nor with 0.3's long notes title.
+    const sideways = await page.locator('.pmi-lab-rows').evaluate(el => el.scrollWidth - el.clientWidth);
+    assert.ok(sideways <= 0, `the panel scrolls sideways by ${sideways}px`);
     await check(listedEdit(page, 'hole.function:holes:13')).toHaveCount(0);
     // Only the unsaved edits are listed.
     await check(allListed(page)).toHaveCount(5);
