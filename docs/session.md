@@ -94,7 +94,8 @@ way to push to the agent unasked.
 ## Lifetimes
 
 - **The MCP server process** owns the sessions. When it exits, they are gone (unless saved or
-  kept in an `answers_file`) and any page server it started stops.
+  kept in an `answers_file`) and any page server it started stops. While an open page holds unsaved
+  edits it waits before exiting (docs/open.md, "Heartbeat and `closed`").
 - **The page server** runs while a page is open. After the page closes it stops as
   docs/open.md says (90 s after `closed`, or 30 minutes with no request). `show` can be called
   again at any time, for example after the tab was closed, and starts a new one (a new address).

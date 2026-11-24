@@ -358,9 +358,16 @@ pub struct Page {
     pub mode: &'static str,
     running: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
+    unsaved: Arc<Mutex<Option<Instant>>>,
 }
 
 impl Page {
+    /// Whether an open page said lately that it holds unsaved edits (`config?unsaved=1`), and the
+    /// server still runs: not once its close delay has passed since it last did.
+    pub fn holds_unsaved(&self) -> bool {
+        self.is_running() && lock(&self.unsaved).is_some_and(|until| Instant::now() < until)
+    }
+
     pub fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
     }
@@ -391,6 +398,7 @@ pub fn start(
     let url = app.url();
     let mode = app.shared.mode;
     let stop = Arc::clone(&app.shared.stop);
+    let unsaved = Arc::clone(&app.shared.unsaved);
     let running = Arc::new(AtomicBool::new(true));
     let flag = Arc::clone(&running);
     thread::Builder::new()
@@ -406,6 +414,7 @@ pub fn start(
         mode,
         running,
         stop,
+        unsaved,
     })
 }
 
@@ -456,6 +465,7 @@ impl App {
             part: options.part,
             streams: AtomicUsize::new(0),
             stop: Arc::new(AtomicBool::new(false)),
+            unsaved: Arc::default(),
             activity: Mutex::new(Activity {
                 last: Instant::now(),
                 accepted: 0,
@@ -587,6 +597,8 @@ struct Shared {
     streams: AtomicUsize,
     /// Set to stop the server (and end its event streams).
     stop: Arc<AtomicBool>,
+    /// Until when a page is taken to hold unsaved edits, from the last `config?unsaved=1`.
+    unsaved: Arc<Mutex<Option<Instant>>>,
     activity: Mutex<Activity>,
 }
 
@@ -799,6 +811,10 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
         }
         ("GET", "events") => events(stream, ctx),
         ("GET", "config") => {
+            // Not cleared by another tab that has none: a page with edits says so at each heartbeat.
+            if query(&request.target, "unsaved") == Some("1") {
+                *lock(&shared.unsaved) = Some(Instant::now() + ctx.close_delay);
+            }
             let s = session::lock(&shared.session);
             let target = if shared.read_only {
                 None

@@ -193,6 +193,8 @@ function App() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<SavedLine | null>(null);
   const [dirty, setDirty] = useState(false);
+  // Edits not saved yet, held here or in the session: read by the heartbeat.
+  const unsavedRef = useRef(false);
   // The event stream: null until it first opens, false while it is lost (retrying).
   const [live, setLive] = useState<boolean | null>(null);
   const [stopped, setStopped] = useState(false);
@@ -284,7 +286,7 @@ function App() {
         ended = true;
         unlisten();
         sessionRef.current?.close();
-      });
+      }, () => unsavedRef.current);
       stop = heartbeat.stop;
       refreshConfig.current = heartbeat.refresh;
       worker.current = createIntentEngine({ wasmUrl: first.wasmUrl });
@@ -500,12 +502,6 @@ function App() {
     observer.observe(root, { childList: true, subtree: true });
     return () => { observer.disconnect(); root.querySelectorAll('.app-agent-lit').forEach((el) => el.classList.remove('app-agent-lit')); };
   }, [agent]);
-  useEffect(() => {
-    if (!dirty) return;
-    const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); };
-    window.addEventListener('beforeunload', guard);
-    return () => window.removeEventListener('beforeunload', guard);
-  }, [dirty]);
 
   const mode = config?.mode;
   const readOnly = !config || config.readOnly;
@@ -672,6 +668,26 @@ function App() {
     const name = opened?.several || edit.draft ? parts.find((row) => row.part === part)?.name || `Part ${part}` : undefined;
     return { part, ...(name ? { name } : {}), edit };
   }));
+  const unsaved = dirty || items.length > 0;
+  // What Save would have sent, a part's list to a file, for `specify-core write`: the command has stopped.
+  const heldLists = [...pending].map(([part, list]) => ({ part, edits: list.list() })).filter(({ edits }) => Object.keys(edits).length > 0);
+  const downloadEdits = ({ part, edits }: { part: number; edits: EditList }) => {
+    const url = URL.createObjectURL(new Blob([`${JSON.stringify(edits, null, 1)}\n`], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${inspectionName(config?.name ?? 'part.step').replace(/\.(step|stp)(\.gz)?$/i, '')}${parts.length > 1 ? `.part-${part}` : ''}.edits.json`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  useEffect(() => {
+    unsavedRef.current = unsaved;
+    if (!unsaved) return;
+    // Said at once, not at the next heartbeat: the agent may exit before it.
+    refreshConfig.current();
+    const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); };
+    window.addEventListener('beforeunload', guard);
+    return () => window.removeEventListener('beforeunload', guard);
+  }, [unsaved]);
   const editPending = (next: PendingEdits) => {
     if (!opened) return;
     setPending((all) => {
@@ -718,7 +734,7 @@ function App() {
             </label>
           )}
           {readOnly && config && <span className="app-badge">View only</span>}
-          {(dirty || items.length > 0) && <span className="app-dirty">Unsaved changes</span>}
+          {unsaved && <span className="app-dirty">Unsaved changes</span>}
         </div>
         <div className="app-actions">
           <div className="app-exports">
@@ -760,6 +776,15 @@ function App() {
         <p className="app-offline app-stopped" role="status">
           Specify has stopped. Run <code>specify-core open …</code> again (or ask your agent to show it).
           {' '}Your saved file is at <code>{saved?.path ?? config.path}</code>.
+          {heldLists.length > 0 && <span className="app-held">
+            {' '}Your unsaved changes were not written.
+            {heldLists.map((held) => (
+              <button key={held.part} type="button" onClick={() => downloadEdits(held)}>
+                Download {heldLists.length > 1 ? `the changes to ${parts.find((row) => row.part === held.part)?.name || `part ${held.part}`}` : 'them'}
+              </button>
+            ))}
+            {' '}Apply with <code>specify-core write FILE EDITS.json -o OUT{parts.length > 1 ? ' --part N' : ''}</code>.
+          </span>}
         </p>
       ) : live === false && (
         <p className="app-offline" role="status">

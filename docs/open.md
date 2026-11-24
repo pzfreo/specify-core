@@ -344,7 +344,11 @@ the 90 s delay, which was 3 s.)
 Under an agent, "the command stops" means the page server stops: the MCP server and its
 session carry on, nothing is printed on stdout (it carries the MCP protocol; notices go to
 stderr), and the agent can call `show` again for a new address. When the MCP server exits, its
-page servers stop with it.
+page servers stop with it, with one exception: a page holding unsaved edits sends its heartbeat as
+`GET <token>/config?unsaved=1`, and once the agent's end of stdio closes the process waits while one has
+been heard in the last 90 s, so the edits can still be saved. Another tab's plain heartbeat does not
+clear it. A client that then kills the process ends that wait: the page offers the edit lists Save would
+have sent as files, for `specify-core write`.
 
 ## Which answers have a body
 

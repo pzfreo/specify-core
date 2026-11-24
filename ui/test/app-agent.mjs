@@ -479,6 +479,48 @@ try {
     await context.close();
     agent.stop();
   }
+  // The agent exits (its end of the pipe closes) while the page holds an edit: the page is still served
+  // and saves. Killed outright with another held, the page offers the edit as a list `write` applies.
+  {
+    const held = join(dir, 'held.step');
+    writeFileSync(held, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
+    const agent = await mcp(cli, { cwd: dir, env }); agents.push(agent);
+    const opened = await agent.call('open', { path: held });
+    const shown = await agent.call('show', { doc: opened.doc, browser: false });
+    const { context, page, requests } = await load(shown.url);
+    const leaves = () => page.evaluate(() => { const e = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(e); return !e.defaultPrevented; });
+    assert.equal(await leaves(), true, 'nothing held: closing the tab asks nothing');
+    const said = page.waitForRequest(r => r.url().endsWith('config?unsaved=1'));
+    await noneNeeded(page, 'part.coating');
+    await said;
+    assert.equal(await leaves(), false, 'an edit held: closing the tab warns');
+    await page.waitForTimeout(500);
+    agent.eof();
+    await page.waitForTimeout(2000);
+    assert.equal(agent.exited(), false, 'the command waits for the edit');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const written = join(dir, 'held.specified.step');
+    await check(page.locator('.app-saved code')).toHaveText(written);
+    assert.equal(table(written)['part.coating'].state, 'decided_none', 'saved after the agent had gone');
+    const beforeStop = problems.length;
+    await noneNeeded(page, 'part.heat_treatment');
+    agent.stop();
+    const stopped = page.locator('.app-stopped');
+    await check(stopped).toContainText('Your unsaved changes were not written.', { timeout: 60_000 });
+    const [download] = await Promise.all([page.waitForEvent('download'), stopped.getByRole('button', { name: 'Download them', exact: true }).click()]);
+    const list = join(dir, 'held.edits.json');
+    await download.saveAs(list);
+    assert.equal(download.suggestedFilename(), 'held.edits.json');
+    assert.deepEqual(JSON.parse(readFileSync(list, 'utf8')), { none: ['part.heat_treatment'] });
+    const applied = join(dir, 'held.applied.step');
+    execFileSync(cli, ['write', written, list, '-o', applied], { stdio: 'ignore' });
+    assert.equal(table(applied)['part.heat_treatment'].state, 'decided_none');
+    assert.equal(table(applied)['part.coating'].state, 'decided_none');
+    problems.splice(beforeStop, problems.length - beforeStop,
+      ...problems.slice(beforeStop).filter(p => !/^console: .*net::ERR_(CONNECTION_REFUSED|CONNECTION_RESET|INCOMPLETE_CHUNKED_ENCODING)$/.test(p)));
+    onlyLocal(requests, shown.url);
+    await context.close();
+  }
   assert.deepEqual(problems, [], 'no page errors');
   console.log('app-agent passed');
 } finally {

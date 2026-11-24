@@ -38,6 +38,9 @@ export async function mcp(cli, { cwd, env = {}, args = [] } = {}) {
       return result.structuredContent;
     },
     stderr: () => stderr,
+    /** The agent's end of the pipe closes, as when its program exits. */
+    eof: () => child.stdin.end(),
+    exited: () => child.exitCode !== null || child.signalCode !== null,
     stop: () => child.kill(),
   };
 }

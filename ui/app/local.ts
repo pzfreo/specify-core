@@ -66,8 +66,9 @@ async function json<T>(request: Promise<Response>): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export const getConfig = (signal?: AbortSignal, onResponse?: () => void) => json<LocalConfig>(
-  fetch('config', { cache: 'no-store', signal }).then((response) => { onResponse?.(); return response; }),
+/** ``unsaved``: the page holds edits not saved yet, which keep the command serving when an agent that started it exits. */
+export const getConfig = (signal?: AbortSignal, onResponse?: () => void, unsaved = false) => json<LocalConfig>(
+  fetch(unsaved ? 'config?unsaved=1' : 'config', { cache: 'no-store', signal }).then((response) => { onResponse?.(); return response; }),
 ).then((config) => { requireSessionApi(config.api); return config; });
 
 /** The STEP as on disk (gzipped if the file is); in diff mode ``old`` is OLD's; ``saved`` is what
@@ -157,7 +158,7 @@ export function listen(onAnswers: (event: AnswersEvent) => void, onSaved: (event
 /** Heartbeat every 30 s, retrying unreachable or busy commands every 4 s. A command is stopped
  * after a full 25 s failure window. Every HTTP response clears that window. Keep probing to recover.
  * A visible page returning, or a timer gap over 10 s, starts a new observation window. */
-export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: (stopped: boolean) => void, onClose: () => void) {
+export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: (stopped: boolean) => void, onClose: () => void, unsaved: () => boolean = () => false) {
   let closed = false;
   let stopped = false;
   let failedSince: number | null = null;
@@ -215,7 +216,7 @@ export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: (s
       request.reached = true;
       failedSince = null;
       status(false);
-    }).then((config) => finished(true, config), () => finished(false));
+    }, unsaved()).then((config) => finished(true, config), () => finished(false));
   };
   const tick = () => {
     const now = observeTime();
