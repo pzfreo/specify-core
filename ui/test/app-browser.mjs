@@ -203,6 +203,14 @@ async function changeMaterial(page, value) {
   await check(material(page)).toHaveAttribute('data-state', 'changed');
   await check(material(page)).toContainText(`${value} (changed)`);
 }
+/** The material set back to ``value``, the file's: as stated again, no change. */
+async function materialBack(page, value) {
+  await material(page).getByRole('button', { name: 'Change Material', exact: true }).click();
+  const box = material(page).getByRole('combobox', { name: 'Material' });
+  await box.fill(value);
+  await box.press('Enter');
+  await check(material(page)).toHaveAttribute('data-state', 'stated');
+}
 /** The "Other PMI in the file" row, unfolded; its item ``key`` (a number, else the engine's id). */
 const otherRow = page => page.locator('[data-row="other-pmi"]');
 const otherItem = (page, key) => otherRow(page).locator(`[data-other="${key}"]`);
@@ -656,6 +664,37 @@ try {
     await material(page).getByRole('button', { name: 'Cancel', exact: true }).click();
     await check(listedEdit(page, 'part.material')).toHaveCount(0);
     await check(material(page)).toHaveAttribute('data-state', 'stated');
+    // The pencil and the bin match and neither is a warning colour; only the confirmation is red
+    // (change list item 2: a pencil and a bin on each item, red only on the remove confirmation).
+    const icons = material(page).locator('.pmi-lab-stated-tools button.icon');
+    await check(icons).toHaveCount(2);
+    const looks = await icons.evaluateAll(buttons => buttons.map(b => {
+      const c = getComputedStyle(b); const box = b.getBoundingClientRect();
+      return JSON.stringify([c.color, c.borderTopColor, c.backgroundColor, Math.round(box.width), Math.round(box.height)]);
+    }));
+    assert.equal(new Set(looks).size, 1, `the pencil and the bin look the same: ${looks}`);
+    assert.doesNotMatch(looks[0], /192, 57, 43/, 'not red');
+    await material(page).getByRole('button', { name: 'Remove Material', exact: true }).click();
+    const confirm = await material(page).locator('.pmi-lab-stated-tools.asking button.remove').evaluate(b => getComputedStyle(b).backgroundColor);
+    assert.equal(confirm, 'rgb(192, 57, 43)', 'the confirmation is red');
+    await material(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+    // A change set back to the file's value is no change: its edit goes from the bar.
+    const fileMaterial = (await material(page).innerText()).match(/Aluminium 6082-T6/)?.[0];
+    assert.ok(fileMaterial, 'the material reads from the file');
+    await changeMaterial(page, 'Steel 1.4301');
+    await check(listedEdit(page, 'part.material')).toContainText('Steel 1.4301');
+    await materialBack(page, fileMaterial);
+    await check(listedEdit(page, 'part.material')).toHaveCount(0);
+    await check(material(page)).toHaveAttribute('data-state', 'stated');
+    // Removed after a change, then Undo: the change comes back, listed as it was.
+    await changeMaterial(page, 'Steel 1.4301');
+    await material(page).getByRole('button', { name: 'Remove Material', exact: true }).click();
+    await material(page).locator('.pmi-lab-stated-tools.asking button.remove').click();
+    await check(listedEdit(page, 'part.material')).toContainText('Remove Material');
+    await material(page).getByRole('button', { name: 'Undo', exact: true }).click();
+    await check(listedEdit(page, 'part.material')).toContainText('Steel 1.4301');
+    await materialBack(page, fileMaterial);
+    await check(listedEdit(page, 'part.material')).toHaveCount(0);
     // The decision the file stores (coating: none needed) is an item with its bin, which takes it
     // back (the edit list's clear): the item is open again.
     await takeBack(page, 'part.coating');
