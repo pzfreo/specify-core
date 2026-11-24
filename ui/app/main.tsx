@@ -572,6 +572,9 @@ function App() {
     setProblem(null);
     setDiscarding(true);
     try {
+      // The page's own answers still on their way to the session land first: Discard then clears
+      // them with the rest, and none comes back afterwards as an edit to save.
+      if (!target) await shownRef.current?.store.settled();
       if (target || Object.keys(draftSnapshot.drafts).length) {
         const snapshot = await discardAnswers(draftSnapshot.rev, target, session.signal);
         session.receive({ ...snapshot, source: 'start' });
