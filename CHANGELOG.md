@@ -83,6 +83,9 @@ Read first:
   is handed the whole list (each callout's status, colour, graphics and planes) whenever it changes,
   and a host's pointer events carry `callout: id`. The assembly comparison takes the `view` too: its
   parts coloured with `styleFaces`, removed ones given as meshes, clicks opening a part.
+- The review's general dimensions: one the file states with its nominal alone has Call Out too. It
+  is toleranced in place (its feature-and-kind changed, `change {"length:…": {"to": "±t"}}`), not
+  added beside the one the file states.
 - `carry OLD NEW -o OUT` (and the MCP tool `carry`) copies an annotated revision's requirements
   onto a new revision, file to file (ADR P11, docs/carry.md). Each feature-and-kind OLD states
   fills NEW's gap through the in-place writer, all or nothing; NEW's own requirements stand,

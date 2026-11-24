@@ -1018,6 +1018,39 @@ try {
     await context.close();
     server.stop();
   }
+  // A dimension the file states with its nominal alone (under the general tolerance) is called out
+  // in place: its feature-and-kind changed to take the tolerance; nothing is added beside it, and
+  // every other requirement keeps its number and text.
+  {
+    const spindle = join(dir, 'stated-call-out.step');
+    writeFileSync(spindle, gunzipSync(readFileSync('test/fixtures/spindle_pmi_after.step.gz')));
+    const before = analyse(spindle);
+    const bare = before.existing.find(e => e.kind === 'dimension' && e.value != null && e.upper == null && e.lower == null && !e.basic && e.number);
+    assert.ok(bare, 'the spindle states a dimension with its nominal alone');
+    const row = before.table.rows.find(r => r.requirements?.some(q => q.number === `#${bare.number}`));
+    const server = await open(spindle);
+    const { context, page, requests } = await load(server);
+    await panelReady(page);
+    const head = page.locator('[data-row="dimensions"] .pmi-lab-row-head');
+    if (await head.getAttribute('aria-expanded') !== 'true') await head.click();
+    const line = page.locator(`[data-row="dimensions"] .pmi-lab-dim[data-characteristic="${bare.number}"]`);
+    await line.getByRole('button', { name: 'Call Out', exact: true }).click();
+    await line.getByRole('textbox').fill('0.05');
+    await line.getByRole('button', { name: 'Use', exact: true }).click();
+    await check(line).toHaveClass(/changed/);
+    await check(listedEdit(page, row.id)).toContainText(`${row.value} ±0.05`);
+    await save(page, server, 1);
+    const after = analyse(join(dir, 'stated-call-out.specified.step'));
+    const now = after.existing.find(e => e.number === bare.number);
+    assert.deepEqual([now?.value, now?.upper, now?.lower], [bare.value, 0.05, -0.05], `#${bare.number} now carries ±0.05`);
+    assert.equal(after.characteristics.length, before.characteristics.length, 'nothing added beside it');
+    const kept = c => JSON.stringify([c.number, c.kind, c.text, c.faces]);
+    assert.deepEqual(after.characteristics.filter(c => c.number !== bare.number).map(kept).sort(),
+      before.characteristics.filter(c => c.number !== bare.number).map(kept).sort(), 'every other requirement as it was');
+    onlyLocal(requests, server.origin);
+    await context.close();
+    server.stop();
+  }
   // Another tool's PMI (NIST CTC-01, from the NIST MBE PMI project): an edit in the review leaves every
   // entity it did not name byte for byte as it was (checklist 8). Its requirements carry no
   // characteristic number, so they can be changed but not removed by number.

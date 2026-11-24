@@ -820,7 +820,8 @@ function App() {
               calledOutDimensions: new Map([...callOutKeys.current].flatMap(([at, key]) => {
                 const [part, ...rest] = at.split(':');
                 const edit = partPending.get(key);
-                return Number(part) === opened.part && edit?.kind === 'fill' ? [[rest.join(':'), edit.text.replace(/^±/, '')] as const] : [];
+                const tolerance = edit?.kind === 'fill' ? edit.text : edit?.kind === 'change' ? String(edit.value) : null;
+                return Number(part) === opened.part && tolerance !== null ? [[rest.join(':'), tolerance.replace(/^±/, '')] as const] : [];
               })),
               // "Added by you" keys already taken (the page's call-outs among them): no two share one.
               takenKeys: [...partPending.values().map((e) => e.id), ...callOutKeys.current.values()],
@@ -864,6 +865,16 @@ function App() {
                 // One key per dimension called out, kept while the part is shown (the same edit is replaced).
                 const keys = callOutKeys.current;
                 const at = `${opened.part}:${dimension.id}`;
+                // One the file states: its feature-and-kind (the table's row stating that number) is the key.
+                const row = dimension.number === undefined ? undefined
+                  : opened.table.rows.find((r) => r.requirements?.some((q) => q.number === dimension.number));
+                if (dimension.number !== undefined) {
+                  if (!row || typeof row.value !== 'string') return false;
+                  keys.set(at, row.id);
+                  const edit = callOutEdit(dimension, tolerance, row.id, { id: row.id, value: row.value });
+                  editPending(edit ? partPending.with(edit) : partPending.without(row.id));
+                  return true;
+                }
                 const key = keys.get(at) ?? nextExtraKey([...opened.table.rows.map((r) => r.id), ...partPending.values().map((e) => e.id),
                   ...Object.keys(opened.shown.all), ...keys.values()]);
                 keys.set(at, key);
