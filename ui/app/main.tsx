@@ -1,5 +1,5 @@
 // Specify on this computer: the app the page server serves (specify-core docs/open.md), started by
-// `specify-core open` or by an agent's `show` (docs/session.md). The review panel (Panel.tsx) shows
+// `specify-core open` or by an agent's `show` (docs/session.md). The review screens (SpecifyReview, through adapter.ts) show
 // the file's feature table; the person's edits are held in the page and Save sends them to the
 // command as an edit list per part, which it applies to the file all or nothing. The session's answers (an
 // agent's) come down as they land. Nothing is stored in the browser and nothing is fetched from
