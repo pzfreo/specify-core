@@ -18,8 +18,9 @@
 //! - `POST <token>/closed` the page went away: the server stops [`CLOSE_DELAY`] after the last
 //!   request unless another arrives (a reload, or another open page's heartbeat).
 //!
-//! An open page sends `GET <token>/config` every [`HEARTBEAT`]; any request resets the idle
-//! time and cancels a pending close, and an open event stream keeps the server running.
+//! An open page sends `GET <token>/config` every [`HEARTBEAT`]; any request with the address and
+//! the token resets the idle time and cancels a pending close (one without either does not), and
+//! an open event stream keeps the server running.
 //!
 //! A request whose `Host` is not exactly `127.0.0.1:<port>` is refused (a page that finds the
 //! port through DNS rebinding), as is any other token, without saying why. `save` and
@@ -458,6 +459,7 @@ impl App {
             activity: Mutex::new(Activity {
                 last: Instant::now(),
                 accepted: 0,
+                heard: 0,
                 close_at: None,
             }),
         };
@@ -526,9 +528,7 @@ impl App {
                 Ok((mut stream, _)) => {
                     let seq = {
                         let mut a = lock(&shared.activity);
-                        a.last = Instant::now();
                         a.accepted += 1;
-                        a.close_at = None;
                         a.accepted
                     };
                     let _ = stream.set_nonblocking(false);
@@ -593,8 +593,11 @@ struct Shared {
 /// When the server last heard from anyone, and whether it is closing.
 struct Activity {
     last: Instant,
-    /// Connections accepted so far: `closed` stops the server only if none came after it.
+    /// Connections accepted so far.
     accepted: u64,
+    /// The latest of them whose request carried the address and the token: `closed` stops the
+    /// server only if none came after it.
+    heard: u64,
     close_at: Option<Instant>,
 }
 
@@ -709,6 +712,17 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
         let _ = respond(stream, "404 Not Found", &[], b"");
         return;
     }
+    // Only a request with the address and the token counts as heard from: anything else that
+    // finds the port neither keeps the server running nor cancels a close.
+    {
+        let mut a = lock(&shared.activity);
+        a.last = Instant::now();
+        // In the order they came, not the order their threads got here.
+        if ctx.seq > a.heard {
+            a.heard = ctx.seq;
+            a.close_at = None;
+        }
+    }
     let Some(rest) = rest else {
         let location = shared.prefix.as_str();
         let _ = respond(
@@ -745,7 +759,7 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
             }
             {
                 let mut a = lock(&shared.activity);
-                if a.accepted == ctx.seq {
+                if a.heard == ctx.seq {
                     a.close_at = Some(Instant::now() + ctx.close_delay);
                 }
             }

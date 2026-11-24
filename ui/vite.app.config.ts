@@ -32,11 +32,29 @@ const manifest = (): Plugin => ({
   },
 });
 
+/** three-cad-viewer's Studio mode (off here, and refused by the CSP) names polyhaven.org for its lighting:
+ * the app names no other origin, so the address is taken out. A viewer without it fails the build: drop this then. */
+const PH_BASE = 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr';
+const noPolyhaven = (): Plugin => {
+  let found = false;
+  return {
+    name: 'specify-app-no-polyhaven',
+    apply: 'build',
+    buildStart() { found = false; },
+    transform(code, id) {
+      if (!id.includes('three-cad-viewer') || !code.includes(PH_BASE)) return null;
+      found = true;
+      return { code: code.replaceAll(PH_BASE, ''), map: null };
+    },
+    buildEnd(error) { if (!error && !found) this.error('three-cad-viewer no longer names polyhaven.org: remove noPolyhaven'); },
+  };
+};
+
 export default defineConfig({
   root: 'app',
   base: './',
   publicDir: false,
-  plugins: [react(), licences(), manifest()],
+  plugins: [react(), licences(), manifest(), noPolyhaven()],
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   resolve: { alias: { '@draftwright/specify-core-wasm': fileURLToPath(new URL('./app/no-bundled-engine.ts', import.meta.url)) } },
   worker: { format: 'es' },

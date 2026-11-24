@@ -362,6 +362,9 @@ Read first:
 
 ### Fixed
 
+- `open` and MCP `show`: only a request with the right `Host` and token counts as activity. A refused
+  one no longer keeps a forgotten server running or cancels a close. The app no longer contains
+  three-cad-viewer's polyhaven.org address (its Studio lighting, which is off and the CSP refuses).
 - Stated BOM values now require a guarded `change` in edit lists. The feature table
   shows native data and explicit STEP property overrides as stated, with default
   proposals left as gaps.

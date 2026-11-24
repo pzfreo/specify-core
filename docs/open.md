@@ -327,7 +327,8 @@ Under `specify-core mcp` the agent reads and changes the same session through MC
 
 The engine runs in the page, so looking at the part and making edits make no requests (Save
 does). While the page is open, visible or not, the app sends `GET <token>/config` every 30 s (the heartbeat; the answer may be used or
-ignored). Any request resets the idle time and cancels a pending close.
+ignored). Any request with the right `Host` and token resets the idle time and cancels a pending close;
+one without is refused and does neither.
 
 `POST <token>/closed`, with the same `Origin` rule as `save` (any body, ignored; 204). Send it
 with `navigator.sendBeacon` on `pagehide` only when `!event.persisted`: a page going into the
