@@ -65,7 +65,7 @@ interface Opened {
   external: { answers: PmiAnswers; review: IntentReview };
   /** The working answers processed by the page at the last shown session revision; ``all``: every
    * answer the review last showed, what the file states included (each change is from these). */
-  shown: { answers: PmiAnswers; all: PmiAnswers };
+  shown: { answers: PmiAnswers; all: PmiAnswers; generation: number };
   /** Specify's review of ``answers``, for answers that arrive from outside the page. */
   reviewOf(answers: PmiAnswers): Promise<IntentReview>;
 }
@@ -99,7 +99,8 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   const stored = snapshot.analysis.resume?.answers ?? {};
   const fileReview = sameAnswers(stored, answers) ? review : await reviewOf(stored);
   const store = answersSession.store(at.part, stored);
-  const shown = { answers, all: { ...stated.values, ...answers } };
+  // ``generation``: Discard and a save start the review again; a commit begun before that is stale.
+  const shown = { answers, all: { ...stated.values, ...answers }, generation: 0 };
   const engine: SpecifyEngine = {
     // Each commit of the page's answers comes through here: what the session gets once Specify
     // accepts them. The change is the one from the answers the page showed when it was made, so an
@@ -107,8 +108,11 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
     questions: async (_id, typed) => {
       const shownAnswers = asEngineTakes(typed);
       const given = forEngine(shownAnswers, stated);
+      const started = shown.generation;
       const base = shown.answers;
       const asked = screened(await worker.request<IntentReview>('review', { ...file, answers: given }));
+      // The review was started again meanwhile (Discard, a save): this commit's answers are gone.
+      if (shown.generation !== started) return asked;
       // Each question whose answer the person changed since the review last showed it is an edit,
       // held in the page until Save; set back to the file's value, its edit goes.
       const was = shown.all;
@@ -587,6 +591,7 @@ function App() {
         const now = shownRef.current;
         if (now) {
           const file = forEngine(now.session.answers, now.stated);
+          now.shown.generation += 1;
           now.store.set(file, now.shown.answers);
           now.shown.answers = file;
           now.shown.all = { ...now.stated.values, ...file };
