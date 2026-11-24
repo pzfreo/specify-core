@@ -181,7 +181,10 @@ host to STEP entities after a mismatch).
 - **Assemblies.** Nothing new. The new revision's parts are shown with `showParts`, each changed, moved,
   recounted or added part coloured on all its faces with `styleFaces` (layer `assembly:<name>`), and
   each removed part given with `addMesh` at its old placements (when `canDrawMeshes`). The part under
-  a hover is lit (layer `assembly-lit`), and a click on a part opens its own comparison.
+  a hover is lit (layer `assembly-lit`), and a click on a part opens its own comparison. While a part is
+  open the assembly is off the view: its layers and meshes are taken off and it hears no clicks; All parts
+  puts it back and calls `fit`. A removed part is none of the host's parts: opened, it is
+  `showParts([])` and a mesh. (rc.2 kept the assembly on the view while a part was open.)
 
 ## How the components change
 

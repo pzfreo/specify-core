@@ -484,6 +484,71 @@ try {
   const shaftFace = await hosted.evaluate(() => window.__host.calls.find(([n, a]) => n === 'styleFaces' && a[0] === 'assembly:GRM-02 shaft')[1][1][0].faces[0]);
   await hosted.evaluate(hit => window.__host.pointer({ type: "click", x: 1, y: 1, hit }), shaftFace);
   await check(hosted.locator('.diff-part')).toContainText('GRM-02 shaft');
+  // What the host's view then holds: every call so far, applied.
+  const held = () => hosted.evaluate(() => {
+    const s = { parts: [], layers: new Set(), meshes: new Set(), opacity: 1 };
+    for (const [n, a] of window.__host.calls) {
+      if (n === 'showParts') s.parts = a;
+      else if (n === 'styleFaces') s.layers.add(a[0]);
+      else if (n === 'clearStyles') s.layers.delete(a);
+      else if (n === 'addMesh') s.meshes.add(a.id);
+      else if (n === 'removeMesh') s.meshes.delete(a);
+      else if (n === 'setOpacity') s.opacity = a;
+    }
+    return { parts: s.parts, opacity: s.opacity, assembly: [...s.layers, ...s.meshes].filter(id => id.startsWith('assembly')).sort(), others: [...s.layers, ...s.meshes].filter(id => !id.startsWith('assembly')).sort() };
+  });
+  const hostClick = hit => hosted.evaluate(hit => window.__host.pointer({ type: 'click', x: 1, y: 1, hit }), hit);
+  const plateFace = await hosted.evaluate(() => window.__host.calls.find(([n, a]) => n === 'styleFaces' && a[0] === 'assembly:GRM-04 drive plate')[1][1][0].faces[0]);
+  const coloured = ['assembly:GRM-02 shaft', 'assembly:GRM-04 drive plate'];
+  // While a part is open the assembly is off the host's view: nothing of it left, and no click heard.
+  await check.poll(async () => (await held()).parts).toEqual([shaftFace.part]);
+  assert.deepEqual((await held()).assembly, [], 'the assembly is off the view');
+  await hosted.evaluate(() => { window.__parts.length = 0; });
+  for (const hit of [shaftFace, plateFace]) await hostClick(hit);
+  await hosted.waitForTimeout(500);
+  assert.deepEqual(await hosted.evaluate(() => window.__parts), [], 'no part opened from inside a part');
+  await check(hosted.locator('.diff-part')).toContainText('GRM-02 shaft');
+  // Back: every part, coloured as before, the part's own colours and see-through gone; clicks open parts again.
+  await hosted.getByRole('button', { name: 'All parts' }).click();
+  await check.poll(async () => (await held()).parts.length).toBe(12);
+  assert.deepEqual(await held(), { parts: (await held()).parts, opacity: 1, assembly: coloured, others: [] });
+  await hosted.evaluate(hit => window.__host.pointer({ type: 'hover', x: 1, y: 1, hit }), plateFace);
+  await check.poll(async () => (await held()).assembly).toEqual(['assembly-lit', ...coloured].sort());
+  await hostClick(plateFace);
+  await check(hosted.locator('.diff-part')).toContainText('GRM-04 drive plate');
+  await check.poll(async () => (await held()).parts).toEqual([plateFace.part]);
+  assert.deepEqual((await held()).assembly, []);
+  // Opened by name from the start: the assembly, read after it, does not take the view from it.
+  await hosted.goto(hostUrl);
+  await hosted.evaluate(() => window.__setPart('GRM-02 shaft'));
+  await hosted.locator('.diff-slot input[type=file]').nth(0).setInputFiles('test/fixtures/gramil_assembly_before.step.gz');
+  await hosted.locator('.diff-slot input[type=file]').nth(1).setInputFiles('test/fixtures/gramil_assembly_after.step.gz');
+  await check(hosted.locator('.diff-part')).toContainText('GRM-02 shaft');
+  await check(hosted.locator('.diff-assembly-reading')).toHaveCount(0);
+  await hosted.waitForTimeout(500);
+  assert.deepEqual((await held()).parts, [shaftFace.part]);
+  assert.deepEqual((await held()).assembly, []);
+  await hosted.getByRole('button', { name: 'All parts' }).click();
+  await check.poll(async () => (await held()).parts.length).toBe(12);
+  assert.deepEqual((await held()).assembly, coloured);
+  // A removed part (one renamed is one added and one removed): a ghost on the assembly; opened, it is
+  // its own mesh alone, never the new file's part that has its index.
+  const renamedStep = gunzipSync(readFileSync('test/fixtures/gramil_assembly_after.step.gz')).toString('latin1').replaceAll("'GRM-01 shank'", "'GRM-01 stem'");
+  await hosted.goto(hostUrl);
+  await hosted.locator('.diff-slot input[type=file]').nth(0).setInputFiles('test/fixtures/gramil_assembly_before.step.gz');
+  await hosted.locator('.diff-slot input[type=file]').nth(1).setInputFiles({ name: 'renamed.step', mimeType: 'model/step', buffer: Buffer.from(renamedStep, 'latin1') });
+  const removedRow = hosted.locator('.diff-parts tr', { hasText: 'GRM-01 shank' });
+  await check(removedRow).toContainText(/removed/i);
+  const withRemoved = ['assembly-removed:GRM-01 shank#0', 'assembly:GRM-01 stem', ...coloured].sort();
+  await check.poll(async () => (await held()).assembly.filter(id => id !== 'assembly-lit')).toEqual(withRemoved);
+  await removedRow.getByRole('button', { name: 'Open' }).click();
+  await check.poll(async () => (await held()).parts).toEqual([]);
+  await check.poll(async () => (await held()).others.length).toBe(1);
+  assert.deepEqual((await held()).assembly, []);
+  await hosted.getByRole('button', { name: 'All parts' }).click();
+  await check.poll(async () => (await held()).parts.length).toBe(12);
+  await check.poll(async () => (await held()).assembly.filter(id => id !== 'assembly-lit')).toEqual(withRemoved);
+  assert.deepEqual((await held()).others, []);
   await hosted.close();
   assert.deepEqual(problems, []);
   console.log('<StepDiff> on three-cad-viewer: compared, linked both ways, every Before shown, PMI changes listed as the engine reports them and drawn by change from the scenes the diff compared (one diff, no scene read again; a removed callout ghosted, the old callout of a changed one beside it, by its old id too), a thread the new file no longer states reported removed once, a row turning to its callout and a callout finding its row, an assembly listed and its parts opened, onPart and onEvent heard; on a host\'s view, callouts handed over to draw and clicked back, an assembly coloured and opened.');

@@ -29,7 +29,7 @@ interface View {
 /** A comparison's report: its verdict and summary, and its PMI section with the two scenes it compared. */
 interface Report { verdict: string; summary: string; pmi?: DiffPmi }
 /** ``part``: Specify's index of the part drawn, in the new file (or the old, for a removed part); 0 by default. */
-interface Diffed { report: Report; markdown: string; view: View; part?: number }
+interface Diffed { report: Report; markdown: string; view: View; part?: number; /** Only the old file has it. */ removed?: boolean }
 /** Each revision's PMI scene, as the diff compared them, read for one comparison, or why it could not be. */
 interface Scenes { for: Diffed; now: DrawnPmi | null; was: DrawnPmi | null; problem: string }
 /**
@@ -146,7 +146,7 @@ const SEE_THROUGH = 0.5;
  * ``part`` is Specify's index of the new part. ``onLine`` hears a line picked in the default
  * view's tree.
  */
-function draw(container: HTMLElement, view: View, part: number, given: HostView | null, onLine: (line: number) => void): Drawn {
+function draw(container: HTMLElement, view: View, part: number, removed: boolean, given: HostView | null, onLine: (line: number) => void): Drawn {
   const names = lineNames(view.changes);
   const lineName = (i: number) => names[i]!;
   const kindOf = (face: number) => view.faces[face] ?? null;
@@ -206,7 +206,10 @@ function draw(container: HTMLElement, view: View, part: number, given: HostView 
     onPick: path => { const line = lineAt.get(path); if (line !== undefined) onLine(line); },
   });
   const hv = (given ?? own)!;
-  hv.showParts([part]);
+  // A host has the new file's parts: a removed part is none of them, and ``part`` is its index in the
+  // old file, so it is shown as its Before alone, whatever Show every Before says.
+  const gone = Boolean(given) && removed;
+  hv.showParts(gone ? [] : [part]);
   // A host that cannot draw meshes shows no Before.
   let meshes = true;
   const added = new Map<string, number>();
@@ -228,7 +231,7 @@ function draw(container: HTMLElement, view: View, part: number, given: HostView 
     if (!faces.length) { hv.clearStyles(layer); return; }
     hv.styleFaces(layer, [{ faces: faces.map(face => ({ part, face })), colour: line !== null && line === lit ? LIT : hex(COLOURS[colour]) }]);
   };
-  for (const layer of byLayer.keys()) if (byLayer.get(layer)!.faces.length) style(layer);
+  if (!gone) for (const layer of byLayer.keys()) if (byLayer.get(layer)!.faces.length) style(layer);
   // Which Befores are shown, by line (-1, the faces no line names), as last set.
   const shown = new Map<number, boolean>();
   const showGone = (line: number) => {
@@ -261,7 +264,8 @@ function draw(container: HTMLElement, view: View, part: number, given: HostView 
         const visible = all || i === line || removal(c);
         if (shown.get(i) !== visible) { shown.set(i, visible); showGone(i); }
       });
-      if (shown.get(-1) !== all) { shown.set(-1, all); showGone(-1); }
+      const rest = all || gone;
+      if (shown.get(-1) !== rest) { shown.set(-1, rest); showGone(-1); }
     },
     light(line) {
       if (line === lit) return;
@@ -305,6 +309,7 @@ function draw(container: HTMLElement, view: View, part: number, given: HostView 
       if (own) { own.dispose(); return; }
       // The host's view is the host's: only what the comparison put on it is taken off.
       hv.showCallouts?.([]);
+      if (through) hv.setOpacity(1);
       for (const layer of byLayer.keys()) hv.clearStyles(layer);
       hv.clearStyles(ITEM);
       for (const id of [...added.keys()]) removeMesh(id);
@@ -441,7 +446,7 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
       quantity: `The same part, ${counts}.`,
     }[row.status] ?? 'Unchanged.';
     return {
-      part: at,
+      part: at, removed: !row.new,
       report: { verdict: 'ok', summary, ...row.report?.pmi ? { pmi: row.report.pmi } : {} }, markdown: '',
       view: {
         new: mesh, old: mesh, motion: null, changes: [],
@@ -506,7 +511,7 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
 
   useEffect(() => {
     if (!diffed || !stage.current) return;
-    const d = draw(stage.current, diffed.view, diffed.part ?? 0, hostView, line => {
+    const d = draw(stage.current, diffed.view, diffed.part ?? 0, Boolean(diffed.removed), hostView, line => {
       choose(line);
       drawn.current?.lookAt(line);
       report.current?.querySelector(`[data-change="${line}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -663,7 +668,7 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
       {assembly && files && (
         <div className="diff-body diff-body-assembly" hidden={Boolean(diffed)}>
           <section className="diff-view">
-            <AssemblyDiffView engine={engine.current!} old={files.old} next={files.next} rows={assembly.parts} lit={pointedPart} view={hostView}
+            <AssemblyDiffView engine={engine.current!} old={files.old} next={files.next} rows={assembly.parts} lit={pointedPart} view={hostView} active={!diffed}
               meshes={meshes.current} onPoint={setPointedPart} onOpen={name => { const row = assembly.parts.find(p => p.name === name); if (row) open(row); }} />
           </section>
           <aside className="diff-panel diff-assembly">

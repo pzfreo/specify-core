@@ -83,6 +83,9 @@ Read first:
   is handed the whole list (each callout's status, colour, graphics and planes) whenever it changes,
   and a host's pointer events carry `callout: id`. The assembly comparison takes the `view` too: its
   parts coloured with `styleFaces`, removed ones given as meshes, clicks opening a part.
+  Fixed after 0.3.0-rc.2: the assembly stayed on the host's view while a part was open (its colours and
+  its clicks) and All parts did not bring the other parts back; a removed part opened as whichever new
+  part has its index; see-through stayed on after leaving a part.
 - The review's general dimensions: one the file states with its nominal alone has Call Out too. It
   is toleranced in place (its feature-and-kind changed, `change {"length:…": {"to": "±t"}}`), not
   added beside the one the file states.

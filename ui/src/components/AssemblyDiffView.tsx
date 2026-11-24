@@ -36,10 +36,13 @@ const label = (name: string) => name.replace(/[/<>&"]/g, ' ');
  * coloured by what became of it, and each removed part a ghost at its old placements. Picking
  * a changed part opens its own comparison.
  */
-export default function AssemblyDiffView({ engine, old, next, rows, lit, meshes, onOpen, onPoint, view: hostView = null }: {
+export default function AssemblyDiffView({ engine, old, next, rows, lit, meshes, onOpen, onPoint, view: hostView = null, active }: {
   /** The host's own 3D view (docs/host-view.md): the new revision's parts are the host's, coloured
    * by what became of them; removed parts are given as meshes at their old placements. */
   view?: HostView | null;
+  /** Whether the assembly is what is shown: false while one of its parts is open. A host has one
+   * view for both, so the assembly is on it only while active. */
+  active: boolean;
   engine: WorkerClient;
   /** Each part's mesh by its name, kept for opening it alone. */
   meshes: Map<string, PmiMesh>;
@@ -56,6 +59,8 @@ export default function AssemblyDiffView({ engine, old, next, rows, lit, meshes,
   const view = useRef<CadView | null>(null);
   const [read, setRead] = useState(0);
   const [error, setError] = useState('');
+  // On a host's view: the old file's parts, once every part's mesh is read.
+  const [ready, setReady] = useState<AssemblyPart[] | null>(null);
   const drawn = rows.filter(r => r.new || r.old);
 
   // On the host's view: what was styled and added, to light a part and to take it all off again.
@@ -77,8 +82,9 @@ export default function AssemblyDiffView({ engine, old, next, rows, lit, meshes,
       layers.push(layer);
     }
     const added: string[] = [];
+    let on = true;
     void hv.info().then(info => {
-      if (!info.canDrawMeshes) return;
+      if (!on || !info.canDrawMeshes) return;
       for (const row of drawn) {
         if (row.new || !row.old) continue;
         const mesh = meshes.get(row.name);
@@ -107,7 +113,10 @@ export default function AssemblyDiffView({ engine, old, next, rows, lit, meshes,
         else hv.clearStyles('assembly-lit');
       },
     };
+    // Back from a part, the camera is still on it.
+    hv.fit();
     return () => {
+      on = false;
       stop();
       host.current = null;
       for (const layer of [...layers, 'assembly-lit']) hv.clearStyles(layer);
@@ -118,6 +127,7 @@ export default function AssemblyDiffView({ engine, old, next, rows, lit, meshes,
   useEffect(() => {
     let live = true;
     let stopPointer = () => {};
+    setReady(null);
     // The row a tree path is under.
     const rowAt = (path: string | undefined) => path === undefined ? undefined
       : drawn.find(r => path === pathOf(label(r.name)) || path.startsWith(`${pathOf(label(r.name))}/`));
@@ -148,7 +158,7 @@ export default function AssemblyDiffView({ engine, old, next, rows, lit, meshes,
           });
         }
         if (!live) return;
-        if (hostView) { stopPointer = onHost(hostView, oldParts); return; }
+        if (hostView) { setReady(oldParts); return; }
         if (!stage.current) return;
         const cad = createCadView(stage.current, nodes, {
           onPick: path => { const row = rowAt(path); if (row) onOpen(row.name); },
@@ -180,10 +190,12 @@ export default function AssemblyDiffView({ engine, old, next, rows, lit, meshes,
     return () => { live = false; stopPointer(); view.current?.dispose(); view.current = null; };
   }, [old, next, rows, hostView]);
 
+  useEffect(() => (hostView && ready && active ? onHost(hostView, ready) : undefined), [hostView, ready, active]);
+
   useEffect(() => {
     if (host.current) host.current.light(lit);
     else view.current?.light(lit === null ? null : pathOf(label(lit)));
-  }, [lit, read]);
+  }, [lit, read, ready, active]);
 
   return (
     <div className="diff-assembly-stage">
