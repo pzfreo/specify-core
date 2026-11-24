@@ -369,7 +369,7 @@ on 2026-10-16:
 | Raw, optimized | 10,197,823 | 9.73 |
 | gzip, level 9 | 3,157,943 | 3.01 |
 | Brotli, quality 11 | 2,148,100 | 2.05 |
-| Raw ceiling | 17,000,000 | 16.21 |
+| Raw ceiling | 18,000,000 | 17.17 |
 
 These measure `specify_core_wasm_bg.wasm`, excluding the small JS/TypeScript/metadata files.
 CI and releases print current measurements and the remaining size headroom; sizes can change
@@ -461,6 +461,8 @@ for #162 (PR #164) added 182 KB and measured 15,002,152 bytes (2,152 over).
 On 2026-11-22 it was raised to 17,000,000 bytes, approved by Paul, 2026-11-22, for the 0.3.0
 feature set: the integrated stack (feature table, edit writer, carry, WASM edits, #228, panel)
 measured 16,568,361 bytes (68,361 over).
+On 2026-11-24 it was raised to 18,000,000 bytes, approved by Paul, at 0.3.0-rc.2, which
+measured 16,988,345 bytes on Linux CI (11,655 under).
 Raising it requires a deliberate, reviewed JSON edit; the size checker never
 updates the budget automatically. When rebaselining, record the three measurements and
 tool versions together and explain the increase in the changelog.
