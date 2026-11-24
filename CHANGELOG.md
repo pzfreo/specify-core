@@ -321,6 +321,8 @@ Read first:
   P11, D6).
 - The reviewed WASM size ceiling is raised from 16,500,000 to **17,000,000** bytes (approved by Paul,
   2026-11-22, for the 0.3.0 feature set), after the integrated 0.3.0 stack measured 16,568,361 bytes.
+  Raised again to **18,000,000** bytes (approved by Paul, 2026-11-24) at 0.3.0-rc.2, which measured
+  16,988,345 bytes on Linux CI, 11,655 under 17,000,000.
 
 ### Removed
 
