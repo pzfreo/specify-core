@@ -453,9 +453,11 @@ function App() {
       if (source === 'mcp') for (const id of changedIds(previous, answers)) fromAgent.add(id);
       // The page's own change, as SpecifyReview already shows it (or answers back to what it shows).
       if (sameAnswers(answers, shown.answers)) { setUnshown(null); return; }
+      // Answers from before a Discard are not shown when their review lands after it.
+      const started = shown.generation;
       void opened.reviewOf(answers).then((review) => {
         // Another part shown since, or a newer change on its way (shown when it lands).
-        if (current.current?.store !== store || !sameAnswers(store.get(), answers)) return;
+        if (current.current?.store !== store || !sameAnswers(store.get(), answers) || shown.generation !== started) return;
         shown.answers = answers;
         // What the review now shows: these answers, with what the file states and the page's
         // changes to it (which the session's answers leave out) as they were.
