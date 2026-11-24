@@ -436,8 +436,57 @@ try {
   await compareAssembly('GRM-99');
   await check(assembly.getByText('The assembly has no part named "GRM-99".')).toBeVisible();
   await check(assembly.locator('table.diff-parts:visible tbody tr')).toHaveCount(12);
+
+  // On a host's own view (?host=1, a stand-in that records each call): the host is handed the
+  // callouts to draw itself, and its clicks on them find their rows; an assembly's parts are
+  // coloured on it and its clicks open them.
+  const hosted = await browser.newPage({ viewport: { width: 1300, height: 900 } });
+  hosted.on('pageerror', error => problems.push(String(error)));
+  const hostUrl = `${url}${url.includes('?') ? '&' : '?'}host=1`;
+  await hosted.goto(hostUrl);
+  await hosted.locator('.diff-slot input[type=file]').nth(0).setInputFiles('test/fixtures/spindle_pmi_before.step.gz');
+  await hosted.locator('.diff-slot input[type=file]').nth(1).setInputFiles('test/fixtures/spindle_pmi_after.step.gz');
+  await check(hosted.locator('.diff-pmi li')).toHaveCount(reported.length);
+  assert.equal(await hosted.locator('.diff-stage canvas').count(), 0, 'no viewer of the package\'s own on a host');
+  const lastCallouts = () => hosted.evaluate(() => window.__host.calls.filter(([n]) => n === 'showCallouts').at(-1)?.[1] ?? null);
+  await check.poll(async () => (await lastCallouts())?.length ?? 0).toBeGreaterThan(0);
+  let sent = await lastCallouts();
+  for (const c of reported) {
+    const callout = sent.find(x => x.id === c.id && x.status !== 'before');
+    if (!callout) continue; // an item with no callout is shown on its faces
+    assert.equal(callout.status, c.class, `${c.id} is sent ${c.class}`);
+    assert.equal(callout.ghost, c.class === 'removed');
+    assert.equal(callout.colour, colour[c.class]);
+    assert.ok(callout.graphics.length && callout.graphics.every(g => Array.isArray(g.polylines)), `${c.id} carries its graphics`);
+  }
+  for (const c of reported.filter(c => c.class !== 'removed')) assert.ok(sent.some(x => x.id === c.id), `${c.id} is sent to the host`);
+  assert.ok(sent.some(x => x.id === 'datum:A' && x.status === 'unchanged'), 'an unchanged callout is sent too');
+  assert.ok(sent.every(x => !x.highlighted), 'nothing in hand yet');
+  // A click the host reports on a callout picks its row; that item is then sent highlighted, and
+  // a changed one's old callout with it.
+  const changedOne = reported.find(c => c.class === 'changed' && sent.some(x => x.id === c.id));
+  await hosted.evaluate(id => window.__host.pointer({ type: 'click', x: 1, y: 1, hit: null, callout: id }), changedOne.id);
+  await check(hosted.locator('.diff-pmi li.is-picked')).toHaveAttribute('data-pmi', changedOne.id);
+  await check.poll(async () => (await lastCallouts()).filter(x => x.highlighted).map(x => x.status).sort().join()).toBe(['before', 'changed'].join());
+  // PMI turned off: an empty list.
+  await hosted.getByRole('checkbox', { name: 'PMI', exact: true }).uncheck();
+  await check.poll(async () => (await lastCallouts()).length).toBe(0);
+
+  await hosted.goto(hostUrl);
+  await hosted.locator('.diff-slot input[type=file]').nth(0).setInputFiles('test/fixtures/gramil_assembly_before.step.gz');
+  await hosted.locator('.diff-slot input[type=file]').nth(1).setInputFiles('test/fixtures/gramil_assembly_after.step.gz');
+  await check(hosted.locator('table.diff-parts:visible tbody tr')).toHaveCount(12);
+  const styled = () => hosted.evaluate(() => window.__host.calls.filter(([n, a]) => n === 'styleFaces' && String(a[0]).startsWith('assembly:')).map(([, a]) => [a[0], a[1][0].colour, a[1][0].faces.length]));
+  await check.poll(async () => (await styled()).map(([layer]) => layer).sort().join()).toBe('assembly:GRM-02 shaft,assembly:GRM-04 drive plate');
+  for (const [, c, n] of await styled()) { assert.equal(c, '#e07a00', 'a changed part is orange'); assert.ok(n > 0, 'every face of it'); }
+  assert.ok((await hosted.evaluate(() => window.__host.calls.find(([n]) => n === 'showParts')?.[1] ?? [])).length === 12, 'the new revision\'s parts shown');
+  // Pointed at on the host: lit in the table's terms; clicked: opened.
+  const shaftFace = await hosted.evaluate(() => window.__host.calls.find(([n, a]) => n === 'styleFaces' && a[0] === 'assembly:GRM-02 shaft')[1][1][0].faces[0]);
+  await hosted.evaluate(hit => window.__host.pointer({ type: "click", x: 1, y: 1, hit }), shaftFace);
+  await check(hosted.locator('.diff-part')).toContainText('GRM-02 shaft');
+  await hosted.close();
   assert.deepEqual(problems, []);
-  console.log('<StepDiff> on three-cad-viewer: compared, linked both ways, every Before shown, PMI changes listed as the engine reports them and drawn by change from the scenes the diff compared (one diff, no scene read again; a removed callout ghosted, the old callout of a changed one beside it, by its old id too), a thread the new file no longer states reported removed once, a row turning to its callout and a callout finding its row, an assembly listed and its parts opened, onPart and onEvent heard.');
+  console.log('<StepDiff> on three-cad-viewer: compared, linked both ways, every Before shown, PMI changes listed as the engine reports them and drawn by change from the scenes the diff compared (one diff, no scene read again; a removed callout ghosted, the old callout of a changed one beside it, by its old id too), a thread the new file no longer states reported removed once, a row turning to its callout and a callout finding its row, an assembly listed and its parts opened, onPart and onEvent heard; on a host\'s view, callouts handed over to draw and clicked back, an assembly coloured and opened.');
 } finally {
   await browser.close();
   server?.kill();

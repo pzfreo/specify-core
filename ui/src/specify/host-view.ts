@@ -2,6 +2,7 @@
 // JSON-serialisable data both ways. The package's own views are its default implementation
 // (default-view.ts). Nothing here imports three.js or a viewer.
 import type { PmiFace, PmiMesh } from '../types/pmi';
+import type { DrawnGraphic, DrawnPlane } from './drawn';
 
 export type Vec3 = [number, number, number];
 /** 16 numbers, column-major, as three.js's ``Matrix4.elements``. */
@@ -45,6 +46,8 @@ export interface HostPointerEvent {
   hit: FaceRef | null;
   /** Set when the hit is on a mesh the package gave: its id. */
   mesh?: string;
+  /** Set when the hit is on a callout the package gave (``showCallouts``): its id. */
+  callout?: string;
   button?: number; shift?: boolean; ctrl?: boolean; alt?: boolean; meta?: boolean;
 }
 
@@ -68,6 +71,28 @@ export interface FaceSample {
 
 export interface MeshOptions { transform?: Mat4; colour?: string; opacity?: number; edges?: boolean }
 export interface Box { min: Vec3; max: Vec3 }
+
+/**
+ * A PMI callout for the host to draw (``HostView.showCallouts``): one item's graphics, as the
+ * package draws them on its own view, for the host to draw its own way. Geometry is model-space mm
+ * in the frame of the part shown (STEP coordinates; the host applies its ``worldFromStep``).
+ */
+export interface HostCallout {
+  /** The item's id, as the change list has it; a click or hover on it comes back as ``callout``. */
+  id: string;
+  /** What became of it. ``before``: a changed item's old callout, sent while that item is highlighted. */
+  status: 'added' | 'changed' | 'removed' | 'unchanged' | 'before';
+  /** The package's colour for it (a CSS colour); the host may use its own. */
+  colour: string;
+  /** Drawn faded: a removed item, or a changed item's old callout. */
+  ghost: boolean;
+  /** The item in hand: picked or pointed at in the change list. */
+  highlighted: boolean;
+  /** Its graphics: polylines, triangles, and texts with their placements (drawn.ts's DrawnGraphic). */
+  graphics: readonly DrawnGraphic[];
+  /** The annotation planes its graphics name (``DrawnGraphic.planeId``), by id. */
+  planes: Readonly<Record<string, DrawnPlane>>;
+}
 
 export interface HostView {
   info(): Promise<HostViewInfo>;
@@ -102,6 +127,12 @@ export interface HostView {
   dolly?(factor: number): void;
   /** A brief highlight, animated the host's own way. */
   flash?(faces: FaceRef[]): void;
+  /**
+   * The PMI callouts to draw now, all of them: each call replaces the last (an empty list clears
+   * them). Sent when the comparison's callouts, its Show menu or the item in hand change. A host
+   * without it shows no callouts; the change list and the faces still work.
+   */
+  showCallouts?(callouts: readonly HostCallout[]): void;
   /** Specify's faces of a part by STEP entity: sent with each part, whichever ``faceIds`` the host uses. */
   partFaces?(part: number, faces: { entities: readonly number[] }): void;
   /** For each sample, whether the host's face with that id (in ``faceIds``) matches it within ``tolerance``. */

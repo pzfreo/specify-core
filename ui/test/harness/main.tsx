@@ -3,7 +3,7 @@
 import { createRoot } from 'react-dom/client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  createIntentEngine, drawnFromScene, hasGraphics, SpecifyReview, StepDiff, withoutNotesBlock, type DrawnPmi, type PmiAnswers, type StepFile,
+  createIntentEngine, drawnFromScene, type HostPointerEvent, type HostView, hasGraphics, SpecifyReview, StepDiff, withoutNotesBlock, type DrawnPmi, type PmiAnswers, type StepFile,
 } from '../../src/index';
 import { stepBytes } from '../../src/model/diff';
 
@@ -19,6 +19,8 @@ declare global {
     __parts: (string | null)[];
     __setAnswers(answers: unknown): void;
     __setPart(name: string | null): void;
+    /** With ?host=1: what the component asked of the stand-in host view, and a way to send it pointer events. */
+    __host: { calls: [string, unknown][]; pointer(event: HostPointerEvent): void };
   }
 }
 window.__events = [];
@@ -39,6 +41,25 @@ function Slot({ label, file, pick }: { label: string; file: StepFile | null; pic
   );
 }
 
+// ?host=1: a stand-in for a host's own 3D view, drawing nothing and recording every call, as a
+// host such as Amy's viewer would receive them (docs/host-view.md).
+function recordingHost(): HostView {
+  const calls: [string, unknown][] = [];
+  const pointers = new Set<(e: HostPointerEvent) => void>();
+  window.__host = { calls, pointer: e => { for (const l of pointers) l(e); } };
+  const rec = (name: string) => (...args: unknown[]) => { calls.push([name, JSON.parse(JSON.stringify(args.length === 1 ? args[0] : args))]); };
+  return {
+    info: async () => ({ faceIds: 'mapshapes', canDrawMeshes: true }),
+    showParts: rec('showParts'), styleFaces: rec('styleFaces'), clearStyles: rec('clearStyles'), setOpacity: rec('setOpacity'),
+    addMesh: (id, _mesh, opts) => calls.push(['addMesh', { id, opts }]), removeMesh: rec('removeMesh'),
+    lookFrom: rec('lookFrom'), fit: rec('fit'), home: rec('home'),
+    onCamera: () => () => {}, onPointer: l => { pointers.add(l); return () => pointers.delete(l); }, onUserMoved: () => () => {},
+    rect: async () => ({ left: 0, top: 0, width: 800, height: 600 }), dispose: rec('dispose'),
+    showCallouts: rec('showCallouts'),
+  };
+}
+const hostView = new URLSearchParams(location.search).get('host') === '1' ? recordingHost() : null;
+
 // ?wasmUrl=… : the engine the host serves itself (the override), not the dependency.
 const wasmUrl = new URLSearchParams(location.search).get('wasmUrl') ?? undefined;
 
@@ -56,7 +77,7 @@ function Harness() {
       </div>
       {before && after && (
         <StepDiff
-          before={before} after={after} answers={answers} part={part} wasmUrl={wasmUrl}
+          before={before} after={after} answers={answers} part={part} wasmUrl={wasmUrl} view={hostView}
           onPart={name => { window.__parts.push(name); setPart(name); }}
           onEvent={name => window.__events.push(name)}
         />

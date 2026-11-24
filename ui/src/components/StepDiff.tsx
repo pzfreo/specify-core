@@ -8,7 +8,7 @@ import type { DefaultView } from '../specify/default-view';
 import { subMesh, type HostPointerEvent, type HostView, type Mat4, type MeshOptions, type Vec3 } from '../specify/host-view';
 import type { PmiMesh } from '../types/pmi';
 import { changeOf, drawsItem, facesOf, movedPmi, type DiffPmi, type PmiChange } from '../model/diff-pmi';
-import { createDiffDrawn, PMI_COLOUR, type DiffDrawn } from '../specify/diff-drawn';
+import { createDiffDrawn, hostCallouts, PMI_COLOUR, type DiffDrawn } from '../specify/diff-drawn';
 import { drawnFromScene, hasGraphics, type DrawnPmi } from '../specify/drawn';
 import { reportHtml } from '../model/diff';
 import AssemblyDiffView, { type StepFile } from './AssemblyDiffView';
@@ -304,6 +304,7 @@ function draw(container: HTMLElement, view: View, part: number, given: HostView 
       occluder.mesh.geometry.dispose();
       if (own) { own.dispose(); return; }
       // The host's view is the host's: only what the comparison put on it is taken off.
+      hv.showCallouts?.([]);
       for (const layer of byLayer.keys()) hv.clearStyles(layer);
       hv.clearStyles(ITEM);
       for (const id of [...added.keys()]) removeMesh(id);
@@ -511,14 +512,15 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
       report.current?.querySelector(`[data-change="${line}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     });
     drawn.current = d;
-    // A callout drawn over the part is nearer than any face.
-    const pmiAt = (x: number, y: number) => pmiDrawn.current?.hit(x, y) ?? null;
+    // A callout drawn over the part is nearer than any face: on the host's view, the host says
+    // which (``callout``); on the package's own, its layers find it.
+    const pmiAt = (e: HostPointerEvent) => e.callout ?? pmiDrawn.current?.hit(e.x, e.y) ?? null;
     const canvas = d.own?.cad.canvas;
     const stop = d.view.onPointer(e => {
       if (e.type === 'leave') { setPointed(null); setPointedPmi(null); return; }
       if (e.type === 'hover') {
         // Over a callout: a hand, its notation as haecceity names it, and its row lit.
-        const item = pmiAt(e.x, e.y);
+        const item = pmiAt(e);
         if (canvas) {
           canvas.style.cursor = item === null ? '' : 'pointer';
           canvas.title = item === null ? '' : pmiDrawn.current?.name(item) ?? '';
@@ -528,7 +530,7 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
         return;
       }
       if (e.type !== 'click') return;
-      const item = pmiAt(e.x, e.y);
+      const item = pmiAt(e);
       if (item !== null) {
         setPickedPmi(item);
         pmiList.current?.querySelector(`[data-pmi="${CSS.escape(item)}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -604,6 +606,17 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
     return c && !drawable(c) ? facesOf(c) : null;
   };
   const currentPmi = pointedPmi ?? pickedPmi;
+  // On a host's view that draws callouts: the whole list, sent again whenever what is shown changes.
+  useEffect(() => {
+    const d = drawn.current;
+    if (!d || d.own || !d.view.showCallouts || !diffed || scenes?.for !== diffed) return;
+    const { now, removed, was } = changeOf(diffed.report.pmi?.items ?? []);
+    d.view.showCallouts(hostCallouts({
+      now: scenes.now, was: scenes.was, change: now, removed, before: was,
+      show: { default: pmiShow.defaults, existing: pmiShow.existing, general: pmiShow.general },
+      on: pmiShow.on, lit: currentPmi,
+    }));
+  }, [scenes, pmiShow, currentPmi, diffed]);
   useEffect(() => {
     pmiDrawn.current?.light(currentPmi);
     drawn.current?.lightFaces(facesShown(currentPmi));
@@ -616,7 +629,12 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
       if (!pmiShow.on) setPmiShow({ ...pmiShow, on: true });
       const faces = facesShown(next);
       if (faces) drawn.current?.lightFaces(faces, true);
-      else pmiDrawn.current?.focus(next);
+      else if (pmiDrawn.current) pmiDrawn.current.focus(next);
+      else {
+        // A host's view: turned to the item's faces; the host draws its callout.
+        const c = changes.find(x => x.id === next);
+        if (c) drawn.current?.lightFaces(facesOf(c), true);
+      }
     }
   };
 
@@ -645,7 +663,7 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
       {assembly && files && (
         <div className="diff-body diff-body-assembly" hidden={Boolean(diffed)}>
           <section className="diff-view">
-            <AssemblyDiffView engine={engine.current!} old={files.old} next={files.next} rows={assembly.parts} lit={pointedPart}
+            <AssemblyDiffView engine={engine.current!} old={files.old} next={files.next} rows={assembly.parts} lit={pointedPart} view={hostView}
               meshes={meshes.current} onPoint={setPointedPart} onOpen={name => { const row = assembly.parts.find(p => p.name === name); if (row) open(row); }} />
           </section>
           <aside className="diff-panel diff-assembly">
