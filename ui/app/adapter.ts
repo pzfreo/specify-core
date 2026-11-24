@@ -8,7 +8,8 @@
 //   Call Out on a dimension adds it with a tolerance of its own, as the editor's Call out does.
 import { answerText, isNoneValue, type FeatureTable, type TableRow } from './table.ts';
 import { removalTargets as targetsOf, type Pending } from './edits.ts';
-import type { IntentReview, PmiAnswers, PmiQuestion } from '../src/types/pmi.ts';
+import type { IntentReview, PmiAnalysis, PmiAnswers, PmiQuestion } from '../src/types/pmi.ts';
+import { describeFaces } from '../src/specify/datums.ts';
 import type { CalledOut } from '../src/specify/SpecifyReview.tsx';
 
 /** A general dimension's question (one per dimension under the general tolerance): not shown as a row. */
@@ -31,14 +32,18 @@ export interface StatedRows {
 
 /** What a stated row reads as: its requirements' own text, less basic dimensions ("60 (basic)")
  * and bare counts ("(4)"), which the Characteristics list carries. */
-function statedText(row: TableRow, q: PmiQuestion | undefined): string {
+function statedText(row: TableRow, q: PmiQuestion | undefined, analysis?: PmiAnalysis): string {
   if (row.state === 'decided_none') return 'none needed';
+  // Faces by what they are ("bottom face"), never by their numbers.
+  if (analysis && Array.isArray(row.value) && row.value.length && row.value.every((f) => typeof f === 'number')) {
+    return describeFaces(row.value as number[], analysis);
+  }
   const own = (row.requirements ?? []).map((r) => r.text).filter((t) => t && !/\(basic\)\s*$/.test(t) && !/^\(\d+\)$/.test(t.trim()));
   return own.length ? own.join(' · ') : answerText(row.value, q);
 }
 
 /** The stated rows of ``table``, with their questions from ``bare`` (the bare part's questions). */
-export function statedRows(table: FeatureTable, bare: readonly PmiQuestion[]): StatedRows {
+export function statedRows(table: FeatureTable, bare: readonly PmiQuestion[], analysis?: PmiAnalysis): StatedRows {
   // What the file states, and what it has decided none needed (a stored decision is an item too:
   // its pencil gives it a value, its bin takes the decision back).
   const rows = table.rows.filter((r) => (r.state === 'stated' || r.state === 'decided_none') && !r.id.startsWith('bom.') && !isDimensionQuestion(r.id));
@@ -49,7 +54,7 @@ export function statedRows(table: FeatureTable, bare: readonly PmiQuestion[]): S
     ids: new Set(rows.filter((r) => r.state === 'stated').map((r) => r.id)),
     values: Object.fromEntries(rows.filter((r) => asked.has(r.id)).map((r) => [r.id, r.value])),
     questions,
-    texts: Object.fromEntries(rows.filter((r) => asked.has(r.id)).map((r) => [r.id, statedText(r, byId.get(r.id))])),
+    texts: Object.fromEntries(rows.filter((r) => asked.has(r.id)).map((r) => [r.id, statedText(r, byId.get(r.id), analysis)])),
     decided: new Set(rows.filter((r) => r.state === 'decided_none' && asked.has(r.id)).map((r) => r.id)),
   };
 }

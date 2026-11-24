@@ -52,7 +52,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension, otherPmi, lengthUnit = 'mm' }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension, otherPmi, lengthUnit = 'mm', calledOutDimensions, takenKeys }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -119,10 +119,15 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
    * 0.3: requirements the file states on no feature Specify asks about ("Other PMI in the file"):
    * each with its bin (remove, confirmed; Undo). The engine cannot change them in place.
    */
+  /** General dimensions the host holds called out, by characteristic, with their tolerance (it
+   * outlasts the review, a part switch say); without it the review keeps its own. */
+  calledOutDimensions?: ReadonlyMap<string, string>;
+  /** "Added by you" keys (extra.N) the host already uses, which a new requirement must not take. */
+  takenKeys?: readonly string[];
   /** The file's length unit: the units a general tolerance by decimal places starts in (#228). */
   lengthUnit?: Units;
   otherPmi?: {
-    items: readonly { key: string; label: string; value: string; faces: readonly number[] }[];
+    items: readonly { key: string; label: string; value: string; faces: readonly number[]; removable?: boolean }[];
     removed: ReadonlySet<string>; onRemove(key: string): void; onRestore(key: string): void;
   };
 }) {
@@ -176,7 +181,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   // The review, or every characteristic numbered as its balloon.
   const [view, setView] = useState<'review' | 'table'>('review');
   // General dimensions called out (0.3, change list item 1), by characteristic, with the tolerance given.
-  const [calledOut, setCalledOut] = useState<ReadonlyMap<string, string>>(new Map());
+  const [calledOutHere, setCalledOut] = useState<ReadonlyMap<string, string>>(new Map());
+  const calledOut = calledOutDimensions ?? calledOutHere;
+  // A new "Added by you" key, past any the host holds (a call-out held in the bar, say).
+  const freeKey = () => nextKey({ ...answers, ...Object.fromEntries((takenKeys ?? []).map((k) => [k, true])) });
   const [callingOut, setCallingOut] = useState<string | null>(null);
   const [selectedChar, setSelectedChar] = useState<string | null>(null);
   // What is left out of the inspection list: the CSV's, not the PMI's.
@@ -516,17 +524,25 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const added = addedOf(answers);
   const startExtra = () => {
     if (readOnly) return;
-    const key = nextKey(answers);
+    const key = freeKey();
     setDraft({ key, kind: '', value: '', datums: [], reference: [] });
     setCurrent(key);
   };
   // A dimension the general tolerance covers, called out to be toleranced apart:
   // its kind, faces and reference given, its tolerance to say.
   const callOut = (i: number, what: string, value = '') => {
+    // 0.3: a general dimension is called out on the dimensions row (change list item 1).
+    if (callOutDimension) {
+      const row = chars.find((r) => r.source === `general:${i}`);
+      if (!row) return;
+      setNoteGeneral(null);
+      switchView('review'); setUnfolded('dims'); setCallingOut(row.id); showChar(row.id, row.faces);
+      return;
+    }
     if (readOnly) return;
     const g = preview?.general?.[i];
     if (!g) return;
-    const key = nextKey(answers);
+    const key = freeKey();
     const reference = Array.isArray(g['reference']) ? g['reference'] as number[] : [];
     setDraft({
       key, kind: g.kind === 'size' ? 'size' : 'distance', value, datums: [], reference, faces: g.faces,
@@ -545,7 +561,19 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const quickCallOut = async (i: number, what: string, value: string) => {
     const g = preview?.general?.[i];
     if (!g) return;
-    const key = nextKey(answers);
+    // 0.3: through the host, as the dimensions row calls out (one key, shown on its line).
+    if (callOutDimension) {
+      const row = chars.find((r) => r.source === `general:${i}`);
+      if (!row) return;
+      const ok = callOutDimension({
+        id: row.id, what: `${row.feature} ${row.text}`, kind: g.kind === 'size' ? 'size' : 'distance', faces: g.faces,
+        reference: Array.isArray(g['reference']) ? g['reference'] as number[] : [],
+      }, value);
+      setNoteGeneral(null);
+      if (ok) setNote(`Called out ${what} ${value}.`);
+      return;
+    }
+    const key = freeKey();
     const reference = Array.isArray(g['reference']) ? g['reference'] as number[] : [];
     const extra = g.kind === 'size'
       ? { faces: [...g.faces], kind: 'size' as const, value }
@@ -1129,7 +1157,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               rows={chars} selected={selectedChar} onSelect={showChar} onDownload={downloadCsv}
               exportable={inspectionExports}
               skipped={skipped} onSkip={skip} onEdit={readOnly ? () => null : editChar}
-              onCallOut={(row) => (!readOnly && row.source.startsWith('general:')
+              onCallOut={(row) => (!readOnly && row.source.startsWith('general:') && !(callOutDimension && row.source.startsWith('general:existing:'))
                 ? (callOutDimension
                   ? () => { switchView('review'); setUnfolded('dims'); setCallingOut(row.id); showChar(row.id, row.faces); }
                   : () => callOut(Number(row.source.slice('general:'.length)), row.text))
@@ -1200,7 +1228,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                   {generalDims.map((r) => (
                     <DimensionLine
                       key={r.id} row={r} selected={selectedChar === r.id} calledOut={calledOut.get(r.id) ?? null}
-                      startOpen={callingOut === r.id} canCallOut={!r.source.startsWith('general:existing:')}
+                      startOpen={callingOut === r.id && !r.source.startsWith('general:existing:')} canCallOut={!r.source.startsWith('general:existing:')}
                       onSelect={() => showChar(r.id, r.faces)}
                       onCallOut={(tolerance) => {
                         const g = preview?.general?.[Number(r.source.slice('general:'.length))];
@@ -1233,7 +1261,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                       <span className="prompt">{item.label}</span>
                       <span className="value">{removed ? <><s>{item.value}</s> removed</> : <>{item.value} <small>(from the file)</small></>}</span>
                     </button>
-                    <StatedTools name={`${item.label} ${item.value}`} state={{ removed, changed: false, onRemove: () => otherPmi.onRemove(item.key), onRestore: () => otherPmi.onRestore(item.key) }} />
+                    {item.removable !== false && (
+                      <StatedTools name={`${item.label} ${item.value}`} state={{ removed, changed: false, onRemove: () => otherPmi.onRemove(item.key), onRestore: () => otherPmi.onRestore(item.key) }} />
+                    )}
                   </div>
                 );
               })}

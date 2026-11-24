@@ -20,12 +20,13 @@ import { stepBytes } from '../src/model/diff';
 import { SessionApiMismatch } from './session-api';
 import { saveFile, type CalledOut } from '../src/specify/SpecifyReview';
 import { describe as describeExtra } from '../src/specify/added';
+import { describeFaces } from '../src/specify/datums';
 import type { StoredInspection } from '../src/specify/saved-inspection';
 import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
 import { discardAnswers, getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type EditFailure, type EditList, type LocalConfig, type AnswerDraft } from './local';
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } from './save';
-import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts } from './edits';
+import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, type Pending } from './edits';
 import { EditBar } from './EditBar';
 import { answerEdit, asEngineTakes, callOutEdit, forEngine, forScreens, isDimensionQuestion, nextExtraKey, removeEdit, statedRows, type StatedRows } from './adapter';
 import { answerText, bareAnalysis, fileLengthUnit, panelModel, tableOf, type FeatureTable, type PanelModel } from './table';
@@ -62,8 +63,9 @@ interface Opened {
   units: 'in' | 'mm';
   /** Working answers used for agent notices and revision tracking. */
   external: { answers: PmiAnswers; review: IntentReview };
-  /** The working answers processed by the page at the last shown session revision. */
-  shown: { answers: PmiAnswers };
+  /** The working answers processed by the page at the last shown session revision; ``all``: every
+   * answer the review last showed, what the file states included (each change is from these). */
+  shown: { answers: PmiAnswers; all: PmiAnswers };
   /** Specify's review of ``answers``, for answers that arrive from outside the page. */
   reviewOf(answers: PmiAnswers): Promise<IntentReview>;
 }
@@ -82,7 +84,7 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   const bare = await worker.request<IntentReview>('review-analysis-given', { analysis: bareAnalysis(analysis), answers: {} });
   const table = tableOf(analysis);
   // What the file states: shown as answered rows, kept out of the engine's review (adapter.ts).
-  const stated = statedRows(table, bare.questions);
+  const stated = statedRows(table, bare.questions, analysis);
   // The session's answers with the page's unsaved changes to this part (kept while another part was shown).
   const answers = answersSession.shown(at.part);
   // The general dimensions' questions, from the engine's latest review: what Call Out answers.
@@ -97,7 +99,7 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   const stored = snapshot.analysis.resume?.answers ?? {};
   const fileReview = sameAnswers(stored, answers) ? review : await reviewOf(stored);
   const store = answersSession.store(at.part, stored);
-  const shown = { answers };
+  const shown = { answers, all: { ...stated.values, ...answers } };
   const engine: SpecifyEngine = {
     // Each commit of the page's answers comes through here: what the session gets once Specify
     // accepts them. The change is the one from the answers the page showed when it was made, so an
@@ -107,12 +109,14 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
       const given = forEngine(shownAnswers, stated);
       const base = shown.answers;
       const asked = screened(await worker.request<IntentReview>('review', { ...file, answers: given }));
-      // Each question whose answer the person changed is an edit, held in the page until Save.
-      const was = { ...stated.values, ...base };
+      // Each question whose answer the person changed since the review last showed it is an edit,
+      // held in the page until Save; set back to the file's value, its edit goes.
+      const was = shown.all;
       for (const id of new Set([...Object.keys(shownAnswers), ...Object.keys(was)])) {
         if (id.startsWith('_') || JSON.stringify(shownAnswers[id]) === JSON.stringify(was[id])) continue;
         answered(at.part, id, shownAnswers[id]);
       }
+      shown.all = shownAnswers;
       shown.answers = given;
       store.set(given, base);
       if (!sameAnswers(given, base)) edited();
@@ -240,6 +244,10 @@ function App() {
     const name = added ? 'Added by you' : rowName(now, id);
     const edit = answerEdit(id, value, row, q, name);
     if (edit?.kind === 'fill' && added) edit.text = describeExtra(added);
+    // Faces by what they are ("bottom face"), never by their numbers.
+    const faces = (v: unknown) => Array.isArray(v) && v.length > 0 && v.every((f) => typeof f === 'number');
+    if (edit && (edit.kind === 'fill' || edit.kind === 'change') && faces(value)) edit.text = describeFaces(value as number[], now.session.analysis as PmiAnalysis);
+    if (edit?.kind === 'change' && faces(edit.expect)) edit.was = describeFaces(edit.expect as number[], now.session.analysis as PmiAnalysis);
     setPending((all) => {
       const updated = new Map(all);
       const list = updated.get(part) ?? new PendingEdits();
@@ -251,6 +259,8 @@ function App() {
   };
   // The "Added by you" key each called-out general dimension is written under, by characteristic.
   const callOutKeys = useRef(new Map<string, string>());
+  // The edit a bin replaced on an item, by part and item, for its Undo.
+  const displaced = useRef(new Map<string, Pending>());
   // A reset of the review to the file (Discard, or a save that reopened the part).
   const [reviewGeneration, setReviewGeneration] = useState(0);
 
@@ -308,6 +318,7 @@ function App() {
           const fileAnswers = forEngine(next.session.answers, next.stated);
           next.store.set(fileAnswers, next.shown.answers);
           next.shown.answers = fileAnswers;
+          next.shown.all = { ...next.stated.values, ...fileAnswers };
           next = { ...next, external: { answers: fileAnswers, review: next.review } };
           shownRef.current = next;
           setOpened(next);
@@ -439,6 +450,10 @@ function App() {
         // Another part shown since, or a newer change on its way (shown when it lands).
         if (current.current?.store !== store || !sameAnswers(store.get(), answers)) return;
         shown.answers = answers;
+        // What the review now shows: these answers, with what the file states and the page's
+        // changes to it (which the session's answers leave out) as they were.
+        const keptStated = Object.fromEntries(Object.entries(shown.all).filter(([id]) => opened.stated.ids.has(id)));
+        shown.all = { ...keptStated, ...answers };
         setUnshown(null);
         setOpened((now) => (now?.store === store ? { ...now, external: { answers, review } } : now));
         const ids = [...fromAgent];
@@ -520,6 +535,8 @@ function App() {
       setSaved({ path: result.path, open: prompts(result.missing, opened.external.review, opened.review), byAgent: false });
       // The edits are in the file now: the part opens again from it, and they read as the file's.
       setPending(new Map());
+      callOutKeys.current.clear();
+      displaced.current.clear();
       setSavedNote(`Saved ${inspectionName(result.path)} · ${plural(count, 'change')} written, all together.`);
       refreshConfig.current();
     } catch (error) {
@@ -561,12 +578,15 @@ function App() {
       }
       if (!target) {
         setPending(new Map());
+        callOutKeys.current.clear();
+        displaced.current.clear();
         // The review starts again from the file: its answers, and what the page last showed.
         const now = shownRef.current;
         if (now) {
           const file = forEngine(now.session.answers, now.stated);
           now.store.set(file, now.shown.answers);
           now.shown.answers = file;
+          now.shown.all = { ...now.stated.values, ...file };
           now.external = { answers: file, review: now.review };
         }
         setReviewGeneration((n) => n + 1);
@@ -631,7 +651,7 @@ function App() {
   // page's held changes to stated items, which the engine's answers leave out (adapter.ts).
   const shownSession = useMemo(() => {
     if (!opened) return null;
-    const changed = Object.fromEntries(partPending.values().filter((e) => e.kind === 'change').map((e) => [e.id, (e as { value: unknown }).value]));
+    const changed = Object.fromEntries(partPending.values().filter((e) => e.kind === 'change' && !e.draft).map((e) => [e.id, (e as { value: unknown }).value]));
     return { ...opened.session, answers: { ...opened.stated.values, ...opened.external.answers, ...changed } };
     // Only when the part, its answers from outside or the review's start change: not on each edit.
   }, [opened?.session, opened?.external, reviewGeneration]);
@@ -783,12 +803,22 @@ function App() {
             onExport={(_action, format) => { if (format === 'xlsx') downloadFai(); else downloadCsv(); }}
             {...(editing ? {
               lengthUnit: opened.units,
+              // Called out, by characteristic: from the held edits, so it outlasts a part switch.
+              calledOutDimensions: new Map([...callOutKeys.current].flatMap(([at, key]) => {
+                const [part, ...rest] = at.split(':');
+                const edit = partPending.get(key);
+                return Number(part) === opened.part && edit?.kind === 'fill' ? [[rest.join(':'), edit.text.replace(/^±/, '')] as const] : [];
+              })),
+              // "Added by you" keys already taken (the page's call-outs among them): no two share one.
+              takenKeys: [...partPending.values().map((e) => e.id), ...callOutKeys.current.values()],
               otherPmi: {
                 // Named as the file names it ("Flatness"), else by its kind.
                 items: opened.model.other.map((o) => {
                   const item = opened.table.file_pmi.find((r) => (o.number && r.number === o.number) || (o.id && r.id === o.id));
                   const label = item?.type ? item.type.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ') : o.label;
-                  return { key: o.key, label: label.charAt(0).toUpperCase() + label.slice(1).toLowerCase(), value: o.value, faces: o.faces };
+                  return { key: o.key, label: label.charAt(0).toUpperCase() + label.slice(1).toLowerCase(), value: o.value, faces: o.faces,
+                    // With no number and no id the engine has no way to remove it: no bin.
+                    removable: Boolean(o.number || o.id) };
                 }),
                 removed: new Set(partPending.values().filter((e) => e.kind === 'remove').map((e) => e.id)),
                 onRemove: (key: string) => {
@@ -803,18 +833,27 @@ function App() {
                 onRemove: (id: string) => {
                   const row = opened.table.rows.find((r) => r.id === id);
                   if (!row) return;
+                  // The edit the bin replaces (a change, a value for a decision) comes back with Undo.
+                  const before = partPending.get(id);
+                  if (before && before.kind !== 'remove' && before.kind !== 'clear') displaced.current.set(`${opened.part}:${id}`, before);
                   // A stored "none needed" taken back: the item is open again (clear); a stated one removed.
                   editPending(partPending.with(row.state === 'decided_none'
                     ? { kind: 'clear', id, name: rowName(opened, id) }
                     : removeEdit(row, opened.bare.find((q) => q.id === id), rowName(opened, id))));
                 },
-                onRestore: (id: string) => editPending(partPending.without(id)),
+                onRestore: (id: string) => {
+                  const before = displaced.current.get(`${opened.part}:${id}`);
+                  displaced.current.delete(`${opened.part}:${id}`);
+                  editPending(before ? partPending.with(before) : partPending.without(id));
+                },
               },
               callOutDimension: (dimension: CalledOut, tolerance: string) => {
                 // One key per dimension called out, kept while the part is shown (the same edit is replaced).
                 const keys = callOutKeys.current;
-                const key = keys.get(dimension.id) ?? nextExtraKey([...opened.table.rows.map((r) => r.id), ...partPending.values().map((e) => e.id), ...keys.values()]);
-                keys.set(dimension.id, key);
+                const at = `${opened.part}:${dimension.id}`;
+                const key = keys.get(at) ?? nextExtraKey([...opened.table.rows.map((r) => r.id), ...partPending.values().map((e) => e.id),
+                  ...Object.keys(opened.shown.all), ...keys.values()]);
+                keys.set(at, key);
                 const edit = callOutEdit(dimension, tolerance, key);
                 editPending(edit ? partPending.with(edit) : partPending.without(key));
                 return true;
