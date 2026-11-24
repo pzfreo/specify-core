@@ -11,7 +11,8 @@ import { CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { besideNew, type DrawnChange } from '../model/diff-pmi';
 import type { PmiVec } from '../types/pmi';
 import type { CadView } from './cad-view';
-import { drawnViews, type DrawnPmi, type DrawnPoint, type DrawnShow } from './drawn';
+import { drawnGroup, drawnShown, drawnViews, type DrawnPmi, type DrawnPoint, type DrawnShow } from './drawn';
+import type { HostCallout } from './host-view';
 import { createDrawnLayer } from './drawn-layer';
 
 // The picture's colours, as the faces have them; unchanged callouts in the file's grey.
@@ -188,4 +189,42 @@ export function createDiffDrawn(
       for (const el of [ink.domElement, text.domElement, nowTally, wasTally, beforeTally]) el.remove();
     },
   };
+}
+
+/**
+ * The callouts as a host draws them (HostView.showCallouts): what ``createDiffDrawn`` draws on the
+ * package's own view, as data. The new revision's items in their change's colour; the removed ones
+ * faded; unchanged ones only as the Show menu shows them; and the old callout of the item in hand,
+ * if it changed, faded beside it. None when the PMI is turned off.
+ */
+export function hostCallouts({ now, was, change, removed, before, show, on, lit }: {
+  now: DrawnPmi | null; was: DrawnPmi | null;
+  change: ReadonlyMap<string, DrawnChange>; removed: ReadonlySet<string>; before: ReadonlyMap<string, string>;
+  show: DrawnShow; on: boolean; lit: string | null;
+}): HostCallout[] {
+  if (!on) return [];
+  const out: HostCallout[] = [];
+  const planesOf = (pmi: DrawnPmi) => Object.fromEntries(pmi.presentation.planes.map((p) => [p.id, p]));
+  if (now) {
+    for (const [id, graphics] of Object.entries(now.presentation.items)) {
+      const status = change.get(id) ?? 'unchanged';
+      const shown = status !== 'unchanged' ? graphics
+        : graphics.filter((g) => drawnShown(g.source, drawnGroup(now.links[id]), show));
+      if (!shown.length) continue;
+      out.push({ id, status, colour: PMI_COLOUR[status], ghost: false, highlighted: id === lit, graphics: shown, planes: planesOf(now) });
+    }
+  }
+  if (was) {
+    for (const id of removed) {
+      const graphics = was.presentation.items[id];
+      if (!graphics?.length) continue;
+      out.push({ id, status: 'removed', colour: PMI_COLOUR.removed, ghost: true, highlighted: id === lit, graphics, planes: planesOf(was) });
+    }
+    const old = lit === null ? undefined : before.get(lit);
+    const graphics = old === undefined ? undefined : was.presentation.items[old];
+    if (lit !== null && graphics?.length) {
+      out.push({ id: lit, status: 'before', colour: PMI_COLOUR.removed, ghost: true, highlighted: true, graphics, planes: planesOf(was) });
+    }
+  }
+  return out;
 }

@@ -7,6 +7,7 @@ const walk = dir => readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isD
 for (const file of walk('dist').filter(f => f.endsWith('.d.ts'))) {
   const text = readFileSync(file, 'utf8');
   const out = text.replace(/(from\s+|import\s*\(\s*)(['"])(\.{1,2}\/[^'"]*)\.ts\2/g, '$1$2$3$2')
-    .replace(/^import\s+(['"])\.{1,2}\/[^'"]*\.css\1;?\n/gm, '');
+    // A stylesheet imported for its side effect (its own, or three-cad-viewer's) has no types.
+    .replace(/^import\s+(['"])[^'"]*(?:\.css|\/css)\1;?\n/gm, '');
   if (out !== text) writeFileSync(file, out);
 }

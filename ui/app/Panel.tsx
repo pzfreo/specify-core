@@ -8,7 +8,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { AnswerDraft, EditFailure, EditList } from './local.ts';
 import { describe, removalTargets, type Pending, type PendingEdits } from './edits.ts';
 import { answerText, balloonText, changedText, isNoneValue, type OtherRow, type PanelGroup, type PanelModel, type PanelRow } from './table.ts';
-import { compose, emptyBlock, parse, placesText, type GeneralTolerance, type Units } from './general-tolerance.ts';
+import { compose, emptyBlock, parse, placesText, type GeneralTolerance, type Units } from '../src/specify/general-tolerance.ts';
 
 export { describe };
 

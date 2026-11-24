@@ -164,6 +164,25 @@ package sends each part's STEP entity list), `checkFaces` (the host answers the 
 `HostViewInfo.stepEntities` (the host can match by STEP entity) and `useFaceIds` (the package switches the
 host to STEP entities after a mismatch).
 
+### The comparison on a host's view (0.3.0-rc.2)
+
+`<StepDiff view={hostView}>` draws nothing of its own; the host draws.
+
+- **Callouts.** `showCallouts(callouts: HostCallout[])` (optional) is the whole list to draw now; each call
+  replaces the last, and an empty list clears it. It is sent again whenever the comparison, the PMI
+  checkbox, the Show menu or the item in hand changes. Each `HostCallout` has the item's `id`, its `status`
+  (`added`, `changed`, `removed`, `unchanged`, or `before`: a changed item's old callout, sent while that
+  item is in hand), the package's `colour`, `ghost` (draw faded), `highlighted`, its `graphics` (drawn.ts's
+  `DrawnGraphic`: polylines, triangles, texts with placements, in the part's STEP coordinates) and the
+  annotation `planes` they name. A host without `showCallouts` shows no callouts; the list and the
+  faces still work.
+- **Clicks on a callout.** The host's `HostPointerEvent` carries `callout: id` when it lands on one;
+  a hover lights its row, a click picks it.
+- **Assemblies.** Nothing new. The new revision's parts are shown with `showParts`, each changed, moved,
+  recounted or added part coloured on all its faces with `styleFaces` (layer `assembly:<name>`), and
+  each removed part given with `addMesh` at its old placements (when `canDrawMeshes`). The part under
+  a hover is lit (layer `assembly-lit`), and a click on a part opens its own comparison.
+
 ## How the components change
 
 - `cad-view.ts` and `navigator.ts` become the default `HostView` implementations. Nothing else imports

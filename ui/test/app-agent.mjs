@@ -68,18 +68,50 @@ const onlyLocal = (requests, url) => {
   const origin = new URL(url).origin;
   assert.deepEqual(requests.filter(u => !u.startsWith(`${origin}/`) && !/^(blob|data):/.test(u)), [], 'no request leaves 127.0.0.1');
 };
+/** Question ``id`` in the review (the editor's screens, app/adapter.ts): a part setting's line or
+ * field, or an item the file states (`.pmi-lab-stated`, its `data-state`). */
 const question = (page, id) => page.locator(`[data-question="${id}"]`);
-/** None needed on the panel's gap ``id``. */
-async function noneNeeded(page, id) {
-  await question(page, id).getByRole('button', { name: 'None needed', exact: true }).click();
-  await check(page.locator(`.spec-bar [data-pending="${id}"]`)).toBeVisible();
+/** The suggestion card for gap ``id`` (its first button keeps the suggestion). */
+const card = (page, id) => page.locator(`.pmi-lab-suggestion[data-suggestion="${id}"]`);
+/** Gap ``id``: not stated, offered as its suggestion card or its field. */
+async function assertGap(page, id) {
+  await check(page.locator(`.pmi-lab-suggestion[data-suggestion="${id}"], .pmi-lab-field[data-question="${id}"]`).first()).toBeVisible();
+  await check(page.locator(`.pmi-lab-stated[data-question="${id}"]`)).toHaveCount(0);
 }
-/** Add on the panel's gap ``id``, pre-filled with its suggestion. */
+const listedEdit = (page, id) => page.locator(`.spec-bar [data-pending="${id}"]`);
+/** The part settings folded under "Finish and notes". */
+const NOTE_FIELDS = new Set(['part.surface_finish', 'part.coating', 'part.heat_treatment', 'part.edges']);
+const panelReady = page => check(page.locator('.pmi-lab-panel .pmi-lab-rows')).toBeVisible();
+/** Part setting ``id``'s field, opened where the review offers it: its suggestion's More…, its
+ * line (under "Finish and notes" for the notes), or a stated item's pencil. */
+async function partField(page, id) {
+  await panelReady(page);
+  const field = page.locator(`.pmi-lab-field[data-question="${id}"]`);
+  if (await field.count()) return field;
+  if (await card(page, id).count()) await card(page, id).getByRole('button', { name: 'More…', exact: true }).click();
+  else {
+    if (NOTE_FIELDS.has(id) && !await question(page, id).count()) {
+      await page.locator(`[data-questions~="${id}"]`).click();
+      await check(question(page, id)).toBeVisible();
+    }
+    const change = question(page, id).getByRole('button', { name: /^Change / });
+    if (await change.count()) await change.click(); else await question(page, id).click();
+  }
+  await check(field).toBeVisible();
+  return field;
+}
+/** None needed on gap ``id``: answered none in its field, listed in the bar. */
+async function noneNeeded(page, id) {
+  const input = (await partField(page, id)).locator('input').first();
+  await input.fill('None');
+  await input.press('Enter');
+  await check(listedEdit(page, id)).toContainText('None needed');
+}
+/** Gap ``id``'s suggestion kept (its card's ✓), listed in the bar. */
 async function add(page, id) {
-  const row = question(page, id);
-  await row.locator('.acts').getByRole('button', { name: 'Add', exact: true }).click();
-  await row.locator('.spec-edit').getByRole('button', { name: 'Add', exact: true }).click();
-  await check(page.locator(`.spec-bar [data-pending="${id}"]`)).toBeVisible();
+  await panelReady(page);
+  await card(page, id).locator('.btns button').first().click();
+  await check(listedEdit(page, id)).toBeVisible();
 }
 const agents = [];
 
@@ -107,11 +139,12 @@ try {
     await check(question(page, 'part.general_tolerance')).toBeVisible();
     await check(question(page, 'part.general_tolerance')).toHaveClass(/app-agent-lit/);
     await check(page.locator('.spec-bar [data-pending="part.general_tolerance"]')).toContainText('ISO 2768-f');
-    await check(question(page, 'part.general_tolerance')).toHaveClass(/changed/);
     await page.getByRole('tab', { name: /^Characteristics/ }).click();
-    await check(page.locator('.spec-chars')).toBeVisible();
-    await check(page.locator('.spec-chars')).not.toContainText('2768-f');
-    await page.getByRole('tab', { name: 'Review / Edit' }).click();
+    await check(page.locator('.pmi-lab-table')).toBeVisible();
+    // The Characteristics tab shows what the review specifies, an agent's unsaved answer included,
+    // as the editor's does (rc.1 showed only the file there); the exports stay the saved file's.
+    await check(page.locator('.pmi-lab-table')).toContainText('2768-f');
+    await page.getByRole('tab', { name: 'Review/Edit' }).click();
     await check(page.locator('.app-dirty')).toHaveText('Unsaved changes');
     if (shots) await page.screenshot({ path: join(shots, 'agent-update.png') });
     await page.locator('.app-agent').getByRole('button', { name: 'Dismiss' }).click();
@@ -170,7 +203,7 @@ try {
     await check(stopped).toHaveText(`Specify has stopped. Run specify-core open … again (or ask your agent to show it). Your saved file is at ${byAgent.path}.`, { timeout: 30_000 });
     await check(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
     await check(page.getByRole('button', { name: 'Answers (JSON)', exact: true })).toHaveCount(0);
-    await check(page.locator('.spec-panel')).toContainText('6061-T6');
+    await check(page.locator('.pmi-lab-panel')).toContainText('6061-T6');
     problems.splice(beforeStop, problems.length - beforeStop,
       ...problems.slice(beforeStop).filter(p => !/^console: .*net::ERR_CONNECTION_REFUSED$/.test(p)));
     onlyLocal(requests, shown.url);
@@ -212,17 +245,18 @@ try {
     await check(picker).toHaveValue(String(b));
     await check(pending(a, 'part.material')).toContainText(`${partA.name} · Add Material: Steel 1.4301`);
     await check(pending(b, 'part.material')).toContainText(`${partB.name} · Add Material: Brass CW614N`);
-    await check(question(page, 'part.material')).toHaveClass(/changed/);
     await switchTo(a);
+    // The agent's answer for the part shown is held in the bar and shown on its question.
+    await check(pending(a, 'part.material')).toContainText('Steel 1.4301');
     await check(question(page, 'part.material')).toContainText('1.4301');
     await agent.call('answer', { doc: docB, set: { 'part.general_tolerance': 'ISO 2768-f' } });
     await check(page.locator('.app-agent')).toContainText(`Updated by your agent: ${partB.name}`);
     await page.getByRole('button', { name: 'Show it' }).click();
     await check(picker).toHaveValue(String(b));
     await check(pending(b, 'part.general_tolerance')).toContainText('ISO 2768-f');
-    await question(page, 'part.general_tolerance').getByRole('button', { name: 'Undo', exact: true }).click();
+    await pending(b, 'part.general_tolerance').getByRole('button', { name: /^Undo / }).click();
     await check(pending(b, 'part.general_tolerance')).toHaveCount(0);
-    await check(question(page, 'part.general_tolerance')).toHaveAttribute('data-state', 'gap');
+    await assertGap(page, 'part.general_tolerance');
     await check(allPending).toHaveCount(2);
     const first = await pageSave();
     const sent = first.request().postDataJSON();
@@ -242,7 +276,7 @@ try {
     await page.getByRole('button', { name: 'Discard', exact: true }).click();
     await check(allPending).toHaveCount(0);
     assert.deepEqual(readFileSync(saved), beforeDiscard);
-    await check(question(page, 'part.general_tolerance')).toHaveAttribute('data-state', 'gap');
+    await assertGap(page, 'part.general_tolerance');
     await noneNeeded(page, 'part.heat_treatment');
     await pageSave();
     assert.equal(table(saved, b)['part.general_tolerance'].state, 'gap');
@@ -253,16 +287,15 @@ try {
     const refusal = await agent.call('answer', { doc: docB, set: { 'part.material': 'Bronze' } }, { allowError: true });
     const reason = 'the file states "Brass CW614N" for part.material. To change it, use change with "to": "Bronze", "expect": "Brass CW614N".';
     assert.equal(refusal.error?.message, reason);
-    await check(material.getByRole('alert')).toHaveText(reason);
+    await check(pending(b, 'part.material')).toContainText(reason);
     const saves = () => requests.filter(url => url.endsWith('/save')).length;
     const savesBeforeRefusal = saves();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await check(page.locator('.spec-bar')).toContainText('Nothing to save');
-    await check(material.getByRole('alert')).toHaveText(reason);
+    await check(pending(b, 'part.material')).toContainText(reason);
     assert.equal(saves(), savesBeforeRefusal);
     assert.equal(table(saved, b)['part.material'].value, 'Brass CW614N');
     await page.getByRole('button', { name: 'Discard', exact: true }).click();
-    await check(material.getByRole('alert')).toHaveCount(0);
     await check(pending(b, 'part.material')).toHaveCount(0);
 
     const stageMaterial = async (to, expect) => {
@@ -280,8 +313,8 @@ try {
     await stageMaterial('Copper', 'Bronze');
     await check(pending(b, 'part.material')).toContainText('Bronze → Copper');
     await material.getByRole('button', { name: 'Change Material' }).click();
-    await material.getByRole('textbox', { name: 'New value' }).fill('Aluminium 6061-T6');
-    await material.getByRole('button', { name: 'Apply', exact: true }).click();
+    await material.getByRole('combobox', { name: 'Material' }).fill('Aluminium 6061-T6');
+    await material.getByRole('combobox', { name: 'Material' }).press('Enter');
     await check(pending(b, 'part.material')).toContainText('replaces the agent’s answer');
     await check(pending(b, 'part.material')).toContainText('Bronze → Aluminium 6061-T6');
     await pageSave();
@@ -323,7 +356,7 @@ try {
     // The joined part opens with the same review actions as a part already in the session.
     await page.getByRole('button', { name: 'Show it' }).click();
     await check(page.locator('.app-part select')).toHaveValue(String(b));
-    await check(question(page, 'part.material').getByRole('button', { name: 'Add', exact: true })).toBeEnabled();
+    await check(question(page, 'part.material').getByRole('combobox', { name: 'Material' })).toBeEnabled();
     void docB;
     await context.close();
     agent.stop();
@@ -387,8 +420,6 @@ try {
     assert.deepEqual(given(session.parts['0'] ?? {}), given(answersBefore), 'the session is as it was');
     const open = await agent.call('questions', { doc, state: 'open' });
     assert.ok(open.questions.some(q => q.id === 'part.general_tolerance'), 'the edit not saved leaves it an open question');
-    // The row still shows the edit, highlighted as not saved.
-    await check(question(page, 'part.general_tolerance')).toHaveClass(/changed/);
     problems.splice(0, problems.length, ...problems.filter(p => !/50\d/.test(p)));
     await context.close();
     agent.stop();

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { WorkerClient } from '../engine/rpc';
 import { createCadView, pathOf, type CadNode, type CadView } from '../specify/cad-view';
 import type { AssemblyPart, PmiMesh } from '../types/pmi';
+import type { FaceRef, HostView, Mat4 } from '../specify/host-view';
 
 /** A row of an assembly's comparison: a part, paired by name, and what became of it. */
 export interface AssemblyRow {
@@ -19,6 +20,12 @@ const COLOUR: Record<string, string> = { changed: '#e07a00', quantity: '#e07a00'
 const PLAIN = '#cfd2d6';
 
 type Placement = number[][];
+/** A placement (3×4, rows) as a host's transform (4×4, column-major). */
+const matrix = (m: Placement): Mat4 => [
+  m[0]![0]!, m[1]![0]!, m[2]![0]!, 0, m[0]![1]!, m[1]![1]!, m[2]![1]!, 0,
+  m[0]![2]!, m[1]![2]!, m[2]![2]!, 0, m[0]![3]!, m[1]![3]!, m[2]![3]!, 1,
+];
+const LIT = '#1e88e5';
 const placed = (m: Placement) => ([x, y, z]: [number, number, number]) => [0, 1, 2].map(r =>
   m[r]![0]! * x + m[r]![1]! * y + m[r]![2]! * z + m[r]![3]!) as [number, number, number];
 // The tree finds nodes by name: none of its separators, and each name once.
@@ -29,7 +36,10 @@ const label = (name: string) => name.replace(/[/<>&"]/g, ' ');
  * coloured by what became of it, and each removed part a ghost at its old placements. Picking
  * a changed part opens its own comparison.
  */
-export default function AssemblyDiffView({ engine, old, next, rows, lit, meshes, onOpen, onPoint }: {
+export default function AssemblyDiffView({ engine, old, next, rows, lit, meshes, onOpen, onPoint, view: hostView = null }: {
+  /** The host's own 3D view (docs/host-view.md): the new revision's parts are the host's, coloured
+   * by what became of them; removed parts are given as meshes at their old placements. */
+  view?: HostView | null;
   engine: WorkerClient;
   /** Each part's mesh by its name, kept for opening it alone. */
   meshes: Map<string, PmiMesh>;
@@ -47,6 +57,63 @@ export default function AssemblyDiffView({ engine, old, next, rows, lit, meshes,
   const [read, setRead] = useState(0);
   const [error, setError] = useState('');
   const drawn = rows.filter(r => r.new || r.old);
+
+  // On the host's view: what was styled and added, to light a part and to take it all off again.
+  const host = useRef<{ light(name: string | null): void } | null>(null);
+  /** The comparison on the host's view: the new revision's parts it shows, coloured by what became
+   * of them; each removed part a faded mesh at its old placements (when the host draws meshes). */
+  const onHost = (hv: HostView, oldParts: AssemblyPart[]) => {
+    const facesOf = (row: AssemblyRow): FaceRef[] => {
+      const mesh = meshes.get(row.name);
+      return row.new && mesh ? mesh.faces.map((_, face) => ({ part: row.new!.part, face })) : [];
+    };
+    hv.showParts(drawn.filter(r => r.new).map(r => r.new!.part));
+    const layers: string[] = [];
+    for (const row of drawn) {
+      const colour = COLOUR[row.status];
+      if (!row.new || !colour) continue;
+      const layer = `assembly:${row.name}`;
+      hv.styleFaces(layer, [{ faces: facesOf(row), colour }]);
+      layers.push(layer);
+    }
+    const added: string[] = [];
+    void hv.info().then(info => {
+      if (!info.canDrawMeshes) return;
+      for (const row of drawn) {
+        if (row.new || !row.old) continue;
+        const mesh = meshes.get(row.name);
+        if (!mesh) continue;
+        (oldParts[row.old.part]?.placements ?? []).forEach((m, k) => {
+          const id = `assembly-removed:${row.name}#${k}`;
+          hv.addMesh(id, mesh, { transform: matrix(m), colour: COLOUR.removed, opacity: 0.35 });
+          added.push(id);
+        });
+      }
+    });
+    const rowOf = (e: { hit: FaceRef | null; mesh?: string }) => (e.mesh?.startsWith('assembly-removed:')
+      ? drawn.find(r => e.mesh!.startsWith(`assembly-removed:${r.name}#`))
+      : e.hit ? drawn.find(r => r.new?.part === e.hit!.part) : undefined);
+    const stop = hv.onPointer(e => {
+      if (e.type === 'leave') { onPoint(null); return; }
+      const row = rowOf(e);
+      if (e.type === 'hover') onPoint(row?.name ?? null);
+      else if (e.type === 'click' && row) onOpen(row.name);
+    });
+    host.current = {
+      light(name) {
+        const row = name === null ? undefined : drawn.find(r => r.name === name);
+        const faces = row ? facesOf(row) : [];
+        if (faces.length) hv.styleFaces('assembly-lit', [{ faces, colour: LIT }]);
+        else hv.clearStyles('assembly-lit');
+      },
+    };
+    return () => {
+      stop();
+      host.current = null;
+      for (const layer of [...layers, 'assembly-lit']) hv.clearStyles(layer);
+      for (const id of added) hv.removeMesh(id);
+    };
+  };
 
   useEffect(() => {
     let live = true;
@@ -80,7 +147,9 @@ export default function AssemblyDiffView({ engine, old, next, rows, lit, meshes,
             })),
           });
         }
-        if (!stage.current || !live) return;
+        if (!live) return;
+        if (hostView) { stopPointer = onHost(hostView, oldParts); return; }
+        if (!stage.current) return;
         const cad = createCadView(stage.current, nodes, {
           onPick: path => { const row = rowAt(path); if (row) onOpen(row.name); },
         });
@@ -109,9 +178,12 @@ export default function AssemblyDiffView({ engine, old, next, rows, lit, meshes,
       }
     })();
     return () => { live = false; stopPointer(); view.current?.dispose(); view.current = null; };
-  }, [old, next, rows]);
+  }, [old, next, rows, hostView]);
 
-  useEffect(() => { view.current?.light(lit === null ? null : pathOf(label(lit))); }, [lit, read]);
+  useEffect(() => {
+    if (host.current) host.current.light(lit);
+    else view.current?.light(lit === null ? null : pathOf(label(lit)));
+  }, [lit, read]);
 
   return (
     <div className="diff-assembly-stage">

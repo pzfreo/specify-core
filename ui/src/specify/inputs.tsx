@@ -160,7 +160,7 @@ export function SuggestBox({ label, value, suggestions, placeholder, invalid, on
         // Leaving the box keeps a catalogue choice; anything else typed waits for Enter, so a
         // half-typed "alu" is not taken as the answer.
         onBlur={() => {
-          // Enter, Tab or a suggestion click may have already submitted the draft.
+          // A keyboard or suggestion choice may already have submitted this draft.
           const suggestion = draftSubmitted.current ? undefined : catalogueValue(text.trim());
           if (suggestion) commit(suggestion);
           else setOpen(false);
@@ -169,7 +169,6 @@ export function SuggestBox({ label, value, suggestions, placeholder, invalid, on
           if (event.key === 'ArrowDown') { event.preventDefault(); move(1); }
           else if (event.key === 'ArrowUp') { event.preventDefault(); move(-1); }
           else if (event.key === 'Escape') {
-            // Restoring the acknowledged value must not submit it over a review in progress.
             draftSubmitted.current = true;
             setText(value); setOpen(false); setActive(-1);
           }
@@ -380,23 +379,27 @@ export function SuggestionCard({ c, onKeep, onPick, onMore }: {
   c: Chosen; onKeep: () => void; onPick: (value: string) => void; onMore: () => void;
 }) {
   return (
-    <div className={`pmi-lab-suggestion${c.check ? ' check' : ''}`}>
+    <div className={`pmi-lab-suggestion${c.check ? ' check' : ''}`} data-suggestion={c.id}>
       <div className="field">{c.field}{c.check && <em> · please check</em>}</div>
-      {/* Not an answer until it is kept: no tick, and a Keep that makes it one. */}
-      <div className="suggested" data-suggestion={c.id}>
-        <span>Suggested: <b>{c.what.split(': ').slice(1).join(': ') || c.options[0]?.label || c.what}</b></span>
-        <button type="button" className="keep" title="Keep this suggestion as the answer" onClick={onKeep}>Keep</button>
-      </div>
       <div className="btns">
         {c.options.length ? (
           <>
-            {c.options.slice(1).map((o) => (
-              <button key={o.value} type="button" title={`Choose ${o.label} instead`} onClick={() => onPick(o.value)}>{o.label}</button>
+            {c.options.map((o, i) => (
+              <button
+                key={o.value} type="button" className={i === 0 ? 'ok' : ''}
+                title={i === 0 ? 'Keep this' : `Choose ${o.label} instead`}
+                onClick={() => (i === 0 ? onKeep() : onPick(o.value))}
+              >
+                {i === 0 ? `✓ ${o.label}` : o.label}
+              </button>
             ))}
             {c.more && <button type="button" className="more" onClick={onMore}>More…</button>}
           </>
         ) : (
-          <button type="button" className="more" onClick={onMore}>Pick on the part…</button>
+          <>
+            <button type="button" className="ok" onClick={onKeep}>✓ {c.what.split(': ').slice(1).join(': ') || 'Keep'}</button>
+            <button type="button" className="more" onClick={onMore}>Pick on the part…</button>
+          </>
         )}
       </div>
       {c.why && <div className="why">{c.why}</div>}

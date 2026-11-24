@@ -3,7 +3,7 @@
 // checks them against the part when they are given.
 import type { PmiAnalysis, PmiAnswers, PmiExtra } from '../types/pmi';
 
-import { CHARACTERISTIC } from './labels';
+import { CHARACTERISTIC } from './labels.ts';
 
 export const PREFIX = 'extra.';
 export type ExtraKind = PmiExtra['kind'];
@@ -20,10 +20,12 @@ export function addedOf(answers: PmiAnswers): [string, PmiExtra][] {
   );
 }
 
-/** A key for the next one: one past the highest given. */
-export function nextKey(answers: PmiAnswers): string {
-  const n = Math.max(0, ...addedOf(answers).map(([k]) => Number(k.slice(PREFIX.length)) || 0));
-  return `${PREFIX}${n + 1}`;
+/** A key for the next one: one past the highest given, and past any in ``taken`` (keys a host
+ * already holds, a call-out waiting in its bar say, which are not among ``answers``). */
+export function nextKey(answers: PmiAnswers, taken: readonly string[] = []): string {
+  const numbers = [...addedOf(answers).map(([k]) => k), ...taken.filter((k) => k.startsWith(PREFIX))]
+    .map((k) => Number(k.slice(PREFIX.length)) || 0);
+  return `${PREFIX}${Math.max(0, ...numbers) + 1}`;
 }
 
 /** Called out of the general tolerance: a dimension with a tolerance of its own. */
