@@ -1157,7 +1157,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               rows={chars} selected={selectedChar} onSelect={showChar} onDownload={downloadCsv}
               exportable={inspectionExports}
               skipped={skipped} onSkip={skip} onEdit={readOnly ? () => null : editChar}
-              onCallOut={(row) => (!readOnly && row.source.startsWith('general:') && !(callOutDimension && row.source.startsWith('general:existing:'))
+              onCallOut={(row) => (!readOnly && row.source.startsWith('general:') && (callOutDimension || !row.source.startsWith('general:existing:'))
                 ? (callOutDimension
                   ? () => { switchView('review'); setUnfolded('dims'); setCallingOut(row.id); showChar(row.id, row.faces); }
                   : () => callOut(Number(row.source.slice('general:'.length)), row.text))
@@ -1228,14 +1228,17 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                   {generalDims.map((r) => (
                     <DimensionLine
                       key={r.id} row={r} selected={selectedChar === r.id} calledOut={calledOut.get(r.id) ?? null}
-                      startOpen={callingOut === r.id && !r.source.startsWith('general:existing:')} canCallOut={!r.source.startsWith('general:existing:')}
+                      startOpen={callingOut === r.id}
                       onSelect={() => showChar(r.id, r.faces)}
                       onCallOut={(tolerance) => {
-                        const g = preview?.general?.[Number(r.source.slice('general:'.length))];
-                        // As the editor's Call out: the dimension with its kind, faces and reference.
+                        const stated = r.source.startsWith('general:existing:');
+                        const g = stated ? undefined : preview?.general?.[Number(r.source.slice('general:'.length))];
+                        // As the editor's Call out: the dimension with its kind, faces and reference; one
+                        // the file states, by its number, to be toleranced in place.
                         const ok = callOutDimension({
                           id: r.id, what: `${r.feature} ${r.text}`, kind: g?.kind === 'size' ? 'size' : 'distance', faces: g?.faces ?? r.faces,
                           reference: Array.isArray(g?.['reference']) ? g['reference'] as number[] : [],
+                          ...(stated && r.n > 0 ? { number: `#${r.n}` } : {}),
                         }, tolerance);
                         if (ok) setCalledOut((m) => { const next = new Map(m); if (tolerance.trim()) next.set(r.id, tolerance.trim()); else next.delete(r.id); return next; });
                         return ok;
@@ -1402,14 +1405,17 @@ function FoldedLine({ name, value, onOpen, question, questions }: {
 }
 
 /** A general dimension called out: which one, and what the requirement needs (added.ts's size or distance). */
-export interface CalledOut { id: string; what: string; kind: 'size' | 'distance'; faces: readonly number[]; reference: readonly number[] }
+export interface CalledOut {
+  id: string; what: string; kind: 'size' | 'distance'; faces: readonly number[]; reference: readonly number[];
+  /** Set for a dimension the file states with its nominal alone: its requirement's number (#N). The
+   * host tolerances that dimension in place rather than adding one. */
+  number?: string;
+}
 
 /** One dimension the general tolerance covers: its feature, characteristic, nominal, ± and number,
  * and Call Out, which takes a tolerance of its own in place (change list item 1). */
-function DimensionLine({ row, selected, calledOut, startOpen, canCallOut = true, onSelect, onCallOut }: {
+function DimensionLine({ row, selected, calledOut, startOpen, onSelect, onCallOut }: {
   row: Characteristic; selected: boolean; calledOut: string | null; startOpen: boolean;
-  /** False for a dimension the file states with its nominal alone (not yet called out on 0.3). */
-  canCallOut?: boolean;
   onSelect: () => void; onCallOut: (tolerance: string) => boolean;
 }) {
   const [open, setOpen] = useState(startOpen);
@@ -1429,7 +1435,7 @@ function DimensionLine({ row, selected, calledOut, startOpen, canCallOut = true,
         <span className="text">{row.text}</span>
         <span className="tol">{calledOut ? <><s>{tol}</s> ±{calledOut.replace(/^±\s*/, '')}</> : tol}</span>
       </button>
-      {!open && canCallOut && <button type="button" className="call-out" onClick={() => { setOpen(true); onSelect(); }}>{calledOut ? 'Change' : 'Call Out'}</button>}
+      {!open && <button type="button" className="call-out" onClick={() => { setOpen(true); onSelect(); }}>{calledOut ? 'Change' : 'Call Out'}</button>}
       {open && (
         <span className="pmi-lab-dim-edit">
           <label>± <input type="text" inputMode="decimal" value={text} autoFocus aria-label={`Tolerance for ${row.feature} ${row.text}`}

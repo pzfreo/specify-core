@@ -122,9 +122,12 @@ export function valueText(value: unknown, q: PmiQuestion | undefined, analysis?:
  * the dimension's faces (and, for a distance, its reference), under ``key`` (extra.N). Null when
  * the tolerance is empty: the call-out taken back.
  */
-export function callOutEdit(d: CalledOut, tolerance: string, key: string): Pending | null {
+export function callOutEdit(d: CalledOut, tolerance: string, key: string, stated?: { id: string; value: string }): Pending | null {
   const t = tolerance.trim().replace(/^±\s*/, '');
   if (!t) return null;
+  // A dimension the file states with its nominal alone: its feature-and-kind changed to take the
+  // tolerance (the engine's change takes the tolerance alone), in place; nothing added beside it.
+  if (stated) return { kind: 'change', id: stated.id, name: d.what, value: `±${t}`, text: `${stated.value} ±${t}`, expect: stated.value, was: stated.value };
   const value = d.kind === 'size'
     ? { faces: [...d.faces], kind: 'size', value: `±${t}` }
     : { faces: [...d.faces], kind: 'distance', value: `±${t}`, reference: [...d.reference] };
