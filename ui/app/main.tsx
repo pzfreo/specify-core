@@ -99,7 +99,8 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   const stored = snapshot.analysis.resume?.answers ?? {};
   const fileReview = sameAnswers(stored, answers) ? review : await reviewOf(stored);
   const store = answersSession.store(at.part, stored);
-  // ``generation``: Discard and a save start the review again; a commit begun before that is stale.
+  // ``generation``: Discard starts the review again; a commit begun before it is stale. (A save
+  // reopens the part with a new ``shown``: a commit in flight then is an edit not yet saved.)
   const shown = { answers, all: { ...stated.values, ...answers }, generation: 0 };
   const engine: SpecifyEngine = {
     // Each commit of the page's answers comes through here: what the session gets once Specify
@@ -110,12 +111,14 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
       const given = forEngine(shownAnswers, stated);
       const started = shown.generation;
       const base = shown.answers;
+      // What the review showed when this commit began: an agent's answer landing meanwhile is not
+      // taken for the person's change.
+      const was = shown.all;
       const asked = screened(await worker.request<IntentReview>('review', { ...file, answers: given }));
-      // The review was started again meanwhile (Discard, a save): this commit's answers are gone.
+      // Discard started the review again meanwhile: this commit's answers are gone.
       if (shown.generation !== started) return asked;
       // Each question whose answer the person changed since the review last showed it is an edit,
       // held in the page until Save; set back to the file's value, its edit goes.
-      const was = shown.all;
       for (const id of new Set([...Object.keys(shownAnswers), ...Object.keys(was)])) {
         if (id.startsWith('_') || JSON.stringify(shownAnswers[id]) === JSON.stringify(was[id])) continue;
         answered(at.part, id, shownAnswers[id]);
