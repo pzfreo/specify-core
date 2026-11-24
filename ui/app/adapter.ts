@@ -16,7 +16,8 @@ export const isDimensionQuestion = (id: string) => id.startsWith('length:') || i
 
 /** What the review needs to know of the file's stated rows. */
 export interface StatedRows {
-  /** Stated row ids: kept out of the engine's review. */
+  /** Stated row ids: kept out of the engine's review, which takes no answers to them. A stored
+   * "none needed" is not among them: it stays in the answers, as the file stores it. */
   ids: ReadonlySet<string>;
   /** The file's value of each, as the review's answer to its question. */
   values: Readonly<PmiAnswers>;
@@ -45,7 +46,7 @@ export function statedRows(table: FeatureTable, bare: readonly PmiQuestion[]): S
   const questions = rows.flatMap((r) => byId.get(r.id) ?? []);
   const asked = new Set(questions.map((q) => q.id));
   return {
-    ids: new Set(rows.map((r) => r.id)),
+    ids: new Set(rows.filter((r) => r.state === 'stated').map((r) => r.id)),
     values: Object.fromEntries(rows.filter((r) => asked.has(r.id)).map((r) => [r.id, r.value])),
     questions,
     texts: Object.fromEntries(rows.filter((r) => asked.has(r.id)).map((r) => [r.id, statedText(r, byId.get(r.id))])),
@@ -69,11 +70,12 @@ export function forEngine(answers: PmiAnswers, stated: StatedRows): PmiAnswers {
 /** The engine's ``review`` as the screens show it: no general-dimension questions; the stated rows'
  * questions in their place among the rest. */
 export function forScreens(review: IntentReview, stated: StatedRows): IntentReview {
-  const shown = review.questions.filter((q) => !isDimensionQuestion(q.id) && !stated.ids.has(q.id));
+  const own = new Set(stated.questions.map((q) => q.id));
+  const shown = review.questions.filter((q) => !isDimensionQuestion(q.id) && !own.has(q.id));
   return {
     ...review,
     questions: [...shown, ...stated.questions],
-    open: review.open.filter((id) => !isDimensionQuestion(id) && !stated.ids.has(id)),
+    open: review.open.filter((id) => !isDimensionQuestion(id) && !own.has(id)),
   };
 }
 
