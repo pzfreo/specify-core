@@ -58,6 +58,7 @@ async function load(url, ready = '.pmi-lab-panel') {
     };
   });
   const page = await context.newPage();
+  page.on('request', (r) => { if (/\/(save|answers|discard)$/.test(r.url()) && r.method() === 'POST') console.log('DEBUG', Date.now() % 100000, new URL(r.url()).pathname.split('/').pop(), r.postData()?.slice(0, 300)); }); // TEMP DEBUG
   page.on('pageerror', error => problems.push(String(error)));
   page.on('console', message => { if (message.type() === 'error') problems.push(`console: ${message.text()}`); });
   await page.goto(url);
@@ -277,7 +278,9 @@ try {
     await check(allPending).toHaveCount(0);
     assert.deepEqual(readFileSync(saved), beforeDiscard);
     await assertGap(page, 'part.general_tolerance');
+    console.log('DEBUG bar after discard', Date.now() % 100000, JSON.stringify(await page.locator('.spec-bar li').allInnerTexts())); // TEMP DEBUG
     await noneNeeded(page, 'part.heat_treatment');
+    console.log('DEBUG bar before save', Date.now() % 100000, JSON.stringify(await page.locator('.spec-bar li').allInnerTexts())); // TEMP DEBUG
     await pageSave();
     assert.equal(table(saved, b)['part.general_tolerance'].state, 'gap');
     assert.equal(table(saved, b)['part.coating'].state, 'gap');
