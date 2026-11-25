@@ -144,7 +144,7 @@ try {
     assert.deepEqual((await calls(page)).slice(before), ['questions', 'preview'], 'blur must not queue a second Material review');
     const download = (name) => inspectionDownload(page, name);
     const csv = readFileSync(await download('Inspection list (CSV)'), 'utf8');
-    assert.deepEqual(csv.trimEnd().split('\n').slice(1), [',,Part,Material: Aluminium 6082-T6,,,,,,']);
+    assert.deepEqual(csv.trimEnd().split('\n').slice(1), [',,Part,Material: Aluminium 6082-T6,,,,,,,']);
     assert.deepEqual((await calls(page)).slice(before), ['questions', 'preview', 'inspection'], 'only the requested CSV adds inspection traffic');
     const path = await download('AS9102 FAI (Excel)');
     const form3 = execFileSync('unzip', ['-p', path, 'xl/worksheets/sheet3.xml'], { encoding: 'utf8' });
@@ -175,7 +175,7 @@ try {
     await check(table).toContainText('Material: brass cw614n');
     assert.deepEqual((await calls(page)).slice(before), ['questions', 'preview', 'questions', 'preview']);
     const csv = readFileSync(await inspectionDownload(page, 'Inspection list (CSV)'), 'utf8');
-    assert.deepEqual(csv.trimEnd().split('\n').slice(1), [',,Part,Material: brass cw614n,,,,,,']);
+    assert.deepEqual(csv.trimEnd().split('\n').slice(1), [',,Part,Material: brass cw614n,,,,,,,']);
     await page.close();
   }
   // The shaft's datums are suggested, not stated: each can be removed (moved here with b0a828d7's

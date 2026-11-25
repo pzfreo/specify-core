@@ -52,13 +52,46 @@ export function labelStated(text: string, existing: readonly { text?: string; va
   }).join('');
 }
 
+/** A dimension's text with its length in ``unit`` and what it is from ("from ⌀11.125 hole") in mm: a name is the
+ * feature as Specify measures it, whatever the dimension was written in. */
+function withOrigin(text: string, unit: LengthUnit): string {
+  const at = text.indexOf(' from ');
+  return at < 0 ? withUnits(text, unit) : `${withUnits(text.slice(0, at), unit)}${unit === 'in' ? withUnits(text.slice(at), 'mm') : text.slice(at)}`;
+}
+
 /** A characteristic's text with its unit: what the file states, in its own; the rest in mm. */
 export const labelRow = (row: { source: string; text: string; nominal: number | null; upper: number | null }): string => {
-  if (!/^(?:general:)?existing:/.test(row.source)) return withUnits(row.text, 'mm');
+  if (!/^(?:general:)?existing:/.test(row.source)) return withOrigin(row.text, 'mm');
   const unit = statedUnit(row.text.split(' from ')[0]!, row.nominal ?? row.upper);
-  return unit ? withUnits(row.text, unit) : row.text;
+  return unit ? withOrigin(row.text, unit) : row.text;
 };
 
 /** A feature's name or a question ("Ø50.8 hole"), which are in mm: said in an inch file, where the sizes beside
  * them are in inches; in a millimetre file everything is mm, and the panel says so. */
-export const labelName = (name: string, file: LengthUnit): string => (file === 'in' ? withUnits(name, 'mm') : name);
+export const labelName = (name: string, file: LengthUnit): string => (
+  // Only its diameters: "2 bottom faces" is a count.
+  file === 'in' ? name.replace(ANYWHERE, '$1 mm') : name);
+
+/** A row's numbers (nominal and deviations) are in: mm, or degrees, or µm for a roughness; nothing if it has none. */
+export const numbersUnit = (row: { text: string; nominal: number | null; upper: number | null; unit?: string }): string => (
+  row.nominal === null && row.upper === null ? ''
+    : row.unit ?? (/°/.test(row.text) ? '°' : /\bR[az]\b/.test(row.text) ? 'µm' : 'mm'));
+
+/** Float noise beyond ten significant digits dropped, as the engine shows a value (docs/answers.md). */
+export const clean = (value: number): number => Number(value.toPrecision(10));
+
+/** A row's text as an inspection file gives it: without noise, and with the unit its length is in, told from its
+ * value (an inch file's own text is in inches, its numbers in mm); none where that cannot be told. */
+export function exportText(row: { text: string; nominal: number | null; upper: number | null; unit?: string }): string {
+  const text = row.text.replace(/\d+\.\d{8,}/g, (n) => `${clean(Number(n))}`);
+  if (numbersUnit(row) !== 'mm') return text;
+  const unit = statedUnit(text.split(' from ')[0]!, row.nominal ?? row.upper);
+  // A control read by its kind's name, where the file gives no notation: "surface_profile 1.25".
+  const named = /^([a-z]+(?:_[a-z]+)* )(.*)$/.exec(text);
+  if (!unit) return text;
+  return named ? `${named[1]}${withUnits(named[2]!, unit)}` : withOrigin(text, unit);
+}
+
+/** The unit the features' names need saying in, for ``rows``: an inch file's stated rows read in inches beside them. */
+export const rowsUnit = (rows: readonly { text: string; nominal: number | null; upper: number | null }[]): LengthUnit => (
+  rows.some((r) => statedUnit(r.text.split(' from ')[0]!, r.nominal ?? r.upper) === 'in') ? 'in' : 'mm');

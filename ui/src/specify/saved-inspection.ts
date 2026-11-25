@@ -84,11 +84,14 @@ export function inspectionFromStep(analysis: PmiAnalysis, scene: PmiScene): Stor
     let upper: number | null = null;
     let lower: number | null = null;
     let basic = false;
+    let angle = false;
     let datums = '';
     let wording = meta?.notation ?? '';
     if (collection === 'datums') wording ||= `Datum ${text(value['label'])}`;
     if (collection === 'dimensions') {
       nominal = quantity(value['nominal']);
+      // An angle's numbers are degrees, whatever its text looks like.
+      angle = 'angle' in object(object(value['nominal'])['quantity']) || 'angle' in object(value['kind']) || /angle|angular/.test(text(object(value['kind'])['kind']));
       const tolerance = object(value['tolerance']);
       const deviations = object(tolerance['deviations']);
       const limits = object(tolerance['limits']);
@@ -139,7 +142,7 @@ export function inspectionFromStep(analysis: PmiAnalysis, scene: PmiScene): Stor
     chars.push({
       n: number, sub: 0, numbering: 'step', identifier, id: identifier || `unnumbered:${entry.id}`,
       source: entry.id, feature, group: feature, faces: on, text: wording,
-      nominal, upper, lower, datums, basic,
+      nominal, upper, lower, datums, basic, ...(angle ? { unit: '°' as const } : {}),
     });
   };
   for (const collection of ['datums', 'dimensions', 'tolerances', 'surface_textures', 'threads', 'knurls'] as const) {
