@@ -516,10 +516,11 @@ try {
     execFileSync(cli, ['write', written, list, '-o', applied], { stdio: 'ignore' });
     assert.equal(table(applied)['part.heat_treatment'].state, 'decided_none');
     assert.equal(table(applied)['part.coating'].state, 'decided_none');
+    onlyLocal(requests, shown.url);
+    // Closed first: the page goes on asking the stopped command, and `write` above held its errors back.
+    await context.close();
     problems.splice(beforeStop, problems.length - beforeStop,
       ...problems.slice(beforeStop).filter(p => !/^console: .*net::ERR_(CONNECTION_REFUSED|CONNECTION_RESET|INCOMPLETE_CHUNKED_ENCODING)$/.test(p)));
-    onlyLocal(requests, shown.url);
-    await context.close();
   }
   assert.deepEqual(problems, [], 'no page errors');
   console.log('app-agent passed');
