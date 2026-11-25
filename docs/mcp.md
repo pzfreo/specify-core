@@ -126,9 +126,13 @@ requirement's spec (`{kind, faces, value, …}`, as an answer gave it) adds that
 `write_pmi`, which
 wrote the whole intent of the answers to a path of the agent's choosing, is gone (ADR P11).
 
-An existing `answers_file` at `open` uses the same checks as `answer`. Refused entries
-stay in the source JSON on open, and their reasons appear in the open result and on the
-page. The preview keeps the file's stated values and stored decisions. An accepted or equal answer clears
+Each entry of an existing `answers_file` at `open` is checked as `answer` checks one, on top of
+the answers resumed from the file. Unlike an `answer` call, one refused entry does not refuse the rest, nothing can
+be cleared (so an entry that would replace a stored decision is refused), and Specify's own
+`_` keys are taken unchecked. While any entry is refused, `open` leaves the JSON as it is, and the
+reasons appear in the open result and on the page. The next successful `answer` rewrites the JSON with the
+answers held, so **the refused entries are then gone from it**: copy any you want to keep first. The
+preview keeps the file's stated values and stored decisions. An accepted or equal answer clears
 any earlier refusal for that row.
 
 `answer` refuses a value that would replace a stored decision unless its ID was explicitly
