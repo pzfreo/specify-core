@@ -12,6 +12,7 @@ import type { PmiAnalysis, PmiIntent, PmiIntentItem } from '../types/pmi';
 
 import { describeFaces } from './datums.ts';
 import { CHARACTERISTIC, fmt } from './labels.ts';
+import { clean, exportText, labelName, numbersUnit, rowsUnit } from './units.ts';
 
 export interface Characteristic {
   /** The numeric STEP/engine number, or a legacy balloon. Zero for a text ID or no ID. */
@@ -31,6 +32,8 @@ export interface Characteristic {
   /** As a drawing writes it: "⌀8 H7", "⌖ ⌀0.6 Ⓜ", "M5×0.8-6H", "30 (basic)". */
   readonly text: string;
   readonly nominal: number | null;
+  /** What its numbers are in, where its text does not say: an angle's degrees. */
+  readonly unit?: 'mm' | '°' | 'µm';
   /** Upper and lower deviation, or for a tolerance zone its size as upper. */
   readonly upper: number | null;
   readonly lower: number | null;
@@ -407,7 +410,13 @@ export function toCsv(rows: readonly Characteristic[], skipped: ReadonlySet<stri
     return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
   const head = ['Balloon', 'Instance', 'Feature', 'Characteristic', 'Nominal', 'Upper', 'Lower', 'Datums', 'Basic', 'Measured'];
-  return [head, ...rows.filter((r) => !skipped.has(inspectKey(r))).map((r) => [
-    r.identifier ?? (r.numbering === 'step' ? (r.n || '') : r.n), r.sub || '', r.feature, r.text, r.nominal, r.upper, r.lower, r.datums, r.basic ? 'yes' : '', '',
+  // Rows numbered in the STEP say their units, and what their numbers are in, last: a column added at the end moves
+  // none. A legacy host's preview list stays as it was.
+  const step = rows.some((r) => r.numbering === 'step');
+  const file = step ? rowsUnit(rows) : 'mm';
+  const number = (v: number | null) => (v === null || !step ? v : clean(v));
+  return [[...head, ...(step ? ['Unit'] : [])], ...rows.filter((r) => !skipped.has(inspectKey(r))).map((r) => [
+    r.identifier ?? (r.numbering === 'step' ? (r.n || '') : r.n), r.sub || '', labelName(r.feature, file), step ? exportText(r) : r.text, number(r.nominal), number(r.upper), number(r.lower), r.datums, r.basic ? 'yes' : '', '',
+    ...(step ? [numbersUnit(r)] : []),
   ])].map((line) => line.map(cell).join(',')).join('\n') + '\n';
 }

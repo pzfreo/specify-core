@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { labelName, labelRow, labelStated, statedUnit, unitLine, withUnits } from '../src/specify/units.ts';
+import { clean, exportText, labelName, labelRow, labelStated, numbersUnit, rowsUnit, statedUnit, unitLine, withUnits } from '../src/specify/units.ts';
 
 test('each length says its unit, once', () => {
   for (const [text, shown] of [
@@ -67,8 +67,33 @@ test('a control the file states is labelled from its tolerance', () => {
 
 test('names are in mm, and say so in an inch file', () => {
   for (const [name, inInch] of [['Ø50.8 hole', 'Ø50.8 mm hole'], ['4× Ø11.125 holes', '4× Ø11.125 mm holes'],
-    ['What is the Ø2.5 hole for?', 'What is the Ø2.5 mm hole for?'], ['2× Ø10 × 11 through holes', '2× Ø10 × 11 mm through holes'], ['top face', 'top face']]) {
+    ['What is the Ø2.5 hole for?', 'What is the Ø2.5 mm hole for?'], ['2× Ø10 × 11 through holes', '2× Ø10 × 11 mm through holes'], ['top face', 'top face'], ['2 bottom faces', '2 bottom faces'],
+    ['⌀558.8 shaft', '⌀558.8 mm shaft']]) {
     assert.equal(labelName(name, 'in'), inInch);
     assert.equal(labelName(name, 'mm'), name);
   }
+});
+
+test('a dimension from a feature: its length in its own unit, the feature\'s name in mm', () => {
+  const row = { source: 'existing:1', text: '0.75 from ⌀11.125 hole', nominal: 19.05, upper: null };
+  assert.equal(labelRow(row), '0.75 in from ⌀11.125 mm hole');
+  assert.equal(exportText(row), '0.75 in from ⌀11.125 mm hole');
+  assert.equal(labelRow({ source: 'general:1', text: '12.55 from ⌀8 hole', nominal: 12.55, upper: null }), '12.55 mm from ⌀8 hole');
+});
+
+test('an inspection row says its unit, without noise, and what its numbers are in', () => {
+  const row = (text, nominal, upper = null, unit) => ({ text, nominal, upper, ...(unit ? { unit } : {}) });
+  assert.equal(exportText(row('(0.750000000002999) from left face', 19.050000000076174)), '(0.75) in from left face');
+  assert.equal(exportText(row('57.27954 ±0.3 from 2 bottom faces', 57.27954, 0.3)), '57.27954 ±0.3 mm from 2 bottom faces');
+  assert.equal(exportText(row('⌖ ⌀0.03 Ⓜ A', null, 0.762)), '⌖ ⌀0.03 in Ⓜ A');
+  assert.equal(exportText(row('M2×0.4-6H', null)), 'M2×0.4-6H');
+  assert.equal(exportText(row('surface_profile 1.25', null, 1.25)), 'surface_profile 1.25 mm');
+  assert.equal(exportText(row('roundness 0.0508', null, 0.0508)), 'roundness 0.0508 mm');
+  assert.equal(exportText(row('0.75 from 2 bottom faces', 19.05)), '0.75 in from 2 bottom faces');
+  assert.equal(exportText(row('45 ±1', 45, 1, '°')), '45 ±1');
+  assert.deepEqual([row('⌀8 H7', 8), row('60° ±1°', 60, 1), row('45 ±1', 45, 1, '°'), row('√ Ra 1.6', null, 1.6), row('Datum A', null)].map(numbersUnit),
+    ['mm', '°', '°', 'µm', '']);
+  assert.equal(clean(19.050000000076174), 19.05);
+  assert.equal(rowsUnit([row('⌀8', 8), row('⌀0.438', 11.1252)]), 'in');
+  assert.equal(rowsUnit([row('⌀8', 8)]), 'mm');
 });
