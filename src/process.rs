@@ -360,6 +360,38 @@ fn material<'a>(ctx: &'a Ctx<'_>, answers: &'a Map<String, Value>) -> Option<&'a
         })
 }
 
+/// How many bends the part has if the whole of it is one recognised sheet-metal body (quiddity's
+/// `sheet_metal_bodies`: two developable skins a constant thickness apart, with cut edges between
+/// them), by surface area; None otherwise, or with no bend (a plate). Not every sheet-metal part
+/// is recognised, so None says nothing.
+fn sheet_metal_bends(analysis: &Map<String, Value>) -> Option<usize> {
+    /// Of the part's surface: a second body, or much the sheet does not explain, is not one sheet.
+    const WHOLE: f64 = 0.9;
+    let mut bodies = analysis
+        .get("features")?
+        .as_array()?
+        .iter()
+        .filter(|f| f["family"] == "sheet_metal_bodies");
+    let (body, None) = (bodies.next()?, bodies.next()) else {
+        return None;
+    };
+    let bends = body["record"]["bends"].as_array()?.len();
+    let named: std::collections::BTreeSet<u64> = body["faces"]
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_u64)
+        .collect();
+    let (mut sheet, mut all) = (0.0, 0.0);
+    for face in analysis.get("faces")?.as_array()? {
+        let area = face["area"].as_f64()?;
+        all += area;
+        if named.contains(&face["id"].as_u64()?) {
+            sheet += area;
+        }
+    }
+    (bends > 0 && sheet >= WHOLE * all).then_some(bends)
+}
+
 /// The process the other questions follow: none for a bought part (as machined); else the
 /// answer, the file's, or machined. A suggestion is not applied until it is accepted.
 pub(crate) fn current(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> &'static str {
@@ -393,18 +425,29 @@ pub(crate) fn question(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> Option<Qu
         .and_then(|f| f.get("value"))
         .and_then(Value::as_str)
         .and_then(normalised);
-    // The stored suggestion stands only while the current material still suggests it: a
-    // changed material makes its own suggestion.
-    let (guessed, why) = guess(material(ctx, answers));
+    // The stored suggestion stands only while the current material (or, for a machined guess, the
+    // part's shape) still suggests it: a changed one makes its own suggestion.
+    let (mut guessed, mut why) = guess(material(ctx, answers));
+    let mut rule = &crate::rule_sources::PROCESS_MATERIAL_CLASS;
+    if guessed == MACHINED
+        && let Some(bends) = sheet_metal_bends(ctx.analysis)
+    {
+        guessed = SHEET_METAL;
+        why = format!(
+            "The whole part is one sheet of constant thickness with {bends} bend{}, so sheet metal is suggested.",
+            if bends == 1 { "" } else { "s" }
+        );
+        rule = &crate::rule_sources::PROCESS_SHEET_METAL_BODY;
+    }
     let (default, basis, source) = match stored {
         Some(p) if p == guessed => (
             p,
             format!("{p} was suggested and accepted when the file was last written."),
             &crate::rule_sources::PROCESS_ACCEPTED,
         ),
-        _ => (guessed, why, &crate::rule_sources::PROCESS_MATERIAL_CLASS),
+        _ => (guessed, why, rule),
     };
-    // A printed (or stored) suggestion needs a person; machined is what no answer means.
+    // A printed, sheet metal (or stored) suggestion needs a person; machined is what no answer means.
     let (attention, reason) = if default == MACHINED {
         ("routine", String::new())
     } else {

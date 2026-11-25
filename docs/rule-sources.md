@@ -181,6 +181,7 @@ default on the corpus and fixture analyses has one. Where it appears:
 | `part.locating.position` | convention | — | `position tolerances` |
 | `part.locating.dimensions` | convention | — | `± dimensions` (printed, sheet metal) |
 | `process.material_class` | convention | — | the process the material's class suggests, else machined |
+| `process.sheet_metal_body` | convention | — | sheet metal, when the whole part is one recognised sheet-metal body with a bend and the material suggests no printing |
 | `process.accepted` | convention | — | the suggestion accepted when the file was last written |
 | `datums.prismatic.a` | convention | — | largest flat face |
 | `datums.prismatic.a.contact` | convention | — | the face where the part meets another |
