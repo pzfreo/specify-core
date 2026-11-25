@@ -18,9 +18,11 @@ PMI. To approve a displayed process suggestion explicitly, name `part.process` i
 edit list's `accept_suggestions`.
 
 **The guess.** A material from one of the material list's printing classes suggests the
-matching process: filament → FDM, resin → resin, powder → powder, metal → metal. Any other
-material, or none yet, suggests machined. The answered material is used, else the one the file
-states. The suggestion is the question's default; a printed suggestion is marked attention
+matching process: filament → FDM, resin → resin, powder → powder, metal → metal. With any other
+material, or none yet, a part that is wholly one recognised sheet-metal body with at least one
+bend suggests sheet metal (25 November 2026; the recogniser is quiddity's, and it misses some
+sheet-metal parts), and any other part machined. The answered material is used, else the one the file
+states. The suggestion is the question's default; a printed or sheet metal suggestion is marked attention
 `check` with its reason (machined, what no answer means anyway, is `routine`). It is not
 applied until it is answered or accepted. Approve `part.process` before reviewing
 the suggestions based on that process.

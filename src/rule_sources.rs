@@ -117,6 +117,7 @@ pub static NOTES_NONE: Rule = rule("part.notes.none", Assumption, &[]);
 pub static LOCATING_POSITION: Rule = rule("part.locating.position", Convention, &[]);
 pub static LOCATING_DIMENSIONS: Rule = rule("part.locating.dimensions", Convention, &[]);
 pub static PROCESS_MATERIAL_CLASS: Rule = rule("process.material_class", Convention, &[]);
+pub static PROCESS_SHEET_METAL_BODY: Rule = rule("process.sheet_metal_body", Convention, &[]);
 pub static PROCESS_ACCEPTED: Rule = rule("process.accepted", Convention, &[]);
 
 // Datums.
@@ -158,7 +159,7 @@ pub static MAKE_BUY_GUESS: Rule = rule("bom.make_buy.guess", Convention, &[]);
 pub static MAKE_BUY_RECORDED: Rule = rule("bom.make_buy.recorded", Convention, &[]);
 
 /// Every rule, in the order `docs/rule-sources.md` lists them.
-pub static RULES: [&Rule; 41] = [
+pub static RULES: [&Rule; 42] = [
     &GENERAL_TOLERANCE_MACHINED,
     &GENERAL_TOLERANCE_PRINTED,
     &GENERAL_DIMENSION,
@@ -171,6 +172,7 @@ pub static RULES: [&Rule; 41] = [
     &LOCATING_POSITION,
     &LOCATING_DIMENSIONS,
     &PROCESS_MATERIAL_CLASS,
+    &PROCESS_SHEET_METAL_BODY,
     &PROCESS_ACCEPTED,
     &DATUM_A_PRISMATIC,
     &DATUM_A_CONTACT,

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use haecceity::p21::{self, Attribute as A, Document, Edit};
 use serde_json::{Map, Value, json};
 use specify_core::part::{self, LoadedPart};
-use specify_core::process::{self, FDM, MACHINED, METAL, POWDER, RESIN};
+use specify_core::process::{self, FDM, MACHINED, METAL, POWDER, RESIN, SHEET_METAL};
 use specify_core::rules::{self, Question};
 use specify_core::{api, existing, resume, writer};
 
@@ -126,6 +126,98 @@ fn an_unanswered_part_is_machined_and_unchanged() {
     b["part"].as_object_mut().unwrap().remove("process");
     a["part"].as_object_mut().unwrap().remove("process");
     assert_eq!(a, b);
+}
+
+fn sheet(stem: &str) -> LoadedPart {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/parts/sheet-metal")
+        .join(format!("{stem}.step.gz"));
+    part::load(&path, None).unwrap()
+}
+
+#[test]
+fn a_part_that_is_one_bent_sheet_suggests_sheet_metal_marked_check() {
+    let loaded = sheet("bent-bracket");
+    let analysis = api::analyse(&loaded).unwrap();
+    let ask = |analysis: &Map<String, Value>, given: Value| {
+        let qs = api::questions(&Value::Object(analysis.clone()), &answers(given)).unwrap();
+        let q = question(&qs, process::QUESTION);
+        (q.default.clone().unwrap(), q.attention, q.basis.clone())
+    };
+    let whole = analysis.as_object().unwrap().clone();
+    for given in [
+        json!({}),
+        json!({"part.material": "steel"}),
+        json!({"part.material": "Aluminium 6082-T6"}),
+    ] {
+        let (default, attention, basis) = ask(&whole, given.clone());
+        assert_eq!(default, json!(SHEET_METAL), "{given}");
+        assert_eq!(attention, "check");
+        assert_eq!(
+            basis,
+            "The whole part is one sheet of constant thickness with 1 bend, so sheet metal is suggested."
+        );
+    }
+    // A printing material says more than the shape.
+    assert_eq!(
+        ask(&whole, json!({"part.material": "PLA (FDM)"})).0,
+        json!(FDM)
+    );
+    // Not applied until it is answered: the other questions stay a machined part's.
+    let unanswered = api::questions(&analysis, &Map::new()).unwrap();
+    let machined = api::questions(&analysis, &answers(json!({"part.process": MACHINED}))).unwrap();
+    let defaults = |qs: &[Question]| -> Vec<(String, Option<Value>)> {
+        qs.iter()
+            .filter(|q| q.id != process::QUESTION)
+            .map(|q| (q.id.clone(), q.default.clone()))
+            .collect()
+    };
+    assert_eq!(defaults(&unanswered), defaults(&machined));
+    // Not one sheet: another body (surface the sheet does not name), two sheets, or no bend.
+    let body = |a: &Map<String, Value>| {
+        a["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|f| f["family"] == "sheet_metal_bodies")
+            .unwrap()
+    };
+    let at = body(&whole);
+    let mut two = whole.clone();
+    let copy = two["features"][at].clone();
+    two["features"].as_array_mut().unwrap().push(copy);
+    let mut flat = whole.clone();
+    flat["features"][at]["record"]["bends"] = json!([]);
+    let mut more = whole.clone();
+    let mut face = more["faces"][0].clone();
+    face["id"] = json!(more["faces"].as_array().unwrap().len());
+    face["area"] = json!(1.0e6);
+    more["faces"].as_array_mut().unwrap().push(face);
+    for other in [two, flat, more] {
+        assert_eq!(ask(&other, json!({})).0, json!(MACHINED));
+    }
+}
+
+#[test]
+fn thin_machined_parts_and_tubes_are_not_taken_for_sheet_metal() {
+    for stem in [
+        "machined-flat-plate",
+        "machined-L-sharp",
+        "machined-tray-sharp",
+        "machined-tray-round-corners",
+        "machined-like-bracket-thick-wall",
+        "round-tube",
+        "square-tube",
+        "split-ring",
+    ] {
+        let analysis = api::analyse(&sheet(stem)).unwrap();
+        let qs = api::questions(&analysis, &Map::new()).unwrap();
+        assert_eq!(
+            question(&qs, process::QUESTION).default,
+            Some(json!(MACHINED)),
+            "{stem}"
+        );
+    }
 }
 
 #[test]
