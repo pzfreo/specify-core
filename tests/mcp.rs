@@ -1472,6 +1472,50 @@ fn stub_app(dir: &Path) -> specify_core::open::Assets {
 /// The agent and the person's page edit one session: the page's change is what the agent
 /// reads next, the agent's reaches the page as an event, and both save the same way.
 #[test]
+fn a_page_with_unsaved_edits_outlives_the_agent() {
+    let dir = scratch("unsaved");
+    let copy = dir.join("plate.step");
+    std::fs::copy(part("plate"), &copy).unwrap();
+    let delay = Duration::from_millis(3000);
+    let shown = |unsaved: bool| {
+        let assets = stub_app(&dir);
+        let mut client =
+            Stdio::start_with(std::slice::from_ref(&dir), mcp::MODERN, move |server| {
+                server.set_app(assets);
+                server.set_page_timing(delay, Duration::from_secs(600));
+            });
+        let opened = client.call("open", json!({"path": copy}));
+        let shown = client.call("show", json!({"doc": opened["doc"], "browser": false}));
+        let url = shown["url"].as_str().unwrap().to_string();
+        let rel = if unsaved {
+            "config?unsaved=1"
+        } else {
+            "config"
+        };
+        assert_eq!(page(&url, "GET", rel, None).0, 200);
+        // The agent's end closes.
+        let server = client.server.take().unwrap();
+        client.to_server = None;
+        (url, server)
+    };
+    // None held: the command ends at once.
+    let (_, server) = shown(false);
+    let from = Instant::now();
+    server.join().unwrap();
+    assert!(from.elapsed() < delay, "{:?}", from.elapsed());
+    // Held: it serves the page while it says so, then ends.
+    let (url, server) = shown(true);
+    let until = Instant::now() + delay * 2;
+    while Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(page(&url, "GET", "config?unsaved=1", None).0, 200);
+    }
+    assert!(!server.is_finished());
+    server.join().unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn the_agent_and_the_page_share_one_session() {
     let dir = scratch("session");
     let copy = dir.join("plate.step");

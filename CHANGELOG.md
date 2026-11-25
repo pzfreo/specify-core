@@ -365,6 +365,10 @@ Read first:
 - `open` and MCP `show`: only a request with the right `Host` and token counts as activity. A refused
   one no longer keeps a forgotten server running or cancels a close. The app no longer contains
   three-cad-viewer's polyhaven.org address (its Studio lighting, which is off and the CSP refuses).
+- MCP `show`: when the agent exits while an open page holds unsaved edits, the page is served until they
+  are saved or discarded, or it is closed. If the command stops anyway, the page offers the unsaved edits
+  as files for `specify-core write`. Closing a tab warns for edits held in the page too (it looked only
+  at the session's answers).
 - Stated BOM values now require a guarded `change` in edit lists. The feature table
   shows native data and explicit STEP property overrides as stated, with default
   proposals left as gaps.

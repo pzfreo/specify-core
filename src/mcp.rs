@@ -291,6 +291,28 @@ impl Headers<'_> {
 }
 
 impl Server {
+    /// Waits while a page this server started holds unsaved edits: until they are saved or
+    /// discarded, or the page is closed.
+    pub fn keep_unsaved_pages(&self) {
+        let held = || {
+            self.sessions.iter().any(|s| {
+                session::lock(s)
+                    .page
+                    .as_ref()
+                    .is_some_and(crate::open::Page::holds_unsaved)
+            })
+        };
+        if held() {
+            let _ = writeln!(
+                io::stderr(),
+                "The agent has gone; a page has unsaved edits: serving it until they are saved or discarded, or it is closed."
+            );
+        }
+        while held() {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
     /// A server whose calls may name paths inside `allow` (each canonicalised; none: the
     /// working directory).
     pub fn new(allow: &[PathBuf]) -> io::Result<Server> {
@@ -2385,12 +2407,20 @@ fn templates() -> Value {
 // ----- transports -----
 
 /// Serves stdio: one JSON-RPC message per line on `input`, one response per line on `out`
-/// (none for a notification), until `input` closes.
+/// (none for a notification), until `input` closes; then waits while an open page holds
+/// unsaved edits ([`Server::keep_unsaved_pages`]).
 pub fn serve_stdio(
     input: impl BufRead,
     mut out: impl Write,
     server: &mut Server,
 ) -> io::Result<()> {
+    let served = serve_lines(input, &mut out, server);
+    // The agent has gone; edits held in an open page have not.
+    server.keep_unsaved_pages();
+    served
+}
+
+fn serve_lines(input: impl BufRead, out: &mut impl Write, server: &mut Server) -> io::Result<()> {
     for line in input.lines() {
         let line = line?;
         if line.trim().is_empty() {
