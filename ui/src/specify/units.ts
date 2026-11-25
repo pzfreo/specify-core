@@ -10,10 +10,10 @@ const LENGTH = String.raw`\(?(?:S?[⌀Ø□R]\s?|±\s?|[+-])?(?:${NUMBER})\)?`
 const CONTROL = '[⌖⌓⏥⟂∥∠⌒◎⌯○⌭↗⌰—⏤]';
 // At the start of a piece, alone or after a control's symbol; and a diameter or a depth anywhere.
 const FIRST = new RegExp(String.raw`^(${CONTROL}\s?)?(${LENGTH})(?=$|[\s,;)]|Ⓜ|Ⓛ)(?!\s?(?:mm|in|°|µm|×|x|-)(?:\W|$))`);
-const ANYWHERE = new RegExp(String.raw`((?:[⌀Ø]|↧)\s?(?:${NUMBER}))(?![\d.]|\s?(?:mm|in)\b|\s?[±+]|\s?-\s?\d|/|–)`, 'g');
+const ANYWHERE = new RegExp(String.raw`((?:[⌀Ø]|↧)\s?(?:${NUMBER})(?: × (?:${NUMBER}))?)(?![\d.]|\s?(?:mm|in)\b|\s?[±+]|\s?-\s?\d|/|–)`, 'g');
 // Not lengths: a thread (its size is its name), roughness, a class, an angle.
 const THREAD = /^(?:M\d|#?\d+(?:[-/]\d+)*\s?-\s?\d*\s?UN|Tr\d|G\d)/;
-const NOT_LENGTH = /^(?:Ra|Rz|ISO|Sa)\b|°|^\d+× /;
+const NOT_LENGTH = /^(?:Ra|Rz|ISO|Sa)\b|°/;
 
 /** ``text`` with ``unit`` after each length in it; pieces joined by " · " or "; " are read apart. */
 export function withUnits(text: string, unit: LengthUnit): string {
@@ -58,3 +58,7 @@ export const labelRow = (row: { source: string; text: string; nominal: number | 
   const unit = statedUnit(row.text.split(' from ')[0]!, row.nominal ?? row.upper);
   return unit ? withUnits(row.text, unit) : row.text;
 };
+
+/** A feature's name or a question ("Ø50.8 hole"), which are in mm: said in an inch file, where the sizes beside
+ * them are in inches; in a millimetre file everything is mm, and the panel says so. */
+export const labelName = (name: string, file: LengthUnit): string => (file === 'in' ? withUnits(name, 'mm') : name);

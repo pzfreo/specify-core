@@ -152,6 +152,11 @@ Read first:
 
 ### Changed
 
+- The review says each length's unit: what is suggested, measured or typed is mm (typing boxes say so);
+  what the file states is in the unit it was written in, told from its value, or says none where that
+  cannot be told. The panel says "Units: mm" or "File in inches · Specify works in mm"; an inch file's
+  feature names say mm. Nothing is written differently: a tolerance typed on an inch file was, and is,
+  millimetres. Not labelled: callouts drawn on the model, edge notes ("Break 0.2"), stated thread depths.
 - A part that is wholly one recognised sheet-metal body with a bend suggests `sheet metal` as its process
   (docs/process.md), unless its material suggests printing; before, `machined`. Marked `check`. As a
   default it is taken with every other default, so accepting all of them on such a part gives sheet

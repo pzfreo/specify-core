@@ -128,7 +128,8 @@ export function callOutEdit(d: CalledOut, tolerance: string, key: string, stated
   if (!t) return null;
   // A dimension the file states with its nominal alone: its feature-and-kind changed to take the
   // tolerance (the engine's change takes the tolerance alone), in place; nothing added beside it.
-  if (stated) return { kind: 'change', id: stated.id, name: d.what, value: `±${t}`, text: `${stated.label ?? stated.value}, ±${t} mm`, expect: stated.value, was: stated.label ?? stated.value };
+  if (stated) return { kind: 'change', id: stated.id, name: d.what, value: `±${t}`, // One unit for both, or each its own (an inch file's dimension, a typed mm tolerance).
+    text: / in\b/.test(stated.label ?? '') ? `${stated.label}, ±${t} mm` : `${stated.value} ±${t} mm`, expect: stated.value, was: stated.label ?? stated.value };
   const value = d.kind === 'size'
     ? { faces: [...d.faces], kind: 'size', value: `±${t}` }
     : { faces: [...d.faces], kind: 'distance', value: `±${t}`, reference: [...d.reference] };

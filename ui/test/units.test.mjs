@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { labelRow, labelStated, statedUnit, unitLine, withUnits } from '../src/specify/units.ts';
+import { labelName, labelRow, labelStated, statedUnit, unitLine, withUnits } from '../src/specify/units.ts';
 
 test('each length says its unit, once', () => {
   for (const [text, shown] of [
@@ -32,7 +32,7 @@ test('each length says its unit, once', () => {
 
 test('what is not a length, or says its unit already, is left alone', () => {
   for (const text of ['M4 clearance', 'M4×0.7-6H THRU', 'H7', 'Ra 3.2', 'ISO 2768-m', '2768-m', '60° ±1°', 'E|B|C', 'none', 'general',
-    'none needed', 'datum B', '2× Ø10 holes', '3 mm ±0.05', '±0.05 mm', '⌀3.3 mm H11', '1/4-20 UNC-2B', '—', '']) {
+    'none needed', 'datum B', '3 mm ±0.05', '±0.05 mm', '⌀3.3 mm H11', '1/4-20 UNC-2B', '—', '']) {
     for (const unit of ['mm', 'in']) assert.equal(withUnits(text, unit), text, `${text} (${unit})`);
   }
   // An inch file's thread depth: which unit it reads in is not known here, so nothing is claimed.
@@ -63,4 +63,12 @@ test('what a file states is in the unit it was written in, told from its value i
 test('a control the file states is labelled from its tolerance', () => {
   assert.equal(labelRow({ source: 'existing:1', text: '⌖ ⌀0.2', nominal: null, upper: 0.2 }), '⌖ ⌀0.2 mm');
   assert.equal(labelRow({ source: 'existing:1', text: '⌖ ⌀0.03', nominal: null, upper: 0.762 }), '⌖ ⌀0.03 in');
+});
+
+test('names are in mm, and say so in an inch file', () => {
+  for (const [name, inInch] of [['Ø50.8 hole', 'Ø50.8 mm hole'], ['4× Ø11.125 holes', '4× Ø11.125 mm holes'],
+    ['What is the Ø2.5 hole for?', 'What is the Ø2.5 mm hole for?'], ['2× Ø10 × 11 through holes', '2× Ø10 × 11 mm through holes'], ['top face', 'top face']]) {
+    assert.equal(labelName(name, 'in'), inInch);
+    assert.equal(labelName(name, 'mm'), name);
+  }
 });

@@ -8,7 +8,7 @@ import { KIND_TEXT, MAY_HAVE_DATUM, NEEDS_DATUM, type ExtraKind } from './added'
 import { byBalloon, type Characteristic, inspectKey } from './characteristics';
 import type { Chosen } from './chosen';
 import { fmt } from './labels';
-import { labelRow, withUnits } from './units';
+import { labelName, labelRow, withUnits, type LengthUnit } from './units';
 
 import { codeOf, matchSuggestions, purposeOf, purposes } from './choose';
 
@@ -418,8 +418,10 @@ export function SuggestionCard({ c, onKeep, onPick, onMore }: {
  * on demand: there may be a hundred, and few of them matter.
  */
 export function CharacteristicsTable({
-  rows, selected, onSelect, onDownload, skipped, onSkip, onEdit, onCallOut, generalTolerance, calledOut, readOnly = false, exportable = true,
+  rows, selected, onSelect, onDownload, skipped, onSkip, onEdit, onCallOut, generalTolerance, calledOut, readOnly = false, exportable = true, file = 'mm',
 }: {
+  /** The file's length unit, for the features' names (units.ts). */
+  file?: LengthUnit;
   /** A view of what is set: no tick boxes, edit or call-out column, or CSV. */
   readOnly?: boolean;
   /** Hosts owning saved-file exports suppress preview downloads and CSV inclusion controls. */
@@ -479,7 +481,7 @@ export function CharacteristicsTable({
         </td>
       )}
       <td>{cells.bal}</td>
-      <td>{cells.feature}</td>
+      <td>{typeof cells.feature === 'string' ? labelName(cells.feature, file) : cells.feature}</td>
       <td className="text">{labelRow(r)}</td>
       <td>{n(r.nominal)}{r.nominal !== null && mm(r)}</td>
       <td className="tol">
