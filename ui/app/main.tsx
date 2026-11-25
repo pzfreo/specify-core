@@ -26,7 +26,7 @@ import { changedIds, createSession, sameAnswers, type AnswersSession, type Answe
 import { decisions, type Decision } from './diff-report';
 import { discardAnswers, getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type EditFailure, type EditList, type LocalConfig, type AnswerDraft } from './local';
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } from './save';
-import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, type Pending } from './edits';
+import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, withoutSent, type Pending } from './edits';
 import { EditBar } from './EditBar';
 import { answerEdit, asEngineTakes, valueText, callOutEdit, forEngine, forScreens, isDimensionQuestion, nextExtraKey, removeEdit, statedRows, type StatedRows } from './adapter';
 import { labelStated } from '../src/specify/units';
@@ -208,6 +208,7 @@ function App() {
   const [rejectedNone, setRejectedNone] = useState(() => new Map<number, Map<string, string>>());
   const [checking, setChecking] = useState(false);
   const [reopening, setReopening] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   // What the bar says after a save, until the next edit.
   const [savedNote, setSavedNote] = useState<string | null>(null);
   // The characteristics table (the review's, read only) is drawn into this, under the panel's tab.
@@ -226,8 +227,12 @@ function App() {
   const inspectionLoad = useRef(0);
   const savedRevision = useRef(-1);
   // The bytes the session's last save wrote: the 3D view draws their PMI, for every part shown since.
-  const savedSource = useRef<{ bytes: Uint8Array; generation: number } | null>(null);
+  const savedSource = useRef<{ bytes: Uint8Array; generation: number; name: string } | null>(null);
+  // The file shown once the session has saved: the copy it wrote (or the input, in place), not the input opened.
+  const [savedAs, setSavedAs] = useState<{ name: string; path: string } | null>(null);
   const heardSaves = useRef(new Set<string>());
+  const pageSaves = useRef(new Set<string>());
+  const reopenPromise = useRef<Promise<void>>(Promise.resolve());
   const captureSaved = useRef<(saved: { path: string; rev: number }) => void>(() => {});
   const [slots, setSlots] = useState<SpecifySlots | null>(null);
   useEffect(() => setSlots({ view: view.current!, panel: panel.current!, exports: null }), []);
@@ -240,13 +245,10 @@ function App() {
   const [focus, setFocus] = useState<{ questionId: string; faces?: readonly number[]; scroll?: boolean; n?: number } | null>(null);
   const [lit, setLit] = useState<{ faces: readonly number[]; n: number } | undefined>(undefined);
   const edited = () => setAgent(null);
-  // The review's answers as the page's held edits (adapter.ts): each changed question is its row's
-  // edit, replacing any it had; an answer taken back drops it. Read through a ref, as the part's
-  // engine is made once and outlives renders.
-  const answeredRef = useRef<(part: number, id: string, value: unknown) => void>(() => {});
-  answeredRef.current = (part, id, value) => {
-    const now = shownRef.current;
-    if (!now || now.part !== part) return;
+  // Answers that landed from an in-flight review while Save ran: rebuilt against the saved file
+  // once it reopens (including an answer back to the pre-save value, which cleared against the old file).
+  const inFlightAnswers = useRef<Map<string, { part: number; id: string; value: unknown }> | null>(null);
+  const buildAnswerEdit = (now: Opened, id: string, value: unknown): Pending | null => {
     const row = now.table.rows.find((r) => r.id === id);
     const q = now.bare.find((x) => x.id === id) ?? now.review.questions.find((x) => x.id === id);
     // "Added by you": named and worded as the review lists it ("Flatness 0.05" on its faces).
@@ -258,6 +260,17 @@ function App() {
     const faces = (v: unknown) => Array.isArray(v) && v.length > 0 && v.every((f) => typeof f === 'number');
     if (edit && (edit.kind === 'fill' || edit.kind === 'change') && faces(value)) edit.text = describeFaces(value as number[], now.session.analysis as PmiAnalysis);
     if (edit?.kind === 'change' && faces(edit.expect)) edit.was = describeFaces(edit.expect as number[], now.session.analysis as PmiAnalysis);
+    return edit;
+  };
+  // The review's answers as the page's held edits (adapter.ts): each changed question is its row's
+  // edit, replacing any it had; an answer taken back drops it. Read through a ref, as the part's
+  // engine is made once and outlives renders.
+  const answeredRef = useRef<(part: number, id: string, value: unknown) => void>(() => {});
+  answeredRef.current = (part, id, value) => {
+    inFlightAnswers.current?.set(`${part}:${id}`, { part, id, value });
+    const now = shownRef.current;
+    if (!now || now.part !== part) return;
+    const edit = buildAnswerEdit(now, id, value);
     setPending((all) => {
       const updated = new Map(all);
       const list = updated.get(part) ?? new PendingEdits();
@@ -307,31 +320,36 @@ function App() {
         setInspectionData(null);
         setInspectionProblem(null);
         // The exports come from the file as saved, a copy or the input in place (`file?rev=saved`).
-        void (async () => {
+        reopenPromise.current = (async () => {
           const written = await getFile('saved').then(stepBytes);
           if (ended || load !== inspectionLoad.current) return;
           setInspectionStep({ path: event.path, name: inspectionName(event.path), bytes: written });
-          savedSource.current = { bytes: written, generation: load };
+          const name = inspectionName(event.path);
+          savedSource.current = { bytes: written, generation: load, name };
           // The session works on the file as saved from now on (ADR P11: the file is the only
           // copy): the part shown opens again from it, so what the save wrote reads as the file's
           // and the next edits apply to it. The 3D view draws the PMI as the save wrote it
           // (specify-ui#14); a scene that fails leaves the view as the opening drew it.
           const shown = shownRef.current;
           if (!shown || !worker.current) return;
-          let next = await openPart(worker.current, answersSession, first.name, written, { part: shown.part, several: shown.several }, first.readOnly, edited, load, answeredRef.current);
+          let next = await openPart(worker.current, answersSession, name, written, { part: shown.part, several: shown.several }, first.readOnly, edited, load, answeredRef.current);
           const drawn = await savedDrawn(worker.current, written, next);
           if (drawn !== undefined) next = { ...next, drawn };
           if (ended || load !== inspectionLoad.current || shownRef.current?.store !== shown.store) { next.store.close(); return; }
           shown.store.close();
           // What was saved is what the file now holds, as the engine wrote it (a "None" written as
-          // "None (as machined)", say): the session takes the file's answers for this part.
-          const fileAnswers = forEngine(next.session.answers, next.stated);
-          next.store.set(fileAnswers, next.shown.answers);
-          next.shown.answers = fileAnswers;
-          next.shown.all = { ...next.stated.values, ...fileAnswers };
-          next = { ...next, external: { answers: fileAnswers, review: next.review } };
+          // "None (as machined)", say): the session takes the file's answers for this part, unless
+          // a newer session revision has already landed while the saved file was reopening.
+          if (answersSession.rev() <= event.rev) {
+            const fileAnswers = forEngine(next.session.answers, next.stated);
+            next.store.set(fileAnswers, next.shown.answers);
+            next.shown.answers = fileAnswers;
+            next.shown.all = { ...next.stated.values, ...fileAnswers };
+            next = { ...next, external: { answers: fileAnswers, review: next.review } };
+          }
           shownRef.current = next;
           setOpened(next);
+          setSavedAs({ name, path: event.path });
         })().catch((error: unknown) => {
           if (!ended && load === inspectionLoad.current) setInspectionProblem(message(error));
         }).finally(() => {
@@ -347,7 +365,20 @@ function App() {
       unwatch = answersSession.subscribe(showDrafts);
       showDrafts();
       // An assembly's parts: the page shows one at a time, first the first the session has answers for.
-      const listed = (await worker.current.request<PartRow[]>('parts', { name: first.name, bytes })).map(({ part, name, instances, written }) => ({ part, name, instances, written: written === true }));
+      // The session has saved already (the page was reloaded, or opened again): it works on what it wrote.
+      // A copy changed or removed since cannot be shown: said, and the file as opened is.
+      const held = first.savedPath ? await getFile('saved').then(stepBytes).catch((error: unknown) => {
+        setProblem(`The file saved earlier could not be shown, so this is the file as opened: ${message(error)}`);
+        return null;
+      }) : null;
+      const now = held && first.savedPath ? { name: inspectionName(first.savedPath), path: first.savedPath, bytes: held } : { name: first.name, path: first.path, bytes };
+      if (held) {
+        const load = ++inspectionLoad.current;
+        savedSource.current = { bytes: now.bytes, generation: load, name: now.name };
+        setInspectionStep(now);
+        setSavedAs({ name: now.name, path: now.path });
+      }
+      const listed = (await worker.current.request<PartRow[]>('parts', { name: now.name, bytes: now.bytes })).map(({ part, name, instances, written }) => ({ part, name, instances, written: written === true }));
       const several = listed.length > 1 || listed[0]?.instances > 1;
       let rows = listed;
       const withAnswers = rows.find((row) => Object.keys(answers.parts[String(row.part)] ?? {}).some((id) => !id.startsWith('_')));
@@ -355,7 +386,11 @@ function App() {
       const asked = rows.find((row) => row.part === first.part);
       const at = { part: several ? (asked ?? withAnswers ?? rows[0]!).part : 0, several };
       setParts(rows);
-      const part = await openPart(worker.current, answersSession, first.name, bytes, at, first.readOnly, edited, 0, answeredRef.current);
+      let part = await openPart(worker.current, answersSession, now.name, now.bytes, at, first.readOnly, edited, savedSource.current?.generation ?? 0, answeredRef.current);
+      if (held) {
+        const drawn = await savedDrawn(worker.current, now.bytes, part);
+        if (drawn !== undefined) part = { ...part, drawn };
+      }
       if (old && diff) {
         const r = diff.report as { verdict?: string; summary?: string };
         setCompared({
@@ -382,8 +417,9 @@ function App() {
         }
       }, (event) => {
         answersSession.markSaved(event.rev);
-        heardSaves.current.add(`${event.rev}:${event.path}`);
-        captureSaved.current(event);
+        const key = `${event.rev}:${event.path}`;
+        heardSaves.current.add(key);
+        if (!(event.source === 'page' && pageSaves.current.delete(key))) captureSaved.current(event);
         if (event.source === 'mcp') void agentSaved(event.path);
         heartbeat.refresh();
       }, (up) => {
@@ -400,7 +436,7 @@ function App() {
       for (const row of rows) {
         if (row.part === at.part || !(String(row.part) in answers.parts)) continue;
         if (!row.written) { answersSession.fileAnswers(row.part, {}); continue; }
-        const snapshot = await worker.current.request<{ analysis: PmiLabSession['analysis'] }>('open', fileOf(first.name, bytes, row.part, true)).catch(() => null);
+        const snapshot = await worker.current.request<{ analysis: PmiLabSession['analysis'] }>('open', fileOf(now.name, now.bytes, row.part, true)).catch(() => null);
         if (snapshot) answersSession.fileAnswers(row.part, snapshot.analysis.resume?.answers ?? {});
       }
     })().catch((error: unknown) => {
@@ -430,7 +466,7 @@ function App() {
       // If another page or the agent saved while this part was opening, open the saved version.
       for (;;) {
         const source = savedSource.current;
-        let next = await openPart(worker.current, answersSession, config.name, source?.bytes ?? opened.bytes,
+        let next = await openPart(worker.current, answersSession, source?.name ?? config.name, source?.bytes ?? opened.bytes,
           { part: index, several: true }, config.readOnly, edited, source?.generation ?? opened.generation, answeredRef.current);
         const drawn = source ? await savedDrawn(worker.current, source.bytes, next) : undefined;
         if (source !== savedSource.current) { next.store.close(); continue; }
@@ -452,12 +488,15 @@ function App() {
     const { store, shown } = opened;
     // The questions the agent changed that are not shown yet.
     const fromAgent = new Set<string>();
+    let latest = 0;
     const show = (answers: PmiAnswers, source: string, previous: PmiAnswers) => {
       if (source === 'mcp') for (const id of changedIds(previous, answers)) fromAgent.add(id);
       // The page's own change, as SpecifyReview already shows it (or answers back to what it shows).
       if (sameAnswers(answers, shown.answers)) { setUnshown(null); return; }
       // Answers from before a Discard are not shown when their review lands after it.
       const started = shown.generation;
+      const token = ++latest;
+      setSyncing(true);
       void opened.reviewOf(answers).then((review) => {
         // Another part shown since, or a newer change on its way (shown when it lands).
         if (current.current?.store !== store || !sameAnswers(store.get(), answers) || shown.generation !== started) return;
@@ -481,6 +520,8 @@ function App() {
         if (current.current?.store !== store || !sameAnswers(store.get(), answers)) return;
         // Not shown, so not saved: said, with a way to try again (a later change also tries again).
         setUnshown(message(error));
+      }).finally(() => {
+        if (token === latest) setSyncing(false);
       });
     };
     // The session's answers, shown again if the page does not show them yet.
@@ -489,7 +530,7 @@ function App() {
     const unsubscribe = store.subscribe(show);
     // A change that landed while the part was opening, before this listened.
     again();
-    return () => { unsubscribe(); setUnshown(null); };
+    return () => { latest += 1; setSyncing(false); unsubscribe(); setUnshown(null); };
   }, [opened?.store]);
   // The questions the agent changed are marked in the panel while its note shows: marked now and
   // again whenever the panel re-renders (the review opens the question after this runs).
@@ -505,6 +546,7 @@ function App() {
   }, [agent]);
 
   const mode = config?.mode;
+  useEffect(() => { if (savedAs) document.title = `${savedAs.name} — Specify`; }, [savedAs]);
   const readOnly = !config || config.readOnly;
 
   /** The short labels of questions ``ids`` (the part shown's; an id Specify does not ask here is kept as it is). */
@@ -531,18 +573,66 @@ function App() {
     const lists = [...pending].map(([part, list]) => ({ part, edits: list.list() }))
       .filter(({ edits }) => Object.keys(edits).length > 0);
     if (!lists.length) { setProblem(null); setSavedNote('Nothing to save.'); return; }
+    const sentParts = new Set(opened.several ? lists.map((entry) => entry.part) : [opened.part]);
+    const sent = new Map<number, PendingEdits>(
+      [...pending].filter(([part]) => sentParts.has(part)),
+    );
+    const sentCallOuts = new Map(callOutKeys.current);
+    const sentDisplaced = new Map(displaced.current);
+    const answeredDuringSave = new Map<string, { part: number; id: string; value: unknown }>();
+    inFlightAnswers.current = answeredDuringSave;
     setSaving(true); setProblem(null); setRejectedNone(new Map());
     const count = items.filter(({ edit }) => edit.kind !== 'refused').length;
     try {
       const result = await opened.saver.save(opened.several ? lists : partPending.list(), draftSnapshot.rev);
       // The saved events are ordered by the command. A delayed HTTP reply must not replace a
       // later save at the same answer revision (for example an agent saving again meanwhile).
-      if (!heardSaves.current.has(`${result.rev}:${result.path}`)) captureSaved.current(result);
+      const saveKey = `${result.rev}:${result.path}`;
+      if (!heardSaves.current.has(saveKey)) {
+        pageSaves.current.add(saveKey);
+        captureSaved.current(result);
+      }
+      for (let active = reopenPromise.current; ; active = reopenPromise.current) {
+        await active;
+        if (active === reopenPromise.current) break;
+      }
+      if (sessionRef.current?.signal.aborted) return;
       setSaved({ path: result.path, open: prompts(result.missing, opened.external.review, opened.review), byAgent: false });
-      // The edits are in the file now: the part opens again from it, and they read as the file's.
-      setPending(new Map());
-      callOutKeys.current.clear();
-      displaced.current.clear();
+      // The sent edits are in the file now: remove them, and rebuild any made while the save ran
+      // against the saved file (including an in-flight answer back to what the file held before).
+      const reopened = shownRef.current && shownRef.current !== opened ? shownRef.current : null;
+      setPending((all) => {
+        const remaining = withoutSent(all, sent);
+        for (const { part, id, value } of answeredDuringSave.values()) {
+          const savedEdit = sent.get(part)?.get(id);
+          if (!savedEdit || savedEdit.kind === 'refused' || !reopened || reopened.part !== part) continue;
+          const matchesSaved = (savedEdit.kind === 'fill' || savedEdit.kind === 'change')
+            && JSON.stringify(value) === JSON.stringify(savedEdit.value);
+          let rebuilt: Pending | null = null;
+          if (!matchesSaved) {
+            if (value === undefined) {
+              const row = reopened.table.rows.find((r) => r.id === id);
+              const q = reopened.bare.find((x) => x.id === id) ?? reopened.review.questions.find((x) => x.id === id);
+              const name = rowName(reopened, id);
+              if (row?.state === 'stated') rebuilt = removeEdit(row, q, name, reopened.session.analysis as PmiAnalysis);
+              else if (row?.state === 'decided_none') rebuilt = { kind: 'clear', id, name };
+            } else {
+              rebuilt = buildAnswerEdit(reopened, id, value);
+            }
+          }
+          const list = remaining.get(part) ?? new PendingEdits();
+          const next = rebuilt ? list.with(rebuilt) : list.without(id);
+          if (next.size) remaining.set(part, next); else remaining.delete(part);
+        }
+        for (const [at, key] of sentCallOuts) {
+          const part = Number(at.split(':')[0]);
+          if (callOutKeys.current.get(at) === key && !remaining.get(part)?.get(key)) callOutKeys.current.delete(at);
+        }
+        for (const [key, edit] of sentDisplaced) {
+          if (displaced.current.get(key) === edit) displaced.current.delete(key);
+        }
+        return remaining;
+      });
       setSavedNote(`Saved ${inspectionName(result.path)} · ${plural(count, 'change')} written, all together.`);
       refreshConfig.current();
     } catch (error) {
@@ -568,7 +658,10 @@ function App() {
         reshow.current();
         setProblem('Not saved: the session changed while you saved (your agent answered). What is now shown is the latest; check it and Save again.');
       } else setProblem(`Not saved: ${message(error)}`);
-    } finally { setSaving(false); }
+    } finally {
+      if (inFlightAnswers.current === answeredDuringSave) inFlightAnswers.current = null;
+      setSaving(false);
+    }
   };
 
 
@@ -676,7 +769,7 @@ function App() {
     const url = URL.createObjectURL(new Blob([`${JSON.stringify(edits, null, 1)}\n`], { type: 'application/json' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${inspectionName(config?.name ?? 'part.step').replace(/\.(step|stp)(\.gz)?$/i, '')}${parts.length > 1 ? `.part-${part}` : ''}.edits.json`;
+    link.download = `${inspectionName(savedAs?.name ?? config?.name ?? 'part.step').replace(/\.(step|stp)(\.gz)?$/i, '')}${parts.length > 1 ? `.part-${part}` : ''}.edits.json`;
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -713,7 +806,7 @@ function App() {
     setChecking(true);
     try {
       const result = await worker.current.request<{ applicable: boolean; failures?: EditFailure[]; message?: string }>(
-        'check-edits', { ...fileOf(config.name, opened.bytes, opened.part, opened.several, opened.generation), edits });
+        'check-edits', { ...fileOf(opened.session.filename, opened.bytes, opened.part, opened.several, opened.generation), edits });
       return result.applicable ? [] : result.failures?.length ? result.failures : whole(result.message || 'It cannot be applied.');
     } catch (error) { return whole(message(error)); }
     finally { setChecking(false); }
@@ -725,8 +818,8 @@ function App() {
           <strong className="app-brand">Specify</strong>
           {config && mode === 'diff' && <span className="app-file app-old" title={config.oldPath ?? ''}>{config.oldName}</span>}
           {config && mode === 'diff' && <span aria-hidden="true">→</span>}
-          {config && <span className="app-file">{config.name}</span>}
-          {config && <code className="app-path">{mode === 'diff' ? `${config.oldPath} → ${config.path}` : config.path}</code>}
+          {config && <span className="app-file">{savedAs?.name ?? config.name}</span>}
+          {config && <code className="app-path">{mode === 'diff' ? `${config.oldPath} → ${savedAs?.path ?? config.path}` : savedAs?.path ?? config.path}</code>}
           {parts.length > 1 && opened && (
             <label className="app-part">Part{' '}
               <select value={opened.part} disabled={busy} onChange={(event) => void showPart(Number(event.target.value))}>
@@ -776,7 +869,7 @@ function App() {
       {stopped && config ? (
         <p className="app-offline app-stopped" role="status">
           Specify has stopped. Run <code>specify-core open …</code> again (or ask your agent to show it).
-          {' '}Your saved file is at <code>{saved?.path ?? config.path}</code>.
+          {' '}Your saved file is at <code>{saved?.path ?? savedAs?.path ?? config.path}</code>.
           {heldLists.length > 0 && <span className="app-held">
             {' '}Your unsaved changes were not written.
             {heldLists.map((held) => (
@@ -808,7 +901,7 @@ function App() {
         <nav className="app-tabs" role="tablist">
           <button type="button" role="tab" aria-selected={tab === 'changes'} onClick={() => setTab('changes')}>What changed</button>
           <button type="button" role="tab" aria-selected={tab === 'answers'} onClick={() => setTab('answers')}>
-            Requirements for {config?.name}{compared?.decisions.length ? ` (${plural(compared.decisions.length, 'decision')})` : ''}
+            Requirements for {savedAs?.name ?? config?.name}{compared?.decisions.length ? ` (${plural(compared.decisions.length, 'decision')})` : ''}
           </button>
           {compared && compared.decisions.length > 0 && (
             <div className="app-decide" aria-label="To decide">
@@ -837,7 +930,7 @@ function App() {
             key={`${opened.session.sessionId}:${reviewGeneration}`}
             engine={opened.engine} session={shownSession} readOnly={!editing} drawn={opened.drawn} slots={slots}
             inspectionExports={false}
-            externalAnswers={shownSession.answers} externalReview={opened.external.review} disabled={saving || stopped}
+            externalAnswers={shownSession.answers} externalReview={opened.external.review} disabled={busy || syncing || stopped}
             focusRequest={focus} showFaces={lit}
             onExport={(_action, format) => { if (format === 'xlsx') downloadFai(); else downloadCsv(); }}
             lengthUnit={opened.units}

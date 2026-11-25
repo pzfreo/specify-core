@@ -95,6 +95,8 @@ export interface DrawnLink {
   readonly question?: string;
   readonly status?: DrawnStatus;
   readonly general?: true;
+  /** Whether this item is one of the part's note statements shown by the notes panel. */
+  readonly partNote?: true;
 }
 
 /**
@@ -236,6 +238,26 @@ export function readPresentation(json: unknown): Read<Presentation> {
   }
 }
 
+const PART_NOTE_ATTRIBUTES = new Set(['surface treatment', 'heat treatment', 'edge condition', 'general tolerance']);
+const PART_NOTE_KINDS = new Set(['surface treatment', 'heat treatment', 'edge condition']);
+
+function isPanelPartNoteEntry(id: string, value: unknown): boolean {
+  if (!isObject(value) || value['on'] != null) return false;
+  if (id.startsWith('attributes:')) {
+    if (value['name'] !== 'semantic text' || !Array.isArray(value['items']) || !value['items'].length) return false;
+    return value['items'].every((entry) =>
+      Array.isArray(entry) && typeof entry[0] === 'string' && PART_NOTE_ATTRIBUTES.has(entry[0])
+      && isObject(entry[1]) && typeof entry[1]['text'] === 'string');
+  }
+  if (id.startsWith('notes:')) {
+    return typeof value['kind'] === 'string' && PART_NOTE_KINDS.has(value['kind']);
+  }
+  if (id.startsWith('surface_textures:')) {
+    return Array.isArray(value['parameters']) && value['parameters'].length > 0;
+  }
+  return false;
+}
+
 /**
  * Each presented item's faces, from the `haecceity.pmi/1` document the presentation was made with:
  * its features' (`features[].value.items[].face`, the session's numbering). Refused unless the
@@ -269,7 +291,11 @@ export function linksFromPmi(json: unknown, presentation: Presentation): Read<Re
   const links: Record<string, DrawnLink> = {};
   for (const e of entries) {
     if (!(e.id in presentation.items)) continue;
-    links[e.id] = { faces: [...named(e.id.startsWith('features:') ? e.id : e.value, new Set())].sort((a, b) => a - b) };
+    const partNote = isPanelPartNoteEntry(e.id, e.value);
+    links[e.id] = {
+      faces: [...named(e.id.startsWith('features:') ? e.id : e.value, new Set())].sort((a, b) => a - b),
+      ...(partNote ? { partNote: true as const } : {}),
+    };
   }
   return { ok: true, value: links };
 }
@@ -310,19 +336,41 @@ export const hasFileGraphics = (pmi: DrawnPmi): boolean =>
 export const NOTES_BLOCK = 'generated:general-notes';
 
 /**
+ * Whether a semantic item is one of the part's notes that the notes panel already says: a `part.*`
+ * setting (by id or question), a `general:*` tolerance, or one of the recognized part-level note
+ * entries (`partNote`) that the notes panel displays. Unrecognized attributes or notes stay drawn.
+ */
+const isPartNote = (item: string, links: Readonly<Record<string, DrawnLink>>): boolean =>
+  item.startsWith('part.')
+  || item.startsWith('general:')
+  || Boolean(links[item]?.question?.startsWith('part.'))
+  || links[item]?.partNote === true;
+
+/**
  * The drawn PMI without Specify's general-notes block, and without the view it generates for it:
  * notes on a plane in 3D turn away as the part turns, and the panel already says them.
  */
 export function withoutNotesBlock(pmi: DrawnPmi): DrawnPmi {
-  const keep = (g: DrawnGraphic) => g.id !== NOTES_BLOCK;
   const { presentation } = pmi;
+  // Saved, the block is one of the file's own graphics, with an id of the file's: the one of that name that
+  // draws the part's notes and nothing else. Notes the panel does not say (no item of the part's, or a
+  // graphic that also draws a datum, dimension, or feature note) stay drawn.
+  const draws = new Map<string, boolean>();
+  for (const [item, graphics] of Object.entries(presentation.items)) {
+    const note = isPartNote(item, pmi.links);
+    for (const g of graphics) if (g.id !== undefined) draws.set(g.id, (draws.get(g.id) ?? true) && note);
+  }
+  const block = (g: DrawnGraphic) => g.id === NOTES_BLOCK
+    || (g.source === 'file' && /^general notes$/i.test(g.name) && g.id !== undefined && draws.get(g.id) === true);
+  const blocks = new Set([NOTES_BLOCK, ...Object.values(presentation.items).flat().filter(block).map((g) => g.id)]);
+  const keep = (g: DrawnGraphic) => !blocks.has(g.id);
   return {
     ...pmi,
     presentation: {
       ...presentation,
       items: Object.fromEntries(Object.entries(presentation.items).map(([item, gs]) => [item, gs.filter(keep)])),
       unlinked: presentation.unlinked.filter(keep),
-      views: presentation.views.filter((v) => !(v.graphics.length && v.graphics.every((id) => id === NOTES_BLOCK))),
+      views: presentation.views.filter((v) => !(v.graphics.length && v.graphics.every((id) => blocks.has(id)))),
     },
   };
 }

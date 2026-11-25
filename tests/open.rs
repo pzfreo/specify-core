@@ -688,6 +688,7 @@ fn the_app_engine_config_and_file_are_served_under_the_token() {
             "readOnly",
             "wasmUrl",
             "saveTarget",
+            "savedPath",
             "specifyCore"
         ]
     );
@@ -1181,6 +1182,8 @@ fn rev_saved_serves_what_the_last_save_wrote() {
             Some(expected.display().to_string().as_str())
         );
         assert_eq!(got.body, std::fs::read(expected).unwrap());
+        // The page is told it is there, to open it rather than the input.
+        assert_eq!(opened.config()["savedPath"], expected.display().to_string());
         got.body
     };
 
@@ -1584,9 +1587,16 @@ fn a_linked_input_saves_beside_the_link_and_shows_the_path_as_given() {
     assert_eq!(opened.config()["name"], "part.step");
     assert_eq!(opened.config()["path"], shown("part.step"));
     assert_eq!(opened.config()["saveTarget"], shown("part.specified.step"));
+    // Nothing saved yet.
+    assert_eq!(opened.config()["savedPath"], Value::Null);
     let got = opened.save(0, json!({}));
     assert_eq!(got.status, 200);
     assert_eq!(got.json()["path"], shown("part.specified.step"));
+    assert_eq!(
+        opened.config()["savedPath"],
+        shown("part.specified.step"),
+        "the path as given, beside the link"
+    );
     assert!(is_step(&scratch.path("proj/part.specified.step")));
     assert_eq!(
         names("lib"),

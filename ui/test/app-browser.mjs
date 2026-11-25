@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -1070,6 +1070,184 @@ try {
     const server = await open(metric, '--read-only');
     const { context, page } = await load(server);
     await check(page.locator('.pmi-lab-unit')).toHaveText('Units: mm');
+    await context.close();
+    server.stop();
+  }
+  // Saved to a copy, the page shows the copy: its name, its path and its notes once; and shows it again reloaded.
+  // Removed by someone else, a reload says so and opens the file as it was opened.
+  {
+    const named = join(dir, 'named.step');
+    writeFileSync(named, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
+    const copy = join(dir, 'named.specified.step');
+    const server = await open(named);
+    const { context, page, requests } = await load(server);
+    const shows = async (name, path) => {
+      await check(page).toHaveTitle(`${name} — Specify`);
+      await check(page.locator('.app-file')).toHaveText(name);
+      await check(page.locator('.app-path')).toHaveText(path);
+      await check(page.locator('.pmi-lab-panel .title strong')).toHaveText(name);
+    };
+    await shows('named.step', named);
+    await page.locator('[data-suggestion="part.general_tolerance"] .btns button').first().click();
+    await check(listedEdit(page, 'part.general_tolerance')).toBeVisible();
+    await save(page, server, 1);
+    await shows('named.specified.step', copy);
+    await check(page.locator('.pmi-lab-stated[data-question="part.general_tolerance"]')).toHaveCount(1);
+    await page.reload();
+    await panelReady(page);
+    await shows('named.specified.step', copy);
+    await check(page.locator('.pmi-lab-stated[data-question="part.general_tolerance"]')).toHaveCount(1);
+    await check(page.locator('.app-inspection-source')).toContainText('from named.specified.step');
+    // The next save, after the reload, updates the copy, with both.
+    await page.locator('[data-suggestion="part.process"] .btns button').first().click();
+    await check(listedEdit(page, 'part.process')).toBeVisible();
+    await save(page, server, 2);
+    assert.ok(!existsSync(join(dir, 'named.specified-2.step')), 'the copy is updated, not numbered');
+    for (const id of ['part.general_tolerance', 'part.process']) assert.equal(table(copy)[id].state, 'stated', id);
+    const beforeGone = problems.length;
+    renameSync(copy, join(dir, 'moved.step'));
+    await page.reload();
+    await panelReady(page);
+    await check(page.locator('.app-problem').first()).toContainText('The file saved earlier could not be shown, so this is the file as opened');
+    await shows('named.step', named);
+    problems.splice(beforeGone, problems.length - beforeGone, ...problems.slice(beforeGone).filter(p => !/^console: .*404/.test(p)));
+    onlyLocal(requests, server.origin);
+    await context.close();
+    server.stop();
+  }
+  // An edit landing while Save runs is not lost when the save reopens the file: only the edits sent
+  // are cleared, and the next Save writes the remaining one too.
+  {
+    const concurrent = join(dir, 'concurrent.step');
+    writeFileSync(concurrent, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
+    const copy = join(dir, 'concurrent.specified.step');
+    const server = await open(concurrent);
+    const { context, page, requests } = await load(server);
+    await keep(page, 'part.general_tolerance');
+    await check(listedEdit(page, 'part.general_tolerance')).toBeVisible();
+    // Hold the next worker `review` request so a second edit is in flight when Save posts, then
+    // release it while POST /save is in flight so it lands in localPending before Save finishes.
+    await page.evaluate(() => {
+      const post = Worker.prototype.postMessage;
+      window.__heldReview = false;
+      Worker.prototype.postMessage = function (message, ...rest) {
+        if (message && message.operation === 'review') {
+          Worker.prototype.postMessage = post;
+          window.__heldReview = true;
+          window.__releaseReview = () => post.call(this, message, ...rest);
+          return;
+        }
+        return post.call(this, message, ...rest);
+      };
+    });
+    await card(page, 'part.process').locator('.btns button').first().click();
+    await check.poll(() => page.evaluate(() => window.__heldReview)).toBe(true);
+    await check(listedEdit(page, 'part.process')).toHaveCount(0);
+    let sentBody = null;
+    await page.route('**/save', async route => {
+      sentBody = route.request().postDataJSON();
+      await page.evaluate(() => window.__releaseReview());
+      await check(listedEdit(page, 'part.process')).toBeVisible();
+      await route.continue();
+    });
+    const firstReply = page.waitForResponse(
+      response => response.url() === `${server.url}save` && response.request().method() === 'POST',
+      { timeout: 90000 },
+    );
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const response = await firstReply;
+    assert.equal(response.status(), 200);
+    await page.unroute('**/save');
+    assert.deepEqual(Object.keys(sentBody.edits.fill ?? {}), ['part.general_tolerance'], 'the first save sent only the first edit');
+    await check(page.locator('.app-saved code')).toHaveText(copy);
+    await check(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+    // The sent edit is cleared and in the file; the edit made while Save ran stays listed and is not yet in the file.
+    await check(listedEdit(page, 'part.general_tolerance')).toHaveCount(0);
+    await check(listedEdit(page, 'part.process')).toBeVisible();
+    assert.equal(table(copy)['part.general_tolerance'].state, 'stated');
+    assert.equal(table(copy)['part.process'].state, 'gap');
+    // A second Save writes the remaining edit too.
+    await save(page, server, 2);
+    await check(allListed(page)).toHaveCount(0);
+    assert.equal(table(copy)['part.general_tolerance'].state, 'stated');
+    assert.equal(table(copy)['part.process'].state, 'stated');
+    // Same-row edit landing while Save runs: a retained fill on a newly filled row is rebuilt as a
+    // change expecting the saved value, and an in-flight edit back to the pre-save value is kept as a change.
+    const holdNextReview = () => page.evaluate(() => {
+      const post = Worker.prototype.postMessage;
+      window.__heldReview = false;
+      Worker.prototype.postMessage = function (message, ...rest) {
+        if (message && message.operation === 'review') {
+          Worker.prototype.postMessage = post;
+          window.__heldReview = true;
+          window.__releaseReview = () => post.call(this, message, ...rest);
+          return;
+        }
+        return post.call(this, message, ...rest);
+      };
+    });
+    await answerPart(page, 'part.material', 'Steel');
+    await check(listedEdit(page, 'part.material')).toContainText('Steel');
+    const matField = await partField(page, 'part.material');
+    await holdNextReview();
+    const matInput = matField.locator('input').first();
+    await matInput.fill('Brass');
+    await matInput.press('Enter');
+    await check.poll(() => page.evaluate(() => window.__heldReview)).toBe(true);
+    let sameRowBody = null;
+    await page.route('**/save', async route => {
+      sameRowBody = route.request().postDataJSON();
+      await page.evaluate(() => window.__releaseReview());
+      await check(listedEdit(page, 'part.material')).toContainText('Brass');
+      await route.continue();
+    });
+    const sameRowReply = page.waitForResponse(
+      r => r.url() === `${server.url}save` && r.request().method() === 'POST',
+      { timeout: 90000 },
+    );
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    assert.equal((await sameRowReply).status(), 200);
+    await page.unroute('**/save');
+    assert.equal(sameRowBody.edits.fill?.['part.material'], 'Steel', 'first save wrote Steel');
+    await check(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+    await check(listedEdit(page, 'part.material')).toContainText('Change Material: Steel → Brass');
+    assert.equal(table(copy)['part.material'].value, 'Steel');
+    // Next Save applies the rebuilt change cleanly.
+    await save(page, server, 4);
+    await check(allListed(page)).toHaveCount(0);
+    assert.equal(table(copy)['part.material'].value, 'Brass');
+    // Stated Brass changed to Aluminium, then an in-flight edit back to Brass lands while Save runs:
+    // it must not vanish, and the next Save restores Brass.
+    await changeMaterial(page, 'Aluminium 6082-T6');
+    await check(listedEdit(page, 'part.material')).toContainText('Brass → Aluminium 6082-T6');
+    await material(page).getByRole('button', { name: 'Change Material', exact: true }).click();
+    const revertBox = material(page).getByRole('combobox', { name: 'Material' });
+    await holdNextReview();
+    await revertBox.fill('Brass');
+    await revertBox.press('Enter');
+    await check.poll(() => page.evaluate(() => window.__heldReview)).toBe(true);
+    let revertBody = null;
+    await page.route('**/save', async route => {
+      revertBody = route.request().postDataJSON();
+      await page.evaluate(() => window.__releaseReview());
+      await check(listedEdit(page, 'part.material')).toHaveCount(0);
+      await route.continue();
+    });
+    const revertReply = page.waitForResponse(
+      r => r.url() === `${server.url}save` && r.request().method() === 'POST',
+      { timeout: 90000 },
+    );
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    assert.equal((await revertReply).status(), 200);
+    await page.unroute('**/save');
+    assert.deepEqual(revertBody.edits.change?.['part.material'], { to: 'Aluminium 6082-T6', expect: 'Brass' });
+    await check(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+    await check(listedEdit(page, 'part.material')).toContainText('Change Material: Aluminium 6082-T6 → Brass');
+    assert.equal(table(copy)['part.material'].value, 'Aluminium 6082-T6');
+    await save(page, server, 6);
+    await check(allListed(page)).toHaveCount(0);
+    assert.equal(table(copy)['part.material'].value, 'Brass');
+    onlyLocal(requests, server.origin);
     await context.close();
     server.stop();
   }

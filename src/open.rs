@@ -833,6 +833,7 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
                 "readOnly": shared.read_only,
                 "wasmUrl": WASM_URL,
                 "saveTarget": target,
+                "savedPath": s.last_saved().map(|(p, _)| p.display().to_string()),
                 "specifyCore": env!("CARGO_PKG_VERSION"),
             });
             drop(s);
