@@ -382,6 +382,12 @@ Read first:
   are saved or discarded, or it is closed. If the command stops anyway, the page offers the unsaved edits
   as files for `specify-core write`. Closing a tab warns for edits held in the page too (it looked only
   at the session's answers).
+- Local app: after a save, the page shows the file the session wrote (a copy, or the input in place): the tab title,
+  heading, path and panel title take its name, and a reload opens it, not the input; `config.savedPath` says where it is
+  (docs/open.md). If that copy was changed or removed since, the page says so and opens the input. A saved file's own
+  "General notes" graphic is no longer drawn on the model beside the notes panel. The edits kept when a save lands are
+  those not sent with it. Known limits: a same-row change made while a save is running can be refused again; a rare failed
+  reopen can lose a revert; a renamed note attribute can still lose its graphic.
 - Local app: the 3D view is beside the panel, as in the editor. In 0.3.0-rc.2 it ran under it, so the
   view's own controls (Show, turning, zoom, fit, home, see-through, the orientation cube and the part
   filter) could not be reached on a wide window.
