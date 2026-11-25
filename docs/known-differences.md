@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 352 | 0 | 8 | 0 | 234 | 1 | 595 |
+| [cli](#cli) | 566 | 0 | 8 | 0 | 234 | 1 | 809 |
 | [cross_engine](#cross_engine) | 342 | 2 | 0 | 1 | 1 | 20 | 366 |
 | [cross_engine_written](#cross_engine_written) | 75 | 0 | 0 | 0 | 0 | 0 | 75 |
 | [existing](#existing) | 420 | 0 | 0 | 0 | 7 | 0 | 427 |
@@ -21,9 +21,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
-| [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
+| [rules](#rules) | 114 | 0 | 587 | 0 | 0 | 28 | 729 |
 | [writer](#writer) | 2267 | 0 | 0 | 0 | 15 | 13 | 2295 |
-| **all** | 8110 | 1433 | 1201 | 2468 | 1327 | 1917 | 16456 |
+| **all** | 8324 | 1433 | 1173 | 2468 | 1327 | 1945 | 16670 |
 
 ## analysis
 
@@ -77,7 +77,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (352 entries)
+### cli: rust-correct (566 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -177,11 +177,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **general dimensions are rows (Paul, 2026-11-21)** (52 entries, 40 case globs)
 
-  The evidence is stated per entry (3 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `questions.defaults.questions.measurement_count`: Item 8 adds this exact number of separately approved measurement questions to the list.
+  The evidence is stated per entry (5 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `questions.defaults.questions.measurement_count`: Item 8 adds this exact number of separately approved measurement questions to the list.
 
 - **General dimensions are rows in CLI defaults** (10 entries, 10 case globs)
 
-  The evidence is stated per entry (7 distinct; all in `cli.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `questions.defaults.questions`: The general-dimension rows decision (Paul, 2026-11-21) exposes measured plane lengths and hole locations as questions on this captured analysis. Round 6's feature table requires an explicit approval for each standalone measurement, so the same captured questions in the same order no longer mark those measurements as optional.
+  The evidence is stated per entry (8 distinct; all in `cli.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `questions.defaults.questions`: The general-dimension rows decision (Paul, 2026-11-21) exposes measured plane lengths and hole locations as questions on this captured analysis. Round 6's feature table requires an explicit approval for each standalone measurement, so the same captured questions in the same order no longer mark those measurements as optional.
 
 - **0.5.5 / CLI all-axis step count** (`cli/default_datum_a_takes_every_coplanar_face#0/analyse` at `stdout.features.step_levels`)
 
@@ -189,7 +189,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **Expanded corpus required measurements in CLI defaults** (45 entries, 43 case globs)
 
-  The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb245` at `questions.defaults.questions.measurement_count`: Round 6 reports standalone measurements as required rows. This exact result counts or names the CGB245 questions that the Python capture had no standalone rows for.
+  The evidence is stated per entry (2 distinct; all in `cli.json`). The first, for `corpus/cadgenbench_inputs/cgb245` at `questions.defaults.questions.measurement_count`: Round 6 reports standalone measurements as required rows. This exact result counts or names the CGB245 questions that the Python capture had no standalone rows for. 2026-11-25: with sheet metal as the default, these are the ones the sheet-metal datums leave.
+
+- **a bent sheet's defaults are sheet metal's (Paul, 2026-11-25)** (214 entries, 3 case globs)
+
+  Paul, 2026-11-25: the whole part is one recognised bent sheet, so sheet metal is the process's default, and its own defaults and questions follow (docs/process.md). Python has no process and asks the machined ones. Answering machined gives the machined rules (tests/process.rs).
 
 ### cli: equivalent (8 entries)
 
@@ -1319,11 +1323,17 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   Maintainer decision (draftwright-rust #122): choose measurement origins before dimensions. Rust proposes the same geometric A/B/C frame in ± mode and when no feature needs a geometric tolerance; turned parts retain their plain axis A and perpendicular shoulder B. Empty datum answers still remove them. ± hole locations use selected datum planes, never recomputed edge defaults; accepting ± defaults adds no position or geometric-control requirements. General baseline dimensions consequently use the proposed planes too. tests/tolerancing.rs, tests/locations.rs, tests/turned_defaults.rs and tests/writer.rs verify the default path, changed/removed origins, both modes and AP242 DATUM_FEATURE entities with no FCFs. The complete Python and Rust values, including both named no-datum scenarios, are pinned exactly in tests/fixtures/rule_defaults_oracle.json.gz before these verdict entries apply; original Python captures remain unchanged. Rules version 2 identifies this output change.
 
-### rules: equivalent (615 entries)
+### rules: equivalent (587 entries)
 
-- **Equivalent equal-area datum choice and dependent values** (615 entries, 21 case globs)
+- **Equivalent equal-area datum choice and dependent values** (587 entries, 21 case globs)
 
-  The evidence is stated per entry (603 distinct; all in `rules.json`). The first, for `corpus/cadgenbench_inputs/cgb245/questions` at `none.questions[18].faces[0]`: corpus/cadgenbench_inputs/cgb245 faces 80/79 have captured areas 3079.999999998903/3079.9999999988927 mm2; difference 1.04591890704e-11 \<= max(1e-6, 1e-6\*larger) = 0.00308 mm2. Their order is arbitrary within the requested tolerance; keep source-face order. This is a Specify datum-comparator change exposed by quiddity #61, not a claim that Python chose incorrect geometry. Exact oracle departure {"path":"none.questions[18].faces[0]","python":147,"rust":79}. This replaces the previous Rust value 80 because the same tied datum feeds this question/measurement.
+  The evidence is stated per entry (575 distinct; all in `rules.json`). The first, for `corpus/cadgenbench_inputs/cgb245/questions` at `none.questions[18].faces[0]`: corpus/cadgenbench_inputs/cgb245 faces 80/79 have captured areas 3079.999999998903/3079.9999999988927 mm2; difference 1.04591890704e-11 \<= max(1e-6, 1e-6\*larger) = 0.00308 mm2. Their order is arbitrary within the requested tolerance; keep source-face order. This is a Specify datum-comparator change exposed by quiddity #61, not a claim that Python chose incorrect geometry. Exact oracle departure {"path":"none.questions[18].faces[0]","python":147,"rust":79}. This replaces the previous Rust value 80 because the same tied datum feeds this question/measurement.
+
+### rules: resolved (28 entries)
+
+- **Equivalent equal-area datum choice and dependent values** (28 entries, 2 case globs)
+
+  The evidence is stated per entry (28 distinct; all in `rules.json`). The first, for `corpus/cadgenbench_inputs/cgb245/apply` at `requirements[1].reference[0]`: corpus/cadgenbench_inputs/cgb245 faces 80/79 have captured areas 3079.999999998903/3079.9999999988927 mm2; difference 1.04591890704e-11 \<= max(1e-6, 1e-6\*larger) = 0.00308 mm2. Their order is arbitrary within the requested tolerance; keep source-face order. This is a Specify datum-comparator change exposed by quiddity #61, not a claim that Python chose incorrect geometry. Exact oracle departure {"path":"requirements[1].reference[0]","python":80,"rust":79}. Resolved 2026-11-25 (Paul): the part is one recognised bent sheet, so its accepted defaults are sheet metal's, with no position tolerances, and this requirement is no longer written by default. Answering machined gives the earlier rules (tests/process.rs, answering_machined_on_a_bent_sheet_gives_the_machined_rules).
 
 ## writer
 

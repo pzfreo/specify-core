@@ -198,6 +198,59 @@ fn a_part_that_is_one_bent_sheet_suggests_sheet_metal_marked_check() {
     }
 }
 
+/// The committed analysis of sm-hanger (build123d's bent hanger), as the rules oracle reads it.
+fn hanger() -> Value {
+    use std::io::Read;
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/oracle/corpus/ttt_inputs/sm-hanger/analysis.json.gz");
+    let mut text = String::new();
+    flate2::read::GzDecoder::new(std::fs::File::open(path).unwrap())
+        .read_to_string(&mut text)
+        .unwrap();
+    serde_json::from_str(&text).unwrap()
+}
+
+#[test]
+fn accepting_every_default_of_a_bent_sheet_takes_sheet_metal() {
+    let taken = rules::with_all_defaults(&hanger(), &Map::new()).unwrap();
+    for (id, value) in [
+        ("part.process", SHEET_METAL),
+        ("part.edges", "Deburr only"),
+        ("part.locating", "± dimensions"),
+    ] {
+        assert_eq!(taken.get(id), Some(&json!(value)), "{id}");
+    }
+    assert!(!taken.contains_key("part.surface_finish"));
+    assert!(!taken.keys().any(|id| id.starts_with("hole.position:")));
+}
+
+#[test]
+fn answering_machined_on_a_bent_sheet_gives_the_machined_rules() {
+    let steel = answers(json!({"part.material": "steel"}));
+    let machined = answers(json!({"part.material": "steel", "part.process": MACHINED}));
+    // The same analysis without the sheet: the rules as they were.
+    for mut plain in [hanger(), api::analyse(&sheet("bent-bracket")).unwrap()] {
+        let given = plain.clone();
+        plain["features"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|f| f["family"] != "sheet_metal_bodies");
+        assert_ne!(given, plain);
+        let mut before = rules::with_all_defaults(&plain, &steel).unwrap();
+        let mut now = rules::with_all_defaults(&given, &machined).unwrap();
+        before.remove("part.process");
+        assert_eq!(now.remove("part.process"), Some(json!(MACHINED)));
+        assert_eq!(now, before);
+        let requirements = |analysis: &Value, given: &Map<String, Value>| {
+            api::apply(analysis, given, true).unwrap().to_dict()["requirements"].clone()
+        };
+        assert_eq!(
+            requirements(&given, &machined),
+            requirements(&plain, &steel)
+        );
+    }
+}
+
 #[test]
 fn thin_machined_parts_and_tubes_are_not_taken_for_sheet_metal() {
     for stem in [

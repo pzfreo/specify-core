@@ -152,6 +152,11 @@ Read first:
 
 ### Changed
 
+- A part that is wholly one recognised sheet-metal body with a bend suggests `sheet metal` as its process
+  (docs/process.md), unless its material suggests printing; before, `machined`. Marked `check`. As a
+  default it is taken with every other default, so accepting all of them on such a part gives sheet
+  metal's: no surface finish, edges `Deburr only`, ± dimensions. Recorded expectations change for
+  sm-hanger, cgb245 and NIST CTC-03 only; answering `machined` there gives the rules as before.
 - **Quiddity 0.5.5.** Published step levels on every part axis get plane-to-plane length rows.
   Independent plane lengths keep their rows. Stated locations on retired levels appear under
   **Other PMI in the file** when they match no measured row. A stated length on tilted planes
