@@ -29,6 +29,9 @@ body { background: #fff; color: #1a1d21; font: 13px/1.45 ui-sans-serif, -apple-s
 .app-slot { position: absolute; inset: 0; }
 .app-main .pmi-lab.pmi-lab-pane { position: absolute; inset: 0; }
 .app-panel { pointer-events: none; }
+/* The view stops where the panel (358px, 10px in) starts, as in the editor: under it, the view's own
+   controls (Show, the turning and zoom buttons) could not be reached. On a phone the panel is below. */
+@media (min-width: 701px) { .app-main .app-view { right: 378px; } }
 .app-panel .pmi-lab { background: transparent; pointer-events: none; }
 .app-panel .pmi-lab-panel { pointer-events: auto; }
 .app-about { padding: 4px 14px; border-top: 1px solid #d9dee4; color: #707880; font-size: 11.5px; }

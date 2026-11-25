@@ -379,6 +379,9 @@ Read first:
   are saved or discarded, or it is closed. If the command stops anyway, the page offers the unsaved edits
   as files for `specify-core write`. Closing a tab warns for edits held in the page too (it looked only
   at the session's answers).
+- Local app: the 3D view is beside the panel, as in the editor. In 0.3.0-rc.2 it ran under it, so the
+  view's own controls (Show, turning, zoom, fit, home, see-through, the orientation cube and the part
+  filter) could not be reached on a wide window.
 - Stated BOM values now require a guarded `change` in edit lists. The feature table
   shows native data and explicit STEP property overrides as stated, with default
   proposals left as gaps.
