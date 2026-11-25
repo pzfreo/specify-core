@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { withoutNotesBlock, bestFitNormal, drawnFromScene, drawnGroup, drawnShown, drawnViews, facesAway, graphicNormal, hasFileGraphics, hasGraphics, linksFromPmi, partCentre, readPresentation } from '../src/specify/drawn.ts';
+import { IntentEngine, pmiScene } from './engine-fixture.mjs';
 
 // The spindle's haecceity.presentation/1 and haecceity.pmi/1, from quiddity's json feature
 // (test/fixtures/README.md).
@@ -272,10 +273,49 @@ test('the notes the panel says are not drawn too: the generated block, and the o
   // A file Specify saved: one block, under each note it draws, in a view of its own.
   assert.deepEqual(kept(pmi({ 'part.edges': [block], 'part.material': [block], 'datum:A': [g('step:1', 'Datum A')] }, [], [{ id: 'Notes', graphics: ['step:4272'] }, { id: 'PMI', graphics: ['step:1'] }])),
     { items: { 'part.edges': [], 'part.material': [], 'datum:A': ['step:1'] }, unlinked: [], views: ['PMI'] });
-  // Not the panel's: one that draws something else too, or that nothing of the part's is, stays.
+  // Not the panel's: one that draws something else too (a datum, dimension, or face-attached note), or unlinked, stays.
   assert.deepEqual(kept(pmi({ 'part.edges': [block], 'datum:A': [block] })).items, { 'part.edges': ['step:4272'], 'datum:A': ['step:4272'] });
+  assert.deepEqual(kept(pmi({ 'general:abc': [block], 'dimensions:def': [block] })).items, { 'general:abc': ['step:4272'], 'dimensions:def': ['step:4272'] });
+  assert.deepEqual(kept({
+    links: { 'notes:face': { faces: [3] } },
+    presentation: { items: { 'general:abc': [block], 'notes:face': [block] }, unlinked: [], planes: [], semanticIds: [], views: [] },
+  }).items, { 'general:abc': ['step:4272'], 'notes:face': ['step:4272'] });
   assert.deepEqual(kept(pmi({}, [block])).unlinked, ['step:4272']);
   assert.deepEqual(kept(pmi({ 'part.edges': [g('step:9', 'Other notes')] })).items, { 'part.edges': ['step:9'] });
   // The one Specify generates, as before.
   assert.deepEqual(kept(pmi({ 'part.edges': [g('generated:general-notes', 'General notes', 'generated')] })).items, { 'part.edges': [] });
+});
+
+test('a real saved file\'s General notes block (owned by general:<hash>, attributes:<hash>, part.*) is dropped while non-note graphics stay', () => {
+  const shaft = gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz'));
+  const writeAndScene = (edits) => {
+    const engine = new IntentEngine('gramil_shaft_before.step', shaft);
+    try {
+      const result = JSON.parse(engine.edit(JSON.stringify(edits)));
+      assert.ok(result.written, result.message);
+      const read = drawnFromScene(JSON.parse(pmiScene(new Uint8Array(result.bytes))));
+      assert.ok(read.ok, read.reason);
+      return read.value;
+    } finally { engine.free(); }
+  };
+  // Saved with ISO 2768-m alone: General notes is owned by general:<hash>, not part.*.
+  const onlyGeneral = writeAndScene({ fill: { 'part.general_tolerance': 'ISO 2768-m' } });
+  const owners = Object.entries(onlyGeneral.presentation.items)
+    .filter(([, gs]) => gs.some((g) => g.source === 'file' && g.name === 'General notes'))
+    .map(([id]) => id);
+  assert.ok(owners.some((id) => id.startsWith('general:')), `expected general:<hash> owner, got ${JSON.stringify(owners)}`);
+  const stripped = withoutNotesBlock(onlyGeneral);
+  assert.equal(hasGraphics(stripped), false, 'General notes graphic is dropped');
+  assert.deepEqual(stripped.presentation.views, [], 'notes-only views are dropped');
+  // Saved with several part notes plus a datum: General notes (owned by general:<hash>, attributes:<hash>, part.material)
+  // is dropped, while Datum A and its non-notes view stay.
+  const withDatum = writeAndScene({
+    fill: { 'part.general_tolerance': 'ISO 2768-m', 'part.edges': 'Break sharp edges 0.5 max', 'part.material': 'Steel', 'datum.A': [10] },
+  });
+  const kept = withoutNotesBlock(withDatum);
+  const allKept = [...kept.presentation.unlinked, ...Object.values(kept.presentation.items).flat()];
+  assert.equal(allKept.some((g) => /^general notes$/i.test(g.name)), false, 'General notes graphic is dropped');
+  assert.ok(allKept.some((g) => g.name === 'Datum A'), 'Datum A graphic stays');
+  assert.equal(kept.presentation.views.some((v) => v.name === 'Notes'), false, 'Notes view is dropped');
+  assert.ok(kept.presentation.views.length > 0, 'the callouts view for Datum A stays');
 });

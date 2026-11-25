@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { balloonText, bareAnalysis, changedText, displayText, isNoneValue, panelModel, tableOf } from '../app/table.ts';
-import { describe, editList, PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, suggestionEdits } from '../app/edits.ts';
+import { describe, editList, PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, withoutSent, suggestionEdits } from '../app/edits.ts';
 import { compose, emptyBlock, parse } from '../src/specify/general-tolerance.ts';
 // The review panel's pieces that are not drawn (specify-panel.md): its reading of the engine's feature
 // table, the pending edits as an edit list, and the general tolerance's text (#228).
@@ -250,4 +250,23 @@ test('an explicit guarded change preserves its expectation and a refused answer 
   assert.deepEqual(pending.list(), { change: { 'part.material': change } });
   assert.equal(describe(pending.get('part.material')), 'Change Material: Brass → Bronze');
   assert.equal(pending.get('part.material').draft, true);
+});
+
+test('withoutSent removes only the exact edits sent by a save, keeping edits added or replaced meanwhile', () => {
+  const mat1 = { kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' };
+  const mat2 = { kind: 'fill', id: 'part.material', name: 'Material', value: 'Brass', text: 'Brass' };
+  const tol = { kind: 'fill', id: 'part.general_tolerance', name: 'General tolerance', value: 'ISO 2768-m', text: 'ISO 2768-m' };
+  const proc = { kind: 'fill', id: 'part.process', name: 'Process', value: 'CNC machining', text: 'CNC machining' };
+  const part1Edit = { kind: 'none', id: 'part.coating', name: 'Coating' };
+  const sent = new Map([[0, new PendingEdits([tol, mat1])]]);
+  // Nothing added meanwhile: map clears.
+  assert.equal(withoutSent(new Map([[0, new PendingEdits([tol, mat1])]]), sent).size, 0);
+  // A new edit on another row, a replacement on the same row, and an edit on an unsent part all survive.
+  const current = new Map([
+    [0, new PendingEdits([tol, mat2, proc])],
+    [1, new PendingEdits([part1Edit])],
+  ]);
+  const kept = withoutSent(current, sent);
+  assert.deepEqual(kept.get(0)?.values(), [mat2, proc]);
+  assert.deepEqual(kept.get(1)?.values(), [part1Edit]);
 });

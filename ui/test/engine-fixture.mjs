@@ -8,7 +8,7 @@ export { wasmDirectory } from './engine-path.mjs';
 const { modulePath, wasmPath } = requireEngine();
 const { default: init, IntentEngine, pmiScene, acceptDefaults } = await import(pathToFileURL(modulePath).href);
 await init({ module_or_path: readFileSync(wasmPath) });
-export { IntentEngine };
+export { IntentEngine, pmiScene };
 
 /** Read the real writer's private history via its semantic reader; never fabricate a schema. */
 export function characteristicHistory(bytes) {

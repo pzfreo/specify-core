@@ -1104,6 +1104,66 @@ try {
     await context.close();
     server.stop();
   }
+  // An edit landing while Save runs is not lost when the save reopens the file: only the edits sent
+  // are cleared, and the next Save writes the remaining one too.
+  {
+    const concurrent = join(dir, 'concurrent.step');
+    writeFileSync(concurrent, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
+    const copy = join(dir, 'concurrent.specified.step');
+    const server = await open(concurrent);
+    const { context, page, requests } = await load(server);
+    await keep(page, 'part.general_tolerance');
+    await check(listedEdit(page, 'part.general_tolerance')).toBeVisible();
+    // Hold the next worker `review` request so a second edit is in flight when Save posts, then
+    // release it while POST /save is in flight so it lands in localPending before Save finishes.
+    await page.evaluate(() => {
+      const post = Worker.prototype.postMessage;
+      window.__heldReview = false;
+      Worker.prototype.postMessage = function (message, ...rest) {
+        if (message && message.operation === 'review') {
+          Worker.prototype.postMessage = post;
+          window.__heldReview = true;
+          window.__releaseReview = () => post.call(this, message, ...rest);
+          return;
+        }
+        return post.call(this, message, ...rest);
+      };
+    });
+    await card(page, 'part.process').locator('.btns button').first().click();
+    await check.poll(() => page.evaluate(() => window.__heldReview)).toBe(true);
+    await check(listedEdit(page, 'part.process')).toHaveCount(0);
+    let sentBody = null;
+    await page.route('**/save', async route => {
+      sentBody = route.request().postDataJSON();
+      await page.evaluate(() => window.__releaseReview());
+      await check(listedEdit(page, 'part.process')).toBeVisible();
+      await route.continue();
+    });
+    const firstReply = page.waitForResponse(
+      response => response.url() === `${server.url}save` && response.request().method() === 'POST',
+      { timeout: 90000 },
+    );
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const response = await firstReply;
+    assert.equal(response.status(), 200);
+    await page.unroute('**/save');
+    assert.deepEqual(Object.keys(sentBody.edits.fill ?? {}), ['part.general_tolerance'], 'the first save sent only the first edit');
+    await check(page.locator('.app-saved code')).toHaveText(copy);
+    await check(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+    // The sent edit is cleared and in the file; the edit made while Save ran stays listed and is not yet in the file.
+    await check(listedEdit(page, 'part.general_tolerance')).toHaveCount(0);
+    await check(listedEdit(page, 'part.process')).toBeVisible();
+    assert.equal(table(copy)['part.general_tolerance'].state, 'stated');
+    assert.equal(table(copy)['part.process'].state, 'gap');
+    // A second Save writes the remaining edit too.
+    await save(page, server, 2);
+    await check(allListed(page)).toHaveCount(0);
+    assert.equal(table(copy)['part.general_tolerance'].state, 'stated');
+    assert.equal(table(copy)['part.process'].state, 'stated');
+    onlyLocal(requests, server.origin);
+    await context.close();
+    server.stop();
+  }
   // A dimension the file states with its nominal alone (under the general tolerance) is called out
   // in place: its feature-and-kind changed to take the tolerance; nothing is added beside it, and
   // every other requirement keeps its number and text.

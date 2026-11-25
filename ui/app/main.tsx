@@ -26,7 +26,7 @@ import { changedIds, createSession, sameAnswers, type AnswersSession, type Answe
 import { decisions, type Decision } from './diff-report';
 import { discardAnswers, getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type EditFailure, type EditList, type LocalConfig, type AnswerDraft } from './local';
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } from './save';
-import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, type Pending } from './edits';
+import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, withoutSent, type Pending } from './edits';
 import { EditBar } from './EditBar';
 import { answerEdit, asEngineTakes, valueText, callOutEdit, forEngine, forScreens, isDimensionQuestion, nextExtraKey, removeEdit, statedRows, type StatedRows } from './adapter';
 import { labelStated } from '../src/specify/units';
@@ -565,6 +565,12 @@ function App() {
     const lists = [...pending].map(([part, list]) => ({ part, edits: list.list() }))
       .filter(({ edits }) => Object.keys(edits).length > 0);
     if (!lists.length) { setProblem(null); setSavedNote('Nothing to save.'); return; }
+    const sentParts = new Set(opened.several ? lists.map((entry) => entry.part) : [opened.part]);
+    const sentLocal = new Map<number, PendingEdits>(
+      [...localPending].filter(([part]) => sentParts.has(part)),
+    );
+    const sentCallOuts = new Map(callOutKeys.current);
+    const sentDisplaced = new Map(displaced.current);
     setSaving(true); setProblem(null); setRejectedNone(new Map());
     const count = items.filter(({ edit }) => edit.kind !== 'refused').length;
     try {
@@ -582,10 +588,18 @@ function App() {
       }
       if (sessionRef.current?.signal.aborted) return;
       setSaved({ path: result.path, open: prompts(result.missing, opened.external.review, opened.review), byAgent: false });
-      // The edits are in the file now: the part opens again from it, and they read as the file's.
-      setPending(new Map());
-      callOutKeys.current.clear();
-      displaced.current.clear();
+      // The sent edits are in the file now: remove only those, keeping any made while the save ran.
+      setPending((all) => {
+        const remaining = withoutSent(all, sentLocal);
+        for (const [at, key] of sentCallOuts) {
+          const part = Number(at.split(':')[0]);
+          if (callOutKeys.current.get(at) === key && !remaining.get(part)?.get(key)) callOutKeys.current.delete(at);
+        }
+        for (const [key, edit] of sentDisplaced) {
+          if (displaced.current.get(key) === edit) displaced.current.delete(key);
+        }
+        return remaining;
+      });
       setSavedNote(`Saved ${inspectionName(result.path)} · ${plural(count, 'change')} written, all together.`);
       refreshConfig.current();
     } catch (error) {

@@ -310,16 +310,28 @@ export const hasFileGraphics = (pmi: DrawnPmi): boolean =>
 export const NOTES_BLOCK = 'generated:general-notes';
 
 /**
+ * Whether a semantic item is one of the part's notes that the notes panel already says: a renamed
+ * `part.*` setting, a `general:*` tolerance, or a part-level (`faces: []`) attribute, note, or
+ * surface texture (how haecceity identifies them when no stored answers renamed them to `part.*`).
+ */
+const isPartNote = (item: string, links: Readonly<Record<string, DrawnLink>>): boolean =>
+  item.startsWith('part.')
+  || item.startsWith('general:')
+  || (/^(attributes|notes|surface_textures):/.test(item) && !(links[item]?.faces.length));
+
+/**
  * The drawn PMI without Specify's general-notes block, and without the view it generates for it:
  * notes on a plane in 3D turn away as the part turns, and the panel already says them.
  */
 export function withoutNotesBlock(pmi: DrawnPmi): DrawnPmi {
   const { presentation } = pmi;
   // Saved, the block is one of the file's own graphics, with an id of the file's: the one of that name that
-  // draws the part's notes and nothing else. Notes the panel does not say (no item of the part's) stay drawn.
+  // draws the part's notes and nothing else. Notes the panel does not say (no item of the part's, or a
+  // graphic that also draws a datum, dimension, or feature note) stay drawn.
   const draws = new Map<string, boolean>();
   for (const [item, graphics] of Object.entries(presentation.items)) {
-    for (const g of graphics) if (g.id !== undefined) draws.set(g.id, (draws.get(g.id) ?? true) && item.startsWith('part.'));
+    const note = isPartNote(item, pmi.links);
+    for (const g of graphics) if (g.id !== undefined) draws.set(g.id, (draws.get(g.id) ?? true) && note);
   }
   const block = (g: DrawnGraphic) => g.id === NOTES_BLOCK
     || (g.source === 'file' && /^general notes$/i.test(g.name) && g.id !== undefined && draws.get(g.id) === true);

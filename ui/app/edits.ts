@@ -128,6 +128,21 @@ export function withDrafts(
   return pending;
 }
 
+/** Pending edits with the exact edits sent by a save removed; any added or replaced meanwhile stay. */
+export function withoutSent(
+  current: ReadonlyMap<number, PendingEdits>,
+  sent: ReadonlyMap<number, PendingEdits>,
+): Map<number, PendingEdits> {
+  const remaining = new Map<number, PendingEdits>();
+  for (const [part, list] of current) {
+    const taken = sent.get(part);
+    if (!taken) { remaining.set(part, list); continue; }
+    const kept = list.values().filter((edit) => taken.get(edit.id) !== edit);
+    if (kept.length) remaining.set(part, new PendingEdits(kept));
+  }
+  return remaining;
+}
+
 /** Matches save refusals to the queued None needed on the part they identify. */
 export function rejectedNoneByPart(pending: ReadonlyMap<number, PendingEdits>, failures: readonly EditFailure[], assembly: boolean) {
   const rejected = new Map<number, Map<string, string>>();
