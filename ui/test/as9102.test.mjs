@@ -75,7 +75,7 @@ test('stored IDs round-trip CR, LF, CRLF, tabs, commas and quotes through CSV an
 import csv, json, sys, zipfile, xml.etree.ElementTree as ET
 with open(sys.argv[1], encoding='utf-8', newline='') as f:
     records = list(csv.reader(f, strict=True))
-assert all(len(record) == 10 for record in records)
+assert all(len(record) == 11 for record in records)
 with zipfile.ZipFile(sys.argv[2]) as z:
     root = ET.fromstring(z.read('xl/worksheets/sheet3.xml'))
 ns = {'s': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}

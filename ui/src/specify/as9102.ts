@@ -5,6 +5,7 @@
 // results) is left for the inspector.
 import type { Cell, Sheet } from '../model/xlsx.ts';
 import { type Characteristic, inspectKey } from './characteristics.ts';
+import { exportText, labelName, numbersUnit, rowsUnit } from './units.ts';
 
 const round = (v: number) => Number(v.toFixed(6));
 
@@ -13,7 +14,9 @@ function limits(c: Characteristic): string {
   if (c.basic || c.nominal === null || c.upper === null) return '';
   // A lower deviation not given is the upper's, below: ±upper (characteristics.ts's limits).
   const lower = c.lower ?? -c.upper;
-  return `${round(c.nominal + lower)}–${round(c.nominal + c.upper)}`;
+  // A legacy host's list is as it was.
+  const unit = c.numbering === 'step' ? numbersUnit(c) : '';
+  return `${round(c.nominal + lower)}–${round(c.nominal + c.upper)}${unit === 'mm' ? ` ${unit}` : unit}`;
 }
 
 export interface FaiPart { name: string; number?: string; revision?: string; drawing?: string }
@@ -27,6 +30,7 @@ export function as9102(part: FaiPart, rows: readonly Characteristic[], skipped: 
     const hasId = r.identifier !== undefined ? r.identifier !== '' : r.n > 0;
     return !skipped.has(inspectKey(r)) && (r.numbering !== 'step' || (hasId && r.source !== 'part:material'));
   });
+  const file = listed.some((r) => r.numbering === 'step') ? rowsUnit(listed) : 'mm';
   // Each form repeats the part it is about, as AS9102's do.
   const heading = (width: number): Cell[][] => [
     ['Part Number', part.number ?? '', 'Part Name', part.name, ...Array(Math.max(0, width - 4)).fill('')],
@@ -66,7 +70,7 @@ export function as9102(part: FaiPart, rows: readonly Characteristic[], skipped: 
       ['Form 3: Characteristic Accountability, Verification and Compatibility Evaluation', '', '', '', '', '', '', ''],
       ...heading(8),
       ['Char. No.', 'Reference Location', 'Characteristic Designator', 'Requirement', 'Results', 'Designed / Qualified Tooling', 'Nonconformance Number', 'Limits / Comments'],
-      ...listed.map((c) => [c.id, c.feature, '', c.text, '', '', '', [limits(c), c.datums ? `datums ${c.datums.split('|').join(' ')}` : '', c.basic ? 'basic' : ''].filter(Boolean).join('; ')]),
+      ...listed.map((c) => [c.id, labelName(c.feature, file), '', c.numbering === 'step' ? exportText(c) : c.text, '', '', '', [limits(c), c.datums ? `datums ${c.datums.split('|').join(' ')}` : '', c.basic ? 'basic' : ''].filter(Boolean).join('; ')]),
     ],
   };
   return [form1, form2, form3];

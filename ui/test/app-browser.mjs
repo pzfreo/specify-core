@@ -1049,6 +1049,17 @@ try {
     const wrote = analyse(join(dir, 'inch.specified.stp').replace(/\.stp$/, existsSync(join(dir, 'inch.specified.stp')) ? '.stp' : '.step'));
     const made = wrote.existing.find(e => e.value && Math.abs(e.value - 57.2795) < 1e-3 && e.upper);
     assert.deepEqual([made?.upper, made?.lower], [0.3, -0.3], 'typed in mm, written in mm');
+    // Its inspection files say which is which: the text in the unit it was written in, the numbers in mm.
+    const list = readFileSync(await downloadFile(page, 'Inspection list (CSV)', 'inch.specified-characteristics.csv'), 'utf8').trimEnd().split('\n');
+    assert.ok(list[0].endsWith(',Measured,Unit'), list[0]);
+    assert.ok(list.some(l => l.includes('(0.75) in from left face,19.05,')), `stated in inches, its number in mm: ${list}`);
+    assert.ok(list.some(l => /57\.27954 ±0\.3 mm from .*,57\.27954,0\.3,-0\.3,/.test(l) && l.endsWith(',mm')), 'called out in mm');
+    assert.ok(list.every(l => !/\d\.\d{9,}/.test(l)), 'no float noise');
+    assert.ok(list.some(l => l.includes('⌀11.125 mm hole')), 'a feature\'s name is in mm, and says so');
+    assert.ok(list.some(l => l.includes('2 bottom faces')) && !list.some(l => / mm (?:\w+ )?faces/.test(l)), 'a count of faces is no length');
+    assert.ok(!(await page.locator('.pmi-lab-panel').textContent()).match(/\d mm (?:top|bottom|left|right|front|back) faces/), 'nor on the panel');
+    const form3 = workbookSheet(await downloadFile(page, 'AS9102 FAI (Excel)', 'inch.specified-AS9102.xlsx'), 3);
+    assert.match(form3, /56\.97954–57\.57954 mm</);
     onlyLocal(requests, server.origin);
     await context.close();
     server.stop();
