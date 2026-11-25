@@ -101,7 +101,7 @@ test('the pending edits are one edit list, one edit per row, in the bar\'s words
   });
   assert.deepEqual(pending.values().map(describe), [
     'Add Material: Steel',
-    'Change Ø1.6 hole position: ⌖ 0.2 A → ⌖ 0.1 A',
+    'Change Ø1.6 hole position: ⌖ 0.2 A → ⌖ 0.1 mm A',
     'Remove Dimension: 37.6 (#3)',
     'Remove Edges: Deburr only',
     'None needed: Heat treatment',

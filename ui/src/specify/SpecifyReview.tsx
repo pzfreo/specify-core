@@ -16,6 +16,7 @@ import { readOnlyEngine } from './read-only';
 import { inspectionAnswers } from './inspection';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
 import { fmt, type PmiLabel } from './labels';
+import { labelRow, unitLine, withUnits } from './units';
 import { compose, emptyBlock, parse, placesText, type GeneralTolerance, type Units } from './general-tolerance';
 import type { Picker } from './picker';
 import type { HostView } from './host-view';
@@ -854,7 +855,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     return g.questions.flatMap((q) => {
       if (statedRows.removed.has(q.id)) return [];
       if (q.id in statedRows.values && JSON.stringify(answers[q.id]) === JSON.stringify(statedRows.values[q.id])) return [statedRows.texts?.[q.id] ?? ''];
-      return q.id in answers ? [shortValue(q, answerOf(q, answers))] : [];
+      return q.id in answers ? [inMm(q, answerOf(q, answers))] : [];
     }).filter(Boolean).join(' · ');
   };
   // A row: its head and summary, a check to confirm, and when open its questions.
@@ -864,10 +865,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       return (
         <div key={q.id} className={`pmi-lab-stated${st.removed ? ' removed' : ''}`} data-question={q.id} data-state={st.removed ? 'removed' : st.changed ? 'changed' : statedRows?.decided?.has(q.id) ? 'decided_none' : 'stated'}>
           {st.removed
-            ? <span className="pmi-lab-item"><span className="prompt">{q.label ?? q.prompt}</span><span className="value"><s>{statedRows?.texts?.[q.id] ?? shortValue(q, statedRows!.values[q.id])}</s> removed</span></span>
+            ? <span className="pmi-lab-item"><span className="prompt">{q.label ?? q.prompt}</span><span className="value"><s>{statedRows?.texts?.[q.id] ?? inMm(q, statedRows!.values[q.id])}</s> removed</span></span>
             : <button type="button" className="pmi-lab-item" onClick={() => setCurrent(q.id)}>
                 <span className="prompt">{q.label ?? q.prompt}</span>
-                <span className="value">{st.changed ? shortValue(q, answerOf(q, answers)) : statedRows?.texts?.[q.id] ?? shortValue(q, answerOf(q, answers))} <small>{st.changed ? '(changed)' : statedRows?.decided?.has(q.id) ? '(decided)' : '(from the file)'}</small></span>
+                <span className="value">{st.changed ? inMm(q, answerOf(q, answers)) : statedRows?.texts?.[q.id] ?? inMm(q, answerOf(q, answers))} <small>{st.changed ? '(changed)' : statedRows?.decided?.has(q.id) ? '(decided)' : '(from the file)'}</small></span>
               </button>}
           <StatedTools name={q.label ?? q.prompt} state={st} onChange={() => setCurrent(q.id)} />
         </div>
@@ -936,7 +937,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
           <Chevron open={expanded} />
           <b>{g.title}</b>
           {rowBalloons(g)}
-          <span className="sum">{sum ?? statedSummary(g) ?? summary(g, answers)}</span>
+          <span className="sum">{typeof sum === 'string' ? withUnits(sum, 'mm') : sum ?? statedSummary(g) ?? withUnits(summary(g, answers), 'mm')}</span>
         </button>
         {rowProblems}
         {extra}
@@ -1093,6 +1094,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
         <header>
           <div className="title">
             <strong>{session.filename}</strong>
+            <span className="pmi-lab-unit">{unitLine(lengthUnit)}</span>
           </div>
           {note && <p className="pmi-lab-note" role="status">{note}</p>}
           {note && noteGeneral && !readOnly && (
@@ -1100,7 +1102,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               <span>Call out {noteGeneral.what}:</span>
               {[...TOLERANCE_PICKS, ...(preview?.general?.[noteGeneral.i]?.kind === 'size' ? ['H7', 'g6'] : [])].map((t) => (
                 <button key={t} type="button" onClick={() => void quickCallOut(noteGeneral.i, noteGeneral.what, t)}>
-                  {t}
+                  {withUnits(t, 'mm')}
                 </button>
               ))}
               <button type="button" onClick={() => callOut(noteGeneral.i, noteGeneral.what)}>Other…</button>
@@ -1236,7 +1238,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                         // As the editor's Call out: the dimension with its kind, faces and reference; one
                         // the file states, by its number, to be toleranced in place.
                         const ok = callOutDimension({
-                          id: r.id, what: `${r.feature} ${r.text}`, kind: g?.kind === 'size' ? 'size' : 'distance', faces: g?.faces ?? r.faces,
+                          id: r.id, what: `${r.feature} ${labelRow(r)}`, kind: g?.kind === 'size' ? 'size' : 'distance', faces: g?.faces ?? r.faces,
                           reference: Array.isArray(g?.['reference']) ? g['reference'] as number[] : [],
                           ...(stated && r.n > 0 ? { number: `#${r.n}` } : {}),
                         }, tolerance);
@@ -1281,7 +1283,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               <Chevron open={unfolded === 'added' || Boolean(draft)} />
               <b>Added by you</b>
               <span className="sum">
-                {added.length ? added.map(([, extra]) => describe(extra)).join(' · ') : 'a flatness, orientation, fit, finish or called-out dimension on any face'}
+                {added.length ? added.map(([, extra]) => withUnits(describe(extra), 'mm')).join(' · ') : 'a flatness, orientation, fit, finish or called-out dimension on any face'}
               </span>
             </button>
             {(unfolded === 'added' || draft) && (
@@ -1289,7 +1291,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                 {added.map(([key, extra]) => (
                   <span key={key} className="chip">
                     <button type="button" className="what-button" disabled={readOnly} onClick={() => editExtra(key)}>
-                      {describe(extra)}
+                      {withUnits(describe(extra), 'mm')}
                     </button>
                     {!readOnly && (
                       <button type="button" className="x" aria-label={`Remove ${describe(extra)}`} onClick={() => removeExtra(key)}>
@@ -1432,17 +1434,17 @@ function DimensionLine({ row, selected, calledOut, startOpen, onSelect, onCallOu
       <button type="button" className="pmi-lab-dim-line" onClick={onSelect}>
         <span className="bal">{row.n ? row.id : '—'}</span>
         <span className="feature">{row.feature}</span>
-        <span className="text">{row.text}</span>
-        <span className="tol">{calledOut ? <><s>{tol}</s> ±{calledOut.replace(/^±\s*/, '')}</> : tol}</span>
+        <span className="text">{labelRow(row)}</span>
+        <span className="tol">{calledOut ? <><s>{tol}</s> ±{calledOut.replace(/^±\s*/, '')} mm</> : withUnits(tol, 'mm')}</span>
       </button>
       {!open && <button type="button" className="call-out" onClick={() => { setOpen(true); onSelect(); }}>{calledOut ? 'Change' : 'Call Out'}</button>}
       {open && (
         <span className="pmi-lab-dim-edit">
           <label>± <input type="text" inputMode="decimal" value={text} autoFocus aria-label={`Tolerance for ${row.feature} ${row.text}`}
             placeholder={tol.replace(/^±/, '')} onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') use(); if (e.key === 'Escape') setOpen(false); }} /></label>
+            onKeyDown={(e) => { if (e.key === 'Enter') use(); if (e.key === 'Escape') setOpen(false); }} /> mm</label>
           <button type="button" onClick={use} disabled={!text.trim()}>Use</button>
-          {calledOut && <button type="button" onClick={() => { if (onCallOut('')) { setText(''); setOpen(false); } }}>Back to {tol}</button>}
+          {calledOut && <button type="button" onClick={() => { if (onCallOut('')) { setText(''); setOpen(false); } }}>Back to {withUnits(tol, 'mm')}</button>}
           <button type="button" onClick={() => { setOpen(false); setText(calledOut ?? ''); }}>Cancel</button>
         </span>
       )}
@@ -1649,6 +1651,9 @@ function lock(controls: ReactNode, locked: boolean): ReactNode {
 }
 
 /** A question's value in a line: as its row summary says it, else as given. */
+/** Its value as shown: lengths in mm, which Specify works in; a part setting as it is. */
+const inMm = (q: PmiQuestion, value: unknown): string => (q.id.startsWith('part.') ? shortValue(q, value) : withUnits(shortValue(q, value), 'mm'));
+
 function shortValue(q: PmiQuestion, value: unknown): string {
   return display(q, value) || (typeof value === 'string' && value ? value : '—');
 }
@@ -1682,7 +1687,7 @@ function QuestionItem({
     return (
       <button type="button" className={`pmi-lab-item${need ? ` ${need}` : ''}`} onClick={onOpen} data-question={q.id}>
         <span className="prompt">{q.prompt}{optional}</span>
-        <span className="value">{shortValue(q, answerOf(q, answers))} ›</span>
+        <span className="value">{inMm(q, answerOf(q, answers))} ›</span>
       </button>
     );
   }
@@ -1700,7 +1705,7 @@ function QuestionItem({
           {!locked && <button type="button" className="ok" onClick={onConfirm}>✓ Looks right</button>}
         </div>
       )}
-      <div className="why">{q.why}</div>
+      <div className="why">{withUnits(q.why, 'mm')}</div>
       {lock(<>
       {q.kind === 'choice' && (
         <>
@@ -1715,7 +1720,7 @@ function QuestionItem({
                   onBlur={() => setHinted(null)}
                   className={`${chosen === option ? 'on' : ''}${option === q.default ? ' default' : ''}`}
                 >
-                  {option}
+                  {q.id.startsWith('part.') ? option : withUnits(option, 'mm')}
                 </button>
               ))}
             </div>
