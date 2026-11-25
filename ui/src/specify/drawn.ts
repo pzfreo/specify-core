@@ -95,6 +95,8 @@ export interface DrawnLink {
   readonly question?: string;
   readonly status?: DrawnStatus;
   readonly general?: true;
+  /** Whether this item is one of the part's note statements shown by the notes panel. */
+  readonly partNote?: true;
 }
 
 /**
@@ -236,6 +238,26 @@ export function readPresentation(json: unknown): Read<Presentation> {
   }
 }
 
+const PART_NOTE_ATTRIBUTES = new Set(['surface treatment', 'heat treatment', 'edge condition', 'general tolerance']);
+const PART_NOTE_KINDS = new Set(['surface treatment', 'heat treatment', 'edge condition']);
+
+function isPanelPartNoteEntry(id: string, value: unknown): boolean {
+  if (!isObject(value) || value['on'] != null) return false;
+  if (id.startsWith('attributes:')) {
+    if (value['name'] !== 'semantic text' || !Array.isArray(value['items']) || !value['items'].length) return false;
+    return value['items'].every((entry) =>
+      Array.isArray(entry) && typeof entry[0] === 'string' && PART_NOTE_ATTRIBUTES.has(entry[0])
+      && isObject(entry[1]) && typeof entry[1]['text'] === 'string');
+  }
+  if (id.startsWith('notes:')) {
+    return typeof value['kind'] === 'string' && PART_NOTE_KINDS.has(value['kind']);
+  }
+  if (id.startsWith('surface_textures:')) {
+    return Array.isArray(value['parameters']) && value['parameters'].length > 0;
+  }
+  return false;
+}
+
 /**
  * Each presented item's faces, from the `haecceity.pmi/1` document the presentation was made with:
  * its features' (`features[].value.items[].face`, the session's numbering). Refused unless the
@@ -269,7 +291,11 @@ export function linksFromPmi(json: unknown, presentation: Presentation): Read<Re
   const links: Record<string, DrawnLink> = {};
   for (const e of entries) {
     if (!(e.id in presentation.items)) continue;
-    links[e.id] = { faces: [...named(e.id.startsWith('features:') ? e.id : e.value, new Set())].sort((a, b) => a - b) };
+    const partNote = isPanelPartNoteEntry(e.id, e.value);
+    links[e.id] = {
+      faces: [...named(e.id.startsWith('features:') ? e.id : e.value, new Set())].sort((a, b) => a - b),
+      ...(partNote ? { partNote: true as const } : {}),
+    };
   }
   return { ok: true, value: links };
 }
@@ -310,14 +336,15 @@ export const hasFileGraphics = (pmi: DrawnPmi): boolean =>
 export const NOTES_BLOCK = 'generated:general-notes';
 
 /**
- * Whether a semantic item is one of the part's notes that the notes panel already says: a renamed
- * `part.*` setting, a `general:*` tolerance, or a part-level (`faces: []`) attribute, note, or
- * surface texture (how haecceity identifies them when no stored answers renamed them to `part.*`).
+ * Whether a semantic item is one of the part's notes that the notes panel already says: a `part.*`
+ * setting (by id or question), a `general:*` tolerance, or one of the recognized part-level note
+ * entries (`partNote`) that the notes panel displays. Unrecognized attributes or notes stay drawn.
  */
 const isPartNote = (item: string, links: Readonly<Record<string, DrawnLink>>): boolean =>
   item.startsWith('part.')
   || item.startsWith('general:')
-  || (/^(attributes|notes|surface_textures):/.test(item) && !(links[item]?.faces.length));
+  || Boolean(links[item]?.question?.startsWith('part.'))
+  || links[item]?.partNote === true;
 
 /**
  * The drawn PMI without Specify's general-notes block, and without the view it generates for it:

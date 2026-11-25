@@ -128,7 +128,48 @@ export function withDrafts(
   return pending;
 }
 
-/** Pending edits with the exact edits sent by a save removed; any added or replaced meanwhile stay. */
+const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/** Rebuilds an edit made on a row whose ``saved`` edit was just written to the file (null: already matches). */
+function rebaseOnSaved(edit: Pending, saved: Pending): Pending | null {
+  if (saved === edit) return null;
+  if (saved.kind === 'refused' || edit.kind === 'refused') return edit;
+  if (saved.kind === 'fill' || saved.kind === 'change') {
+    // The saved file now states ``saved.value`` (shown as ``saved.text``).
+    if (edit.kind === 'fill' || edit.kind === 'change') {
+      if (sameValue(edit.value, saved.value)) return null;
+      return { kind: 'change', id: edit.id, name: edit.name, value: edit.value, text: edit.text, expect: saved.value, was: saved.text };
+    }
+    if (edit.kind === 'remove') return { ...edit, was: saved.text };
+    if (edit.kind === 'none' || edit.kind === 'clear') {
+      return { kind: 'remove', id: edit.id, name: edit.name, targets: removalTargets([], edit.id), was: saved.text };
+    }
+    return edit;
+  }
+  if (saved.kind === 'none') {
+    // The saved file now holds ``decided_none`` for this row.
+    if (edit.kind === 'none') return null;
+    if (edit.kind === 'fill' || edit.kind === 'change') {
+      return { kind: 'fill', id: edit.id, name: edit.name, value: edit.value, text: edit.text, clear: true };
+    }
+    if (edit.kind === 'remove') return { kind: 'clear', id: edit.id, name: edit.name };
+    return edit;
+  }
+  // ``saved`` is ``clear`` or ``remove``: the row is a gap in the saved file now.
+  if (edit.kind === saved.kind) return null;
+  if (edit.kind === 'fill') {
+    if (!edit.clear) return edit;
+    const { clear: _, ...rest } = edit;
+    return rest;
+  }
+  if (edit.kind === 'change') {
+    return { kind: 'fill', id: edit.id, name: edit.name, value: edit.value, text: edit.text };
+  }
+  return edit;
+}
+
+/** Pending edits with the edits sent by a save removed; any edit made meanwhile on a saved row
+ * is rebuilt against what was saved (or dropped if it already matches it). */
 export function withoutSent(
   current: ReadonlyMap<number, PendingEdits>,
   sent: ReadonlyMap<number, PendingEdits>,
@@ -137,7 +178,13 @@ export function withoutSent(
   for (const [part, list] of current) {
     const taken = sent.get(part);
     if (!taken) { remaining.set(part, list); continue; }
-    const kept = list.values().filter((edit) => taken.get(edit.id) !== edit);
+    const kept: Pending[] = [];
+    for (const edit of list.values()) {
+      const saved = taken.get(edit.id);
+      if (!saved) { kept.push(edit); continue; }
+      const next = rebaseOnSaved(edit, saved);
+      if (next) kept.push(next);
+    }
     if (kept.length) remaining.set(part, new PendingEdits(kept));
   }
   return remaining;

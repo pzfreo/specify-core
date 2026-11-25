@@ -245,13 +245,10 @@ function App() {
   const [focus, setFocus] = useState<{ questionId: string; faces?: readonly number[]; scroll?: boolean; n?: number } | null>(null);
   const [lit, setLit] = useState<{ faces: readonly number[]; n: number } | undefined>(undefined);
   const edited = () => setAgent(null);
-  // The review's answers as the page's held edits (adapter.ts): each changed question is its row's
-  // edit, replacing any it had; an answer taken back drops it. Read through a ref, as the part's
-  // engine is made once and outlives renders.
-  const answeredRef = useRef<(part: number, id: string, value: unknown) => void>(() => {});
-  answeredRef.current = (part, id, value) => {
-    const now = shownRef.current;
-    if (!now || now.part !== part) return;
+  // Answers that landed from an in-flight review while Save ran: rebuilt against the saved file
+  // once it reopens (including an answer back to the pre-save value, which cleared against the old file).
+  const inFlightAnswers = useRef<Map<string, { part: number; id: string; value: unknown }> | null>(null);
+  const buildAnswerEdit = (now: Opened, id: string, value: unknown): Pending | null => {
     const row = now.table.rows.find((r) => r.id === id);
     const q = now.bare.find((x) => x.id === id) ?? now.review.questions.find((x) => x.id === id);
     // "Added by you": named and worded as the review lists it ("Flatness 0.05" on its faces).
@@ -263,6 +260,17 @@ function App() {
     const faces = (v: unknown) => Array.isArray(v) && v.length > 0 && v.every((f) => typeof f === 'number');
     if (edit && (edit.kind === 'fill' || edit.kind === 'change') && faces(value)) edit.text = describeFaces(value as number[], now.session.analysis as PmiAnalysis);
     if (edit?.kind === 'change' && faces(edit.expect)) edit.was = describeFaces(edit.expect as number[], now.session.analysis as PmiAnalysis);
+    return edit;
+  };
+  // The review's answers as the page's held edits (adapter.ts): each changed question is its row's
+  // edit, replacing any it had; an answer taken back drops it. Read through a ref, as the part's
+  // engine is made once and outlives renders.
+  const answeredRef = useRef<(part: number, id: string, value: unknown) => void>(() => {});
+  answeredRef.current = (part, id, value) => {
+    inFlightAnswers.current?.set(`${part}:${id}`, { part, id, value });
+    const now = shownRef.current;
+    if (!now || now.part !== part) return;
+    const edit = buildAnswerEdit(now, id, value);
     setPending((all) => {
       const updated = new Map(all);
       const list = updated.get(part) ?? new PendingEdits();
@@ -566,11 +574,13 @@ function App() {
       .filter(({ edits }) => Object.keys(edits).length > 0);
     if (!lists.length) { setProblem(null); setSavedNote('Nothing to save.'); return; }
     const sentParts = new Set(opened.several ? lists.map((entry) => entry.part) : [opened.part]);
-    const sentLocal = new Map<number, PendingEdits>(
-      [...localPending].filter(([part]) => sentParts.has(part)),
+    const sent = new Map<number, PendingEdits>(
+      [...pending].filter(([part]) => sentParts.has(part)),
     );
     const sentCallOuts = new Map(callOutKeys.current);
     const sentDisplaced = new Map(displaced.current);
+    const answeredDuringSave = new Map<string, { part: number; id: string; value: unknown }>();
+    inFlightAnswers.current = answeredDuringSave;
     setSaving(true); setProblem(null); setRejectedNone(new Map());
     const count = items.filter(({ edit }) => edit.kind !== 'refused').length;
     try {
@@ -588,9 +598,32 @@ function App() {
       }
       if (sessionRef.current?.signal.aborted) return;
       setSaved({ path: result.path, open: prompts(result.missing, opened.external.review, opened.review), byAgent: false });
-      // The sent edits are in the file now: remove only those, keeping any made while the save ran.
+      // The sent edits are in the file now: remove them, and rebuild any made while the save ran
+      // against the saved file (including an in-flight answer back to what the file held before).
+      const reopened = shownRef.current && shownRef.current !== opened ? shownRef.current : null;
       setPending((all) => {
-        const remaining = withoutSent(all, sentLocal);
+        const remaining = withoutSent(all, sent);
+        for (const { part, id, value } of answeredDuringSave.values()) {
+          const savedEdit = sent.get(part)?.get(id);
+          if (!savedEdit || savedEdit.kind === 'refused' || !reopened || reopened.part !== part) continue;
+          const matchesSaved = (savedEdit.kind === 'fill' || savedEdit.kind === 'change')
+            && JSON.stringify(value) === JSON.stringify(savedEdit.value);
+          let rebuilt: Pending | null = null;
+          if (!matchesSaved) {
+            if (value === undefined) {
+              const row = reopened.table.rows.find((r) => r.id === id);
+              const q = reopened.bare.find((x) => x.id === id) ?? reopened.review.questions.find((x) => x.id === id);
+              const name = rowName(reopened, id);
+              if (row?.state === 'stated') rebuilt = removeEdit(row, q, name, reopened.session.analysis as PmiAnalysis);
+              else if (row?.state === 'decided_none') rebuilt = { kind: 'clear', id, name };
+            } else {
+              rebuilt = buildAnswerEdit(reopened, id, value);
+            }
+          }
+          const list = remaining.get(part) ?? new PendingEdits();
+          const next = rebuilt ? list.with(rebuilt) : list.without(id);
+          if (next.size) remaining.set(part, next); else remaining.delete(part);
+        }
         for (const [at, key] of sentCallOuts) {
           const part = Number(at.split(':')[0]);
           if (callOutKeys.current.get(at) === key && !remaining.get(part)?.get(key)) callOutKeys.current.delete(at);
@@ -625,7 +658,10 @@ function App() {
         reshow.current();
         setProblem('Not saved: the session changed while you saved (your agent answered). What is now shown is the latest; check it and Save again.');
       } else setProblem(`Not saved: ${message(error)}`);
-    } finally { setSaving(false); }
+    } finally {
+      if (inFlightAnswers.current === answeredDuringSave) inFlightAnswers.current = null;
+      setSaving(false);
+    }
   };
 
 

@@ -252,21 +252,61 @@ test('an explicit guarded change preserves its expectation and a refused answer 
   assert.equal(pending.get('part.material').draft, true);
 });
 
-test('withoutSent removes only the exact edits sent by a save, keeping edits added or replaced meanwhile', () => {
+test('withoutSent removes sent edits and rebuilds retained edits on saved rows against the saved file', () => {
   const mat1 = { kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' };
   const mat2 = { kind: 'fill', id: 'part.material', name: 'Material', value: 'Brass', text: 'Brass' };
+  const mat1Copy = { kind: 'fill', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel' };
   const tol = { kind: 'fill', id: 'part.general_tolerance', name: 'General tolerance', value: 'ISO 2768-m', text: 'ISO 2768-m' };
   const proc = { kind: 'fill', id: 'part.process', name: 'Process', value: 'CNC machining', text: 'CNC machining' };
   const part1Edit = { kind: 'none', id: 'part.coating', name: 'Coating' };
   const sent = new Map([[0, new PendingEdits([tol, mat1])]]);
   // Nothing added meanwhile: map clears.
   assert.equal(withoutSent(new Map([[0, new PendingEdits([tol, mat1])]]), sent).size, 0);
-  // A new edit on another row, a replacement on the same row, and an edit on an unsent part all survive.
+  // A retained fill on a row just filled with another value is rebuilt as a change expecting the saved value;
+  // an untouched row and an unsent part stay as they are.
   const current = new Map([
     [0, new PendingEdits([tol, mat2, proc])],
     [1, new PendingEdits([part1Edit])],
   ]);
   const kept = withoutSent(current, sent);
-  assert.deepEqual(kept.get(0)?.values(), [mat2, proc]);
+  assert.deepEqual(kept.get(0)?.values(), [
+    { kind: 'change', id: 'part.material', name: 'Material', value: 'Brass', text: 'Brass', expect: 'Steel', was: 'Steel' },
+    proc,
+  ]);
+  assert.deepEqual(kept.get(0)?.list(), {
+    change: { 'part.material': { to: 'Brass', expect: 'Steel' } },
+    fill: { 'part.process': 'CNC machining' },
+  });
   assert.deepEqual(kept.get(1)?.values(), [part1Edit]);
+  // A retained fill equal to the saved value (even a distinct object) is dropped.
+  assert.equal(withoutSent(new Map([[0, new PendingEdits([tol, mat1Copy])]]), sent).size, 0);
+  // A retained change on a changed row updates expect/was to the saved value, or drops if equal.
+  const ch1 = { kind: 'change', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel', expect: 'Aluminium', was: 'Aluminium' };
+  const ch2 = { kind: 'change', id: 'part.material', name: 'Material', value: 'Brass', text: 'Brass', expect: 'Aluminium', was: 'Aluminium' };
+  const ch1Copy = { kind: 'change', id: 'part.material', name: 'Material', value: 'Steel', text: 'Steel', expect: 'Aluminium', was: 'Aluminium' };
+  assert.deepEqual(
+    withoutSent(new Map([[0, new PendingEdits([ch2])]]), new Map([[0, new PendingEdits([ch1])]])).get(0)?.values(),
+    [{ kind: 'change', id: 'part.material', name: 'Material', value: 'Brass', text: 'Brass', expect: 'Steel', was: 'Steel' }],
+  );
+  assert.equal(withoutSent(new Map([[0, new PendingEdits([ch1Copy])]]), new Map([[0, new PendingEdits([ch1])]])).size, 0);
+  // A saved `none` makes a retained `fill` carry `clear: true` and drops a duplicate `none`.
+  const noneCoat = { kind: 'none', id: 'part.coating', name: 'Coating' };
+  const fillCoat = { kind: 'fill', id: 'part.coating', name: 'Coating', value: 'Anodise', text: 'Anodise' };
+  assert.deepEqual(
+    withoutSent(new Map([[0, new PendingEdits([fillCoat])]]), new Map([[0, new PendingEdits([noneCoat])]])).get(0)?.list(),
+    { fill: { 'part.coating': 'Anodise' }, clear: ['part.coating'] },
+  );
+  assert.equal(withoutSent(new Map([[0, new PendingEdits([{ ...noneCoat }])]]), new Map([[0, new PendingEdits([noneCoat])]])).size, 0);
+  // A saved `clear` strips `clear` from a retained `fill`; a saved `remove` turns a retained `change` into `fill`.
+  const clearCoat = { kind: 'clear', id: 'part.coating', name: 'Coating' };
+  const fillClearCoat = { kind: 'fill', id: 'part.coating', name: 'Coating', value: 'Anodise', text: 'Anodise', clear: true };
+  assert.deepEqual(
+    withoutSent(new Map([[0, new PendingEdits([fillClearCoat])]]), new Map([[0, new PendingEdits([clearCoat])]])).get(0)?.list(),
+    { fill: { 'part.coating': 'Anodise' } },
+  );
+  const rmMat = { kind: 'remove', id: 'part.material', name: 'Material', targets: [{ id: 'part.material' }], was: 'Aluminium' };
+  assert.deepEqual(
+    withoutSent(new Map([[0, new PendingEdits([ch2])]]), new Map([[0, new PendingEdits([rmMat])]])).get(0)?.list(),
+    { fill: { 'part.material': 'Brass' } },
+  );
 });

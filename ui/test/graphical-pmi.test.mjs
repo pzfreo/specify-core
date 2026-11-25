@@ -273,9 +273,10 @@ test('the notes the panel says are not drawn too: the generated block, and the o
   // A file Specify saved: one block, under each note it draws, in a view of its own.
   assert.deepEqual(kept(pmi({ 'part.edges': [block], 'part.material': [block], 'datum:A': [g('step:1', 'Datum A')] }, [], [{ id: 'Notes', graphics: ['step:4272'] }, { id: 'PMI', graphics: ['step:1'] }])),
     { items: { 'part.edges': [], 'part.material': [], 'datum:A': ['step:1'] }, unlinked: [], views: ['PMI'] });
-  // Not the panel's: one that draws something else too (a datum, dimension, or face-attached note), or unlinked, stays.
+  // Not the panel's: one that draws something else too (a datum, dimension, face-attached note, or unrecognized attribute/note), or unlinked, stays.
   assert.deepEqual(kept(pmi({ 'part.edges': [block], 'datum:A': [block] })).items, { 'part.edges': ['step:4272'], 'datum:A': ['step:4272'] });
   assert.deepEqual(kept(pmi({ 'general:abc': [block], 'dimensions:def': [block] })).items, { 'general:abc': ['step:4272'], 'dimensions:def': ['step:4272'] });
+  assert.deepEqual(kept(pmi({ 'general:abc': [block], 'attributes:custom': [block] })).items, { 'general:abc': ['step:4272'], 'attributes:custom': ['step:4272'] });
   assert.deepEqual(kept({
     links: { 'notes:face': { faces: [3] } },
     presentation: { items: { 'general:abc': [block], 'notes:face': [block] }, unlinked: [], planes: [], semanticIds: [], views: [] },
@@ -318,4 +319,38 @@ test('a real saved file\'s General notes block (owned by general:<hash>, attribu
   assert.ok(allKept.some((g) => g.name === 'Datum A'), 'Datum A graphic stays');
   assert.equal(kept.presentation.views.some((v) => v.name === 'Notes'), false, 'Notes view is dropped');
   assert.ok(kept.presentation.views.length > 0, 'the callouts view for Datum A stays');
+});
+
+test('a real saved file with a renamed part attribute ("handling instruction") keeps its General notes graphic drawn', () => {
+  const shaft = gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz'));
+  const renameEdgeAttribute = (edits) => {
+    const engine = new IntentEngine('gramil_shaft_before.step', shaft);
+    try {
+      const result = JSON.parse(engine.edit(JSON.stringify(edits)));
+      assert.ok(result.written, result.message);
+      const text = Buffer.from(result.bytes).toString('utf8');
+      assert.ok(text.includes("'edge condition'"), 'expected edge condition attribute in saved STEP');
+      const renamed = new Uint8Array(Buffer.from(text.replaceAll("'edge condition'", "'handling instruction'"), 'utf8'));
+      const read = drawnFromScene(JSON.parse(pmiScene(renamed)));
+      assert.ok(read.ok, read.reason);
+      return read.value;
+    } finally { engine.free(); }
+  };
+  // Renamed attribute alone: the panel shows no "handling instruction" note, so its General notes graphic stays.
+  const onlyRenamed = renameEdgeAttribute({ fill: { 'part.edges': 'Break sharp edges 0.5 max' } });
+  const renamedOwners = Object.entries(onlyRenamed.presentation.items)
+    .filter(([, gs]) => gs.some((g) => g.source === 'file' && g.name === 'General notes'))
+    .map(([id]) => id);
+  assert.ok(renamedOwners.some((id) => id.startsWith('attributes:')), `expected attributes:<hash> owner, got ${JSON.stringify(renamedOwners)}`);
+  const keptOnly = withoutNotesBlock(onlyRenamed);
+  assert.equal(hasGraphics(keptOnly), true, 'General notes graphic stays drawn for unrecognized attribute');
+  assert.ok(Object.values(keptOnly.presentation.items).flat().some((g) => /^general notes$/i.test(g.name)));
+  // Renamed attribute alongside ISO 2768-m and material: the block still draws a note the panel does not show, so it stays.
+  const mixed = renameEdgeAttribute({
+    fill: { 'part.general_tolerance': 'ISO 2768-m', 'part.edges': 'Break sharp edges 0.5 max', 'part.material': 'Steel' },
+  });
+  const keptMixed = withoutNotesBlock(mixed);
+  assert.ok(Object.values(keptMixed.presentation.items).flat().some((g) => /^general notes$/i.test(g.name)),
+    'General notes graphic stays drawn when one of its owners is not shown by the notes panel');
+  assert.ok(keptMixed.presentation.views.some((v) => v.name === 'Notes'), 'Notes view stays with the kept graphic');
 });

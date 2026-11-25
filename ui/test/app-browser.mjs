@@ -1160,6 +1160,82 @@ try {
     await check(allListed(page)).toHaveCount(0);
     assert.equal(table(copy)['part.general_tolerance'].state, 'stated');
     assert.equal(table(copy)['part.process'].state, 'stated');
+    // Same-row edit landing while Save runs: a retained fill on a newly filled row is rebuilt as a
+    // change expecting the saved value, and an in-flight edit back to the pre-save value is kept as a change.
+    const holdNextReview = () => page.evaluate(() => {
+      const post = Worker.prototype.postMessage;
+      window.__heldReview = false;
+      Worker.prototype.postMessage = function (message, ...rest) {
+        if (message && message.operation === 'review') {
+          Worker.prototype.postMessage = post;
+          window.__heldReview = true;
+          window.__releaseReview = () => post.call(this, message, ...rest);
+          return;
+        }
+        return post.call(this, message, ...rest);
+      };
+    });
+    await answerPart(page, 'part.material', 'Steel');
+    await check(listedEdit(page, 'part.material')).toContainText('Steel');
+    const matField = await partField(page, 'part.material');
+    await holdNextReview();
+    const matInput = matField.locator('input').first();
+    await matInput.fill('Brass');
+    await matInput.press('Enter');
+    await check.poll(() => page.evaluate(() => window.__heldReview)).toBe(true);
+    let sameRowBody = null;
+    await page.route('**/save', async route => {
+      sameRowBody = route.request().postDataJSON();
+      await page.evaluate(() => window.__releaseReview());
+      await check(listedEdit(page, 'part.material')).toContainText('Brass');
+      await route.continue();
+    });
+    const sameRowReply = page.waitForResponse(
+      r => r.url() === `${server.url}save` && r.request().method() === 'POST',
+      { timeout: 90000 },
+    );
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    assert.equal((await sameRowReply).status(), 200);
+    await page.unroute('**/save');
+    assert.equal(sameRowBody.edits.fill?.['part.material'], 'Steel', 'first save wrote Steel');
+    await check(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+    await check(listedEdit(page, 'part.material')).toContainText('Change Material: Steel → Brass');
+    assert.equal(table(copy)['part.material'].value, 'Steel');
+    // Next Save applies the rebuilt change cleanly.
+    await save(page, server, 4);
+    await check(allListed(page)).toHaveCount(0);
+    assert.equal(table(copy)['part.material'].value, 'Brass');
+    // Stated Brass changed to Aluminium, then an in-flight edit back to Brass lands while Save runs:
+    // it must not vanish, and the next Save restores Brass.
+    await changeMaterial(page, 'Aluminium 6082-T6');
+    await check(listedEdit(page, 'part.material')).toContainText('Brass → Aluminium 6082-T6');
+    await material(page).getByRole('button', { name: 'Change Material', exact: true }).click();
+    const revertBox = material(page).getByRole('combobox', { name: 'Material' });
+    await holdNextReview();
+    await revertBox.fill('Brass');
+    await revertBox.press('Enter');
+    await check.poll(() => page.evaluate(() => window.__heldReview)).toBe(true);
+    let revertBody = null;
+    await page.route('**/save', async route => {
+      revertBody = route.request().postDataJSON();
+      await page.evaluate(() => window.__releaseReview());
+      await check(listedEdit(page, 'part.material')).toHaveCount(0);
+      await route.continue();
+    });
+    const revertReply = page.waitForResponse(
+      r => r.url() === `${server.url}save` && r.request().method() === 'POST',
+      { timeout: 90000 },
+    );
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    assert.equal((await revertReply).status(), 200);
+    await page.unroute('**/save');
+    assert.deepEqual(revertBody.edits.change?.['part.material'], { to: 'Aluminium 6082-T6', expect: 'Brass' });
+    await check(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+    await check(listedEdit(page, 'part.material')).toContainText('Change Material: Aluminium 6082-T6 → Brass');
+    assert.equal(table(copy)['part.material'].value, 'Aluminium 6082-T6');
+    await save(page, server, 6);
+    await check(allListed(page)).toHaveCount(0);
+    assert.equal(table(copy)['part.material'].value, 'Brass');
     onlyLocal(requests, server.origin);
     await context.close();
     server.stop();
