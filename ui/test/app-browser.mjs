@@ -1090,7 +1090,7 @@ try {
     // The next save, after the reload, updates the copy, with both.
     await page.locator('[data-suggestion="part.process"] .btns button').first().click();
     await check(listedEdit(page, 'part.process')).toBeVisible();
-    await save(page, server, 1);
+    await save(page, server, 2);
     assert.ok(!existsSync(join(dir, 'named.specified-2.step')), 'the copy is updated, not numbered');
     for (const id of ['part.general_tolerance', 'part.process']) assert.equal(table(copy)[id].state, 'stated', id);
     const beforeGone = problems.length;

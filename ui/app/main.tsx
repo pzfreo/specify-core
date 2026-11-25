@@ -208,6 +208,7 @@ function App() {
   const [rejectedNone, setRejectedNone] = useState(() => new Map<number, Map<string, string>>());
   const [checking, setChecking] = useState(false);
   const [reopening, setReopening] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   // What the bar says after a save, until the next edit.
   const [savedNote, setSavedNote] = useState<string | null>(null);
   // The characteristics table (the review's, read only) is drawn into this, under the panel's tab.
@@ -230,6 +231,8 @@ function App() {
   // The file shown once the session has saved: the copy it wrote (or the input, in place), not the input opened.
   const [savedAs, setSavedAs] = useState<{ name: string; path: string } | null>(null);
   const heardSaves = useRef(new Set<string>());
+  const pageSaves = useRef(new Set<string>());
+  const reopenPromise = useRef<Promise<void>>(Promise.resolve());
   const captureSaved = useRef<(saved: { path: string; rev: number }) => void>(() => {});
   const [slots, setSlots] = useState<SpecifySlots | null>(null);
   useEffect(() => setSlots({ view: view.current!, panel: panel.current!, exports: null }), []);
@@ -309,7 +312,7 @@ function App() {
         setInspectionData(null);
         setInspectionProblem(null);
         // The exports come from the file as saved, a copy or the input in place (`file?rev=saved`).
-        void (async () => {
+        reopenPromise.current = (async () => {
           const written = await getFile('saved').then(stepBytes);
           if (ended || load !== inspectionLoad.current) return;
           setInspectionStep({ path: event.path, name: inspectionName(event.path), bytes: written });
@@ -327,12 +330,15 @@ function App() {
           if (ended || load !== inspectionLoad.current || shownRef.current?.store !== shown.store) { next.store.close(); return; }
           shown.store.close();
           // What was saved is what the file now holds, as the engine wrote it (a "None" written as
-          // "None (as machined)", say): the session takes the file's answers for this part.
-          const fileAnswers = forEngine(next.session.answers, next.stated);
-          next.store.set(fileAnswers, next.shown.answers);
-          next.shown.answers = fileAnswers;
-          next.shown.all = { ...next.stated.values, ...fileAnswers };
-          next = { ...next, external: { answers: fileAnswers, review: next.review } };
+          // "None (as machined)", say): the session takes the file's answers for this part, unless
+          // a newer session revision has already landed while the saved file was reopening.
+          if (answersSession.rev() <= event.rev) {
+            const fileAnswers = forEngine(next.session.answers, next.stated);
+            next.store.set(fileAnswers, next.shown.answers);
+            next.shown.answers = fileAnswers;
+            next.shown.all = { ...next.stated.values, ...fileAnswers };
+            next = { ...next, external: { answers: fileAnswers, review: next.review } };
+          }
           shownRef.current = next;
           setOpened(next);
           setSavedAs({ name, path: event.path });
@@ -403,8 +409,9 @@ function App() {
         }
       }, (event) => {
         answersSession.markSaved(event.rev);
-        heardSaves.current.add(`${event.rev}:${event.path}`);
-        captureSaved.current(event);
+        const key = `${event.rev}:${event.path}`;
+        heardSaves.current.add(key);
+        if (!(event.source === 'page' && pageSaves.current.delete(key))) captureSaved.current(event);
         if (event.source === 'mcp') void agentSaved(event.path);
         heartbeat.refresh();
       }, (up) => {
@@ -473,12 +480,15 @@ function App() {
     const { store, shown } = opened;
     // The questions the agent changed that are not shown yet.
     const fromAgent = new Set<string>();
+    let latest = 0;
     const show = (answers: PmiAnswers, source: string, previous: PmiAnswers) => {
       if (source === 'mcp') for (const id of changedIds(previous, answers)) fromAgent.add(id);
       // The page's own change, as SpecifyReview already shows it (or answers back to what it shows).
       if (sameAnswers(answers, shown.answers)) { setUnshown(null); return; }
       // Answers from before a Discard are not shown when their review lands after it.
       const started = shown.generation;
+      const token = ++latest;
+      setSyncing(true);
       void opened.reviewOf(answers).then((review) => {
         // Another part shown since, or a newer change on its way (shown when it lands).
         if (current.current?.store !== store || !sameAnswers(store.get(), answers) || shown.generation !== started) return;
@@ -502,6 +512,8 @@ function App() {
         if (current.current?.store !== store || !sameAnswers(store.get(), answers)) return;
         // Not shown, so not saved: said, with a way to try again (a later change also tries again).
         setUnshown(message(error));
+      }).finally(() => {
+        if (token === latest) setSyncing(false);
       });
     };
     // The session's answers, shown again if the page does not show them yet.
@@ -510,7 +522,7 @@ function App() {
     const unsubscribe = store.subscribe(show);
     // A change that landed while the part was opening, before this listened.
     again();
-    return () => { unsubscribe(); setUnshown(null); };
+    return () => { latest += 1; setSyncing(false); unsubscribe(); setUnshown(null); };
   }, [opened?.store]);
   // The questions the agent changed are marked in the panel while its note shows: marked now and
   // again whenever the panel re-renders (the review opens the question after this runs).
@@ -559,7 +571,16 @@ function App() {
       const result = await opened.saver.save(opened.several ? lists : partPending.list(), draftSnapshot.rev);
       // The saved events are ordered by the command. A delayed HTTP reply must not replace a
       // later save at the same answer revision (for example an agent saving again meanwhile).
-      if (!heardSaves.current.has(`${result.rev}:${result.path}`)) captureSaved.current(result);
+      const saveKey = `${result.rev}:${result.path}`;
+      if (!heardSaves.current.has(saveKey)) {
+        pageSaves.current.add(saveKey);
+        captureSaved.current(result);
+      }
+      for (let active = reopenPromise.current; ; active = reopenPromise.current) {
+        await active;
+        if (active === reopenPromise.current) break;
+      }
+      if (sessionRef.current?.signal.aborted) return;
       setSaved({ path: result.path, open: prompts(result.missing, opened.external.review, opened.review), byAgent: false });
       // The edits are in the file now: the part opens again from it, and they read as the file's.
       setPending(new Map());
@@ -859,7 +880,7 @@ function App() {
             key={`${opened.session.sessionId}:${reviewGeneration}`}
             engine={opened.engine} session={shownSession} readOnly={!editing} drawn={opened.drawn} slots={slots}
             inspectionExports={false}
-            externalAnswers={shownSession.answers} externalReview={opened.external.review} disabled={saving || stopped}
+            externalAnswers={shownSession.answers} externalReview={opened.external.review} disabled={busy || syncing || stopped}
             focusRequest={focus} showFaces={lit}
             onExport={(_action, format) => { if (format === 'xlsx') downloadFai(); else downloadCsv(); }}
             lengthUnit={opened.units}
