@@ -2,6 +2,7 @@
 // held in the page, one per row of a part. Save sends the lists together, all or nothing.
 // Discard drops them all (specify-core docs/open.md, `POST save`).
 import type { AnswerDraft, EditFailure, EditList, RemoveTarget } from './local.ts';
+import { withUnits } from '../src/specify/units.ts';
 
 /** One pending edit, by the row it is on (a feature-and-kind id, or an item's `#N` in "Other PMI"). */
 export type Pending = PendingEdit & { draft?: true };
@@ -67,8 +68,9 @@ export function describe(p: Pending, draft?: AnswerDraft): string {
 
 function describeEdit(p: Pending): string {
   switch (p.kind) {
-    case 'fill': return `Add ${p.name}: ${p.text}`;
-    case 'change': return `Change ${p.name}: ${p.was} → ${p.text}`;
+    case 'fill': return `Add ${p.name}: ${p.id.startsWith('part.') ? p.text : withUnits(p.text, 'mm')}`;
+    // What it was is as the file states it: its unit is said where the page knows it (callOutEdit).
+    case 'change': return `Change ${p.name}: ${p.was} → ${p.id.startsWith('part.') || /(?:mm|in)\b/.test(p.text) ? p.text : withUnits(p.text, 'mm')}`;
     case 'remove': {
       const numbers = p.targets.filter((t): t is string => typeof t === 'string');
       return `Remove ${p.name}: ${p.was}${numbers.length ? ` (${numbers.join(', ')})` : ''}`;

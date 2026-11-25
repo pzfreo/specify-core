@@ -448,3 +448,6 @@ fieldset.pmi-lab-rows { min-width: 0; margin: 0; padding: 0; border: 0; }
 .pmi-lab-line .name { white-space: normal; flex: none; max-width: 100%; }
 /* An item's width counts its padding and border (the editor sets this for every element; a host may not). */
 .pmi-lab .pmi-lab-item { box-sizing: border-box; }
+
+/* The file's unit, beside its name. */
+.pmi-lab .pmi-lab-unit { color: #707880; font-size: 11.5px; white-space: nowrap; }

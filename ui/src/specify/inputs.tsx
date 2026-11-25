@@ -8,6 +8,7 @@ import { KIND_TEXT, MAY_HAVE_DATUM, NEEDS_DATUM, type ExtraKind } from './added'
 import { byBalloon, type Characteristic, inspectKey } from './characteristics';
 import type { Chosen } from './chosen';
 import { fmt } from './labels';
+import { labelName, labelRow, withUnits, type LengthUnit } from './units';
 
 import { codeOf, matchSuggestions, purposeOf, purposes } from './choose';
 
@@ -89,6 +90,7 @@ export function SpecBox({ q, codes, onSpec }: {
           aria-label={`Type a spec: ${q.prompt}`} autoCapitalize="off" autoCorrect="off" spellCheck={false}
           onChange={(event) => { setText(event.target.value); setProblem(null); }}
         />
+        {!q.id.startsWith('part.') && <span className="tolerance-unit" title="Lengths are typed in millimetres">mm</span>}
         <button type="submit" disabled={!text.trim() || busy}>{busy ? '…' : 'Use'}</button>
       </div>
       <datalist id={list}>{codes.map((code) => <option key={code} value={code} />)}</datalist>
@@ -378,6 +380,8 @@ export function ExtraEditor({
 export function SuggestionCard({ c, onKeep, onPick, onMore }: {
   c: Chosen; onKeep: () => void; onPick: (value: string) => void; onMore: () => void;
 }) {
+  // A part setting's options are names ("2768-m", "Break 0.2"), not lengths.
+  const units = (text: string) => (c.id.startsWith('part.') ? text : withUnits(text, 'mm'));
   return (
     <div className={`pmi-lab-suggestion${c.check ? ' check' : ''}`} data-suggestion={c.id}>
       <div className="field">{c.field}{c.check && <em> · please check</em>}</div>
@@ -390,19 +394,19 @@ export function SuggestionCard({ c, onKeep, onPick, onMore }: {
                 title={i === 0 ? 'Keep this' : `Choose ${o.label} instead`}
                 onClick={() => (i === 0 ? onKeep() : onPick(o.value))}
               >
-                {i === 0 ? `✓ ${o.label}` : o.label}
+                {i === 0 ? `✓ ${units(o.label)}` : units(o.label)}
               </button>
             ))}
             {c.more && <button type="button" className="more" onClick={onMore}>More…</button>}
           </>
         ) : (
           <>
-            <button type="button" className="ok" onClick={onKeep}>✓ {c.what.split(': ').slice(1).join(': ') || 'Keep'}</button>
+            <button type="button" className="ok" onClick={onKeep}>✓ {units(c.what.split(': ').slice(1).join(': ')) || 'Keep'}</button>
             <button type="button" className="more" onClick={onMore}>Pick on the part…</button>
           </>
         )}
       </div>
-      {c.why && <div className="why">{c.why}</div>}
+      {c.why && <div className="why">{units(c.why)}</div>}
     </div>
   );
 }
@@ -414,8 +418,10 @@ export function SuggestionCard({ c, onKeep, onPick, onMore }: {
  * on demand: there may be a hundred, and few of them matter.
  */
 export function CharacteristicsTable({
-  rows, selected, onSelect, onDownload, skipped, onSkip, onEdit, onCallOut, generalTolerance, calledOut, readOnly = false, exportable = true,
+  rows, selected, onSelect, onDownload, skipped, onSkip, onEdit, onCallOut, generalTolerance, calledOut, readOnly = false, exportable = true, file = 'mm',
 }: {
+  /** The file's length unit, for the features' names (units.ts). */
+  file?: LengthUnit;
   /** A view of what is set: no tick boxes, edit or call-out column, or CSV. */
   readOnly?: boolean;
   /** Hosts owning saved-file exports suppress preview downloads and CSV inclusion controls. */
@@ -444,6 +450,8 @@ export function CharacteristicsTable({
     box.current?.querySelector('tr.on')?.scrollIntoView?.({ block: 'nearest' });
   }, [selected]);
   const n = (v: number | null, sign = false) => (v === null ? '' : `${sign && v > 0 ? '+' : ''}${fmt(v)}`);
+  // These are millimetres whatever the file's unit; an angle's are degrees, and a roughness is no length.
+  const mm = (r: Characteristic) => (/°/.test(r.text) ? '°' : /^(?:√ )?R[az]\b/.test(r.text) ? '' : ' mm');
   const groups = byBalloon(rows);
   const firstGeneral = groups.findIndex((group) => group[0]?.source.startsWith('general:'));
   const left = rows.filter((r) => skipped.has(inspectKey(r))).length;
@@ -473,12 +481,12 @@ export function CharacteristicsTable({
         </td>
       )}
       <td>{cells.bal}</td>
-      <td>{cells.feature}</td>
-      <td className="text">{r.text}</td>
-      <td>{n(r.nominal)}</td>
+      <td>{typeof cells.feature === 'string' ? labelName(cells.feature, file) : cells.feature}</td>
+      <td className="text">{labelRow(r)}</td>
+      <td>{n(r.nominal)}{r.nominal !== null && mm(r)}</td>
       <td className="tol">
-        {n(r.upper, true)}
-        {r.lower !== null && <><br />{fmt(r.lower)}</>}
+        {n(r.upper, true)}{r.upper !== null && mm(r)}
+        {r.lower !== null && <><br />{fmt(r.lower)}{mm(r)}</>}
       </td>
       <td>{r.datums}</td>
       {!readOnly && <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>

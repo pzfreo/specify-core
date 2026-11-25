@@ -240,7 +240,7 @@ async function callOutDimensions(page, which = () => true) {
   for (let i = 0, n = await lines.count(); i < n; i++) {
     const line = lines.nth(i);
     if (!which(await line.locator('.text').textContent())) continue;
-    const tolerance = (await line.locator('.tol').textContent()).replace(/^±/, '');
+    const tolerance = (await line.locator('.tol').textContent()).replace(/^±/, '').replace(/ mm$/, '');
     await line.getByRole('button', { name: 'Call Out', exact: true }).click();
     await line.getByRole('textbox').fill(tolerance);
     await line.getByRole('button', { name: 'Use', exact: true }).click();
@@ -642,12 +642,12 @@ try {
     const pos = await openQuestion(page, position);
     await check(pos).toHaveAttribute('data-state', 'stated');
     // Values read as a drawing writes them, not as the engine stores them.
-    await check(pos).toContainText('⌖ ⌀0.2 A');
+    await check(pos).toContainText('⌖ ⌀0.2 mm A');
     // Every stated item has its pencil and its bin.
     await check(pos.getByRole('button', { name: /^Change / })).toHaveCount(1);
     await check(pos.getByRole('button', { name: /^Remove / })).toHaveCount(1);
     await pos.getByRole('button', { name: /^Change / }).click();
-    await pos.locator('.opts').getByRole('button', { name: '0.1', exact: true }).click();
+    await pos.locator('.opts').getByRole('button', { name: '0.1 mm', exact: true }).click();
     await check(listedEdit(page, position)).toHaveText(/^Change Ø1\.6 hole position: .*0\.2.* → .*0\.1/);
     await check(pos).toHaveAttribute('data-state', 'changed');
     // Remove: the bin asks once; its number is retired (the bar names it).
@@ -910,13 +910,13 @@ try {
         await check(head).toContainText('dimensions under ISO 2768-m');
         await head.click();
         const lines = page.locator('[data-row="dimensions"] .pmi-lab-dim');
-        await check(lines.filter({ hasText: /\d from / })).toHaveCount(3);
+        await check(lines.filter({ hasText: /\d mm from / })).toHaveCount(3);
         for (const [, nominal] of lengths) {
-          await check(lines.filter({ has: page.locator('.text', { hasText: new RegExp(`^${nominal} from `) }) })).toHaveCount(1);
-          await check(lines.filter({ has: page.locator('.text', { hasText: new RegExp(`^${nominal} from `) }) }).locator('.tol')).toHaveText(/^±/);
+          await check(lines.filter({ has: page.locator('.text', { hasText: new RegExp(`^${nominal} mm from `) }) })).toHaveCount(1);
+          await check(lines.filter({ has: page.locator('.text', { hasText: new RegExp(`^${nominal} mm from `) }) }).locator('.tol')).toHaveText(/^±/);
         }
         const declinedNominal = lengths.find(([id]) => id === declined)?.[1];
-        const called = await callOutDimensions(page, text => / from /.test(text) && !text.startsWith(`${declinedNominal} from `));
+        const called = await callOutDimensions(page, text => / from /.test(text) && !text.startsWith(`${declinedNominal} mm from `));
         assert.equal(called.length, declined ? 2 : 3);
         await page.getByRole('button', { name: '✓ Keep all', exact: true }).click();
         await check(listedEdit(page, 'part.general_tolerance')).toBeVisible();
@@ -1018,6 +1018,39 @@ try {
     await context.close();
     server.stop();
   }
+  // An inch file: each length says its own unit. What the file states is in inches; suggestions, geometry
+  // and what is typed, in the millimetres Specify works in; and what Specify then writes reads back in mm.
+  {
+    const inch = join(dir, 'inch.stp');
+    writeFileSync(inch, gunzipSync(readFileSync('../tests/fixtures/nist/nist_ctc_03_asme1_ap242.stp.gz')));
+    const server = await open(inch);
+    const { context, page, requests } = await load(server);
+    await panelReady(page);
+    await check(page.locator('.pmi-lab-unit')).toHaveText('File in inches · Specify works in mm');
+    await check(page.locator('.pmi-lab-row-head .sum').filter({ hasText: '⌀1.065 ±0.003' })).toContainText('⌀1.065 ±0.003 in');
+    await check(page.locator('.pmi-lab-suggestion .why').filter({ hasText: 'this ⌀27.051 mm hole' }).first()).toBeVisible();
+    await check(page.locator('.pmi-lab-row-head b').filter({ hasText: /^Ø50\.8 mm hole$/ })).toHaveCount(1);
+    const [first] = await callOutDimensions(page, text => text.startsWith('57.2795 mm from '));
+    await check(listedEdit(page, first)).toContainText(/±0\.3 mm$/);
+    const lengths = await page.locator('.pmi-lab-dim .text').allTextContents();
+    assert.ok(lengths.length > 5 && lengths.every(t => /^[^ ]+ mm from |^⌀[\d.]+ mm/.test(t)), `every general dimension says mm: ${lengths}`);
+    await save(page, server, 1);
+    const wrote = analyse(join(dir, 'inch.specified.stp').replace(/\.stp$/, existsSync(join(dir, 'inch.specified.stp')) ? '.stp' : '.step'));
+    const made = wrote.existing.find(e => e.value && Math.abs(e.value - 57.2795) < 1e-3 && e.upper);
+    assert.deepEqual([made?.upper, made?.lower], [0.3, -0.3], 'typed in mm, written in mm');
+    onlyLocal(requests, server.origin);
+    await context.close();
+    server.stop();
+  }
+  {
+    const metric = join(dir, 'metric.step');
+    writeFileSync(metric, gunzipSync(readFileSync('test/fixtures/spindle_pmi_after.step.gz')));
+    const server = await open(metric, '--read-only');
+    const { context, page } = await load(server);
+    await check(page.locator('.pmi-lab-unit')).toHaveText('Units: mm');
+    await context.close();
+    server.stop();
+  }
   // A dimension the file states with its nominal alone (under the general tolerance) is called out
   // in place: its feature-and-kind changed to take the tolerance; nothing is added beside it, and
   // every other requirement keeps its number and text.
@@ -1038,7 +1071,7 @@ try {
     await line.getByRole('textbox').fill('0.05');
     await line.getByRole('button', { name: 'Use', exact: true }).click();
     await check(line).toHaveClass(/changed/);
-    await check(listedEdit(page, row.id)).toContainText(`${row.value} ±0.05`);
+    await check(listedEdit(page, row.id)).toContainText(`${row.value} ±0.05 mm`);
     await save(page, server, 1);
     const after = analyse(join(dir, 'stated-call-out.specified.step'));
     const now = after.existing.find(e => e.number === bare.number);

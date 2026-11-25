@@ -29,6 +29,7 @@ import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } fr
 import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, type Pending } from './edits';
 import { EditBar } from './EditBar';
 import { answerEdit, asEngineTakes, valueText, callOutEdit, forEngine, forScreens, isDimensionQuestion, nextExtraKey, removeEdit, statedRows, type StatedRows } from './adapter';
+import { labelStated } from '../src/specify/units';
 import { answerText, bareAnalysis, fileLengthUnit, panelModel, tableOf, type FeatureTable, type PanelModel } from './table';
 
 declare const __APP_VERSION__: string;
@@ -839,13 +840,13 @@ function App() {
             externalAnswers={shownSession.answers} externalReview={opened.external.review} disabled={saving || stopped}
             focusRequest={focus} showFaces={lit}
             onExport={(_action, format) => { if (format === 'xlsx') downloadFai(); else downloadCsv(); }}
+            lengthUnit={opened.units}
             {...(editing ? {
-              lengthUnit: opened.units,
               // Called out, by characteristic: from the held edits, so it outlasts a part switch.
               calledOutDimensions: new Map([...callOutKeys.current].flatMap(([at, key]) => {
                 const [part, ...rest] = at.split(':');
                 const edit = partPending.get(key);
-                const tolerance = edit?.kind === 'fill' ? edit.text : edit?.kind === 'change' ? String(edit.value) : null;
+                const tolerance = edit?.kind === 'fill' ? edit.text.replace(/ mm$/, '') : edit?.kind === 'change' ? String(edit.value) : null;
                 return Number(part) === opened.part && tolerance !== null ? [[rest.join(':'), tolerance.replace(/^±/, '')] as const] : [];
               })),
               // "Added by you" keys already taken (the page's call-outs among them): no two share one.
@@ -855,7 +856,7 @@ function App() {
                 items: opened.model.other.map((o) => {
                   const item = opened.table.file_pmi.find((r) => (o.number && r.number === o.number) || (o.id && r.id === o.id));
                   const label = item?.type ? item.type.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ') : o.label;
-                  return { key: o.key, label: label.charAt(0).toUpperCase() + label.slice(1).toLowerCase(), value: o.value, faces: o.faces,
+                  return { key: o.key, label: label.charAt(0).toUpperCase() + label.slice(1).toLowerCase(), value: labelStated(o.value, opened.session.analysis.existing), faces: o.faces,
                     // With no number and no id the engine has no way to remove it: no bin.
                     removable: Boolean(o.number || o.id) };
                 }),
@@ -896,7 +897,7 @@ function App() {
                 if (dimension.number !== undefined) {
                   if (!row || typeof row.value !== 'string') return false;
                   keys.set(at, row.id);
-                  const edit = callOutEdit(dimension, tolerance, row.id, { id: row.id, value: row.value });
+                  const edit = callOutEdit(dimension, tolerance, row.id, { id: row.id, value: row.value, label: labelStated(row.value, opened.session.analysis.existing) });
                   editPending(edit ? partPending.with(edit) : partPending.without(row.id));
                   return true;
                 }
