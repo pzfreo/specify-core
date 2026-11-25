@@ -102,6 +102,7 @@ every mode, `diff` included:
   "readOnly": false,
   "wasmUrl": "wasm/specify_core_wasm.js",
   "saveTarget": "/home/me/parts/part.specified.step",
+  "savedPath": null,
   "specifyCore": "0.3.0"
 }
 ```
@@ -124,6 +125,8 @@ every mode, `diff` included:
 - `saveTarget`: the absolute path the next save would write (the input itself with
   `--in-place`), or `null` when read-only. It changes after each save. A save may still take
   another name if a file appears there first.
+- `savedPath`: the absolute path the session's last save wrote, or `null` before one: what `file?rev=saved`
+  is, so a page opened or reloaded after a save shows it. (Added in 0.3.0; a command without it gives none.)
 - `specifyCore`: this command's version.
 
 ### `save`

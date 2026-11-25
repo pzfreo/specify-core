@@ -510,7 +510,7 @@ try {
     const [download] = await Promise.all([page.waitForEvent('download'), stopped.getByRole('button', { name: 'Download them', exact: true }).click()]);
     const list = join(dir, 'held.edits.json');
     await download.saveAs(list);
-    assert.equal(download.suggestedFilename(), 'held.edits.json');
+    assert.equal(download.suggestedFilename(), 'held.specified.edits.json');
     assert.deepEqual(JSON.parse(readFileSync(list, 'utf8')), { none: ['part.heat_treatment'] });
     const applied = join(dir, 'held.applied.step');
     execFileSync(cli, ['write', written, list, '-o', applied], { stdio: 'ignore' });

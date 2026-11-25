@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import { bestFitNormal, drawnFromScene, drawnGroup, drawnShown, drawnViews, facesAway, graphicNormal, hasFileGraphics, hasGraphics, linksFromPmi, partCentre, readPresentation } from '../src/specify/drawn.ts';
+import { withoutNotesBlock, bestFitNormal, drawnFromScene, drawnGroup, drawnShown, drawnViews, facesAway, graphicNormal, hasFileGraphics, hasGraphics, linksFromPmi, partCentre, readPresentation } from '../src/specify/drawn.ts';
 
 // The spindle's haecceity.presentation/1 and haecceity.pmi/1, from quiddity's json feature
 // (test/fixtures/README.md).
@@ -262,4 +262,20 @@ test('looking square at a plane, its text reads along its x axis: /diff\'s remov
   assert.ok(near(view.up, [0, 0, -1]), `up ${view.up}`);
   // On screen, right is the look direction (−eye) × up: the plane's x axis, so the text reads left to right.
   assert.ok(near(cross(view.eye.map((x) => -x), view.up), plane.xAxis), 'screen right is the plane\'s x axis');
+});
+
+test('the notes the panel says are not drawn too: the generated block, and the one a saved file holds', () => {
+  const g = (id, name, source = 'file') => ({ id, name, source, polylines: [], triangles: [], text: [] });
+  const block = g('step:4272', 'General notes');
+  const pmi = (items, unlinked = [], views = []) => ({ links: {}, presentation: { items, unlinked, planes: [], semanticIds: {}, views } });
+  const kept = (x) => { const p = withoutNotesBlock(x).presentation; return { items: Object.fromEntries(Object.entries(p.items).map(([k, v]) => [k, v.map((y) => y.id)])), unlinked: p.unlinked.map((y) => y.id), views: p.views.map((v) => v.id) }; };
+  // A file Specify saved: one block, under each note it draws, in a view of its own.
+  assert.deepEqual(kept(pmi({ 'part.edges': [block], 'part.material': [block], 'datum:A': [g('step:1', 'Datum A')] }, [], [{ id: 'Notes', graphics: ['step:4272'] }, { id: 'PMI', graphics: ['step:1'] }])),
+    { items: { 'part.edges': [], 'part.material': [], 'datum:A': ['step:1'] }, unlinked: [], views: ['PMI'] });
+  // Not the panel's: one that draws something else too, or that nothing of the part's is, stays.
+  assert.deepEqual(kept(pmi({ 'part.edges': [block], 'datum:A': [block] })).items, { 'part.edges': ['step:4272'], 'datum:A': ['step:4272'] });
+  assert.deepEqual(kept(pmi({}, [block])).unlinked, ['step:4272']);
+  assert.deepEqual(kept(pmi({ 'part.edges': [g('step:9', 'Other notes')] })).items, { 'part.edges': ['step:9'] });
+  // The one Specify generates, as before.
+  assert.deepEqual(kept(pmi({ 'part.edges': [g('generated:general-notes', 'General notes', 'generated')] })).items, { 'part.edges': [] });
 });

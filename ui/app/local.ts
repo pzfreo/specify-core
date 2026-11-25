@@ -23,6 +23,8 @@ export interface LocalConfig {
   wasmUrl: string;
   /** Where the next save writes; null when read-only. */
   saveTarget: string | null;
+  /** What the session's last save wrote; null before one (absent from an older command). */
+  savedPath?: string | null;
   specifyCore: string;
 }
 

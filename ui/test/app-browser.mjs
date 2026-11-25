@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -1059,6 +1059,48 @@ try {
     const server = await open(metric, '--read-only');
     const { context, page } = await load(server);
     await check(page.locator('.pmi-lab-unit')).toHaveText('Units: mm');
+    await context.close();
+    server.stop();
+  }
+  // Saved to a copy, the page shows the copy: its name, its path and its notes once; and shows it again reloaded.
+  // Removed by someone else, a reload says so and opens the file as it was opened.
+  {
+    const named = join(dir, 'named.step');
+    writeFileSync(named, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
+    const copy = join(dir, 'named.specified.step');
+    const server = await open(named);
+    const { context, page, requests } = await load(server);
+    const shows = async (name, path) => {
+      await check(page).toHaveTitle(`${name} — Specify`);
+      await check(page.locator('.app-file')).toHaveText(name);
+      await check(page.locator('.app-path')).toHaveText(path);
+      await check(page.locator('.pmi-lab-panel .title strong')).toHaveText(name);
+    };
+    await shows('named.step', named);
+    await page.locator('[data-suggestion="part.general_tolerance"] .btns button').first().click();
+    await check(listedEdit(page, 'part.general_tolerance')).toBeVisible();
+    await save(page, server, 1);
+    await shows('named.specified.step', copy);
+    await check(page.locator('.pmi-lab-stated[data-question="part.general_tolerance"]')).toHaveCount(1);
+    await page.reload();
+    await panelReady(page);
+    await shows('named.specified.step', copy);
+    await check(page.locator('.pmi-lab-stated[data-question="part.general_tolerance"]')).toHaveCount(1);
+    await check(page.locator('.app-inspection-source')).toContainText('from named.specified.step');
+    // The next save, after the reload, updates the copy, with both.
+    await page.locator('[data-suggestion="part.process"] .btns button').first().click();
+    await check(listedEdit(page, 'part.process')).toBeVisible();
+    await save(page, server, 1);
+    assert.ok(!existsSync(join(dir, 'named.specified-2.step')), 'the copy is updated, not numbered');
+    for (const id of ['part.general_tolerance', 'part.process']) assert.equal(table(copy)[id].state, 'stated', id);
+    const beforeGone = problems.length;
+    renameSync(copy, join(dir, 'moved.step'));
+    await page.reload();
+    await panelReady(page);
+    await check(page.locator('.app-problem').first()).toContainText('The file saved earlier could not be shown, so this is the file as opened');
+    await shows('named.step', named);
+    problems.splice(beforeGone, problems.length - beforeGone, ...problems.slice(beforeGone).filter(p => !/^console: .*404/.test(p)));
+    onlyLocal(requests, server.origin);
     await context.close();
     server.stop();
   }

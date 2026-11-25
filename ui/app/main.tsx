@@ -226,7 +226,9 @@ function App() {
   const inspectionLoad = useRef(0);
   const savedRevision = useRef(-1);
   // The bytes the session's last save wrote: the 3D view draws their PMI, for every part shown since.
-  const savedSource = useRef<{ bytes: Uint8Array; generation: number } | null>(null);
+  const savedSource = useRef<{ bytes: Uint8Array; generation: number; name: string } | null>(null);
+  // The file shown once the session has saved: the copy it wrote (or the input, in place), not the input opened.
+  const [savedAs, setSavedAs] = useState<{ name: string; path: string } | null>(null);
   const heardSaves = useRef(new Set<string>());
   const captureSaved = useRef<(saved: { path: string; rev: number }) => void>(() => {});
   const [slots, setSlots] = useState<SpecifySlots | null>(null);
@@ -311,14 +313,15 @@ function App() {
           const written = await getFile('saved').then(stepBytes);
           if (ended || load !== inspectionLoad.current) return;
           setInspectionStep({ path: event.path, name: inspectionName(event.path), bytes: written });
-          savedSource.current = { bytes: written, generation: load };
+          const name = inspectionName(event.path);
+          savedSource.current = { bytes: written, generation: load, name };
           // The session works on the file as saved from now on (ADR P11: the file is the only
           // copy): the part shown opens again from it, so what the save wrote reads as the file's
           // and the next edits apply to it. The 3D view draws the PMI as the save wrote it
           // (specify-ui#14); a scene that fails leaves the view as the opening drew it.
           const shown = shownRef.current;
           if (!shown || !worker.current) return;
-          let next = await openPart(worker.current, answersSession, first.name, written, { part: shown.part, several: shown.several }, first.readOnly, edited, load, answeredRef.current);
+          let next = await openPart(worker.current, answersSession, name, written, { part: shown.part, several: shown.several }, first.readOnly, edited, load, answeredRef.current);
           const drawn = await savedDrawn(worker.current, written, next);
           if (drawn !== undefined) next = { ...next, drawn };
           if (ended || load !== inspectionLoad.current || shownRef.current?.store !== shown.store) { next.store.close(); return; }
@@ -332,6 +335,7 @@ function App() {
           next = { ...next, external: { answers: fileAnswers, review: next.review } };
           shownRef.current = next;
           setOpened(next);
+          setSavedAs({ name, path: event.path });
         })().catch((error: unknown) => {
           if (!ended && load === inspectionLoad.current) setInspectionProblem(message(error));
         }).finally(() => {
@@ -347,7 +351,20 @@ function App() {
       unwatch = answersSession.subscribe(showDrafts);
       showDrafts();
       // An assembly's parts: the page shows one at a time, first the first the session has answers for.
-      const listed = (await worker.current.request<PartRow[]>('parts', { name: first.name, bytes })).map(({ part, name, instances, written }) => ({ part, name, instances, written: written === true }));
+      // The session has saved already (the page was reloaded, or opened again): it works on what it wrote.
+      // A copy changed or removed since cannot be shown: said, and the file as opened is.
+      const held = first.savedPath ? await getFile('saved').then(stepBytes).catch((error: unknown) => {
+        setProblem(`The file saved earlier could not be shown, so this is the file as opened: ${message(error)}`);
+        return null;
+      }) : null;
+      const now = held && first.savedPath ? { name: inspectionName(first.savedPath), path: first.savedPath, bytes: held } : { name: first.name, path: first.path, bytes };
+      if (held) {
+        const load = ++inspectionLoad.current;
+        savedSource.current = { bytes: now.bytes, generation: load, name: now.name };
+        setInspectionStep(now);
+        setSavedAs({ name: now.name, path: now.path });
+      }
+      const listed = (await worker.current.request<PartRow[]>('parts', { name: now.name, bytes: now.bytes })).map(({ part, name, instances, written }) => ({ part, name, instances, written: written === true }));
       const several = listed.length > 1 || listed[0]?.instances > 1;
       let rows = listed;
       const withAnswers = rows.find((row) => Object.keys(answers.parts[String(row.part)] ?? {}).some((id) => !id.startsWith('_')));
@@ -355,7 +372,11 @@ function App() {
       const asked = rows.find((row) => row.part === first.part);
       const at = { part: several ? (asked ?? withAnswers ?? rows[0]!).part : 0, several };
       setParts(rows);
-      const part = await openPart(worker.current, answersSession, first.name, bytes, at, first.readOnly, edited, 0, answeredRef.current);
+      let part = await openPart(worker.current, answersSession, now.name, now.bytes, at, first.readOnly, edited, savedSource.current?.generation ?? 0, answeredRef.current);
+      if (held) {
+        const drawn = await savedDrawn(worker.current, now.bytes, part);
+        if (drawn !== undefined) part = { ...part, drawn };
+      }
       if (old && diff) {
         const r = diff.report as { verdict?: string; summary?: string };
         setCompared({
@@ -400,7 +421,7 @@ function App() {
       for (const row of rows) {
         if (row.part === at.part || !(String(row.part) in answers.parts)) continue;
         if (!row.written) { answersSession.fileAnswers(row.part, {}); continue; }
-        const snapshot = await worker.current.request<{ analysis: PmiLabSession['analysis'] }>('open', fileOf(first.name, bytes, row.part, true)).catch(() => null);
+        const snapshot = await worker.current.request<{ analysis: PmiLabSession['analysis'] }>('open', fileOf(now.name, now.bytes, row.part, true)).catch(() => null);
         if (snapshot) answersSession.fileAnswers(row.part, snapshot.analysis.resume?.answers ?? {});
       }
     })().catch((error: unknown) => {
@@ -430,7 +451,7 @@ function App() {
       // If another page or the agent saved while this part was opening, open the saved version.
       for (;;) {
         const source = savedSource.current;
-        let next = await openPart(worker.current, answersSession, config.name, source?.bytes ?? opened.bytes,
+        let next = await openPart(worker.current, answersSession, source?.name ?? config.name, source?.bytes ?? opened.bytes,
           { part: index, several: true }, config.readOnly, edited, source?.generation ?? opened.generation, answeredRef.current);
         const drawn = source ? await savedDrawn(worker.current, source.bytes, next) : undefined;
         if (source !== savedSource.current) { next.store.close(); continue; }
@@ -505,6 +526,7 @@ function App() {
   }, [agent]);
 
   const mode = config?.mode;
+  useEffect(() => { if (savedAs) document.title = `${savedAs.name} — Specify`; }, [savedAs]);
   const readOnly = !config || config.readOnly;
 
   /** The short labels of questions ``ids`` (the part shown's; an id Specify does not ask here is kept as it is). */
@@ -676,7 +698,7 @@ function App() {
     const url = URL.createObjectURL(new Blob([`${JSON.stringify(edits, null, 1)}\n`], { type: 'application/json' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${inspectionName(config?.name ?? 'part.step').replace(/\.(step|stp)(\.gz)?$/i, '')}${parts.length > 1 ? `.part-${part}` : ''}.edits.json`;
+    link.download = `${inspectionName(savedAs?.name ?? config?.name ?? 'part.step').replace(/\.(step|stp)(\.gz)?$/i, '')}${parts.length > 1 ? `.part-${part}` : ''}.edits.json`;
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -713,7 +735,7 @@ function App() {
     setChecking(true);
     try {
       const result = await worker.current.request<{ applicable: boolean; failures?: EditFailure[]; message?: string }>(
-        'check-edits', { ...fileOf(config.name, opened.bytes, opened.part, opened.several, opened.generation), edits });
+        'check-edits', { ...fileOf(opened.session.filename, opened.bytes, opened.part, opened.several, opened.generation), edits });
       return result.applicable ? [] : result.failures?.length ? result.failures : whole(result.message || 'It cannot be applied.');
     } catch (error) { return whole(message(error)); }
     finally { setChecking(false); }
@@ -725,8 +747,8 @@ function App() {
           <strong className="app-brand">Specify</strong>
           {config && mode === 'diff' && <span className="app-file app-old" title={config.oldPath ?? ''}>{config.oldName}</span>}
           {config && mode === 'diff' && <span aria-hidden="true">→</span>}
-          {config && <span className="app-file">{config.name}</span>}
-          {config && <code className="app-path">{mode === 'diff' ? `${config.oldPath} → ${config.path}` : config.path}</code>}
+          {config && <span className="app-file">{savedAs?.name ?? config.name}</span>}
+          {config && <code className="app-path">{mode === 'diff' ? `${config.oldPath} → ${savedAs?.path ?? config.path}` : savedAs?.path ?? config.path}</code>}
           {parts.length > 1 && opened && (
             <label className="app-part">Part{' '}
               <select value={opened.part} disabled={busy} onChange={(event) => void showPart(Number(event.target.value))}>
@@ -776,7 +798,7 @@ function App() {
       {stopped && config ? (
         <p className="app-offline app-stopped" role="status">
           Specify has stopped. Run <code>specify-core open …</code> again (or ask your agent to show it).
-          {' '}Your saved file is at <code>{saved?.path ?? config.path}</code>.
+          {' '}Your saved file is at <code>{saved?.path ?? savedAs?.path ?? config.path}</code>.
           {heldLists.length > 0 && <span className="app-held">
             {' '}Your unsaved changes were not written.
             {heldLists.map((held) => (
@@ -808,7 +830,7 @@ function App() {
         <nav className="app-tabs" role="tablist">
           <button type="button" role="tab" aria-selected={tab === 'changes'} onClick={() => setTab('changes')}>What changed</button>
           <button type="button" role="tab" aria-selected={tab === 'answers'} onClick={() => setTab('answers')}>
-            Requirements for {config?.name}{compared?.decisions.length ? ` (${plural(compared.decisions.length, 'decision')})` : ''}
+            Requirements for {savedAs?.name ?? config?.name}{compared?.decisions.length ? ` (${plural(compared.decisions.length, 'decision')})` : ''}
           </button>
           {compared && compared.decisions.length > 0 && (
             <div className="app-decide" aria-label="To decide">

@@ -314,15 +314,24 @@ export const NOTES_BLOCK = 'generated:general-notes';
  * notes on a plane in 3D turn away as the part turns, and the panel already says them.
  */
 export function withoutNotesBlock(pmi: DrawnPmi): DrawnPmi {
-  const keep = (g: DrawnGraphic) => g.id !== NOTES_BLOCK;
   const { presentation } = pmi;
+  // Saved, the block is one of the file's own graphics, with an id of the file's: the one of that name that
+  // draws the part's notes and nothing else. Notes the panel does not say (no item of the part's) stay drawn.
+  const draws = new Map<string, boolean>();
+  for (const [item, graphics] of Object.entries(presentation.items)) {
+    for (const g of graphics) if (g.id !== undefined) draws.set(g.id, (draws.get(g.id) ?? true) && item.startsWith('part.'));
+  }
+  const block = (g: DrawnGraphic) => g.id === NOTES_BLOCK
+    || (g.source === 'file' && /^general notes$/i.test(g.name) && g.id !== undefined && draws.get(g.id) === true);
+  const blocks = new Set([NOTES_BLOCK, ...Object.values(presentation.items).flat().filter(block).map((g) => g.id)]);
+  const keep = (g: DrawnGraphic) => !blocks.has(g.id);
   return {
     ...pmi,
     presentation: {
       ...presentation,
       items: Object.fromEntries(Object.entries(presentation.items).map(([item, gs]) => [item, gs.filter(keep)])),
       unlinked: presentation.unlinked.filter(keep),
-      views: presentation.views.filter((v) => !(v.graphics.length && v.graphics.every((id) => id === NOTES_BLOCK))),
+      views: presentation.views.filter((v) => !(v.graphics.length && v.graphics.every((id) => blocks.has(id)))),
     },
   };
 }
