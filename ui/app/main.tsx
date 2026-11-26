@@ -12,7 +12,7 @@ import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  as9102, createIntentEngine, drawnFromScene, hasGraphics, SpecifyReview, StepDiff, toCsv, withoutNotesBlock, xlsx,
+  as9102, createIntentEngine, SpecifyReview, StepDiff, toCsv, xlsx,
   type DrawnPmi, type IntentReview, type PmiAnswers, type PmiLabSession, type PmiQuestion, type SpecifyEngine, type SpecifySlots, type WorkerClient,
 } from '../src/index';
 import type { PmiAnalysis, PmiExtra } from '../src/types/pmi';
@@ -30,11 +30,45 @@ import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, withoutSe
 import { EditBar } from './EditBar';
 import { answerEdit, asEngineTakes, valueText, callOutEdit, forEngine, forScreens, isDimensionQuestion, nextExtraKey, removeEdit, statedRows, type StatedRows } from './adapter';
 import { labelStated } from '../src/specify/units';
+import { findStatedOrigin, normalizeDraftingPmi } from '../src/specify/drafting-layout';
+import { readSceneSemanticLabels, reviewDrawnFromScene, type OneViewPending, type OneViewRow, type SceneSemanticLabel } from '../src/specify/one-view';
 import { answerText, bareAnalysis, fileLengthUnit, panelModel, tableOf, type FeatureTable, type PanelModel } from './table';
 
 declare const __APP_VERSION__: string;
 const DOCS = 'https://github.com/pzfreo/specify-core#readme';
 const ISSUES = 'https://github.com/pzfreo/specify-core/issues';
+const EMPTY_SEMANTIC: ReadonlyMap<string, SceneSemanticLabel> = new Map();
+
+/** Builds the exact scene review state passed to `engine.pmiScene`, keeping un-asked general
+ * length/location defaults out of stacking so before-Save and after-Save layouts match. */
+function sceneStateFor(
+  answers: PmiAnswers,
+  questions: readonly PmiQuestion[],
+  statedIds: ReadonlySet<string>,
+  readOnly: boolean,
+  pending?: PendingEdits,
+): { answers: PmiAnswers; auto: string[] } {
+  if (readOnly) return { answers, auto: [] };
+  const given: Record<string, unknown> = { ...answers };
+  if (pending) {
+    for (const edit of pending.values()) {
+      if (statedIds.has(edit.id)) continue;
+      if (edit.kind === 'fill') given[edit.id] = edit.value;
+      else if (edit.kind === 'none') given[edit.id] = 'none';
+      else if (edit.kind === 'clear') delete given[edit.id];
+    }
+  }
+  const sceneAnswers: Record<string, unknown> = { ...given };
+  const auto: string[] = [];
+  for (const q of questions) {
+    if (isDimensionQuestion(q.id) || statedIds.has(q.id) || q.id in given) continue;
+    if (q.default === null || q.default === undefined || q.default === '') continue;
+    if (Array.isArray(q.default) && q.default.length === 0) continue;
+    sceneAnswers[q.id] = q.default;
+    auto.push(q.id);
+  }
+  return { answers: sceneAnswers, auto };
+}
 /** A part of the file, as the engine's `parts` lists them; the session keeps answers by its index.
  * ``written``: the file stores Specify's answers for it. */
 interface PartRow { part: number; name: string; instances: number; written: boolean }
@@ -51,6 +85,8 @@ interface Opened {
   /** How many saves ``bytes`` are on from the file as opened. */
   generation: number;
   session: PmiLabSession & { answers: PmiAnswers }; review: IntentReview; engine: SpecifyEngine; drawn: DrawnPmi | null;
+  semantic: ReadonlyMap<string, SceneSemanticLabel>;
+  sceneKey: string;
   bytes: Uint8Array; store: AnswersStore; saver: Saver;
   /** The review panel's model: the file's feature table, named. */
   model: PanelModel;
@@ -138,23 +174,18 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
     ...(snapshot.provenance ? { provenance: snapshot.provenance } : {}),
     questions: fileReview.questions, open: fileReview.open, problems: fileReview.problems,
   };
-  const scene = drawnFromScene(await worker.request('scene', { ...file, state: { answers: stored } }));
-  const drawn = scene.ok ? withoutNotesBlock(scene.value) : null;
+  const state = sceneStateFor(answers, fileReview.questions, stated.ids, readOnly);
+  const sceneKey = JSON.stringify(state);
+  const raw = await worker.request('scene', { ...file, state, exact: true }).catch(() => null);
+  const read = raw ? reviewDrawnFromScene(raw, analysis) : null;
+  const semantic = raw ? readSceneSemanticLabels(raw) : EMPTY_SEMANTIC;
+  const drawn = read?.ok ? normalizeDraftingPmi(read.value, raw, analysis, snapshot.mesh, semantic) : null;
   const model = panelModel(table, bare.questions, analysis.features);
   return {
-    ...at, generation, session, review: fileReview, engine, drawn: drawn && hasGraphics(drawn) ? drawn : null, bytes, store, shown,
+    ...at, generation, session, review: fileReview, engine, drawn, semantic, sceneKey, bytes, store, shown,
     saver: editsSaver(store, answersSession, () => shown.answers), external: { answers, review }, reviewOf, model,
     units: fileLengthUnit(bytes), table, stated, bare: bare.questions, dimensions: () => dimensionQuestions,
   };
-}
-
-/** The PMI the saved file ``bytes`` has for the part shown, as drawn: null when it has no graphics,
- * undefined when the scene could not be made (the view is then left as it is). */
-async function savedDrawn(worker: WorkerClient, bytes: Uint8Array, at: { part: number; several: boolean }): Promise<DrawnPmi | null | undefined> {
-  const scene = await worker.request('file-scene', { bytes, ...(at.several ? { part: at.part } : {}) }).then(drawnFromScene, () => null);
-  if (!scene) return undefined;
-  const drawn = scene.ok ? withoutNotesBlock(scene.value) : null;
-  return drawn && hasGraphics(drawn) ? drawn : null;
 }
 
 /** How the bar names row ``id`` of the part ``o`` shows ("Ø1.6 hole position", "Material"). */
@@ -180,6 +211,8 @@ interface SavedLine { path: string; open: string[] | null; byAgent: boolean }
 
 function App() {
   const [config, setConfig] = useState<LocalConfig | null>(null);
+  const [liveScene, setLiveScene] = useState<{ sessionId: string; key: string; drawn: DrawnPmi | null; semantic: ReadonlyMap<string, SceneSemanticLabel> } | null>(null);
+  const sceneReq = useRef(0);
   const [opened, setOpened] = useState<Opened | null>(null);
   const [parts, setParts] = useState<PartRow[]>([]);
   const [switching, setSwitching] = useState(false);
@@ -333,8 +366,6 @@ function App() {
           const shown = shownRef.current;
           if (!shown || !worker.current) return;
           let next = await openPart(worker.current, answersSession, name, written, { part: shown.part, several: shown.several }, first.readOnly, edited, load, answeredRef.current);
-          const drawn = await savedDrawn(worker.current, written, next);
-          if (drawn !== undefined) next = { ...next, drawn };
           if (ended || load !== inspectionLoad.current || shownRef.current?.store !== shown.store) { next.store.close(); return; }
           shown.store.close();
           // What was saved is what the file now holds, as the engine wrote it (a "None" written as
@@ -386,11 +417,7 @@ function App() {
       const asked = rows.find((row) => row.part === first.part);
       const at = { part: several ? (asked ?? withAnswers ?? rows[0]!).part : 0, several };
       setParts(rows);
-      let part = await openPart(worker.current, answersSession, now.name, now.bytes, at, first.readOnly, edited, savedSource.current?.generation ?? 0, answeredRef.current);
-      if (held) {
-        const drawn = await savedDrawn(worker.current, now.bytes, part);
-        if (drawn !== undefined) part = { ...part, drawn };
-      }
+      const part = await openPart(worker.current, answersSession, now.name, now.bytes, at, first.readOnly, edited, savedSource.current?.generation ?? 0, answeredRef.current);
       if (old && diff) {
         const r = diff.report as { verdict?: string; summary?: string };
         setCompared({
@@ -466,11 +493,9 @@ function App() {
       // If another page or the agent saved while this part was opening, open the saved version.
       for (;;) {
         const source = savedSource.current;
-        let next = await openPart(worker.current, answersSession, source?.name ?? config.name, source?.bytes ?? opened.bytes,
+        const next = await openPart(worker.current, answersSession, source?.name ?? config.name, source?.bytes ?? opened.bytes,
           { part: index, several: true }, config.readOnly, edited, source?.generation ?? opened.generation, answeredRef.current);
-        const drawn = source ? await savedDrawn(worker.current, source.bytes, next) : undefined;
         if (source !== savedSource.current) { next.store.close(); continue; }
-        if (drawn !== undefined) next = { ...next, drawn };
         shownRef.current?.store.close();
         shownRef.current = next;
         setOpened(next);
@@ -750,6 +775,61 @@ function App() {
     });
   }, [localPending, draftSnapshot.drafts, opened?.model, opened?.part]);
   const partPending = pending.get(opened?.part ?? 0) ?? NO_EDITS;
+  // Keep the 3D annotation-plane scene in sync with pending edits so before-Save and after-Save
+  // draw identical callout geometry and placements.
+  useEffect(() => {
+    if (!editing || !opened || !worker.current) return;
+    const state = sceneStateFor(opened.shown.answers, opened.external.review.questions, opened.stated.ids, false, partPending);
+    const key = JSON.stringify(state);
+    if (liveScene?.sessionId === opened.session.sessionId && liveScene.key === key) return;
+    if (liveScene?.sessionId !== opened.session.sessionId && opened.sceneKey === key) return;
+    const token = ++sceneReq.current;
+    const file = fileOf(opened.session.filename, opened.bytes, opened.part, opened.several, opened.generation);
+    const analysis = opened.session.analysis as PmiAnalysis;
+    const sid = opened.session.sessionId;
+    void worker.current.request('scene', { ...file, state, exact: true }).then((raw) => {
+      if (token !== sceneReq.current) return;
+      const read = reviewDrawnFromScene(raw, analysis);
+      const semantic = readSceneSemanticLabels(raw);
+      const drawn = read.ok ? normalizeDraftingPmi(read.value, raw, analysis, opened.session.mesh, semantic) : null;
+      setLiveScene({ sessionId: sid, key, drawn, semantic });
+    }, () => {});
+  }, [editing, opened, partPending, opened?.external.answers, liveScene?.sessionId, liveScene?.key]);
+  const activeDrawn = opened && liveScene?.sessionId === opened.session.sessionId ? liveScene.drawn : opened?.drawn ?? null;
+  const activeSemantic = opened
+    ? (liveScene?.sessionId === opened.session.sessionId ? liveScene.semantic : opened.semantic)
+    : EMPTY_SEMANTIC;
+  const partOrigin = useMemo(
+    () => (opened ? findStatedOrigin(opened.bytes, opened.session.analysis as PmiAnalysis, activeDrawn) : null),
+    [opened, activeDrawn],
+  );
+  const oneView = useMemo(() => {
+    if (!opened) return undefined;
+    const bareById = new Map(opened.bare.map((q) => [q.id, q]));
+    const rows: OneViewRow[] = [
+      ...opened.table.rows.map((row): OneViewRow => {
+        const q = bareById.get(row.id);
+        return {
+          id: row.id, state: row.state, open: row.open, faces: row.faces,
+          label: rowName(opened, row.id), ...(q ? { question: q } : {}),
+        };
+      }),
+      ...opened.model.other.map((o): OneViewRow => ({
+        id: o.key, state: 'stated', open: false, faces: o.faces, label: o.label, other: true,
+      })),
+    ];
+    const pendingMap = new Map<string, OneViewPending>();
+    for (const edit of partPending.values()) {
+      pendingMap.set(edit.id, {
+        kind: edit.kind, id: edit.id,
+        ...('value' in edit ? { value: edit.value } : {}),
+        ...('text' in edit ? { text: edit.text } : {}),
+        ...('was' in edit ? { was: edit.was } : {}),
+        ...('targets' in edit ? { targets: edit.targets } : {}),
+      });
+    }
+    return { rows, pending: pendingMap };
+  }, [opened, partPending]);
   // What the review opens on: what the file states, the session's answers (an agent's too) and the
   // page's held changes to stated items, which the engine's answers leave out (adapter.ts).
   const shownSession = useMemo(() => {
@@ -928,7 +1008,8 @@ function App() {
           // held in the bar below until Save writes them together.
           <SpecifyReview
             key={`${opened.session.sessionId}:${reviewGeneration}`}
-            engine={opened.engine} session={shownSession} readOnly={!editing} drawn={opened.drawn} slots={slots}
+            engine={opened.engine} session={shownSession} readOnly={!editing} drawn={activeDrawn} oneView={oneView}
+            sceneSemantic={activeSemantic} partOrigin={partOrigin} slots={slots}
             inspectionExports={false}
             externalAnswers={shownSession.answers} externalReview={opened.external.review} disabled={busy || syncing || stopped}
             focusRequest={focus} showFaces={lit}
