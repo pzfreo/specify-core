@@ -118,6 +118,13 @@ try {
     // and so is a hole's open question (the spindle's file states its holes: no hole row).
     await check(panel(page).locator('.pmi-lab-datums .chip.existing').first()).toContainText('from the file');
     await check(panel(page).getByRole('button', { name: /^Remove datum / })).toHaveCount(0);
+    // Show controls are visible by default at the bottom (no Show menu button, no Labels checkbox).
+    const view = page.locator('#specify-view');
+    await check(view.locator('.pmi-lab-show')).toHaveCount(0);
+    await check(view.getByLabel('Labels', { exact: true })).toHaveCount(0);
+    for (const label of ['Suggested by Specify', 'In the file', 'General dimensions', 'Hide callouts facing away']) {
+      await check(view.getByLabel(label, { exact: true })).toBeVisible();
+    }
     await page.close();
   }
   // Display keeps the host preview (Material is balloon 12); inspection is an export-only
@@ -215,8 +222,19 @@ try {
     await check(table.getByText(/⌖/).first()).toBeVisible();
     // What the general tolerance covers, folded under it in one row (no tick box: checked above).
     await check(table.locator('tr.general-summary', { hasText: /dimensions? under ISO 2768/ })).toBeVisible();
-    // Single PMI view: no View PMI mode switch; 3D annotation-plane ink renders directly in blueprint blue.
+    // Single PMI view: no View PMI mode switch or Show dropdown; top direction view buttons and bottom
+    // show checkboxes are visible by default, and 3D annotation-plane ink renders directly in blueprint blue.
     await check(page.getByRole('radiogroup', { name: 'View PMI' })).toHaveCount(0);
+    const view = page.locator('#specify-view');
+    await check(view.locator('.pmi-lab-show')).toHaveCount(0);
+    await check(view.getByLabel('Labels', { exact: true })).toHaveCount(0);
+    await check(view.getByLabel('Suggested by Specify', { exact: true })).toHaveCount(0);
+    for (const label of ['In the file', 'General dimensions', 'Hide callouts facing away']) {
+      await check(view.getByLabel(label, { exact: true })).toBeVisible();
+    }
+    const viewBar = view.locator('.pmi-lab-view-bar');
+    await check(viewBar.getByRole('button', { name: 'Best view', exact: true })).toBeVisible();
+    assert.ok((await viewBar.locator('button').allTextContents()).every((t) => !/^Plane \d+/.test(t)), 'views are named by direction, not Plane N');
     const overlay = page.locator('#specify-view [data-drawn-graphics]');
     await check.poll(async () => Number(await overlay.getAttribute('data-drawn-graphics'))).toBeGreaterThan(0);
     const drawnItems = (await overlay.getAttribute('data-drawn-items')) ?? '';

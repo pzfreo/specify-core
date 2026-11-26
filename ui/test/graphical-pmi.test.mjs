@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import { withoutNotesBlock, bestFitNormal, drawnFromScene, drawnGroup, drawnShown, drawnViews, facesAway, graphicNormal, hasFileGraphics, hasGraphics, linksFromPmi, partCentre, readPresentation } from '../src/specify/drawn.ts';
+import { withoutNotesBlock, bestFitNormal, drawnFromScene, drawnGroup, drawnShown, drawnViews, facesAway, graphicNormal, hasFileGraphics, hasGraphics, linksFromPmi, partCentre, readPresentation, viewDirectionName } from '../src/specify/drawn.ts';
 import { IntentEngine, pmiScene } from './engine-fixture.mjs';
 
 // The spindle's haecceity.presentation/1 and haecceity.pmi/1, from quiddity's json feature
@@ -230,7 +230,8 @@ test('views: a saved view with a camera, and one a way the shown graphics\' plan
   };
   const shown = (show) => (g, item) => drawnShown(g.source === 'file' ? 'generated' : g.source, drawnGroup(pmi.links[item]), show);
   const views = drawnViews(pmi, shown({ default: true, existing: true, general: true }));
-  assert.deepEqual(views.map((v) => v.name), ['Saved', 'Plane 1: 10 · 20', 'Plane 2: 30']);
+  assert.deepEqual(views.map((v) => v.name), ['Saved', 'Front · 2', 'Top · 1']);
+  assert.deepEqual(views.map((v) => v.title), ['10', '10\n20', '30']);
   const [saved, front, top] = views;
   const near = (actual, expected) => assert.ok(actual.flat().every((x, i) => Math.abs(x - expected.flat()[i]) < 1e-9), `${JSON.stringify(actual)} is ${JSON.stringify(expected)}`);
   // The camera stands against its direction; a plane's front is along its normal, up normal × x.
@@ -239,15 +240,50 @@ test('views: a saved view with a camera, and one a way the shown graphics\' plan
   near([front.min, front.max], [[0, 0, 0], [6, 0, 1]]);
   near([top.eye, top.up], [[0, 0, 1], [-1, 0, 0]]);
   // A kind not shown has no view.
-  assert.deepEqual(drawnViews(pmi, shown({ default: true, existing: true, general: false })).map((v) => v.name), ['Saved', 'Plane 1: 10 · 20']);  // A view Specify generates for a graphic of its own (specify-core 0.1.6) is not offered: the
+  assert.deepEqual(drawnViews(pmi, shown({ default: true, existing: true, general: false })).map((v) => v.name), ['Saved', 'Front · 2']);
+  // A view Specify generates for a graphic of its own (specify-core 0.1.6) is not offered: the
   // planes offer it, grouped.
   const generated = { ...pmi, presentation: { ...pmi.presentation,
     items: { ...pmi.presentation.items, c: [{ ...at('g3', '30', 'top', 9), source: 'generated' }] },
     views: [...pmi.presentation.views, { id: 'g3/plane/view', name: '30', direction: [0, 0, -1], up: [-1, 0, 0], graphics: ['g3'] }] } };
-  assert.deepEqual(drawnViews(generated, shown({ default: true, existing: true, general: true })).map((v) => v.name), ['Saved', 'Plane 1: 10 · 20', 'Plane 2: 30']);
-  // A generated general dimension hidden by the Show menu: its view is not offered either (it
+  assert.deepEqual(drawnViews(generated, shown({ default: true, existing: true, general: true })).map((v) => v.name), ['Saved', 'Front · 2', 'Top · 1']);
+  // A generated general dimension hidden by the show toggles: its view is not offered either (it
   // would otherwise frame every graphic, as one with no graphics of its own does).
-  assert.deepEqual(drawnViews(generated, shown({ default: true, existing: true, general: false })).map((v) => v.name), ['Saved', 'Plane 1: 10 · 20']);
+  assert.deepEqual(drawnViews(generated, shown({ default: true, existing: true, general: false })).map((v) => v.name), ['Saved', 'Front · 2']);
+});
+
+test('views: direction names match the view cube, number duplicate directions, and keep saved view names', () => {
+  assert.equal(viewDirectionName([0, -1, 0]), 'Front');
+  assert.equal(viewDirectionName([0, 1, 0]), 'Back');
+  assert.equal(viewDirectionName([-1, 0, 0]), 'Left');
+  assert.equal(viewDirectionName([1, 0, 0]), 'Right');
+  assert.equal(viewDirectionName([0, 0, 1]), 'Top');
+  assert.equal(viewDirectionName([0, 0, -1]), 'Bottom');
+  assert.equal(viewDirectionName([1, -1, 0]), 'Front-Right');
+  assert.equal(viewDirectionName([1, -1, 1]), 'Top-Front-Right');
+
+  const planes = [
+    { id: 'frontA', name: 'fA', origin: [0, 0, 0], xAxis: [1, 0, 0], normal: [0, -1, 0] },
+    { id: 'frontB', name: 'fB', origin: [0, 0, 0], xAxis: [0, 0, 1], normal: [0, -1, 0] },
+    { id: 'left', name: 'l', origin: [0, 0, 0], xAxis: [0, 1, 0], normal: [-1, 0, 0] },
+  ];
+  const at = (id, name, plane, x) => ({ ...graphic, id, name, planeId: plane, polylines: [[[x, 0, 0], [x + 1, 0, 1]]] });
+  const pmi = {
+    presentation: {
+      items: {
+        a: [at('g1', 'Datum A', 'frontA', 0)],
+        b: [at('g2', '6.775', 'frontA', 2)],
+        c: [at('g3', 'Datum B', 'frontB', 4)],
+        d: [at('g4', '75.5', 'left', 6)],
+      },
+      unlinked: [], semanticIds: ['a', 'b', 'c', 'd'], planes,
+      views: [{ id: 'v', name: 'MBD_0', direction: [0, 1, 0], up: [0, 0, 1], graphics: ['g1', 'g2'] }],
+    },
+    links: {},
+  };
+  const views = drawnViews(pmi, () => true);
+  assert.deepEqual(views.map((v) => v.name), ['MBD_0', 'Front 1 · 2', 'Front 2 · 1', 'Left · 1']);
+  assert.deepEqual(views.map((v) => v.title), ['Datum A\n6.775', 'Datum A\n6.775', 'Datum B', '75.5']);
 });
 
 test('looking square at a plane, its text reads along its x axis: /diff\'s removed ⌖ ⌀0.2 A (#12), whose up is -Z', () => {
