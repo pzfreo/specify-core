@@ -17,13 +17,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [cross_engine](#cross_engine) | 342 | 2 | 0 | 1 | 1 | 20 | 366 |
 | [cross_engine_written](#cross_engine_written) | 75 | 0 | 0 | 0 | 0 | 0 | 75 |
 | [existing](#existing) | 420 | 0 | 0 | 0 | 7 | 0 | 427 |
-| [features](#features) | 4525 | 1414 | 567 | 2462 | 1060 | 1883 | 11911 |
+| [features](#features) | 4530 | 1414 | 567 | 2462 | 1060 | 1883 | 11916 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 587 | 0 | 0 | 28 | 729 |
 | [writer](#writer) | 2267 | 0 | 0 | 0 | 15 | 13 | 2295 |
-| **all** | 8324 | 1433 | 1173 | 2468 | 1327 | 1945 | 16670 |
+| **all** | 8329 | 1433 | 1173 | 2468 | 1327 | 1945 | 16675 |
 
 ## analysis
 
@@ -489,7 +489,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## features
 
-### features: rust-correct (4525 entries)
+### features: rust-correct (4530 entries)
 
 - **quiddity #134: boss end treatment** (8 entries, 4 case globs)
 
@@ -641,7 +641,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **0.5.5 / Updated edge round recognition** (26 entries, 7 case globs)
 
-  Quiddity 0.5.5 #297 and #307 change the edge-round proofs, including small radii and convex rounds at concave slot ends. This entry pins the exact changed edge-round record or field.
+  The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb207` at `features[id=blends:52]`: Quiddity 0.5.5 #297 and #307 change the edge-round proofs, including small radii and convex rounds at concave slot ends. This entry pins the exact changed edge-round record or field.
 
 - **0.5.5 / Small edge fillet recognition** (103 entries, 7 case globs)
 
@@ -662,6 +662,22 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **0.5.5 / All-axis riser supports** (10 entries, 4 case globs)
 
   Quiddity 0.5.5 #307 publishes risers and their supporting levels relative to each riser’s height axis and drops drafted faces from the body levels.
+
+- **0.5.6 / Fillet defining faces and chain references** (2 entries, 1 case glob)
+
+  Quiddity 0.5.6 #341 adds defining faces and tangent-chain references to fillet records; the frozen Python oracle predates #341.
+
+- **0.5.6 / Tangent fillet chains** (`*` at `features[id=fillet_chains:*]`)
+
+  Quiddity 0.5.6 #341 publishes tangent fillet chains through spherical and toroidal corners with their spring edges; the frozen Python oracle has no fillet_chains family.
+
+- **0.5.6 / Fillet radius groups** (`*` at `features[id=fillet_groups:*]`)
+
+  Quiddity 0.5.6 #341 publishes fillet radius groups by radius and side counting blend faces and legacy fillet records; the frozen Python oracle has no fillet_groups family.
+
+- **0.5.6 / Sheet-metal flange bounds** (`*` at `features[id=sheet_metal_bodies:*].record.flanges[*].bounds`)
+
+  Quiddity 0.5.6 #353 publishes measured bounds on developed sheet-metal flanges; the frozen Python oracle predates #353.
 
 ### features: rust-wrong (1414 entries)
 

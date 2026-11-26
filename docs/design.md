@@ -89,8 +89,8 @@ the resume correspondence rule below handles feature-ID changes.
 ## Dependency plan
 
 - `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity`,
-  pinned to release tag `v0.5.5` in both manifests and Cargo.lock; the root manifest also
-  names the same crates.io version (`version = "=0.5.5"`), which the published crate uses
+  pinned to release tag `v0.5.6` in both manifests and Cargo.lock; the root manifest also
+  names the same crates.io version (`version = "=0.5.6"`), which the published crate uses
   (crates.yml refuses a release whose version and tag differ); the root crate takes
   quiddity with `default-features = false, features = ["presentation"]`, so clap stays out.
   Update only these packages with `cargo update -p quiddity -p haecceity`, then run

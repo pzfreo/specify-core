@@ -182,6 +182,7 @@ Read first:
   default it is taken with every other default, so accepting all of them on such a part gives sheet
   metal's: no surface finish, edges `Deburr only`, ± dimensions. Recorded expectations change for
   sm-hanger, cgb245 and NIST CTC-03 only; answering `machined` there gives the rules as before.
+- **Quiddity 0.5.6.** Bumped `quiddity` and `haecceity` to `v0.5.6` (tangent fillet chains and radius groups, sheet-metal flange bounds, and STEP-selected boundary face integrals; grouped fillet rows remain planned for 0.3.2).
 - **Quiddity 0.5.5.** Published step levels on every part axis get plane-to-plane length rows.
   Independent plane lengths keep their rows. Stated locations on retired levels appear under
   **Other PMI in the file** when they match no measured row. A stated length on tilted planes
