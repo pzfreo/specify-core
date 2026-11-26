@@ -1113,6 +1113,8 @@ export interface DrawnView {
   readonly up?: DrawnPoint;
   readonly min: DrawnPoint;
   readonly max: DrawnPoint;
+  /** Number of callouts on this view, when known. */
+  readonly count?: number;
 }
 
 const rounded = (v: DrawnPoint) => v.map((x) => (Math.abs(x) < 5e-4 ? 0 : x).toFixed(3)).join(',');
@@ -1342,7 +1344,7 @@ export function drawnViews(
     if (!b) continue;
     const direction = viewDirectionName(eye);
     const names = [...new Set(gs.map((g) => g.name).filter(Boolean))];
-    const count = names.length || gs.length;
+    const count = gs.length;
     dirCounts.set(direction, (dirCounts.get(direction) ?? 0) + 1);
     planeEntries.push({ key, direction, eye, up, names, count, ...b });
   }
@@ -1350,7 +1352,7 @@ export function drawnViews(
     const idx = DIRECTION_ORDER.indexOf(dir);
     return idx >= 0 ? idx : DIRECTION_ORDER.length;
   };
-  planeEntries.sort((a, b) => dirRank(a.direction) - dirRank(b.direction) || a.direction.localeCompare(b.direction));
+  planeEntries.sort((a, b) => dirRank(a.direction) - dirRank(b.direction) || a.direction.localeCompare(b.direction) || b.count - a.count);
   const dirIndex = new Map<string, number>();
   for (const entry of planeEntries) {
     const total = dirCounts.get(entry.direction) ?? 1;
@@ -1365,7 +1367,30 @@ export function drawnViews(
       ...(entry.up ? { up: entry.up } : {}),
       min: entry.min,
       max: entry.max,
+      count: entry.count,
     });
   }
   return out;
+}
+
+export const MAX_VIEW_BUTTONS = 5;
+
+/**
+ * Splits views into primary bar buttons and overflow items for a "More views" dropdown.
+ * Priority: Best view first, then the file's saved views in order, then the most-populated
+ * directions (ties broken by direction order). Keeps at most ``maxButtons`` controls in the bar
+ * (all views when ``total <= maxButtons``, otherwise ``maxButtons - 1`` views plus the dropdown).
+ */
+export function splitDrawnViews(
+  bestView: DrawnView | null,
+  views: readonly DrawnView[],
+  maxButtons = MAX_VIEW_BUTTONS,
+): { primary: DrawnView[]; overflow: DrawnView[] } {
+  const all = bestView ? [bestView, ...views] : [...views];
+  if (all.length <= maxButtons) return { primary: all, overflow: [] };
+  const saved = views.filter((v) => v.key.startsWith('view:'));
+  const planes = views.filter((v) => !v.key.startsWith('view:')).sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
+  const ranked = [...(bestView ? [bestView] : []), ...saved, ...planes];
+  const keep = Math.max(1, maxButtons - 1);
+  return { primary: ranked.slice(0, keep), overflow: ranked.slice(keep) };
 }

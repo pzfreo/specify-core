@@ -8,7 +8,7 @@ import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
 import { bestReferenceView, normalizeDraftingPmi, resolveStatedOrigin } from './drafting-layout';
-import { bestDrawnView, drawnGroup, drawnShown, drawnViews, partCentre, withoutNotesBlock, type DrawnPmi, type PartOrigin } from './drawn';
+import { bestDrawnView, drawnGroup, drawnShown, drawnViews, partCentre, splitDrawnViews, withoutNotesBlock, type DrawnPmi, type PartOrigin } from './drawn';
 import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, byBalloon, characteristics, noteStatements, ranges, toCsv } from './characteristics';
 import { as9102 } from './as9102';
@@ -146,7 +146,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   engine = readOnly ? readOnlyHost : host;
   const stage = useRef<HTMLDivElement>(null);
   const picker = useRef<Picker | null>(null);
+  const viewBarRef = useRef<HTMLDivElement>(null);
   const [moreTools, setMoreTools] = useState(false);
+  const [moreViewsOpen, setMoreViewsOpen] = useState(false);
   const [questions, setQuestions] = useState<readonly PmiQuestion[]>(session.questions);
   const [answers, setAnswers] = useState<PmiAnswers>(session.answers ?? {});
   const [resumed, setResumed] = useState(false);
@@ -497,6 +499,27 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       bestReferenceView(visibleDrawn, session.analysis, session.mesh),
     )
     : null), [visibleDrawn, drawnShow, session]);
+  const { primary: primaryViews, overflow: overflowViews } = useMemo(
+    () => splitDrawnViews(bestView, squares), [bestView, squares],
+  );
+  useEffect(() => {
+    if (overflowViews.length === 0) setMoreViewsOpen(false);
+  }, [overflowViews.length]);
+  useEffect(() => {
+    if (!moreViewsOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!viewBarRef.current?.contains(event.target as Node)) setMoreViewsOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMoreViewsOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [moreViewsOpen]);
   useEffect(() => { picker.current?.setTools?.(moreTools); }, [moreTools, session]);
   useEffect(() => {
     picker.current?.setDefaultView?.(bestView);
@@ -1202,15 +1225,29 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     {createPortal(<div className="pmi-lab pmi-lab-pane">
       <div className="pmi-lab-view">
         <div className="pmi-lab-stage" ref={stage} />
-        {visibleDrawn && (squares.length > 0 || bestView !== null) && (
-          <div className={`pmi-lab-view-bar${moreTools ? ' with-tools' : ''}`} role="group" aria-label="Look square at">
+        {visibleDrawn && primaryViews.length > 0 && (
+          <div className={`pmi-lab-view-bar${moreTools ? ' with-tools' : ''}`} role="group" aria-label="Look square at" ref={viewBarRef}>
             <div className="pmi-lab-view-pills">
-              {bestView && (
-                <button key={bestView.key} type="button" title={bestView.title} onClick={() => picker.current?.lookSquare?.(bestView)}>{bestView.name}</button>
-              )}
-              {squares.map((v) => (
-                <button key={v.key} type="button" title={v.title} onClick={() => picker.current?.lookSquare?.(v)}>{v.name}</button>
+              {primaryViews.map((v) => (
+                <button key={v.key} type="button" title={v.title} onClick={() => { setMoreViewsOpen(false); picker.current?.lookSquare?.(v); }}>{v.name}</button>
               ))}
+              {overflowViews.length > 0 && (
+                <button
+                  type="button"
+                  className="pmi-lab-view-more-toggle"
+                  aria-expanded={moreViewsOpen}
+                  onClick={() => setMoreViewsOpen((open) => !open)}
+                >
+                  More views ▾
+                </button>
+              )}
+              {moreViewsOpen && overflowViews.length > 0 && (
+                <div className="pmi-lab-view-more-menu" role="group" aria-label="More views">
+                  {overflowViews.map((v) => (
+                    <button key={v.key} type="button" title={v.title} onClick={() => { setMoreViewsOpen(false); picker.current?.lookSquare?.(v); }}>{v.name}</button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

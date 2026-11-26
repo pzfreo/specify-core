@@ -274,6 +274,43 @@ try {
     assert.ok(made.includes('preview'), 'the answers given are labelled');
     await page.close();
   }
+  // Many-plane part (CTC04) with General dimensions on in an 800x400 clipped viewer: view buttons
+  // stay capped in a compact bar and the rest remain reachable via the "More views ▾" dropdown.
+  {
+    const page = await openPage(true, '../tests/fixtures/characteristic-numbers-ctc04-main.step.gz', '#specify-view .pmi-lab-view-bar button');
+    await page.setViewportSize({ width: 800, height: 400 });
+    await page.addStyleTag({
+      content: '#specify-view { position: fixed; inset: 0 378px 0 0; height: auto !important; overflow: hidden; } #specify-view .pmi-lab.pmi-lab-pane { position: absolute; }',
+    });
+    const view = page.locator('#specify-view');
+    await view.getByLabel('General dimensions', { exact: true }).check();
+    const viewBar = view.locator('.pmi-lab-view-bar');
+    const moreToggle = viewBar.getByRole('button', { name: 'More views ▾', exact: true });
+    await check(moreToggle).toBeVisible();
+    await check(viewBar.getByRole('button', { name: 'Best view', exact: true })).toBeVisible();
+    const barButtons = await viewBar.locator('.pmi-lab-view-pills > button').allTextContents();
+    assert.ok(barButtons.length <= 5, `view bar stays compact, got ${barButtons.length}: ${barButtons.join(', ')}`);
+    const viewBox = await view.boundingBox();
+    const barBox = await viewBar.boundingBox();
+    assert.ok(viewBox && barBox, 'view and view bar have bounding boxes');
+    assert.ok(barBox.y + barBox.height <= viewBox.y + viewBox.height, `view bar stays inside 800x400 viewer (${barBox.y + barBox.height} <= ${viewBox.y + viewBox.height})`);
+    assert.ok(barBox.height < 120, `view bar does not wrap into a tall column (${barBox.height}px)`);
+    await moreToggle.click();
+    const menu = viewBar.locator('.pmi-lab-view-more-menu');
+    await check(menu).toBeVisible();
+    const menuBox = await menu.boundingBox();
+    assert.ok(menuBox, 'More views menu has a bounding box');
+    assert.ok(menuBox.y + menuBox.height <= viewBox.y + viewBox.height, `More views menu fits inside clipped viewer (${menuBox.y + menuBox.height} <= ${viewBox.y + viewBox.height})`);
+    assert.ok(menuBox.x >= viewBox.x && menuBox.x + menuBox.width <= viewBox.x + viewBox.width, 'More views menu stays horizontally inside clipped viewer');
+    const menuButtons = menu.locator('button');
+    const overflowCount = await menuButtons.count();
+    assert.ok(overflowCount >= 10, `expected many overflow views on CTC04, got ${overflowCount}`);
+    const lastView = menuButtons.last();
+    await lastView.scrollIntoViewIfNeeded();
+    await lastView.click();
+    await check(menu).toHaveCount(0);
+    await page.close();
+  }
   assert.deepEqual(problems, [], 'no page errors');
   console.log('specify-browser passed');
 } finally {

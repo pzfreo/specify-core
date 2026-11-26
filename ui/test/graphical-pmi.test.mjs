@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import { withoutNotesBlock, bestFitNormal, drawnFromScene, drawnGroup, drawnShown, drawnViews, facesAway, graphicNormal, hasFileGraphics, hasGraphics, linksFromPmi, partCentre, readPresentation, viewDirectionName } from '../src/specify/drawn.ts';
+import { withoutNotesBlock, bestFitNormal, drawnFromScene, drawnGroup, drawnShown, drawnViews, facesAway, graphicNormal, hasFileGraphics, hasGraphics, linksFromPmi, partCentre, readPresentation, splitDrawnViews, viewDirectionName } from '../src/specify/drawn.ts';
 import { IntentEngine, pmiScene } from './engine-fixture.mjs';
 
 // The spindle's haecceity.presentation/1 and haecceity.pmi/1, from quiddity's json feature
@@ -284,6 +284,42 @@ test('views: direction names match the view cube, number duplicate directions, a
   const views = drawnViews(pmi, () => true);
   assert.deepEqual(views.map((v) => v.name), ['MBD_0', 'Front 1 · 2', 'Front 2 · 1', 'Left · 1']);
   assert.deepEqual(views.map((v) => v.title), ['Datum A\n6.775', 'Datum A\n6.775', 'Datum B', '75.5']);
+});
+
+test('views: counts callouts rather than distinct callout names, and splits overflow into More views', () => {
+  const plane = { id: 'front', name: 'f', origin: [0, 0, 0], xAxis: [1, 0, 0], normal: [0, -1, 0] };
+  const at = (id, name, x) => ({ ...graphic, id, name, planeId: 'front', polylines: [[[x, 0, 0], [x + 1, 0, 1]]] });
+  // 8 distinct callout graphics reading only 2 values ('345' and '155'), plus a shared id under two items.
+  const items = {};
+  for (let i = 0; i < 4; i++) items[`a${i}`] = [at(`g345-${i}`, '345', i)];
+  for (let i = 0; i < 4; i++) items[`b${i}`] = [at(`g155-${i}`, '155', i + 4)];
+  items.dup = [at('g345-0', '345', 0)];
+  const pmi = {
+    presentation: { items, unlinked: [], semanticIds: Object.keys(items), planes: [plane], views: [] },
+    links: {},
+  };
+  const [front] = drawnViews(pmi, () => true);
+  assert.equal(front.name, 'Front · 8');
+  assert.equal(front.count, 8);
+  assert.equal(front.title, '345\n155');
+
+  const mk = (key, name, count) => ({ key, name, title: name, eye: [0, -1, 0], min: [0, 0, 0], max: [1, 1, 1], ...(count === undefined ? {} : { count }) });
+  const best = mk('best', 'Best view');
+  // At or under maxButtons: all shown, no overflow.
+  const few = [mk('view:v1', 'MBD_0'), mk('plane:f', 'Front · 2', 2), mk('plane:t', 'Top · 5', 5)];
+  assert.deepEqual(splitDrawnViews(best, few, 5), { primary: [best, ...few], overflow: [] });
+  // Over maxButtons: Best view, saved views, then most-populated directions (ties keep direction order).
+  const many = [
+    mk('view:v1', 'MBD_0'),
+    mk('plane:f', 'Front · 2', 2),
+    mk('plane:t', 'Top · 9', 9),
+    mk('plane:r', 'Right · 4', 4),
+    mk('plane:l', 'Left · 9', 9),
+    mk('plane:b', 'Back · 1', 1),
+  ];
+  const split = splitDrawnViews(best, many, 5);
+  assert.deepEqual(split.primary.map((v) => v.name), ['Best view', 'MBD_0', 'Top · 9', 'Left · 9']);
+  assert.deepEqual(split.overflow.map((v) => v.name), ['Right · 4', 'Front · 2', 'Back · 1']);
 });
 
 test('looking square at a plane, its text reads along its x axis: /diff\'s removed ⌖ ⌀0.2 A (#12), whose up is -Z', () => {

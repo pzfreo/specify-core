@@ -72,15 +72,23 @@
 .pmi-lab-account { padding-top: 4px; font-size: 11.5px; }
 .pmi-lab-account .pmi-account { font-size: 11.5px; }
 /* Compact row of direction / saved-view buttons along the top of the 3D view, clear of the top-right filter control. */
-.pmi-lab-view-bar { position: absolute; top: 8px; left: 10px; right: 84px; z-index: 9;
+.pmi-lab-view-bar { position: absolute; top: 8px; left: 10px; right: 84px; z-index: 10;
   display: flex; justify-content: center; pointer-events: none; }
 .pmi-lab-view-bar.with-tools { top: 44px; left: 270px; }
-.pmi-lab-view-pills { display: inline-flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px;
-  max-width: 100%; padding: 3px 5px; border: 1px solid #d9dee4; border-radius: 5px;
+.pmi-lab-view-pills { position: relative; display: inline-flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px;
+  max-width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1px solid #d9dee4; border-radius: 5px;
   background: rgba(255, 255, 255, 0.9); pointer-events: auto; }
 .pmi-lab .pmi-lab-view-pills button { padding: 2px 7px; font: 500 11.5px/1.25 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color: #2a313a; border-color: #d9dee4; background: #fff; white-space: nowrap; }
+  color: #2a313a; border-color: #d9dee4; background: #fff; white-space: nowrap;
+  max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 .pmi-lab .pmi-lab-view-pills button:hover { border-color: #2f6fb5; color: #1a1d21; background: #f3f8fe; }
+.pmi-lab .pmi-lab-view-pills button.pmi-lab-view-more-toggle[aria-expanded="true"] { border-color: #2f6fb5; background: #e8f0f8; color: #1a1d21; }
+.pmi-lab-view-more-menu { position: absolute; top: calc(100% + 4px); right: 0;
+  display: grid; gap: 3px; min-width: 150px; max-width: min(260px, calc(100cqw - 20px));
+  max-height: clamp(80px, calc(100cqh - 96px), 320px); overflow-y: auto; overscroll-behavior: contain;
+  padding: 5px; border: 1px solid #d9dee4; border-radius: 6px; background: #fff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14); box-sizing: border-box; }
+.pmi-lab .pmi-lab-view-more-menu button { width: 100%; max-width: none; text-align: left; }
 .pmi-lab-resumed { margin: 4px 0 0; padding: 4px 8px; border-radius: 4px; background: #e9f6ee; color: #14632f;
   font-size: 12px; }
 .pmi-front-button { display: inline-block; margin-top: 6px; padding: 8px 16px; border-radius: 6px;
@@ -97,7 +105,7 @@
   .pmi-front-hero h1 { font-size: 26px; }
   .pmi-front-steps { grid-template-columns: 1fr; }
 }
-.pmi-lab-view { position: absolute; inset: 0; container-type: inline-size; }
+.pmi-lab-view { position: absolute; inset: 0; container-type: size; }
 .pmi-lab-stage { position: absolute; inset: 0; overflow: hidden; }
 /* Bottom right, clear of three-cad-viewer's toolbar (top), tree (top left), filter (top right),
    orientation cube (top right), and bottom show bar. */
@@ -351,6 +359,7 @@
 }
 @container (max-width: 520px) {
   .pmi-lab-pad, .pmi-lab-partnotes { bottom: 92px; }
+  .pmi-lab-view-bar.with-tools { left: 10px; }
 }
 
 /* Labels on the part */
