@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { requireEngine } from './engine-path.mjs';
 import { bestDrawnView, drawnFromScene, withoutNotesBlock } from '../src/specify/drawn.ts';
-import { bestReferenceView, findStatedOrigin, isSpecifyCreated, normalizeDraftingPmi, resolveSavedViewCamera } from '../src/specify/drafting-layout.ts';
+import { bestReferenceView, findStatedOrigin, findStepOrigin, isSpecifyCreated, normalizeDraftingPmi, resolveSavedViewCamera, resolveStatedOrigin } from '../src/specify/drafting-layout.ts';
 import {
   isDecidedNoCallout, oneViewFile, oneViewLabels, readSceneSemanticLabels, reviewDrawnFromScene, scenePendingState,
 } from '../src/specify/one-view.ts';
@@ -652,6 +652,69 @@ test('public drawnFromScene + withoutNotesBlock path draws each existing require
         }
       }
       assert.equal(out.labels.length, 1, `${fixturePath}: only the unpresented M2 thread falls back to a camera-facing label`);
+    } finally {
+      eng.free();
+    }
+  }
+});
+
+test('public drawnFromScene + withoutNotesBlock embeds semantic labels, dimension metadata, and worker step_origin for internal SpecifyReview layout and origin derivation', () => {
+  // 1. GRM-01: public drawnFromScene -> withoutNotesBlock -> internal normalizeDraftingPmi(cleaned, null, analysis, mesh)
+  //    produces the exact same 3D drafting layout (datums, hole stacks, linear dims, fit text) without rawScene or readSceneSemanticLabels.
+  {
+    const bytes = gunzipSync(readFileSync('../tests/fixtures/parts/GRM-01_shank.step.gz'));
+    const eng = new wasm.IntentEngine('GRM-01_shank.step', bytes);
+    try {
+      const { analysis, mesh } = JSON.parse(eng.snapshot());
+      const bare = JSON.parse(eng.review('{}'));
+      const shownQs = bare.questions.filter((q) => !q.id.startsWith('length:') && !q.id.startsWith('location:'));
+      const chosen = chosenForYou(shownQs, {}, analysis);
+      const keepAnswers = Object.fromEntries(chosen.map((c) => [c.id, shownQs.find((q) => q.id === c.id).default]));
+      const raw = JSON.parse(eng.pmiScene(JSON.stringify({ answers: { ...keepAnswers, 'hole.function:holes:6': 'fit:H7' }, auto: [] })));
+
+      const read = drawnFromScene(raw);
+      assert.ok(read.ok, read.reason);
+      const shown = withoutNotesBlock(read.value);
+      assert.ok(shown.sceneSemantic && Object.keys(shown.sceneSemantic).length > 0, 'drawnFromScene embeds sceneSemantic');
+      assert.ok(shown.sceneDimensions && Object.keys(shown.sceneDimensions).length > 0, 'drawnFromScene embeds sceneDimensions');
+
+      // Internal SpecifyReview path passes null rawScene and no external semantic map.
+      const internalNorm = normalizeDraftingPmi(shown, null, analysis, mesh);
+      assert.equal(internalNorm.draftingNormalized, true);
+      // Calling normalizeDraftingPmi again is idempotent.
+      assert.equal(normalizeDraftingPmi(internalNorm, null, analysis, mesh), internalNorm);
+
+      // Compare against explicit rawScene + readSceneSemanticLabels path.
+      const explicitNorm = normalizeDraftingPmi(
+        withoutNotesBlock(read.value),
+        raw,
+        analysis,
+        mesh,
+        readSceneSemanticLabels(raw),
+      );
+      assert.deepEqual(internalNorm.presentation.items, explicitNorm.presentation.items);
+      assert.deepEqual(internalNorm.presentation.planes, explicitNorm.presentation.planes);
+      assert.deepEqual(internalNorm.presentation.items['planner:dim:hole:6/bore.diameter']?.[0]?.text, ['⌀8 H7']);
+    } finally {
+      eng.free();
+    }
+  }
+
+  // 2. NIST CTC-01: worker attaches step_origin on scene -> drawnFromScene -> withoutNotesBlock -> resolveStatedOrigin.
+  {
+    const bytes = gunzipSync(readFileSync('../tests/fixtures/nist/nist_ctc_01_asme1_ap242.stp.gz'));
+    const eng = new wasm.IntentEngine('nist_ctc_01.stp', bytes);
+    try {
+      const { analysis } = JSON.parse(eng.snapshot());
+      const raw = JSON.parse(eng.pmiScene(JSON.stringify({ answers: {}, auto: [] })));
+      const workerOrigin = findStepOrigin(bytes);
+      assert.ok(workerOrigin, 'findStepOrigin extracts isolated STEP point from NIST CTC-01');
+      const read = drawnFromScene({ ...raw, step_origin: workerOrigin });
+      assert.ok(read.ok, read.reason);
+      const shown = withoutNotesBlock(read.value);
+      assert.ok(shown.stepOrigin, 'withoutNotesBlock preserves stepOrigin from drawnFromScene');
+      const resolved = resolveStatedOrigin(shown.stepOrigin, analysis, shown);
+      assert.deepEqual(resolved, findStatedOrigin(bytes, analysis, shown));
     } finally {
       eng.free();
     }

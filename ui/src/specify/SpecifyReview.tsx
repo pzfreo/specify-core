@@ -7,8 +7,8 @@ import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from 
 import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
-import { bestReferenceView } from './drafting-layout';
-import { bestDrawnView, drawnGroup, drawnShown, drawnViews, partCentre, type DrawnPmi, type PartOrigin } from './drawn';
+import { bestReferenceView, normalizeDraftingPmi, resolveStatedOrigin } from './drafting-layout';
+import { bestDrawnView, drawnGroup, drawnShown, drawnViews, partCentre, withoutNotesBlock, type DrawnPmi, type PartOrigin } from './drawn';
 import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, byBalloon, characteristics, noteStatements, ranges, toCsv } from './characteristics';
 import { as9102 } from './as9102';
@@ -56,7 +56,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, oneView, sceneSemantic: _sceneSemantic, partOrigin = null, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension, otherPmi, lengthUnit = 'mm', calledOutDimensions, takenKeys }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, oneView, sceneSemantic, partOrigin = null, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension, otherPmi, lengthUnit = 'mm', calledOutDimensions, takenKeys }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -396,9 +396,20 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     return rows;
   }, [oneView, questions, statedRows, answers, otherPmi, readOnly, preview, session.analysis, chars]);
   const onePending = oneView?.pending ?? EMPTY_ONE_PENDING;
+  const normalizedDrawn = useMemo(() => {
+    if (!drawnPmi) return null;
+    const cleaned = withoutNotesBlock(drawnPmi);
+    if (cleaned.draftingNormalized) return cleaned;
+    const sem = sceneSemantic ?? (cleaned.sceneSemantic ? new Map(Object.entries(cleaned.sceneSemantic)) : undefined);
+    return normalizeDraftingPmi(cleaned, null, session.analysis, session.mesh, sem);
+  }, [drawnPmi, sceneSemantic, session.analysis, session.mesh]);
+  const resolvedOrigin = useMemo(
+    () => partOrigin ?? resolveStatedOrigin(drawnPmi?.stepOrigin ?? session.mesh.origin ?? null, session.analysis, normalizedDrawn),
+    [partOrigin, drawnPmi?.stepOrigin, session.mesh.origin, session.analysis, normalizedDrawn],
+  );
   const oneFile = useMemo(
-    () => oneViewFile(drawnPmi, session.analysis, oneRows, onePending),
-    [drawnPmi, session.analysis, oneRows, onePending],
+    () => oneViewFile(normalizedDrawn, session.analysis, oneRows, onePending),
+    [normalizedDrawn, session.analysis, oneRows, onePending],
   );
   const openQuestions = useMemo(
     () => new Set(readOnly ? [] : questions.filter((q) => needs(q, answers)).map((q) => q.id)),
@@ -425,10 +436,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       const edit = q ? onePending.get(q) : undefined;
       const isPending = Boolean(edit && (edit.kind === 'fill' || edit.kind === 'change' || edit.kind === 'clear'));
       const isOpenGap = !readOnly && !isPending && !link.general && Boolean(row && row.state === 'gap' && row.open && (!edit || edit.kind === 'refused'));
-      links[item] = isOpenGap ? { ...link, status: 'decided_none' } : link;
+      const origStatus = normalizedDrawn?.links[item]?.status;
+      const isUnsetDefault = readOnly && !link.general && origStatus !== undefined && origStatus !== 'stated' && (!row || row.state === 'gap');
+      links[item] = isOpenGap || isUnsetDefault ? { ...link, status: 'decided_none' } : link;
     }
     return { ...base, links };
-  }, [oneFile, oneRows, onePending, readOnly]);
+  }, [oneFile, oneRows, onePending, readOnly, normalizedDrawn]);
   const drawnReveal = useMemo(() => {
     const items = new Set<string>();
     for (const [item, label] of oneFile.labels) {
@@ -463,8 +476,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     picker.current?.setDrawnUnsaved?.(unsavedItems);
   }, [unsavedItems, visibleDrawn, session]);
   useEffect(() => {
-    picker.current?.setDrawnOrigin?.(partOrigin);
-  }, [partOrigin, session]);
+    picker.current?.setDrawnOrigin?.(resolvedOrigin);
+  }, [resolvedOrigin, session]);
   const hasUnsavedInView = Boolean(unsavedItems.size)
     || Boolean(seen.labels && oneLabels.notes.length)
     || Boolean(seen.labels && fallbackLabels.some((l) => l.unsaved));

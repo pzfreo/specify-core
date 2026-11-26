@@ -6,18 +6,12 @@
 // the haecceity.pmi/1 document whose features give each item's faces, and Specify's overlay, which
 // gives each item's status and question.
 
-import type { LabelGroup } from './labels';
+import type { PartOrigin } from '../types/pmi.ts';
+import { CHARACTERISTIC, fmt, type LabelGroup, type LabelTolerance, type PmiLabel } from './labels.ts';
+
+export type { PartOrigin };
 
 export type DrawnPoint = readonly [number, number, number];
-
-/** An explicit coordinate system or datum origin stated by a STEP file, rendered as an x/y/z triad. */
-export interface PartOrigin {
-  readonly position: DrawnPoint;
-  readonly xAxis: DrawnPoint;
-  readonly yAxis: DrawnPoint;
-  readonly zAxis: DrawnPoint;
-  readonly source: 'step-csys' | 'step-point' | 'datum-frame';
-}
 
 /**
  * Where a text is set, as the file or haecceity states it: its alignment point, its plane's x
@@ -119,6 +113,25 @@ export function drawnGroup(link: Pick<DrawnLink, 'status' | 'general'> | undefin
   return ({ stated: 'existing', gap: 'answered', decided_none: 'default' } as const)[link.status];
 }
 
+/** Structured label contents parsed directly from `haecceity.pmi/1` in a PMI scene. */
+export interface SceneSemanticLabel {
+  readonly kind: PmiLabel['kind'];
+  readonly cells: readonly string[];
+  readonly tolerance?: LabelTolerance | null;
+  readonly basic?: true;
+}
+
+/** Linear/basic location dimension metadata extracted from `haecceity.pmi/1` + `specify` for 3D drafting layout. */
+export interface SceneDimMeta {
+  readonly item: string;
+  readonly nominal: number;
+  readonly text: string;
+  readonly basic: boolean;
+  readonly fromFaces: readonly number[];
+  readonly toFaces: readonly number[];
+  readonly axisHint?: 0 | 1 | 2;
+}
+
 /** Lightweight semantic identity extracted from `haecceity.pmi/1` + `specify` so `oneViewFile` can link drawn ink to review rows without requiring a separate scene reader. */
 export interface SceneItemMeta {
   readonly id: string;
@@ -136,6 +149,14 @@ export interface DrawnPmi {
   readonly links: Readonly<Record<string, DrawnLink>>;
   readonly reviewItems?: Readonly<Record<string, { readonly row?: string; readonly existing?: number }>>;
   readonly sceneItems?: readonly SceneItemMeta[];
+  /** Structured semantic labels parsed from `haecceity.pmi/1` + `specify`, used for 3D drafting layout. */
+  readonly sceneSemantic?: Readonly<Record<string, SceneSemanticLabel>>;
+  /** Linear/basic location dimension metadata parsed from `haecceity.pmi/1` + `specify`, used for 3D drafting layout. */
+  readonly sceneDimensions?: Readonly<Record<string, SceneDimMeta>>;
+  /** Explicit coordinate system or isolated origin point stated in the STEP file, when provided on the scene. */
+  readonly stepOrigin?: PartOrigin;
+  /** True once Specify-created graphics have been laid out on 3D drafting annotation planes. */
+  readonly draftingNormalized?: true;
 }
 
 export type Read<T> = { ok: true; value: T } | { ok: false; reason: string };
@@ -548,6 +569,325 @@ function extractSceneItems(scene: Record<string, unknown>): {
   return { sceneItems, resolvedFaces };
 }
 
+const MODIFIER_SYMBOL: Readonly<Record<string, string>> = {
+  'maximum material requirement': 'Ⓜ',
+  'maximum_material_requirement': 'Ⓜ',
+  'least material requirement': 'Ⓛ',
+  'least_material_requirement': 'Ⓛ',
+  'regardless of feature size': 'Ⓢ',
+  'projected tolerance zone': 'Ⓟ',
+  'free state': 'Ⓕ',
+  'tangent plane': 'Ⓣ',
+};
+
+function readQuantityNumber(q: unknown): { value: number; angle: boolean } | null {
+  if (!isObject(q)) return null;
+  const inner = isObject(q['quantity']) ? q['quantity'] : q;
+  for (const [key, angle] of [['length', false], ['angle', true]] as const) {
+    const entry = inner[key];
+    if (isObject(entry) && (typeof entry['value'] === 'string' || typeof entry['value'] === 'number')) {
+      const n = Number(entry['value']);
+      if (Number.isFinite(n)) return { value: n, angle };
+    }
+  }
+  return null;
+}
+
+function fmtDeviation(value: number, suffix: string): string {
+  return value > 0 ? `+${fmt(value)}${suffix}` : value < 0 ? `-${fmt(-value)}${suffix}` : '0';
+}
+
+function readFitClass(raw: unknown): string | null {
+  if (typeof raw === 'string' && raw.trim()) return raw.trim();
+  if (!isObject(raw)) return null;
+  const dev = raw['deviation'];
+  const grade = raw['grade'];
+  if (!isObject(dev) || typeof dev['letter'] !== 'string' || !dev['letter'].trim()) return null;
+  if (typeof grade !== 'string' && typeof grade !== 'number') return null;
+  const g = String(grade).trim();
+  if (!g) return null;
+  const letter = dev['of'] === 'hole' ? dev['letter'].trim().toUpperCase() : dev['letter'].trim().toLowerCase();
+  return `${letter}${g}`;
+}
+
+function decorateDimensionText(val: Record<string, unknown>, base: string): string {
+  let out = base;
+  const q = val['qualifier'];
+  if (q === 'maximum') out += ' MAX';
+  else if (q === 'minimum') out += ' MIN';
+  else if (q === 'average') out += ' AVG';
+  else if (isObject(q) && typeof q['other'] === 'string' && q['other'].trim()) out += ` ${q['other'].trim()}`;
+  if (val['principle'] === 'envelope requirement') out += ' Ⓔ';
+  const mods = Array.isArray(val['modifiers']) ? val['modifiers'] : [];
+  if (mods.includes('reference') && !(out.startsWith('(') && out.endsWith(')'))) out = `(${out})`;
+  return out;
+}
+
+function readModifiers(raw: unknown): string {
+  if (!Array.isArray(raw)) return '';
+  return raw.map((m) => {
+    const s = typeof m === 'string' ? m.toLowerCase() : isObject(m) && typeof m['kind'] === 'string' ? m['kind'].toLowerCase() : '';
+    return MODIFIER_SYMBOL[s] ?? '';
+  }).join('');
+}
+
+/**
+ * Extracts structured label contents for each semantic item in a `PmiScene` (`scene.pmi.pmi` +
+ * `scene.specify`), independent of whether graphics came from `engine.pmiScene` (before Save)
+ * or `wasm.pmiScene` (after Save). Pure, no three.js or DOM.
+ */
+export function readSceneSemanticLabels(scene: unknown): ReadonlyMap<string, SceneSemanticLabel> {
+  const out = new Map<string, SceneSemanticLabel>();
+  if (!isObject(scene) || !isObject(scene['pmi']) || !isObject(scene['pmi']['pmi'])) return out;
+  const pmi = scene['pmi']['pmi'] as Record<string, unknown>;
+  const specify = isObject(scene['specify']) ? scene['specify'] as Record<string, unknown> : {};
+  const arr = (key: string): Record<string, unknown>[] =>
+    (Array.isArray(pmi[key]) ? pmi[key] as unknown[] : []).filter(isObject);
+  const notationOf = (id: string): string | undefined => {
+    const spec = isObject(specify[id]) ? specify[id] as Record<string, unknown> : undefined;
+    return typeof spec?.['notation'] === 'string' && spec['notation'].trim() ? spec['notation'].trim() : undefined;
+  };
+
+  const datumLabels = new Map<string, string>();
+  for (const d of arr('datums')) {
+    const id = d['id'];
+    const val = d['value'];
+    if (typeof id !== 'string' || !isObject(val)) continue;
+    const label = typeof val['label'] === 'string' ? val['label'].trim() : '';
+    if (!label) continue;
+    datumLabels.set(id, label);
+    out.set(id, { kind: 'datum', cells: [label] });
+  }
+
+  for (const t of arr('tolerances')) {
+    const id = t['id'];
+    const val = t['value'];
+    if (typeof id !== 'string' || !isObject(val)) continue;
+    const rawKind = typeof val['kind'] === 'string' ? val['kind'] : '';
+    const type = TOLERANCE_KIND[rawKind] ?? rawKind;
+    const sym = CHARACTERISTIC[type] ?? CHARACTERISTIC[rawKind] ?? type;
+    const mag = readQuantityNumber(val['magnitude']);
+    const zone = isObject(val['zone']) ? val['zone'] : null;
+    const diametral = typeof zone?.['form'] === 'string' && /cylindrical|circular/i.test(zone['form']);
+    const mods = readModifiers(val['modifiers']);
+    const magText = mag ? `${diametral ? '⌀' : ''}${fmt(mag.value)}${mods}` : '';
+    const datumCells: string[] = [];
+    if (Array.isArray(val['datums'])) {
+      for (const group of val['datums']) {
+        if (!isObject(group)) continue;
+        const refs = Array.isArray(group['references']) ? group['references'] : [];
+        const text = refs.map((r) => {
+          if (!isObject(r) || typeof r['datum'] !== 'string') return '';
+          const letter = datumLabels.get(r['datum']) ?? r['datum'].replace(/^datum:/, '');
+          return `${letter}${readModifiers(r['modifiers'])}`;
+        }).filter(Boolean).join('-');
+        if (text) datumCells.push(`${text}${readModifiers(group['modifiers'])}`);
+      }
+    }
+    out.set(id, {
+      kind: 'frame',
+      cells: [sym, ...(magText ? [magText] : []), ...datumCells],
+    });
+  }
+
+  for (const d of arr('dimensions')) {
+    const id = d['id'];
+    const val = d['value'];
+    if (typeof id !== 'string' || !isObject(val)) continue;
+    const nominal = readQuantityNumber(val['nominal']);
+    const tol = val['tolerance'];
+    // Auxiliary witness-only dimensions (no nominal and no tolerance) carry no label of their own.
+    if (!nominal && (tol === 'none' || tol === null || tol === undefined)) continue;
+    const k = isObject(val['kind']) ? val['kind'] : {};
+    const sizeKind = isObject(k['size']) && typeof k['size']['kind'] === 'string' ? k['size']['kind'] : '';
+    const prefix = sizeKind.includes('spherical diameter') ? 'S⌀'
+      : sizeKind.includes('diameter') ? '⌀'
+        : sizeKind.includes('spherical radius') ? 'SR'
+          : sizeKind.includes('radius') ? 'R' : '';
+    const suffix = nominal?.angle ? '°' : '';
+    const nomText = nominal ? `${prefix}${fmt(nominal.value)}${suffix}` : notationOf(id) ?? '';
+    if (!nomText) continue;
+    if (tol === 'basic') {
+      out.set(id, { kind: 'datum', cells: [nomText], basic: true });
+      continue;
+    }
+    if (isObject(tol) && isObject(tol['deviations'])) {
+      const upper = readQuantityNumber(tol['deviations']['upper']);
+      const lower = readQuantityNumber(tol['deviations']['lower']);
+      if (upper && lower) {
+        const sfx = upper.angle ? '°' : '';
+        const tolerance: LabelTolerance = Math.abs(upper.value + lower.value) < 1e-12
+          ? { style: 'symmetric', upper: `±${fmt(Math.abs(upper.value))}${sfx}` }
+          : { style: 'pair', upper: fmtDeviation(upper.value, sfx), lower: fmtDeviation(lower.value, sfx) };
+        out.set(id, { kind: 'size', cells: [nomText], tolerance });
+        continue;
+      }
+    }
+    if (isObject(tol) && isObject(tol['limits'])) {
+      const upper = readQuantityNumber(tol['limits']['upper']);
+      const lower = readQuantityNumber(tol['limits']['lower']);
+      if (upper && lower) {
+        const sfx = upper.angle ? '°' : '';
+        const text = decorateDimensionText(val, `${prefix}${fmt(lower.value)}${sfx} - ${prefix}${fmt(upper.value)}${sfx}`);
+        out.set(id, { kind: 'size', cells: [text] });
+        continue;
+      }
+    }
+    if (isObject(tol) && isObject(tol['fit'])) {
+      const fit = tol['fit'];
+      const fitClass = readFitClass(fit['class']);
+      if (isObject(fit['limits'])) {
+        const upper = readQuantityNumber(fit['limits']['upper']);
+        const lower = readQuantityNumber(fit['limits']['lower']);
+        if (upper && lower) {
+          const sfx = upper.angle ? '°' : '';
+          const limitsText = `${prefix}${fmt(lower.value)}${sfx} - ${prefix}${fmt(upper.value)}${sfx}`;
+          const text = decorateDimensionText(val, fitClass ? `${limitsText} (${fitClass})` : limitsText);
+          out.set(id, { kind: 'size', cells: [text] });
+          continue;
+        }
+      }
+      if (fitClass) {
+        out.set(id, { kind: 'size', cells: [decorateDimensionText(val, `${nomText} ${fitClass}`)] });
+        continue;
+      }
+    }
+    if (isObject(tol)) {
+      const fitClass = readFitClass(tol['class']);
+      if (fitClass) {
+        out.set(id, { kind: 'size', cells: [decorateDimensionText(val, `${nomText} ${fitClass}`)] });
+        continue;
+      }
+    }
+    out.set(id, { kind: 'size', cells: [decorateDimensionText(val, nomText)] });
+  }
+
+  for (const t of arr('threads')) {
+    const id = t['id'];
+    const val = t['value'];
+    if (typeof id !== 'string' || !isObject(val)) continue;
+    const note = notationOf(id)
+      ?? [typeof val['qualifier'] === 'string' ? val['qualifier'].replace('x', '×') : '', typeof val['fit_class'] === 'string' ? val['fit_class'] : '']
+        .filter(Boolean).join('-');
+    if (note) out.set(id, { kind: 'note', cells: [note] });
+  }
+  for (const k of arr('knurls')) {
+    const id = k['id'];
+    if (typeof id !== 'string') continue;
+    const note = notationOf(id) ?? 'Knurl';
+    out.set(id, { kind: 'note', cells: [note] });
+  }
+  for (const s of arr('surface_textures')) {
+    const id = s['id'];
+    if (typeof id !== 'string') continue;
+    const note = notationOf(id);
+    if (note) out.set(id, { kind: 'note', cells: [note] });
+  }
+  for (const a of arr('attributes')) {
+    const id = a['id'];
+    const val = a['value'];
+    if (typeof id !== 'string' || !isObject(val)) continue;
+    const texts = (Array.isArray(val['items']) ? val['items'] : [])
+      .map((entry) => (Array.isArray(entry) && isObject(entry[1]) && typeof entry[1]['text'] === 'string' ? entry[1]['text'].trim() : ''))
+      .filter(Boolean);
+    const note = notationOf(id) ?? texts.join(' ');
+    if (note) out.set(id, { kind: 'note', cells: [note] });
+  }
+  for (const n of arr('notes')) {
+    const id = n['id'];
+    const val = n['value'];
+    if (typeof id !== 'string' || !isObject(val)) continue;
+    const note = notationOf(id) ?? (typeof val['text'] === 'string' ? val['text'].trim() : '');
+    if (note) out.set(id, { kind: 'note', cells: [note] });
+  }
+  return out;
+}
+
+/** Extracts linear/basic location dimension metadata from a raw `PmiScene` for 3D drafting layout. */
+export function extractSceneDimensions(rawScene: unknown): Record<string, SceneDimMeta> {
+  const out: Record<string, SceneDimMeta> = {};
+  if (!isObject(rawScene) || !isObject(rawScene['pmi']) || !isObject(rawScene['pmi']['pmi'])) return out;
+  const pmi = rawScene['pmi']['pmi'] as Record<string, unknown>;
+  const specify = isObject(rawScene['specify']) ? rawScene['specify'] as Record<string, unknown> : {};
+  const arr = (k: string) => (Array.isArray(pmi[k]) ? pmi[k] as unknown[] : []).filter(isObject);
+
+  const featureFaces = new Map<string, number[]>();
+  const featureById = new Map<string, Record<string, unknown>>();
+  for (const f of arr('features')) {
+    if (typeof f['id'] === 'string' && isObject(f['value'])) featureById.set(f['id'], f['value']);
+  }
+  const facesOf = (id: unknown, seen = new Set<string>()): number[] => {
+    if (typeof id !== 'string' || seen.has(id)) return [];
+    const hit = featureFaces.get(id);
+    if (hit) return hit;
+    seen.add(id);
+    const v = featureById.get(id);
+    if (!v) return [];
+    const s = new Set<number>();
+    if (Array.isArray(v['items'])) {
+      for (const x of v['items']) if (isObject(x) && typeof x['face'] === 'number') s.add(x['face']);
+    }
+    if (isObject(v['group']) && Array.isArray(v['group']['members'])) {
+      for (const m of v['group']['members']) for (const f of facesOf(m, seen)) s.add(f);
+    }
+    if (isObject(v['derived']) && Array.isArray(v['derived']['from'])) {
+      for (const m of v['derived']['from']) for (const f of facesOf(m, seen)) s.add(f);
+    }
+    const sorted = [...s].sort((a, b) => a - b);
+    featureFaces.set(id, sorted);
+    return sorted;
+  };
+
+  for (const d of arr('dimensions')) {
+    const id = d['id'];
+    const val = d['value'];
+    if (typeof id !== 'string' || !isObject(val)) continue;
+    const kind = isObject(val['kind']) ? val['kind'] : null;
+    const loc = kind && isObject(kind['location']) ? kind['location'] : null;
+    if (!loc) continue;
+    const nomObj = isObject(val['nominal']) ? val['nominal'] : null;
+    const qty = nomObj && isObject(nomObj['quantity']) ? nomObj['quantity'] : nomObj;
+    const lenObj = qty && isObject(qty['length']) ? qty['length'] : null;
+    const rawVal = lenObj?.['value'];
+    const nominal = typeof rawVal === 'number' || typeof rawVal === 'string' ? Number(rawVal) : NaN;
+    if (!Number.isFinite(nominal)) continue;
+    const spec = isObject(specify[id]) ? specify[id] as Record<string, unknown> : undefined;
+    const text = typeof spec?.['notation'] === 'string' && spec['notation'].trim()
+      ? spec['notation'].trim()
+      : String(Number(nominal.toFixed(4)));
+    const source = isObject(spec?.['source']) ? spec['source'] as Record<string, unknown> : undefined;
+    const param = typeof source?.['parameter'] === 'string' ? source['parameter'] : '';
+    const axisHint: 0 | 1 | 2 | undefined = param.endsWith('.x') ? 0 : param.endsWith('.y') ? 1 : param.endsWith('.z') ? 2 : undefined;
+    out[id] = {
+      item: id,
+      nominal,
+      text,
+      basic: val['tolerance'] === 'basic' || spec?.['basic'] === true,
+      fromFaces: facesOf(loc['from']),
+      toFaces: facesOf(loc['to']),
+      ...(axisHint !== undefined ? { axisHint } : {}),
+    };
+  }
+  return out;
+}
+
+const ORIGIN_SOURCES = new Set<PartOrigin['source']>(['step-csys', 'step-point', 'datum-frame']);
+
+function readStepOrigin(raw: unknown): PartOrigin | undefined {
+  if (!isObject(raw)) return undefined;
+  const source = raw['source'];
+  if (typeof source !== 'string' || !ORIGIN_SOURCES.has(source as PartOrigin['source'])) return undefined;
+  const pt = (v: unknown): DrawnPoint | null =>
+    (Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n))
+      ? [v[0], v[1], v[2]] : null);
+  const position = pt(raw['position']);
+  const xAxis = pt(raw['xAxis']);
+  const yAxis = pt(raw['yAxis']);
+  const zAxis = pt(raw['zAxis']);
+  if (!position || !xAxis || !yAxis || !zAxis) return undefined;
+  return { position, xAxis, yAxis, zAxis, source: source as PartOrigin['source'] };
+}
+
 /**
  * Specify's pmiScene (`{pmi, presentation, specify}`, specify-core 0.1.5) as the view draws it:
  * the presentation, and each presented item's faces with its status and question from `specify`.
@@ -559,6 +899,9 @@ export function drawnFromScene(scene: unknown): Read<DrawnPmi> {
   const links = linksFromPmi(scene['pmi'], read.value);
   if (!links.ok) return links;
   const { sceneItems, resolvedFaces } = extractSceneItems(scene);
+  const semantic = readSceneSemanticLabels(scene);
+  const sceneDimensions = extractSceneDimensions(scene);
+  const stepOrigin = readStepOrigin(scene['step_origin']);
   const overlay = isObject(scene['specify']) ? scene['specify'] : {};
   const linked: Record<string, DrawnLink> = {};
   for (const [id, link] of Object.entries(links.value)) {
@@ -579,6 +922,9 @@ export function drawnFromScene(scene: unknown): Read<DrawnPmi> {
       links: linked,
       ...(serverReview ? { reviewItems: serverReview } : {}),
       ...(sceneItems.length ? { sceneItems } : {}),
+      ...(semantic.size ? { sceneSemantic: Object.fromEntries(semantic) } : {}),
+      ...(Object.keys(sceneDimensions).length ? { sceneDimensions } : {}),
+      ...(stepOrigin ? { stepOrigin } : {}),
     },
   };
 }

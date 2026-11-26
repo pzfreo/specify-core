@@ -3,11 +3,8 @@
 import { createRoot } from 'react-dom/client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  createIntentEngine, type HostPointerEvent, type HostView, SpecifyReview, StepDiff, type DrawnPmi, type PmiAnswers, type StepFile,
+  createIntentEngine, drawnFromScene, type HostPointerEvent, type HostView, hasGraphics, SpecifyReview, StepDiff, withoutNotesBlock, type DrawnPmi, type PmiAnswers, type StepFile,
 } from '../../src/index';
-import { findStatedOrigin, normalizeDraftingPmi } from '../../src/specify/drafting-layout';
-import type { PartOrigin } from '../../src/specify/drawn';
-import { readSceneSemanticLabels, reviewDrawnFromScene, type SceneSemanticLabel } from '../../src/specify/one-view';
 import { stepBytes } from '../../src/model/diff';
 
 declare global {
@@ -102,7 +99,7 @@ const noAnswers = {};
 function SpecifyHost() {
   // Made here, not at module level: the StepDiff page starts no extra worker.
   const worker = useMemo(() => createIntentEngine({ wasmUrl }), []);
-  const [open, setOpen] = useState<{ session: any; review: any; engine: any; drawn: DrawnPmi | null; semantic: ReadonlyMap<string, SceneSemanticLabel>; origin: PartOrigin | null } | null>(null);
+  const [open, setOpen] = useState<{ session: any; review: any; engine: any; drawn: DrawnPmi | null } | null>(null);
   const view = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const exports = useRef<HTMLDivElement>(null);
@@ -139,14 +136,11 @@ function SpecifyHost() {
       ...(!query.has('legacy') ? { inspection: async (_id: string, answers: unknown) => { window.__calls.push('inspection'); return (await call('review-given', answers)).intent; } } : {}),
     };
     const session = { sessionId: sourceId, filename: name, analysis: snapshot.analysis, mesh: snapshot.mesh, questions: review.questions, problems: review.problems };
-    // The PMI as drawn, laid out on 3D annotation planes.
+    // The PMI as drawn, as the editor asks for it: the worker's call, not the host engine's.
     const saved = snapshot.analysis.resume?.answers ?? {};
-    const raw = await worker.request('scene', { name, bytes, sourceId, state: { answers: saved }, exact: true });
-    const scene = reviewDrawnFromScene(raw, snapshot.analysis);
-    const semantic = readSceneSemanticLabels(raw);
-    const drawn = scene.ok ? normalizeDraftingPmi(scene.value, raw, snapshot.analysis, snapshot.mesh, semantic) : null;
-    const origin = findStatedOrigin(bytes, snapshot.analysis, drawn);
-    setOpen({ session, review, engine, drawn, semantic, origin });
+    const scene = drawnFromScene(await worker.request('scene', { name, bytes, sourceId, state: { answers: saved } }));
+    const shown = scene.ok ? withoutNotesBlock(scene.value) : null;
+    setOpen({ session, review, engine, drawn: shown && hasGraphics(shown) ? shown : null });
   };
   return (
     <main className="diff-page">
@@ -160,7 +154,6 @@ function SpecifyHost() {
       {open && slots && (
         <SpecifyReview
           engine={open.engine} session={open.session} slots={slots} readOnly={readOnly} drawn={open.drawn}
-          sceneSemantic={open.semantic} partOrigin={open.origin}
           externalAnswers={noAnswers} externalReview={open.review} disabled={false}
           onExport={action => { if (query.has('defer')) deferred.current.push(action); else action(); }} {...(hostKeeps ? { onKeep, kept } : {})}
         />

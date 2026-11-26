@@ -90,6 +90,15 @@ export interface PmiAnalysis {
   readonly table?: { readonly rows: readonly { readonly id: string; readonly state: 'stated' | 'gap' | 'decided_none'; readonly value?: unknown }[] };
 }
 
+/** An explicit coordinate system or datum origin stated by a STEP file, rendered as an x/y/z triad. */
+export interface PartOrigin {
+  readonly position: PmiVec;
+  readonly xAxis: PmiVec;
+  readonly yAxis: PmiVec;
+  readonly zAxis: PmiVec;
+  readonly source: 'step-csys' | 'step-point' | 'datum-frame';
+}
+
 /** Triangles of the part, ranged face by face in the analysis's face numbering. */
 export interface PmiMesh {
   readonly format: 'pmi-assist-mesh';
@@ -101,6 +110,8 @@ export interface PmiMesh {
   readonly faces: readonly (readonly [number, number])[];
   readonly missing: readonly number[];
   readonly edges: readonly (readonly number[])[];
+  /** Explicit coordinate system or isolated origin point stated in the STEP file, when extracted by the worker. */
+  readonly origin?: PartOrigin;
 }
 
 export type PmiAttention = 'required' | 'check' | 'routine' | 'refine';

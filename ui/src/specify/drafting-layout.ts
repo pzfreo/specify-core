@@ -16,10 +16,10 @@
 
 import type { PmiAnalysis, PmiMesh } from '../types/pmi.ts';
 import {
-  graphicNormal, graphicPoints, type DrawnGraphic, type DrawnPlane, type DrawnPmi, type DrawnPoint,
-  type PartOrigin, type TextPlacement,
+  extractSceneDimensions, graphicNormal, graphicPoints, readSceneSemanticLabels,
+  type DrawnGraphic, type DrawnPlane, type DrawnPmi, type DrawnPoint,
+  type PartOrigin, type SceneDimMeta, type SceneSemanticLabel, type TextPlacement,
 } from './drawn.ts';
-import type { SceneSemanticLabel } from './one-view.ts';
 
 type Vec3 = [number, number, number];
 type Axis = 0 | 1 | 2;
@@ -246,6 +246,121 @@ function resolveFileDatumFrame(
 }
 
 /**
+ * Parses an explicit STEP coordinate system or isolated origin point from raw STEP bytes
+ * (never a default B-rep placement). Pure, no WASM or DOM.
+ */
+export function findStepOrigin(bytes: Uint8Array | null): PartOrigin | null {
+  if (!bytes || bytes.length === 0) return null;
+  const text = new TextDecoder('latin1').decode(bytes);
+  const dataIdx = text.indexOf('DATA;');
+  const body = dataIdx >= 0 ? text.slice(dataIdx) : text;
+
+  const points = new Map<string, { name: string; pt: Vec3 }>();
+  const dirs = new Map<string, Vec3>();
+  const axes3d = new Map<string, { name: string; ptRef: string; zRef?: string; xRef?: string }>();
+  const curveSets = new Map<string, string[]>();
+  const constructiveRefs: string[] = [];
+  const wireframeRefs: string[] = [];
+
+  const entRe = /(#\d+)\s*=\s*(CARTESIAN_POINT|DIRECTION|AXIS2_PLACEMENT_3D|GEOMETRIC_CURVE_SET|GEOMETRIC_SET|CONSTRUCTIVE_GEOMETRY_REPRESENTATION|GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION)\s*\(([^;]*)\);/g;
+  let m: RegExpExecArray | null;
+  while ((m = entRe.exec(body)) !== null) {
+    const [, id, ty, args] = m as unknown as [string, string, string, string];
+    if (ty === 'CARTESIAN_POINT') {
+      const pm = /^'([^']*)'\s*,\s*\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)/.exec(args.trim());
+      if (pm) {
+        const x = Number(pm[2]), y = Number(pm[3]), z = Number(pm[4]);
+        if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+          points.set(id, { name: pm[1]!, pt: [x, y, z] });
+        }
+      }
+    } else if (ty === 'DIRECTION') {
+      const dm = /\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)/.exec(args);
+      if (dm) {
+        const u = unit([Number(dm[1]), Number(dm[2]), Number(dm[3])]);
+        if (u) dirs.set(id, u);
+      }
+    } else if (ty === 'AXIS2_PLACEMENT_3D') {
+      const nm = /^'([^']*)'/.exec(args.trim());
+      const refs = args.match(/#\d+/g) ?? [];
+      if (refs[0]) {
+        axes3d.set(id, {
+          name: nm?.[1] ?? '',
+          ptRef: refs[0],
+          ...(refs[1] ? { zRef: refs[1] } : {}),
+          ...(refs[2] ? { xRef: refs[2] } : {}),
+        });
+      }
+    } else if (ty === 'GEOMETRIC_CURVE_SET' || ty === 'GEOMETRIC_SET') {
+      curveSets.set(id, args.match(/#\d+/g) ?? []);
+    } else if (ty === 'CONSTRUCTIVE_GEOMETRY_REPRESENTATION') {
+      constructiveRefs.push(...(args.match(/#\d+/g) ?? []));
+    } else if (ty === 'GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION') {
+      wireframeRefs.push(...(args.match(/#\d+/g) ?? []));
+    }
+  }
+
+  const resolveAxis = (ref: string): PartOrigin | null => {
+    const ax = axes3d.get(ref);
+    if (!ax) return null;
+    const p = points.get(ax.ptRef);
+    if (!p) return null;
+    const rawZ = (ax.zRef ? dirs.get(ax.zRef) : null) ?? [0, 0, 1];
+    const rawX = ax.xRef ? dirs.get(ax.xRef) : null;
+    return { position: p.pt, ...orthonormalBasis(rawZ, rawX), source: 'step-csys' };
+  };
+
+  const expandRefs = (refs: string[]) => refs.flatMap((r) => [r, ...(curveSets.get(r) ?? [])]);
+  for (const ref of expandRefs([...constructiveRefs, ...wireframeRefs])) {
+    const resolved = resolveAxis(ref);
+    if (resolved) return resolved;
+  }
+  for (const [id, ax] of axes3d) {
+    if (/^(origin|csys|coord|datum\s*csys|wcs|mcs)/i.test(ax.name.trim())) {
+      const resolved = resolveAxis(id);
+      if (resolved) return resolved;
+    }
+  }
+  for (const ref of expandRefs([...wireframeRefs, ...constructiveRefs])) {
+    const p = points.get(ref);
+    if (!p) continue;
+    return {
+      position: p.pt,
+      xAxis: [1, 0, 0],
+      yAxis: [0, 1, 0],
+      zAxis: [0, 0, 1],
+      source: 'step-point',
+    };
+  }
+  return null;
+}
+
+/**
+ * Resolves the effective stated origin by combining any explicit STEP origin (from the worker or
+ * scene) with the file-native 3-datum reference frame (`A | B | C` in `analysis.existing`,
+ * excluding Specify-created datums).
+ */
+export function resolveStatedOrigin(
+  stepOrigin: PartOrigin | null,
+  analysis: PmiAnalysis,
+  pmi: DrawnPmi | null,
+): PartOrigin | null {
+  if (stepOrigin?.source === 'step-csys') return stepOrigin;
+  const datumFrame = resolveFileDatumFrame(analysis, pmi);
+  if (stepOrigin?.source === 'step-point') {
+    return {
+      position: stepOrigin.position,
+      xAxis: datumFrame?.xAxis ?? stepOrigin.xAxis,
+      yAxis: datumFrame?.yAxis ?? stepOrigin.yAxis,
+      zAxis: datumFrame?.zAxis ?? stepOrigin.zAxis,
+      source: 'step-point',
+    };
+  }
+  if (stepOrigin) return stepOrigin;
+  return datumFrame ? { ...datumFrame, source: 'datum-frame' } : null;
+}
+
+/**
  * Finds an explicit coordinate-system or datum origin stated by a STEP file (never a default
  * B-rep placement):
  * 1. Explicit STEP coordinate system (`CONSTRUCTIVE_GEOMETRY_REPRESENTATION` or wireframe
@@ -260,93 +375,7 @@ export function findStatedOrigin(
   analysis: PmiAnalysis,
   pmi: DrawnPmi | null,
 ): PartOrigin | null {
-  const datumFrame = resolveFileDatumFrame(analysis, pmi);
-
-  if (bytes && bytes.length > 0) {
-    const text = new TextDecoder('latin1').decode(bytes);
-    const dataIdx = text.indexOf('DATA;');
-    const body = dataIdx >= 0 ? text.slice(dataIdx) : text;
-
-    const points = new Map<string, { name: string; pt: Vec3 }>();
-    const dirs = new Map<string, Vec3>();
-    const axes3d = new Map<string, { name: string; ptRef: string; zRef?: string; xRef?: string }>();
-    const curveSets = new Map<string, string[]>();
-    const constructiveRefs: string[] = [];
-    const wireframeRefs: string[] = [];
-
-    const entRe = /(#\d+)\s*=\s*(CARTESIAN_POINT|DIRECTION|AXIS2_PLACEMENT_3D|GEOMETRIC_CURVE_SET|GEOMETRIC_SET|CONSTRUCTIVE_GEOMETRY_REPRESENTATION|GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION)\s*\(([^;]*)\);/g;
-    let m: RegExpExecArray | null;
-    while ((m = entRe.exec(body)) !== null) {
-      const [, id, ty, args] = m as unknown as [string, string, string, string];
-      if (ty === 'CARTESIAN_POINT') {
-        const pm = /^'([^']*)'\s*,\s*\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)/.exec(args.trim());
-        if (pm) {
-          const x = Number(pm[2]), y = Number(pm[3]), z = Number(pm[4]);
-          if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
-            points.set(id, { name: pm[1]!, pt: [x, y, z] });
-          }
-        }
-      } else if (ty === 'DIRECTION') {
-        const dm = /\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)/.exec(args);
-        if (dm) {
-          const u = unit([Number(dm[1]), Number(dm[2]), Number(dm[3])]);
-          if (u) dirs.set(id, u);
-        }
-      } else if (ty === 'AXIS2_PLACEMENT_3D') {
-        const nm = /^'([^']*)'/.exec(args.trim());
-        const refs = args.match(/#\d+/g) ?? [];
-        if (refs[0]) {
-          axes3d.set(id, {
-            name: nm?.[1] ?? '',
-            ptRef: refs[0],
-            ...(refs[1] ? { zRef: refs[1] } : {}),
-            ...(refs[2] ? { xRef: refs[2] } : {}),
-          });
-        }
-      } else if (ty === 'GEOMETRIC_CURVE_SET' || ty === 'GEOMETRIC_SET') {
-        curveSets.set(id, args.match(/#\d+/g) ?? []);
-      } else if (ty === 'CONSTRUCTIVE_GEOMETRY_REPRESENTATION') {
-        constructiveRefs.push(...(args.match(/#\d+/g) ?? []));
-      } else if (ty === 'GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION') {
-        wireframeRefs.push(...(args.match(/#\d+/g) ?? []));
-      }
-    }
-
-    const resolveAxis = (ref: string): PartOrigin | null => {
-      const ax = axes3d.get(ref);
-      if (!ax) return null;
-      const p = points.get(ax.ptRef);
-      if (!p) return null;
-      const rawZ = (ax.zRef ? dirs.get(ax.zRef) : null) ?? [0, 0, 1];
-      const rawX = ax.xRef ? dirs.get(ax.xRef) : null;
-      return { position: p.pt, ...orthonormalBasis(rawZ, rawX), source: 'step-csys' };
-    };
-
-    const expandRefs = (refs: string[]) => refs.flatMap((r) => [r, ...(curveSets.get(r) ?? [])]);
-    for (const ref of expandRefs([...constructiveRefs, ...wireframeRefs])) {
-      const resolved = resolveAxis(ref);
-      if (resolved) return resolved;
-    }
-    for (const [id, ax] of axes3d) {
-      if (/^(origin|csys|coord|datum\s*csys|wcs|mcs)/i.test(ax.name.trim())) {
-        const resolved = resolveAxis(id);
-        if (resolved) return resolved;
-      }
-    }
-    for (const ref of expandRefs([...wireframeRefs, ...constructiveRefs])) {
-      const p = points.get(ref);
-      if (!p) continue;
-      return {
-        position: p.pt,
-        xAxis: datumFrame?.xAxis ?? [1, 0, 0],
-        yAxis: datumFrame?.yAxis ?? [0, 1, 0],
-        zAxis: datumFrame?.zAxis ?? [0, 0, 1],
-        source: 'step-point',
-      };
-    }
-  }
-
-  return datumFrame ? { ...datumFrame, source: 'datum-frame' } : null;
+  return resolveStatedOrigin(findStepOrigin(bytes), analysis, pmi);
 }
 
 /**
@@ -755,81 +784,10 @@ function textWidthMm(text: string, H: number): number {
   return Math.max(H * 0.9, chars * H * 0.88);
 }
 
-interface DimMeta {
-  item: string;
-  nominal: number;
-  text: string;
-  basic: boolean;
-  fromFaces: number[];
-  toFaces: number[];
-  axisHint?: Axis;
-}
+type DimMeta = SceneDimMeta;
 
 function parseDimMeta(rawScene: unknown): Map<string, DimMeta> {
-  const out = new Map<string, DimMeta>();
-  if (!isObject(rawScene) || !isObject(rawScene['pmi']) || !isObject(rawScene['pmi']['pmi'])) return out;
-  const pmi = rawScene['pmi']['pmi'] as Record<string, unknown>;
-  const specify = isObject(rawScene['specify']) ? rawScene['specify'] as Record<string, unknown> : {};
-  const arr = (k: string) => (Array.isArray(pmi[k]) ? pmi[k] as unknown[] : []).filter(isObject);
-
-  const featureFaces = new Map<string, number[]>();
-  const featureById = new Map<string, Record<string, unknown>>();
-  for (const f of arr('features')) {
-    if (typeof f['id'] === 'string' && isObject(f['value'])) featureById.set(f['id'], f['value']);
-  }
-  const facesOf = (id: unknown, seen = new Set<string>()): number[] => {
-    if (typeof id !== 'string' || seen.has(id)) return [];
-    const hit = featureFaces.get(id);
-    if (hit) return hit;
-    seen.add(id);
-    const v = featureById.get(id);
-    if (!v) return [];
-    const s = new Set<number>();
-    if (Array.isArray(v['items'])) {
-      for (const x of v['items']) if (isObject(x) && typeof x['face'] === 'number') s.add(x['face']);
-    }
-    if (isObject(v['group']) && Array.isArray(v['group']['members'])) {
-      for (const m of v['group']['members']) for (const f of facesOf(m, seen)) s.add(f);
-    }
-    if (isObject(v['derived']) && Array.isArray(v['derived']['from'])) {
-      for (const m of v['derived']['from']) for (const f of facesOf(m, seen)) s.add(f);
-    }
-    const sorted = [...s].sort((a, b) => a - b);
-    featureFaces.set(id, sorted);
-    return sorted;
-  };
-
-  for (const d of arr('dimensions')) {
-    const id = d['id'];
-    const val = d['value'];
-    if (typeof id !== 'string' || !isObject(val)) continue;
-    const kind = isObject(val['kind']) ? val['kind'] : null;
-    const loc = kind && isObject(kind['location']) ? kind['location'] : null;
-    if (!loc) continue;
-    const nomObj = isObject(val['nominal']) ? val['nominal'] : null;
-    const qty = nomObj && isObject(nomObj['quantity']) ? nomObj['quantity'] : nomObj;
-    const lenObj = qty && isObject(qty['length']) ? qty['length'] : null;
-    const rawVal = lenObj?.['value'];
-    const nominal = typeof rawVal === 'number' || typeof rawVal === 'string' ? Number(rawVal) : NaN;
-    if (!Number.isFinite(nominal)) continue;
-    const spec = isObject(specify[id]) ? specify[id] as Record<string, unknown> : undefined;
-    const text = typeof spec?.['notation'] === 'string' && spec['notation'].trim()
-      ? spec['notation'].trim()
-      : String(Number(nominal.toFixed(4)));
-    const source = isObject(spec?.['source']) ? spec['source'] as Record<string, unknown> : undefined;
-    const param = typeof source?.['parameter'] === 'string' ? source['parameter'] : '';
-    const axisHint: Axis | undefined = param.endsWith('.x') ? 0 : param.endsWith('.y') ? 1 : param.endsWith('.z') ? 2 : undefined;
-    out.set(id, {
-      item: id,
-      nominal,
-      text,
-      basic: val['tolerance'] === 'basic' || spec?.['basic'] === true,
-      fromFaces: facesOf(loc['from']),
-      toFaces: facesOf(loc['to']),
-      ...(axisHint !== undefined ? { axisHint } : {}),
-    });
-  }
-  return out;
+  return new Map(Object.entries(extractSceneDimensions(rawScene)));
 }
 
 interface FeatureAnchor {
@@ -1758,11 +1716,14 @@ export function normalizeDraftingPmi(
   rawScene: unknown,
   analysis: PmiAnalysis,
   mesh: PmiMesh,
-  semantic: ReadonlyMap<string, SceneSemanticLabel>,
+  semantic?: ReadonlyMap<string, SceneSemanticLabel>,
 ): DrawnPmi {
+  if (pmi.draftingNormalized) return pmi;
   const { specifyItems, nativeItems } = partitionGraphics(pmi);
   if (!specifyItems.length) return pmi;
 
+  const resolvedSemantic: ReadonlyMap<string, SceneSemanticLabel> = semantic
+    ?? (pmi.sceneSemantic ? new Map(Object.entries(pmi.sceneSemantic)) : readSceneSemanticLabels(rawScene));
   const cam = bestReferenceView(pmi, analysis, mesh);
   const bmin: Vec3 = [mesh.bbox[0][0], mesh.bbox[0][1], mesh.bbox[0][2]];
   const bmax: Vec3 = [mesh.bbox[1][0], mesh.bbox[1][1], mesh.bbox[1][2]];
@@ -1821,7 +1782,7 @@ export function normalizeDraftingPmi(
   } : null;
 
   const ctx: LayoutContext = {
-    pmi, analysis, mesh, semantic, cam, bmin, bmax, centre, diag, H, frameH, arrLen, arrHalfW,
+    pmi, analysis, mesh, semantic: resolvedSemantic, cam, bmin, bmax, centre, diag, H, frameH, arrLen, arrHalfW,
     visibleSigns, frontNormals, partHull, hasNative,
     holes: readHoleGeoms(analysis),
     faceById: new Map(analysis.faces.map((f) => [f.id, f])),
@@ -1832,13 +1793,13 @@ export function normalizeDraftingPmi(
 
   // Separate Specify items into datums, linear/basic dimensions, and feature callouts.
   // Keep `general: true` items isolated so hidden general dimensions never shift visible stacks across Save.
-  const dimMetas = parseDimMeta(rawScene);
+  const dimMetas = pmi.sceneDimensions ? new Map<string, DimMeta>(Object.entries(pmi.sceneDimensions)) : parseDimMeta(rawScene);
   const datumItems: [string, DrawnGraphic][] = [];
   const dimItems: [string, DrawnGraphic, DimMeta, boolean][] = [];
   const calloutItems: [string, DrawnGraphic, boolean][] = [];
 
   for (const [item, g] of specifyItems) {
-    const sem = semantic.get(item);
+    const sem = resolvedSemantic.get(item);
     const dMeta = dimMetas.get(item);
     const isGeneral = pmi.links[item]?.general === true;
     if (item.startsWith('datum:') || (sem?.kind === 'datum' && !sem.basic)) {
@@ -1860,7 +1821,7 @@ export function normalizeDraftingPmi(
 
   const featureGroups = new Map<string, FeatureCalloutGroup>();
   for (const [item, g, isGeneral] of calloutItems) {
-    const sem = semantic.get(item);
+    const sem = resolvedSemantic.get(item);
     if (!sem) {
       ctx.nextItems[item] = [g];
       continue;
@@ -1896,6 +1857,7 @@ export function normalizeDraftingPmi(
 
   return {
     ...pmi,
+    draftingNormalized: true,
     presentation: {
       ...pmi.presentation,
       items: ctx.nextItems,
