@@ -145,6 +145,40 @@ impl Opened {
         Self::from_command(inputs.last().unwrap(), command(inputs, scratch, extra))
     }
 
+    /// `open` with no file, in `cwd`.
+    fn empty(cwd: &Path, scratch: &Scratch, extra: &[&str]) -> Opened {
+        let mut cmd = command(&[], scratch, extra);
+        cmd.current_dir(cwd);
+        let mut child = cmd
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("the binary runs");
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        let url = line
+            .trim()
+            .strip_prefix("Open: ")
+            .unwrap_or_else(|| panic!("the address line: {line:?}"));
+        let rest = url.strip_prefix("http://127.0.0.1:").expect("on 127.0.0.1");
+        let (port, prefix) = rest.split_once('/').unwrap();
+        let prefix = format!("/{prefix}");
+        let token = prefix.trim_matches('/');
+        assert_eq!(token.len(), 32, "{url}");
+        assert!(
+            token.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')),
+            "{token}"
+        );
+        assert!(prefix.ends_with('/'), "{url}");
+        Opened {
+            child,
+            stdout,
+            port: port.parse().unwrap(),
+            prefix,
+        }
+    }
+
     fn from_command(step: &Path, mut command: Command) -> Opened {
         let name = step.file_name().unwrap().to_string_lossy().into_owned();
         let mut child = command
@@ -2727,4 +2761,301 @@ fn simultaneous_page_saves_at_one_revision_have_one_winner() {
             assert_eq!(coating["value"], winner);
         }
     }
+}
+
+/// `specify-core open` without a file starts empty, validates uploads on `POST <token>/open` with
+/// the same token/Host/Origin security and size limit, then serves and saves into the command's
+/// working directory.
+#[test]
+fn open_without_file_accepts_upload_and_saves_to_working_directory() {
+    let scratch = Scratch::new("open-empty");
+
+    // --in-place without a file is refused up front.
+    let in_place = command(&[], &scratch, &["--in-place"]).output().unwrap();
+    assert_eq!(in_place.status.code(), Some(2));
+    assert!(in_place.stdout.is_empty());
+    let stderr = String::from_utf8(in_place.stderr).unwrap();
+    assert!(stderr.contains("--in-place requires a file"), "{stderr}");
+
+    let work = scratch.path("work");
+    let mut opened = Opened::empty(&work, &scratch, &[]);
+    let page = opened.page();
+    let host = page.host();
+    let origin = page.origin();
+
+    // App and WASM serve normally while empty.
+    assert_eq!(opened.get("").status, 200);
+    assert_eq!(opened.get("wasm/specify_core_wasm.js").status, 200);
+
+    // Config has the same 12 keys, with null file/path/saveTarget before upload.
+    let config = opened.config();
+    assert_eq!(config["api"], open::API_VERSION);
+    assert_eq!(config["mode"], "specify");
+    assert_eq!(config["name"], Value::Null);
+    assert_eq!(config["path"], Value::Null);
+    assert_eq!(config["saveTarget"], Value::Null);
+    assert_eq!(config["savedPath"], Value::Null);
+    assert_eq!(config["readOnly"], false);
+    assert_eq!(config["wasmUrl"], "wasm/specify_core_wasm.js");
+
+    // File, answers, events are 404 and save/discard are 409 before a file is uploaded.
+    assert_eq!(opened.get("file").status, 404);
+    assert_eq!(opened.get("answers").status, 404);
+    assert_eq!(opened.get("events").status, 404);
+    assert_eq!(opened.save(0, json!({})).status, 409);
+    assert_eq!(page.send("POST", "discard", &json!({"rev": 0})).status, 409);
+
+    // Method, Origin, Host, token, filename, Content-Type, Content-Length, size limit, empty and
+    // corrupt body checks on POST <token>/open.
+    assert_eq!(opened.get("open").status, 405);
+    assert_eq!(opened.get("open").header("allow"), Some("POST"));
+
+    let port = opened.port;
+    let upload = |headers: &[(&str, &str)], body: &[u8]| {
+        request(port, "POST", &page.path("open"), headers, body)
+    };
+    let gz_bytes = std::fs::read(fixture()).unwrap();
+
+    // Missing or wrong Origin -> 403.
+    assert_eq!(
+        upload(
+            &[
+                ("Host", &host),
+                ("Content-Type", "application/octet-stream"),
+                ("X-Specify-Name", "picked.stp.gz"),
+            ],
+            &gz_bytes,
+        )
+        .status,
+        403
+    );
+    assert_eq!(
+        upload(
+            &[
+                ("Host", &host),
+                ("Origin", "https://example.com"),
+                ("Content-Type", "application/octet-stream"),
+                ("X-Specify-Name", "picked.stp.gz"),
+            ],
+            &gz_bytes,
+        )
+        .status,
+        403
+    );
+    // Wrong token -> 404.
+    assert_eq!(
+        request(
+            opened.port,
+            "POST",
+            &format!("/{}/open", "0".repeat(32)),
+            &[
+                ("Host", &host),
+                ("Origin", &origin),
+                ("Content-Type", "application/octet-stream"),
+                ("X-Specify-Name", "picked.stp.gz"),
+            ],
+            &gz_bytes,
+        )
+        .status,
+        404
+    );
+    // Wrong Host -> 403.
+    assert_eq!(
+        upload(
+            &[
+                ("Host", "attacker.example:80"),
+                ("Origin", &origin),
+                ("Content-Type", "application/octet-stream"),
+                ("X-Specify-Name", "picked.stp.gz"),
+            ],
+            &gz_bytes,
+        )
+        .status,
+        403
+    );
+    // Missing or invalid X-Specify-Name -> 400.
+    assert_eq!(
+        upload(
+            &[
+                ("Host", &host),
+                ("Origin", &origin),
+                ("Content-Type", "application/octet-stream"),
+            ],
+            &gz_bytes,
+        )
+        .status,
+        400
+    );
+    for bad_name in ["../evil.step", "dir/a.step", "a.stl", "..", "", "a%2Fb.step"] {
+        assert_eq!(
+            upload(
+                &[
+                    ("Host", &host),
+                    ("Origin", &origin),
+                    ("Content-Type", "application/octet-stream"),
+                    ("X-Specify-Name", bad_name),
+                ],
+                &gz_bytes,
+            )
+            .status,
+            400,
+            "bad name {bad_name}"
+        );
+    }
+    // Wrong Content-Type -> 415.
+    assert_eq!(
+        upload(
+            &[
+                ("Host", &host),
+                ("Origin", &origin),
+                ("Content-Type", "application/json"),
+                ("X-Specify-Name", "picked.stp.gz"),
+            ],
+            &gz_bytes,
+        )
+        .status,
+        415
+    );
+    // Transfer-Encoding -> 411.
+    assert_eq!(
+        upload(
+            &[
+                ("Host", &host),
+                ("Origin", &origin),
+                ("Content-Type", "application/octet-stream"),
+                ("X-Specify-Name", "picked.stp.gz"),
+                ("Transfer-Encoding", "chunked"),
+            ],
+            b"0\r\n\r\n",
+        )
+        .status,
+        411
+    );
+    // Larger than MAX_OPEN_BODY -> 413.
+    let too_big = (open::MAX_OPEN_BODY + 1).to_string();
+    assert_eq!(
+        upload(
+            &[
+                ("Host", &host),
+                ("Origin", &origin),
+                ("Content-Type", "application/octet-stream"),
+                ("X-Specify-Name", "picked.stp.gz"),
+                ("Content-Length", &too_big),
+            ],
+            b"",
+        )
+        .status,
+        413
+    );
+    // Empty body -> 400.
+    assert_eq!(
+        upload(
+            &[
+                ("Host", &host),
+                ("Origin", &origin),
+                ("Content-Type", "application/octet-stream"),
+                ("X-Specify-Name", "picked.stp.gz"),
+            ],
+            b"",
+        )
+        .status,
+        400
+    );
+    // Invalid STEP bytes -> 422, leaving the session still empty.
+    assert_eq!(
+        upload(
+            &[
+                ("Host", &host),
+                ("Origin", &origin),
+                ("Content-Type", "application/octet-stream"),
+                ("X-Specify-Name", "broken.step"),
+            ],
+            b"not a step file",
+        )
+        .status,
+        422
+    );
+    assert_eq!(opened.config()["name"], Value::Null);
+
+    // Valid upload (.stp.gz): loads the session and returns the updated config.
+    let ok = upload(
+        &[
+            ("Host", &host),
+            ("Origin", &origin),
+            ("Content-Type", "application/octet-stream"),
+            ("X-Specify-Name", "picked.stp.gz"),
+        ],
+        &gz_bytes,
+    );
+    assert_eq!(ok.status, 200, "{}", String::from_utf8_lossy(&ok.body));
+    let expected_target = work.join("picked.specified.step");
+    let uploaded_config = ok.json();
+    assert_eq!(uploaded_config["name"], "picked.stp.gz");
+    assert_eq!(uploaded_config["path"], Value::Null);
+    assert_eq!(
+        uploaded_config["saveTarget"],
+        expected_target.display().to_string()
+    );
+    assert_eq!(uploaded_config["savedPath"], Value::Null);
+    assert_eq!(opened.line().trim(), "Opened picked.stp.gz.");
+
+    // A second upload is refused with 409.
+    assert_eq!(
+        upload(
+            &[
+                ("Host", &host),
+                ("Origin", &origin),
+                ("Content-Type", "application/octet-stream"),
+                ("X-Specify-Name", "other.step"),
+            ],
+            &gz_bytes,
+        )
+        .status,
+        409
+    );
+
+    // File, answers, events and save now work identically to CLI-opened files.
+    let file = opened.get("file");
+    assert_eq!(file.status, 200);
+    assert_eq!(file.body, gz_bytes);
+    let rev = page.rev();
+    let mut stream = page.events();
+    let (event_name, start_data) = stream.next();
+    assert_eq!(event_name, "answers");
+    assert_eq!(start_data["source"], "start");
+    drop(stream);
+
+    let saved = opened.save(rev, decide_coating());
+    assert_eq!(saved.status, 200, "{}", String::from_utf8_lossy(&saved.body));
+    let saved_json = saved.json();
+    assert_eq!(saved_json["path"], expected_target.display().to_string());
+    assert!(is_step(&expected_target), "saved as uncompressed STEP");
+    assert_eq!(
+        opened.config()["savedPath"],
+        expected_target.display().to_string()
+    );
+    let saved_file = opened.get("file?rev=saved");
+    assert_eq!(saved_file.status, 200);
+    assert_eq!(saved_file.body, std::fs::read(&expected_target).unwrap());
+    assert_eq!(
+        saved_file.header("x-specify-path"),
+        Some(expected_target.display().to_string().as_str())
+    );
+
+    // A CLI-opened session also refuses POST <token>/open (409).
+    let cli_opened = Opened::start(&scratch.input(), &scratch, &[]);
+    let cli_page = cli_opened.page();
+    let refused = request(
+        cli_opened.port,
+        "POST",
+        &cli_page.path("open"),
+        &[
+            ("Host", &cli_page.host()),
+            ("Origin", &cli_page.origin()),
+            ("Content-Type", "application/octet-stream"),
+            ("X-Specify-Name", "picked.step"),
+        ],
+        &gz_bytes,
+    );
+    assert_eq!(refused.status, 409);
 }

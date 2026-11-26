@@ -58,6 +58,9 @@ pub const IDLE: Duration = Duration::from_secs(30 * 60);
 /// The largest `save` body accepted (an edit list, as `input::JSON_LIMIT` takes JSON).
 pub const MAX_SAVE_BODY: u64 = 16 * 1024 * 1024;
 
+/// The largest `open` body accepted (a STEP file picked in the page, as `input::STEP_LIMIT`).
+pub const MAX_OPEN_BODY: u64 = crate::input::STEP_LIMIT as u64;
+
 /// The most event streams open at once; another is answered 503.
 pub const MAX_STREAMS: usize = 4;
 
@@ -442,6 +445,35 @@ impl App {
         } else {
             "specify"
         };
+        App::bind(name, mode, Some(session), None, assets, options)
+    }
+
+    /// Opens a port on 127.0.0.1 with no file yet: the page drops or chooses a STEP file, which
+    /// `POST <token>/open` loads into a session whose saves write into `save_dir` (never over an
+    /// existing file).
+    pub fn empty(save_dir: PathBuf, assets: Assets, options: &Options) -> Result<App, Error> {
+        let save_dir = std::path::absolute(&save_dir).map_err(|e| {
+            Error::Io(format!(
+                "cannot resolve save directory {}: {e}",
+                save_dir.display()
+            ))
+        })?;
+        let mode = if options.read_only {
+            "read-only"
+        } else {
+            "specify"
+        };
+        App::bind(String::new(), mode, None, Some(save_dir), assets, options)
+    }
+
+    fn bind(
+        name: String,
+        mode: &'static str,
+        session: Option<session::Shared>,
+        save_dir: Option<PathBuf>,
+        assets: Assets,
+        options: &Options,
+    ) -> Result<App, Error> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, options.port)).map_err(|e| {
             Error::Io(format!(
                 "cannot open port {} on 127.0.0.1: {e}",
@@ -459,7 +491,8 @@ impl App {
             prefix: format!("/{token}/"),
             name,
             mode,
-            session,
+            session: Mutex::new(session),
+            save_dir,
             assets,
             read_only: options.read_only,
             part: options.part,
@@ -588,7 +621,10 @@ struct Shared {
     name: String,
     /// `config.mode`: `specify`, `read-only` or `diff`.
     mode: &'static str,
-    session: session::Shared,
+    /// None until a file is picked in an empty `specify-core open`.
+    session: Mutex<Option<session::Shared>>,
+    /// Where a file picked in the page saves (absolute); None when opened from a path on disk.
+    save_dir: Option<PathBuf>,
     assets: Assets,
     read_only: bool,
     /// `config.part`.
@@ -600,6 +636,12 @@ struct Shared {
     /// Until when a page is taken to hold unsaved edits, from the last `config?unsaved=1`.
     unsaved: Arc<Mutex<Option<Instant>>>,
     activity: Mutex<Activity>,
+}
+
+impl Shared {
+    fn session(&self) -> Option<session::Shared> {
+        lock(&self.session).clone()
+    }
 }
 
 /// When the server last heard from anyone, and whether it is closing.
@@ -749,6 +791,12 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
     let same_origin = origin == Some(shared.origin.as_str());
     let diff = shared.mode == "diff";
     match (request.method.as_str(), rest) {
+        ("POST", "open") => {
+            if !same_origin {
+                return refuse(stream, "403 Forbidden", "open only from the app's own page");
+            }
+            open_file(stream, ctx, &request, body);
+        }
         ("POST", "save") => {
             if !same_origin {
                 return refuse(stream, "403 Forbidden", "save only from the app's own page");
@@ -777,33 +825,41 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
             }
             reply(stream, "204 No Content", None, b"");
         }
-        (_, "save" | "discard" | "closed") => {
+        (_, "open" | "save" | "discard" | "closed") => {
             let _ = respond(stream, "405 Method Not Allowed", &[("Allow", "POST")], b"");
         }
         ("GET", _) if origin.is_some() && !same_origin => {
             let _ = respond(stream, "403 Forbidden", &[], b"");
         }
         ("GET", "answers") => {
-            let answers = session::lock(&shared.session).answer_snapshot();
+            let Some(session) = shared.session() else {
+                return refuse(stream, "404 Not Found", "no file is open yet");
+            };
+            let answers = session::lock(&session).answer_snapshot();
             reply_json(stream, "200 OK", &answers);
         }
         (_, "answers") => {
             let _ = respond(stream, "405 Method Not Allowed", &[("Allow", "GET")], b"");
         }
         ("GET", "file") => {
+            let Some(session) = shared.session() else {
+                return refuse(stream, "404 Not Found", "no file is open yet");
+            };
             let bytes = match query(&request.target, "rev") {
-                None | Some("new") => session::lock(&shared.session).current(),
+                None | Some("new") => session::lock(&session).current(),
                 Some("old") if diff => {
-                    let s = session::lock(&shared.session);
+                    let s = session::lock(&session);
                     Arc::clone(&s.old().expect("diff mode has OLD").bytes)
                 }
-                Some("saved") => return saved_file(stream, ctx),
+                Some("saved") => return saved_file(stream, &session),
                 Some(_) => return reply(stream, "404 Not Found", None, b""),
             };
             reply(stream, "200 OK", Some("application/octet-stream"), &bytes);
         }
         ("GET", "diff") => {
-            let report = session::lock(&shared.session).comparison().cloned();
+            let report = shared
+                .session()
+                .and_then(|session| session::lock(&session).comparison().cloned());
             match report {
                 Some(report) if diff => reply_json(stream, "200 OK", &report),
                 _ => reply(stream, "404 Not Found", None, b""),
@@ -815,28 +871,7 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
             if query(&request.target, "unsaved") == Some("1") {
                 *lock(&shared.unsaved) = Some(Instant::now() + ctx.close_delay);
             }
-            let s = session::lock(&shared.session);
-            let target = if shared.read_only {
-                None
-            } else {
-                s.save_target().map(|p| p.display().to_string())
-            };
-            let old = s.old();
-            let config = json!({
-                "api": API_VERSION,
-                "mode": shared.mode,
-                "name": s.file().name,
-                "path": s.file().path.display().to_string(),
-                "part": shared.part,
-                "oldName": old.map(|o| o.name.clone()),
-                "oldPath": old.map(|o| o.path.display().to_string()),
-                "readOnly": shared.read_only,
-                "wasmUrl": WASM_URL,
-                "saveTarget": target,
-                "savedPath": s.last_saved().map(|(p, _)| p.display().to_string()),
-                "specifyCore": env!("CARGO_PKG_VERSION"),
-            });
-            drop(s);
+            let config = config_json(shared);
             reply_json(stream, "200 OK", &config);
         }
         ("GET", rest) => {
@@ -856,6 +891,121 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
     }
 }
 
+/// `GET <token>/config`'s body: the same shape before and after a file is picked in the page.
+fn config_json(shared: &Shared) -> Value {
+    let session = shared.session();
+    let (name, path, old_name, old_path, target, saved_path) = match session {
+        Some(session) => {
+            let s = session::lock(&session);
+            let target = if shared.read_only {
+                None
+            } else {
+                s.save_target().map(|p| p.display().to_string())
+            };
+            let old = s.old();
+            // A file picked in the browser has no known input path on disk; saves write into
+            // `save_dir` under `<stem>.specified.step` (`saveTarget`).
+            let path = if shared.save_dir.is_some() {
+                None
+            } else {
+                Some(s.file().path.display().to_string())
+            };
+            (
+                Some(s.file().name.clone()),
+                path,
+                old.map(|o| o.name.clone()),
+                old.map(|o| o.path.display().to_string()),
+                target,
+                s.last_saved().map(|(p, _)| p.display().to_string()),
+            )
+        }
+        None => (None, None, None, None, None, None),
+    };
+    json!({
+        "api": API_VERSION,
+        "mode": shared.mode,
+        "name": name,
+        "path": path,
+        "part": shared.part,
+        "oldName": old_name,
+        "oldPath": old_path,
+        "readOnly": shared.read_only,
+        "wasmUrl": WASM_URL,
+        "saveTarget": target,
+        "savedPath": saved_path,
+        "specifyCore": env!("CARGO_PKG_VERSION"),
+    })
+}
+
+/// A percent-encoded plain filename (no path segments or control characters) that Specify opens.
+fn plain_step_name(raw: &str) -> Option<String> {
+    let name = percent_decode(raw)?;
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains(['/', '\\', ':', '\0'])
+        || name.bytes().any(|b| b < 0x20 || b == 0x7f)
+        || !is_step_name(&name)
+    {
+        return None;
+    }
+    Some(name)
+}
+
+/// `POST <token>/open`, from the app's own origin: loads a STEP file dropped or chosen in an
+/// empty `specify-core open` page into a session whose saves write into `save_dir`.
+fn open_file(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
+    let shared = ctx.shared;
+    let Some(save_dir) = shared.save_dir.as_ref() else {
+        return refuse(stream, "409 Conflict", "a file is already open");
+    };
+    if shared.session().is_some() {
+        return refuse(stream, "409 Conflict", "a file is already open");
+    }
+    let Some(raw_name) = request.header("x-specify-name") else {
+        return refuse(
+            stream,
+            "400 Bad Request",
+            "X-Specify-Name header is required",
+        );
+    };
+    let Some(name) = plain_step_name(raw_name) else {
+        return refuse(
+            stream,
+            "400 Bad Request",
+            "X-Specify-Name must be a plain .step, .stp, .step.gz or .stp.gz filename",
+        );
+    };
+    let bytes = match read_body(
+        stream,
+        request,
+        body,
+        MAX_OPEN_BODY,
+        "application/octet-stream",
+    ) {
+        Ok(bytes) => bytes,
+        Err((status, why)) => return refuse(stream, status, &why),
+    };
+    if bytes.is_empty() {
+        return refuse(stream, "400 Bad Request", "the STEP file is empty");
+    }
+    let opened = session::Opened::of(save_dir.join(&name), bytes);
+    let session = match session::Session::open(opened, false) {
+        Ok(session) => session,
+        Err(err) => return refuse(stream, "422 Unprocessable Content", &err.to_string()),
+    };
+    {
+        let mut slot = lock(&shared.session);
+        if slot.is_some() {
+            return refuse(stream, "409 Conflict", "a file is already open");
+        }
+        *slot = Some(Arc::new(Mutex::new(session)));
+    }
+    let _ = ctx.tell.send(format!("Opened {name}."));
+    let config = config_json(shared);
+    reply_json(stream, "200 OK", &config);
+}
+
 /// A JSON request body: `Content-Type: application/json` (415), a `Content-Length` and no
 /// `Transfer-Encoding` (411), at most `max` bytes (413), all of it within 30 s and 1 s more per
 /// MiB (408), parsed (400). The refusal's status and message otherwise.
@@ -873,17 +1023,32 @@ fn json_body(
 fn json_bytes(
     stream: &mut TcpStream,
     request: &Request,
-    mut body: Vec<u8>,
+    body: Vec<u8>,
     max: u64,
 ) -> Result<Vec<u8>, (&'static str, String)> {
-    let is_json = request
+    let body = read_body(stream, request, body, max, "application/json")?;
+    serde_json::from_slice::<serde_json::Value>(&body)
+        .map_err(|e| ("400 Bad Request", format!("not JSON: {e}")))?;
+    Ok(body)
+}
+
+/// Reads a fixed-length request body of `expected_type`: `Content-Type` (415), `Content-Length`
+/// with no `Transfer-Encoding` (411), at most `max` bytes (413), all within [`body_time`] (408).
+fn read_body(
+    stream: &mut TcpStream,
+    request: &Request,
+    mut body: Vec<u8>,
+    max: u64,
+    expected_type: &str,
+) -> Result<Vec<u8>, (&'static str, String)> {
+    let matches_type = request
         .header("content-type")
         .and_then(|t| t.split(';').next())
-        .is_some_and(|t| t.trim().eq_ignore_ascii_case("application/json"));
-    if !is_json {
+        .is_some_and(|t| t.trim().eq_ignore_ascii_case(expected_type));
+    if !matches_type {
         return Err((
             "415 Unsupported Media Type",
-            "send the body as application/json".into(),
+            format!("send the body as {expected_type}"),
         ));
     }
     // The body is read by its Content-Length only: a chunked (or otherwise encoded) body is
@@ -924,8 +1089,6 @@ fn json_bytes(
             Ok(n) => body.extend_from_slice(&chunk[..n]),
         }
     }
-    serde_json::from_slice::<serde_json::Value>(&body)
-        .map_err(|e| ("400 Bad Request", format!("not JSON: {e}")))?;
     Ok(body)
 }
 
@@ -939,6 +1102,9 @@ fn body_time(length: u64) -> Duration {
 /// a comment every [`KEEP_ALIVE`]. At most [`MAX_STREAMS`] at once.
 fn events(stream: &mut TcpStream, ctx: &Ctx) {
     let shared = ctx.shared;
+    let Some(session) = shared.session() else {
+        return refuse(stream, "404 Not Found", "no file is open yet");
+    };
     if shared.streams.fetch_add(1, Ordering::SeqCst) >= MAX_STREAMS {
         shared.streams.fetch_sub(1, Ordering::SeqCst);
         let mut headers: Vec<(&str, &str)> = COMMON.to_vec();
@@ -953,7 +1119,7 @@ fn events(stream: &mut TcpStream, ctx: &Ctx) {
         );
         return;
     }
-    let received = session::lock(&shared.session).subscribe();
+    let received = session::lock(&session).subscribe();
     let mut head = String::from("HTTP/1.1 200 OK\r\n");
     for (name, value) in COMMON {
         head.push_str(&format!("{name}: {value}\r\n"));
@@ -1014,8 +1180,8 @@ fn hung_up(stream: &mut TcpStream) -> bool {
 /// `GET <token>/file?rev=saved`: the bytes the session's last successful save wrote, read from
 /// disk now and served only if they still hash to what that save stored; the file's absolute
 /// path in `X-Specify-Path` (docs/open.md, `file`).
-fn saved_file(stream: &mut TcpStream, ctx: &Ctx) {
-    let saved = session::lock(&ctx.shared.session)
+fn saved_file(stream: &mut TcpStream, session: &session::Shared) {
+    let saved = session::lock(session)
         .last_saved()
         .map(|(path, sha)| (path.to_path_buf(), sha.to_string()));
     let Some((path, sha)) = saved else {
@@ -1115,6 +1281,9 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
     if shared.read_only {
         return refuse(stream, "409 Conflict", "opened read-only: nothing is saved");
     }
+    let Some(session) = shared.session() else {
+        return refuse(stream, "409 Conflict", "no file is open yet");
+    };
     let value = match json_body(stream, request, body, MAX_SAVE_BODY) {
         Ok(v) => v,
         Err((status, why)) => return refuse(stream, status, &why),
@@ -1127,11 +1296,9 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
         );
     };
     let result = match PageEdits::read(&value) {
-        Ok(PageEdits::Single(list)) => {
-            session::save_edits(&shared.session, Some(rev), &list, "page")
-        }
+        Ok(PageEdits::Single(list)) => session::save_edits(&session, Some(rev), &list, "page"),
         Ok(PageEdits::Assembly(lists)) => {
-            session::save_assembly_edits(&shared.session, Some(rev), &lists, "page")
+            session::save_assembly_edits(&session, Some(rev), &lists, "page")
         }
         Err(error) => return reply_json(stream, "400 Bad Request", &error),
     };
@@ -1150,7 +1317,7 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
             &json!({"error": "the session has changed since that rev: show it and save again", "rev": current}),
         ),
         Err(session::SaveError::Changed(why)) => {
-            let current = session::lock(&shared.session).rev();
+            let current = session::lock(&session).rev();
             reply_json(
                 stream,
                 "409 Conflict",
@@ -1185,6 +1352,9 @@ fn discard(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) 
             "opened read-only: nothing is discarded",
         );
     }
+    let Some(session) = shared.session() else {
+        return refuse(stream, "409 Conflict", "no file is open yet");
+    };
     let value = match json_body(stream, request, body, MAX_SAVE_BODY) {
         Ok(v) => v,
         Err((status, why)) => return refuse(stream, status, &why),
@@ -1216,7 +1386,7 @@ fn discard(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) 
             );
         }
     };
-    match session::discard_answers(&shared.session, Some(rev), target, "page") {
+    match session::discard_answers(&session, Some(rev), target, "page") {
         Ok(snapshot) => reply_json(stream, "200 OK", &snapshot),
         Err(session::SaveError::Stale(current)) => reply_json(
             stream,

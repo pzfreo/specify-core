@@ -24,7 +24,7 @@ import { describeFaces } from '../src/specify/datums';
 import type { StoredInspection } from '../src/specify/saved-inspection';
 import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
-import { discardAnswers, getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type EditFailure, type EditList, type LocalConfig, type AnswerDraft } from './local';
+import { discardAnswers, getAnswers, getConfig, getDiff, getFile, isStepName, keepAlive, listen, openFile, type DiffBody, type EditFailure, type EditList, type LocalConfig, type AnswerDraft } from './local';
 import { EditsRefused, editsSaver, FileChanged, NotShown, Stale, type Saver } from './save';
 import { PendingEdits, rejectedNoneByPart, removalTargets, withDrafts, withoutSent, type Pending } from './edits';
 import { EditBar } from './EditBar';
@@ -251,6 +251,12 @@ function App() {
   const [unshown, setUnshown] = useState<string | null>(null);
   const reshow = useRef<() => void>(() => {});
   const refreshConfig = useRef<() => void>(() => {});
+  const streamLostRef = useRef<() => void>(() => {});
+  const unlistenRef = useRef<() => void>(() => {});
+  const pageClosedRef = useRef(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const worker = useRef<WorkerClient | null>(null);
   const view = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -322,28 +328,76 @@ function App() {
 
   useEffect(() => {
     let stop = () => {};
-    let unlisten = () => {};
-    let unwatch = () => {};
-    let ended = false;
+    let cancelled = false;
     (async () => {
       const first = await getConfig();
+      if (cancelled) return;
       setConfig(first);
-      document.title = `${first.name} — Specify`;
+      document.title = first.name ? `${first.name} — Specify` : 'Specify';
       const heartbeat = keepAlive(setConfig, setStopped, () => {
-        ended = true;
-        unlisten();
+        pageClosedRef.current = true;
+        unlistenRef.current();
         sessionRef.current?.close();
       }, () => unsavedRef.current);
       stop = heartbeat.stop;
       refreshConfig.current = heartbeat.refresh;
+      streamLostRef.current = heartbeat.streamLost;
+    })().catch((error: unknown) => {
+      if (cancelled) return;
+      if (error instanceof SessionApiMismatch) setApiProblem(error.message);
+      else setOpeningError(message(error));
+    });
+    return () => { cancelled = true; stop(); };
+  }, []);
+
+  const empty = Boolean(config && !config.name);
+  useEffect(() => {
+    if (!empty) return undefined;
+    const stopDefault = (event: DragEvent) => { event.preventDefault(); };
+    window.addEventListener('dragover', stopDefault);
+    window.addEventListener('drop', stopDefault);
+    return () => {
+      window.removeEventListener('dragover', stopDefault);
+      window.removeEventListener('drop', stopDefault);
+    };
+  }, [empty]);
+
+  const pickFile = async (file: File | undefined) => {
+    if (!file || uploading || stopped || config?.name) return;
+    if (!isStepName(file.name)) {
+      setProblem(`${file.name} is not a STEP file: Specify opens .step, .stp, .step.gz or .stp.gz.`);
+      return;
+    }
+    setProblem(null);
+    setOpeningError(null);
+    setUploading(file.name);
+    try {
+      const next = await openFile(file);
+      setConfig(next);
+    } catch (error: unknown) {
+      setProblem(`Could not open ${file.name}: ${message(error)}`);
+    } finally {
+      setUploading(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!config || !config.name) return undefined;
+    const first = { ...config, name: config.name };
+    let unlisten = () => {};
+    let unwatch = () => {};
+    let ended = false;
+    document.title = `${first.name} — Specify`;
+    (async () => {
       worker.current = createIntentEngine({ wasmUrl: first.wasmUrl });
       const [bytes, answers, old, diff] = await Promise.all([
         getFile('new').then(stepBytes), getAnswers(),
         first.mode === 'diff' ? getFile('old').then(stepBytes) : null,
         first.mode === 'diff' ? getDiff() : null,
       ]);
+      if (ended || pageClosedRef.current) return;
       const answersSession = createSession(answers.rev, answers.parts, answers.drafts);
-      if (first.readOnly) setInspectionStep({ path: first.path, name: first.name, bytes });
+      if (first.readOnly) setInspectionStep({ path: first.path ?? first.name, name: first.name, bytes });
       captureSaved.current = (event) => {
         if (event.rev < savedRevision.current || ended) return;
         savedRevision.current = event.rev;
@@ -388,7 +442,7 @@ function App() {
         });
       };
       sessionRef.current = answersSession;
-      if (ended) answersSession.close();
+      if (ended || pageClosedRef.current) answersSession.close();
       const showDrafts = () => {
         setDirty(answersSession.dirty());
         setDraftSnapshot(answersSession.draftSnapshot());
@@ -402,7 +456,7 @@ function App() {
         setProblem(`The file saved earlier could not be shown, so this is the file as opened: ${message(error)}`);
         return null;
       }) : null;
-      const now = held && first.savedPath ? { name: inspectionName(first.savedPath), path: first.savedPath, bytes: held } : { name: first.name, path: first.path, bytes };
+      const now = held && first.savedPath ? { name: inspectionName(first.savedPath), path: first.savedPath, bytes: held } : { name: first.name, path: first.path ?? first.name, bytes };
       if (held) {
         const load = ++inspectionLoad.current;
         savedSource.current = { bytes: now.bytes, generation: load, name: now.name };
@@ -418,6 +472,7 @@ function App() {
       const at = { part: several ? (asked ?? withAnswers ?? rows[0]!).part : 0, several };
       setParts(rows);
       const part = await openPart(worker.current, answersSession, now.name, now.bytes, at, first.readOnly, edited, savedSource.current?.generation ?? 0, answeredRef.current);
+      if (ended || pageClosedRef.current) { part.store.close(); return; }
       if (old && diff) {
         const r = diff.report as { verdict?: string; summary?: string };
         setCompared({
@@ -427,40 +482,44 @@ function App() {
       }
       shownRef.current = part;
       let lost = false;
-      if (!ended) unlisten = listen((event) => {
-        // One rev can carry an event per part; a repeat of one already received is ignored.
-        if (!answersSession.receive(event)) return;
-        // A part joining the session is added to the page's model: the picker lists it, and the
-        // session holds it, with the answers it has.
-        if ('part' in event && several && !rows.some((r) => r.part === event.part)) {
-          rows = [...rows, { part: event.part, name: `Part ${event.part}`, instances: 1, written: false }];
-          setParts(rows);
-            }
-        // An agent's change to another part than the one shown: said, by name.
-        if (event.source === 'mcp' && 'part' in event && event.part !== shownRef.current?.part) {
-          const row = rows.find((r) => r.part === event.part);
-          const joined = event.joined === true && !Object.keys(event.answers).some((id) => !id.startsWith('_'));
-          setOther({ name: row?.name ?? `part ${event.part}`, part: event.part, n: Date.now(), joined });
-        }
-      }, (event) => {
-        answersSession.markSaved(event.rev);
-        const key = `${event.rev}:${event.path}`;
-        heardSaves.current.add(key);
-        if (!(event.source === 'page' && pageSaves.current.delete(key))) captureSaved.current(event);
-        if (event.source === 'mcp') void agentSaved(event.path);
-        heartbeat.refresh();
-      }, (up) => {
-        setLive(up);
-        if (!up) { lost = true; heartbeat.streamLost(); return; }
-        // Back after a loss: what changed meanwhile, as the session has it now.
-        if (lost) getAnswers().then((now) => answersSession.receive({ ...now, source: 'start' }), () => {});
-        lost = false;
-      });
+      if (!ended && !pageClosedRef.current) {
+        unlisten = listen((event) => {
+          // One rev can carry an event per part; a repeat of one already received is ignored.
+          if (!answersSession.receive(event)) return;
+          // A part joining the session is added to the page's model: the picker lists it, and the
+          // session holds it, with the answers it has.
+          if ('part' in event && several && !rows.some((r) => r.part === event.part)) {
+            rows = [...rows, { part: event.part, name: `Part ${event.part}`, instances: 1, written: false }];
+            setParts(rows);
+          }
+          // An agent's change to another part than the one shown: said, by name.
+          if (event.source === 'mcp' && 'part' in event && event.part !== shownRef.current?.part) {
+            const row = rows.find((r) => r.part === event.part);
+            const joined = event.joined === true && !Object.keys(event.answers).some((id) => !id.startsWith('_'));
+            setOther({ name: row?.name ?? `part ${event.part}`, part: event.part, n: Date.now(), joined });
+          }
+        }, (event) => {
+          answersSession.markSaved(event.rev);
+          const key = `${event.rev}:${event.path}`;
+          heardSaves.current.add(key);
+          if (!(event.source === 'page' && pageSaves.current.delete(key))) captureSaved.current(event);
+          if (event.source === 'mcp') void agentSaved(event.path);
+          refreshConfig.current();
+        }, (up) => {
+          setLive(up);
+          if (!up) { lost = true; streamLostRef.current(); return; }
+          // Back after a loss: what changed meanwhile, as the session has it now.
+          if (lost) getAnswers().then((now) => answersSession.receive({ ...now, source: 'start' }), () => {});
+          lost = false;
+        });
+        unlistenRef.current = unlisten;
+      }
       setOpened(part);
       // The other parts the session holds answers for: what the file stores for each, so answers an
       // agent gave them before the page opened count as unsaved. A part Specify did not write
       // stores none; one it wrote is read from the file, after the part shown is up.
       for (const row of rows) {
+        if (ended || pageClosedRef.current) break;
         if (row.part === at.part || !(String(row.part) in answers.parts)) continue;
         if (!row.written) { answersSession.fileAnswers(row.part, {}); continue; }
         const snapshot = await worker.current.request<{ analysis: PmiLabSession['analysis'] }>('open', fileOf(now.name, now.bytes, row.part, true)).catch(() => null);
@@ -471,8 +530,16 @@ function App() {
       if (error instanceof SessionApiMismatch) setApiProblem(error.message);
       else setOpeningError(message(error));
     });
-    return () => { stop(); unlisten(); unwatch(); sessionRef.current?.close(); worker.current?.dispose(); };
-  }, []);
+    return () => {
+      ended = true;
+      unlisten();
+      unlistenRef.current = () => {};
+      unwatch();
+      sessionRef.current?.close();
+      worker.current?.dispose();
+      worker.current = null;
+    };
+  }, [config?.name]);
 
   useEffect(() => {
     if (!opened) return;
@@ -493,7 +560,7 @@ function App() {
       // If another page or the agent saved while this part was opening, open the saved version.
       for (;;) {
         const source = savedSource.current;
-        const next = await openPart(worker.current, answersSession, source?.name ?? config.name, source?.bytes ?? opened.bytes,
+        const next = await openPart(worker.current, answersSession, source?.name ?? config.name ?? opened.session.filename, source?.bytes ?? opened.bytes,
           { part: index, several: true }, config.readOnly, edited, source?.generation ?? opened.generation, answeredRef.current);
         if (source !== savedSource.current) { next.store.close(); continue; }
         shownRef.current?.store.close();
@@ -898,8 +965,10 @@ function App() {
           <strong className="app-brand">Specify</strong>
           {config && mode === 'diff' && <span className="app-file app-old" title={config.oldPath ?? ''}>{config.oldName}</span>}
           {config && mode === 'diff' && <span aria-hidden="true">→</span>}
-          {config && <span className="app-file">{savedAs?.name ?? config.name}</span>}
-          {config && <code className="app-path">{mode === 'diff' ? `${config.oldPath} → ${savedAs?.path ?? config.path}` : savedAs?.path ?? config.path}</code>}
+          {config?.name && <span className="app-file">{savedAs?.name ?? config.name}</span>}
+          {config?.name && (mode === 'diff' || savedAs?.path || config.path) && (
+            <code className="app-path">{mode === 'diff' ? `${config.oldPath} → ${savedAs?.path ?? config.path}` : savedAs?.path ?? config.path}</code>
+          )}
           {parts.length > 1 && opened && (
             <label className="app-part">Part{' '}
               <select value={opened.part} disabled={busy} onChange={(event) => void showPart(Number(event.target.value))}>
@@ -910,17 +979,19 @@ function App() {
           {readOnly && config && <span className="app-badge">View only</span>}
           {unsaved && <span className="app-dirty">Unsaved changes</span>}
         </div>
-        <div className="app-actions">
-          <div className="app-exports">
-            <button type="button" onClick={downloadCsv} disabled={!inspectionReady} title={inspectionTitle}>Inspection list (CSV)</button>
-            <button type="button" onClick={downloadFai} disabled={!inspectionReady} title={inspectionTitle}>AS9102 FAI (Excel)</button>
-            {inspectionStep && <span className="app-inspection-source">
-              from <code>{inspectionStep.name}</code>
-            </span>}
-            {inspectionProblem && <span className="app-problem" role="alert">Inspection exports unavailable. {inspectionProblem}</span>}
+        {!empty && (
+          <div className="app-actions">
+            <div className="app-exports">
+              <button type="button" onClick={downloadCsv} disabled={!inspectionReady} title={inspectionTitle}>Inspection list (CSV)</button>
+              <button type="button" onClick={downloadFai} disabled={!inspectionReady} title={inspectionTitle}>AS9102 FAI (Excel)</button>
+              {inspectionStep && <span className="app-inspection-source">
+                from <code>{inspectionStep.name}</code>
+              </span>}
+              {inspectionProblem && <span className="app-problem" role="alert">Inspection exports unavailable. {inspectionProblem}</span>}
+            </div>
           </div>
-        </div>
-        {config && (
+        )}
+        {config?.name && (
           <div className="app-paths">
             {saved && (
               <div className="app-saved" role="status">
@@ -949,7 +1020,9 @@ function App() {
       {stopped && config ? (
         <p className="app-offline app-stopped" role="status">
           Specify has stopped. Run <code>specify-core open …</code> again (or ask your agent to show it).
-          {' '}Your saved file is at <code>{saved?.path ?? savedAs?.path ?? config.path}</code>.
+          {(saved?.path ?? savedAs?.path ?? config.path) && (
+            <>{' '}Your saved file is at <code>{saved?.path ?? savedAs?.path ?? config.path}</code>.</>
+          )}
           {heldLists.length > 0 && <span className="app-held">
             {' '}Your unsaved changes were not written.
             {heldLists.map((held) => (
@@ -994,7 +1067,43 @@ function App() {
         </nav>
       )}
       <main className="app-main">
-        {!opened && !problem && !openingError && !apiProblem && !stopped && <p className="app-loading">Opening {config?.name ?? 'the part'}…</p>}
+        {empty && !apiProblem && !stopped && (
+          <div
+            className={`app-drop-area${dragOver ? ' drag-over' : ''}`}
+            onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDragOver(true); }}
+            onDragEnter={(event) => { event.preventDefault(); setDragOver(true); }}
+            onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOver(false); }}
+            onDrop={(event) => { event.preventDefault(); setDragOver(false); void pickFile(event.dataTransfer.files[0]); }}
+          >
+            <div className="app-drop-card">
+              <p className="app-drop-prompt">
+                {uploading ? `Opening ${uploading}…` : (
+                  <>
+                    Drop a STEP file here, or{' '}
+                    <button type="button" className="app-choose-file" disabled={Boolean(uploading) || stopped} onClick={() => fileInput.current?.click()}>
+                      Choose file…
+                    </button>
+                  </>
+                )}
+              </p>
+              <p className="app-drop-hint">Accepts <code>.step</code>, <code>.stp</code>, <code>.step.gz</code> and <code>.stp.gz</code> · runs locally on this computer</p>
+              <input
+                ref={fileInput}
+                className="app-file-input"
+                type="file"
+                accept=".step,.stp,.step.gz,.stp.gz"
+                aria-label="Choose a STEP file"
+                disabled={Boolean(uploading) || stopped}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = '';
+                  void pickFile(file);
+                }}
+              />
+            </div>
+          </div>
+        )}
+        {!empty && !opened && !problem && !openingError && !apiProblem && !stopped && <p className="app-loading">Opening {config?.name ?? 'the part'}…</p>}
         {compared && (
           <div className="app-diff diff-page" hidden={!showingChanges}>
             <StepDiff before={compared.old} after={compared.next} compared={compared.body} wasmUrl={config?.wasmUrl} />
@@ -1086,7 +1195,7 @@ function App() {
           />
         )}
       </main>
-      {editing && (
+      {editing && !empty && (
         <EditBar items={items} drafts={draftSnapshot.drafts} saving={saving && !stopped} busy={busy} blocked={(!opened ? 'Opening…' : undefined) ?? saveBlocked} savedNote={savedNote}
           onSave={() => void onSave()} onDiscard={() => void onDiscard()} onUndoDraft={(part, id) => void onDiscard({ part, id })} />
       )}

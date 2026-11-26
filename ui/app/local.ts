@@ -11,9 +11,10 @@ export interface LocalConfig {
   /** Session API version; absent in specify-core 0.2.0. */
   api?: number;
   mode: Mode;
-  /** The file's name (NEW's in diff mode), and its absolute path as given. */
-  name: string;
-  path: string;
+  /** The file's name (NEW's in diff mode), or null before a file is picked in the page. */
+  name: string | null;
+  /** The file's absolute path as given, or null when no file is open or it was picked in the page. */
+  path: string | null;
   /** The part index the page is shown for (an agent's `show` on a part of a file of several); otherwise null. */
   part: number | null;
   /** OLD's, in diff mode; otherwise null. */
@@ -21,7 +22,7 @@ export interface LocalConfig {
   oldPath: string | null;
   readOnly: boolean;
   wasmUrl: string;
-  /** Where the next save writes; null when read-only. */
+  /** Where the next save writes; null when read-only or before a file is open. */
   saveTarget: string | null;
   /** What the session's last save wrote; null before one (absent from an older command). */
   savedPath?: string | null;
@@ -66,6 +67,24 @@ async function json<T>(request: Promise<Response>): Promise<T> {
   const response = await request;
   if (!response.ok) throw await failure(response);
   return response.json() as Promise<T>;
+}
+
+/** Whether Specify opens a file of this name: `.step` or `.stp`, or either gzipped. */
+export const isStepName = (name: string) => /\.(step|stp)(\.gz)?$/i.test(name);
+
+/** Upload a STEP file picked or dropped into an empty `specify-core open` page. */
+export async function openFile(file: File): Promise<LocalConfig> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const config = await json<LocalConfig>(fetch('open', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-Specify-Name': encodeURIComponent(file.name),
+    },
+    body: bytes,
+  }));
+  requireSessionApi(config.api);
+  return config;
 }
 
 /** ``unsaved``: the page holds edits not saved yet, which keep the command serving when an agent that started it exits. */

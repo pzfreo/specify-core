@@ -26,6 +26,16 @@ body { background: #fff; color: #1a1d21; font: 13px/1.45 ui-sans-serif, -apple-s
 .app-problem { margin: 0; padding: 6px 14px; background: #fbeaea; color: #b3261e; white-space: pre-wrap; }
 .app-main { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 .app-loading { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: #707880; }
+.app-drop-area { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; padding: 24px; background: #f7f8fa; }
+.app-drop-card { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 480px; width: 100%;
+  padding: 40px 28px; border: 2px dashed #c4ccd6; border-radius: 10px; background: #fff; text-align: center;
+  transition: border-color .12s ease, background-color .12s ease; }
+.app-drop-area.drag-over .app-drop-card { border-color: #2f6fb5; background: #eef4fc; }
+.app-drop-prompt { margin: 0; font-size: 15px; color: #1a1d21; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; }
+.app .app-choose-file { background: #2f6fb5; border-color: #2f6fb5; color: #fff; font-weight: 600; padding: 6px 14px; }
+.app-drop-hint { margin: 0; font-size: 12px; color: #707880; }
+.app-drop-hint code { font-family: var(--specify-mono-font); }
+.app-file-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .app-slot { position: absolute; inset: 0; }
 .app-main .pmi-lab.pmi-lab-pane { position: absolute; inset: 0; }
 .app-panel { pointer-events: none; }

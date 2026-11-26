@@ -44,6 +44,12 @@ Read first:
 
 ### Added
 
+- **`specify-core open` without a file** (docs/open.md): starts the local app empty with a drop
+  target and file picker accepting `.step`, `.stp`, `.step.gz` and `.stp.gz`. Dropping or choosing
+  a file uploads its bytes to the local server (`POST <token>/open`, same-origin, 64 MiB limit) and
+  opens the same review; Save writes `<stem>.specified.step` (then `-2`, `-3`, …; updating only
+  this session's copy, never overwriting any other file) in the working directory where `open` was
+  started, shown in `saveTarget`. `--in-place` still requires a file on the command line.
 - **The ids are a contract** (docs/ids.md): the part-level ids (`part.material`, `datum.<letter>`,
   `bom.*`, `extra.<name>`, …), the requirement kinds (`hole.position`, `diameter.fit`, …) and the
   added requirement kinds, and measurement ids `length:planes:*` and `location:holes:*`,

@@ -219,21 +219,22 @@ to stdout. See docs/carry.md.")]
     /// open a STEP file in Specify in your browser, served from this computer
     #[command(long_about = "\
 Open a STEP file in Specify in your browser, served by this command on 127.0.0.1: nothing
-is uploaded. Specify's Save writes the specified file, from the answers given in the page,
-next to the input as <name>.specified.step (then -2, -3, ...; later saves update the copy
-this run wrote, and no other file is overwritten), or with
---in-place over the input (through a link, to its target), the original kept once as .bak.
-With --diff OLD NEW the page shows what changed from OLD (as `specify-core diff` reports it)
-and opens NEW as `open NEW` would; Save writes NEW. Stops 90 seconds after the last
-page is closed, or after 30 minutes without a request.
+is uploaded. Without a file, the page opens with a drop target and file picker and Save writes
+<name>.specified.step into the current working directory. With a file, Specify's Save writes
+the specified file, from the answers given in the page, next to the input as
+<name>.specified.step (then -2, -3, ...; later saves update the copy this run wrote, and no
+other file is overwritten), or with --in-place over the input (through a link, to its target),
+the original kept once as .bak. With --diff OLD NEW the page shows what changed from OLD (as
+`specify-core diff` reports it) and opens NEW as `open NEW` would; Save writes NEW. Stops 90
+seconds after the last page is closed, or after 30 minutes without a request.
 
 The app and its engine are built into this command: nothing is downloaded. Use --app DIR (or
 SPECIFY_APP_DIR) for another app and --wasm DIR (or SPECIFY_WASM_DIR) for a local wasm-pack
 pkg/ directory (else an app's own wasm/, else the built-in engine). A build made without the
 app needs --app.")]
     Open {
-        /// a .step or .stp file, or either gzipped
-        #[arg(required_unless_present = "diff", conflicts_with = "diff")]
+        /// a .step or .stp file, or either gzipped (omit to pick a file in the browser)
+        #[arg(conflicts_with = "diff")]
         step: Option<PathBuf>,
         /// compare OLD to NEW, and specify NEW
         #[arg(long, num_args = 2, value_names = ["OLD", "NEW"])]
@@ -503,7 +504,8 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
                     old: old.clone(),
                     new: new.clone(),
                 },
-                _ => return Err(Exit::new(2, "open FILE, or open --diff OLD NEW")),
+                (None, None) => Opening::Empty,
+                _ => return Err(Exit::new(2, "open [FILE], or open --diff OLD NEW")),
             };
 
             open(
@@ -628,14 +630,16 @@ fn part_arg(step: &Path, part: Option<i64>) -> Result<Option<usize>, Exit> {
 
 /// What `open` opens.
 enum Opening {
+    Empty,
     File(PathBuf),
     Diff { old: PathBuf, new: PathBuf },
 }
 
-/// `open`: a session of the file (or of the pair, compared as `diff` compares them), the
-/// Specify app served on 127.0.0.1 for it and the browser opened at it (or, with
-/// `--no-browser`, only its address printed); then each save's notice and the stop's. Exit 2
-/// for a name Specify does not open, no app, or options that cannot be combined.
+/// `open`: a session of the file (or of the pair, compared as `diff` compares them, or empty until
+/// a file is dropped/picked in the browser), the Specify app served on 127.0.0.1 for it and the
+/// browser opened at it (or, with `--no-browser`, only its address printed); then each save's
+/// notice and the stop's. Exit 2 for a name Specify does not open, no app, or options that cannot
+/// be combined.
 fn open(
     opening: &Opening,
     in_place: bool,
@@ -669,28 +673,45 @@ fn open(
             ))
         }
     };
-    let session = match opening {
+    let served = match opening {
+        Opening::Empty => {
+            if in_place {
+                return Err(Exit::new(2, "cannot open: --in-place requires a file"));
+            }
+            let save_dir = std::env::current_dir().map_err(Exit::error)?;
+            let found = assets(app, wasm).map_err(failed)?;
+            App::empty(save_dir, found, options).map_err(failed)?
+        }
         Opening::File(step) => {
             named(step)?;
-            Session::open(Opened::read(step).map_err(Exit::error)?, in_place)
+            let session =
+                Session::open(Opened::read(step).map_err(Exit::error)?, in_place).map_err(refused)?;
+            let found = assets(app, wasm).map_err(failed)?;
+            let session = std::sync::Arc::new(std::sync::Mutex::new(session));
+            App::new(session, found, options).map_err(failed)?
         }
         Opening::Diff { old, new } => {
             named(old)?;
             named(new)?;
             let old = Opened::read(old).map_err(Exit::error)?;
             let new = Opened::read(new).map_err(Exit::error)?;
-            Session::diff(old, new, None, in_place).and_then(|mut session| {
-                session.resume()?;
-                Ok(session)
-            })
+            let session = Session::diff(old, new, None, in_place)
+                .and_then(|mut session| {
+                    session.resume()?;
+                    Ok(session)
+                })
+                .map_err(refused)?;
+            let found = assets(app, wasm).map_err(failed)?;
+            let session = std::sync::Arc::new(std::sync::Mutex::new(session));
+            App::new(session, found, options).map_err(failed)?
         }
-    }
-    .map_err(refused)?;
-    let found = assets(app, wasm).map_err(failed)?;
-    let session = std::sync::Arc::new(std::sync::Mutex::new(session));
-    let served = App::new(session, found, options).map_err(failed)?;
+    };
     let url = served.url();
-    print(out, &format!("Open {}: {url}", served.name()))?;
+    if served.name().is_empty() {
+        print(out, &format!("Open: {url}"))?;
+    } else {
+        print(out, &format!("Open {}: {url}", served.name()))?;
+    }
     out.flush().map_err(Exit::error)?;
     if !no_browser && let Err(e) = launch_browser(&url) {
         let _ = writeln!(
