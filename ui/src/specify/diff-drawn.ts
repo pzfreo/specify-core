@@ -96,21 +96,22 @@ export function createDiffDrawn(
   });
 
   const changed = (id: string) => change.has(id);
+  const diffStyle = { litColour: '#0b62c4', lineWeight: { file: 1.5, generated: 2 }, minTextPx: 11.5 };
   const nowLayer = createDrawnLayer(host, nowTally, {
-    onClick, centre,
+    onClick, centre, ...diffStyle,
     colourOf: (item) => PMI_COLOUR[(item !== null && change.get(item)) || 'unchanged'],
     // A graphic several items share (a notes block) is drawn as one that changed, if one did.
     rank: (item) => (changed(item) ? 0 : 1),
   });
   const wasLayer = createDrawnLayer(host, wasTally, {
-    onClick, centre, alpha: GHOST,
+    onClick, centre, alpha: GHOST, ...diffStyle,
     colourOf: (item) => (item !== null && removed.has(item) ? PMI_COLOUR.removed : null),
     rank: (item) => (removed.has(item) ? 0 : 1),
   });
   // The old callout of the changed item in hand, by its new id, clicked as that.
   const newOf = new Map([...before].map(([id, old]) => [old, id] as const));
   const beforeLayer = createDrawnLayer(host, beforeTally, {
-    onClick: (old) => onClick(newOf.get(old) ?? old), centre, alpha: GHOST,
+    onClick: (old) => onClick(newOf.get(old) ?? old), centre, alpha: GHOST, ...diffStyle,
     colourOf: () => PMI_COLOUR.removed,
   });
   nowLayer.set(now);

@@ -14,6 +14,7 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import type { PmiAnalysis, PmiAnchor, PmiMesh } from '../types/pmi';
 
 import { ranges } from './characteristics';
+import { STANDARD_GAP_INK, STANDARD_INK, STANDARD_LIT_INK, STANDARD_UNSAVED_INK } from './drawn-layer';
 import type { PmiLabel } from './labels';
 /** What labels are drawn over: a scene of their own, the view's camera, the part's size. */
 export interface AnnotationHost {
@@ -26,7 +27,7 @@ export interface AnnotationHost {
 }
 
 export const GROUP_COLOUR = {
-  answered: '#2f6fb5', default: '#6f8db3', existing: '#707880', general: '#3d8a6e', current: '#c47f00',
+  answered: STANDARD_INK, default: STANDARD_GAP_INK, existing: STANDARD_INK, general: '#3d8a6e', current: STANDARD_LIT_INK,
 } as const;
 const LEADER_PX = 2.2;
 const STANDOFF = 0.07; // label distance from its face, as a share of the diagonal
@@ -210,6 +211,7 @@ export function createAnnotations(
       parent.append(el);
       return el;
     };
+    if (label.gap) add('span', 'pmi-gap-mark', '⊕ ');
     if (label.count && label.count > 1) add('span', 'times', `${label.count}× `);
     if (label.kind === 'frame') {
       const frame = add('span', 'fcf', '');
@@ -226,6 +228,7 @@ export function createAnnotations(
       }
       if (label.cells.length > 1) add('span', 'sub', ` ${label.cells.slice(1).join(' ')}`);
     }
+    if (label.gap) inner.title = label.gap;
     return inner;
   }
 
@@ -248,9 +251,11 @@ export function createAnnotations(
       const span = label.span ? spanOf(label.span, label.faces, stacked) : null;
       if (!at && !span) continue;
       const colour = label.question && label.question === current
-        ? GROUP_COLOUR.current : GROUP_COLOUR[label.group];
+        ? GROUP_COLOUR.current
+        : label.unsaved ? STANDARD_UNSAVED_INK : GROUP_COLOUR[label.group];
       const el = document.createElement('div');
-      el.className = `pmi ${label.group}${hidden ? ' hidden' : ''}`;
+      el.className = `pmi ${label.group}${label.gap ? ' pmi-gap' : ''}${hidden ? ' hidden' : ''}`;
+      if (label.question) el.dataset['pmiQuestion'] = label.question;
       el.style.color = colour;
       const inner = markup(label);
       // Its balloon numbers, as the characteristics table numbers them.
@@ -279,7 +284,7 @@ export function createAnnotations(
 
       // WebGL draws THREE.Line one pixel wide whatever linewidth says; Line2
       // gives a leader that reads at a glance.
-      const faint = label.group === 'default';
+      const faint = label.group === 'default' || Boolean(label.gap);
       const material = (px: number) => {
         const m = new LineMaterial({
           color: new THREE.Color(colour).getHex(), linewidth: px, worldUnits: false,

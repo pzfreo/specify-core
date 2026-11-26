@@ -12,7 +12,7 @@ import type { PmiAnalysis, PmiMesh, PmiVec } from '../types/pmi';
 import { createAnnotations } from './annotations';
 import { createDefaultView } from './cad-view';
 import { HOME, type DefaultView } from './default-view';
-import { drawnGroup, partCentre, type DrawnPmi, type DrawnPoint } from './drawn';
+import { drawnGroup, partCentre, type DrawnPmi, type DrawnPoint, type DrawnView } from './drawn';
 import { createDrawnLayer } from './drawn-layer';
 import { chooseFaceRoute, faceSamples, withFaceRoute, type Box, type HostPointerEvent, type HostView, type Vec3 } from './host-view';
 import { toLabels, type PmiLabel } from './labels';
@@ -145,9 +145,90 @@ export function createReviewView(
     onLabel: (label) => { for (const f of listeners.label) f(label); },
   }) : null;
   const drawnBounds = () => overlays?.drawnBounds() ?? null;
-  // The part with ``also``, as the default view frames it.
+  let defaultView: DrawnView | null = null;
+  let defaultViewKey = '';
+  // Exact orthographic fit computed directly from world-space points along the camera's (right, up)
+  // axes so the part and shown callouts sit centred and fill ~84% of the 3D viewport, independent
+  // of three-cad-viewer's async frame update.
+  const tightenFit = (eyeDir: DrawnPoint, upDir: DrawnPoint | undefined, around: THREE.Box3) => {
+    if (!own) return;
+    const cam = own.cad.camera as THREE.OrthographicCamera;
+    if (!cam.isOrthographicCamera) return;
+    const frustumW = Math.abs(cam.right - cam.left);
+    const frustumH = Math.abs(cam.top - cam.bottom);
+    if (frustumW < 1e-6 || frustumH < 1e-6) return;
+    const e = new THREE.Vector3(...eyeDir).normalize();
+    const look = e.clone().negate();
+    let u = upDir ? new THREE.Vector3(...upDir).normalize() : new THREE.Vector3(0, 0, 1);
+    if (Math.abs(e.dot(u)) > 0.99) u = new THREE.Vector3(0, 0, 1);
+    const right = new THREE.Vector3().crossVectors(look, u).normalize();
+    const camUp = new THREE.Vector3().crossVectors(right, look).normalize();
+    const target = around.getCenter(new THREE.Vector3());
+
+    let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity;
+    const visit = (x: number, y: number, z: number) => {
+      const dx = x - target.x;
+      const dy = y - target.y;
+      const dz = z - target.z;
+      const pu = dx * right.x + dy * right.y + dz * right.z;
+      const pv = dx * camUp.x + dy * camUp.y + dz * camUp.z;
+      if (pu < uMin) uMin = pu;
+      if (pu > uMax) uMax = pu;
+      if (pv < vMin) vMin = pv;
+      if (pv > vMax) vMax = pv;
+    };
+    const stride = Math.max(1, Math.floor(mesh.positions.length / 3 / 600)) * 3;
+    for (let i = 0; i + 2 < mesh.positions.length; i += stride) {
+      visit(mesh.positions[i]!, mesh.positions[i + 1]!, mesh.positions[i + 2]!);
+    }
+    for (const q of overlays?.drawnLayer.tightPoints() ?? []) {
+      visit(q.x, q.y, q.z);
+    }
+    const uSpan = uMax - uMin;
+    const vSpan = vMax - vMin;
+    if (!Number.isFinite(uSpan) || uSpan < 1e-6 || vSpan < 1e-6) return;
+    const wantZoom = Math.min(8, Math.max(0.2, 0.84 * Math.min(frustumW / uSpan, frustumH / vSpan)));
+    const shiftU = (uMin + uMax) / 2;
+    const shiftV = (vMin + vMax) / 2;
+    const nextTarget = target.clone().addScaledVector(right, shiftU).addScaledVector(camUp, shiftV);
+    const dist = new THREE.Vector3(...own.cad.viewer.getCameraPosition())
+      .distanceTo(new THREE.Vector3(...own.cad.viewer.getCameraTarget()));
+    const nextEye = nextTarget.clone().addScaledVector(e, dist);
+    own.cad.viewer.setCameraTarget(nextTarget.toArray() as [number, number, number], false);
+    own.cad.viewer.setCameraPosition(nextEye.toArray() as [number, number, number], false, false);
+    own.cad.viewer.setCameraZoom(wantZoom, false);
+  };
+  let lastFitSize = '';
+  let lastFitAround: THREE.Box3 | null = null;
+  const fitKey = () => {
+    if (!own) return '';
+    const [w, h] = own.cad.size();
+    const cam = own.cad.camera as THREE.OrthographicCamera;
+    const fw = cam.isOrthographicCamera ? Math.abs(cam.right - cam.left) : 0;
+    const fh = cam.isOrthographicCamera ? Math.abs(cam.top - cam.bottom) : 0;
+    return `${Math.round(w)}x${Math.round(h)}|${fw.toFixed(4)}x${fh.toFixed(4)}`;
+  };
+  if (own) {
+    own.cad.onFrame(() => {
+      if (moved || !defaultView || !lastFitAround) return;
+      const key = fitKey();
+      if (key === lastFitSize) return;
+      lastFitSize = key;
+      tightenFit(defaultView.eye, defaultView.up, lastFitAround);
+    });
+  }
+  // The part with ``also``, framed from Best view when available.
   const homeView = () => {
     const also = drawnBounds();
+    if (defaultView) {
+      const v = (p: DrawnPoint) => new THREE.Vector3(...p);
+      const around = partBox.clone().union(also ?? new THREE.Box3(v(defaultView.min), v(defaultView.max)));
+      view.lookFrom([...defaultView.eye] as Vec3, { frame: boxOf(around), ...(defaultView.up ? { up: [...defaultView.up] as Vec3 } : {}) });
+      lastFitAround = around;
+      lastFitSize = fitKey();
+      tightenFit(defaultView.eye, defaultView.up, around);
+      return;
+    }
     if (also) view.lookFrom(HOME as Vec3, { frame: boxOf(partBox.clone().union(also)) });
     else view.home();
   };
@@ -199,9 +280,9 @@ export function createReviewView(
   return {
     navigator: navigator as unknown as Picker['navigator'],
     missing: mesh.missing,
-    annotate(intent, { current = null, show = {}, balloons = new Map(), pending, reveal, datums = true } = {}) {
+    annotate(intent, { current = null, show = {}, balloons = new Map(), pending, reveal, datums = true, labels } = {}) {
       if (!overlays) return;
-      const shown = toLabels(intent, analysis, pending)
+      const shown = (labels ?? toLabels(intent, analysis, pending))
         .filter((label) => datums || label.kind !== 'datum' || label.group === 'existing')
         .filter((label) => show[label.group] !== false || reveal?.has(label.id));
       overlays.annotations.set(shown, { current, anchors: intent?.anchors ?? {}, balloons });
@@ -239,20 +320,38 @@ export function createReviewView(
       own?.collapse();
     },
     setLabelsVisible: (on) => overlays?.annotations.setVisible(on),
-    drawn(pmi, visible) {
+    drawn(pmi, visible, labels) {
       if (!overlays) return;
       // Turned on: framed once with its callouts, so none starts out of view.
-      if (overlays.drawn(pmi, visible) && !moved) homeView();
+      if (overlays.drawn(pmi, visible, labels) && !moved) homeView();
     },
-    drawnFilter: (show, farSide) => overlays?.drawnLayer.filter(show, farSide),
+    lightDrawn: (item) => overlays?.drawnLayer.light(item),
+    drawnFilter: (show, farSide, reveal) => overlays?.drawnLayer.filter(show, farSide, reveal),
+    setDrawnUnsaved: (items) => overlays?.drawnLayer.setUnsaved(items),
+    setDrawnOrigin: (origin) => overlays?.drawnLayer.setOrigin(origin),
+    setDefaultView(next) {
+      defaultView = next;
+      const nextKey = next ? `${next.eye.join(',')}|${next.up?.join(',') ?? ''}|${next.min.join(',')}|${next.max.join(',')}` : '';
+      if (nextKey !== defaultViewKey) {
+        defaultViewKey = nextKey;
+        if (!moved) homeView();
+      }
+    },
     lookSquare(drawnView) {
       // Square on, framing its graphics with the part: a callout is read where it is on the part.
       const v = (p: DrawnPoint) => new THREE.Vector3(...p);
       const around = partBox.clone().union(new THREE.Box3(v(drawnView.min), v(drawnView.max)));
       view.lookFrom([...drawnView.eye] as Vec3, { frame: boxOf(around), ...(drawnView.up ? { up: [...drawnView.up] as Vec3 } : {}) });
+      if (drawnView.key === 'best') tightenFit(drawnView.eye, drawnView.up, around);
     },
     setFarSideHidden: (on) => overlays?.annotations.setFarSideHidden(on),
-    setTools: (on) => own?.showTools(on),
+    setTools: (on) => {
+      own?.showTools(on);
+      if (!moved && defaultView && lastFitAround) {
+        lastFitSize = fitKey();
+        tightenFit(defaultView.eye, defaultView.up, lastFitAround);
+      }
+    },
     setTransparency(amount) {
       const a = Math.min(Math.max(amount, 0), 0.95);
       seeThrough = a > 0;
@@ -323,12 +422,15 @@ function overlaysOver(own: DefaultView, { mesh, analysis, occluders, onLabel }: 
 
   // The file's own graphics, in the labels' scene; a linked one clicked is its item's label.
   let drawnPmi: DrawnPmi | null = null;
+  let reviewLabels: ReadonlyMap<string, PmiLabel> | undefined;
   let drawnShowing = false;
   // The part, and the file's callouts when they are drawn: a notes block off the part is in view.
   const drawnBounds = () => (drawnShowing ? drawnLayer.bounds() : null);
   // The orientation cube frames them too, as home and fit do.
   cad.alsoFrame(drawnBounds);
   const drawnLabel = (item: string): PmiLabel => {
+    const reviewLabel = reviewLabels?.get(item);
+    if (reviewLabel) return reviewLabel;
     const link = drawnPmi?.links[item];
     return {
       id: `drawn:${item}`, kind: 'note', group: drawnGroup(link) ?? 'existing',
@@ -339,12 +441,14 @@ function overlaysOver(own: DefaultView, { mesh, analysis, occluders, onLabel }: 
   };
   const drawnLayer = createDrawnLayer(host, labels, {
     onClick: (item) => onLabel(drawnLabel(item)),
+    titleOf: (item) => reviewLabels?.get(item)?.title,
     centre: partCentre(mesh.positions),
   });
   return {
     annotations, drawnLayer, drawnBounds,
     /** Shows the file's graphics, or not; whether they were just turned on. */
-    drawn(pmi: DrawnPmi | null, visible: boolean) {
+    drawn(pmi: DrawnPmi | null, visible: boolean, nextLabels?: ReadonlyMap<string, PmiLabel>) {
+      reviewLabels = nextLabels;
       if (pmi !== drawnPmi) { drawnPmi = pmi; drawnLayer.set(pmi); }
       const showing = visible && pmi !== null;
       drawnLayer.setVisible(showing);
@@ -356,7 +460,7 @@ function overlaysOver(own: DefaultView, { mesh, analysis, occluders, onLabel }: 
     pointAt(x: number, y: number) {
       const item = drawnLayer.hit(x, y);
       cad.canvas.style.cursor = item === null ? '' : 'pointer';
-      cad.canvas.title = item === null ? '' : drawnPmi?.presentation.items[item]?.[0]?.name ?? '';
+      cad.canvas.title = item === null ? '' : reviewLabels?.get(item)?.title ?? drawnPmi?.presentation.items[item]?.[0]?.name ?? '';
     },
     /** A drawn callout clicked is its semantic item, as its label would be: whether one was. */
     clickAt(x: number, y: number) {
