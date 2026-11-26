@@ -119,11 +119,23 @@ export function drawnGroup(link: Pick<DrawnLink, 'status' | 'general'> | undefin
   return ({ stated: 'existing', gap: 'answered', decided_none: 'default' } as const)[link.status];
 }
 
+/** Lightweight semantic identity extracted from `haecceity.pmi/1` + `specify` so `oneViewFile` can link drawn ink to review rows without requiring a separate scene reader. */
+export interface SceneItemMeta {
+  readonly id: string;
+  readonly kind: string;
+  readonly type: string;
+  readonly faces: readonly number[];
+  readonly number?: number;
+  readonly notation?: string;
+  readonly hasValue: boolean;
+}
+
 /** What the Specify view draws as the file's own graphics: pmiScene's presentation and links. */
 export interface DrawnPmi {
   readonly presentation: Presentation;
   readonly links: Readonly<Record<string, DrawnLink>>;
   readonly reviewItems?: Readonly<Record<string, { readonly row?: string; readonly existing?: number }>>;
+  readonly sceneItems?: readonly SceneItemMeta[];
 }
 
 export type Read<T> = { ok: true; value: T } | { ok: false; reason: string };
@@ -312,6 +324,230 @@ export function linksFromPmi(json: unknown, presentation: Presentation): Read<Re
 
 const STATUSES: readonly DrawnStatus[] = ['stated', 'gap', 'decided_none'];
 
+const SIZE_KIND: Readonly<Record<string, string>> = {
+  'curve length': 'Size_CurveLength',
+  diameter: 'Size_Diameter',
+  'spherical diameter': 'Size_SphericalDiameter',
+  radius: 'Size_Radius',
+  'spherical radius': 'Size_SphericalRadius',
+  'toroidal minor diameter': 'Size_ToroidalMinorDiameter',
+  'toroidal major diameter': 'Size_ToroidalMajorDiameter',
+  'toroidal minor radius': 'Size_ToroidalMinorRadius',
+  'toroidal major radius': 'Size_ToroidalMajorRadius',
+  'toroidal high major diameter': 'Size_ToroidalHighMajorDiameter',
+  'toroidal low major diameter': 'Size_ToroidalLowMajorDiameter',
+  'toroidal high major radius': 'Size_ToroidalHighMajorRadius',
+  'toroidal low major radius': 'Size_ToroidalLowMajorRadius',
+  thickness: 'Size_Thickness',
+};
+
+const LOCATION_KIND: Readonly<Record<string, string>> = {
+  'curved distance': 'Location_CurvedDistance',
+  'linear distance': 'Location_LinearDistance',
+  'linear distance centre outer': 'Location_LinearDistance_FromCenterToOuter',
+  'linear distance centre inner': 'Location_LinearDistance_FromCenterToInner',
+  'linear distance outer centre': 'Location_LinearDistance_FromOuterToCenter',
+  'linear distance outer outer': 'Location_LinearDistance_FromOuterToOuter',
+  'linear distance outer inner': 'Location_LinearDistance_FromOuterToInner',
+  'linear distance inner centre': 'Location_LinearDistance_FromInnerToCenter',
+  'linear distance inner outer': 'Location_LinearDistance_FromInnerToOuter',
+  'linear distance inner inner': 'Location_LinearDistance_FromInnerToInner',
+};
+
+const TOLERANCE_KIND: Readonly<Record<string, string>> = {
+  angularity_tolerance: 'Angularity',
+  circular_runout_tolerance: 'CircularRunout',
+  coaxiality_tolerance: 'Coaxiality',
+  concentricity_tolerance: 'Concentricity',
+  cylindricity_tolerance: 'Cylindricity',
+  flatness_tolerance: 'Flatness',
+  line_profile_tolerance: 'ProfileOfLine',
+  parallelism_tolerance: 'Parallelism',
+  perpendicularity_tolerance: 'Perpendicularity',
+  position_tolerance: 'Position',
+  roundness_tolerance: 'CircularityOrRoundness',
+  straightness_tolerance: 'Straightness',
+  surface_profile_tolerance: 'ProfileOfSurface',
+  symmetry_tolerance: 'Symmetry',
+  total_runout_tolerance: 'TotalRunout',
+};
+
+function extractSceneItems(scene: Record<string, unknown>): {
+  sceneItems: SceneItemMeta[];
+  resolvedFaces: Map<string, number[]>;
+} {
+  const sceneItems: SceneItemMeta[] = [];
+  const resolvedFaces = new Map<string, number[]>();
+  if (!isObject(scene['pmi']) || !isObject(scene['pmi']['pmi'])) {
+    return { sceneItems, resolvedFaces };
+  }
+  const pmi = scene['pmi']['pmi'] as Record<string, unknown>;
+  const specify = isObject(scene['specify']) ? scene['specify'] : {};
+  const arr = (key: string): Record<string, unknown>[] =>
+    (Array.isArray(pmi[key]) ? pmi[key] as unknown[] : []).filter(isObject);
+
+  const featureById = new Map<string, Record<string, unknown>>();
+  for (const f of arr('features')) {
+    if (typeof f['id'] === 'string' && isObject(f['value'])) featureById.set(f['id'], f['value']);
+  }
+  const targetById = new Map<string, Record<string, unknown>>();
+  for (const t of arr('datum_targets')) {
+    if (typeof t['id'] === 'string' && isObject(t['value'])) targetById.set(t['id'], t['value']);
+  }
+  const cache = new Map<string, number[]>();
+  const facesOf = (id: unknown, seen = new Set<string>()): number[] => {
+    if (typeof id !== 'string') return [];
+    const hit = cache.get(id);
+    if (hit) return hit;
+    if (seen.has(id)) return [];
+    seen.add(id);
+    const val = featureById.get(id);
+    if (!val) return [];
+    const out = new Set<number>();
+    if (Array.isArray(val['items'])) {
+      for (const x of val['items']) if (isObject(x) && typeof x['face'] === 'number') out.add(x['face']);
+    }
+    if (isObject(val['group']) && Array.isArray(val['group']['members'])) {
+      for (const m of val['group']['members']) for (const f of facesOf(m, seen)) out.add(f);
+    }
+    if (isObject(val['derived']) && Array.isArray(val['derived']['from'])) {
+      for (const m of val['derived']['from']) for (const f of facesOf(m, seen)) out.add(f);
+    }
+    const sorted = [...out].sort((a, b) => a - b);
+    cache.set(id, sorted);
+    return sorted;
+  };
+  for (const id of featureById.keys()) resolvedFaces.set(id, facesOf(id));
+
+  const numOf = (entry: Record<string, unknown>, id: string): number | undefined => {
+    const spec = isObject(specify[id]) ? specify[id] as Record<string, unknown> : undefined;
+    const raw = entry['identifier'] ?? spec?.['number'];
+    if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+    if (typeof raw === 'string' && /^\d+$/.test(raw)) return Number(raw);
+    return undefined;
+  };
+  const notationOf = (id: string): string | undefined => {
+    const spec = isObject(specify[id]) ? specify[id] as Record<string, unknown> : undefined;
+    return typeof spec?.['notation'] === 'string' ? spec['notation'] : undefined;
+  };
+
+  const dimFaces = new Map<string, number[]>();
+  for (const d of arr('datums')) {
+    const id = d['id'];
+    const val = d['value'];
+    if (typeof id !== 'string' || !isObject(val)) continue;
+    const label = typeof val['label'] === 'string' ? val['label'] : '';
+    const faces = new Set<number>(facesOf(val['feature']));
+    if (!faces.size && Array.isArray(val['targets'])) {
+      for (const tid of val['targets']) {
+        const target = typeof tid === 'string' ? targetById.get(tid) : undefined;
+        for (const f of facesOf(target?.['on'])) faces.add(f);
+      }
+    }
+    const sorted = [...faces].sort((a, b) => a - b);
+    resolvedFaces.set(id, sorted);
+    const number = numOf(d, id);
+    const notation = notationOf(id);
+    sceneItems.push({
+      id, kind: 'datum', type: label, faces: sorted, hasValue: false,
+      ...(number !== undefined ? { number } : {}), ...(notation !== undefined ? { notation } : {}),
+    });
+  }
+  for (const d of arr('dimensions')) {
+    const id = d['id'];
+    const val = d['value'];
+    if (typeof id !== 'string' || !isObject(val)) continue;
+    const k = isObject(val['kind']) ? val['kind'] : {};
+    let type = 'Location_None';
+    let faces: number[] = [];
+    if (isObject(k['size'])) {
+      const s = k['size'];
+      const sk = typeof s['kind'] === 'string' ? s['kind'] : '';
+      type = s['angle'] != null ? 'Size_Angular' : SIZE_KIND[sk] ?? (s['path'] != null ? 'Size_WithPath' : 'Location_None');
+      faces = facesOf(s['feature']);
+    } else if (isObject(k['location'])) {
+      const l = k['location'];
+      const lk = typeof l['kind'] === 'string' ? l['kind'] : '';
+      type = l['angle'] != null ? 'Location_Angular' : LOCATION_KIND[lk] ?? (l['path'] != null ? 'Location_WithPath' : 'Location_None');
+      faces = [...new Set([...facesOf(l['from']), ...facesOf(l['to'])])].sort((a, b) => a - b);
+    }
+    dimFaces.set(id, faces);
+    resolvedFaces.set(id, faces);
+    const number = numOf(d, id);
+    const notation = notationOf(id);
+    sceneItems.push({
+      id, kind: 'dimension', type, faces, hasValue: val['nominal'] != null,
+      ...(number !== undefined ? { number } : {}), ...(notation !== undefined ? { notation } : {}),
+    });
+  }
+  for (const t of arr('tolerances')) {
+    const id = t['id'];
+    const val = t['value'];
+    if (typeof id !== 'string' || !isObject(val)) continue;
+    const rawKind = typeof val['kind'] === 'string' ? val['kind'] : '';
+    const type = TOLERANCE_KIND[rawKind] ?? rawKind;
+    const tgt = isObject(val['target']) ? val['target'] : {};
+    let faces: number[] = [];
+    if (typeof tgt['feature'] === 'string') faces = facesOf(tgt['feature']);
+    else if (typeof tgt['dimension'] === 'string') faces = dimFaces.get(tgt['dimension']) ?? [];
+    else if (isObject(tgt['relation'])) {
+      faces = [...new Set([...facesOf(tgt['relation']['relating']), ...facesOf(tgt['relation']['related'])])].sort((a, b) => a - b);
+    }
+    resolvedFaces.set(id, faces);
+    const number = numOf(t, id);
+    const notation = notationOf(id);
+    sceneItems.push({
+      id, kind: 'geometric_tolerance', type, faces, hasValue: val['magnitude'] != null,
+      ...(number !== undefined ? { number } : {}), ...(notation !== undefined ? { notation } : {}),
+    });
+  }
+  for (const s of arr('surface_textures')) {
+    const id = s['id'];
+    const val = s['value'];
+    if (typeof id !== 'string' || !isObject(val)) continue;
+    const params = (Array.isArray(val['parameters']) ? val['parameters'] : [])
+      .filter(isObject)
+      .map((p) => (typeof p['characteristic'] === 'string' ? p['characteristic'] : ''))
+      .sort().join('|');
+    const faces = facesOf(val['on']);
+    resolvedFaces.set(id, faces);
+    const number = numOf(s, id);
+    const notation = notationOf(id);
+    sceneItems.push({
+      id, kind: 'surface_texture', type: params, faces, hasValue: true,
+      ...(number !== undefined ? { number } : {}), ...(notation !== undefined ? { notation } : {}),
+    });
+  }
+  for (const t of arr('threads')) {
+    const id = t['id'];
+    const val = t['value'];
+    if (typeof id !== 'string' || !isObject(val)) continue;
+    const type = val['side'] === 'external' ? 'External' : 'Internal';
+    const faces = facesOf(val['feature']);
+    resolvedFaces.set(id, faces);
+    const number = numOf(t, id);
+    const notation = notationOf(id);
+    sceneItems.push({
+      id, kind: 'thread', type, faces, hasValue: true,
+      ...(number !== undefined ? { number } : {}), ...(notation !== undefined ? { notation } : {}),
+    });
+  }
+  for (const k of arr('knurls')) {
+    const id = k['id'];
+    const val = k['value'];
+    if (typeof id !== 'string' || !isObject(val)) continue;
+    const faces = facesOf(val['feature']);
+    resolvedFaces.set(id, faces);
+    const number = numOf(k, id);
+    const notation = notationOf(id);
+    sceneItems.push({
+      id, kind: 'knurl', type: 'knurl', faces, hasValue: true,
+      ...(number !== undefined ? { number } : {}), ...(notation !== undefined ? { notation } : {}),
+    });
+  }
+  return { sceneItems, resolvedFaces };
+}
+
 /**
  * Specify's pmiScene (`{pmi, presentation, specify}`, specify-core 0.1.5) as the view draws it:
  * the presentation, and each presented item's faces with its status and question from `specify`.
@@ -322,6 +558,7 @@ export function drawnFromScene(scene: unknown): Read<DrawnPmi> {
   if (!read.ok) return read;
   const links = linksFromPmi(scene['pmi'], read.value);
   if (!links.ok) return links;
+  const { sceneItems, resolvedFaces } = extractSceneItems(scene);
   const overlay = isObject(scene['specify']) ? scene['specify'] : {};
   const linked: Record<string, DrawnLink> = {};
   for (const [id, link] of Object.entries(links.value)) {
@@ -329,9 +566,21 @@ export function drawnFromScene(scene: unknown): Read<DrawnPmi> {
     const status = isObject(entry) && STATUSES.includes(entry['status'] as DrawnStatus) ? entry['status'] as DrawnStatus : undefined;
     const question = isObject(entry) && typeof entry['question'] === 'string' ? entry['question'] : undefined;
     const general = isObject(entry) && entry['general'] === true;
-    linked[id] = { ...link, ...(question ? { question } : {}), ...(status ? { status } : {}), ...(general ? { general } : {}) };
+    const faces = link.faces.length ? link.faces : resolvedFaces.get(id) ?? [];
+    linked[id] = { ...link, faces, ...(question ? { question } : {}), ...(status ? { status } : {}), ...(general ? { general } : {}) };
   }
-  return { ok: true, value: { presentation: read.value, links: linked } };
+  const serverReview = isObject(scene['review_items'])
+    ? scene['review_items'] as DrawnPmi['reviewItems']
+    : undefined;
+  return {
+    ok: true,
+    value: {
+      presentation: read.value,
+      links: linked,
+      ...(serverReview ? { reviewItems: serverReview } : {}),
+      ...(sceneItems.length ? { sceneItems } : {}),
+    },
+  };
 }
 
 /** Whether there is anything to draw. */

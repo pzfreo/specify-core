@@ -160,7 +160,7 @@ export function createReviewView(
     const e = new THREE.Vector3(...eyeDir).normalize();
     const look = e.clone().negate();
     let u = upDir ? new THREE.Vector3(...upDir).normalize() : new THREE.Vector3(0, 0, 1);
-    if (Math.abs(e.dot(u)) > 0.99) u = new THREE.Vector3(0, 0, 1);
+    if (Math.abs(e.dot(u)) > 0.99) u = Math.abs(e.z) < 0.9 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
     const right = new THREE.Vector3().crossVectors(look, u).normalize();
     const camUp = new THREE.Vector3().crossVectors(right, look).normalize();
     const target = around.getCenter(new THREE.Vector3());

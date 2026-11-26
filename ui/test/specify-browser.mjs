@@ -228,11 +228,24 @@ try {
     const row = table.locator('tbody tr').first();
     await row.click();
     await check(row).toHaveClass(/\bon\b/);
-    // Clicking a drawn callout on the 3D canvas selects its characteristic row or datum chip.
+    // Clicking a drawn callout on the 3D canvas selects its characteristic row and lights its ink.
     const position = table.locator('tbody tr').filter({ hasText: /⌖.*0\.2/ }).first();
-    await position.click();
+    await check(position).not.toHaveClass(/\bon\b/);
+    const pointFor = async (itemId) => {
+      const raw = (await overlay.getAttribute('data-drawn-points')) ?? '';
+      const line = raw.split('\n').find(l => l.startsWith(`${itemId} `));
+      if (!line) return null;
+      const [x, y] = line.slice(itemId.length + 1).split(',').map(Number);
+      return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : null;
+    };
+    await check.poll(() => pointFor('position:holes:15.16')).not.toBeNull();
+    const [px, py] = await pointFor('position:holes:15.16');
+    const overlayBox = await overlay.boundingBox();
+    assert.ok(overlayBox, '3D PMI overlay has a bounding box');
+    await page.mouse.click(overlayBox.x + px, overlayBox.y + py);
     await check(position).toHaveClass(/\bon\b/);
-    await check.poll(async () => (await overlay.getAttribute('data-drawn-items')) ?? '').toContain('#007a8c');
+    await check(row).not.toHaveClass(/\bon\b/);
+    await check.poll(async () => (await overlay.getAttribute('data-drawn-items')) ?? '').toContain('position:holes:15.16 #007a8c');
     await panel(page).getByRole('button', { name: 'Datum B' }).click();
     await check(panel(page).locator('.pmi-lab-datums .chip.on')).toHaveCount(1);
     await check(table.locator('tbody tr.on')).toHaveCount(0);

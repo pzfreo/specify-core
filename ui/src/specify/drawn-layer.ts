@@ -248,6 +248,49 @@ export function createDrawnLayer(
     container.dataset['drawnFile'] = by((d) => d.source === 'file' || d.group === 'existing');
     container.dataset['drawnItems'] = [...new Set(shownNow.filter((d) => d.item !== null)
       .map((d) => `${d.item} ${colourOfDrawn(d)}`))].join('\n');
+    updateHitPoints(shownNow);
+  }
+
+  const probeA = new THREE.Vector2();
+  const probeB = new THREE.Vector2();
+  const probeC = new THREE.Vector2();
+  const probeMid = new THREE.Vector3();
+  function updateHitPoints(shownNow = drawn.filter(on)) {
+    const [w, h] = nav.size();
+    if (!visible || w <= 0 || h <= 0) {
+      container.dataset['drawnPoints'] = '';
+      return;
+    }
+    const inView = (x: number, y: number) => x >= 2 && x <= w - 2 && y >= 2 && y <= h - 2;
+    const lines: string[] = [];
+    const listed = new Set<string>();
+    for (const d of shownNow) {
+      if (d.item === null || listed.has(d.item)) continue;
+      let found: [number, number] | null = null;
+      for (let k = 0; k + 1 < d.segments.length && !found; k += 2) {
+        if (!screen(d.segments[k]!, probeA) || !screen(d.segments[k + 1]!, probeB)) continue;
+        const mx = (probeA.x + probeB.x) / 2;
+        const my = (probeA.y + probeB.y) / 2;
+        if (inView(mx, my) && hitAt(mx, my) === d.item) found = [mx, my];
+      }
+      for (let k = 0; k + 2 < d.triangles.length && !found; k += 3) {
+        if (!screen(d.triangles[k]!, probeA) || !screen(d.triangles[k + 1]!, probeB) || !screen(d.triangles[k + 2]!, probeC)) continue;
+        const cx = (probeA.x + probeB.x + probeC.x) / 3;
+        const cy = (probeA.y + probeB.y + probeC.y) / 3;
+        if (inView(cx, cy) && hitAt(cx, cy) === d.item) found = [cx, cy];
+      }
+      if (!found && !d.extent.isEmpty()) {
+        d.extent.getCenter(probeMid);
+        if (screen(probeMid, probeA) && inView(probeA.x, probeA.y) && hitAt(probeA.x, probeA.y) === d.item) {
+          found = [probeA.x, probeA.y];
+        }
+      }
+      if (found) {
+        listed.add(d.item);
+        lines.push(`${d.item} ${Math.round(found[0])},${Math.round(found[1])}`);
+      }
+    }
+    container.dataset['drawnPoints'] = lines.join('\n');
   }
 
   function paint(d: Drawn) {
@@ -455,6 +498,7 @@ export function createDrawnLayer(
 
   const upward = new THREE.Vector3();
   const fixed = (u: THREE.Vector3) => u.toArray().map((x) => (Math.abs(x) < 5e-4 ? 0 : x).toFixed(3)).join(',');
+  let lastProjKey = '';
   nav.onFrame(() => {
     const [w, h] = nav.size();
     for (const { line } of inks.values()) line.resolution.set(w, h);
@@ -464,7 +508,12 @@ export function createDrawnLayer(
     const camera = `${fixed(look)} ${fixed(upward)}`;
     if (container.dataset['camera'] !== camera) container.dataset['camera'] = camera;
     if (!visible) return;
+    const zoom = 'zoom' in nav.camera ? (nav.camera as THREE.OrthographicCamera).zoom.toFixed(4) : '1';
+    const projKey = `${camera}|${fixed(nav.camera.position)}|${zoom}|${Math.round(w)}x${Math.round(h)}`;
+    const projChanged = projKey !== lastProjKey;
+    if (projChanged) lastProjKey = projKey;
     if (farSide && turn()) apply();
+    else if (projChanged) updateHitPoints();
     if (placed.length) orient();
   });
 
@@ -500,6 +549,33 @@ export function createDrawnLayer(
     }
     turn();
     apply();
+  }
+
+  function hitAt(x: number, y: number): string | null {
+    if (!visible) return null;
+    p.set(x, y);
+    let best: string | null = null;
+    let reach = HIT_PX;
+    for (const d of drawn) {
+      if (d.item === null || !on(d)) continue;
+      for (const el of d.set) {
+        const r = el.getBoundingClientRect();
+        const view = el.parentElement?.parentElement?.getBoundingClientRect();
+        if (!r.width || !view || el.style.visibility === 'hidden') continue;
+        if (x >= r.left - view.left && x <= r.right - view.left && y >= r.top - view.top && y <= r.bottom - view.top) return d.item;
+      }
+      for (let k = 0; k + 1 < d.segments.length; k += 2) {
+        if (!screen(d.segments[k]!, a) || !screen(d.segments[k + 1]!, b)) continue;
+        const dist = nearSegment();
+        if (dist < reach) { reach = dist; best = d.item; }
+      }
+      for (let k = 0; k + 2 < d.triangles.length; k += 3) {
+        if (screen(d.triangles[k]!, a) && screen(d.triangles[k + 1]!, b) && screen(d.triangles[k + 2]!, c) && inside()) {
+          return d.item;
+        }
+      }
+    }
+    return best;
   }
 
   return {
@@ -568,30 +644,7 @@ export function createDrawnLayer(
       return pts;
     },
     hit(x, y) {
-      if (!visible) return null;
-      p.set(x, y);
-      let best: string | null = null;
-      let reach = HIT_PX;
-      for (const d of drawn) {
-        if (d.item === null || !on(d)) continue;
-        for (const el of d.set) {
-          const r = el.getBoundingClientRect();
-          const view = el.parentElement?.parentElement?.getBoundingClientRect();
-          if (!r.width || !view || el.style.visibility === 'hidden') continue;
-          if (x >= r.left - view.left && x <= r.right - view.left && y >= r.top - view.top && y <= r.bottom - view.top) return d.item;
-        }
-        for (let k = 0; k + 1 < d.segments.length; k += 2) {
-          if (!screen(d.segments[k]!, a) || !screen(d.segments[k + 1]!, b)) continue;
-          const dist = nearSegment();
-          if (dist < reach) { reach = dist; best = d.item; }
-        }
-        for (let k = 0; k + 2 < d.triangles.length; k += 3) {
-          if (screen(d.triangles[k]!, a) && screen(d.triangles[k + 1]!, b) && screen(d.triangles[k + 2]!, c) && inside()) {
-            return d.item;
-          }
-        }
-      }
-      return best;
+      return hitAt(x, y);
     },
     dispose() {
       clear();

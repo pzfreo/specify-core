@@ -3,7 +3,7 @@
 // gaps, and extracts structured semantic labels from `haecceity.pmi/1`. Pure, no three.js or DOM.
 import type { PmiAnalysis, PmiAnswers, PmiIntent, PmiQuestion } from '../types/pmi.ts';
 import { describeFaces } from './datums.ts';
-import { drawnFromScene, withoutNotesBlock, type DrawnGraphic, type DrawnLink, type DrawnPmi, type Read } from './drawn.ts';
+import { drawnFromScene, withoutNotesBlock, type DrawnGraphic, type DrawnLink, type DrawnPmi, type Read, type SceneItemMeta } from './drawn.ts';
 import { CHARACTERISTIC, fmt, toLabels, type LabelTolerance, type PmiLabel } from './labels.ts';
 
 /** One review row (feature table row or "Other PMI in the file" item) known to the PMI view. */
@@ -34,36 +34,6 @@ export interface SceneSemanticLabel {
   readonly tolerance?: LabelTolerance | null;
   readonly basic?: true;
 }
-
-const SIZE_KIND: Readonly<Record<string, string>> = {
-  'curve length': 'Size_CurveLength',
-  diameter: 'Size_Diameter',
-  'spherical diameter': 'Size_SphericalDiameter',
-  radius: 'Size_Radius',
-  'spherical radius': 'Size_SphericalRadius',
-  'toroidal minor diameter': 'Size_ToroidalMinorDiameter',
-  'toroidal major diameter': 'Size_ToroidalMajorDiameter',
-  'toroidal minor radius': 'Size_ToroidalMinorRadius',
-  'toroidal major radius': 'Size_ToroidalMajorRadius',
-  'toroidal high major diameter': 'Size_ToroidalHighMajorDiameter',
-  'toroidal low major diameter': 'Size_ToroidalLowMajorDiameter',
-  'toroidal high major radius': 'Size_ToroidalHighMajorRadius',
-  'toroidal low major radius': 'Size_ToroidalLowMajorRadius',
-  thickness: 'Size_Thickness',
-};
-
-const LOCATION_KIND: Readonly<Record<string, string>> = {
-  'curved distance': 'Location_CurvedDistance',
-  'linear distance': 'Location_LinearDistance',
-  'linear distance centre outer': 'Location_LinearDistance_FromCenterToOuter',
-  'linear distance centre inner': 'Location_LinearDistance_FromCenterToInner',
-  'linear distance outer centre': 'Location_LinearDistance_FromOuterToCenter',
-  'linear distance outer outer': 'Location_LinearDistance_FromOuterToOuter',
-  'linear distance outer inner': 'Location_LinearDistance_FromOuterToInner',
-  'linear distance inner centre': 'Location_LinearDistance_FromInnerToCenter',
-  'linear distance inner outer': 'Location_LinearDistance_FromInnerToOuter',
-  'linear distance inner inner': 'Location_LinearDistance_FromInnerToInner',
-};
 
 const TOLERANCE_KIND: Readonly<Record<string, string>> = {
   angularity_tolerance: 'Angularity',
@@ -131,16 +101,6 @@ function displayText(text: string): string {
   }).join('; ');
 }
 
-interface LocatedItem {
-  id: string;
-  kind: string;
-  type: string;
-  faces: number[];
-  number?: number;
-  notation?: string;
-  hasValue: boolean;
-}
-
 interface TableReq {
   number?: string;
   id?: string;
@@ -161,152 +121,12 @@ interface TableLike {
   file_pmi?: readonly TableReq[];
 }
 
-function locateSceneItems(scene: unknown, analysis?: PmiAnalysis): {
-  reviewItems: Record<string, { row?: string; existing?: number }>;
-  resolvedFaces: Map<string, number[]>;
-} {
+function matchReviewItems(
+  located: readonly SceneItemMeta[],
+  analysis?: PmiAnalysis,
+): Record<string, { row?: string; existing?: number }> {
   const reviewItems: Record<string, { row?: string; existing?: number; partial?: boolean }> = {};
-  const resolvedFaces = new Map<string, number[]>();
-  if (!isObject(scene) || !isObject(scene['pmi']) || !isObject(scene['pmi']['pmi'])) {
-    return { reviewItems, resolvedFaces };
-  }
-  const pmi = scene['pmi']['pmi'] as Record<string, unknown>;
-  const specify = isObject(scene['specify']) ? scene['specify'] : {};
-  const arr = (key: string): Record<string, unknown>[] =>
-    (Array.isArray(pmi[key]) ? pmi[key] as unknown[] : []).filter(isObject);
-
-  const featureById = new Map<string, Record<string, unknown>>();
-  for (const f of arr('features')) {
-    if (typeof f['id'] === 'string' && isObject(f['value'])) featureById.set(f['id'], f['value']);
-  }
-  const targetById = new Map<string, Record<string, unknown>>();
-  for (const t of arr('datum_targets')) {
-    if (typeof t['id'] === 'string' && isObject(t['value'])) targetById.set(t['id'], t['value']);
-  }
-  const cache = new Map<string, number[]>();
-  const facesOf = (id: unknown, seen = new Set<string>()): number[] => {
-    if (typeof id !== 'string') return [];
-    const hit = cache.get(id);
-    if (hit) return hit;
-    if (seen.has(id)) return [];
-    seen.add(id);
-    const val = featureById.get(id);
-    if (!val) return [];
-    const out = new Set<number>();
-    if (Array.isArray(val['items'])) {
-      for (const x of val['items']) if (isObject(x) && typeof x['face'] === 'number') out.add(x['face']);
-    }
-    if (isObject(val['group']) && Array.isArray(val['group']['members'])) {
-      for (const m of val['group']['members']) for (const f of facesOf(m, seen)) out.add(f);
-    }
-    if (isObject(val['derived']) && Array.isArray(val['derived']['from'])) {
-      for (const m of val['derived']['from']) for (const f of facesOf(m, seen)) out.add(f);
-    }
-    const sorted = [...out].sort((a, b) => a - b);
-    cache.set(id, sorted);
-    return sorted;
-  };
-  for (const id of featureById.keys()) resolvedFaces.set(id, facesOf(id));
-
-  const numOf = (entry: Record<string, unknown>, id: string): number | undefined => {
-    const spec = isObject(specify[id]) ? specify[id] as Record<string, unknown> : undefined;
-    const raw = entry['identifier'] ?? spec?.['number'];
-    if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
-    if (typeof raw === 'string' && /^\d+$/.test(raw)) return Number(raw);
-    return undefined;
-  };
-  const notationOf = (id: string): string | undefined => {
-    const spec = isObject(specify[id]) ? specify[id] as Record<string, unknown> : undefined;
-    return typeof spec?.['notation'] === 'string' ? spec['notation'] : undefined;
-  };
-
-  const dimFaces = new Map<string, number[]>();
-  const located: LocatedItem[] = [];
-  for (const d of arr('datums')) {
-    const id = d['id'];
-    const val = d['value'];
-    if (typeof id !== 'string' || !isObject(val)) continue;
-    const label = typeof val['label'] === 'string' ? val['label'] : '';
-    const faces = new Set<number>(facesOf(val['feature']));
-    if (!faces.size && Array.isArray(val['targets'])) {
-      for (const tid of val['targets']) {
-        const target = typeof tid === 'string' ? targetById.get(tid) : undefined;
-        for (const f of facesOf(target?.['on'])) faces.add(f);
-      }
-    }
-    const sorted = [...faces].sort((a, b) => a - b);
-    resolvedFaces.set(id, sorted);
-    located.push({ id, kind: 'datum', type: label, faces: sorted, number: numOf(d, id), notation: notationOf(id), hasValue: false });
-  }
-  for (const d of arr('dimensions')) {
-    const id = d['id'];
-    const val = d['value'];
-    if (typeof id !== 'string' || !isObject(val)) continue;
-    const k = isObject(val['kind']) ? val['kind'] : {};
-    let type = 'Location_None';
-    let faces: number[] = [];
-    if (isObject(k['size'])) {
-      const s = k['size'];
-      const sk = typeof s['kind'] === 'string' ? s['kind'] : '';
-      type = s['angle'] != null ? 'Size_Angular' : SIZE_KIND[sk] ?? (s['path'] != null ? 'Size_WithPath' : 'Location_None');
-      faces = facesOf(s['feature']);
-    } else if (isObject(k['location'])) {
-      const l = k['location'];
-      const lk = typeof l['kind'] === 'string' ? l['kind'] : '';
-      type = l['angle'] != null ? 'Location_Angular' : LOCATION_KIND[lk] ?? (l['path'] != null ? 'Location_WithPath' : 'Location_None');
-      faces = [...new Set([...facesOf(l['from']), ...facesOf(l['to'])])].sort((a, b) => a - b);
-    }
-    dimFaces.set(id, faces);
-    resolvedFaces.set(id, faces);
-    located.push({ id, kind: 'dimension', type, faces, number: numOf(d, id), notation: notationOf(id), hasValue: val['nominal'] != null });
-  }
-  for (const t of arr('tolerances')) {
-    const id = t['id'];
-    const val = t['value'];
-    if (typeof id !== 'string' || !isObject(val)) continue;
-    const rawKind = typeof val['kind'] === 'string' ? val['kind'] : '';
-    const type = TOLERANCE_KIND[rawKind] ?? rawKind;
-    const tgt = isObject(val['target']) ? val['target'] : {};
-    let faces: number[] = [];
-    if (typeof tgt['feature'] === 'string') faces = facesOf(tgt['feature']);
-    else if (typeof tgt['dimension'] === 'string') faces = dimFaces.get(tgt['dimension']) ?? [];
-    else if (isObject(tgt['relation'])) {
-      faces = [...new Set([...facesOf(tgt['relation']['relating']), ...facesOf(tgt['relation']['related'])])].sort((a, b) => a - b);
-    }
-    resolvedFaces.set(id, faces);
-    located.push({ id, kind: 'geometric_tolerance', type, faces, number: numOf(t, id), notation: notationOf(id), hasValue: val['magnitude'] != null });
-  }
-  for (const s of arr('surface_textures')) {
-    const id = s['id'];
-    const val = s['value'];
-    if (typeof id !== 'string' || !isObject(val)) continue;
-    const params = (Array.isArray(val['parameters']) ? val['parameters'] : [])
-      .filter(isObject)
-      .map((p) => (typeof p['characteristic'] === 'string' ? p['characteristic'] : ''))
-      .sort().join('|');
-    const faces = facesOf(val['on']);
-    resolvedFaces.set(id, faces);
-    located.push({ id, kind: 'surface_texture', type: params, faces, number: numOf(s, id), notation: notationOf(id), hasValue: true });
-  }
-  for (const t of arr('threads')) {
-    const id = t['id'];
-    const val = t['value'];
-    if (typeof id !== 'string' || !isObject(val)) continue;
-    const type = val['side'] === 'external' ? 'External' : 'Internal';
-    const faces = facesOf(val['feature']);
-    resolvedFaces.set(id, faces);
-    located.push({ id, kind: 'thread', type, faces, number: numOf(t, id), notation: notationOf(id), hasValue: true });
-  }
-  for (const k of arr('knurls')) {
-    const id = k['id'];
-    const val = k['value'];
-    if (typeof id !== 'string' || !isObject(val)) continue;
-    const faces = facesOf(val['feature']);
-    resolvedFaces.set(id, faces);
-    located.push({ id, kind: 'knurl', type: 'knurl', faces, number: numOf(k, id), notation: notationOf(id), hasValue: true });
-  }
-
-  if (!analysis) return { reviewItems, resolvedFaces };
+  if (!analysis || !located.length) return {};
 
   const faceKey = (fs: readonly number[]) => [...new Set(fs)].sort((a, b) => a - b).join(',');
   const norm = (kind: string, type: string): [string, string] => {
@@ -317,7 +137,7 @@ function locateSceneItems(scene: unknown, analysis?: PmiAnalysis): {
   };
   const locate = (
     req: { number?: number | string; kind: string; type: string; faces: readonly number[]; text?: string; hasValue?: boolean },
-    pool: readonly LocatedItem[],
+    pool: readonly SceneItemMeta[],
     taken: ReadonlySet<string>,
   ): string | undefined => {
     if (req.number !== undefined) {
@@ -399,7 +219,7 @@ function locateSceneItems(scene: unknown, analysis?: PmiAnalysis): {
       ...(entry.existing !== undefined ? { existing: entry.existing } : {}),
     };
   }
-  return { reviewItems: clean, resolvedFaces };
+  return clean;
 }
 
 /**
@@ -411,21 +231,11 @@ function locateSceneItems(scene: unknown, analysis?: PmiAnalysis): {
 export function reviewDrawnFromScene(scene: unknown, analysis?: PmiAnalysis): Read<DrawnPmi> {
   const drawn = drawnFromScene(scene);
   if (!drawn.ok) return drawn;
-  const serverReview = isObject(scene) && isObject(scene['review_items'])
-    ? scene['review_items'] as DrawnPmi['reviewItems']
-    : undefined;
-  const { reviewItems, resolvedFaces } = locateSceneItems(scene, analysis);
-  const links: Record<string, DrawnLink> = {};
-  for (const [id, link] of Object.entries(drawn.value.links)) {
-    const faces = link.faces.length ? link.faces : resolvedFaces.get(id) ?? [];
-    links[id] = { ...link, faces };
-  }
-  const merged = serverReview ?? reviewItems;
+  const merged = drawn.value.reviewItems ?? matchReviewItems(drawn.value.sceneItems ?? [], analysis);
   return {
     ok: true,
     value: withoutNotesBlock({
       ...drawn.value,
-      links,
       ...(Object.keys(merged).length ? { reviewItems: merged } : {}),
     }),
   };
@@ -453,7 +263,8 @@ export function oneViewFile(
   const existingRows = new Map<number, string>();
   const existingItems = new Map<number, string>();
   const rowsById = new Map(rows.map((row) => [row.id, row]));
-  const review = drawn?.reviewItems ?? {};
+  const review = drawn?.reviewItems
+    ?? (drawn?.sceneItems?.length ? matchReviewItems(drawn.sceneItems, analysis) : {});
   const hidden = (id: string | undefined) => {
     const edit = id ? pending.get(id) : undefined;
     return edit?.kind === 'change' || edit?.kind === 'remove'
@@ -693,6 +504,32 @@ function fmtDeviation(value: number, suffix: string): string {
   return value > 0 ? `+${fmt(value)}${suffix}` : value < 0 ? `-${fmt(-value)}${suffix}` : '0';
 }
 
+function readFitClass(raw: unknown): string | null {
+  if (typeof raw === 'string' && raw.trim()) return raw.trim();
+  if (!isObject(raw)) return null;
+  const dev = raw['deviation'];
+  const grade = raw['grade'];
+  if (!isObject(dev) || typeof dev['letter'] !== 'string' || !dev['letter'].trim()) return null;
+  if (typeof grade !== 'string' && typeof grade !== 'number') return null;
+  const g = String(grade).trim();
+  if (!g) return null;
+  const letter = dev['of'] === 'hole' ? dev['letter'].trim().toUpperCase() : dev['letter'].trim().toLowerCase();
+  return `${letter}${g}`;
+}
+
+function decorateDimensionText(val: Record<string, unknown>, base: string): string {
+  let out = base;
+  const q = val['qualifier'];
+  if (q === 'maximum') out += ' MAX';
+  else if (q === 'minimum') out += ' MIN';
+  else if (q === 'average') out += ' AVG';
+  else if (isObject(q) && typeof q['other'] === 'string' && q['other'].trim()) out += ` ${q['other'].trim()}`;
+  if (val['principle'] === 'envelope requirement') out += ' Ⓔ';
+  const mods = Array.isArray(val['modifiers']) ? val['modifiers'] : [];
+  if (mods.includes('reference') && !(out.startsWith('(') && out.endsWith(')'))) out = `(${out})`;
+  return out;
+}
+
 function readModifiers(raw: unknown): string {
   if (!Array.isArray(raw)) return '';
   return raw.map((m) => {
@@ -798,15 +635,38 @@ export function readSceneSemanticLabels(scene: unknown): ReadonlyMap<string, Sce
       const lower = readQuantityNumber(tol['limits']['lower']);
       if (upper && lower) {
         const sfx = upper.angle ? '°' : '';
-        out.set(id, { kind: 'size', cells: [`${prefix}${fmt(lower.value)}${sfx} - ${fmt(upper.value)}${sfx}`] });
+        const text = decorateDimensionText(val, `${prefix}${fmt(lower.value)}${sfx} - ${prefix}${fmt(upper.value)}${sfx}`);
+        out.set(id, { kind: 'size', cells: [text] });
         continue;
       }
     }
-    if (isObject(tol) && typeof tol['class'] === 'string' && tol['class'].trim()) {
-      out.set(id, { kind: 'size', cells: [`${nomText} ${tol['class'].trim()}`] });
-      continue;
+    if (isObject(tol) && isObject(tol['fit'])) {
+      const fit = tol['fit'];
+      const fitClass = readFitClass(fit['class']);
+      if (isObject(fit['limits'])) {
+        const upper = readQuantityNumber(fit['limits']['upper']);
+        const lower = readQuantityNumber(fit['limits']['lower']);
+        if (upper && lower) {
+          const sfx = upper.angle ? '°' : '';
+          const limitsText = `${prefix}${fmt(lower.value)}${sfx} - ${prefix}${fmt(upper.value)}${sfx}`;
+          const text = decorateDimensionText(val, fitClass ? `${limitsText} (${fitClass})` : limitsText);
+          out.set(id, { kind: 'size', cells: [text] });
+          continue;
+        }
+      }
+      if (fitClass) {
+        out.set(id, { kind: 'size', cells: [decorateDimensionText(val, `${nomText} ${fitClass}`)] });
+        continue;
+      }
     }
-    out.set(id, { kind: 'size', cells: [nomText] });
+    if (isObject(tol)) {
+      const fitClass = readFitClass(tol['class']);
+      if (fitClass) {
+        out.set(id, { kind: 'size', cells: [decorateDimensionText(val, `${nomText} ${fitClass}`)] });
+        continue;
+      }
+    }
+    out.set(id, { kind: 'size', cells: [decorateDimensionText(val, nomText)] });
   }
 
   for (const t of arr('threads')) {

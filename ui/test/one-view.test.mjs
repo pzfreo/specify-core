@@ -5,7 +5,7 @@ import { gunzipSync } from 'node:zlib';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { requireEngine } from './engine-path.mjs';
-import { bestDrawnView, withoutNotesBlock } from '../src/specify/drawn.ts';
+import { bestDrawnView, drawnFromScene, withoutNotesBlock } from '../src/specify/drawn.ts';
 import { bestReferenceView, findStatedOrigin, isSpecifyCreated, normalizeDraftingPmi, resolveSavedViewCamera } from '../src/specify/drafting-layout.ts';
 import {
   isDecidedNoCallout, oneViewFile, oneViewLabels, readSceneSemanticLabels, reviewDrawnFromScene, scenePendingState,
@@ -491,5 +491,169 @@ test('drawn-layer & annotations DOM: unsaved burnt-amber ink, in-file blueprint-
     annotations.dispose();
   } finally {
     globalThis.document = prevDocument;
+  }
+});
+
+test('end-on saved cameras along X, Y, and Z never throw in normalizeDraftingPmi', () => {
+  const directions = [
+    [1, 0, 0], [-1, 0, 0],
+    [0, 1, 0], [0, -1, 0],
+    [0, 0, 1], [0, 0, -1],
+  ];
+  // 1. NIST CTC-01 with its saved MBD camera redirected along each cardinal axis.
+  {
+    const bytes = gunzipSync(readFileSync('../tests/fixtures/nist/nist_ctc_01_asme1_ap242.stp.gz'));
+    const eng = new wasm.IntentEngine('nist_ctc_01.stp', bytes);
+    try {
+      const { analysis, mesh } = JSON.parse(eng.snapshot());
+      const raw = JSON.parse(eng.pmiScene(JSON.stringify({ answers: {}, auto: [] })));
+      const read = reviewDrawnFromScene(raw, analysis);
+      assert.ok(read.ok, read.reason);
+      const sem = readSceneSemanticLabels(raw);
+      for (const direction of directions) {
+        const up = Math.abs(direction[2]) > 0.5 ? [0, 1, 0] : [0, 0, 1];
+        const withAxisCam = {
+          ...read.value,
+          presentation: {
+            ...read.value.presentation,
+            views: read.value.presentation.views.map((v) => (v.direction ? { ...v, direction, up } : v)),
+          },
+        };
+        const norm = normalizeDraftingPmi(withAxisCam, raw, analysis, mesh, sem);
+        assert.ok(Object.keys(norm.presentation.items).length > 0, `NIST loads with camera ${direction}`);
+      }
+    } finally {
+      eng.free();
+    }
+  }
+  // 2. GRM-01 with generated linear dimensions along X, Y, Z and an injected end-on saved view.
+  {
+    const bytes = gunzipSync(readFileSync('../tests/fixtures/parts/GRM-01_shank.step.gz'));
+    const eng = new wasm.IntentEngine('GRM-01_shank.step', bytes);
+    try {
+      const { analysis, mesh } = JSON.parse(eng.snapshot());
+      const bare = JSON.parse(eng.review('{}'));
+      const shownQs = bare.questions.filter((q) => !q.id.startsWith('length:') && !q.id.startsWith('location:'));
+      const chosen = chosenForYou(shownQs, {}, analysis);
+      const keepAnswers = Object.fromEntries(chosen.map((c) => [c.id, shownQs.find((q) => q.id === c.id).default]));
+      const raw = JSON.parse(eng.pmiScene(JSON.stringify({ answers: keepAnswers, auto: [] })));
+      const read = reviewDrawnFromScene(raw, analysis);
+      assert.ok(read.ok, read.reason);
+      const sem = readSceneSemanticLabels(raw);
+      const nativeAnchor = {
+        id: 'file:anchor', source: 'file', name: 'anchor',
+        polylines: [[[0, 0, 0], [1, 0, 0]]], triangles: [], text: [],
+      };
+      for (const direction of directions) {
+        const up = Math.abs(direction[2]) > 0.5 ? [0, 1, 0] : [0, 0, 1];
+        const withAxisCam = {
+          ...read.value,
+          presentation: {
+            ...read.value.presentation,
+            unlinked: [nativeAnchor],
+            views: [{ id: 'end-on', name: 'End-on', direction, up, graphics: ['file:anchor'] }],
+          },
+        };
+        const norm = normalizeDraftingPmi(withAxisCam, raw, analysis, mesh, sem);
+        const dimIds = Object.keys(norm.presentation.items).filter((k) => k.startsWith('planner:dim:plane:'));
+        assert.equal(dimIds.length, 3, `GRM-01 places all 3 linear dimensions for camera ${direction}`);
+        for (const id of dimIds) {
+          assert.equal(norm.presentation.items[id]?.[0]?.triangles.length, 2, `${id} placed cleanly for camera ${direction}`);
+        }
+      }
+    } finally {
+      eng.free();
+    }
+  }
+});
+
+test('hole callouts preserve fit class and tolerance text matching the engine (GRM-01 Ø8 H7, deviations, and spindle Ø3.3 H11)', () => {
+  // 1. GRM-01 Ø8 hole with fit:H7 -> ⌀8 H7, and with +0.1/-0.05 -> ⌀8 +0.1/-0.05.
+  {
+    const bytes = gunzipSync(readFileSync('../tests/fixtures/parts/GRM-01_shank.step.gz'));
+    const eng = new wasm.IntentEngine('GRM-01_shank.step', bytes);
+    try {
+      const { analysis, mesh } = JSON.parse(eng.snapshot());
+      const rawFit = JSON.parse(eng.pmiScene(JSON.stringify({ answers: { 'hole.function:holes:6': 'fit:H7' }, auto: [] })));
+      const engineFitText = rawFit.presentation.items['planner:dim:hole:6/bore.diameter']?.[0]?.text?.[0];
+      assert.equal(engineFitText, '⌀8 H7');
+      const semFit = readSceneSemanticLabels(rawFit);
+      assert.deepEqual(semFit.get('planner:dim:hole:6/bore.diameter')?.cells, ['⌀8 H7']);
+      const readFit = reviewDrawnFromScene(rawFit, analysis);
+      assert.ok(readFit.ok, readFit.reason);
+      const normFit = normalizeDraftingPmi(readFit.value, rawFit, analysis, mesh, semFit);
+      assert.deepEqual(normFit.presentation.items['planner:dim:hole:6/bore.diameter']?.[0]?.text, [engineFitText]);
+
+      const rawDev = JSON.parse(eng.pmiScene(JSON.stringify({ answers: { 'extra.1': { faces: [6], kind: 'size', value: '+0.1/-0.05' } }, auto: [] })));
+      const devId = Object.keys(rawDev.presentation.items).find((k) => k.includes('extra.1'));
+      assert.ok(devId);
+      const engineDevText = rawDev.presentation.items[devId]?.[0]?.text?.[0];
+      assert.equal(engineDevText, '⌀8 +0.1/-0.05');
+      const semDev = readSceneSemanticLabels(rawDev);
+      const readDev = reviewDrawnFromScene(rawDev, analysis);
+      assert.ok(readDev.ok, readDev.reason);
+      const normDev = normalizeDraftingPmi(readDev.value, rawDev, analysis, mesh, semDev);
+      assert.deepEqual(normDev.presentation.items[devId]?.[0]?.text, [engineDevText]);
+    } finally {
+      eng.free();
+    }
+  }
+  // 2. Saved spindle fixture: ⌀3.3 H11 bore in both pmiScene and raw haecceity.pmi/1.
+  {
+    const bytes = gunzipSync(readFileSync('test/fixtures/spindle_pmi_after.step.gz'));
+    const eng = new wasm.IntentEngine('spindle.step', bytes);
+    try {
+      const { analysis, mesh } = JSON.parse(eng.snapshot());
+      const rawScene = JSON.parse(wasm.pmiScene(bytes));
+      const engineName = rawScene.presentation.items['planner:dim:hole:14/bore.diameter']?.[0]?.name;
+      assert.equal(engineName, '⌀3.3 H11');
+      const sem = readSceneSemanticLabels(rawScene);
+      assert.deepEqual(sem.get('planner:dim:hole:14/bore.diameter')?.cells, ['⌀3.3 H11']);
+      const read = reviewDrawnFromScene(rawScene, analysis);
+      assert.ok(read.ok, read.reason);
+      const norm = normalizeDraftingPmi(read.value, rawScene, analysis, mesh, sem);
+      assert.deepEqual(norm.presentation.items['planner:dim:hole:14/bore.diameter']?.[0]?.text, [engineName]);
+    } finally {
+      eng.free();
+    }
+    const rawPmi = JSON.parse(gunzipSync(readFileSync('test/fixtures/19-spindle-semantic-links-only.pmi.json.gz')));
+    const semRaw = readSceneSemanticLabels({ pmi: rawPmi });
+    assert.deepEqual(semRaw.get('3')?.cells, ['⌀3.3 H11']);
+  }
+});
+
+test('public drawnFromScene + withoutNotesBlock path draws each existing requirement once (no duplicate labels)', () => {
+  for (const fixturePath of ['test/fixtures/spindle_pmi_after.step.gz', 'test/fixtures/19-spindle-semantic-links-only.step.gz']) {
+    const bytes = gunzipSync(readFileSync(fixturePath));
+    const eng = new wasm.IntentEngine(fixturePath, bytes);
+    try {
+      const { analysis } = JSON.parse(eng.snapshot());
+      const rawScene = JSON.parse(wasm.pmiScene(bytes));
+      // Public host path: drawnFromScene -> withoutNotesBlock, without calling reviewDrawnFromScene or supplying reviewItems.
+      const read = drawnFromScene(rawScene);
+      assert.ok(read.ok, read.reason);
+      const drawn = withoutNotesBlock(read.value);
+      assert.equal(drawn.reviewItems, undefined, 'public helper does not require caller-supplied reviewItems');
+
+      const rows = rowsOf(analysis);
+      const file = oneViewFile(drawn, analysis, rows, new Map());
+      const out = oneViewLabels(null, analysis, rows, file, new Map(), {}, new Set(), true);
+
+      // Every existing requirement that has file ink is covered once and NOT duplicated as a camera-facing label.
+      const threadIdx = analysis.existing.findIndex((e) => e.kind === 'note' && e.type === 'internal thread');
+      assert.ok(threadIdx >= 0, `${fixturePath}: has unpresented M2 thread`);
+      for (let i = 0; i < analysis.existing.length; i++) {
+        if (i === threadIdx) {
+          assert.equal(file.covered.has(i), false, `${fixturePath}: unpresented thread is not covered by file ink`);
+          assert.equal(out.labels.filter((l) => l.id === `existing:${i}`).length, 1, `${fixturePath}: unpresented thread gets one fallback label`);
+        } else {
+          assert.equal(file.covered.has(i), true, `${fixturePath}: existing:${i} (${analysis.existing[i].text}) is covered by drawn ink`);
+          assert.equal(out.labels.some((l) => l.id === `existing:${i}`), false, `${fixturePath}: existing:${i} (${analysis.existing[i].text}) is not duplicated as a label`);
+        }
+      }
+      assert.equal(out.labels.length, 1, `${fixturePath}: only the unpresented M2 thread falls back to a camera-facing label`);
+    } finally {
+      eng.free();
+    }
   }
 });

@@ -1085,12 +1085,17 @@ function placeLinearDimension(
     score: number;
   }
   const dimCands: DimCandidate[] = [];
+  const visiblePlaneAxes = otherAxes.filter((pAxis) => {
+    const pNormal: Vec3 = [0, 0, 0];
+    pNormal[pAxis] = ctx.visibleSigns[pAxis]!;
+    return dot(pNormal, ctx.cam.eye) >= 0.2;
+  });
+  const candidatePlaneAxes = visiblePlaneAxes.length ? visiblePlaneAxes : otherAxes;
 
-  for (const pAxis of otherAxes) {
+  for (const pAxis of candidatePlaneAxes) {
     const pSign = ctx.visibleSigns[pAxis]!;
     const pNormal: Vec3 = [0, 0, 0];
     pNormal[pAxis] = pSign;
-    if (dot(pNormal, ctx.cam.eye) < 0.2) continue;
     const eAxis = otherAxes.find((k) => k !== pAxis)!;
     const measRight: Vec3 = dot(uUnit, ctx.cam.right) >= 0 ? uUnit : dirHiToLo;
     const candBasis = readablePlaneBasis(pNormal, ctx.cam, measRight);
@@ -1216,7 +1221,11 @@ function placeLinearDimension(
   }
 
   dimCands.sort((a, b) => a.score - b.score);
-  const best = dimCands[0]!;
+  const best = dimCands[0];
+  if (!best) {
+    ctx.nextItems[item] = [g];
+    return;
+  }
   const { planeNormal, planeAxis, extAxis, extSign, planeCoord, extCoord, sideSign } = best;
   const measRight: Vec3 = dot(uUnit, ctx.cam.right) >= 0 ? uUnit : dirHiToLo;
   const basis = readablePlaneBasis(planeNormal, ctx.cam, measRight);
@@ -1410,7 +1419,11 @@ function placeDatumSymbol(ctx: LayoutContext, item: string, g: DrawnGraphic): vo
       }
     }
 
-    const { basis, anchor, center, stemLen } = bestDatum!;
+    if (!bestDatum) {
+      ctx.nextItems[item] = [g];
+      return;
+    }
+    const { basis, anchor, center, stemLen } = bestDatum;
     const perpInPlane = unit(cross(basis.normal, outDir)) ?? basis.xAxis;
     const triApex = add(anchor, scale(outDir, triH));
     const tri: readonly [DrawnPoint, DrawnPoint, DrawnPoint] = [
@@ -1637,7 +1650,12 @@ function placeFeatureCalloutGroup(ctx: LayoutContext, grp: FeatureCalloutGroup):
   }
 
   candidates.sort((a, b) => a.score - b.score);
-  const { basis, tip, elbow, bodyLeft, dirSign, isDot } = candidates[0]!;
+  const bestCallout = candidates[0];
+  if (!bestCallout) {
+    for (const entry of grp.entries) ctx.nextItems[entry.item] = [entry.g];
+    return;
+  }
+  const { basis, tip, elbow, bodyLeft, dirSign, isDot } = bestCallout;
   const attach = add(elbow, scale(basis.xAxis, dirSign * shelfLen));
   const leaderDir = sub(tip, elbow);
 
@@ -1855,6 +1873,12 @@ export function normalizeDraftingPmi(
 
     const isFrame = sem.kind === 'frame';
     let cells = [...sem.cells];
+    if (!isFrame && sem.tolerance) {
+      const tolText = sem.tolerance.style === 'symmetric'
+        ? sem.tolerance.upper
+        : `${sem.tolerance.upper}/${sem.tolerance.lower}`;
+      cells = cells.length ? [`${cells[0]} ${tolText}`, ...cells.slice(1)] : [tolText];
+    }
     if (isFrame && matchingHole && matchingHole.count > 1 && !/^\d+×/.test(cells[0] ?? '')) {
       cells = [`${matchingHole.count}× ${cells[0] ?? ''}`, ...cells.slice(1)];
     }
