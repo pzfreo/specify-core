@@ -422,6 +422,39 @@ fn a_carry_block_survives_the_step_and_refuses_when_asked_again() {
     assert_eq!(flatness.attention, "required");
 }
 
+/// Replace the stored `pmi-assist answers` item in STEP bytes (whether a single
+/// `DESCRIPTIVE_REPRESENTATION_ITEM` or a chunked `COMPOUND_REPRESENTATION_ITEM`) with `payload`.
+fn replace_stored_payload(bytes: &[u8], payload: &Value) -> Vec<u8> {
+    let doc = haecceity::p21::Document::parse(bytes.to_vec()).unwrap();
+    let mut edit = haecceity::p21::Edit::new();
+    let mut replaced = 0;
+    for id in doc.ids() {
+        let Some(haecceity::p21::RawEntity::Simple {
+            name, attributes, ..
+        }) = doc.get(id)
+        else {
+            continue;
+        };
+        if (name == "DESCRIPTIVE_REPRESENTATION_ITEM" || name == "COMPOUND_REPRESENTATION_ITEM")
+            && matches!(attributes.first(), Some(haecceity::p21::Attribute::String(s)) if s == specify_core::resume::NAME)
+        {
+            edit.replace(
+                id,
+                haecceity::p21::simple(
+                    "DESCRIPTIVE_REPRESENTATION_ITEM",
+                    vec![
+                        haecceity::p21::Attribute::String(specify_core::resume::NAME.into()),
+                        haecceity::p21::Attribute::String(specify_core::resume::encode(payload)),
+                    ],
+                ),
+            );
+            replaced += 1;
+        }
+    }
+    assert_eq!(replaced, 1, "expected one stored-answers item to replace");
+    doc.apply(&edit).unwrap().bytes
+}
+
 /// A STEP written before unknown IDs were refused stores them verbatim. It still reopens and
 /// diffs: the unknown ID is left open with a warning naming it, never resumed.
 #[test]
@@ -431,13 +464,10 @@ fn a_stored_unknown_id_is_left_open_with_a_warning() {
     let written = write(&answers, "stored-unknown-source").output;
     // As main wrote it: the stored answers carry the unknown ID verbatim. Inject it into this
     // write's stored payload (same faces, so the same evidence).
-    let text = String::from_utf8(std::fs::read(&written).unwrap()).unwrap();
-    let mut payload = Value::Object(specify_core::resume::stored(text.as_bytes())[&0].clone());
-    let before = specify_core::resume::encode(&payload);
+    let raw = std::fs::read(&written).unwrap();
+    let mut payload = Value::Object(specify_core::resume::stored(&raw)[&0].clone());
     payload["answers"]["bogus.question"] = json!("x");
-    let after = specify_core::resume::encode(&payload);
-    assert_eq!(text.matches(&before).count(), 1);
-    let bytes = text.replace(&before, &after).into_bytes();
+    let bytes = replace_stored_payload(&raw, &payload);
     let out = dir.join("main.step");
     std::fs::write(&out, &bytes).unwrap();
     assert_eq!(
@@ -497,14 +527,11 @@ fn a_stored_answer_to_an_unasked_question_is_reported_once_and_not_stored_again_
     }));
     let written = write(&answers, "stored-unasked-source").output;
     // As an older build stored it: inject the unasked answer into this write's payload.
-    let text = String::from_utf8(std::fs::read(&written).unwrap()).unwrap();
-    let mut payload = Value::Object(specify_core::resume::stored(text.as_bytes())[&0].clone());
+    let raw = std::fs::read(&written).unwrap();
+    let mut payload = Value::Object(specify_core::resume::stored(&raw)[&0].clone());
     assert_eq!(payload["answers"]["part.locating"], "± dimensions");
-    let before = specify_core::resume::encode(&payload);
     payload["answers"]["datum.A.flatness"] = json!("none");
-    let bytes = text
-        .replace(&before, &specify_core::resume::encode(&payload))
-        .into_bytes();
+    let bytes = replace_stored_payload(&raw, &payload);
     let older = dir.join("older.step");
     std::fs::write(&older, &bytes).unwrap();
 

@@ -127,7 +127,9 @@ fn haecceity_names_are_indexed_optional_and_flow_into_analysis() {
             .iter()
             .all(|f| f.get("name").is_none())
     );
-    assert_eq!(resume::evidence(&p).unwrap()["schema"], 2);
+    assert_eq!(resume::evidence(&p).unwrap()["schema"], 3);
+    assert!(resume::evidence(&p).unwrap().get("face_names").is_none());
+    assert!(resume::evidence(&p).unwrap()["geometry"].is_object());
 }
 
 #[test]
@@ -274,15 +276,21 @@ fn future_geometry_format_leaves_only_unnamed_supports_open() {
 }
 
 #[test]
-fn unnamed_revision_keeps_pre87_payload_and_current_presentation_bytes() {
+fn unnamed_revision_writes_schema_three_quiddity_geometry_and_keeps_presentation_bytes() {
     let p = load("hole_moved.old.step.gz");
     let a = object(json!({"part.material":"steel"}));
-    // Captured from the pre-#87 engine on this unchanged fixture. Schema 2 is
-    // intentionally still written when there are no STEP face names.
-    let expected = r#"{"schema":2,"answers":{"part.material":"steel"},"part":0,"face_count":11,"faces":"20524ed166f82e0a134620c6a45f95e2936d1893658acdf6f1e0e8d23a2600a5"}"#;
+    // Unnamed parts now write schema 3 with Quiddity's own versioned geometric fingerprints
+    // instead of Specify's SHA-256 face hash, with no face_names.
+    let payload = resume::payload(&p, &a).unwrap();
+    assert_eq!(payload["schema"], 3);
+    assert_eq!(payload["answers"], json!(a));
+    assert_eq!(payload["part"], 0);
+    assert_eq!(payload["face_count"], 11);
+    assert!(payload.get("faces").is_none());
+    assert!(payload.get("face_names").is_none());
     assert_eq!(
-        specify_core::pyjson::dumps_compact(&resume::payload(&p, &a).unwrap()),
-        expected
+        payload["geometry"]["fingerprint_version"],
+        quiddity::correspondence::FINGERPRINT_VERSION
     );
     let written = writer::write_bytes(
         &p,
@@ -292,20 +300,24 @@ fn unnamed_revision_keeps_pre87_payload_and_current_presentation_bytes() {
     .unwrap()
     .0;
     // What the presentation byte pin protected, asserted structurally (no output hashes):
-    // the payload stored is still schema 2 without face names, the input's entities are
-    // unchanged, and the written presentation has v0.4.1's GENERAL NOTES block, #198's Notes
-    // saved view and material, and #193's RP 4.1 FILE_DESCRIPTION reference and `note`
-    // curve-set name.
+    // the payload stored is schema 3 with Quiddity geometry and without face names, the
+    // input's entities are unchanged, and the written presentation has v0.4.1's GENERAL NOTES
+    // block, #198's Notes saved view and material, and #193's RP 4.1 FILE_DESCRIPTION
+    // reference and `note` curve-set name.
     let stored = resume::stored(&written)
         .remove(&0)
         .expect("a stored payload");
-    let mut expected: Value = serde_json::from_str(expected).unwrap();
+    assert_eq!(stored["schema"], 3);
     // ADR P11: stored are the answers that leave no PMI (the material is stated).
-    expected["answers"] = json!(specify_core::feature_table::storable(&a));
-    for key in ["schema", "answers", "part", "face_count", "faces"] {
-        assert_eq!(stored[key], expected[key], "{key}");
-    }
+    assert_eq!(
+        stored["answers"],
+        json!(specify_core::feature_table::storable(&a))
+    );
+    assert_eq!(stored["part"], 0);
+    assert_eq!(stored["face_count"], 11);
+    assert!(stored.get("faces").is_none());
     assert!(stored.get("face_names").is_none());
+    assert_eq!(stored["geometry"], payload["geometry"]);
     let (before, after) = (
         Document::parse(p.bytes.to_vec()).unwrap(),
         Document::parse(written.clone()).unwrap(),
@@ -389,7 +401,7 @@ fn shared_source_names_are_unnamed_and_new_unique_bindings_still_work() {
 }
 
 #[test]
-fn shared_or_incidentally_unique_generic_labels_keep_schema_two() {
+fn shared_or_incidentally_unique_generic_labels_write_unnamed_schema_three() {
     let (p, _) = pair();
     // Even a namespace label is unusable when it occurs several times. Numeric
     // class labels and CAD's generic names are not authored identities, even once.
@@ -408,9 +420,9 @@ fn shared_or_incidentally_unique_generic_labels_keep_schema_two() {
             .collect();
         let generic = renamed(&p, &labels);
         let evidence = resume::evidence(&generic).unwrap();
-        assert_eq!(evidence["schema"], 2);
+        assert_eq!(evidence["schema"], 3);
         assert!(evidence.get("face_names").is_none());
-        assert!(evidence.get("geometry").is_none());
+        assert!(evidence["geometry"].is_object());
         let analysis = api::analyse(&generic).unwrap();
         assert!(
             analysis["faces"]

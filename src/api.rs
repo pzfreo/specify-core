@@ -338,8 +338,14 @@ fn analyse_with(
         |e: &dyn fmt::Display| refused(&existing::ExistingError::Unreadable(e.to_string()));
     let doc = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone())
         .map_err(|e| unreadable(&e))?;
-    let resumed =
-        resume::report_for_parsed(loaded, Some(&doc), &features).map_err(|e| refused(&e))?;
+    let (resumed, resume_warning) =
+        match resume::report_outcome_for_parsed(loaded, Some(&doc), &features)
+            .map_err(|e| refused(&e))?
+        {
+            resume::Report::None => (None, None),
+            resume::Report::Resumed(resumed) => (Some(resumed), None),
+            resume::Report::NotReused(note) => (None, Some(note)),
+        };
     let process = crate::process::read(&doc, loaded.definition.product_definition);
     let read_here;
     let definitions = match definitions {
@@ -401,6 +407,10 @@ fn analyse_with(
         warnings.push(format!("the feature table could not be built: {e}"));
         crate::feature_table::FeatureTable::unread(&Value::Object(analysis.clone()))
     });
+    if let Some(note) = resume_warning {
+        warnings.push(note.clone());
+        analysis.insert("resume_warning".into(), Value::String(note));
+    }
     if let Some(mut resumed) = resumed {
         let mut kept = Map::new();
         let nothing = crate::feature_table::wrote_nothing(&resumed.answers);

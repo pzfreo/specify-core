@@ -149,7 +149,7 @@ the resume correspondence rule below handles feature-ID changes.
 | `mesh.py` | `mesh.rs`, `triangulate.rs` | Mesh format `pmi-assist-mesh` v2 kept. Triangulation is a local stand-in (U4): each face triangulated in its parameter space from its boundary loops and refined to the deflection; a face it cannot do is listed in `missing`, as the format allows. Edges from the edges' samples, seams left out. |
 | `anchors.py`, `sightlines.py` | `anchors.rs`, `sightlines.rs` | Anchor point: `face_centre` checked to lie on the trimmed face (stand-in for quiddity's `inspect_face`, U6); sightlines by `Classifier`. The reach (0.12 of the diagonal) uses the exact bbox diagonal, where Python's `serve._diagonal` uses OCCT's loose `BRepBndLib` box: anchor points differ systematically by that ratio, recorded once as a `rust-correct` pattern. |
 | `writer.py`, `requirements.py` | `writer.rs` | Intent → one `PartPmi` per part → `pmi::write` (Replace for a bare/legacy resumed part, Add for foreign or mixed PMI) → atomic replace of the output → read back and compare. Report format kept. |
-| `resume.py` | `resume.rs`, `pyjson.rs` | Stored answers as a CAx-IF user defined attribute on the part (`AttributeSet` 'pmi-assist answers'); Python-written files are read too. The fingerprint hashes Python's exact `json.dumps` text (`pyjson.rs`); schema 2 written, zeros unsigned (Q14), schema 1 read. |
+| `resume.py` | `resume.rs`, `pyjson.rs` | Stored answers as a CAx-IF user defined attribute on the part (`AttributeSet` 'pmi-assist answers'); Python-written files are read too. Schema 3 is written using Quiddity's own versioned `geometry` fingerprints (`fingerprint_version`, faces, features) and optional authored `face_names`; legacy schemas 1 and 2 (Specify's SHA-256 hash, `pyjson.rs`) remain readable and upgrade to schema 3 on the next save. |
 | `api.py` | `api.rs` | |
 | `cli.py` | `main.rs` | Same subcommands, arguments, exit codes (0 ok, 1 write failed, 2 refused/invalid), stdout summaries. |
 | `serve.py` | `serve.rs` | Protocol 1, same ops and error codes. Replies on stdout; nothing else writes to stdout. |
@@ -215,29 +215,51 @@ except where a hash is taken (resume fingerprint, `pyjson.rs`).
 - Errors: `IncompleteError { missing, part }`, invalid answer (`ValueError` in Python) as a typed
   `Invalid(String)`, `SpecError`, verification and write failures; the CLI and `serve` map them to
   Python's exit codes and error codes (`incomplete`, `invalid`, `failed`).
-- Stored answers: `{schema, answers, part, face_count, faces}`, compact JSON
-  (`separators=(",", ":")`), base64, in a `DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist
+- Stored answers: schema 3 writes `{schema: 3, answers, part, face_count, geometry?, face_names?}`
+  as compact JSON (`separators=(",", ":")`), base64, in a `DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist
   answers','<base64>')`, or haecceity v0.4.3's marked ordered text compound when
-  it exceeds the encoded string bound. Chunk text is joined in list order. Named
-  parts write schema 3; wholly unnamed parts retain schema 2. Schemas 1–3 are read (compared as Python's
-  `==` compares: `1.0` and `true` are schema 1), any other is passed over. A payload resumes
-  when its `face_count` is the part's and its `faces` is the part's fingerprint *of the
-  payload's own schema* (Q14).
+  it exceeds the 8192-byte encoded string bound. Chunk text is joined in list order.
+  `geometry` holds Quiddity's own versioned `quiddity::correspondence::Fingerprints`
+  (`fingerprint_version`, `scale`, `features`, `faces`) instead of Specify's own SHA-256 face hash;
+  unique authored `f:` names add `face_names` (all-named parts use `face_names` alone).
+  Schemas 1–3 are read (compared as Python's `==` compares: `1.0` and `true` are schema 1),
+  any other is passed over.
 
 ### Saved answers across kernel upgrades
 
-Specify's payload schema remains 2 (schema 1 still reads); it is independent of
-quiddity's fingerprint v3. Alpha.6 saved no quiddity feature fingerprints. Do not feed
-its data to quiddity's v3 correspondence or assume positional record IDs survive.
+New writes always store **schema 3** with Quiddity's own versioned fingerprints (`geometry`:
+`fingerprint_version`, `scale`, `features`, `faces`, currently `quiddity-rust/fingerprint/5`),
+replacing Specify's fragile 0.001 mm rounded-centroid SHA-256 hash (`faces`). Legacy schemas 1
+and 2 remain readable and are rewritten as schema 3 on the next save.
 
-On opening a Specify-written STEP, `resume::report_for_parsed` first checks the
-payload's part, face count and **ordered geometric face fingerprint**, using its
-original schema. This proves the saved face indices still denote the same ordered
-surface kinds and rounded centroids. No face-index correspondence is inferred when
-that check fails: the file opens as a foreign file, retaining its existing PMI and
-part settings, as before this migration. This legacy evidence is deliberately
-conservative: it does not migrate topology edits or reordered faces, and cannot distinguish
-geometry edits that preserve all the legacy fingerprint's rounded surface kinds/centroids.
+On opening a Specify-written STEP, `resume::report_outcome_for_parsed` checks the stored payload:
+
+- **Schema 3 (unnamed, `geometry`):**
+  1. If `fingerprint_version` equals the current version and the face fingerprints match exactly,
+     reuse immediately (`rematch`).
+  2. Otherwise, if `fingerprint_version` equals the current version, call Quiddity's
+     `quiddity::correspondence::correspond(&old, new)`. When every face and feature is `Carried`
+     1-to-1 with no added, adapted, ambiguous or orphaned items, rebind through `correspond`'s face map.
+  3. Otherwise (including across a future `fingerprint_version` bump where `correspond` refuses
+     mismatched versions), fall back to tolerant same-order recovery: accept when `face_count`
+     matches, every face's surface kind matches in order, every centroid is within `0.01 mm`,
+     and intrinsic surface parameters agree within `0.01 mm`.
+  4. Otherwise (a real part change), do **not** reuse the saved answers and report it (never silently).
+- **Schema 3 (named/mixed, `face_names`):** resolves authored `f:` names strictly first; unnamed
+  faces in mixed parts use exact `geometry`, `correspond`, or the same `0.01 mm` tolerant fallback.
+- **Legacy schemas 1 and 2 (`faces` SHA-256 hash):** first checks `face_count` and the legacy
+  hash in its original schema. On mismatch with matching `face_count`, checks the legacy hash
+  under pre-#317 projected 3D-edge and recognition boundary policies (recovering files such as
+  `cgb217` whose centroids shifted when haecceity 0.5.6 switched public `face_moments` to STEP's
+  declared master pcurves). On remaining mismatch, a port-written schema 1 payload falls back to
+  ID matching (`unverified`); any other mismatch is **not** reused and is reported (never silently).
+
+**Never silently drop saved answers.** When a stored payload fails verification and is not
+recovered, `analysis.resume` is omitted, `analysis.resume_warning` is set to
+`"Saved answers in this file were not reused: the part has changed since they were saved"`,
+the same line is emitted in CLI stderr warnings, `serve` warnings, and MCP `open` warnings, and
+`problems` carries a `warning` with `code: "saved_answers_not_reused"` that MCP `review`, WASM
+`Session::review`, and the Specify app (`SpecifyReview`) surface to the user.
 
 For a feature question `question:family:faces`, an exact same-family face support is
 preferred. If it disappeared, carry the answer only to a **unique same-family feature
@@ -269,8 +291,9 @@ lacks) repeat it. Python-written schema 1 files still open as foreign files (Q14
 project, draftwright-mcp's hosted part) uses `resume::rematch_answers(loaded, features,
 answers, evidence, automatic)` (WASM `rematchAnswers`) instead of its own list of
 feature-keyed answer kinds. The sound evidence is the part's face evidence when the answers
-were saved: `resume::evidence(loaded)`, `{schema: 2, face_count, faces}`, the same fields
-and fingerprint the writer stores with answers in the file (a stored payload serves too).
+were saved: `resume::evidence(loaded)`, `{schema: 3, face_count, geometry?, face_names?}`, the same fields
+the writer stores with answers in the file (a stored payload serves too; older schema 1/2 evidence
+remains accepted).
 The fingerprint, not the source sha256, is what proves the saved face indices still denote
 the same ordered faces across loader and kernel changes. With matching evidence the answers
 are matched exactly as answers stored in a STEP are, by `rematch`.
@@ -306,13 +329,12 @@ each unresolved old ID and reason (`saved_answer_unresolved`). The analysis carr
 `existing: []` for a saved session, so old written PMI cannot mask unanswered questions.
 Editor users should review these warnings and answer the open questions before saving;
 original unresolved values remain available in the resume report for manual recovery.
-No defaults are automatically accepted by migration. Rewriting stores the user's
-current answers through the existing schema-2 payload. **Unresolved old answers are not
+No defaults are automatically accepted by migration. Rewriting stores the user's current answers through schema 3 (Quiddity's versioned fingerprints). **Unresolved old answers are not
 persisted when saving again**; recover their values from the resume report before saving.
 Answers left open on contradicting evidence are never applied (above), so a rewrite cannot
 launder them: an answer left open becomes verified only by the person answering it, which is
 the explicit acceptance. Answers trusted by ID without evidence are applied, and a rewrite
-stores them under the fresh schema 2 fingerprint.
+stores them under the fresh schema 3 fingerprint.
 Unchanged answer payloads retain
 the same compact JSON/base64 bytes.
 
@@ -393,13 +415,18 @@ The full workspace suite remains CI's check.
 Part-21 strings are decoded text in step-io 0.3 (#62): do not decode an attribute twice;
 haecceity's `Document::span` continues to provide checked `usize` slices of its own bytes.
 
-### The fingerprint (both engines, byte for byte)
+### The legacy fingerprint (schemas 1 and 2, byte for byte)
+
+New saves write schema 3 using Quiddity's own `Fingerprints` (`geometry`); Specify's legacy
+SHA-256 face hash (`resume::fingerprint` / `resume::fingerprint_v1`) is still computed for
+reading legacy schema 1/2 files, characteristic-number histories, PMI-origin metadata and
+cross-engine checks.
 
 For each face in face order (`describe_faces`), the pair `[kind, [x, y, z]]`: `kind` the face's
 kind string, `x, y, z` its centroid's components each rounded to 3 decimals by Python's
 `round(c, 3)` (correctly rounded, half to even; `pyfmt::round_half_even`). Then:
 
-- **Schema 2** (written): every component that is zero after rounding is written unsigned:
+- **Schema 2** (read only; rewritten as schema 3 on save): every component that is zero after rounding is written unsigned:
   `0.0`, never `-0.0` (Python `0.0 if r == 0 else r`; Rust `if r == 0.0 { 0.0 } else { r }`).
   Rounding comes first, so `-0.0004` becomes `0.0`.
 - **Schema 1** (read only): the components as rounded, signs of zero kept. Under a kernel

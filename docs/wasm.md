@@ -262,9 +262,13 @@ A project that keeps its answers itself (not only in the STEP it exports) should
 setting aside answers by a list of answer kinds. The result is `resume::Resumed`, as
 `analysis.resume` reports answers stored in a STEP:
 
-- With evidence whose face count and fingerprint match the part, feature answers move to
+- With evidence whose face count and fingerprint match the part (schema 3 Quiddity `geometry`
+  fingerprints, or legacy schema 1/2 hashes), feature answers move to
   a unique same-family feature containing their saved faces (`migrated` lists old/new IDs),
   exactly as on reopening a STEP (docs/design.md, "Saved answers across kernel upgrades").
+  On reopening a STEP whose stored answers do not match the part and cannot be recovered,
+  `analysis.resume_warning` and `review().problems` (`code: "saved_answers_not_reused"`) report
+  that the saved answers were not reused rather than dropping them silently.
 - Without evidence (a project saved before it kept evidence), the answers are trusted by
   ID: a feature answer is kept when the part has a feature with that ID, a datum when its
   faces exist on the part, and the rest are in `unresolved`. `unverified` says the match was

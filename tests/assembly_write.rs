@@ -426,24 +426,55 @@ fn a_part_is_written_once_and_parts_are_of_one_file() {
 fn a_mixed_write_edits_one_part_at_a_time_regardless_of_origin() {
     let dir = temp("mixed");
     let (_, _, out) = written(&dir);
-    let text = std::fs::read_to_string(&out).unwrap();
-    let pattern = Regex::new(r"'pmi-assist answers','([A-Za-z0-9+/=]+)'").unwrap();
-    let mixed_text = pattern.replace_all(&text, |c: &regex::Captures| {
-        use base64::Engine;
-        let raw = base64::engine::general_purpose::STANDARD
-            .decode(&c[1])
-            .unwrap();
-        let mut p: Value = serde_json::from_slice(&raw).unwrap();
-        if p["part"] == json!(PIN) {
-            format!("'other','{}'", &c[1])
-        } else {
-            p["answers"]["part.material"] = json!("steel");
-            let legacy = base64::engine::general_purpose::STANDARD.encode(p.to_string());
-            format!("'pmi-assist answers','{legacy}'")
+    let orig_bytes = std::fs::read(&out).unwrap();
+    let doc = haecceity::p21::Document::parse(orig_bytes).unwrap();
+    let mut edit = haecceity::p21::Edit::new();
+    let stored_map = stored(doc.bytes());
+    let mut plate_payload = Value::Object(stored_map[&PLATE].clone());
+    plate_payload["answers"]["part.material"] = json!("steel");
+    for id in doc.ids() {
+        let Some(haecceity::p21::RawEntity::Simple {
+            name, attributes, ..
+        }) = doc.get(id)
+        else {
+            continue;
+        };
+        if (name == "DESCRIPTIVE_REPRESENTATION_ITEM" || name == "COMPOUND_REPRESENTATION_ITEM")
+            && matches!(attributes.first(), Some(haecceity::p21::Attribute::String(s)) if s == resume::NAME)
+        {
+            // Determine whether this item is PIN's (unchunked DESCRIPTIVE_REPRESENTATION_ITEM)
+            // or PLATE's (may be chunked COMPOUND_REPRESENTATION_ITEM).
+            let is_pin = name == "DESCRIPTIVE_REPRESENTATION_ITEM"
+                && matches!(attributes.get(1), Some(haecceity::p21::Attribute::String(s)) if {
+                    use base64::Engine;
+                    base64::engine::general_purpose::STANDARD
+                        .decode(s)
+                        .ok()
+                        .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+                        .is_some_and(|v| v["part"] == json!(PIN))
+                });
+            if is_pin {
+                let mut attrs = attributes.clone();
+                attrs[0] = haecceity::p21::Attribute::String("other".into());
+                edit.replace(id, haecceity::p21::simple(name, attrs));
+            } else {
+                // Rewrite PLATE's stored payload to include the legacy part.material answer.
+                let encoded = resume::encode(&plate_payload);
+                edit.replace(
+                    id,
+                    haecceity::p21::simple(
+                        "DESCRIPTIVE_REPRESENTATION_ITEM",
+                        vec![
+                            haecceity::p21::Attribute::String(resume::NAME.into()),
+                            haecceity::p21::Attribute::String(encoded),
+                        ],
+                    ),
+                );
+            }
         }
-    });
+    }
     let mixed = dir.join("mixed.step");
-    std::fs::write(&mixed, mixed_text.as_ref()).unwrap();
+    std::fs::write(&mixed, doc.apply(&edit).unwrap().bytes).unwrap();
     let parts = load_all(&mixed).unwrap();
     assert_eq!(answers_for(&parts[PLATE]).unwrap(), Some(answers(PLATE)));
     assert_eq!(answers_for(&parts[PIN]).unwrap(), None);

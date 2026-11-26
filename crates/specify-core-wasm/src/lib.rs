@@ -119,7 +119,7 @@ export type EditResult =
 export interface AnswerEvidence {
   schema: 1 | 2 | 3;
   face_count: number;
-  faces: string;
+  faces?: string;
   face_names?: (string | null)[];
   geometry?: unknown;
 }

@@ -56,7 +56,7 @@ export interface AnalysisFace {
 export interface AnswerEvidence {
   face_count: number;
   face_names?: (string | null)[];
-  faces: string;
+  faces?: string;
   geometry?: unknown;
   schema: 1 | 2 | 3;
 }

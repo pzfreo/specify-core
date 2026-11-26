@@ -87,8 +87,9 @@ try {
   const generic = new IntentEngine('generic.step', genericBytes);
   try {
     const evidence = JSON.parse(generic.evidence());
-    assert.equal(evidence.schema, 2);
+    assert.equal(evidence.schema, 3);
     assert.equal(evidence.face_names, undefined);
+    assert.ok(evidence.geometry);
     assert.ok(JSON.parse(generic.snapshot()).analysis.faces.every(f => f.name === undefined));
     const written = JSON.parse(generic.edit(JSON.stringify({ fill: fills(given) })));
     assert.ok(written.written, written.message);

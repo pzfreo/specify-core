@@ -27,24 +27,28 @@ TypeScript declarations describe the existing methods' JSON strings.
 
 ## Stored answers and compatibility
 
-A part with any usable unique `f:` names writes stored-answer **schema 3**. Its payload keeps
-`answers`, `part`, `face_count` and `faces` (the existing unsigned-zero geometry
-hash), and adds `face_names`, an array of the saved STEP names in face index order,
-with `null` for an unnamed, shared or generic-labelled face. This table records the name of every face used
-by a feature answer, datum or extra without changing answer keys or values. The
-existing `evidence()` returns the same evidence fields without `answers`/`part`.
-Keep the entire evidence object beside answers saved outside STEP.
+All newly saved payloads now write stored-answer **schema 3**, using Quiddity's own versioned
+geometric fingerprints (`geometry`, carrying `fingerprint_version`, faces, and features) instead
+of Specify's legacy SHA-256 face hash (`faces`). A part with any usable unique `f:` names adds
+`face_names`, an array of the saved STEP names in face index order, with `null` for an unnamed,
+shared or generic-labelled face. This table records the name of every face used by a feature
+answer, datum or extra without changing answer keys or values. The existing `evidence()` returns
+the same evidence fields without `answers`/`part`. Keep the entire evidence object beside answers
+saved outside STEP.
 
-Mixed parts also store `geometry`, quiddity's versioned geometric fingerprints,
-so the existing correspondence algorithm can match their unnamed supports across
-revisions. Parts whose faces all have usable identities need no geometric
-correspondence. Parts with no usable identities continue to write schema 2, with
-byte-identical payloads and analysis fields, including the named MFCAD++ and NIST
-corpus parts. No name is refused at write time merely because it is shared.
-Schema 3 uses schema 2's hash algorithm; no new fingerprint namespace is invented.
+Unnamed and mixed parts store `geometry`, quiddity's versioned geometric fingerprints,
+so exact matching, `correspond` rebinding, and `0.01 mm` tolerant recovery can match their unnamed
+supports across revisions and kernel upgrades. Parts whose faces all have usable identities need
+no geometric correspondence and omit `geometry`. Parts with no usable identities write schema 3
+with `geometry` and no `face_names`. No name is refused at write time merely because it is shared.
 
-This engine reads schemas 1, 2 and 3. Schema 1/2 resume retains its existing
-fingerprint checks. With a verified fingerprint, both analysis and file-only PMI scenes
+This engine reads schemas 1, 2 and 3. Legacy schema 1/2 payloads (carrying Specify's `faces`
+hash) stay readable, with pre-#317 projected-boundary recovery on mismatch, and are rewritten as
+schema 3 on the next save. When a stored payload's fingerprint does not match and is not
+recovered, Specify never drops it silently: it reports `"Saved answers in this file were not
+reused: the part has changed since they were saved"` in analysis warnings (CLI/serve/MCP),
+`analysis.resume_warning`, and review `problems` (`code: "saved_answers_not_reused"`).
+With verified evidence, both analysis and file-only PMI scenes
 rematch saved feature answers to current IDs, including a uniquely added planar floor.
 Without face evidence (plain projects/answer files and unverified schema-1 payloads),
 matching prefers an exact ID, then a unique same-family feature whose ID faces are a
@@ -56,7 +60,7 @@ it does not recover a subset of the answers. It can still read the standard AP24
 PMI as existing PMI to the extent its PMI reader supports it; automatic interview
 resume is unavailable. Passing schema 3 evidence to an older `rematchAnswers`
 returns its existing invalid-schema error. There is no claimed downgrade or
-cross-version round trip for named answers. Unknown future stored schemas are
+cross-version round trip for schema 3 answers. Unknown future stored schemas are
 still skipped by this engine.
 
 ## Matching and refusals

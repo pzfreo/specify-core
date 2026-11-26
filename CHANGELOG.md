@@ -183,6 +183,11 @@ Read first:
   metal's: no surface finish, edges `Deburr only`, ± dimensions. Recorded expectations change for
   sm-hanger, cgb245 and NIST CTC-03 only; answering `machined` there gives the rules as before.
 - **Quiddity 0.5.6.** Bumped `quiddity` and `haecceity` to `v0.5.6` (tangent fillet chains and radius groups, sheet-metal flange bounds, and STEP-selected boundary face integrals; grouped fillet rows remain planned for 0.3.2).
+- **Saved answers use Quiddity's own fingerprints (schema 3) and are never dropped silently.**
+  - New saves always write stored-answer schema 3 carrying Quiddity's versioned `geometry` fingerprints (`fingerprint_version`, `scale`, `features`, `faces`) instead of Specify's own 0.001 mm rounded-centroid SHA-256 hash (`faces`). Unique authored `f:` names keep `face_names` (all-named parts use `face_names` alone).
+  - Reading schema 3 checks exact match first, then rebinds unchanged parts through `quiddity::correspondence::correspond` when versions match, then falls back to tolerant same-order recovery (same face count, surface kinds in order, centroids and surface parameters within 0.01 mm, including across `fingerprint_version` bumps).
+  - Legacy schema 1 and 2 payloads stay readable (with pre-#317 projected-boundary recovery for files like `cgb217` whose centroids shifted when haecceity 0.5.6 switched public `face_moments` to STEP master pcurves) and rewrite as schema 3 on the next save.
+  - When stored answers in a STEP file do not match and cannot be recovered, Specify never drops them silently: `analysis.resume_warning`, CLI/serve/MCP warnings, and review `problems` (`code: "saved_answers_not_reused"`, shown in `SpecifyReview`'s problem banner) report `"Saved answers in this file were not reused: the part has changed since they were saved"`.
 - **Quiddity 0.5.5.** Published step levels on every part axis get plane-to-plane length rows.
   Independent plane lengths keep their rows. Stated locations on retired levels appear under
   **Other PMI in the file** when they match no measured row. A stated length on tilted planes
@@ -390,6 +395,8 @@ Read first:
 
 - `exportAnswers(answers, approved?)` is removed: there is no export of answers as a record
   (ADR P11).
+- `AnswerEvidence.faces` is now optional (`faces?: string`): schema 3 evidence stores Quiddity's
+  versioned `geometry` fingerprints (and/or `face_names`) instead of Specify's legacy `faces` hash.
 
 ### Fixed
 

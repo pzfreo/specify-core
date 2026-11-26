@@ -570,3 +570,62 @@ fn browser_refuses_suppressed_od_boss_answers_in_saved_and_shared_projects() {
             .any(|p| p["code"] == "saved_answer_unresolved")
     );
 }
+
+#[test]
+fn browser_reports_saved_answers_not_reused_when_part_changed() {
+    let bytes = saved("pin");
+    let orig_payload = json!(resume::stored(&bytes)[&0]);
+    let rewrite = |payload: &Value| {
+        let doc = Document::parse(bytes.clone()).unwrap();
+        let mut edit = Edit::new();
+        for id in doc.ids() {
+            if let Some(RawEntity::Simple {
+                name, attributes, ..
+            }) = doc.get(id)
+                && name == "DESCRIPTIVE_REPRESENTATION_ITEM"
+                && matches!(attributes.first(), Some(Attribute::String(s)) if s == resume::NAME)
+            {
+                let mut attributes = attributes.clone();
+                attributes[1] = Attribute::String(resume::encode(payload));
+                edit.replace(id, haecceity::p21::simple(name, attributes));
+            }
+        }
+        doc.apply(&edit).unwrap().bytes
+    };
+
+    // Legacy schema 2 mismatch (forged hash).
+    let mut bad_s2 = orig_payload.clone();
+    bad_s2["faces"] = json!("0".repeat(64));
+
+    // Schema 3 mismatch (centroid shifted well beyond 0.01 mm).
+    let loaded = part::load_bytes("pin.step", bytes.clone()).unwrap();
+    let mut bad_s3 = resume::payload(
+        &loaded,
+        orig_payload["answers"].as_object().unwrap(),
+    )
+    .unwrap();
+    bad_s3["geometry"]["faces"][0]["centroid"][0] = json!(9999.0);
+
+    for (label, payload) in [("schema2", bad_s2), ("schema3", bad_s3)] {
+        let session = Session::open("changed.step", &rewrite(&payload)).unwrap();
+        let snapshot = session.snapshot();
+        assert!(snapshot["analysis"]["resume"].is_null(), "{label}");
+        assert_eq!(
+            snapshot["analysis"]["resume_warning"].as_str(),
+            Some(resume::NOT_REUSED_MESSAGE),
+            "{label}"
+        );
+        let review = session.review(&Map::new()).unwrap();
+        assert!(
+            review["problems"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p["code"] == "saved_answers_not_reused"
+                    && p["severity"] == "warning"
+                    && p["message"] == resume::NOT_REUSED_MESSAGE),
+            "{label}: {}",
+            review["problems"]
+        );
+    }
+}

@@ -302,18 +302,20 @@ Example:
 {
   "part.material":"6061-T6",
   "_specify": {
-    "evidence":{"schema":2,"face_count":12,"faces":"<saved face fingerprint>"},
+    "evidence":{"schema":3,"face_count":12,"geometry":{"fingerprint_version":"quiddity-rust/fingerprint/5","scale":100.0,"features":[],"faces":[]}},
     "unresolved":{"datum.A":"face 4 has no match in the new part"}
   }
 }
 ```
 
-`evidence` is the same `{schema, face_count, faces, face_names?, geometry?}` that Specify
+`evidence` is the same `{schema, face_count, geometry?, face_names?, faces?}` that Specify
 stores alongside answers inside STEP and returns from WASM `evidence()`. It belongs to
-the **destination** part's face numbering. Schema 3 may add authored names and geometry;
-write requires the saved count, ordered face fingerprint and indexed authored names
-to match, without remapping by name. This deliberately refuses changed numbering even if names could be rematched.
-Malformed evidence is an error.
+the **destination** part's face numbering. New saves always write schema 3 carrying Quiddity's
+versioned `geometry` fingerprints (and `face_names` for authored `f:` names; all-named parts
+use `face_names` alone) instead of Specify's legacy `faces` hash. Legacy schema 1 and 2 evidence
+(`faces` hash) remains readable. Write requires the saved count, ordered face evidence and indexed
+authored names to match, without remapping by name. This deliberately refuses changed numbering
+even if names could be rematched. Malformed evidence is an error.
 
 The shared writer checks evidence against the loaded part before writing bytes. A CLI
 edit-list write with stale evidence exits 2, names the answers path, and reports that
