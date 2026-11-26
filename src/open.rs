@@ -952,6 +952,44 @@ fn plain_step_name(raw: &str) -> Option<String> {
     Some(name)
 }
 
+/// Checks that an uploaded STEP body is non-empty and, if gzipped, decompresses cleanly within
+/// [`MAX_OPEN_BODY`] (matching the browser viewer's `input::STEP_LIMIT`) before `Session::open`
+/// allocates or parses it.
+fn check_open_bytes(bytes: &[u8]) -> Result<(), (&'static str, String)> {
+    if bytes.is_empty() {
+        return Err(("400 Bad Request", "the STEP file is empty".into()));
+    }
+    if bytes.starts_with(&[0x1f, 0x8b]) {
+        let mut decoder = flate2::read::MultiGzDecoder::new(bytes).take(MAX_OPEN_BODY + 1);
+        let mut chunk = [0u8; 64 * 1024];
+        let mut total = 0u64;
+        loop {
+            match decoder.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    total += n as u64;
+                    if total > MAX_OPEN_BODY {
+                        return Err((
+                            "413 Content Too Large",
+                            format!("uncompressed STEP is larger than {MAX_OPEN_BODY} bytes"),
+                        ));
+                    }
+                }
+                Err(e) => {
+                    return Err((
+                        "422 Unprocessable Content",
+                        format!("the file is gzip but cannot be decompressed: {e}"),
+                    ));
+                }
+            }
+        }
+        if total == 0 {
+            return Err(("400 Bad Request", "the STEP file is empty".into()));
+        }
+    }
+    Ok(())
+}
+
 /// `POST <token>/open`, from the app's own origin: loads a STEP file dropped or chosen in an
 /// empty `specify-core open` page into a session whose saves write into `save_dir`.
 fn open_file(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
@@ -986,14 +1024,19 @@ fn open_file(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>
         Ok(bytes) => bytes,
         Err((status, why)) => return refuse(stream, status, &why),
     };
-    if bytes.is_empty() {
-        return refuse(stream, "400 Bad Request", "the STEP file is empty");
+    if let Err((status, why)) = check_open_bytes(&bytes) {
+        return refuse(stream, status, &why);
     }
     let opened = session::Opened::of(save_dir.join(&name), bytes);
-    let session = match session::Session::open(opened, false) {
+    let mut session = match session::Session::open(opened, false) {
         Ok(session) => session,
         Err(err) => return refuse(stream, "422 Unprocessable Content", &err.to_string()),
     };
+    if session.parts().as_object().is_some_and(|p| p.is_empty())
+        && let Err(err) = session.analysis(0)
+    {
+        return refuse(stream, "422 Unprocessable Content", &err.to_string());
+    }
     {
         let mut slot = lock(&shared.session);
         if slot.is_some() {

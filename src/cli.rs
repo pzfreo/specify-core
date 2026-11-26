@@ -684,8 +684,8 @@ fn open(
         }
         Opening::File(step) => {
             named(step)?;
-            let session =
-                Session::open(Opened::read(step).map_err(Exit::error)?, in_place).map_err(refused)?;
+            let session = Session::open(Opened::read(step).map_err(Exit::error)?, in_place)
+                .map_err(refused)?;
             let found = assets(app, wasm).map_err(failed)?;
             let session = std::sync::Arc::new(std::sync::Mutex::new(session));
             App::new(session, found, options).map_err(failed)?

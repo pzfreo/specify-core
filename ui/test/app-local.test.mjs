@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getConfig, keepAlive } from '../app/local.ts';
+import { getConfig, keepAlive, MAX_OPEN_BYTES, openFile, Refused } from '../app/local.ts';
 import { createSession } from '../app/answers.ts';
 import { editsSaver } from '../app/save.ts';
 import { SESSION_API, SessionApiMismatch } from '../app/session-api.ts';
@@ -251,4 +251,21 @@ test('pagehide cancels an in-flight Save before sending closed', async (t) => {
   clock.window.dispatchEvent(Object.assign(new Event('pagehide'), { persisted: false }));
   await cancelled;
   assert.deepEqual(events, ['save', 'abort save', 'closed']);
+});
+
+test('openFile refuses empty and oversized files before uploading and propagates server 413', async (t) => {
+  let fetched = 0;
+  t.mock.method(globalThis, 'fetch', async () => {
+    fetched += 1;
+    return Response.json({ error: `uncompressed STEP is larger than ${MAX_OPEN_BYTES} bytes` }, { status: 413 });
+  });
+  await assert.rejects(openFile(new File([], 'empty.step')), /the STEP file is empty/);
+  const big = { name: 'big.step', size: MAX_OPEN_BYTES + 1, arrayBuffer: async () => new ArrayBuffer(0) };
+  await assert.rejects(openFile(big), new RegExp(`larger than ${MAX_OPEN_BYTES} bytes`));
+  assert.equal(fetched, 0, 'empty and over-limit files do not upload');
+  await assert.rejects(
+    openFile(new File([new Uint8Array([0x1f, 0x8b])], 'bomb.step.gz')),
+    (error) => error instanceof Refused && error.status === 413 && error.message.includes(String(MAX_OPEN_BYTES)),
+  );
+  assert.equal(fetched, 1);
 });

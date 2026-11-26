@@ -2886,7 +2886,14 @@ fn open_without_file_accepts_upload_and_saves_to_working_directory() {
         .status,
         400
     );
-    for bad_name in ["../evil.step", "dir/a.step", "a.stl", "..", "", "a%2Fb.step"] {
+    for bad_name in [
+        "../evil.step",
+        "dir/a.step",
+        "a.stl",
+        "..",
+        "",
+        "a%2Fb.step",
+    ] {
         assert_eq!(
             upload(
                 &[
@@ -2977,6 +2984,75 @@ fn open_without_file_accepts_upload_and_saves_to_working_directory() {
     );
     assert_eq!(opened.config()["name"], Value::Null);
 
+    // Corrupt gzip -> 422, leaving the session still empty.
+    assert_eq!(
+        upload(
+            &[
+                ("Host", &host),
+                ("Origin", &origin),
+                ("Content-Type", "application/octet-stream"),
+                ("X-Specify-Name", "corrupt.step.gz"),
+            ],
+            &[0x1f, 0x8b, 0x08, 0x00, 0xff, 0xff],
+        )
+        .status,
+        422
+    );
+    assert_eq!(opened.config()["name"], Value::Null);
+
+    // Empty gzip -> 400, leaving the session still empty.
+    let empty_gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast())
+        .finish()
+        .unwrap();
+    assert_eq!(
+        upload(
+            &[
+                ("Host", &host),
+                ("Origin", &origin),
+                ("Content-Type", "application/octet-stream"),
+                ("X-Specify-Name", "empty.step.gz"),
+            ],
+            &empty_gz,
+        )
+        .status,
+        400
+    );
+    assert_eq!(opened.config()["name"], Value::Null);
+
+    // A .step.gz under 64 MiB compressed that expands past 64 MiB -> 413, leaving the session
+    // still empty so another file can be uploaded.
+    let expanded_over = {
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        let zeros = vec![b' '; 1024 * 1024];
+        for _ in 0..64 {
+            gz.write_all(&zeros).unwrap();
+        }
+        gz.write_all(b" ").unwrap();
+        gz.finish().unwrap()
+    };
+    assert!(
+        (expanded_over.len() as u64) < open::MAX_OPEN_BODY,
+        "compressed fixture is well under MAX_OPEN_BODY"
+    );
+    let oversized_gz = upload(
+        &[
+            ("Host", &host),
+            ("Origin", &origin),
+            ("Content-Type", "application/octet-stream"),
+            ("X-Specify-Name", "bomb.step.gz"),
+        ],
+        &expanded_over,
+    );
+    assert_eq!(oversized_gz.status, 413);
+    assert!(
+        oversized_gz.json()["error"]
+            .as_str()
+            .is_some_and(|m| m.contains(&open::MAX_OPEN_BODY.to_string())),
+        "{}",
+        String::from_utf8_lossy(&oversized_gz.body)
+    );
+    assert_eq!(opened.config()["name"], Value::Null);
+
     // Valid upload (.stp.gz): loads the session and returns the updated config.
     let ok = upload(
         &[
@@ -3026,7 +3102,12 @@ fn open_without_file_accepts_upload_and_saves_to_working_directory() {
     drop(stream);
 
     let saved = opened.save(rev, decide_coating());
-    assert_eq!(saved.status, 200, "{}", String::from_utf8_lossy(&saved.body));
+    assert_eq!(
+        saved.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&saved.body)
+    );
     let saved_json = saved.json();
     assert_eq!(saved_json["path"], expected_target.display().to_string());
     assert!(is_step(&expected_target), "saved as uncompressed STEP");

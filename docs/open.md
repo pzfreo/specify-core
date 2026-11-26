@@ -147,14 +147,15 @@ its bytes to the local server once via `POST <token>/open`:
 - `X-Specify-Name`: the file's plain basename, percent-encoded as UTF-8, ending in `.step`, `.stp`,
   `.step.gz` or `.stp.gz` in any case (no path separators, `..` or control characters; 400 otherwise);
 - `Content-Type: application/octet-stream` (415 otherwise), `Content-Length` and no
-  `Transfer-Encoding` (411), non-empty (400), at most 64 MiB (`MAX_OPEN_BODY`, 413), the whole
-  body within 30 s and 1 s more per MiB (408).
+  `Transfer-Encoding` (411), non-empty (400), at most 64 MiB (`MAX_OPEN_BODY`, both on the wire
+  and uncompressed for gzipped files, 413), the whole body within 30 s and 1 s more per MiB (408).
 
-The command parses the STEP bytes into a session (422 if the file cannot be read or has no faces)
-and refuses a second upload once a file is open (409, also when started with a file on the command
-line or under MCP `show`). On success it prints `Opened <name>.` and returns `200` with the new
-`config` JSON. Save writes `<stem>.specified.step` (then `-2`, `-3`, …; updating only this
-session's own copy, never overwriting any other file) in the working directory where
+The command parses and validates the STEP bytes into a session (422 if the file cannot be read,
+has no faces, or fails analysis) and leaves the session empty on any refusal so the page can pick
+or drop another file. Once a file is open, a second upload is refused (409, also when started with
+a file on the command line or under MCP `show`). On success it prints `Opened <name>.` and returns
+`200` with the new `config` JSON. Save writes `<stem>.specified.step` (then `-2`, `-3`, …; updating
+only this session's own copy, never overwriting any other file) in the working directory where
 `specify-core open` was started, shown in `config.saveTarget` before saving.
 
 ### `save`

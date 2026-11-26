@@ -72,8 +72,13 @@ async function json<T>(request: Promise<Response>): Promise<T> {
 /** Whether Specify opens a file of this name: `.step` or `.stp`, or either gzipped. */
 export const isStepName = (name: string) => /\.(step|stp)(\.gz)?$/i.test(name);
 
+/** The largest STEP file accepted (matches specify-core `input::STEP_LIMIT` / `open::MAX_OPEN_BODY`). */
+export const MAX_OPEN_BYTES = 64 * 1024 * 1024;
+
 /** Upload a STEP file picked or dropped into an empty `specify-core open` page. */
 export async function openFile(file: File): Promise<LocalConfig> {
+  if (file.size === 0) throw new Error('the STEP file is empty');
+  if (file.size > MAX_OPEN_BYTES) throw new Error(`larger than ${MAX_OPEN_BYTES} bytes`);
   const bytes = new Uint8Array(await file.arrayBuffer());
   const config = await json<LocalConfig>(fetch('open', {
     method: 'POST',
