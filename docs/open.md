@@ -9,18 +9,21 @@ The page server is started in one of two ways, with the same code and the same c
 - **By an AI agent** (the usual way): Specify is set up once as the agent's stdio MCP server,
   `specify-core mcp`; the agent opens a part and calls the `show` tool, which starts the page
   server for that session and returns its address (docs/session.md).
-- **By hand**, with no agent: `specify-core open FILE` or `specify-core open --diff OLD NEW`,
+- **By hand**, with no agent: `specify-core open [FILE]` or `specify-core open --diff OLD NEW`,
   below.
 
 ```text
-specify-core open FILE [--read-only | --in-place] [--port N] [--no-browser]
-                       [--app DIR] [--wasm DIR]
+specify-core open [FILE] [--read-only | --in-place] [--port N] [--no-browser]
+                         [--app DIR] [--wasm DIR]
 specify-core open --diff OLD NEW [--in-place] [--port N] [--no-browser]
-                       [--app DIR] [--wasm DIR]
+                         [--app DIR] [--wasm DIR]
 ```
 
 `FILE`, `OLD` and `NEW` are `.step` or `.stp` files, or either gzipped. `--read-only` and
-`--in-place` cannot be combined; `--read-only` cannot be combined with `--diff`. Every path
+`--in-place` cannot be combined; `--read-only` cannot be combined with `--diff`; `--in-place`
+requires a file. Without `FILE`, the page opens empty with a drop target and file picker; dropping
+or choosing a file opens it in the same review and Save writes `<stem>.specified.step` (then `-2`,
+`-3`, …) into the working directory where `specify-core open` was started. Every path
 the command shows or returns (`saveTarget`, a save's `path`, its notices) is the file as given,
 made absolute, never resolved: a link stays the link, and nothing is shown in a canonical form
 such as Windows' `\\?\C:\…`.
@@ -51,7 +54,8 @@ characters drawn from the operating system's random source for each run. The com
 Open part.step: http://127.0.0.1:<port>/<token>/
 ```
 
-and opens the browser there (not with `--no-browser`). (Under an agent nothing is printed: the
+(or `Open: http://127.0.0.1:<port>/<token>/` when started with no file) and opens the browser
+there (not with `--no-browser`). (Under an agent nothing is printed: the
 `show` tool returns the address, and opens the browser unless asked not to.) `<token>`
 without its trailing slash is redirected (308) to it. The app must use relative URLs only: it is served under the token, never
 at `/`.
@@ -61,14 +65,16 @@ at `/`.
 | `GET <token>/` | the app's `index.html` |
 | `GET <token>/<path>` | the static app: the file at `<path>` in the app directory |
 | `GET <token>/wasm/<path>` | the engine: the file at `<path>` in the wasm-pack `pkg/` directory |
-| `GET <token>/file` | the STEP file's bytes, as on disk (gzipped if the file is), `application/octet-stream` |
+| `GET <token>/file` | the STEP file's bytes, as on disk (gzipped if the file is), `application/octet-stream` (404 before a file is opened) |
 | `GET <token>/file?rev=old` | `diff` mode: `OLD`'s bytes; `?rev=new` (or no query) is `NEW`; any other `rev` is 404 |
 | `GET <token>/file?rev=saved` | the bytes the session's last successful save wrote, as on disk now, its absolute path in `X-Specify-Path`, below |
 | `GET <token>/config` | the app's settings, below; also the page's heartbeat |
-| `GET <token>/answers` | the session's answers, below |
-| `GET <token>/events` | the session's changes as server-sent events, below |
+| `GET <token>/answers` | the session's answers, below (404 before a file is opened) |
+| `GET <token>/events` | the session's changes as server-sent events, below (404 before a file is opened) |
 | `GET <token>/diff` | `diff` mode: the comparison, as WASM `diff()` gives it, below |
+| `POST <token>/open` | load a STEP file dropped or chosen in an empty `open` page, below |
 | `POST <token>/save` | an edit list applied to the file, all or nothing, and written to disk, below |
+| `POST <token>/discard` | drop working answers without writing, below |
 | `POST <token>/closed` | the page went away, below |
 
 A query string is ignored, except `rev` on `file`. `file` serves the input as it was opened, or
@@ -112,9 +118,11 @@ every mode, `diff` included:
   changes in a way an app built for the old one cannot follow; an app checks it and says
   plainly which version it needs.
 - `mode`: `"specify"`, `"read-only"` or `"diff"` (above).
-- `name`: the file's name (`NEW`'s in `diff` mode).
+- `name`: the file's name (`NEW`'s in `diff` mode), or `null` when started with no file until one
+  is dropped or chosen in the page.
 - `path`: the opened file's absolute path (`NEW`'s in `diff` mode), as given, not resolved
-  (above).
+  (above), or `null` when started with no file (including after one is picked in the browser,
+  which does not expose the input file's real path on disk).
 - `part`: the part index the page is shown for: under an agent, the part (`doc`) `show` was
   called for, in a file of several parts; otherwise `null` (`specify-core open`, or a file of
   one part).
@@ -123,11 +131,32 @@ every mode, `diff` included:
   `true` exactly when `mode` is `"read-only"`.
 - `wasmUrl`: the engine's entry module, relative to the app.
 - `saveTarget`: the absolute path the next save would write (the input itself with
-  `--in-place`), or `null` when read-only. It changes after each save. A save may still take
+  `--in-place`, or `<cwd>/<stem>.specified.step` for a file picked in the browser), or `null`
+  when read-only or before a file is opened. It changes after each save. A save may still take
   another name if a file appears there first.
 - `savedPath`: the absolute path the session's last save wrote, or `null` before one: what `file?rev=saved`
   is, so a page opened or reloaded after a save shows it. (Added in 0.3.0; a command without it gives none.)
 - `specifyCore`: this command's version.
+
+### `open`
+
+When `specify-core open` starts with no file, the page drops or chooses a STEP file and uploads
+its bytes to the local server once via `POST <token>/open`:
+
+- `Origin: http://127.0.0.1:<port>` exactly (403 otherwise, and when `Origin` is absent);
+- `X-Specify-Name`: the file's plain basename, percent-encoded as UTF-8, ending in `.step`, `.stp`,
+  `.step.gz` or `.stp.gz` in any case (no path separators, `..` or control characters; 400 otherwise);
+- `Content-Type: application/octet-stream` (415 otherwise), `Content-Length` and no
+  `Transfer-Encoding` (411), non-empty (400), at most 64 MiB (`MAX_OPEN_BODY`, both on the wire
+  and uncompressed for gzipped files, 413), the whole body within 30 s and 1 s more per MiB (408).
+
+The command parses and validates the STEP bytes into a session (422 if the file cannot be read,
+has no faces, or fails analysis) and leaves the session empty on any refusal so the page can pick
+or drop another file. Once a file is open, a second upload is refused (409, also when started with
+a file on the command line or under MCP `show`). On success it prints `Opened <name>.` and returns
+`200` with the new `config` JSON. Save writes `<stem>.specified.step` (then `-2`, `-3`, …; updating
+only this session's own copy, never overwriting any other file) in the working directory where
+`specify-core open` was started, shown in `config.saveTarget` before saving.
 
 ### `save`
 
@@ -356,10 +385,12 @@ have sent as files, for `specify-core write`.
 ## Which answers have a body
 
 - A JSON `{"error": "…"}` body (`application/json`), with the extra fields given above: every
-  refusal of `POST <token>/save` (400, 403, 408, 409, 411, 413, 415,
-  422, 500), a refused `events` stream (503), a `POST <token>/closed` from another origin
-  (403), and `file?rev=saved` when it serves nothing (404, 409, 500).
-- JSON: `config`, `answers`, `diff` and a successful `save` (200).
+  refusal of `POST <token>/open` (400, 403, 408, 409, 411, 413, 415, 422), `POST <token>/save`
+  (400, 403, 408, 409, 411, 413, 415, 422, 500) and `POST <token>/discard` (400, 403, 408, 409,
+  411, 413, 415), `file`, `answers` and `events` before a file is opened (404), a refused `events`
+  stream (503), a `POST <token>/closed` from another origin (403), and `file?rev=saved` when it
+  serves nothing (404, 409, 500).
+- JSON: `config`, `answers`, `diff`, a successful `open` (200) and a successful `save` (200).
 - `events`: `text/event-stream`, never closed by the command but at exit.
 - No body (`Content-Length: 0`): `closed` (204), a wrong `Host` (403), a `GET` from another
   origin (403), any other token or path (404), a 404 under the token, a wrong method (405,

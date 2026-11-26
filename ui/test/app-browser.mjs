@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
-import { gunzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
 import { characteristicHistory, validateOpening, wasmDirectory } from './engine-fixture.mjs';
 // The local app (dist-app, `npm run build:app`) served by the real `specify-core open`, the manual
@@ -59,10 +59,11 @@ const plainSave = join(saves, 'part.specified.step');
 const edited = join(saves, 'part.specified-2.step');
 const second = join(saves, 'part.specified-3.step');
 
-/** `specify-core open` on ``files`` (one, or `--diff` and two): its address once it prints it, and a way to stop it. */
+/** `specify-core open` on ``files`` (one, `--diff` and two, or `[]` for empty): its address once it prints it, and a way to stop it. */
 const servers = [];
 async function open(file, ...flags) {
-  const child = spawn(cli, ['open', ...assetArgs, '--no-browser', ...flags, ...[file].flat()], { env: assetEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+  const opts = flags.length && typeof flags.at(-1) === 'object' ? flags.pop() : {};
+  const child = spawn(cli, ['open', ...assetArgs, '--no-browser', ...flags, ...[file].flat()], { env: assetEnv, stdio: ['ignore', 'pipe', 'pipe'], ...opts });
   servers.push(child);
   let out = '';
   child.stdout.on('data', chunk => { out += chunk; });
@@ -1447,6 +1448,52 @@ try {
     await check(page.locator('.app-offline')).toHaveCount(0);
     // The refused stream's 503s are the browser's console errors, expected here.
     problems.splice(before, problems.length - before, ...problems.slice(before).filter(p => !/503|EventSource|events/.test(p)));
+    onlyLocal(requests, server.origin);
+    await context.close();
+    server.stop();
+  }
+  // `specify-core open` without a file: opens the empty viewer with a drop target / file picker,
+  // refuses a .step.gz expanding past 64 MiB without consuming the upload, then picks the tracked
+  // GRM-01 fixture (.step.gz) on the same page, shows the review, and saves into the working dir.
+  {
+    const grm01 = resolve('../tests/fixtures/parts/GRM-01_shank.step.gz');
+    assert.ok(existsSync(grm01), 'tests/fixtures/parts/GRM-01_shank.step.gz is present');
+    const emptyDir = join(dir, 'empty-open');
+    mkdirSync(emptyDir);
+    const oversizedGz = join(dir, 'too-big.step.gz');
+    writeFileSync(oversizedGz, gzipSync(Buffer.alloc(64 * 1024 * 1024 + 1, 0x20), { level: 1 }));
+    const server = await open([], { cwd: emptyDir });
+    assert.match(server.output(), /^Open: http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{32}\//);
+    const { context, page, requests } = await load(server, '.app-drop-area');
+    await check(page).toHaveTitle('Specify');
+    await check(page.locator('.app-drop-area')).toContainText('Drop a STEP file here');
+    await check(page.getByRole('button', { name: 'Choose file…' })).toBeVisible();
+    await check(page.locator('input[type="file"]')).toHaveAttribute('accept', '.step,.stp,.step.gz,.stp.gz');
+    const before = problems.length;
+    const [refusedChooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.getByRole('button', { name: 'Choose file…' }).click(),
+    ]);
+    await refusedChooser.setFiles(oversizedGz);
+    await check(page.getByRole('alert')).toContainText('67108864');
+    await check(page.locator('.app-drop-area')).toBeVisible();
+    await check(page.getByRole('button', { name: 'Choose file…' })).toBeEnabled();
+    // The refused upload's 413 is the browser's console error, expected here.
+    problems.splice(before, problems.length - before, ...problems.slice(before).filter(p => !/413/.test(p)));
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.getByRole('button', { name: 'Choose file…' }).click(),
+    ]);
+    await chooser.setFiles(grm01);
+    await panelReady(page);
+    await check(page.locator('.app-drop-area')).toHaveCount(0);
+    await check(page).toHaveTitle('GRM-01_shank.step.gz — Specify');
+    const expectedSaved = join(realpathSync(emptyDir), 'GRM-01_shank.specified.step');
+    await check(page.locator('.app-target')).toHaveText(expectedSaved);
+    await answerPart(page, 'part.material', 'Steel');
+    await save(page, server, 1);
+    assert.ok(existsSync(expectedSaved), 'Save wrote GRM-01_shank.specified.step in working directory');
+    assert.equal(table(expectedSaved)['part.material'].value, 'Steel');
     onlyLocal(requests, server.origin);
     await context.close();
     server.stop();
