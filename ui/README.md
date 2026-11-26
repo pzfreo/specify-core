@@ -147,7 +147,7 @@ cancellation therefore cannot guarantee command-side arrival order or retract an
 ### Read-only mode
 
 `<SpecifyReview readOnly />` (default `false`) is a PMI viewer: the 3D view with the PMI that is set, and a list of it.
-The 3D view keeps View PMI (Semantic / Graphical / Both), its navigation, transparency and Show menu, and draws only
+The 3D view uses the single 3D annotation-plane PMI view, with its navigation, transparency and Show menu (including Look square at / Best view), and draws only
 what is set: no defaults to check (the dimensions the general tolerance covers stay under Show, off at first). The panel reads "PMI (view only)" and lists the datums that
 are set (a datum chosen is lit on the part) and the characteristics that are set, numbered as their balloons, with what the general tolerance covers folded into one row; a row,
 a face or a label on the part selects the other. A part setting counts as set when the file states it or the saved

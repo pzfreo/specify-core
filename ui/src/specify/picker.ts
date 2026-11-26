@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import type { PmiAnalysis, PmiIntent, PmiMesh } from '../types/pmi';
 
 import { createAnnotations } from './annotations';
-import type { DrawnPmi, DrawnShow, DrawnView } from './drawn';
+import type { DrawnPmi, DrawnShow, DrawnView, PartOrigin } from './drawn';
 import { toLabels, type LabelGroup, type PmiLabel } from './labels';
 import { createLook } from './look';
 import { createNavigator, type Navigator } from './navigator';
@@ -45,16 +45,26 @@ export interface Picker {
       reveal?: ReadonlySet<string>;
       /** false hides the datum labels (none until tolerancing is chosen). */
       datums?: boolean;
+      /** Explicit fallback labels to display instead of computing them from ``intent``. */
+      labels?: readonly PmiLabel[];
     },
   ): void;
   /** The review's rows, as the panel names them, with their faces: a view with a tree lists
    * them there. */
   features?(rows: readonly { title: string; faces: readonly number[] }[]): void;
   setLabelsVisible(on: boolean): void;
-  /** A STEP's own graphical PMI (View PMI: Graphical), drawn when ``visible``; none without ``pmi``. */
-  drawn?(pmi: DrawnPmi | null, visible: boolean): void;
+  /** The part's 3D annotation-plane PMI, drawn when ``visible``; none without ``pmi``. */
+  drawn?(pmi: DrawnPmi | null, visible: boolean, labels?: ReadonlyMap<string, PmiLabel>): void;
+  /** Highlights one drawn item on the 3D view, or clears highlight when null. */
+  lightDrawn?(item: string | null): void;
   /** The kinds of drawn PMI the Show menu shows, and whether callouts facing away are hidden. */
-  drawnFilter?(show: DrawnShow, farSide: boolean): void;
+  drawnFilter?(show: DrawnShow, farSide: boolean, reveal?: ReadonlySet<string>): void;
+  /** Marks pending (unsaved) 3D callouts in burnt amber/orange ink. */
+  setDrawnUnsaved?(items: ReadonlySet<string>): void;
+  /** Draws a small RGB x/y/z triad when the file states an origin. */
+  setDrawnOrigin?(origin: PartOrigin | null): void;
+  /** Sets the opening/home view to the best annotation-plane view. */
+  setDefaultView?(view: DrawnView | null): void;
   /** Turn square to a view of the drawn PMI: along its plane's normal, its text upright. */
   lookSquare?(view: DrawnView): void;
   /** Whether labels on the far side of the part are hidden. */
@@ -203,14 +213,14 @@ export function createPicker(
   return {
     navigator: nav,
     missing: mesh.missing,
-    annotate(intent, { current = null, show = {}, balloons = new Map(), pending, reveal, datums = true } = {}) {
-      const labels = toLabels(intent, analysis, pending)
+    annotate(intent, { current = null, show = {}, balloons = new Map(), pending, reveal, datums = true, labels } = {}) {
+      const shown = (labels ?? toLabels(intent, analysis, pending))
         .filter((label) => datums || label.kind !== 'datum' || label.group === 'existing')
         .filter((label) => show[label.group] !== false || reveal?.has(label.id));
-      annotations.set(labels, { current, anchors: intent?.anchors ?? {}, balloons });
+      annotations.set(shown, { current, anchors: intent?.anchors ?? {}, balloons });
       // The opening view is chosen before the labels arrive; the first time they
       // do, it is chosen again to take them in -- unless the view has been moved.
-      if (labels.length && !framedLabels) {
+      if (shown.length && !framedLabels) {
         framedLabels = true;
         if (!nav.moved()) nav.home();
       }

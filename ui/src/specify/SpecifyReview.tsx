@@ -7,7 +7,8 @@ import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from 
 import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
-import { drawnGroup, drawnShown, drawnViews, hasFileGraphics, partCentre, type DrawnPmi } from './drawn';
+import { bestReferenceView, normalizeDraftingPmi, resolveStatedOrigin } from './drafting-layout';
+import { bestDrawnView, drawnGroup, drawnShown, drawnViews, partCentre, withoutNotesBlock, type DrawnPmi, type PartOrigin } from './drawn';
 import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, byBalloon, characteristics, noteStatements, ranges, toCsv } from './characteristics';
 import { as9102 } from './as9102';
@@ -16,6 +17,7 @@ import { readOnlyEngine } from './read-only';
 import { inspectionAnswers } from './inspection';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
 import { fmt, type PmiLabel } from './labels';
+import { oneViewFile, oneViewLabels, scenePendingState, type OneViewPending, type OneViewRow, type SceneSemanticLabel } from './one-view';
 import { labelName, labelRow, unitLine, withUnits, type LengthUnit } from './units';
 import { compose, emptyBlock, parse, placesText, type GeneralTolerance, type Units } from './general-tolerance';
 import type { Picker } from './picker';
@@ -47,13 +49,14 @@ const PART_FIELD: Record<string, string> = {
 /** The part's notes, folded under "Finish and notes". */
 const NOTE_FIELDS = new Set(['part.surface_finish', 'part.coating', 'part.heat_treatment', 'part.edges']);
 const MODE_TEXT: Record<PickMode, string> = { face: 'Face', feature: 'Hole / feature', coplanar: 'Coplanar faces' };
+const EMPTY_ONE_PENDING: ReadonlyMap<string, OneViewPending> = new Map();
 
 function asError(error: unknown): PmiLabError {
   if (error && typeof error === 'object' && 'message' in error) return error as PmiLabError;
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension, otherPmi, lengthUnit = 'mm', calledOutDimensions, takenKeys }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, oneView, sceneSemantic, partOrigin = null, view: hostView = null, stated: statedRows, addedByYou = true, callOutDimension, otherPmi, lengthUnit = 'mm', calledOutDimensions, takenKeys }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -93,6 +96,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
    * ``engine.preview`` supplies labels. Default false.
    */
   readOnly?: boolean;
+  /** Feature-table rows and pending edits for the single PMI view. */
+  oneView?: { readonly rows: readonly OneViewRow[]; readonly pending: ReadonlyMap<string, OneViewPending> };
+  /** Structured semantic labels parsed from the active PMI scene. */
+  sceneSemantic?: ReadonlyMap<string, SceneSemanticLabel>;
+  /** Explicit coordinate system or datum origin stated by the file, rendered as an x/y/z triad. */
+  partOrigin?: PartOrigin | null;
   /** The host's own 3D view to draw the part in (docs/host-view.md); by default the package's. */
   view?: HostView | null;
   /**
@@ -152,22 +161,20 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const [note, setNote] = useState('');
   // The general dimension a label clicked is, offered to be called out.
   const [noteGeneral, setNoteGeneral] = useState<{ i: number; what: string } | null>(null);
+  const keepCalloutNote = useRef(false);
   const [show, setShow] = useState({
     // What the general tolerance covers can be a hundred labels: drawn only when chosen.
     labels: true, defaults: true, existing: true, general: false, farSide: true,
   });
-  // View PMI, when the scene has graphics: as our labels (Semantic), as drawn (Graphical, key
-  // 'drawn'), or both. Until one is chosen, Graphical when the file has its own graphical PMI,
-  // Semantic otherwise. The choice lasts while the part is open; it is not saved.
-  const [chosenShowing, setShowing] = useState<'semantic' | 'drawn' | 'both' | null>(null);
-  const showing = chosenShowing ?? (drawnPmi && hasFileGraphics(drawnPmi) ? 'drawn' : 'semantic');
   // A face clicked that no question is about shows what the general tolerance says of it.
   const [peek, setPeek] = useState<number | null>(null);
   // Set by a label clicked: the question it opens is turned to without moving the view.
   const stayPut = useRef(false);
+  const calloutFaces = useRef<{ id: string; faces: readonly number[] } | null>(null);
+  const [selectedCallout, selectCallout] = useState<string | null>(null);
   // The question or added requirement a focus request opened without asking to be scrolled to.
   const quiet = useRef<string | null>(null);
-  const [transparency, setTransparency] = useState(50);
+  const [transparency, setTransparency] = useState(0);
   // Specs typed and read, by question: their callouts, which no offered choice has.
   const [typed, setTyped] = useState<Record<string, PmiInterpretation>>({});
   // A datum being added: picked on the part before pmi-assist knows of it.
@@ -306,7 +313,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   useEffect(() => {
     const p = picker.current;
     if (!p) return;
-    p.highlight(currentQuestion?.faces ?? []);
+    p.highlight(currentQuestion?.faces && calloutFaces.current?.id === currentQuestion.id
+      ? calloutFaces.current.faces : currentQuestion?.faces ?? []);
+    calloutFaces.current = null;
     // A call-out's faces are the dimension's: a click chooses another, not other faces for it.
     p.setPickable(!readOnly && currentQuestion?.kind === 'faces' && !draft?.callOut);
     // A datum's answer is its faces; an added requirement's holds them.
@@ -328,7 +337,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     if (peek !== null && !currentQuestion) picker.current?.highlight([peek]);
   }, [peek, currentQuestion?.id]);
 
-  useEffect(() => { setNote(''); setNoteGeneral(null); }, [current, view]);
+  useEffect(() => {
+    if (!keepCalloutNote.current) { setNote(''); setNoteGeneral(null); }
+    keepCalloutNote.current = false;
+  }, [current, view]);
 
   // The general dimensions chosen -- in the table, or on a face clicked -- drawn though the rest are not.
   const reveal = useMemo(() => {
@@ -347,29 +359,149 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
 
   // Read only shows what is set: not the defaults to check.
   const seen = useMemo(() => (readOnly ? { ...show, defaults: false } : show), [show, readOnly]);
+  const oneRows = useMemo<readonly OneViewRow[]>(() => {
+    if (oneView) return oneView.rows;
+    const rows: OneViewRow[] = [
+      ...questions.map((q): OneViewRow => ({
+        id: q.id,
+        state: statedRows && q.id in statedRows.values
+          ? (statedRows.decided?.has(q.id) ? 'decided_none' : 'stated') : 'gap',
+        open: Boolean(needs(q, answers)),
+        faces: q.faces,
+        label: q.label ?? q.prompt,
+        question: q,
+      })),
+      ...(otherPmi?.items ?? []).map((item): OneViewRow => ({
+        id: item.key, state: 'stated', open: false, faces: item.faces, label: item.label, other: true,
+      })),
+    ];
+    if (readOnly) {
+      const have = new Set(rows.map((r) => r.id));
+      const push = (row: OneViewRow) => { if (!have.has(row.id)) { have.add(row.id); rows.push(row); } };
+      for (const d of preview?.datums ?? []) {
+        push({ id: `datum.${d.letter}`, state: 'stated', open: false, faces: d.faces, label: `Datum ${d.letter}` });
+      }
+      session.analysis.existing.forEach((item, i) => {
+        const faces = item.faces ?? [];
+        if (item.kind === 'datum') {
+          push({ id: `datum.${item.type}`, state: 'stated', open: false, faces, label: `Datum ${item.type}` });
+        }
+        push({ id: `existing:${i}`, state: 'stated', open: false, faces, label: item.text ?? item.type });
+      });
+      for (const r of chars) {
+        if (r.question) push({ id: r.question, state: 'stated', open: false, faces: r.faces, label: r.text });
+        push({ id: r.source, state: 'stated', open: false, faces: r.faces, label: r.text });
+      }
+    }
+    return rows;
+  }, [oneView, questions, statedRows, answers, otherPmi, readOnly, preview, session.analysis, chars]);
+  const onePending = oneView?.pending ?? EMPTY_ONE_PENDING;
+  const normalizedDrawn = useMemo(() => {
+    if (!drawnPmi) return null;
+    const cleaned = withoutNotesBlock(drawnPmi);
+    if (cleaned.draftingNormalized) return cleaned;
+    const sem = sceneSemantic ?? (cleaned.sceneSemantic ? new Map(Object.entries(cleaned.sceneSemantic)) : undefined);
+    return normalizeDraftingPmi(cleaned, null, session.analysis, session.mesh, sem);
+  }, [drawnPmi, sceneSemantic, session.analysis, session.mesh]);
+  const resolvedOrigin = useMemo(
+    () => partOrigin ?? resolveStatedOrigin(drawnPmi?.stepOrigin ?? session.mesh.origin ?? null, session.analysis, normalizedDrawn),
+    [partOrigin, drawnPmi?.stepOrigin, session.mesh.origin, session.analysis, normalizedDrawn],
+  );
+  const oneFile = useMemo(
+    () => oneViewFile(normalizedDrawn, session.analysis, oneRows, onePending),
+    [normalizedDrawn, session.analysis, oneRows, onePending],
+  );
+  const openQuestions = useMemo(
+    () => new Set(readOnly ? [] : questions.filter((q) => needs(q, answers)).map((q) => q.id)),
+    [readOnly, questions, answers],
+  );
+  const oneLabels = useMemo(
+    () => oneViewLabels(preview, session.analysis, oneRows, oneFile, onePending, answers, openQuestions, readOnly),
+    [preview, session.analysis, oneRows, oneFile, onePending, answers, openQuestions, readOnly],
+  );
+  const { unsavedItems, coveredQuestions } = useMemo(
+    () => scenePendingState(oneFile, onePending),
+    [oneFile, onePending],
+  );
+  // Mark open unanswered gap items on 3D planes as 'decided_none' (group 'default') so they render
+  // in muted blueprint-blue before Keep all and switch to dark blue (or burnt amber while unsaved).
+  const visibleDrawn = useMemo(() => {
+    const base = oneFile.drawn;
+    if (!base) return null;
+    const rowsById = new Map(oneRows.map((row) => [row.id, row]));
+    const links: Record<string, (typeof base.links)[string]> = {};
+    for (const [item, link] of Object.entries(base.links)) {
+      const q = link.question;
+      const row = q ? rowsById.get(q) : undefined;
+      const edit = q ? onePending.get(q) : undefined;
+      const isPending = Boolean(edit && (edit.kind === 'fill' || edit.kind === 'change' || edit.kind === 'clear'));
+      const isOpenGap = !readOnly && !isPending && !link.general && Boolean(row && row.state === 'gap' && row.open && (!edit || edit.kind === 'refused'));
+      const origStatus = normalizedDrawn?.links[item]?.status;
+      const isUnsetDefault = readOnly && !link.general && origStatus !== undefined && origStatus !== 'stated' && (!row || row.state === 'gap');
+      links[item] = isOpenGap || isUnsetDefault ? { ...link, status: 'decided_none' } : link;
+    }
+    return { ...base, links };
+  }, [oneFile, oneRows, onePending, readOnly, normalizedDrawn]);
+  const drawnReveal = useMemo(() => {
+    const items = new Set<string>();
+    for (const [item, label] of oneFile.labels) {
+      if (reveal.has(`general:${label.id}`) || reveal.has(label.id)) items.add(item);
+    }
+    return items;
+  }, [oneFile, reveal]);
+  // Only items not represented on 3D annotation planes (unpresented file requirements, pending
+  // changes to stated rows, real unpreviewed gaps, or hosts without a 3D scene) use fallback labels.
+  const fallbackLabels = useMemo(() => {
+    if (!visibleDrawn) return oneLabels.labels;
+    return oneLabels.labels.filter((l) =>
+      l.id.startsWith('gap:')
+      || (l.id.startsWith('pending:') && (!l.question || !coveredQuestions.has(l.question)))
+      || (l.group === 'existing' && (!l.question || !coveredQuestions.has(l.question))),
+    );
+  }, [visibleDrawn, oneLabels, coveredQuestions]);
   useEffect(() => {
     picker.current?.annotate(preview, {
-      current: readOnly ? null : current,
+      current: readOnly ? null : selectedCallout ?? current,
       show: { default: seen.defaults, existing: seen.existing, general: seen.general }, balloons,
-      pending: readOnly ? new Set() : new Set(questions.filter((q) => needs(q, answers)).map((q) => q.id)), reveal, datums,
+      pending: openQuestions, reveal, datums,
+      labels: fallbackLabels,
     });
-    picker.current?.setLabelsVisible(seen.labels && !(drawnPmi && showing === 'drawn'));
+    picker.current?.setLabelsVisible(seen.labels);
     picker.current?.setFarSideHidden(seen.farSide);
-  }, [preview, current, seen, balloons, questions, answers, reveal, drawnPmi, showing, datums]);
+  }, [preview, current, selectedCallout, seen, balloons, openQuestions, reveal, datums, fallbackLabels, readOnly]);
   useEffect(() => {
-    picker.current?.drawn?.(drawnPmi, showing !== 'semantic');
-  }, [drawnPmi, showing, session]);
+    picker.current?.drawn?.(visibleDrawn, seen.labels, oneFile.labels);
+  }, [visibleDrawn, seen.labels, session, oneFile]);
+  useEffect(() => {
+    picker.current?.setDrawnUnsaved?.(unsavedItems);
+  }, [unsavedItems, visibleDrawn, session]);
+  useEffect(() => {
+    picker.current?.setDrawnOrigin?.(resolvedOrigin);
+  }, [resolvedOrigin, session]);
+  const hasUnsavedInView = Boolean(unsavedItems.size)
+    || Boolean(seen.labels && oneLabels.notes.length)
+    || Boolean(seen.labels && fallbackLabels.some((l) => l.unsaved));
   // The Show menu's kinds and far side, for the drawn PMI as for the labels.
   const drawnShow = useMemo(() => ({ default: seen.defaults, existing: seen.existing, general: seen.general }), [seen]);
   useEffect(() => {
-    picker.current?.drawnFilter?.(drawnShow, seen.farSide);
-  }, [drawnShow, seen.farSide, drawnPmi, session]);
+    picker.current?.drawnFilter?.(drawnShow, seen.farSide, drawnReveal);
+  }, [drawnShow, seen.farSide, visibleDrawn, session, drawnReveal]);
   // Ways to look square at the drawn PMI shown: the file's saved views, and each plane's front.
-  const squares = useMemo(() => (drawnPmi
-    ? drawnViews(drawnPmi, (g, item) => drawnShown(g.source, item === null ? undefined : drawnGroup(drawnPmi.links[item]), drawnShow), partCentre(session.mesh.positions))
-    : []), [drawnPmi, drawnShow, session]);
-
+  const squares = useMemo(() => (visibleDrawn
+    ? drawnViews(visibleDrawn, (g, item) => drawnShown(g.source, item === null ? undefined : drawnGroup(visibleDrawn.links[item]), drawnShow), partCentre(session.mesh.positions))
+    : []), [visibleDrawn, drawnShow, session]);
+  const bestView = useMemo(() => (visibleDrawn
+    ? bestDrawnView(
+      visibleDrawn,
+      (g, item) => drawnShown(g.source, item === null ? undefined : drawnGroup(visibleDrawn.links[item]), drawnShow),
+      partCentre(session.mesh.positions),
+      bestReferenceView(visibleDrawn, session.analysis, session.mesh),
+    )
+    : null), [visibleDrawn, drawnShow, session]);
   useEffect(() => { picker.current?.setTools?.(moreTools); }, [moreTools, session]);
+  useEffect(() => {
+    picker.current?.setDefaultView?.(bestView);
+  }, [bestView, session]);
   useEffect(() => {
     picker.current?.setTransparency(transparency / 100);
   }, [transparency, session]);
@@ -699,8 +831,29 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       nextNeeding(asked.filter((x) => x.key !== 'part'), next));
   };
 
+  // What the general tolerance covers, one line per dimension (its first instance).
+  const generalDims = byBalloon(chars.filter((r) => r.source.startsWith('general:'))).flatMap((g) => g.slice(0, 1));
+  const lightFor = (id: string | null) => {
+    const match = id ? [...oneFile.labels.values()].find((label) => label.question === id) : undefined;
+    picker.current?.lightDrawn?.(match?.sceneItem ?? null);
+  };
+  const selectCalloutRow = (id: string, kind: 'question' | 'other' | 'characteristic' = 'question') => {
+    selectCallout(id);
+    const attr = kind === 'other' ? 'data-other' : kind === 'characteristic' ? 'data-characteristic' : 'data-question';
+    window.requestAnimationFrame(() => {
+      rowsBox.current?.querySelector(`[${attr}="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' });
+    });
+  };
+  const openQuestionRow = (id: string) => {
+    selectCallout(id);
+    lightFor(id);
+    setCurrent(id);
+  };
+
   handlers.current = {
     face: (face) => {
+      selectCallout(null);
+      picker.current?.lightDrawn?.(null);
       if (readOnly) {
         picker.current?.highlight([face]);
         const row = setRows.find((r) => r.faces.includes(face));
@@ -721,30 +874,91 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       if (id) setCurrent(id);
       onPick?.([face]);
     },
-    // A label opens its question, which turns to it; one already open, or the
-    // file's own PMI, which no question is about, is turned to here.
-    // A label is what it is on: that is shown, and its row -- in the table its
-    // characteristic, in the review its question, or for what the general
-    // tolerance covers, which has none, what allows it.
-    // A label clicked is already in sight: the view stays as it is, and what it is
-    // on -- for a dimension, both ends -- is lit.
+    // A callout clicked is already in sight: the view stays put, its faces (for a dimension,
+    // both ends) and drawn ink are lit, and its row in the panel is opened/selected.
     label: (label) => {
-      picker.current?.highlight([...label.faces, ...(label.span?.reference ?? [])]);
+      const on = [...label.faces, ...(label.span?.reference ?? [])];
+      picker.current?.highlight(on);
+      picker.current?.lightDrawn?.(label.sceneItem ?? null);
       onPick?.(label.faces);
-      stayPut.current = view !== 'table' && !readOnly && Boolean(label.question) && label.question !== current;
-      if (view === 'table' || readOnly) {
-        const source = label.id.split(':').slice(0, 2).join(':');
-        const row = chars.find((row) => row.source === source);
-        if (row) setSelectedChar(row.n ? `${row.n}` : row.id);
-      } else if (label.question?.startsWith('extra.')) editExtra(label.question);
-      else if (label.question && label.question !== current) setCurrent(label.question);
-      else if (label.group === 'general') {
+      const id = label.question;
+      const charList = readOnly ? setRows : chars;
+      const sourcePrefix = label.id.split(':').slice(0, 2).join(':');
+      const characteristic = charList.find((row) =>
+        row.source === label.sceneItem
+        || row.source === label.id
+        || row.source === `general:${label.id}`
+        || row.source === sourcePrefix);
+      const datum = id?.startsWith('datum.') ? id.slice(6) : label.kind === 'datum' ? label.cells[0] : undefined;
+      if (readOnly && datum && setChips.some((chip) => chip.letter === datum)) {
+        setSelectedDatum(datum);
+        setSelectedChar(null);
+        selectCallout(null);
+        return;
+      }
+      if ((readOnly || view === 'table') && characteristic) {
+        setSelectedChar(characteristic.n ? `${characteristic.n}` : characteristic.id);
+        setSelectedDatum(null);
+        selectCallout(null);
+        return;
+      }
+      if (id) {
+        if (readOnly) {
+          selectCalloutRow(id, 'question');
+          setSelectedChar(null);
+          setSelectedDatum(null);
+          return;
+        }
+        setView('review');
+        setOnlySuggestions(false);
+        if (id.startsWith('extra.') && added.some(([k]) => k === id)) {
+          stayPut.current = true;
+          calloutFaces.current = { id, faces: on };
+          selectCalloutRow(id, 'question');
+          editExtra(id);
+          return;
+        }
+        if (questions.some((q) => q.id === id)) {
+          if (id !== current) {
+            stayPut.current = true;
+            calloutFaces.current = { id, faces: on };
+          }
+          selectCalloutRow(id, 'question');
+          setCurrent(id);
+          if (id.startsWith('part.')) setUnfolded(NOTE_FIELDS.has(id) ? `note:${id}` : id);
+          else if (id.startsWith('datum.')) setUnfolded('datums');
+          return;
+        }
+        if (otherPmi?.items.some((item) => item.key === id)) {
+          setUnfolded('other');
+          selectCalloutRow(id, 'other');
+          return;
+        }
+        const dimRow = generalDims.find((r) => r.source === `general:${label.id}` || r.source === label.id);
+        if (callOutDimension && dimRow) {
+          setUnfolded('dims');
+          setSelectedChar(dimRow.id);
+          selectCalloutRow(dimRow.id, 'characteristic');
+          return;
+        }
+        selectCalloutRow(id, 'question');
+        return;
+      }
+      if (label.group === 'general' && !readOnly) {
+        if (view === 'table') keepCalloutNote.current = true;
+        setView('review');
+        setOnlySuggestions(false);
         const general = chars.find((r) => r.source === 'part:general_tolerance')?.text ?? 'General tolerance';
         const tol = label.tolerance ? `, ${label.tolerance.upper}` : '';
         setNote(`${general}${tol} on ${label.cells[0] ?? 'this'}.`);
         const i = Number(label.id.split(':')[1]);
         const row = chars.find((r) => r.source === `general:${i}`);
-        if (!readOnly) setNoteGeneral(Number.isInteger(i) ? { i, what: row?.text ?? label.cells[0] ?? '' } : null);
+        setNoteGeneral(Number.isInteger(i) ? { i, what: row?.text ?? label.cells[0] ?? '' } : null);
+        if (callOutDimension && row) {
+          setUnfolded('dims');
+          setSelectedChar(row.id);
+          selectCalloutRow(row.id, 'characteristic');
+        }
       }
     },
   };
@@ -792,11 +1006,14 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       else setCurrent(id);
     };
   };
-  // What the general tolerance covers, one line per dimension (its first instance).
-  const generalDims = byBalloon(chars.filter((r) => r.source.startsWith('general:'))).flatMap((g) => g.slice(0, 1));
   // A characteristic chosen in the table is shown on the part.
   const showChar = (id: string, faces: readonly number[]) => {
     setSelectedChar(id);
+    selectCallout(id);
+    const charRow = (readOnly ? setRows : chars).find((r) => r.id === id || `${r.n}` === id);
+    const match = charRow ? [...oneFile.labels.values()].find((l) =>
+      charRow.source === l.sceneItem || charRow.source === l.id || charRow.source === `general:${l.id}`) : undefined;
+    picker.current?.lightDrawn?.(match?.sceneItem ?? null);
     picker.current?.highlight(faces);
     picker.current?.lookAt(faces);
   };
@@ -863,14 +1080,14 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     const st = statedOf(q.id);
     if (st && q.id !== current) {
       return (
-        <div key={q.id} className={`pmi-lab-stated${st.removed ? ' removed' : ''}`} data-question={q.id} data-state={st.removed ? 'removed' : st.changed ? 'changed' : statedRows?.decided?.has(q.id) ? 'decided_none' : 'stated'}>
+        <div key={q.id} className={`pmi-lab-stated${st.removed ? ' removed' : ''}`} data-question={q.id} data-state={st.removed ? 'removed' : st.changed ? 'changed' : statedRows?.decided?.has(q.id) ? 'decided_none' : 'stated'} data-callout-selected={selectedCallout === q.id}>
           {st.removed
             ? <span className="pmi-lab-item"><span className="prompt">{labelName(q.label ?? q.prompt, lengthUnit)}</span><span className="value"><s>{statedRows?.texts?.[q.id] ?? inMm(q, statedRows!.values[q.id])}</s> removed</span></span>
-            : <button type="button" className="pmi-lab-item" onClick={() => setCurrent(q.id)}>
+            : <button type="button" className="pmi-lab-item" onClick={() => openQuestionRow(q.id)}>
                 <span className="prompt">{labelName(q.label ?? q.prompt, lengthUnit)}</span>
                 <span className="value">{st.changed ? inMm(q, answerOf(q, answers)) : statedRows?.texts?.[q.id] ?? inMm(q, answerOf(q, answers))} <small>{st.changed ? '(changed)' : statedRows?.decided?.has(q.id) ? '(decided)' : '(from the file)'}</small></span>
               </button>}
-          <StatedTools name={q.label ?? q.prompt} state={st} onChange={() => setCurrent(q.id)} />
+          <StatedTools name={q.label ?? q.prompt} state={st} onChange={() => openQuestionRow(q.id)} />
         </div>
       );
     }
@@ -881,7 +1098,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} active={q.id === current}
       selection={selection} mode={mode} error={errorAt(q.id)} typed={typed[q.id] ?? null}
       locked={readOnly} onSpec={(text) => spec(q, text)} resettable={!statedOf(q.id)}
-      onOpen={() => setCurrent(q.id)}
+      selected={selectedCallout === q.id}
+      onOpen={() => openQuestionRow(q.id)}
       onAnswer={(value) => answer(q, value)}
       onConfirm={() => confirm(g)}
       onReset={() => answer(q, undefined, true)}
@@ -899,7 +1117,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     const name = PART_FIELD[q.id] ?? q.prompt;
     if (!st) return <FoldedLine key={q.id} name={name} value={partValue(q, answers)} onOpen={onOpen} question={q.id} />;
     return (
-      <div key={q.id} className={`pmi-lab-stated${st.removed ? ' removed' : ''}`} data-question={q.id} data-state={st.removed ? 'removed' : st.changed ? 'changed' : statedRows?.decided?.has(q.id) ? 'decided_none' : 'stated'}>
+      <div key={q.id} className={`pmi-lab-stated${st.removed ? ' removed' : ''}`} data-question={q.id} data-state={st.removed ? 'removed' : st.changed ? 'changed' : statedRows?.decided?.has(q.id) ? 'decided_none' : 'stated'} data-callout-selected={selectedCallout === q.id}>
         {st.removed
           ? <span className="pmi-lab-line"><span className="name">{name}</span><span className="value"><s>{partValue(q, statedRows!.values)}</s> removed</span></span>
           : <FoldedLine name={name} value={`${st.changed || !statedRows?.decided?.has(q.id) ? partValue(q, answers) : statedRows.texts?.[q.id] ?? partValue(q, answers)} ${st.changed ? '(changed)' : statedRows?.decided?.has(q.id) ? '(decided)' : '(from the file)'}`} onOpen={onOpen} />}
@@ -928,8 +1146,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
         <button
           type="button" className="pmi-lab-row-head" aria-expanded={expanded} data-questions={g.questions.map((q) => q.id).join(' ')}
           onClick={() => {
-            if (!onHead) setCurrent(open ? null : firstOpen());
-            else { if (open) setCurrent(null); onHead(); }
+            if (!onHead) {
+              const next = open ? null : firstOpen();
+              selectCallout(next);
+              lightFor(next);
+              setCurrent(next);
+            } else { if (open) setCurrent(null); onHead(); }
           }}
         >
           {/* Only what needs a person, or was changed, is marked. */}
@@ -963,23 +1185,24 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     );
   };
 
+  const drawingAnnotations = oneLabels.extras.size > 0 && <>
+    <h2 className="pmi-lab-rows-title">Drawing annotations</h2>
+    <section className="pmi-lab-row">
+      {[...oneLabels.extras].map(([id, label]) => (
+        <div key={id} data-question={id} data-callout-selected={selectedCallout === id}>
+          <button type="button" className="pmi-lab-line" onClick={() => {
+            handlers.current.label(label);
+            if (label.faces.length) picker.current?.lookAt(label.faces);
+          }}>{label.cells[0]}</button>
+        </div>
+      ))}
+    </section>
+  </>;
+
   return (<>
     {createPortal(<div className="pmi-lab pmi-lab-pane">
       <div className="pmi-lab-view">
         <div className="pmi-lab-stage" ref={stage} />
-        {/* View PMI: always on the view, top centre under its toolbar, clear of the tree (left),
-            the filter and cube (right), the pad (bottom right) and the readout (bottom left). */}
-        {drawnPmi && (
-          <div className="pmi-lab-viewpmi" role="radiogroup" aria-label="View PMI">
-            <span aria-hidden="true">View PMI</span>
-            {(['semantic', 'drawn', 'both'] as const).map((key) => (
-              <label key={key} className={showing === key ? 'on' : ''}>
-                <input type="radio" name="pmi-showing" checked={showing === key} onChange={() => setShowing(key)} />
-                {{ semantic: 'Semantic', drawn: 'Graphical', both: 'Both' }[key]}
-              </label>
-            ))}
-          </div>
-        )}
         {/* The view's controls, together at its bottom right: what it shows, then how it is
             turned. What the view shows is about the part, so on it, not in the panel; folded,
             so it does not cover the part. */}
@@ -987,9 +1210,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
           <details className="pmi-lab-show">
             <summary title="What the 3D view shows">⚙ Show ▾</summary>
             <div>
-              {drawnPmi && showing !== 'semantic' && squares.length > 0 && (
+              {visibleDrawn && (squares.length > 0 || bestView !== null) && (
                 <div className="pmi-lab-squares" role="group" aria-label="Look square at">
                   <span>Look square at</span>
+                  {bestView && (
+                    <button key={bestView.key} type="button" title={bestView.title} onClick={() => picker.current?.lookSquare?.(bestView)}>{bestView.name}</button>
+                  )}
                   {squares.map((v) => (
                     <button key={v.key} type="button" title={v.title} onClick={() => picker.current?.lookSquare?.(v)}>{v.name}</button>
                   ))}
@@ -1028,19 +1254,44 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
             />
           </label>
         </div>
-        {partNotes.length > 0 && (
+        {(partNotes.length > 0 || Boolean(seen.labels && oneLabels.notes.length)) && (
           <details className="pmi-lab-partnotes" open>
             <summary title="The part's notes">Notes (unless otherwise specified):</summary>
             <ol>
-              {partNotes.map((n) => (
+              {partNotes.filter((n) => !oneLabels.notes.some((label) => label.question === n.question)).map((n) => (
                 <li key={n.key}>
                   {!readOnly && questions.some((q) => q.id === n.question)
-                    ? <button type="button" title="Open its question" onClick={() => { setView('review'); setCurrent(n.question); }}>{n.text}</button>
+                    ? <button type="button" title="Open its question" onClick={() => {
+                      setView('review');
+                      setCurrent(n.question);
+                      if (n.question.startsWith('part.')) {
+                        setUnfolded(NOTE_FIELDS.has(n.question) ? `note:${n.question}` : n.question);
+                      }
+                    }}>{n.text}</button>
                     : n.text}
+                </li>
+              ))}
+              {seen.labels && oneLabels.notes.map((label) => (
+                <li key={label.id} className="unsaved">
+                  <button type="button" onClick={() => handlers.current.label(label)}>
+                    {label.cells[0]}
+                  </button>
                 </li>
               ))}
             </ol>
           </details>
+        )}
+        {hasUnsavedInView && (
+          <div className="pmi-lab-legend" role="note" aria-label="PMI colour key">
+            <span className="pmi-lab-legend-item">
+              <span className="pmi-lab-legend-swatch unsaved" aria-hidden="true" />
+              Unsaved
+            </span>
+            <span className="pmi-lab-legend-item">
+              <span className="pmi-lab-legend-swatch infile" aria-hidden="true" />
+              In file
+            </span>
+          </div>
         )}
         <div className="pmi-lab-status">
           {status || (picker.current?.missing.length ? `faces ${picker.current.missing.join(', ')} could not be shown` : '')}
@@ -1068,6 +1319,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                       const at = preview?.datums.find((d) => d.letter === c.letter)?.faces ?? [];
                       setSelectedDatum(c.letter);
                       setSelectedChar(null);
+                      selectCallout(`datum.${c.letter}`);
+                      lightFor(`datum.${c.letter}`);
                       picker.current?.highlight(at);
                       picker.current?.lookAt(at);
                     }}
@@ -1088,7 +1341,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               generalTolerance={preview?.part['general_tolerance'] ?? session.analysis.part?.['general_tolerance'] ?? ''} calledOut={0}
             />
           )}
-          {setChips.length === 0 && setRows.length === 0 && <p className="pmi-lab-none">No PMI is set on this part.</p>}
+          {drawingAnnotations}
+          {setChips.length === 0 && setRows.length === 0 && !drawingAnnotations && <p className="pmi-lab-none">No PMI is set on this part.</p>}
           {after}
         </fieldset>
       </aside>
@@ -1265,8 +1519,13 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               {unfolded === 'other' && otherPmi.items.map((item) => {
                 const removed = otherPmi.removed.has(item.key);
                 return (
-                  <div key={item.key} className={`pmi-lab-stated${removed ? ' removed' : ''}`} data-other={item.key}>
-                    <button type="button" className="pmi-lab-item" onClick={() => { picker.current?.highlight(item.faces); picker.current?.lookAt(item.faces); }}>
+                  <div key={item.key} className={`pmi-lab-stated${removed ? ' removed' : ''}`} data-other={item.key} data-callout-selected={selectedCallout === item.key}>
+                    <button type="button" className="pmi-lab-item" onClick={() => {
+                      selectCallout(item.key);
+                      lightFor(item.key);
+                      picker.current?.highlight(item.faces);
+                      picker.current?.lookAt(item.faces);
+                    }}>
                       <span className="prompt">{item.label}</span>
                       <span className="value">{removed ? <><s>{item.value}</s> removed</> : <>{item.value} <small>(from the file)</small></>}</span>
                     </button>
@@ -1327,7 +1586,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                 <span key={c.letter} className={`chip${c.existing ? ' existing' : ''}`}>
                   <button
                     type="button" className="letter" disabled={!questions.some((q) => q.id === `datum.${c.letter}`)}
-                    onClick={() => setCurrent(`datum.${c.letter}`)} aria-label={`Datum ${c.letter}`}
+                    onClick={() => openQuestionRow(`datum.${c.letter}`)} aria-label={`Datum ${c.letter}`}
                   >
                     {c.letter}
                   </button>
@@ -1356,6 +1615,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               {applied.map((line) => <div key={line}>{line}</div>)}
             </div>
           )}
+          {drawingAnnotations}
           {after}
           </>)}
         </fieldset>
@@ -1664,7 +1924,7 @@ function shortValue(q: PmiQuestion, value: unknown): string {
 
 function QuestionItem({
   q, answers, active, selection, mode, error, typed, onOpen, onAnswer, onSpec, onConfirm, onReset, onMode,
-  onDefaultSelection, titled = true, locked = false, resettable = true, file = 'mm',
+  onDefaultSelection, titled = true, locked = false, resettable = true, file = 'mm', selected,
 }: {
   /** The file's length unit, for its prompt (units.ts). */
   file?: LengthUnit;
@@ -1674,6 +1934,7 @@ function QuestionItem({
   locked?: boolean;
   /** Whether it shows its prompt: not under a queue row that already does. */
   titled?: boolean;
+  selected?: boolean;
   q: PmiQuestion; answers: PmiAnswers; active: boolean; selection: number[]; mode: PickMode;
   error: PmiLabError | null; typed: PmiInterpretation | null; onOpen: () => void; onAnswer: (value: unknown) => void;
   onSpec: (text: string) => Promise<string | null>; onConfirm: () => void;
@@ -1691,14 +1952,14 @@ function QuestionItem({
     ?? (typed && typed.value === chosen ? typed.callout : undefined);
   if (!active) {
     return (
-      <button type="button" className={`pmi-lab-item${need ? ` ${need}` : ''}`} onClick={onOpen} data-question={q.id}>
+      <button type="button" className={`pmi-lab-item${need ? ` ${need}` : ''}`} onClick={onOpen} data-question={q.id} data-callout-selected={selected}>
         <span className="prompt">{labelName(q.prompt, file)}{optional}</span>
         <span className="value">{inMm(q, answerOf(q, answers))} ›</span>
       </button>
     );
   }
   return (
-    <div className={`pmi-lab-item on${need ? ` ${need}` : ''}`} data-question={q.id}>
+    <div className={`pmi-lab-item on${need ? ` ${need}` : ''}`} data-question={q.id} data-callout-selected={selected}>
       <div className="prompt">
         {titled && <>{labelName(q.prompt, file)}{optional}</>}
         {q.id in answers && q.default !== null && !locked && resettable && (

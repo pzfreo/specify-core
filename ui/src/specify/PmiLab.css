@@ -113,31 +113,18 @@
 .pmi-lab .pmi-lab-pad button.wide { width: 46px; font-size: 11px; font-weight: 500; }
 .pmi-lab-pad > label { display: flex; align-items: center; gap: 4px; color: #707880; }
 .pmi-lab-pad input[type=range] { width: 120px; }
-/* View PMI: always shown, top centre just under three-cad-viewer's toolbar (42px), between its
-   tree (top left, 264px) and its filter and cube (top right). */
-.pmi-lab-viewpmi { position: absolute; top: 50px; left: 50%; transform: translateX(-50%); z-index: 9;
-  display: flex; align-items: center; gap: 2px; padding: 2px; max-width: calc(100% - 128px);
-  border: 1px solid #d9dee4; border-radius: 6px; background: #ffffffee; box-shadow: 0 1px 4px rgba(0, 0, 0, .08);
-  font-size: 12px; white-space: nowrap; }
-.pmi-lab-viewpmi > span { padding: 0 6px 0 4px; color: #707880; }
-.pmi-lab-viewpmi label { position: relative; display: flex; align-items: center; min-height: 24px; padding: 0 9px; border-radius: 4px;
-  color: #3a4450; cursor: pointer; }
-.pmi-lab-viewpmi label:hover { background: #eef3f9; }
-.pmi-lab-viewpmi label.on { background: #2f6fb5; color: #fff; font-weight: 600; }
-.pmi-lab-viewpmi label:has(input:focus-visible) { outline: 2px solid #2f6fb5; outline-offset: 1px; }
-/* The radio covers its label, unseen: what is tapped, focused and arrow-keyed. */
-.pmi-lab-viewpmi input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .pmi-lab-status { position: absolute; left: 110px; bottom: 14px; z-index: 9; color: #707880; font-size: 12px; }
 /* The notes' and drawn PMI's lettering: the host's --specify-mono-font, else IBM Plex Mono (Draftwright
    drawings' lettering) when the host loads it, else the system monospace. The package loads no font. */
 /* The part's notes: a drawing's notes block, on the view where it stays put -- no box, its
    lettering haloed as the labels are; folded to its heading when the part is wanted. */
 .pmi-lab-partnotes { position: absolute; left: 14px; bottom: 38px; z-index: 9; max-width: min(380px, calc(100% - 200px));
-  max-height: 40%; overflow: auto; color: #2f6fb5; font: 12px/1.35 var(--specify-mono-font, 'IBM Plex Mono', ui-monospace, monospace);
+  max-height: 40%; overflow: auto; color: #0c36c0; font: 12px/1.35 var(--specify-mono-font, 'IBM Plex Mono', ui-monospace, monospace);
   letter-spacing: .2px; font-variant-numeric: tabular-nums;
   text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff, 0 0 2px #fff;
   /* The part shows through it, and is turned from it, but for its heading and notes' links. */
   pointer-events: none; }
+.pmi-lab-partnotes li.unsaved { color: #b84a00; }
 .pmi-lab-partnotes summary, .pmi-lab .pmi-lab-partnotes li button { pointer-events: auto; }
 /* The heading in capitals; the notes come in capitals but for their values (noteStatements). */
 .pmi-lab-partnotes summary { padding: 2px 0 6px; cursor: pointer; list-style: none; text-transform: uppercase; }
@@ -360,11 +347,7 @@
   .pmi-lab.sheet-open .pmi-lab-panel { height: 88dvh; }
   .pmi-lab .sheet-toggle { display: inline-block; font-size: 12px; }
   .pmi-lab-status, .pmi-lab-go-note:not(.blocked) { display: none; }
-  /* Tappable, and clear of the Tools/Info toggles (left, 57px) and the cube (right, below it). */
-  .pmi-lab-viewpmi { max-width: calc(100% - 120px); font-size: 11.5px; }
-  .pmi-lab-viewpmi > span { padding: 0 3px; }
   .pmi-lab-partnotes { bottom: 8px; max-width: calc(100% - 150px); max-height: 30%; }
-  .pmi-lab-viewpmi label { min-height: 32px; padding: 0 7px; }
 }
 
 /* Labels on the part */
@@ -372,7 +355,7 @@
   font-variant-numeric: tabular-nums; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff, 0 0 2px #fff; }
 .pmi-lab .pmi.default { opacity: .85; }
 .pmi-lab .pmi.hidden { display: none; }
-/* A file's own text (Graphical): as the file writes it, where it places it. */
+/* Drawn PMI text: as the file or drafting layout places it. */
 .pmi-lab .pmi-drawn { white-space: pre; font-size: 11.5px; pointer-events: none;
   text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff, 0 0 2px #fff; }
 .pmi-lab .pmi-drawn span { display: inline-block; }
@@ -382,6 +365,22 @@
 .pmi-lab .pmi-in { display: inline-block; transform: translate(9px, -50%); will-change: transform; }
 .pmi-lab .pmi .sub { font-weight: 400; opacity: .8; }
 .pmi-lab .pmi .times { font-weight: 700; }
+.pmi-lab .pmi-gap .pmi-in { background: #f5f8fbe8; border-radius: 4px; padding: 1px 4px; }
+.pmi-lab .pmi-gap-mark { padding-right: 2px; }
+/* Small diagram key at the bottom of the 3D view while unsaved callouts exist. */
+.pmi-lab-legend { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 9;
+  display: inline-flex; align-items: center; gap: 14px; padding: 3px 10px;
+  border: 1px solid #d9dee4; border-radius: 4px; background: rgba(255, 255, 255, 0.92);
+  font: 500 11.5px/1.25 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; color: #2a313a;
+  pointer-events: none; white-space: nowrap; }
+.pmi-lab-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.pmi-lab-legend-swatch { display: inline-block; width: 16px; height: 2.5px; border-radius: 1px; }
+.pmi-lab-legend-swatch.unsaved { background: #b84a00; }
+.pmi-lab-legend-swatch.infile { background: #0c36c0; }
+/* Origin axes triad axis labels. */
+.pmi-lab .pmi-origin-axis { pointer-events: none; font: 600 9.5px/1 var(--specify-mono-font, 'IBM Plex Mono', ui-monospace, monospace);
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff; }
+.pmi-lab [data-callout-selected="true"] { box-shadow: inset 3px 0 #009ccf; }
 .pmi-lab .fcf { display: inline-flex; border: 1.3px solid currentColor; border-radius: 1px; background: #fff;
   text-shadow: none; overflow: hidden; }
 .pmi-lab .fcf span { padding: 1px 6px; border-right: 1.3px solid currentColor; display: inline-flex;

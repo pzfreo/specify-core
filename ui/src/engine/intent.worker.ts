@@ -1,6 +1,7 @@
 import { readCarried } from './carried';
 import { withCharacteristicNumbers, type NumberScene } from './characteristic-numbers';
-import type { IntentReview } from '../types/pmi';
+import type { IntentReview, PartOrigin } from '../types/pmi';
+import { findStepOrigin } from '../specify/drafting-layout';
 import { inspectionFromStep } from '../specify/saved-inspection';
 
 interface IntentModule {
@@ -25,6 +26,7 @@ interface IntentInstance { free(): void; snapshot(): string; review(answers: str
 let engine: IntentInstance | undefined;
 // The open engine's analysis as JSON, for the free acceptDefaults (made once per engine).
 let analysisJson: string | undefined;
+let stepOrigin: PartOrigin | null = null;
 let sourceId = '';
 // The part of an assembly the engine is of, if its file is one.
 let part: number | undefined;
@@ -86,7 +88,9 @@ self.onmessage = ({ data }) => {
       let result: unknown = true;
       if (operation === 'file-scene') {
         // A saved file's own PMI as drawn (the free pmiScene): the cached engine is left as it is.
-        result = JSON.parse(module.pmiScene(args.bytes, args.part));
+        const scene = JSON.parse(module.pmiScene(args.bytes, args.part)) as Record<string, unknown>;
+        const origin = args.bytes ? findStepOrigin(args.bytes) : null;
+        result = origin ? { ...scene, step_origin: origin } : scene;
       } else if (operation === 'file-inspection') {
         const file = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
           : module.IntentEngine.openPart(args.name, args.bytes, args.part);
@@ -96,10 +100,11 @@ self.onmessage = ({ data }) => {
         } finally { file.free(); }
       } else if (operation === 'open' || operation === 'review' || operation === 'review-given' || operation === 'settle' || operation === 'scene' || operation === 'check-edits') {
         if (!engine || sourceId !== args.sourceId || part !== args.part || operation === 'open') {
-          engine?.free(); engine = undefined; analysisJson = undefined;
+          engine?.free(); engine = undefined; analysisJson = undefined; stepOrigin = null;
           engine = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
             : module.IntentEngine.openPart(args.name, args.bytes, args.part);
           sourceId = args.sourceId; part = args.part;
+          stepOrigin = args.bytes ? findStepOrigin(args.bytes) : null;
         }
         if (operation === 'review-given') {
           // Inspection files use the given answers and the STEP's PMI directly. Filling defaults
@@ -109,18 +114,28 @@ self.onmessage = ({ data }) => {
           const { state } = JSON.parse(engine.settle(JSON.stringify(args.state)));
           result = { review: reviewed(state.answers), state };
         } else if (operation === 'scene') {
-          // The PMI as drawn for the review state (specify-core 0.1.5 pmiScene). The defaults the
-          // editor accepts are written, so they are in the scene, as unreviewed (`auto`) unless answered.
-          const answers = JSON.parse(accepted(args.state.answers)) as Record<string, unknown>;
-          const auto = [...new Set([...args.state.auto ?? [], ...Object.keys(answers).filter(id => !(id in args.state.answers))])];
-          result = JSON.parse(engine.pmiScene(JSON.stringify({ ...args.state, answers, auto })));
+          // The PMI as drawn for the review state (specify-core 0.1.5 pmiScene). When `exact` is set,
+          // pass the review state as given so un-asked length/location defaults do not alter stacking
+          // relative to the saved STEP.
+          let scene: Record<string, unknown>;
+          if (args.exact) {
+            scene = JSON.parse(engine.pmiScene(JSON.stringify(args.state))) as Record<string, unknown>;
+          } else {
+            // The defaults the editor accepts are written, so they are in the scene, as unreviewed (`auto`) unless answered.
+            const answers = JSON.parse(accepted(args.state.answers)) as Record<string, unknown>;
+            const auto = [...new Set([...args.state.auto ?? [], ...Object.keys(answers).filter(id => !(id in args.state.answers))])];
+            scene = JSON.parse(engine.pmiScene(JSON.stringify({ ...args.state, answers, auto }))) as Record<string, unknown>;
+          }
+          const origin = stepOrigin ?? (args.bytes ? findStepOrigin(args.bytes) : null);
+          result = origin ? { ...scene, step_origin: origin } : scene;
         } else if (operation === 'check-edits') {
           // An edit list checked against the file, all or nothing (WASM checkEdits): writes nothing.
           result = JSON.parse(engine.checkEdits(JSON.stringify(args.edits)));
         } else if (operation === 'open') {
           const snapshot = JSON.parse(engine.snapshot());
           analysisJson = JSON.stringify(snapshot.analysis);
-          result = { ...snapshot, evidence: JSON.parse(engine.evidence()) };
+          const mesh = stepOrigin ? { ...snapshot.mesh, origin: stepOrigin } : snapshot.mesh;
+          result = { ...snapshot, mesh, evidence: JSON.parse(engine.evidence()) };
         } else result = reviewed(args.answers);
       } else if (operation === 'review-analysis-given') {
         // Pure analysis-only review, without allocation geometry. Inspection hosts use

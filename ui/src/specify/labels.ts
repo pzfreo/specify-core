@@ -32,6 +32,10 @@ export interface PmiLabel {
   readonly count?: number;
   readonly tolerance?: LabelTolerance | null;
   readonly span?: LabelSpan;
+  readonly gap?: string;
+  readonly unsaved?: true;
+  readonly sceneItem?: string;
+  readonly title?: string;
 }
 
 /** Geometric characteristic symbols, by pmi-assist kind and by OCCT type name. */
