@@ -8,7 +8,7 @@ import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
 import { bestReferenceView, normalizeDraftingPmi, resolveStatedOrigin } from './drafting-layout';
-import { bestDrawnView, drawnGroup, drawnShown, drawnViews, partCentre, withoutNotesBlock, type DrawnPmi, type PartOrigin } from './drawn';
+import { bestDrawnView, drawnGroup, drawnShown, drawnViews, partCentre, splitDrawnViews, withoutNotesBlock, type DrawnPmi, type PartOrigin } from './drawn';
 import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, byBalloon, characteristics, noteStatements, ranges, toCsv } from './characteristics';
 import { as9102 } from './as9102';
@@ -146,7 +146,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   engine = readOnly ? readOnlyHost : host;
   const stage = useRef<HTMLDivElement>(null);
   const picker = useRef<Picker | null>(null);
+  const viewBarRef = useRef<HTMLDivElement>(null);
   const [moreTools, setMoreTools] = useState(false);
+  const [moreViewsOpen, setMoreViewsOpen] = useState(false);
   const [questions, setQuestions] = useState<readonly PmiQuestion[]>(session.questions);
   const [answers, setAnswers] = useState<PmiAnswers>(session.answers ?? {});
   const [resumed, setResumed] = useState(false);
@@ -163,8 +165,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const [noteGeneral, setNoteGeneral] = useState<{ i: number; what: string } | null>(null);
   const keepCalloutNote = useRef(false);
   const [show, setShow] = useState({
-    // What the general tolerance covers can be a hundred labels: drawn only when chosen.
-    labels: true, defaults: true, existing: true, general: false, farSide: true,
+    // What the general tolerance covers can be a hundred callouts: drawn only when chosen.
+    defaults: true, existing: true, general: false, farSide: true,
   });
   // A face clicked that no question is about shows what the general tolerance says of it.
   const [peek, setPeek] = useState<number | null>(null);
@@ -466,12 +468,11 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       pending: openQuestions, reveal, datums,
       labels: fallbackLabels,
     });
-    picker.current?.setLabelsVisible(seen.labels);
     picker.current?.setFarSideHidden(seen.farSide);
   }, [preview, current, selectedCallout, seen, balloons, openQuestions, reveal, datums, fallbackLabels, readOnly]);
   useEffect(() => {
-    picker.current?.drawn?.(visibleDrawn, seen.labels, oneFile.labels);
-  }, [visibleDrawn, seen.labels, session, oneFile]);
+    picker.current?.drawn?.(visibleDrawn, true, oneFile.labels);
+  }, [visibleDrawn, session, oneFile]);
   useEffect(() => {
     picker.current?.setDrawnUnsaved?.(unsavedItems);
   }, [unsavedItems, visibleDrawn, session]);
@@ -479,9 +480,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     picker.current?.setDrawnOrigin?.(resolvedOrigin);
   }, [resolvedOrigin, session]);
   const hasUnsavedInView = Boolean(unsavedItems.size)
-    || Boolean(seen.labels && oneLabels.notes.length)
-    || Boolean(seen.labels && fallbackLabels.some((l) => l.unsaved));
-  // The Show menu's kinds and far side, for the drawn PMI as for the labels.
+    || Boolean(oneLabels.notes.length)
+    || fallbackLabels.some((l) => l.unsaved);
+  // The show toggles' kinds and far side, for the drawn PMI as for the fallback labels.
   const drawnShow = useMemo(() => ({ default: seen.defaults, existing: seen.existing, general: seen.general }), [seen]);
   useEffect(() => {
     picker.current?.drawnFilter?.(drawnShow, seen.farSide, drawnReveal);
@@ -498,6 +499,27 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       bestReferenceView(visibleDrawn, session.analysis, session.mesh),
     )
     : null), [visibleDrawn, drawnShow, session]);
+  const { primary: primaryViews, overflow: overflowViews } = useMemo(
+    () => splitDrawnViews(bestView, squares), [bestView, squares],
+  );
+  useEffect(() => {
+    if (overflowViews.length === 0) setMoreViewsOpen(false);
+  }, [overflowViews.length]);
+  useEffect(() => {
+    if (!moreViewsOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!viewBarRef.current?.contains(event.target as Node)) setMoreViewsOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMoreViewsOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [moreViewsOpen]);
   useEffect(() => { picker.current?.setTools?.(moreTools); }, [moreTools, session]);
   useEffect(() => {
     picker.current?.setDefaultView?.(bestView);
@@ -1203,38 +1225,34 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     {createPortal(<div className="pmi-lab pmi-lab-pane">
       <div className="pmi-lab-view">
         <div className="pmi-lab-stage" ref={stage} />
-        {/* The view's controls, together at its bottom right: what it shows, then how it is
-            turned. What the view shows is about the part, so on it, not in the panel; folded,
-            so it does not cover the part. */}
-        <div className="pmi-lab-pad">
-          <details className="pmi-lab-show">
-            <summary title="What the 3D view shows">⚙ Show ▾</summary>
-            <div>
-              {visibleDrawn && (squares.length > 0 || bestView !== null) && (
-                <div className="pmi-lab-squares" role="group" aria-label="Look square at">
-                  <span>Look square at</span>
-                  {bestView && (
-                    <button key={bestView.key} type="button" title={bestView.title} onClick={() => picker.current?.lookSquare?.(bestView)}>{bestView.name}</button>
-                  )}
-                  {squares.map((v) => (
-                    <button key={v.key} type="button" title={v.title} onClick={() => picker.current?.lookSquare?.(v)}>{v.name}</button>
+        {visibleDrawn && primaryViews.length > 0 && (
+          <div className={`pmi-lab-view-bar${moreTools ? ' with-tools' : ''}`} role="group" aria-label="Look square at" ref={viewBarRef}>
+            <div className="pmi-lab-view-pills">
+              {primaryViews.map((v) => (
+                <button key={v.key} type="button" title={v.title} onClick={() => { setMoreViewsOpen(false); picker.current?.lookSquare?.(v); }}>{v.name}</button>
+              ))}
+              {overflowViews.length > 0 && (
+                <button
+                  type="button"
+                  className="pmi-lab-view-more-toggle"
+                  aria-expanded={moreViewsOpen}
+                  onClick={() => setMoreViewsOpen((open) => !open)}
+                >
+                  More views ▾
+                </button>
+              )}
+              {moreViewsOpen && overflowViews.length > 0 && (
+                <div className="pmi-lab-view-more-menu" role="group" aria-label="More views">
+                  {overflowViews.map((v) => (
+                    <button key={v.key} type="button" title={v.title} onClick={() => { setMoreViewsOpen(false); picker.current?.lookSquare?.(v); }}>{v.name}</button>
                   ))}
                 </div>
               )}
-              {(readOnly ? ['labels', 'existing', 'general', 'farSide'] as const : ['labels', 'defaults', 'existing', 'general', 'farSide'] as const).map((key) => (
-                <label key={key}>
-                  <input
-                    type="checkbox" checked={show[key]}
-                    onChange={(event) => setShow({ ...show, [key]: event.target.checked })}
-                  />{' '}
-                  {{
-                    labels: 'Labels', defaults: 'Defaults to check', existing: 'PMI from the file',
-                    general: 'General dimensions', farSide: 'Hide far side',
-                  }[key]}
-                </label>
-              ))}
             </div>
-          </details>
+          </div>
+        )}
+        {/* The view's navigation controls, together at its bottom right. */}
+        <div className="pmi-lab-pad">
           <button type="button" className="pmi-lab-more-tools" aria-pressed={moreTools} title="The 3D viewer's own toolbar and tree: measuring, clipping, zebra" onClick={() => setMoreTools(on => !on)}>More view tools</button>
           <div>
             <button type="button" title="Roll a quarter turn anticlockwise" onClick={() => picker.current?.navigator.roll(-1)}>↺</button>
@@ -1254,7 +1272,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
             />
           </label>
         </div>
-        {(partNotes.length > 0 || Boolean(seen.labels && oneLabels.notes.length)) && (
+        {(partNotes.length > 0 || oneLabels.notes.length > 0) && (
           <details className="pmi-lab-partnotes" open>
             <summary title="The part's notes">Notes (unless otherwise specified):</summary>
             <ol>
@@ -1271,7 +1289,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                     : n.text}
                 </li>
               ))}
-              {seen.labels && oneLabels.notes.map((label) => (
+              {oneLabels.notes.map((label) => (
                 <li key={label.id} className="unsaved">
                   <button type="button" onClick={() => handlers.current.label(label)}>
                     {label.cells[0]}
@@ -1281,18 +1299,36 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
             </ol>
           </details>
         )}
-        {hasUnsavedInView && (
-          <div className="pmi-lab-legend" role="note" aria-label="PMI colour key">
-            <span className="pmi-lab-legend-item">
-              <span className="pmi-lab-legend-swatch unsaved" aria-hidden="true" />
-              Unsaved
-            </span>
-            <span className="pmi-lab-legend-item">
-              <span className="pmi-lab-legend-swatch infile" aria-hidden="true" />
-              In file
-            </span>
+        <div className="pmi-lab-bottom">
+          {hasUnsavedInView && (
+            <div className="pmi-lab-legend" role="note" aria-label="PMI colour key">
+              <span className="pmi-lab-legend-item">
+                <span className="pmi-lab-legend-swatch unsaved" aria-hidden="true" />
+                Unsaved
+              </span>
+              <span className="pmi-lab-legend-item">
+                <span className="pmi-lab-legend-swatch infile" aria-hidden="true" />
+                In file
+              </span>
+            </div>
+          )}
+          <div className="pmi-lab-show-bar" role="group" aria-label="Show in 3D view">
+            {(readOnly ? ['existing', 'general', 'farSide'] as const : ['defaults', 'existing', 'general', 'farSide'] as const).map((key) => (
+              <label key={key}>
+                <input
+                  type="checkbox" checked={show[key]}
+                  onChange={(event) => setShow({ ...show, [key]: event.target.checked })}
+                />{' '}
+                {{
+                  defaults: 'Suggested by Specify',
+                  existing: 'In the file',
+                  general: 'General dimensions',
+                  farSide: 'Hide callouts facing away',
+                }[key]}
+              </label>
+            ))}
           </div>
-        )}
+        </div>
         <div className="pmi-lab-status">
           {status || (picker.current?.missing.length ? `faces ${picker.current.missing.join(', ')} could not be shown` : '')}
         </div>

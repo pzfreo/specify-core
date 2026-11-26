@@ -605,16 +605,20 @@ try {
     await check(listedEdit(page, 'part.coating')).toHaveText('None needed: Coating');
     // If a None needed is refused at Save, the page says why and the bar still lists it.
     // The view's own controls are beside the panel, not under it: what is at each one's middle is it.
-    const covered = await page.locator('.app-view .pmi-lab-pad button:visible, .app-view .pmi-lab-pad summary:visible').evaluateAll(es => es.filter(e => {
+    const covered = await page.locator('.app-view .pmi-lab-pad button:visible, .app-view .pmi-lab-view-bar button:visible, .app-view .pmi-lab-show-bar label:visible').evaluateAll(es => es.filter(e => {
       const r = e.getBoundingClientRect();
       const at = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
       return !(at === e || e.contains(at));
     }).map(e => e.textContent));
     assert.deepEqual(covered, [], 'no view control is under the panel');
     assert.ok(await page.locator('.app-view .pmi-lab-pad button:visible').count() >= 6, 'the view has its controls');
-    await page.locator('.app-view .pmi-lab-show summary').click();
-    await check(page.locator('.app-view .pmi-lab-show')).toHaveAttribute('open', '');
-    await page.locator('.app-view .pmi-lab-show summary').click();
+    await check(page.locator('.app-view .pmi-lab-show')).toHaveCount(0);
+    await check(page.locator('.app-view').getByLabel('Labels', { exact: true })).toHaveCount(0);
+    for (const label of ['Suggested by Specify', 'In the file', 'General dimensions', 'Hide callouts facing away']) {
+      await check(page.locator('.app-view .pmi-lab-show-bar').getByLabel(label, { exact: true })).toBeVisible();
+    }
+    await check(page.locator('.app-view .pmi-lab-view-bar').getByRole('button', { name: 'Best view', exact: true })).toBeVisible();
+    assert.ok((await page.locator('.app-view .pmi-lab-view-bar button').allTextContents()).every((t) => !/^Plane \d+/.test(t)), 'views are named by direction, not Plane N');
     const beforeSave = problems.length;
     await page.route('**/save', route => route.fulfill({ status: 422, contentType: 'application/json',
       body: JSON.stringify({ error: 'nothing was written', failures: [{ entry: 'none["part.coating"]', reason: 'Coating is required here' }] }) }));

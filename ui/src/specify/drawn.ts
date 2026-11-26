@@ -980,11 +980,11 @@ export function withoutNotesBlock(pmi: DrawnPmi): DrawnPmi {
   };
 }
 
-/** What the Show menu says of the drawn PMI, as it says it of the labels: which kinds are shown. */
+/** What the 3D view's show toggles say of the drawn PMI, as they say of the labels: which kinds are shown. */
 export interface DrawnShow {
-  /** "Defaults to check": items Specify defaulted. */
+  /** "Suggested by Specify": items Specify defaulted. */
   readonly default: boolean;
-  /** "PMI from the file": the file's own graphics and items Specify read from it. */
+  /** "In the file": the file's own graphics and items Specify read from it. */
   readonly existing: boolean;
   /** "General dimensions": what the general tolerance covers. */
   readonly general: boolean;
@@ -1113,6 +1113,8 @@ export interface DrawnView {
   readonly up?: DrawnPoint;
   readonly min: DrawnPoint;
   readonly max: DrawnPoint;
+  /** Number of callouts on this view, when known. */
+  readonly count?: number;
 }
 
 const rounded = (v: DrawnPoint) => v.map((x) => (Math.abs(x) < 5e-4 ? 0 : x).toFixed(3)).join(',');
@@ -1246,11 +1248,30 @@ export function bestDrawnView(
   };
 }
 
+// sin(22.5°): partitions the unit sphere into the orientation cube's 6 faces, 12 edges and 8 corners.
+const EDGE_THRESHOLD = Math.sin(Math.PI / 8);
+const DIRECTION_ORDER: readonly string[] = ['Front', 'Top', 'Right', 'Left', 'Back', 'Bottom'];
+
+/** View-cube direction name for an outward plane normal (Z up, -Y front, +X right, matching orientation-cube.ts). */
+export function viewDirectionName(normal: DrawnPoint): string {
+  const u = unit(normal);
+  if (!u) return 'View';
+  const [x, y, z] = u;
+  const parts: string[] = [];
+  if (z >= EDGE_THRESHOLD) parts.push('Top');
+  else if (z <= -EDGE_THRESHOLD) parts.push('Bottom');
+  if (y <= -EDGE_THRESHOLD) parts.push('Front');
+  else if (y >= EDGE_THRESHOLD) parts.push('Back');
+  if (x >= EDGE_THRESHOLD) parts.push('Right');
+  else if (x <= -EDGE_THRESHOLD) parts.push('Left');
+  return parts.join('-') || 'View';
+}
+
 /**
  * The views of the drawn PMI: the file's saved views that have a camera (not the views Specify
  * generates for its own graphics), then one for each way
  * the shown graphics' annotation planes face (planes facing alike, with the same up, are one
- * view), named by the graphics on them.
+ * view), named by view-cube direction and callout count.
  */
 export function drawnViews(
   pmi: DrawnPmi, shown: (g: DrawnGraphic, item: string | null) => boolean, centre?: DrawnPoint,
@@ -1285,7 +1306,7 @@ export function drawnViews(
     const members = view.graphics.flatMap((id) => { const g = byId.get(id); return g ? [g] : []; });
     // The file's saved views only: Specify generates a view for each graphic it draws (0.1.6),
     // which the planes below already offer, grouped. A view whose graphics are all hidden (by
-    // the Show menu, or facing away) has nothing to look square at, so it is not offered either.
+    // the show toggles, or facing away) has nothing to look square at, so it is not offered either.
     if (view.graphics.length && !members.length) continue;
     if (members.length && members.every((g) => g.source === 'generated')) continue;
     const b = box(members.length ? members : graphics);
@@ -1316,13 +1337,60 @@ export function drawnViews(
     group.graphics.push(g);
     groups.set(key, group);
   }
-  let n = 0;
+  const planeEntries: { key: string; direction: string; eye: Vec; up: Vec | null; names: string[]; count: number; min: Vec; max: Vec }[] = [];
+  const dirCounts = new Map<string, number>();
   for (const [key, { eye, up, graphics: gs }] of groups) {
     const b = box(gs);
     if (!b) continue;
-    const names = [...new Set(gs.map((g) => g.name))];
-    const listed = names.slice(0, 3).join(' · ') + (names.length > 3 ? ` +${names.length - 3}` : '');
-    out.push({ key: `plane:${key}`, name: `Plane ${++n}: ${listed}`, title: names.join('\n'), eye, ...(up ? { up } : {}), ...b });
+    const direction = viewDirectionName(eye);
+    const names = [...new Set(gs.map((g) => g.name).filter(Boolean))];
+    const count = gs.length;
+    dirCounts.set(direction, (dirCounts.get(direction) ?? 0) + 1);
+    planeEntries.push({ key, direction, eye, up, names, count, ...b });
+  }
+  const dirRank = (dir: string) => {
+    const idx = DIRECTION_ORDER.indexOf(dir);
+    return idx >= 0 ? idx : DIRECTION_ORDER.length;
+  };
+  planeEntries.sort((a, b) => dirRank(a.direction) - dirRank(b.direction) || a.direction.localeCompare(b.direction) || b.count - a.count);
+  const dirIndex = new Map<string, number>();
+  for (const entry of planeEntries) {
+    const total = dirCounts.get(entry.direction) ?? 1;
+    const index = (dirIndex.get(entry.direction) ?? 0) + 1;
+    dirIndex.set(entry.direction, index);
+    const label = total > 1 ? `${entry.direction} ${index}` : entry.direction;
+    out.push({
+      key: `plane:${entry.key}`,
+      name: `${label} · ${entry.count}`,
+      title: entry.names.join('\n'),
+      eye: entry.eye,
+      ...(entry.up ? { up: entry.up } : {}),
+      min: entry.min,
+      max: entry.max,
+      count: entry.count,
+    });
   }
   return out;
+}
+
+export const MAX_VIEW_BUTTONS = 5;
+
+/**
+ * Splits views into primary bar buttons and overflow items for a "More views" dropdown.
+ * Priority: Best view first, then the file's saved views in order, then the most-populated
+ * directions (ties broken by direction order). Keeps at most ``maxButtons`` controls in the bar
+ * (all views when ``total <= maxButtons``, otherwise ``maxButtons - 1`` views plus the dropdown).
+ */
+export function splitDrawnViews(
+  bestView: DrawnView | null,
+  views: readonly DrawnView[],
+  maxButtons = MAX_VIEW_BUTTONS,
+): { primary: DrawnView[]; overflow: DrawnView[] } {
+  const all = bestView ? [bestView, ...views] : [...views];
+  if (all.length <= maxButtons) return { primary: all, overflow: [] };
+  const saved = views.filter((v) => v.key.startsWith('view:'));
+  const planes = views.filter((v) => !v.key.startsWith('view:')).sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
+  const ranked = [...(bestView ? [bestView] : []), ...saved, ...planes];
+  const keep = Math.max(1, maxButtons - 1);
+  return { primary: ranked.slice(0, keep), overflow: ranked.slice(keep) };
 }

@@ -118,6 +118,13 @@ try {
     // and so is a hole's open question (the spindle's file states its holes: no hole row).
     await check(panel(page).locator('.pmi-lab-datums .chip.existing').first()).toContainText('from the file');
     await check(panel(page).getByRole('button', { name: /^Remove datum / })).toHaveCount(0);
+    // Show controls are visible by default at the bottom (no Show menu button, no Labels checkbox).
+    const view = page.locator('#specify-view');
+    await check(view.locator('.pmi-lab-show')).toHaveCount(0);
+    await check(view.getByLabel('Labels', { exact: true })).toHaveCount(0);
+    for (const label of ['Suggested by Specify', 'In the file', 'General dimensions', 'Hide callouts facing away']) {
+      await check(view.getByLabel(label, { exact: true })).toBeVisible();
+    }
     await page.close();
   }
   // Display keeps the host preview (Material is balloon 12); inspection is an export-only
@@ -215,8 +222,19 @@ try {
     await check(table.getByText(/⌖/).first()).toBeVisible();
     // What the general tolerance covers, folded under it in one row (no tick box: checked above).
     await check(table.locator('tr.general-summary', { hasText: /dimensions? under ISO 2768/ })).toBeVisible();
-    // Single PMI view: no View PMI mode switch; 3D annotation-plane ink renders directly in blueprint blue.
+    // Single PMI view: no View PMI mode switch or Show dropdown; top direction view buttons and bottom
+    // show checkboxes are visible by default, and 3D annotation-plane ink renders directly in blueprint blue.
     await check(page.getByRole('radiogroup', { name: 'View PMI' })).toHaveCount(0);
+    const view = page.locator('#specify-view');
+    await check(view.locator('.pmi-lab-show')).toHaveCount(0);
+    await check(view.getByLabel('Labels', { exact: true })).toHaveCount(0);
+    await check(view.getByLabel('Suggested by Specify', { exact: true })).toHaveCount(0);
+    for (const label of ['In the file', 'General dimensions', 'Hide callouts facing away']) {
+      await check(view.getByLabel(label, { exact: true })).toBeVisible();
+    }
+    const viewBar = view.locator('.pmi-lab-view-bar');
+    await check(viewBar.getByRole('button', { name: 'Best view', exact: true })).toBeVisible();
+    assert.ok((await viewBar.locator('button').allTextContents()).every((t) => !/^Plane \d+/.test(t)), 'views are named by direction, not Plane N');
     const overlay = page.locator('#specify-view [data-drawn-graphics]');
     await check.poll(async () => Number(await overlay.getAttribute('data-drawn-graphics'))).toBeGreaterThan(0);
     const drawnItems = (await overlay.getAttribute('data-drawn-items')) ?? '';
@@ -254,6 +272,43 @@ try {
     // Restore origin/main's read-only call contract: inspection is reserved for exports.
     assert.ok(!made.some(call => call !== 'preview'), `only previews reach the engine: ${made}`);
     assert.ok(made.includes('preview'), 'the answers given are labelled');
+    await page.close();
+  }
+  // Many-plane part (CTC04) with General dimensions on in an 800x400 clipped viewer: view buttons
+  // stay capped in a compact bar and the rest remain reachable via the "More views ▾" dropdown.
+  {
+    const page = await openPage(true, '../tests/fixtures/characteristic-numbers-ctc04-main.step.gz', '#specify-view .pmi-lab-view-bar button');
+    await page.setViewportSize({ width: 800, height: 400 });
+    await page.addStyleTag({
+      content: '#specify-view { position: fixed; inset: 0 378px 0 0; height: auto !important; overflow: hidden; } #specify-view .pmi-lab.pmi-lab-pane { position: absolute; }',
+    });
+    const view = page.locator('#specify-view');
+    await view.getByLabel('General dimensions', { exact: true }).check();
+    const viewBar = view.locator('.pmi-lab-view-bar');
+    const moreToggle = viewBar.getByRole('button', { name: 'More views ▾', exact: true });
+    await check(moreToggle).toBeVisible();
+    await check(viewBar.getByRole('button', { name: 'Best view', exact: true })).toBeVisible();
+    const barButtons = await viewBar.locator('.pmi-lab-view-pills > button').allTextContents();
+    assert.ok(barButtons.length <= 5, `view bar stays compact, got ${barButtons.length}: ${barButtons.join(', ')}`);
+    const viewBox = await view.boundingBox();
+    const barBox = await viewBar.boundingBox();
+    assert.ok(viewBox && barBox, 'view and view bar have bounding boxes');
+    assert.ok(barBox.y + barBox.height <= viewBox.y + viewBox.height, `view bar stays inside 800x400 viewer (${barBox.y + barBox.height} <= ${viewBox.y + viewBox.height})`);
+    assert.ok(barBox.height < 120, `view bar does not wrap into a tall column (${barBox.height}px)`);
+    await moreToggle.click();
+    const menu = viewBar.locator('.pmi-lab-view-more-menu');
+    await check(menu).toBeVisible();
+    const menuBox = await menu.boundingBox();
+    assert.ok(menuBox, 'More views menu has a bounding box');
+    assert.ok(menuBox.y + menuBox.height <= viewBox.y + viewBox.height, `More views menu fits inside clipped viewer (${menuBox.y + menuBox.height} <= ${viewBox.y + viewBox.height})`);
+    assert.ok(menuBox.x >= viewBox.x && menuBox.x + menuBox.width <= viewBox.x + viewBox.width, 'More views menu stays horizontally inside clipped viewer');
+    const menuButtons = menu.locator('button');
+    const overflowCount = await menuButtons.count();
+    assert.ok(overflowCount >= 10, `expected many overflow views on CTC04, got ${overflowCount}`);
+    const lastView = menuButtons.last();
+    await lastView.scrollIntoViewIfNeeded();
+    await lastView.click();
+    await check(menu).toHaveCount(0);
     await page.close();
   }
   assert.deepEqual(problems, [], 'no page errors');
