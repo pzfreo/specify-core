@@ -215,48 +215,24 @@ try {
     await check(table.getByText(/⌖/).first()).toBeVisible();
     // What the general tolerance covers, folded under it in one row (no tick box: checked above).
     await check(table.locator('tr.general-summary', { hasText: /dimensions? under ISO 2768/ })).toBeVisible();
-    // View PMI: the three views, each chosen in turn.
-    const viewPmi = page.getByRole('radiogroup', { name: 'View PMI' });
-    await check(viewPmi.getByRole('radio')).toHaveCount(3);
-    for (const name of ['Semantic', 'Both', 'Graphical']) {
-      await viewPmi.getByRole('radio', { name }).check();
-      await check(viewPmi.getByRole('radio', { name })).toBeChecked();
-    }
-    await viewPmi.getByRole('radio', { name: 'Semantic' }).check();
-    await check(page.locator('#specify-view .pmi:not(.hidden)').first()).toBeVisible();
-    // Notation, not boxes: no label is carded or bordered (a boxed value reads as a basic dimension);
-    // only a frame's cells and a datum's square carry lines.
-    await check(page.locator('#specify-view .pmi:not(.hidden) .datum').first()).toBeAttached();
-    const lines = await page.evaluate(() => {
-      const edge = e => ['Top', 'Right', 'Bottom', 'Left'].map(s => parseFloat(getComputedStyle(e)[`border${s}Width`]) || 0);
-      const own = [...document.querySelectorAll('.pmi-lab .pmi:not(.hidden) .pmi-in')];
-      return {
-        plain: own.filter(e => !e.querySelector('.fcf, .datum')).map(e => ({ text: e.textContent, edges: edge(e), backing: getComputedStyle(e).backgroundColor, shadow: getComputedStyle(e.parentElement).textShadow })),
-        wrappers: own.map(e => edge(e).reduce((a, b) => a + b, 0)),
-        frames: [...document.querySelectorAll('.pmi-lab .pmi .fcf')].map(f => ({ outer: edge(f), dividers: [...f.children].slice(0, -1).map(c => Math.max(edge(c)[1], edge(c)[3])) })),
-        datums: [...document.querySelectorAll('.pmi-lab .pmi .datum')].map(edge),
-      };
-    });
-    assert.ok(lines.plain.length > 0 && lines.frames.length > 0 && lines.datums.length > 0, 'the part has a plain label, a frame and a datum');
-    for (const label of lines.plain) {
-      assert.deepEqual(label.edges, [0, 0, 0, 0], `"${label.text}" has no border`);
-      assert.equal(label.backing, 'rgba(0, 0, 0, 0)', `"${label.text}" has no card (its backing is the text-shadow halo)`);
-      assert.notEqual(label.shadow, 'none', `"${label.text}" is haloed`);
-    }
-    assert.ok(lines.wrappers.every(w => w === 0), 'no label wrapper is bordered');
-    for (const f of lines.frames) {
-      assert.ok(f.outer.every(w => w > 0), 'a frame keeps its outline');
-      assert.ok(f.dividers.every(w => w > 0), 'a frame keeps the lines between its cells');
-    }
-    for (const d of lines.datums) assert.ok(d.every(w => w > 0), 'a datum keeps its square');
-    // A characteristic chosen is marked.
+    // Single PMI view: no View PMI mode switch; 3D annotation-plane ink renders directly in blueprint blue.
+    await check(page.getByRole('radiogroup', { name: 'View PMI' })).toHaveCount(0);
+    const overlay = page.locator('#specify-view [data-drawn-graphics]');
+    await check.poll(async () => Number(await overlay.getAttribute('data-drawn-graphics'))).toBeGreaterThan(0);
+    const drawnItems = (await overlay.getAttribute('data-drawn-items')) ?? '';
+    assert.ok(drawnItems.includes('#0c36c0'), `drawn callouts render in dark blueprint blue:\n${drawnItems}`);
+    // Unpresented M2 thread renders as a fallback callout on the part; no border/card on plain labels.
+    const fallbackIn = page.locator('#specify-view .pmi:not(.hidden) .pmi-in');
+    await check(fallbackIn.first()).toBeVisible();
+    // A characteristic chosen is marked and lights its drawn callout.
     const row = table.locator('tbody tr').first();
     await row.click();
     await check(row).toHaveClass(/\bon\b/);
-    // A label on the part selects its characteristic's row; a datum chosen is marked.
-    const position = table.locator('tbody tr').filter({ hasText: /⌖.*0.2/ }).first();
-    await page.locator('#specify-view .pmi-in').filter({ hasText: '0.2' }).first().click();
+    // Clicking a drawn callout on the 3D canvas selects its characteristic row or datum chip.
+    const position = table.locator('tbody tr').filter({ hasText: /⌖.*0\.2/ }).first();
+    await position.click();
     await check(position).toHaveClass(/\bon\b/);
+    await check.poll(async () => (await overlay.getAttribute('data-drawn-items')) ?? '').toContain('#007a8c');
     await panel(page).getByRole('button', { name: 'Datum B' }).click();
     await check(panel(page).locator('.pmi-lab-datums .chip.on')).toHaveCount(1);
     await check(table.locator('tbody tr.on')).toHaveCount(0);

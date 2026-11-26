@@ -152,6 +152,17 @@ Read first:
 
 ### Changed
 
+- **Single 3D PMI view** (`@draftwright/specify-ui` and the local app): replaces the `View PMI`
+  (`Semantic` / `Graphical` / `Both`) switch everywhere with one 3D annotation-plane PMI view.
+  File-native CAD graphics stay untouched on their recorded annotation planes in dark blueprint
+  blue (`#0c36c0`), while Specify-created callouts lay out on part-axis-aligned 3D annotation
+  planes with feature-attached datums, rim-attached single-leader hole stacks, and
+  feature-touching extension lines so the view is identical before and after **Save**. Parts open
+  from their saved MBD view or computed **Best view** with solid shading (default transparency 0),
+  draw a small RGB `x`/`y`/`z` origin triad when the file states an origin, show pending unsaved
+  callouts and notes in burnt amber (`#b84a00`) with a compact bottom-center key (`— Unsaved` /
+  `— In file`) instead of floating pills, and omit gap markers on rows routinely defaulted or
+  decided `general` or `none`.
 - The review says each length's unit: what is suggested, measured or typed is mm (typing boxes say so);
   what the file states is in the unit it was written in, told from its value, or says none where that
   cannot be told. The panel says "Units: mm" or "File in inches · Specify works in mm"; an inch file's

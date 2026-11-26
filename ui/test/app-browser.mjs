@@ -86,9 +86,15 @@ async function load(server, ready = '.pmi-lab-panel') {
   // Every message the page posts to a worker (the engine), by operation: what the engine was asked.
   await context.addInitScript(() => {
     window.__engineOps = [];
+    window.__sceneSources = [];
     const post = Worker.prototype.postMessage;
     Worker.prototype.postMessage = function (message, ...rest) {
-      if (message && typeof message.operation === 'string') window.__engineOps.push(message.operation);
+      if (message && typeof message.operation === 'string') {
+        window.__engineOps.push(message.operation);
+        if (message.operation === 'scene' && typeof message.args?.sourceId === 'string') {
+          window.__sceneSources.push(message.args.sourceId);
+        }
+      }
       return post.call(this, message, ...rest);
     };
   });
@@ -339,7 +345,8 @@ const assertExportsFromSaved = async (page, file, before) => {
   const exported = await inspectSaved(page, specified, file);
   const ops = await page.evaluate(() => window.__engineOps);
   assert.ok(!ops.includes('saved-copy'), 'a separate copy is never reconstructed');
-  await check.poll(async () => (await page.evaluate(() => window.__engineOps)).includes('file-scene')).toBe(true);
+  const savedName = basename(specified);
+  await check.poll(async () => (await page.evaluate(() => window.__sceneSources)).some((id) => id.startsWith(savedName) && id.includes('@'))).toBe(true);
   return exported;
 };
 /** The text of the save line, or null before one. */
@@ -1370,8 +1377,9 @@ try {
     await check(page.locator('.app-decision')).toHaveCount(report.check.length);
     if (shots) await page.screenshot({ path: join(shots, 'diff.png') });
     await page.getByRole('tab', { name: /^Requirements for/ }).click();
-    // NEW carries PMI (its own, or Specify's): View PMI opens in Graphical.
-    await check(page.getByRole('radio', { name: 'Graphical' })).toBeChecked();
+    // NEW carries PMI: the single PMI view draws it directly on 3D annotation planes with no View PMI mode switch.
+    await check(page.getByRole('radiogroup', { name: 'View PMI' })).toHaveCount(0);
+    await check.poll(async () => Number(await page.locator('.app-view [data-drawn-graphics]').getAttribute('data-drawn-graphics'))).toBeGreaterThan(0);
     if (shots) await page.screenshot({ path: join(shots, 'diff-decide.png') });
     // NEW decided coating none; given a value that is taken back (the edit list's clear, with the
     // fill: one entry), and Save writes it. (rc.1's Undo left it a gap; the review has no such Undo.)
