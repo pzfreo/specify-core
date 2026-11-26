@@ -829,7 +829,7 @@ fn ordinary_report_for_parsed(
                     Some(&Value::Object(payload.clone())),
                     None,
                 )
-                .unwrap_or_else(|error| open(answers, &error.to_string(), true)),
+                .unwrap_or_else(|error| open(answers, &error.to_string())),
             )
         } else {
             match match_geometry(loaded, &payload) {
@@ -910,9 +910,7 @@ pub fn validate_evidence(evidence: &Value) -> Result<&Map<String, Value>, Rematc
         )));
     };
     if !payload.get("face_count").is_some_and(Value::is_u64) {
-        return Err(RematchError::Evidence(
-            "face_count must be a count".into(),
-        ));
+        return Err(RematchError::Evidence("face_count must be a count".into()));
     }
     if schema == 3 {
         let has_names = payload.get("face_names").is_some_and(Value::is_array);
@@ -948,8 +946,10 @@ pub fn evidence_matches(loaded: &LoadedPart, evidence: &Value) -> Result<bool, R
     if payload.get("geometry").is_some() {
         let old = parse_geometry(payload, loaded.binding.face_count)?;
         let new = &loaded.recognition().fingerprints;
-        return Ok((old.fingerprint_version == new.fingerprint_version && old.faces == new.faces)
-            || tolerant_faces_match(&old, new, CENTROID_TOLERANCE_MM));
+        return Ok(
+            (old.fingerprint_version == new.fingerprint_version && old.faces == new.faces)
+                || tolerant_faces_match(&old, new, CENTROID_TOLERANCE_MM),
+        );
     }
     if payload.get("faces").is_some() {
         return Ok(check(loaded, payload, false).map_err(RematchError::Faces)? == Check::Verified);
@@ -977,8 +977,8 @@ fn parse_geometry(
     let geometry = payload
         .get("geometry")
         .ok_or_else(|| invalid("schema 3 requires face_names or geometry"))?;
-    let old: quiddity::correspondence::Fingerprints = serde_json::from_value(geometry.clone())
-        .map_err(|_| invalid("invalid saved geometry"))?;
+    let old: quiddity::correspondence::Fingerprints =
+        serde_json::from_value(geometry.clone()).map_err(|_| invalid("invalid saved geometry"))?;
     if old.faces.len() != face_count || old.faces.iter().enumerate().any(|(i, f)| f.index != i) {
         return Err(invalid(
             "saved geometry must have one face in index order per saved face",
@@ -994,9 +994,40 @@ fn dist3(a: [f64; 3], b: [f64; 3]) -> f64 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
+fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn same_area(a: Option<f64>, b: Option<f64>) -> bool {
+    match (a, b) {
+        (Some(x), Some(y)) => (x - y).abs() <= 1e-3 * x.abs().max(y.abs()).max(1.0),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn same_direction(a: Option<[f64; 3]>, b: Option<[f64; 3]>, line: bool) -> bool {
+    match (a, b) {
+        (Some(x), Some(y)) => {
+            let c = dot3(x, y);
+            (if line { c.abs() } else { c }) >= 1.0 - 1e-4
+        }
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn same_parameters(a: &BTreeMap<String, f64>, b: &BTreeMap<String, f64>, tol_mm: f64) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .all(|(k, &av)| b.get(k).is_some_and(|&bv| (av - bv).abs() <= tol_mm))
+}
+
 /// Tolerant recovery when two Quiddity `Fingerprints` describe the same ordered part:
-/// same face count, every face's surface kind matches in order, every centroid is within
-/// `tol_mm` (0.01 mm), and intrinsic surface parameters agree within `tol_mm`.
+/// same face count, every face's surface kind, area, orientation, intrinsic parameters,
+/// adjacency and neighbour indices match in order, and every centroid agrees within `tol_mm`
+/// (0.01 mm). Requiring area, orientation and neighbours prevents coplanar faces with
+/// coincident centroids (such as concentric annular lands) from passing when swapped.
 fn tolerant_faces_match(
     old: &quiddity::correspondence::Fingerprints,
     new: &quiddity::correspondence::Fingerprints,
@@ -1005,21 +1036,118 @@ fn tolerant_faces_match(
     if old.faces.len() != new.faces.len() {
         return false;
     }
-    old.faces.iter().zip(&new.faces).enumerate().all(|(i, (a, b))| {
-        a.index == i
-            && b.index == i
-            && a.surface == b.surface
-            && dist3(a.centroid, b.centroid) <= tol_mm
-            && a.parameters.len() == b.parameters.len()
-            && a.parameters.iter().all(|(k, &av)| {
-                b.parameters
-                    .get(k)
-                    .is_some_and(|&bv| (av - bv).abs() <= tol_mm)
-            })
-    })
+    old.faces
+        .iter()
+        .zip(&new.faces)
+        .enumerate()
+        .all(|(i, (a, b))| {
+            a.index == i
+                && b.index == i
+                && a.surface == b.surface
+                && dist3(a.centroid, b.centroid) <= tol_mm
+                && same_area(a.area, b.area)
+                && same_direction(a.normal, b.normal, false)
+                && same_direction(a.axis, b.axis, a.surface != "plane")
+                && same_parameters(&a.parameters, &b.parameters, tol_mm)
+                && a.adjacency == b.adjacency
+                && a.neighbours == b.neighbours
+        })
 }
 
-/// Whether `correspond` proved an unchanged part (all faces and features carried 1-to-1,
+/// Whether an axisymmetric part's faces are ambiguous under a symmetry about or flipping
+/// its axis `[o, d]`: either a 180° end-for-end flip maps every face onto a matching face
+/// while swapping at least two distinct faces, or two distinct faces share the same
+/// axisymmetric invariants so rotation about `d` cannot tell them apart.
+fn axisymmetric_ambiguous(
+    prints: &quiddity::correspondence::Fingerprints,
+    [o, d]: [[f64; 3]; 2],
+) -> bool {
+    let tol = (prints.scale * 1e-3).max(CENTROID_TOLERANCE_MM);
+    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let norm = |v: [f64; 3]| dot3(v, v).sqrt();
+    let axial = |p: [f64; 3]| -> (f64, f64) {
+        let v = sub(p, o);
+        let s = dot3(v, d);
+        let r = norm([v[0] - s * d[0], v[1] - s * d[1], v[2] - s * d[2]]);
+        (s, r)
+    };
+    let coords: Vec<(f64, f64)> = prints.faces.iter().map(|f| axial(f.centroid)).collect();
+    let (Some(min_s), Some(max_s)) = (
+        coords.iter().map(|(s, _)| *s).reduce(f64::min),
+        coords.iter().map(|(s, _)| *s).reduce(f64::max),
+    ) else {
+        return false;
+    };
+    let mid_s = 0.5 * (min_s + max_s);
+    let same_scalar = |a: Option<f64>, b: Option<f64>| match (a, b) {
+        (Some(x), Some(y)) => (x - y).abs() <= 1e-3,
+        (None, None) => true,
+        _ => false,
+    };
+    let face_matches = |i: usize, j: usize, flip: bool| -> bool {
+        let (a, b) = (&prints.faces[i], &prints.faces[j]);
+        if a.surface != b.surface
+            || !same_area(a.area, b.area)
+            || !same_parameters(&a.parameters, &b.parameters, tol)
+            || a.adjacency != b.adjacency
+        {
+            return false;
+        }
+        let ((sa, ra), (sb, rb)) = (coords[i], coords[j]);
+        let expected_s = if flip { 2.0 * mid_s - sa } else { sa };
+        if (expected_s - sb).abs() > tol || (ra - rb).abs() > tol {
+            return false;
+        }
+        let sign = if flip { -1.0 } else { 1.0 };
+        let na = a.normal.map(|n| sign * dot3(n, d));
+        let nb = b.normal.map(|n| dot3(n, d));
+        if !same_scalar(na, nb) {
+            return false;
+        }
+        let aa = a.axis.map(|v| {
+            let c = dot3(v, d);
+            if a.surface == "plane" {
+                sign * c
+            } else {
+                c.abs()
+            }
+        });
+        let ab = b.axis.map(|v| {
+            let c = dot3(v, d);
+            if b.surface == "plane" { c } else { c.abs() }
+        });
+        same_scalar(aa, ab)
+    };
+    let n = prints.faces.len();
+    // Two distinct faces indistinguishable under rotation about the axis.
+    for i in 0..n {
+        for j in (i + 1)..n {
+            if face_matches(i, j, false) {
+                return true;
+            }
+        }
+    }
+    // 180° end-for-end flip maps every face onto a matching face and swaps at least two faces.
+    let mut swaps_distinct = false;
+    for i in 0..n {
+        let mut any = false;
+        for j in 0..n {
+            if face_matches(i, j, true) {
+                any = true;
+                if j != i {
+                    swaps_distinct = true;
+                }
+            }
+        }
+        if !any {
+            return false;
+        }
+    }
+    swaps_distinct
+}
+
+/// Whether `correspond` proved an unchanged part with a unique, unambiguous face bijection
+/// (alignment found, no face-swapping symmetry, all faces and features carried 1-to-1,
 /// nothing added, adapted, ambiguous or orphaned). Returns the face map `old -> Ok(new)`.
 fn unchanged_correspondence_map(
     corr: &quiddity::correspondence::Correspondence,
@@ -1027,11 +1155,20 @@ fn unchanged_correspondence_map(
     new: &quiddity::correspondence::Fingerprints,
 ) -> Option<BTreeMap<usize, Result<usize, String>>> {
     use quiddity::correspondence::Class;
-    if old.faces.len() != new.faces.len()
+    if !corr.alignment.found
+        || old.faces.len() != new.faces.len()
         || !corr.new_faces.is_empty()
         || !corr.new_features.is_empty()
         || corr.faces.len() != old.faces.len()
     {
+        return None;
+    }
+    if corr.alignment.axisymmetric {
+        let axis = corr.alignment.axis?;
+        if axisymmetric_ambiguous(new, axis) {
+            return None;
+        }
+    } else if corr.alignment.symmetric {
         return None;
     }
     if corr.features.iter().any(|f| f.class != Class::Carried) {
@@ -1137,13 +1274,13 @@ pub fn rematch_answers(
                         GeometryMatch::Mapped(faces) => {
                             rematch_by(answers, features, Matching::Mapped(&faces))
                         }
-                        GeometryMatch::Mismatch => open(answers, MISMATCH, false),
+                        GeometryMatch::Mismatch => open(answers, MISMATCH),
                     }
                 }
             } else {
                 match check(loaded, payload, false).map_err(RematchError::Faces)? {
                     Check::Verified => rematch(answers, features),
-                    _ => open(answers, MISMATCH, false),
+                    _ => open(answers, MISMATCH),
                 }
             }
         }
@@ -1281,15 +1418,16 @@ fn by_id(
     out
 }
 
-/// Answers whose evidence contradicts this part, `why`: those on features or datums
-/// ([`is_geometric`]) are left open with their values, the rest kept.
-fn open(answers: &Map<String, Value>, why: &str, extras: bool) -> Resumed {
+/// Answers whose evidence contradicts this part, `why`: those on features, datums,
+/// general measurements or added requirements ([`is_geometric`]) are left open with their
+/// values, the rest kept.
+fn open(answers: &Map<String, Value>, why: &str) -> Resumed {
     let mut out = Resumed {
         unverified: Some(format!("{why}; {UNVERIFIED_ALL}")),
         ..Resumed::default()
     };
     for (id, answer) in answers {
-        if is_geometric(id) || (extras && id.starts_with("extra.")) {
+        if is_geometric(id) {
             out.unresolved.push(UnresolvedAnswer {
                 id: id.clone(),
                 feature: answer_feature(id).map(|(_, f)| f.into()),
@@ -1304,10 +1442,15 @@ fn open(answers: &Map<String, Value>, why: &str, extras: bool) -> Resumed {
     out
 }
 
-/// Whether the answer `id` is given for faces of the part: a feature question's, or a datum's
-/// faces and the settings that follow its datum (`datum.A.flatness`, `datum.B.control`).
+/// Whether the answer `id` is given for faces of the part: a feature question's, a datum's
+/// faces and the settings that follow its datum (`datum.A.flatness`, `datum.B.control`), a
+/// general measurement (`length:planes:...`, `location:holes:...`), or an added requirement
+/// (`extra.*`).
 fn is_geometric(id: &str) -> bool {
-    answer_feature(id).is_some() || id.starts_with("datum.")
+    answer_feature(id).is_some()
+        || id.starts_with("datum.")
+        || crate::rules::general_rows::is_id(id)
+        || id.starts_with("extra.")
 }
 
 fn answer_feature(id: &str) -> Option<(&str, &str)> {
@@ -1382,6 +1525,29 @@ fn rematch_by(
             }
         };
         let Some((question, old)) = answer_feature(id) else {
+            if crate::rules::general_rows::is_id(id) {
+                match matching {
+                    Matching::Mapped(_) => match crate::rules::general_rows::remap_id(id, mapped) {
+                        Ok(new_id) => proposals.entry(new_id).or_default().push((id, value)),
+                        Err(reason) => out.unresolved.push(refuse(reason)),
+                    },
+                    Matching::Exact { face_count } => {
+                        if let Err(reason) = crate::rules::general_rows::remap_id(id, |i| {
+                            (i < face_count).then_some(i).ok_or_else(|| {
+                                format!("names a face this part does not have ({face_count} faces)")
+                            })
+                        }) {
+                            out.unresolved.push(refuse(reason));
+                        } else {
+                            proposals.entry(id.clone()).or_default().push((id, value));
+                        }
+                    }
+                    Matching::Support => {
+                        proposals.entry(id.clone()).or_default().push((id, value));
+                    }
+                }
+                continue;
+            }
             if let Matching::Exact { face_count } = matching
                 && id.starts_with("datum.")
                 && let Some(faces) = answer.as_array()

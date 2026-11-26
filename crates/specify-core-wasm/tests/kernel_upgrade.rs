@@ -599,11 +599,8 @@ fn browser_reports_saved_answers_not_reused_when_part_changed() {
 
     // Schema 3 mismatch (centroid shifted well beyond 0.01 mm).
     let loaded = part::load_bytes("pin.step", bytes.clone()).unwrap();
-    let mut bad_s3 = resume::payload(
-        &loaded,
-        orig_payload["answers"].as_object().unwrap(),
-    )
-    .unwrap();
+    let mut bad_s3 =
+        resume::payload(&loaded, orig_payload["answers"].as_object().unwrap()).unwrap();
     bad_s3["geometry"]["faces"][0]["centroid"][0] = json!(9999.0);
 
     for (label, payload) in [("schema2", bad_s2), ("schema3", bad_s3)] {
@@ -628,4 +625,40 @@ fn browser_reports_saved_answers_not_reused_when_part_changed() {
             review["problems"]
         );
     }
+}
+
+#[test]
+fn browser_rematch_answers_leaves_deleted_bore_finish_unresolved_in_hole_removed() {
+    let old_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/revisions/hole_removed.old.step.gz");
+    let new_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/revisions/hole_removed.new.step.gz");
+    let old = part::load(&old_path, None).unwrap();
+    let new_bytes = part::load(&new_path, None).unwrap().bytes.to_vec();
+    let saved = json!({
+        "part.material": "steel",
+        "extra.bore_finish": {"kind": "finish", "faces": [7], "value": "Ra 0.8"},
+        "_specify": {"evidence": resume::evidence(&old).unwrap(), "unresolved": {}},
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+
+    let session = Session::open("hole_removed.new.step", &new_bytes).unwrap();
+    let rematched = session.rematch_answers(&saved, None, None).unwrap();
+    assert!(rematched["answers"].get("extra.bore_finish").is_none());
+    assert!(
+        rematched["unresolved"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|u| u["id"] == "extra.bore_finish"),
+        "{rematched}"
+    );
+    assert!(
+        rematched["answers"]["_specify"]["unresolved"]
+            .get("extra.bore_finish")
+            .is_some(),
+        "{rematched}"
+    );
 }
