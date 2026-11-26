@@ -10,6 +10,15 @@ import type { LabelGroup } from './labels';
 
 export type DrawnPoint = readonly [number, number, number];
 
+/** An explicit coordinate system or datum origin stated by a STEP file, rendered as an x/y/z triad. */
+export interface PartOrigin {
+  readonly position: DrawnPoint;
+  readonly xAxis: DrawnPoint;
+  readonly yAxis: DrawnPoint;
+  readonly zAxis: DrawnPoint;
+  readonly source: 'step-csys' | 'step-point' | 'datum-frame';
+}
+
 /**
  * Where a text is set, as the file or haecceity states it: its alignment point, its plane's x
  * axis and normal (the text's up is normal × x axis), and its box height in mm when stated.
@@ -114,6 +123,7 @@ export function drawnGroup(link: Pick<DrawnLink, 'status' | 'general'> | undefin
 export interface DrawnPmi {
   readonly presentation: Presentation;
   readonly links: Readonly<Record<string, DrawnLink>>;
+  readonly reviewItems?: Readonly<Record<string, { readonly row?: string; readonly existing?: number }>>;
 }
 
 export type Read<T> = { ok: true; value: T } | { ok: false; reason: string };
@@ -513,6 +523,135 @@ export interface DrawnView {
 const rounded = (v: DrawnPoint) => v.map((x) => (Math.abs(x) < 5e-4 ? 0 : x).toFixed(3)).join(',');
 
 /**
+ * A graphic's in-plane basis when known: ``normal`` (facing the reader), ``xAxis`` (along the
+ * text's reading direction) and ``up`` (``normal × xAxis``).
+ */
+export function graphicAxes(
+  g: DrawnGraphic, planes: readonly DrawnPlane[], centre?: DrawnPoint,
+): { normal: Vec; xAxis: Vec | null; up: Vec | null } | null {
+  const normal = graphicNormal(g, planes, centre);
+  if (!normal) return null;
+  const rawX = planes.find((p) => p.id === g.planeId)?.xAxis ?? g.textPlacements?.[0]?.xAxis;
+  const xAxis = rawX ? unit(rawX) : null;
+  const up = xAxis ? unit(cross(normal, xAxis)) : null;
+  return { normal, xAxis, up };
+}
+
+/**
+ * The camera view at which the most shown callouts face the viewer and read upright, framing
+ * all shown callouts. When ``preferred`` is provided (e.g. from the file's saved view or
+ * drafting reference view), uses that exact camera framing all shown callouts.
+ */
+export function bestDrawnView(
+  pmi: DrawnPmi,
+  shown: (g: DrawnGraphic, item: string | null) => boolean,
+  centre?: DrawnPoint,
+  preferred?: { readonly eye: DrawnPoint; readonly up: DrawnPoint } | null,
+): DrawnView | null {
+  const { presentation } = pmi;
+  const all = [
+    ...Object.entries(presentation.items).flatMap(([item, gs]) => gs.map((g) => ({ g, item: item as string | null }))),
+    ...presentation.unlinked.map((g) => ({ g, item: null })),
+  ];
+  const byId = new Map<string, DrawnGraphic>();
+  const graphics: DrawnGraphic[] = [];
+  for (const { g, item } of all) {
+    if (!shown(g, item)) continue;
+    if (g.id === undefined) graphics.push(g);
+    else if (!byId.has(g.id)) { byId.set(g.id, g); graphics.push(g); }
+  }
+  const points = graphics.flatMap(graphicPoints);
+  if (!points.length) return null;
+  const min: Vec = [Infinity, Infinity, Infinity];
+  const max: Vec = [-Infinity, -Infinity, -Infinity];
+  for (const p of points) {
+    for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k]!, p[k]!); max[k] = Math.max(max[k]!, p[k]!); }
+  }
+  if (preferred) {
+    const eye = unit(preferred.eye);
+    const up = unit(preferred.up);
+    if (eye && up) {
+      return {
+        key: 'best', name: 'Best view', title: 'Saved / best reference view',
+        eye, up, min, max,
+      };
+    }
+  }
+  const oriented = graphics.flatMap((g) => {
+    const axes = graphicAxes(g, presentation.planes, centre);
+    return axes ? [axes] : [];
+  });
+  if (!oriented.length) return null;
+
+  // Candidate eye directions: 26 cube directions, 24 3/4 isometric directions, each plane normal,
+  // and the average plane normal.
+  const rawEyes: DrawnPoint[] = [];
+  for (const x of [-1, 0, 1]) for (const y of [-1, 0, 1]) for (const z of [-1, 0, 1]) {
+    if (x || y || z) rawEyes.push([x, y, z]);
+  }
+  for (const [a, b, c] of [[2, 1, 1], [1, 2, 1], [1, 1, 2]] as const) {
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+      rawEyes.push([sx * a, sy * b, sz * c]);
+    }
+  }
+  const avg: Vec = [0, 0, 0];
+  for (const o of oriented) {
+    rawEyes.push(o.normal);
+    avg[0] += o.normal[0]; avg[1] += o.normal[1]; avg[2] += o.normal[2];
+  }
+  const avgU = unit(avg);
+  if (avgU) rawEyes.push(avgU);
+
+  const eyeKeys = new Set<string>();
+  const eyes: Vec[] = [];
+  for (const e of rawEyes) {
+    const u = unit(e);
+    if (!u) continue;
+    const key = rounded(u);
+    if (eyeKeys.has(key)) continue;
+    eyeKeys.add(key);
+    eyes.push(u);
+  }
+  const ups: readonly Vec[] = [[0, 0, 1], [0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, -1, 0], [0, 0, -1]];
+  let best: { score: number; eye: Vec; up: Vec } | null = null;
+  for (const eye of eyes) {
+    const look: Vec = [-eye[0], -eye[1], -eye[2]];
+    const isoBonus = 0.08 * (1 - Math.max(Math.abs(eye[0]), Math.abs(eye[1]), Math.abs(eye[2])));
+    for (const rawUp of ups) {
+      if (Math.abs(dot(eye, rawUp)) > 0.98) continue;
+      const right = unit(cross(look, rawUp));
+      if (!right) continue;
+      const camUp = unit(cross(right, look));
+      if (!camUp) continue;
+      let facingCount = 0;
+      let facingSum = 0;
+      let uprightScore = 0;
+      for (const o of oriented) {
+        const f = dot(o.normal, eye);
+        if (f <= 0.15) continue;
+        facingCount += 1;
+        facingSum += Math.min(f, 0.75);
+        if (o.xAxis && o.up) {
+          const r = dot(o.xAxis, right);
+          const u = dot(o.up, camUp);
+          if (r > 0.25 && u > 0.25) uprightScore += 1 + 0.3 * (r + u);
+          else if (r < -0.15 || u < -0.15) uprightScore -= 0.6;
+          else uprightScore += 0.2;
+        }
+      }
+      const zUpBonus = rawUp[2] === 1 ? 0.05 : rawUp[1] === 1 ? 0.02 : 0;
+      const score = facingCount * 100 + uprightScore * 4 + facingSum * 2 + isoBonus + zUpBonus;
+      if (!best || score > best.score) best = { score, eye, up: rawUp };
+    }
+  }
+  if (!best) return null;
+  return {
+    key: 'best', name: 'Best view', title: 'Most callouts facing the viewer',
+    eye: best.eye, up: best.up, min, max,
+  };
+}
+
+/**
  * The views of the drawn PMI: the file's saved views that have a camera (not the views Specify
  * generates for its own graphics), then one for each way
  * the shown graphics' annotation planes face (planes facing alike, with the same up, are one
@@ -546,8 +685,8 @@ export function drawnViews(
   };
   const out: DrawnView[] = [];
   for (const view of presentation.views) {
-    const eye = view.direction ? unit([-view.direction[0], -view.direction[1], -view.direction[2]]) : null;
-    if (!eye) continue;
+    const pos = view.direction ? unit(view.direction) : null;
+    if (!pos) continue;
     const members = view.graphics.flatMap((id) => { const g = byId.get(id); return g ? [g] : []; });
     // The file's saved views only: Specify generates a view for each graphic it draws (0.1.6),
     // which the planes below already offer, grouped. A view whose graphics are all hidden (by
@@ -556,6 +695,18 @@ export function drawnViews(
     if (members.length && members.every((g) => g.source === 'generated')) continue;
     const b = box(members.length ? members : graphics);
     if (!b) continue;
+    // STEP CAMERA_MODEL_D3 stores view direction pointing toward the camera, whereas Specify's
+    // generated views point into the scene; pick whichever sign faces more of the view's graphics.
+    let posFacing = 0;
+    let negFacing = 0;
+    for (const g of members) {
+      const n = graphicNormal(g, presentation.planes, centre);
+      if (!n) continue;
+      const d = dot(n, pos);
+      if (d > 0.05) posFacing += 1;
+      else if (d < -0.05) negFacing += 1;
+    }
+    const eye: Vec = posFacing > negFacing ? pos : [-pos[0], -pos[1], -pos[2]];
     const up = view.up ? unit(view.up) : null;
     out.push({ key: `view:${view.id}`, name: view.name, title: members.map((g) => g.name).join('\n'), eye, ...(up ? { up } : {}), ...b });
   }

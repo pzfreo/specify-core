@@ -109,11 +109,17 @@ self.onmessage = ({ data }) => {
           const { state } = JSON.parse(engine.settle(JSON.stringify(args.state)));
           result = { review: reviewed(state.answers), state };
         } else if (operation === 'scene') {
-          // The PMI as drawn for the review state (specify-core 0.1.5 pmiScene). The defaults the
-          // editor accepts are written, so they are in the scene, as unreviewed (`auto`) unless answered.
-          const answers = JSON.parse(accepted(args.state.answers)) as Record<string, unknown>;
-          const auto = [...new Set([...args.state.auto ?? [], ...Object.keys(answers).filter(id => !(id in args.state.answers))])];
-          result = JSON.parse(engine.pmiScene(JSON.stringify({ ...args.state, answers, auto })));
+          // The PMI as drawn for the review state (specify-core 0.1.5 pmiScene). When `exact` is set,
+          // pass the review state as given so un-asked length/location defaults do not alter stacking
+          // relative to the saved STEP.
+          if (args.exact) {
+            result = JSON.parse(engine.pmiScene(JSON.stringify(args.state)));
+          } else {
+            // The defaults the editor accepts are written, so they are in the scene, as unreviewed (`auto`) unless answered.
+            const answers = JSON.parse(accepted(args.state.answers)) as Record<string, unknown>;
+            const auto = [...new Set([...args.state.auto ?? [], ...Object.keys(answers).filter(id => !(id in args.state.answers))])];
+            result = JSON.parse(engine.pmiScene(JSON.stringify({ ...args.state, answers, auto })));
+          }
         } else if (operation === 'check-edits') {
           // An edit list checked against the file, all or nothing (WASM checkEdits): writes nothing.
           result = JSON.parse(engine.checkEdits(JSON.stringify(args.edits)));
