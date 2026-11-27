@@ -488,7 +488,13 @@ fn records(features: &[Feature], prints: &qc::Fingerprints) -> BTreeMap<String, 
             })
             .filter(|(f, n)| *n > 0 && *n == f.faces.len().min(record.faces.len()))
             // The most faces shared, then same family, then the smallest feature: a hole, not its pattern.
-            .max_by_key(|(f, n)| (*n, f.family == record.family, std::cmp::Reverse(f.faces.len())));
+            .max_by_key(|(f, n)| {
+                (
+                    *n,
+                    f.family == record.family,
+                    std::cmp::Reverse(f.faces.len()),
+                )
+            });
         if let Some((f, _)) = best {
             out.entry(record.id.clone()).or_insert_with(|| f.id.clone());
         }
