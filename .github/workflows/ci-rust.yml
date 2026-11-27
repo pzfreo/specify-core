@@ -2,6 +2,16 @@ name: Rust CI
 
 on:
   workflow_call:
+  # The full macOS suite, nightly and on demand (before a release). Run directly, these
+  # triggers skip the Linux jobs, which every push and pull request already runs (ci.yml).
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      macos_only:
+        description: Run only the macOS job (untick to run Linux as well)
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -14,6 +24,7 @@ env:
 
 jobs:
   build:
+    if: ${{ github.event_name != 'schedule' && !inputs.macos_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -61,6 +72,7 @@ jobs:
 
   shard:
     needs: build
+    if: ${{ github.event_name != 'schedule' && !inputs.macos_only }}
     strategy:
       fail-fast: false
       matrix:
@@ -91,17 +103,18 @@ jobs:
           cargo nextest run --archive-file tests.tar.zst --extract-to . --extract-overwrite --no-fail-fast \
             --partition "$PARTITION"
 
-  # Maintainer decision, 2026-10-26: macOS PRs build and run only float-sensitive
-  # expectations; five macOS runners are shared across repos, so reduce runner-minutes
-  # rather than add jobs/shards. Linux always runs everything. Main, dispatch and
-  # release* PR heads retain the full macOS suite.
+  # Maintainer decision, 2026-10-26: macOS PRs (and, since 2026-11-27, main pushes) build and
+  # run only float-sensitive expectations; five macOS runners are shared across repos, so reduce runner-minutes
+  # rather than add jobs/shards. Linux always runs everything. The full macOS suite runs
+  # nightly, on dispatch (this workflow's, or ci.yml's) and on release* PR heads; main pushes
+  # run the floating-point checks only.
   # The 25-minute target excludes full macOS runs. One runner projects to 44–45 minutes
   # (about 14 to build and 30 to run, based on main run 45079277931 and local timings).
   macos:
     runs-on: macos-latest
-    timeout-minutes: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release') && 32 || 110 }}
+    timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'release')) && 110 || 32 }}
     env:
-      FULL_SUITE: ${{ github.event_name != 'pull_request' || startsWith(github.head_ref, 'release') }}
+      FULL_SUITE: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'release') }}
     steps:
       - *checkout
       - *corpus
@@ -119,7 +132,7 @@ jobs:
       - name: Doctests
         if: ${{ !cancelled() && (steps.full-suite.outcome == 'success' || steps.full-suite.outcome == 'failure') }}
         run: cargo test --doc --workspace --release --locked --no-fail-fast
-      - name: macOS PR floating-point checks
+      - name: macOS floating-point checks
         if: env.FULL_SUITE == 'false'
         # features: libm-dependent frame/recognition and rounded face records.
         # mesh: acos/sin, UV refinement, triangle winding/area and rounded bounds.
