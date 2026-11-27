@@ -4,9 +4,9 @@ All notable changes to specify-pmi (formerly specify-core and specify-core-rust)
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.3.0 (2026-11-27)
 
-To be released as 0.3.0 (every package; see "Lockstep versions").
+Every package is released at 0.3.0 (see "Lockstep versions").
 
 Read first:
 
@@ -422,6 +422,10 @@ Read first:
 
 ### Fixed
 
+- Saving is faster: each file's PMI is read once per save, an edit that removes nothing is not
+  re-analysed, and an assembly's parts are analysed from one load. A two-part assembly save
+  took 36.7 s and now takes 21.9 s on one machine; a single part, 0.63 s and now 0.43 s. The
+  saved file is byte-for-byte the same.
 - `open` and MCP `show`: only a request with the right `Host` and token counts as activity. A refused
   one no longer keeps a forgotten server running or cancels a close. The app no longer contains
   three-cad-viewer's polyhaven.org address (its Studio lighting, which is off and the CSP refuses).
